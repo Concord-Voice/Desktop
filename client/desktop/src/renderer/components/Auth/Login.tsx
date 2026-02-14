@@ -1,0 +1,222 @@
+import React, { useState } from 'react';
+import { unwrapLoginKeys } from '../../utils/crypto';
+import './Login.css';
+
+export interface LoginProps {
+  onBack: () => void;
+  onSuccess: (tokens: { accessToken: string; refreshToken: string }) => void;
+  onSwitchToRegister: () => void;
+}
+
+interface FormData {
+  email: string;
+  password: string;
+  rememberMe: boolean;
+}
+
+interface FormErrors {
+  email?: string;
+  password?: string;
+  general?: string;
+}
+
+const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) => {
+  const [formData, setFormData] = useState<FormData>({
+    email: '',
+    password: '',
+    rememberMe: false,
+  });
+
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const validateForm = (): boolean => {
+    const newErrors: FormErrors = {};
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!formData.email) {
+      newErrors.email = 'Email is required';
+    } else if (!emailRegex.test(formData.email)) {
+      newErrors.email = 'Invalid email format';
+    }
+
+    // Password validation
+    if (!formData.password) {
+      newErrors.password = 'Password is required';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrors({});
+
+    if (!validateForm()) {
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      console.log('Logging in...');
+
+      // Login with backend
+      const response = await fetch('http://localhost:8080/api/v1/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include', // Include cookies for refresh token
+        body: JSON.stringify({
+          email: formData.email,
+          password: formData.password,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Login failed');
+      }
+
+      console.log('Login successful, unwrapping private key...');
+
+      // Unwrap the private key using the password
+      const privateKey = await unwrapLoginKeys(
+        formData.password,
+        data.e2ee_keys.wrapped_private_key,
+        data.e2ee_keys.key_derivation_salt
+      );
+
+      console.log('Private key unwrapped successfully!');
+
+      // Store the private key in memory (we'll add proper key storage later)
+      // For now, we'll just pass the tokens up
+      onSuccess({
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token,
+      });
+    } catch (error) {
+      console.error('Login error:', error);
+      setErrors({
+        general: error instanceof Error ? error.message : 'Login failed. Please try again.',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleChange = (field: keyof FormData) => (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    setFormData((prev) => ({ ...prev, [field]: value }));
+    // Clear error for this field when user starts typing
+    if (errors[field]) {
+      setErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
+  };
+
+  return (
+    <div className="login-container">
+      <div className="login-content">
+        <div className="login-header">
+          <img src="/branding/logos/main-logo-transparent-vector.svg" className="login-logo" alt="Concord" />
+          <h2 className="login-title">Welcome Back</h2>
+          <p className="login-subtitle">Sign in to your Concord account</p>
+        </div>
+
+        <form className="login-form" onSubmit={handleSubmit}>
+          {/* Email */}
+          <div className="form-group">
+            <label className="form-label">Email</label>
+            <input
+              type="email"
+              className={`form-input ${errors.email ? 'error' : ''}`}
+              placeholder="you@example.com"
+              value={formData.email}
+              onChange={handleChange('email')}
+              disabled={isSubmitting}
+              autoFocus
+            />
+            {errors.email && <span className="form-error">{errors.email}</span>}
+          </div>
+
+          {/* Password */}
+          <div className="form-group">
+            <label className="form-label">Password</label>
+            <input
+              type="password"
+              className={`form-input ${errors.password ? 'error' : ''}`}
+              placeholder="Enter your password"
+              value={formData.password}
+              onChange={handleChange('password')}
+              disabled={isSubmitting}
+            />
+            {errors.password && <span className="form-error">{errors.password}</span>}
+          </div>
+
+          {/* Remember Me & Forgot Password */}
+          <div className="login-options">
+            <label className="remember-me-label">
+              <input
+                type="checkbox"
+                checked={formData.rememberMe}
+                onChange={handleChange('rememberMe')}
+                disabled={isSubmitting}
+              />
+              <span>Remember me</span>
+            </label>
+            <a href="#" className="forgot-password-link" onClick={(e) => e.preventDefault()}>
+              Forgot password?
+            </a>
+          </div>
+
+          {/* General Error */}
+          {errors.general && (
+            <div className="form-error-banner">
+              <span>{errors.general}</span>
+            </div>
+          )}
+
+          {/* Submit Button */}
+          <button
+            type="submit"
+            className="login-submit-btn"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? 'Signing In...' : 'Sign In'}
+          </button>
+
+          {/* Back Button */}
+          <button
+            type="button"
+            className="login-back-btn"
+            onClick={onBack}
+            disabled={isSubmitting}
+          >
+            ← Back to Connection Options
+          </button>
+        </form>
+
+        <div className="login-footer">
+          <p className="footer-text">
+            Don't have an account?{' '}
+            <button
+              className="switch-to-register-btn"
+              onClick={onSwitchToRegister}
+              disabled={isSubmitting}
+            >
+              Create one
+            </button>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Login;
