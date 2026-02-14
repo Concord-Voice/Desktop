@@ -14,7 +14,7 @@ interface StrengthResult {
 
 /**
  * Calculate password strength score (0-4)
- * Based on length, character variety, and common patterns
+ * Based on NIST guidelines and industry best practices
  */
 function calculateStrength(password: string): StrengthResult {
   if (!password) {
@@ -28,14 +28,18 @@ function calculateStrength(password: string): StrengthResult {
 
   let score = 0;
   const feedback: string[] = [];
+  let hasPenalty = false;
 
-  // Length scoring
+  // Length scoring (most important factor per NIST)
   if (password.length >= 8) score++;
   if (password.length >= 12) score++;
   if (password.length >= 16) score++;
+  if (password.length >= 20) score++; // Bonus for very long passwords
 
   if (password.length < 8) {
     feedback.push('Use at least 8 characters');
+  } else if (password.length < 12) {
+    feedback.push('Try 12+ characters for better security');
   }
 
   // Character variety
@@ -46,39 +50,42 @@ function calculateStrength(password: string): StrengthResult {
 
   const varietyCount = [hasLowercase, hasUppercase, hasNumbers, hasSpecial].filter(Boolean).length;
 
-  if (varietyCount >= 3) score++;
-  if (varietyCount === 4) score++;
+  // More lenient variety scoring
+  if (varietyCount >= 2) score++; // Basic variety
+  if (varietyCount >= 4) score++; // Full variety bonus
 
-  if (!hasLowercase || !hasUppercase) {
-    feedback.push('Mix uppercase and lowercase');
-  }
-  if (!hasNumbers) {
-    feedback.push('Add some numbers');
-  }
-  if (!hasSpecial) {
-    feedback.push('Add special characters (!@#$%...)');
+  if (varietyCount < 3) {
+    if (!hasLowercase || !hasUppercase) {
+      feedback.push('Mix uppercase and lowercase');
+    } else if (!hasNumbers) {
+      feedback.push('Add some numbers');
+    } else if (!hasSpecial) {
+      feedback.push('Add special characters (!@#$%...)');
+    }
   }
 
-  // Common patterns to penalize
+  // Common patterns penalty (only penalize, don't add score)
   const commonPatterns = [
-    /^123/,
-    /password/i,
-    /qwerty/i,
-    /abc123/i,
-    /111111/,
-    /(.)\1{2,}/, // Repeated characters
+    { pattern: /^(123|abc|qwe)/i, message: 'Avoid sequential starts' },
+    { pattern: /password|letmein|welcome/i, message: 'Avoid common words' },
+    { pattern: /(.)\1{2,}/, message: 'Avoid repeated characters' },
+    { pattern: /^[a-z]+$/i, message: 'Add numbers or symbols' },
+    { pattern: /^[0-9]+$/, message: 'Add letters' },
   ];
 
-  for (const pattern of commonPatterns) {
+  for (const { pattern, message } of commonPatterns) {
     if (pattern.test(password)) {
-      score = Math.max(0, score - 1);
-      feedback.push('Avoid common patterns');
+      score = Math.max(0, score - 2); // Stronger penalty
+      if (!hasPenalty) {
+        feedback.push(message);
+        hasPenalty = true;
+      }
       break;
     }
   }
 
-  // Cap score at 4
-  score = Math.min(4, score);
+  // Ensure score is 0-4
+  score = Math.max(0, Math.min(4, score));
 
   // Determine label and color based on score
   const levels = [
