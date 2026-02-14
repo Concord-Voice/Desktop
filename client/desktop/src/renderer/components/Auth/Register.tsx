@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import PasswordStrength from './PasswordStrength';
+import InfoTooltip from './InfoTooltip';
 import { generateRegistrationKeys, exportPublicKey } from '../../utils/crypto';
 import './Register.css';
 
@@ -190,7 +191,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
               disabled={isSubmitting}
             />
             {errors.username && <span className="form-error">{errors.username}</span>}
-            <span className="form-hint">This will be your identity: username@concord.chat</span>
+            <span className="form-hint">This will be your identity: {formData.username || 'username'}@concordvoice.chat</span>
           </div>
 
           {/* Password */}
@@ -232,7 +233,26 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
                 disabled={isSubmitting}
               />
               <div className="checkbox-content">
-                <span className="checkbox-title">Enable End-to-End Encryption (Recommended)</span>
+                <span className="checkbox-title">
+                  Enable End-to-End Encryption (Recommended)
+                  <InfoTooltip
+                    content={
+                      <div>
+                        <strong>What is E2EE?</strong>
+                        <p>End-to-End Encryption means your messages are encrypted on your device before being sent. Only you and the recipient can read them.</p>
+
+                        <strong>E2EE Interactions:</strong>
+                        <ul>
+                          <li><strong>E2EE → E2EE:</strong> Fully encrypted, maximum privacy</li>
+                          <li><strong>E2EE → Non-E2EE:</strong> Messages are sent in plaintext (not encrypted)</li>
+                          <li><strong>Mixed Servers:</strong> E2EE servers can communicate with non-E2EE servers, but encryption only works when both sides support it</li>
+                        </ul>
+
+                        <strong>Note:</strong> Once disabled, you cannot enable E2EE later without creating a new account.
+                      </div>
+                    }
+                  />
+                </span>
                 <span className="checkbox-description">
                   Your messages will be encrypted on your device. Not even Concord can read them.
                 </span>
