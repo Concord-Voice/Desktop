@@ -100,8 +100,36 @@ npm run make
 
 This will create platform-specific installers in the `out/` directory.
 
-## Future Enhancements
+## Current Features (Phase 1A) ✅
 
+- **Authentication**:
+  - User registration with E2EE key generation (RSA-OAEP 2048-bit)
+  - Login with automatic key unwrapping (PBKDF2 600k iterations)
+  - Token management (access + refresh tokens)
+  - Session management
+
+- **Security**:
+  - Client-side E2EE (AES-GCM, RSA-OAEP)
+  - Password strength meter (5-tier system)
+  - Username validation with profanity filtering
+  - Secure key storage (private keys never sent to server)
+
+- **UI/UX**:
+  - Connection selector (hosted vs self-hosted)
+  - InfoTooltip component for user education
+  - Responsive forms with validation
+  - Branding: concordvoice.chat
+
+## In Progress (Phase 1B) 🚧
+
+- Server/channel list UI
+- Real-time messaging (WebSocket)
+- Chat UI components
+- Presence indicators
+
+## Future Enhancements (Phase 1C+) 📋
+
+- [ ] WebRTC voice connections
 - [ ] Native audio processing
 - [ ] Push-to-talk with global shortcuts
 - [ ] System tray integration
