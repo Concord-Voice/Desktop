@@ -1,3 +1,6 @@
+/* Import shared auth form styles */
+@import './AuthForm.css';
+
 .login-container {
   display: flex;
   align-items: center;
@@ -11,7 +14,7 @@
 
 .login-content {
   width: 100%;
-  max-width: 440px;
+  max-width: 460px;
   display: flex;
   flex-direction: column;
   gap: 32px;
@@ -19,6 +22,7 @@
 
 /* Header */
 .login-header {
+  width: 100%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -47,6 +51,7 @@
 
 /* Form */
 .login-form {
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 20px;
@@ -54,6 +59,7 @@
 
 /* Login Options */
 .login-options {
+  width: 100%;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -115,9 +121,25 @@
   transform: translateY(0);
 }
 
+.login-submit-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(250, 112, 154, 0.2);
+}
+
 .login-submit-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.8;
   cursor: not-allowed;
+  animation: buttonPulse 2s ease-in-out infinite;
+}
+
+@keyframes buttonPulse {
+  0%, 100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 0.9;
+  }
 }
 
 .login-back-btn {
@@ -139,6 +161,11 @@
   background: var(--bg-secondary);
 }
 
+.login-back-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
 .login-back-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -146,16 +173,13 @@
 
 /* Footer */
 .login-footer {
+  width: 100%;
   display: flex;
   justify-content: center;
-  margin-top: -8px;
+  align-items: center;
 }
 
-.footer-text {
-  font-size: 13px;
-  color: var(--text-secondary);
-  text-align: center;
-}
+/* footer-text inherits from AuthForm.css */
 
 .switch-to-register-btn {
   background: none;
@@ -171,6 +195,12 @@
 
 .switch-to-register-btn:hover:not(:disabled) {
   color: var(--accent-hover);
+}
+
+.switch-to-register-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .switch-to-register-btn:disabled {

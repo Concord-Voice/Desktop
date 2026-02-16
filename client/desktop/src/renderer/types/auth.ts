@@ -1,5 +1,5 @@
 // Auth configuration types
-export type ConnectionMode = 'hosted' | 'self-hosted';
+export type ConnectionMode = 'hosted' | 'hosted-login' | 'self-hosted';
 export type AccountType = 'local' | 'bridged';
 
 export interface ServerConnection {

@@ -4,6 +4,7 @@ import ConnectionSelector from './ConnectionSelector';
 import ServerInput from './ServerInput';
 import Register from './Register';
 import Login from './Login';
+import './AuthFlow.css';
 
 type AuthStep = 'connection-select' | 'server-input' | 'hosted-register' | 'hosted-login' | 'self-hosted-auth';
 
@@ -16,10 +17,11 @@ const AuthFlow: React.FC = () => {
     setSelectedMode(mode);
 
     if (mode === 'hosted') {
-      // For now, go to hosted register (we'll add login option later)
       setStep('hosted-register');
+    } else if (mode === 'hosted-login') {
+      setStep('hosted-login');
     } else {
-      // Go to server input
+      // Go to server input for self-hosted
       setStep('server-input');
     }
   };
@@ -63,27 +65,35 @@ const AuthFlow: React.FC = () => {
   return (
     <div className="auth-flow">
       {step === 'connection-select' && (
-        <ConnectionSelector onSelect={handleConnectionSelect} />
+        <div key="connection-select" className="auth-screen">
+          <ConnectionSelector onSelect={handleConnectionSelect} />
+        </div>
       )}
 
       {step === 'server-input' && (
-        <ServerInput onConnect={handleServerConnect} onBack={handleBack} />
+        <div key="server-input" className="auth-screen">
+          <ServerInput onConnect={handleServerConnect} onBack={handleBack} />
+        </div>
       )}
 
       {step === 'hosted-register' && (
-        <Register
-          onBack={handleBack}
-          onSuccess={handleRegistrationSuccess}
-          onSwitchToLogin={handleSwitchToLogin}
-        />
+        <div key="hosted-register" className="auth-screen">
+          <Register
+            onBack={handleBack}
+            onSuccess={handleRegistrationSuccess}
+            onSwitchToLogin={handleSwitchToLogin}
+          />
+        </div>
       )}
 
       {step === 'hosted-login' && (
-        <Login
-          onBack={handleBack}
-          onSuccess={handleLoginSuccess}
-          onSwitchToRegister={handleSwitchToRegister}
-        />
+        <div key="hosted-login" className="auth-screen">
+          <Login
+            onBack={handleBack}
+            onSuccess={handleLoginSuccess}
+            onSwitchToRegister={handleSwitchToRegister}
+          />
+        </div>
       )}
 
       {step === 'self-hosted-auth' && (

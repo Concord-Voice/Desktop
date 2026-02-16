@@ -1,3 +1,6 @@
+/* Import shared auth form styles */
+@import './AuthForm.css';
+
 .register-container {
   display: flex;
   align-items: center;
@@ -11,7 +14,7 @@
 
 .register-content {
   width: 100%;
-  max-width: 480px;
+  max-width: 460px;
   display: flex;
   flex-direction: column;
   gap: 32px;
@@ -53,63 +56,6 @@
   gap: 20px;
 }
 
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.form-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-primary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.form-input {
-  width: 100%;
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  border: 2px solid var(--border-color);
-  border-radius: 8px;
-  color: var(--text-primary);
-  font-size: 15px;
-  font-family: 'SourceSans', sans-serif;
-  transition: all 0.2s ease;
-}
-
-.form-input:focus {
-  outline: none;
-  border-color: var(--accent-primary);
-  background: var(--bg-tertiary);
-}
-
-.form-input.error {
-  border-color: var(--danger);
-}
-
-.form-input:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.form-input::placeholder {
-  color: var(--text-muted);
-}
-
-.form-error {
-  font-size: 12px;
-  color: var(--danger);
-  margin-top: 4px;
-}
-
-.form-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-  font-style: italic;
-}
-
 /* Checkboxes */
 .checkbox-label {
   display: flex;
@@ -123,6 +69,12 @@
 }
 
 .checkbox-label:hover {
+  border-color: var(--accent-primary);
+}
+
+.checkbox-label:focus-within {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
   border-color: var(--accent-primary);
 }
 
@@ -153,16 +105,52 @@
   line-height: 1.4;
 }
 
-/* Error Banner */
-.form-error-banner {
-  padding: 12px 16px;
-  background: rgba(240, 71, 71, 0.1);
-  border: 1px solid rgba(240, 71, 71, 0.3);
-  border-radius: 8px;
-  color: var(--danger);
-  font-size: 13px;
-  font-weight: 500;
+/* Info Banner (E2EE) */
+.info-banner {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  background: linear-gradient(135deg, rgba(250, 112, 154, 0.08) 0%, rgba(144, 86, 245, 0.08) 100%);
+  border: 2px solid rgba(250, 112, 154, 0.2);
+  border-radius: 12px;
+  transition: all 0.2s ease;
 }
+
+.info-banner:hover {
+  border-color: rgba(250, 112, 154, 0.3);
+  background: linear-gradient(135deg, rgba(250, 112, 154, 0.12) 0%, rgba(144, 86, 245, 0.12) 100%);
+}
+
+.info-banner-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.info-banner-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.info-banner-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.info-banner-description {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* Error Banner - inherits from AuthForm.css */
 
 /* Buttons */
 .register-submit-btn {
@@ -190,9 +178,25 @@
   transform: translateY(0);
 }
 
+.register-submit-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(250, 112, 154, 0.2);
+}
+
 .register-submit-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.8;
   cursor: not-allowed;
+  animation: buttonPulse 2s ease-in-out infinite;
+}
+
+@keyframes buttonPulse {
+  0%, 100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 0.9;
+  }
 }
 
 .register-back-btn {
@@ -214,6 +218,11 @@
   background: var(--bg-secondary);
 }
 
+.register-back-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
 .register-back-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -227,18 +236,7 @@
   align-items: center;
 }
 
-.footer-text {
-  font-size: 13px;
-  color: var(--text-secondary);
-  text-align: center;
-}
-
-.footer-terms {
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.4;
-  max-width: 360px;
-}
+/* footer-text and footer-terms inherit from AuthForm.css */
 
 .switch-to-login-btn {
   background: none;
@@ -254,6 +252,12 @@
 
 .switch-to-login-btn:hover:not(:disabled) {
   color: var(--accent-hover);
+}
+
+.switch-to-login-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .switch-to-login-btn:disabled {

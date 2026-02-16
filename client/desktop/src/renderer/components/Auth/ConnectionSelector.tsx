@@ -34,6 +34,25 @@ const ConnectionSelector: React.FC<ConnectionSelectorProps> = ({ onSelect }) => 
         {/* Connection Options */}
         <div className="connection-options">
           <label
+            className={`connection-option ${selectedMode === 'hosted-login' ? 'selected' : ''}`}
+            onClick={() => handleModeChange('hosted-login')}
+          >
+            <div className="option-radio">
+              <div className="radio-outer">
+                {selectedMode === 'hosted-login' && <div className="radio-inner" />}
+              </div>
+            </div>
+            <div className="option-content">
+              <div className="option-title">Sign In to Existing Account</div>
+              <div className="option-description">
+                <div className="option-feature">• Already have a Concord account</div>
+                <div className="option-feature">• Access your servers and communities</div>
+                <div className="option-feature">• Secure E2EE authentication</div>
+              </div>
+            </div>
+          </label>
+
+          <label
             className={`connection-option ${selectedMode === 'hosted' ? 'selected' : ''}`}
             onClick={() => handleModeChange('hosted')}
           >
@@ -43,9 +62,9 @@ const ConnectionSelector: React.FC<ConnectionSelectorProps> = ({ onSelect }) => 
               </div>
             </div>
             <div className="option-content">
-              <div className="option-title">Join Concord Network</div>
+              <div className="option-title">Create New Account</div>
               <div className="option-description">
-                <div className="option-feature">• Create an account on Concord's platform</div>
+                <div className="option-feature">• New to Concord? Start here</div>
                 <div className="option-feature">• Access public servers and communities</div>
                 <div className="option-feature">• Add self-hosted servers later</div>
               </div>
@@ -83,8 +102,6 @@ const ConnectionSelector: React.FC<ConnectionSelectorProps> = ({ onSelect }) => 
 
         {/* Footer Links */}
         <div className="connection-footer">
-          <a href="#" className="footer-link">Already have an account? Sign In</a>
-          <span className="footer-separator">•</span>
           <a href="#" className="footer-link">Learn about self-hosting</a>
         </div>
       </div>

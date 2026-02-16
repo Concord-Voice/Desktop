@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { unwrapLoginKeys } from '../../utils/crypto';
+import LoadingSpinner from './LoadingSpinner';
 import './Login.css';
 
 export interface LoginProps {
@@ -188,7 +189,14 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
             className="login-submit-btn"
             disabled={isSubmitting}
           >
-            {isSubmitting ? 'Signing In...' : 'Sign In'}
+            {isSubmitting ? (
+              <>
+                Signing In...
+                <LoadingSpinner size="small" inline />
+              </>
+            ) : (
+              'Sign In'
+            )}
           </button>
 
           {/* Back Button */}

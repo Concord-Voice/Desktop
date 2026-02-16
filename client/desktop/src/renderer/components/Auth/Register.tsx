@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import PasswordStrength from './PasswordStrength';
 import InfoTooltip from './InfoTooltip';
+import LoadingSpinner from './LoadingSpinner';
 import { generateRegistrationKeys, exportPublicKey } from '../../utils/crypto';
 import './Register.css';
 
@@ -35,11 +36,12 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
     password: '',
     confirmPassword: '',
     ageConfirmed: false,
-    e2eeEnabled: true,
+    e2eeEnabled: true, // Always true - E2EE is mandatory
   });
 
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [passwordsMatch, setPasswordsMatch] = useState(false);
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
@@ -155,6 +157,32 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
     }
   };
 
+  const handleConfirmPasswordBlur = () => {
+    // Only validate if confirmPassword has been filled
+    if (formData.confirmPassword.length > 0) {
+      if (formData.password !== formData.confirmPassword) {
+        setErrors((prev) => ({ ...prev, confirmPassword: 'Passwords do not match' }));
+        setPasswordsMatch(false);
+      } else {
+        setErrors((prev) => ({ ...prev, confirmPassword: undefined }));
+        setPasswordsMatch(true);
+      }
+    }
+  };
+
+  const handlePasswordBlur = () => {
+    // If confirmPassword has been filled, revalidate match
+    if (formData.confirmPassword.length > 0) {
+      if (formData.password !== formData.confirmPassword) {
+        setErrors((prev) => ({ ...prev, confirmPassword: 'Passwords do not match' }));
+        setPasswordsMatch(false);
+      } else {
+        setErrors((prev) => ({ ...prev, confirmPassword: undefined }));
+        setPasswordsMatch(true);
+      }
+    }
+  };
+
   return (
     <div className="register-container">
       <div className="register-content">
@@ -203,6 +231,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
               placeholder="Create a strong password"
               value={formData.password}
               onChange={handleChange('password')}
+              onBlur={handlePasswordBlur}
               disabled={isSubmitting}
             />
             {errors.password && <span className="form-error">{errors.password}</span>}
@@ -214,50 +243,50 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
             <label className="form-label">Confirm Password</label>
             <input
               type="password"
-              className={`form-input ${errors.confirmPassword ? 'error' : ''}`}
+              className={`form-input ${errors.confirmPassword ? 'error' : ''} ${passwordsMatch ? 'success' : ''}`}
               placeholder="Confirm your password"
               value={formData.confirmPassword}
               onChange={handleChange('confirmPassword')}
+              onBlur={handleConfirmPasswordBlur}
               disabled={isSubmitting}
             />
             {errors.confirmPassword && <span className="form-error">{errors.confirmPassword}</span>}
+            {passwordsMatch && formData.confirmPassword.length > 0 && (
+              <span className="form-success">✓ Passwords match</span>
+            )}
           </div>
 
-          {/* E2EE Preference */}
+          {/* E2EE Info Banner */}
           <div className="form-group">
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={formData.e2eeEnabled}
-                onChange={handleChange('e2eeEnabled')}
-                disabled={isSubmitting}
-              />
-              <div className="checkbox-content">
-                <span className="checkbox-title">
-                  Enable End-to-End Encryption (Recommended)
+            <div className="info-banner">
+              <div className="info-banner-icon">🔒</div>
+              <div className="info-banner-content">
+                <div className="info-banner-title">
+                  End-to-End Encryption Enabled
                   <InfoTooltip
                     content={
                       <div>
                         <strong>What is E2EE?</strong>
                         <p>End-to-End Encryption means your messages are encrypted on your device before being sent. Only you and the recipient can read them.</p>
 
-                        <strong>E2EE Interactions:</strong>
+                        <strong>How it works:</strong>
                         <ul>
-                          <li><strong>E2EE → E2EE:</strong> Fully encrypted, maximum privacy</li>
-                          <li><strong>E2EE → Non-E2EE:</strong> Messages are sent in plaintext (not encrypted)</li>
-                          <li><strong>Mixed Servers:</strong> E2EE servers can communicate with non-E2EE servers, but encryption only works when both sides support it</li>
+                          <li><strong>User-to-User & Groups:</strong> Always fully encrypted - maximum protection guaranteed</li>
+                          <li><strong>E2EE Servers:</strong> Always fully encrypted - complete privacy protection</li>
+                          <li><strong>Non-E2EE Servers:</strong> Messages downgrade to plaintext with big warning banner</li>
+                          <li><strong>Your Keys:</strong> Protected by your password - keep it safe!</li>
                         </ul>
 
-                        <strong>Note:</strong> Once disabled, you cannot enable E2EE later without creating a new account.
+                        <strong>Privacy First:</strong> Not even Concord can read your encrypted messages. We can't reset your password if you forget it.
                       </div>
                     }
                   />
-                </span>
-                <span className="checkbox-description">
-                  Your messages will be encrypted on your device. Not even Concord can read them.
-                </span>
+                </div>
+                <p className="info-banner-description">
+                  Your account uses DEFCON-grade encryption by default. Your messages are encrypted on your device before sending — not even Concord can read them.
+                </p>
               </div>
-            </label>
+            </div>
           </div>
 
           {/* Age Confirmation */}
@@ -289,7 +318,14 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
             className="register-submit-btn"
             disabled={isSubmitting}
           >
-            {isSubmitting ? 'Creating Account...' : 'Create Account'}
+            {isSubmitting ? (
+              <>
+                Creating Account...
+                <LoadingSpinner size="small" inline />
+              </>
+            ) : (
+              'Create Account'
+            )}
           </button>
 
           {/* Back Button */}

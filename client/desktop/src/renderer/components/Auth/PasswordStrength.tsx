@@ -6,7 +6,7 @@ export interface PasswordStrengthProps {
 }
 
 interface StrengthResult {
-  score: number; // 0-4
+  score: number; // 0-5
   label: string;
   color: string;
   feedback: string[];
@@ -84,8 +84,13 @@ function calculateStrength(password: string): StrengthResult {
     }
   }
 
-  // Ensure score is 0-4
-  score = Math.max(0, Math.min(4, score));
+  // Bonus point for truly exceptional passwords (no penalties + max criteria)
+  if (score >= 6 && !hasPenalty && password.length >= 24 && varietyCount === 4) {
+    score = 5; // Legendary tier
+  }
+
+  // Ensure score is 0-5
+  score = Math.max(0, Math.min(5, score));
 
   // Determine label and color based on score
   const levels = [
@@ -94,6 +99,7 @@ function calculateStrength(password: string): StrengthResult {
     { label: 'Fair', color: 'var(--accent-secondary)' },
     { label: 'Good', color: '#43b581' },
     { label: 'Strong', color: 'var(--success)' },
+    { label: 'Legendary 🔥', color: '#b762ff' }, // Purple for legendary tier
   ];
 
   return {
@@ -126,7 +132,10 @@ const PasswordStrength: React.FC<PasswordStrengthProps> = ({ password }) => {
       </div>
 
       <div className="strength-info">
-        <span className="strength-label" style={{ color: strength.color }}>
+        <span
+          className={`strength-label ${strength.score === 5 ? 'legendary' : ''}`}
+          style={{ color: strength.score === 5 ? undefined : strength.color }}
+        >
           {strength.label}
         </span>
         {strength.feedback.length > 0 && (

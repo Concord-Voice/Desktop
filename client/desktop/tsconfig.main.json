@@ -4,7 +4,8 @@
     "module": "CommonJS",
     "moduleResolution": "node",
     "outDir": "./dist/main",
-    "lib": ["ES2022"]
+    "lib": ["ES2022"],
+    "ignoreDeprecations": "5.0"
   },
   "include": ["src/main/**/*"],
   "exclude": ["node_modules", "dist", "src/renderer"]

@@ -10,10 +10,10 @@
 
 .connection-content {
   width: 100%;
-  max-width: 520px;
+  max-width: 640px;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 24px;
 }
 
 /* Header */
@@ -21,31 +21,46 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .connection-logo {
-  height: 80px;
+  height: 64px;
   width: auto;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
-/* Connection Options */
+/* Connection Options - Grid Layout */
 .connection-options {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
 
 .connection-option {
   display: flex;
-  gap: 16px;
-  padding: 20px;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 14px;
   background: var(--bg-secondary);
   border: 2px solid var(--border-color);
   border-radius: 12px;
   cursor: pointer;
   transition: all 0.2s ease;
+  text-align: center;
+  min-height: 170px;
+}
+
+/* Make the third option (self-hosted) span both columns */
+.connection-option:nth-child(3) {
+  grid-column: 1 / -1;
+  min-height: auto;
+  padding: 20px;
+  flex-direction: row;
+  justify-content: flex-start;
+  text-align: left;
+  gap: 16px;
 }
 
 .connection-option:hover {
@@ -59,10 +74,14 @@
   box-shadow: 0 0 0 3px rgba(250, 112, 154, 0.1);
 }
 
+.connection-option:focus-within {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
 /* Radio Button */
 .option-radio {
   flex-shrink: 0;
-  padding-top: 2px;
 }
 
 .radio-outer {
@@ -102,11 +121,12 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  align-items: center;
 }
 
 .option-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
   font-family: 'BaronNeue', sans-serif;
@@ -116,13 +136,39 @@
 .option-description {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
+  align-items: flex-start;
+  width: 100%;
 }
 
 .option-feature {
-  font-size: 13px;
+  font-size: 11px;
   color: var(--text-secondary);
+  line-height: 1.4;
+  text-align: left;
+}
+
+/* Adjust content for horizontal third option */
+.connection-option:nth-child(3) .option-content {
+  align-items: flex-start;
+  text-align: left;
+  gap: 8px;
+}
+
+.connection-option:nth-child(3) .option-title {
+  font-size: 16px;
+}
+
+.connection-option:nth-child(3) .option-description {
+  flex-direction: row;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.connection-option:nth-child(3) .option-feature {
+  font-size: 12px;
   line-height: 1.5;
+  white-space: nowrap;
 }
 
 /* Continue Button */
@@ -151,6 +197,12 @@
   transform: translateY(0);
 }
 
+.connection-continue:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px rgba(250, 112, 154, 0.2);
+}
+
 .connection-continue:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -173,6 +225,12 @@
 
 .footer-link:hover {
   color: var(--accent-primary);
+}
+
+.footer-link:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .footer-separator {
