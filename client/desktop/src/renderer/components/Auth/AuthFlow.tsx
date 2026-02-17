@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ConnectionMode } from '../../types/auth';
 import ConnectionSelector from './ConnectionSelector';
 import ServerInput from './ServerInput';
@@ -9,6 +10,7 @@ import './AuthFlow.css';
 type AuthStep = 'connection-select' | 'server-input' | 'hosted-register' | 'hosted-login' | 'self-hosted-auth';
 
 const AuthFlow: React.FC = () => {
+  const navigate = useNavigate();
   const [step, setStep] = useState<AuthStep>('connection-select');
   const [selectedMode, setSelectedMode] = useState<ConnectionMode | null>(null);
   const [serverUrl, setServerUrl] = useState<string>('');
@@ -42,16 +44,14 @@ const AuthFlow: React.FC = () => {
 
   const handleRegistrationSuccess = (tokens: { accessToken: string; refreshToken: string }) => {
     console.log('Registration successful, tokens received');
-    // TODO: Store tokens and navigate to main app
-    // For now, just log
-    console.log('Access token:', tokens.accessToken);
+    // TODO: Store tokens in state management
+    navigate('/app');
   };
 
   const handleLoginSuccess = (tokens: { accessToken: string; refreshToken: string }) => {
     console.log('Login successful, tokens received');
-    // TODO: Store tokens and navigate to main app
-    // For now, just log
-    console.log('Access token:', tokens.accessToken);
+    // TODO: Store tokens in state management
+    navigate('/app');
   };
 
   const handleSwitchToLogin = () => {
