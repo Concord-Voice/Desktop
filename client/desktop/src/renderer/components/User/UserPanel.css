@@ -1,0 +1,77 @@
+.user-panel {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 12px 12px;
+  width: 100%;
+}
+
+/* Separator line above avatar */
+.user-panel-separator {
+  width: 32px;
+  height: 2px;
+  background: var(--border-color);
+  border-radius: 1px;
+  margin-bottom: 12px;
+}
+
+/* Avatar button */
+.user-avatar-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  border: 2px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  padding: 0;
+}
+
+.user-avatar-btn:hover,
+.user-avatar-btn.active {
+  border-color: var(--accent-primary);
+  border-radius: 35%;
+}
+
+.user-avatar-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.user-avatar-initial {
+  font-size: 16px;
+  font-weight: 700;
+  font-family: 'BaronNeue', sans-serif;
+  color: var(--text-primary);
+}
+
+/* Green status dot */
+.user-status-dot {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  background: var(--success);
+  border-radius: 50%;
+  border: 2px solid var(--bg-primary);
+}
+
+/* Loading skeleton */
+.user-avatar-skeleton {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-secondary);
+  animation: skeletonPulse 1.5s ease-in-out infinite;
+}
+
+/* Avatar wrapper for popover positioning */
+.user-avatar-wrapper {
+  position: relative;
+}

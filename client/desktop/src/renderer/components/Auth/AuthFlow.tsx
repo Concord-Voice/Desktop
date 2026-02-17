@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ConnectionMode } from '../../types/auth';
 import { useAuthStore } from '../../stores/authStore';
+import { useUserStore, UserProfile } from '../../stores/userStore';
 import ConnectionSelector from './ConnectionSelector';
 import ServerInput from './ServerInput';
 import Register from './Register';
@@ -43,15 +44,21 @@ const AuthFlow: React.FC = () => {
     setServerUrl('');
   };
 
-  const handleRegistrationSuccess = (tokens: { accessToken: string; refreshToken: string }) => {
+  const handleRegistrationSuccess = (data: { accessToken: string; refreshToken: string; user?: UserProfile }) => {
     console.log('Registration successful, tokens received');
-    useAuthStore.getState().setTokens(tokens.accessToken, tokens.refreshToken);
+    useAuthStore.getState().setTokens(data.accessToken, data.refreshToken);
+    if (data.user) {
+      useUserStore.getState().setUser(data.user);
+    }
     navigate('/app');
   };
 
-  const handleLoginSuccess = (tokens: { accessToken: string; refreshToken: string }) => {
+  const handleLoginSuccess = (data: { accessToken: string; refreshToken: string; user?: UserProfile }) => {
     console.log('Login successful, tokens received');
-    useAuthStore.getState().setTokens(tokens.accessToken, tokens.refreshToken);
+    useAuthStore.getState().setTokens(data.accessToken, data.refreshToken);
+    if (data.user) {
+      useUserStore.getState().setUser(data.user);
+    }
     navigate('/app');
   };
 
