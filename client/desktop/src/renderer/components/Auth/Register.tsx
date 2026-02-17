@@ -3,11 +3,12 @@ import PasswordStrength from './PasswordStrength';
 import InfoTooltip from './InfoTooltip';
 import LoadingSpinner from './LoadingSpinner';
 import { generateRegistrationKeys, exportPublicKey } from '../../utils/crypto';
+import { UserProfile } from '../../stores/userStore';
 import './Register.css';
 
 export interface RegisterProps {
   onBack: () => void;
-  onSuccess: (tokens: { accessToken: string; refreshToken: string }) => void;
+  onSuccess: (data: { accessToken: string; refreshToken: string; user?: UserProfile }) => void;
   onSwitchToLogin: () => void;
 }
 
@@ -131,10 +132,11 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
       console.log('Registration successful!');
 
       // Store the private key in memory (we'll add proper key storage later)
-      // For now, we'll just pass the tokens up
+      // Pass tokens and user data up
       onSuccess({
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
+        user: data.user,
       });
     } catch (error) {
       console.error('Registration error:', error);

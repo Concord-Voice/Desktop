@@ -168,7 +168,23 @@ body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 12px 0;
+  padding: 12px 0 0 0;
+}
+
+.sidebar-servers {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 4px;
+}
+
+/* Hide scrollbar in sidebar but keep it scrollable */
+.sidebar-servers::-webkit-scrollbar {
+  width: 0;
 }
 
 .channels-sidebar {

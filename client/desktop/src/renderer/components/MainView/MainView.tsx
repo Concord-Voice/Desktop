@@ -4,6 +4,7 @@ import ServerContextMenu from '../Servers/ServerContextMenu';
 import ServerSettingsModal from '../Servers/ServerSettingsModal';
 import DeleteServerModal from '../Servers/DeleteServerModal';
 import CreateServerModal from '../Servers/CreateServerModal';
+import UserPanel from '../User/UserPanel';
 import { useServerStore } from '../../stores/serverStore';
 import { ServerWithRole } from '../../types/server';
 import './MainView.css';
@@ -43,10 +44,13 @@ const MainView: React.FC = () => {
   return (
     <div className="view-container main-view">
       <div className="sidebar">
-        <ServerList
-          onOpenCreateModal={() => setIsCreateModalOpen(true)}
-          onContextMenu={handleContextMenu}
-        />
+        <div className="sidebar-servers">
+          <ServerList
+            onOpenCreateModal={() => setIsCreateModalOpen(true)}
+            onContextMenu={handleContextMenu}
+          />
+        </div>
+        <UserPanel />
       </div>
 
       <div className="content">

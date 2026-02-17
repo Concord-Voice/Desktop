@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { unwrapLoginKeys } from '../../utils/crypto';
+import { UserProfile } from '../../stores/userStore';
 import LoadingSpinner from './LoadingSpinner';
 import './Login.css';
 
 export interface LoginProps {
   onBack: () => void;
-  onSuccess: (tokens: { accessToken: string; refreshToken: string }) => void;
+  onSuccess: (data: { accessToken: string; refreshToken: string; user?: UserProfile }) => void;
   onSwitchToRegister: () => void;
 }
 
@@ -95,10 +96,11 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
       console.log('Private key unwrapped successfully!');
 
       // Store the private key in memory (we'll add proper key storage later)
-      // For now, we'll just pass the tokens up
+      // Pass tokens and user data up
       onSuccess({
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
+        user: data.user,
       });
     } catch (error) {
       console.error('Login error:', error);
