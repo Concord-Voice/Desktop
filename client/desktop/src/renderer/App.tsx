@@ -1,27 +1,16 @@
 import React, { useEffect, useState } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import AuthFlow from './components/Auth/AuthFlow';
+import MainView from './components/MainView/MainView';
+import { useAuthStore } from './stores/authStore';
 
-const MainView = () => (
-  <div className="view-container main-view">
-    <div className="sidebar">
-      <div className="sidebar-section">
-        <h3>Servers</h3>
-        <p className="placeholder-text">No servers yet</p>
-      </div>
-    </div>
-    <div className="content">
-      <div className="channels-sidebar">
-        <h3>Channels</h3>
-        <p className="placeholder-text">Select a server</p>
-      </div>
-      <div className="main-content">
-        <h2>Welcome to Concord</h2>
-        <p>Privacy-first, self-hostable voice communication.</p>
-      </div>
-    </div>
-  </div>
-);
+function ProtectedRoute({ children }: { children: React.ReactElement }) {
+  const accessToken = useAuthStore((state) => state.accessToken);
+  if (!accessToken) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+}
 
 function App() {
   const [version, setVersion] = useState<string>('');
@@ -48,7 +37,11 @@ function App() {
 
       <Routes>
         <Route path="/" element={<AuthFlow />} />
-        <Route path="/app" element={<MainView />} />
+        <Route path="/app" element={
+          <ProtectedRoute>
+            <MainView />
+          </ProtectedRoute>
+        } />
       </Routes>
     </div>
   );

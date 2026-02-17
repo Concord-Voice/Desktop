@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ConnectionMode } from '../../types/auth';
+import { useAuthStore } from '../../stores/authStore';
 import ConnectionSelector from './ConnectionSelector';
 import ServerInput from './ServerInput';
 import Register from './Register';
@@ -44,13 +45,13 @@ const AuthFlow: React.FC = () => {
 
   const handleRegistrationSuccess = (tokens: { accessToken: string; refreshToken: string }) => {
     console.log('Registration successful, tokens received');
-    // TODO: Store tokens in state management
+    useAuthStore.getState().setTokens(tokens.accessToken, tokens.refreshToken);
     navigate('/app');
   };
 
   const handleLoginSuccess = (tokens: { accessToken: string; refreshToken: string }) => {
     console.log('Login successful, tokens received');
-    // TODO: Store tokens in state management
+    useAuthStore.getState().setTokens(tokens.accessToken, tokens.refreshToken);
     navigate('/app');
   };
 
