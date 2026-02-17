@@ -1,68 +1,23 @@
-/* Server sidebar icons */
-.sidebar-servers {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 0 12px;
+/* Server role badge in main content */
+.server-role-badge {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-top: 4px;
 }
 
-.server-icon-btn {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: var(--bg-secondary);
-  border: 2px solid var(--border-color);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  overflow: hidden;
+.role-text {
+  font-weight: 600;
+  text-transform: capitalize;
 }
 
-.server-icon-btn:hover {
-  border-radius: 35%;
-  border-color: var(--accent-primary);
+.role-text.role-owner {
+  color: var(--accent-primary);
 }
 
-.server-icon-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
+.role-text.role-admin {
+  color: var(--accent-secondary);
 }
 
-.server-icon-initial {
-  font-size: 18px;
-  font-weight: 700;
-  font-family: 'BaronNeue', sans-serif;
-  color: var(--text-primary);
-}
-
-/* Add Server Button */
-.add-server-btn {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: var(--bg-secondary);
-  border: 2px dashed var(--border-color);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
+.role-text.role-member {
   color: var(--text-muted);
-}
-
-.add-server-btn:hover {
-  border-color: var(--success);
-  color: var(--success);
-  background: rgba(67, 181, 129, 0.08);
-  border-radius: 35%;
-}
-
-.add-server-btn:focus-visible {
-  outline: 2px solid var(--accent-primary);
-  outline-offset: 2px;
 }

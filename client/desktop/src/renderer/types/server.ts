@@ -20,3 +20,17 @@ export interface CreateServerResponse {
   server: Server;
   role: string;
 }
+
+export interface UpdateServerRequest {
+  name: string;
+  icon_url?: string | null;
+}
+
+export interface UpdateServerResponse {
+  server: Server;
+  role: string;
+}
+
+export interface ListServersResponse {
+  servers: ServerWithRole[];
+}

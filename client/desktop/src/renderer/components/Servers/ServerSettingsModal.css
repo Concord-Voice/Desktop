@@ -1,0 +1,78 @@
+@import '../Auth/AuthForm.css';
+
+.server-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* Reuse icon upload styles from CreateServerModal.css */
+/* They share .server-icon-upload, .icon-upload-area, .icon-preview, etc. */
+
+/* Action Buttons */
+.server-settings-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+.server-settings-cancel-btn {
+  padding: 12px 24px;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.server-settings-cancel-btn:hover:not(:disabled) {
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.server-settings-cancel-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.server-settings-submit-btn {
+  padding: 12px 24px;
+  background: var(--gradient-brand);
+  border: none;
+  border-radius: 8px;
+  color: var(--bg-primary);
+  font-size: 14px;
+  font-weight: 700;
+  font-family: 'BaronNeue', sans-serif;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.server-settings-submit-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(250, 112, 154, 0.3);
+}
+
+.server-settings-submit-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.server-settings-submit-btn:disabled {
+  opacity: 0.8;
+  cursor: not-allowed;
+  animation: buttonPulse 2s ease-in-out infinite;
+}
+
+.server-settings-submit-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
