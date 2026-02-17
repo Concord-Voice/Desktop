@@ -2,13 +2,14 @@ import React, { useState, useRef } from 'react';
 import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useAuthStore } from '../../stores/authStore';
-import { Server } from '../../types/server';
+import { useServerStore } from '../../stores/serverStore';
+import { ServerWithRole } from '../../types/server';
 import './CreateServerModal.css';
 
 interface CreateServerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (server: Server) => void;
+  onSuccess: (server: ServerWithRole) => void;
 }
 
 interface FormErrors {
@@ -150,8 +151,14 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({
 
       setSuccessMessage('Server created successfully!');
 
+      const serverWithRole: ServerWithRole = {
+        ...data.server,
+        role: data.role as ServerWithRole['role'],
+      };
+      useServerStore.getState().addServer(serverWithRole);
+
       setTimeout(() => {
-        onSuccess(data.server);
+        onSuccess(serverWithRole);
         resetForm();
         onClose();
       }, 800);
