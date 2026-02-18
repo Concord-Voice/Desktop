@@ -13,6 +13,16 @@ export interface MessageWithUser extends Message {
   username: string;
 }
 
+/**
+ * Extended message type with delivery status tracking
+ * Used for local message state management
+ */
+export interface MessageWithStatus extends MessageWithUser {
+  status?: 'pending' | 'sent' | 'delivered' | 'failed';
+  clientMessageId?: string; // Temporary ID before server assigns permanent ID
+  error?: string; // Error message if status is 'failed'
+}
+
 export interface Channel {
   id: string;
   server_id: string;

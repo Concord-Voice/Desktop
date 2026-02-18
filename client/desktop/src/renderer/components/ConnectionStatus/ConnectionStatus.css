@@ -1,0 +1,62 @@
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.connection-status.connected {
+  background-color: rgba(26, 170, 85, 0.1);
+  color: #1aaa55;
+}
+
+.connection-status.disconnected {
+  background-color: rgba(250, 100, 100, 0.1);
+  color: #fa6464;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.connection-status.connected .status-dot {
+  background-color: #1aaa55;
+}
+
+.connection-status.disconnected .status-dot {
+  background-color: #fa6464;
+  animation: blink 1.5s ease-in-out infinite;
+}
+
+.status-text {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(0.95);
+  }
+}
+
+@keyframes blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}

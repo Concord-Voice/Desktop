@@ -3,9 +3,13 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import AuthFlow from './components/Auth/AuthFlow';
 import MainView from './components/MainView/MainView';
 import { useAuthStore } from './stores/authStore';
+import { useWebSocket } from './hooks/useWebSocket';
 
 function ProtectedRoute({ children }: { children: React.ReactElement }) {
   const accessToken = useAuthStore((state) => state.accessToken);
+  // Initialize WebSocket for authenticated users
+  useWebSocket();
+
   if (!accessToken) {
     return <Navigate to="/" replace />;
   }

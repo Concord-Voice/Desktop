@@ -4,6 +4,7 @@ import ServerContextMenu from '../Servers/ServerContextMenu';
 import ServerSettingsModal from '../Servers/ServerSettingsModal';
 import DeleteServerModal from '../Servers/DeleteServerModal';
 import CreateServerModal from '../Servers/CreateServerModal';
+import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
 import UserPanel from '../User/UserPanel';
 import { useServerStore } from '../../stores/serverStore';
 import { ServerWithRole } from '../../types/server';
@@ -55,7 +56,10 @@ const MainView: React.FC = () => {
 
       <div className="content">
         <div className="channels-sidebar">
-          <h3>{activeServer ? activeServer.name : 'Channels'}</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 10px' }}>
+            <h3>{activeServer ? activeServer.name : 'Channels'}</h3>
+            <ConnectionStatus />
+          </div>
           <p className="placeholder-text">
             {activeServer ? 'No channels yet' : 'Select a server'}
           </p>
