@@ -47,6 +47,57 @@
   cursor: not-allowed;
 }
 
+/* Emoji Picker */
+.emoji-input-wrapper {
+  position: relative;
+}
+
+.emoji-input-container {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.emoji-input-container .form-input {
+  flex: 1;
+}
+
+.emoji-picker-button {
+  padding: 10px 16px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+}
+
+.emoji-picker-button:hover:not(:disabled) {
+  background-color: var(--bg-hover);
+  border-color: var(--accent-color);
+}
+
+.emoji-picker-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.emoji-picker-container {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  z-index: 1000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
 /* Form Hints and Errors */
 .form-hint {
   font-size: 12px;

@@ -73,18 +73,25 @@
   color: var(--accent-color);
 }
 
-.channel-icon {
-  margin-right: 8px;
-  font-size: 16px;
+.channel-type-icon {
+  margin-right: 6px;
   color: var(--text-secondary);
-  min-width: 20px;
+  min-width: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
-.channel-item.active .channel-icon {
+.channel-item.active .channel-type-icon {
   color: var(--accent-color);
+}
+
+.channel-custom-emoji {
+  margin-right: 6px;
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .channel-name {

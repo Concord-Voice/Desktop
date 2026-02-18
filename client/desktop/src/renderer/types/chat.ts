@@ -29,6 +29,7 @@ export interface Channel {
   name: string;
   description?: string;
   type: 'text' | 'voice' | 'bulletin';
+  emoji?: string; // Optional custom emoji set by admins
   position: number;
   created_at: string;
   updated_at: string;

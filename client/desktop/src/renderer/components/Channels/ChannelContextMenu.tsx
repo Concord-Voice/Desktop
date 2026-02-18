@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { Hash, Volume2, Pin } from 'lucide-react';
 import { Channel } from '../../types/chat';
 import './ChannelContextMenu.css';
 
@@ -62,16 +63,16 @@ const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
   const canEdit = userRole === 'owner' || userRole === 'admin';
   const canDelete = userRole === 'owner' || userRole === 'admin';
 
-  const getChannelIcon = (type: Channel['type']) => {
+  const getChannelTypeIcon = (type: Channel['type']) => {
     switch (type) {
       case 'text':
-        return '#';
+        return <Hash size={16} />;
       case 'voice':
-        return '🔊';
+        return <Volume2 size={16} />;
       case 'bulletin':
-        return '📢';
+        return <Pin size={16} />;
       default:
-        return '#';
+        return <Hash size={16} />;
     }
   };
 
@@ -84,7 +85,12 @@ const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
       >
         {/* Channel info header */}
         <div className="context-menu-header">
-          <span className="channel-context-icon">{getChannelIcon(channel.type)}</span>
+          <span className="channel-context-type-icon">
+            {getChannelTypeIcon(channel.type)}
+          </span>
+          {channel.emoji && (
+            <span className="channel-context-emoji">{channel.emoji}</span>
+          )}
           <span className="channel-context-name">{channel.name}</span>
         </div>
 
