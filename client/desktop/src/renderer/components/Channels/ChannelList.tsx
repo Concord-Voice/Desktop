@@ -47,17 +47,9 @@ const ChannelList: React.FC<ChannelListProps> = ({
   const voiceChannels = channels.filter((c) => c.type === 'voice');
   const bulletinChannels = channels.filter((c) => c.type === 'bulletin');
 
-  const getChannelIcon = (type: Channel['type']) => {
-    switch (type) {
-      case 'text':
-        return '#';
-      case 'voice':
-        return '🔊';
-      case 'bulletin':
-        return '📢';
-      default:
-        return '#';
-    }
+  const getChannelIcon = (channel: Channel) => {
+    // Use custom emoji if set, otherwise default to #
+    return channel.emoji || '#';
   };
 
   // No server selected
@@ -136,7 +128,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
                   title={channel.name}
                 >
                   <span className="channel-icon">
-                    {getChannelIcon(channel.type)}
+                    {getChannelIcon(channel)}
                   </span>
                   <span className="channel-name">{channel.name}</span>
                 </div>
@@ -161,7 +153,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
                   title={channel.name}
                 >
                   <span className="channel-icon">
-                    {getChannelIcon(channel.type)}
+                    {getChannelIcon(channel)}
                   </span>
                   <span className="channel-name">{channel.name}</span>
                 </div>
@@ -186,7 +178,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
                   title={channel.name}
                 >
                   <span className="channel-icon">
-                    {getChannelIcon(channel.type)}
+                    {getChannelIcon(channel)}
                   </span>
                   <span className="channel-name">{channel.name}</span>
                 </div>

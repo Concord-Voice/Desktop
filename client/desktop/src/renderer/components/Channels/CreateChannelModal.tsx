@@ -28,6 +28,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
   onSuccess,
 }) => {
   const [name, setName] = useState('');
+  const [emoji, setEmoji] = useState('');
   const [type, setType] = useState<'text' | 'voice' | 'bulletin'>('text');
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -39,6 +40,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
 
   const resetForm = () => {
     setName('');
+    setEmoji('');
     setType('text');
     setErrors({});
     setIsSubmitting(false);
@@ -93,6 +95,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
           server_id: activeServerId,
           name: name.trim(),
           type,
+          emoji: emoji.trim() || undefined, // Only send if not empty
         }),
       });
 
@@ -128,16 +131,8 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
   };
 
   const getChannelTypeIcon = (channelType: 'text' | 'voice' | 'bulletin') => {
-    switch (channelType) {
-      case 'text':
-        return '#';
-      case 'voice':
-        return '🔊';
-      case 'bulletin':
-        return '📢';
-      default:
-        return '#';
-    }
+    // Always return # - admins can set custom emojis if desired
+    return '#';
   };
 
   return (
@@ -172,6 +167,26 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
           {errors.name && <span className="form-error">{errors.name}</span>}
           <span className="form-hint">
             {name.length}/{NAME_MAX} characters
+          </span>
+        </div>
+
+        {/* Channel Emoji (Optional) */}
+        <div className="form-group">
+          <label htmlFor="channel-emoji" className="form-label">
+            Channel Emoji (Optional)
+          </label>
+          <input
+            id="channel-emoji"
+            type="text"
+            className="form-input"
+            value={emoji}
+            onChange={(e) => setEmoji(e.target.value)}
+            placeholder="😀 (optional)"
+            maxLength={2}
+            disabled={isSubmitting}
+          />
+          <span className="form-hint">
+            Add a custom emoji to represent this channel
           </span>
         </div>
 

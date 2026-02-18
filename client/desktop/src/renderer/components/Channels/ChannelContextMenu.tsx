@@ -62,17 +62,9 @@ const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
   const canEdit = userRole === 'owner' || userRole === 'admin';
   const canDelete = userRole === 'owner' || userRole === 'admin';
 
-  const getChannelIcon = (type: Channel['type']) => {
-    switch (type) {
-      case 'text':
-        return '#';
-      case 'voice':
-        return '🔊';
-      case 'bulletin':
-        return '📢';
-      default:
-        return '#';
-    }
+  const getChannelIcon = (channel: Channel) => {
+    // Use custom emoji if set, otherwise default to #
+    return channel.emoji || '#';
   };
 
   return (
@@ -84,7 +76,7 @@ const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
       >
         {/* Channel info header */}
         <div className="context-menu-header">
-          <span className="channel-context-icon">{getChannelIcon(channel.type)}</span>
+          <span className="channel-context-icon">{getChannelIcon(channel)}</span>
           <span className="channel-context-name">{channel.name}</span>
         </div>
 
