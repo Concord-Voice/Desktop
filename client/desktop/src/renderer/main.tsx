@@ -4,6 +4,38 @@ import { HashRouter } from 'react-router-dom';
 import App from './App';
 import './styles/index.css';
 
+// Apply persisted theme before React renders to prevent flash
+try {
+  const stored = localStorage.getItem('concord-settings');
+  if (stored) {
+    const { state } = JSON.parse(stored);
+    const theme = state?.appearance?.theme || 'dark';
+    const resolved = theme === 'system'
+      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      : theme;
+    document.documentElement.dataset.theme = resolved;
+
+    // Apply compact mode
+    if (state?.appearance?.compactMode) {
+      document.documentElement.dataset.compact = 'true';
+    }
+
+    // Apply color scheme
+    const colorScheme = state?.appearance?.colorScheme;
+    if (colorScheme && colorScheme !== 'concord') {
+      document.documentElement.dataset.scheme = colorScheme;
+    }
+
+    // Apply font size
+    const fontSize = state?.appearance?.fontSize;
+    if (fontSize && fontSize !== 'default') {
+      document.documentElement.dataset.fontsize = fontSize;
+    }
+  }
+} catch {
+  // Ignore parse errors, defaults will be used
+}
+
 const container = document.getElementById('root');
 
 if (!container) {

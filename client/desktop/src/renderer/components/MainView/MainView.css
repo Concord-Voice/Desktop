@@ -1,7 +1,7 @@
 /* Server role badge in main content */
 .server-role-badge {
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   margin-top: 4px;
 }
 

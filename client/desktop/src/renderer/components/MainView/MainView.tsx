@@ -56,7 +56,7 @@ const MainView: React.FC = () => {
 
       <div className="content">
         <div className="channels-sidebar">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 10px' }}>
+          <div className="channels-sidebar-header">
             <h3>{activeServer ? activeServer.name : 'Channels'}</h3>
             <ConnectionStatus />
           </div>

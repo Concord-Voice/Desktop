@@ -39,7 +39,7 @@
 }
 
 .context-menu-server-name {
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 600;
   color: var(--text-primary);
   font-family: 'SourceSans', sans-serif;
@@ -50,7 +50,7 @@
 }
 
 .context-menu-role {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale, 1));
   font-weight: 500;
   text-transform: capitalize;
 }
@@ -84,7 +84,7 @@
   border: none;
   background: none;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   font-family: 'SourceSans', sans-serif;
   cursor: pointer;
   border-radius: 4px;
@@ -110,6 +110,6 @@
 .context-menu-no-actions {
   padding: 8px 10px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   font-style: italic;
 }

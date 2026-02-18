@@ -92,7 +92,7 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
         My Profile
       </button>
 
-      <button className="user-popover-item" onClick={onClose}>
+      <button className="user-popover-item" onClick={() => { onClose(); navigate('/app/settings'); }}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path
             d="M6.86 2.57a1.14 1.14 0 012.28 0 4.57 4.57 0 012.64 1.53 1.14 1.14 0 011.97 1.14 4.57 4.57 0 010 3.05 1.14 1.14 0 01-1.97 1.14 4.57 4.57 0 01-2.64 1.53 1.14 1.14 0 01-2.28 0 4.57 4.57 0 01-2.64-1.53 1.14 1.14 0 01-1.97-1.14 4.57 4.57 0 010-3.05 1.14 1.14 0 011.97-1.14A4.57 4.57 0 016.86 2.57z"

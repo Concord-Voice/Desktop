@@ -2,9 +2,9 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: calc(8px * var(--sp, 1));
   width: 100%;
-  padding: 0 12px;
+  padding: 0 calc(12px * var(--sp, 1));
 }
 
 /* Server icon wrapper for active pill positioning */
@@ -68,7 +68,7 @@
 }
 
 .server-icon-initial {
-  font-size: 18px;
+  font-size: calc(18px * var(--font-scale, 1));
   font-weight: 700;
   font-family: 'BaronNeue', sans-serif;
   color: var(--text-primary);
@@ -84,12 +84,12 @@
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: 6px;
-  padding: 6px 10px;
+  padding: calc(6px * var(--sp, 1)) calc(10px * var(--sp, 1));
   white-space: nowrap;
   z-index: 100;
   pointer-events: none;
   flex-direction: column;
-  gap: 2px;
+  gap: calc(2px * var(--sp, 1));
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
@@ -98,14 +98,14 @@
 }
 
 .server-tooltip-name {
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   font-weight: 600;
   color: var(--text-primary);
   font-family: 'SourceSans', sans-serif;
 }
 
 .server-tooltip-role {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale, 1));
   font-weight: 500;
   text-transform: capitalize;
 }
@@ -162,7 +162,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: calc(8px * var(--sp, 1));
 }
 
 .server-skeleton {

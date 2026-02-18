@@ -22,7 +22,7 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -45,7 +45,7 @@
   border: none;
   border-radius: 8px;
   color: var(--bg-primary);
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 700;
   font-family: 'BaronNeue', sans-serif;
   letter-spacing: 0.5px;

@@ -21,7 +21,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-family: 'SourceSans', sans-serif;
   padding: 4px 0;
   margin-bottom: 24px;
@@ -35,7 +35,7 @@
 /* Page title */
 .profile-page-title {
   font-family: 'BaronNeue', sans-serif;
-  font-size: 28px;
+  font-size: calc(28px * var(--font-scale, 1));
   margin-bottom: 32px;
   color: var(--text-primary);
 }
@@ -51,7 +51,7 @@
 
 .profile-section-title {
   font-family: 'BaronNeue', sans-serif;
-  font-size: 18px;
+  font-size: calc(18px * var(--font-scale, 1));
   color: var(--text-primary);
   margin-bottom: 20px;
   padding-bottom: 12px;
@@ -92,7 +92,7 @@
 }
 
 .profile-avatar-initial {
-  font-size: 28px;
+  font-size: calc(28px * var(--font-scale, 1));
   font-weight: 700;
   font-family: 'BaronNeue', sans-serif;
   color: var(--text-primary);
@@ -107,7 +107,7 @@
 }
 
 .profile-avatar-placeholder-text {
-  font-size: 10px;
+  font-size: calc(10px * var(--font-scale, 1));
   color: var(--text-muted);
 }
 
@@ -118,7 +118,7 @@
 }
 
 .profile-avatar-actions-label {
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   color: var(--text-secondary);
 }
 
@@ -126,7 +126,7 @@
   background: none;
   border: none;
   color: var(--danger);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   cursor: pointer;
   padding: 0;
   text-align: left;
@@ -190,7 +190,7 @@
   border: 1px dashed var(--border-color);
   border-radius: 8px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   font-family: 'SourceSans', sans-serif;
   cursor: pointer;
   padding: 8px 12px;
@@ -217,7 +217,7 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -240,7 +240,7 @@
   border: none;
   border-radius: 8px;
   color: var(--bg-primary);
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 700;
   font-family: 'BaronNeue', sans-serif;
   letter-spacing: 0.5px;
@@ -278,7 +278,7 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -299,7 +299,7 @@
 
 /* Member since */
 .profile-member-since {
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   color: var(--text-muted);
   margin-top: 16px;
   padding-top: 16px;
