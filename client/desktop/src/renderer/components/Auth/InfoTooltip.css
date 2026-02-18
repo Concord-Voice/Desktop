@@ -58,7 +58,7 @@
 }
 
 .info-tooltip-content {
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   line-height: 1.5;
   color: var(--text-secondary);
 }

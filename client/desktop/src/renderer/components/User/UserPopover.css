@@ -52,7 +52,7 @@
 }
 
 .user-popover-avatar-initial {
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 700;
   font-family: 'BaronNeue', sans-serif;
   color: var(--text-primary);
@@ -65,7 +65,7 @@
 }
 
 .user-popover-username {
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -74,7 +74,7 @@
 }
 
 .user-popover-status {
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   color: var(--success);
   font-weight: 500;
 }
@@ -82,7 +82,7 @@
 /* Email */
 .user-popover-email {
   padding: 2px 12px 6px;
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -106,7 +106,7 @@
   background: none;
   border: none;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   font-family: 'SourceSans', sans-serif;
   cursor: pointer;
   transition: all 0.15s ease;

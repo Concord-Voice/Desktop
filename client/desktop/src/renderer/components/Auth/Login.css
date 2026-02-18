@@ -37,7 +37,7 @@
 }
 
 .login-title {
-  font-size: 28px;
+  font-size: calc(28px * var(--font-scale, 1));
   font-weight: 700;
   font-family: 'BaronNeue', sans-serif;
   color: var(--text-primary);
@@ -45,7 +45,7 @@
 }
 
 .login-subtitle {
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   color: var(--text-secondary);
 }
 
@@ -71,7 +71,7 @@
   align-items: center;
   gap: 8px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   color: var(--text-secondary);
 }
 
@@ -83,7 +83,7 @@
 }
 
 .forgot-password-link {
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   color: var(--accent-primary);
   text-decoration: none;
   font-weight: 600;
@@ -102,7 +102,7 @@
   border: none;
   border-radius: 8px;
   color: var(--bg-primary);
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale, 1));
   font-weight: 700;
   font-family: 'BaronNeue', sans-serif;
   letter-spacing: 0.5px;
@@ -149,7 +149,7 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -185,7 +185,7 @@
   background: none;
   border: none;
   color: var(--accent-primary);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   font-weight: 600;
   cursor: pointer;
   padding: 0;

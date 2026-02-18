@@ -36,7 +36,7 @@
 }
 
 .modal-title {
-  font-size: 20px;
+  font-size: calc(20px * var(--font-scale, 1));
   font-weight: 700;
   font-family: 'BaronNeue', sans-serif;
   color: var(--text-primary);

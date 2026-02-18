@@ -54,7 +54,7 @@
 }
 
 .icon-placeholder-text {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale, 1));
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -64,7 +64,7 @@
   background: none;
   border: none;
   color: var(--danger);
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   font-weight: 600;
   cursor: pointer;
   padding: 2px 8px;
@@ -86,14 +86,14 @@
   border: 1px solid rgba(67, 181, 129, 0.4);
   border-radius: 8px;
   color: var(--success);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   font-weight: 500;
   animation: fadeInSlide 0.3s ease-out;
 }
 
 .form-success-banner::before {
   content: '\2713';
-  font-size: 16px;
+  font-size: calc(16px * var(--font-scale, 1));
   flex-shrink: 0;
 }
 
@@ -110,7 +110,7 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -133,7 +133,7 @@
   border: none;
   border-radius: 8px;
   color: var(--bg-primary);
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 700;
   font-family: 'BaronNeue', sans-serif;
   letter-spacing: 0.5px;

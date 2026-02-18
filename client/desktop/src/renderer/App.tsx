@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import AuthFlow from './components/Auth/AuthFlow';
 import MainView from './components/MainView/MainView';
 import ProfilePage from './components/Profile/ProfilePage';
+import SettingsPage from './components/Settings/SettingsPage';
 import { useAuthStore } from './stores/authStore';
 import { useWebSocket } from './hooks/useWebSocket';
 
@@ -50,6 +51,11 @@ function App() {
         <Route path="/app/profile" element={
           <ProtectedRoute>
             <ProfilePage />
+          </ProtectedRoute>
+        } />
+        <Route path="/app/settings" element={
+          <ProtectedRoute>
+            <SettingsPage />
           </ProtectedRoute>
         } />
       </Routes>

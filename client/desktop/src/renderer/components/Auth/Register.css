@@ -36,7 +36,7 @@
 }
 
 .register-title {
-  font-size: 28px;
+  font-size: calc(28px * var(--font-scale, 1));
   font-weight: 700;
   font-family: 'BaronNeue', sans-serif;
   color: var(--text-primary);
@@ -44,7 +44,7 @@
 }
 
 .register-subtitle {
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   color: var(--text-secondary);
   max-width: 360px;
 }
@@ -94,13 +94,13 @@
 }
 
 .checkbox-title {
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .checkbox-description {
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -122,7 +122,7 @@
 }
 
 .info-banner-icon {
-  font-size: 24px;
+  font-size: calc(24px * var(--font-scale, 1));
   flex-shrink: 0;
   line-height: 1;
 }
@@ -135,7 +135,7 @@
 }
 
 .info-banner-title {
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 700;
   color: var(--text-primary);
   display: flex;
@@ -144,7 +144,7 @@
 }
 
 .info-banner-description {
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   color: var(--text-secondary);
   line-height: 1.5;
   margin: 0;
@@ -160,7 +160,7 @@
   border: none;
   border-radius: 8px;
   color: var(--bg-primary);
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale, 1));
   font-weight: 700;
   font-family: 'BaronNeue', sans-serif;
   letter-spacing: 0.5px;
@@ -206,7 +206,7 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   color: var(--text-secondary);
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -242,7 +242,7 @@
   background: none;
   border: none;
   color: var(--accent-primary);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   font-weight: 600;
   cursor: pointer;
   padding: 0;

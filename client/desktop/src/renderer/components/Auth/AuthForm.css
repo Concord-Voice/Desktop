@@ -18,7 +18,7 @@
   width: 100%;
   margin: 0;
   padding: 0;
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   font-weight: 600;
   color: var(--text-primary);
   text-transform: uppercase;
@@ -33,7 +33,7 @@
   border: 2px solid var(--border-color);
   border-radius: 8px;
   color: var(--text-primary);
-  font-size: 15px;
+  font-size: calc(15px * var(--font-scale, 1));
   font-family: 'SourceSans', sans-serif;
   transition: all 0.2s ease;
 }
@@ -80,14 +80,14 @@
 
 /* Form Feedback Messages */
 .form-error {
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   color: var(--danger);
   margin-top: 4px;
   animation: fadeInShake 0.3s ease-out;
 }
 
 .form-success {
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   color: var(--success);
   margin-top: 4px;
   font-weight: 600;
@@ -120,7 +120,7 @@
 }
 
 .form-hint {
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   color: var(--text-muted);
   font-style: italic;
 }
@@ -135,14 +135,14 @@
   border: 1px solid rgba(240, 71, 71, 0.4);
   border-radius: 8px;
   color: var(--danger);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   font-weight: 500;
   animation: errorBannerSlideIn 0.3s ease-out;
 }
 
 .form-error-banner::before {
   content: '⚠️';
-  font-size: 16px;
+  font-size: calc(16px * var(--font-scale, 1));
   flex-shrink: 0;
 }
 
@@ -159,13 +159,13 @@
 
 /* Footer */
 .footer-text {
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   color: var(--text-secondary);
   text-align: center;
 }
 
 .footer-terms {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale, 1));
   color: var(--text-muted);
   line-height: 1.4;
   max-width: 400px;

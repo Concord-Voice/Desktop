@@ -3,7 +3,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 0 12px 12px;
+  padding: 0 calc(12px * var(--sp, 1)) calc(12px * var(--sp, 1));
   width: 100%;
 }
 
@@ -13,7 +13,7 @@
   height: 2px;
   background: var(--border-color);
   border-radius: 1px;
-  margin-bottom: 12px;
+  margin-bottom: calc(12px * var(--sp, 1));
 }
 
 /* Avatar button */
@@ -51,7 +51,7 @@
 }
 
 .user-avatar-initial {
-  font-size: 16px;
+  font-size: calc(16px * var(--font-scale, 1));
   font-weight: 700;
   font-family: 'BaronNeue', sans-serif;
   color: var(--text-primary);
