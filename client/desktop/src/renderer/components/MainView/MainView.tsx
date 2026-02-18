@@ -9,6 +9,7 @@ import ChannelContextMenu from '../Channels/ChannelContextMenu';
 import CreateChannelModal from '../Channels/CreateChannelModal';
 import EditChannelModal from '../Channels/EditChannelModal';
 import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
+import MemberList from '../Members/MemberList';
 import UserPanel from '../User/UserPanel';
 import { useServerStore } from '../../stores/serverStore';
 import { useChannelStore } from '../../stores/channelStore';
@@ -113,6 +114,7 @@ const MainView: React.FC = () => {
             </>
           )}
         </div>
+        {activeServer && <MemberList />}
       </div>
 
       <CreateServerModal

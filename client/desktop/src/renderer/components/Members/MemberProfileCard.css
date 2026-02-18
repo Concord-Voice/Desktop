@@ -1,0 +1,180 @@
+/* ─── Member Profile Card ───────────────────────────────────────────────── */
+
+.member-profile-card {
+  width: 280px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  animation: memberProfileFadeIn 0.15s ease;
+  overflow: hidden;
+}
+
+@keyframes memberProfileFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ─── Banner ────────────────────────────────────────────────────────────── */
+
+.member-profile-banner {
+  height: 60px;
+  background: var(--gradient-brand);
+  opacity: 0.6;
+}
+
+/* ─── Header / Avatar ───────────────────────────────────────────────────── */
+
+.member-profile-header {
+  display: flex;
+  padding: 0 calc(16px * var(--sp, 1));
+  margin-top: -24px;
+}
+
+.member-profile-avatar {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid var(--bg-secondary);
+  overflow: visible;
+}
+
+.member-profile-avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
+}
+
+.member-profile-avatar-initial {
+  font-size: calc(18px * var(--font-scale, 1));
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.member-profile-status {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 3px solid var(--bg-secondary);
+}
+
+.member-profile-status.online {
+  background-color: var(--success);
+}
+
+.member-profile-status.offline {
+  background-color: var(--text-muted);
+}
+
+/* ─── Body ──────────────────────────────────────────────────────────────── */
+
+.member-profile-body {
+  padding: calc(12px * var(--sp, 1)) calc(16px * var(--sp, 1))
+    calc(16px * var(--sp, 1));
+}
+
+.member-profile-name {
+  font-size: calc(16px * var(--font-scale, 1));
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-top: calc(4px * var(--sp, 1));
+}
+
+.member-profile-username {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ─── Separator ─────────────────────────────────────────────────────────── */
+
+.member-profile-separator {
+  height: 1px;
+  background: var(--border-color);
+  margin: calc(10px * var(--sp, 1)) 0;
+}
+
+/* ─── Details ───────────────────────────────────────────────────────────── */
+
+.member-profile-details {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6px * var(--sp, 1));
+}
+
+.member-profile-detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.member-profile-detail-label {
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.member-profile-detail-value {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-secondary);
+}
+
+.member-profile-detail-value.status-online {
+  color: var(--success);
+}
+
+.member-profile-detail-value.status-offline {
+  color: var(--text-muted);
+}
+
+/* ─── Role Badge ────────────────────────────────────────────────────────── */
+
+.member-profile-role-badge {
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 600;
+  padding: 2px calc(8px * var(--sp, 1));
+  border-radius: 10px;
+  text-transform: capitalize;
+}
+
+.member-profile-role-badge.role-owner {
+  background: var(--accent-primary);
+  color: #ffffff;
+}
+
+.member-profile-role-badge.role-admin {
+  background: var(--accent-secondary);
+  color: #000000;
+}
+
+.member-profile-role-badge.role-member {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+/* ─── Bio ───────────────────────────────────────────────────────────────── */
+
+.member-profile-bio p {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin-top: calc(4px * var(--sp, 1));
+  word-wrap: break-word;
+}
