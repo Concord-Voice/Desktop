@@ -4,42 +4,75 @@ import ServerContextMenu from '../Servers/ServerContextMenu';
 import ServerSettingsModal from '../Servers/ServerSettingsModal';
 import DeleteServerModal from '../Servers/DeleteServerModal';
 import CreateServerModal from '../Servers/CreateServerModal';
+import ChannelList from '../Channels/ChannelList';
+import ChannelContextMenu from '../Channels/ChannelContextMenu';
+import CreateChannelModal from '../Channels/CreateChannelModal';
 import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
 import UserPanel from '../User/UserPanel';
 import { useServerStore } from '../../stores/serverStore';
+import { useChannelStore } from '../../stores/channelStore';
 import { ServerWithRole } from '../../types/server';
+import { Channel } from '../../types/chat';
 import './MainView.css';
 
 const MainView: React.FC = () => {
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [contextMenu, setContextMenu] = useState<{
+  const [isCreateServerModalOpen, setIsCreateServerModalOpen] = useState(false);
+  const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] = useState(false);
+  const [serverContextMenu, setServerContextMenu] = useState<{
     server: ServerWithRole;
+    position: { x: number; y: number };
+  } | null>(null);
+  const [channelContextMenu, setChannelContextMenu] = useState<{
+    channel: Channel;
     position: { x: number; y: number };
   } | null>(null);
   const [editingServer, setEditingServer] = useState<ServerWithRole | null>(null);
   const [deletingServer, setDeletingServer] = useState<ServerWithRole | null>(null);
+  const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
+  const [deletingChannel, setDeletingChannel] = useState<Channel | null>(null);
 
   const servers = useServerStore((state) => state.servers);
   const activeServerId = useServerStore((state) => state.activeServerId);
   const setActiveServer = useServerStore((state) => state.setActiveServer);
   const activeServer = servers.find((s) => s.id === activeServerId) || null;
+  const setActiveChannel = useChannelStore((state) => state.setActiveChannel);
 
-  const handleCreateSuccess = (server: ServerWithRole) => {
+  const handleCreateServerSuccess = (server: ServerWithRole) => {
     setActiveServer(server.id);
   };
 
-  const handleContextMenu = (server: ServerWithRole, position: { x: number; y: number }) => {
-    setContextMenu({ server, position });
+  const handleCreateChannelSuccess = (channel: Channel) => {
+    setActiveChannel(channel.id);
+  };
+
+  const handleServerContextMenu = (server: ServerWithRole, position: { x: number; y: number }) => {
+    setServerContextMenu({ server, position });
   };
 
   const handleEditServer = (server: ServerWithRole) => {
-    setContextMenu(null);
+    setServerContextMenu(null);
     setEditingServer(server);
   };
 
   const handleDeleteServer = (server: ServerWithRole) => {
-    setContextMenu(null);
+    setServerContextMenu(null);
     setDeletingServer(server);
+  };
+
+  const handleChannelContextMenu = (channel: Channel, position: { x: number; y: number }) => {
+    setChannelContextMenu({ channel, position });
+  };
+
+  const handleEditChannel = (channel: Channel) => {
+    setChannelContextMenu(null);
+    setEditingChannel(channel);
+    // TODO: Open edit channel modal (Issue #16)
+  };
+
+  const handleDeleteChannel = (channel: Channel) => {
+    setChannelContextMenu(null);
+    setDeletingChannel(channel);
+    // TODO: Open delete channel modal (Issue #16)
   };
 
   return (
@@ -47,8 +80,8 @@ const MainView: React.FC = () => {
       <div className="sidebar">
         <div className="sidebar-servers">
           <ServerList
-            onOpenCreateModal={() => setIsCreateModalOpen(true)}
-            onContextMenu={handleContextMenu}
+            onOpenCreateModal={() => setIsCreateServerModalOpen(true)}
+            onContextMenu={handleServerContextMenu}
           />
         </div>
         <UserPanel />
@@ -56,13 +89,14 @@ const MainView: React.FC = () => {
 
       <div className="content">
         <div className="channels-sidebar">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 10px' }}>
+          <div className="channels-sidebar-header">
             <h3>{activeServer ? activeServer.name : 'Channels'}</h3>
             <ConnectionStatus />
           </div>
-          <p className="placeholder-text">
-            {activeServer ? 'No channels yet' : 'Select a server'}
-          </p>
+          <ChannelList
+            onOpenCreateModal={() => setIsCreateChannelModalOpen(true)}
+            onContextMenu={handleChannelContextMenu}
+          />
         </div>
         <div className="main-content">
           {activeServer ? (
@@ -82,16 +116,22 @@ const MainView: React.FC = () => {
       </div>
 
       <CreateServerModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        onSuccess={handleCreateSuccess}
+        isOpen={isCreateServerModalOpen}
+        onClose={() => setIsCreateServerModalOpen(false)}
+        onSuccess={handleCreateServerSuccess}
       />
 
-      {contextMenu && (
+      <CreateChannelModal
+        isOpen={isCreateChannelModalOpen}
+        onClose={() => setIsCreateChannelModalOpen(false)}
+        onSuccess={handleCreateChannelSuccess}
+      />
+
+      {serverContextMenu && (
         <ServerContextMenu
-          server={contextMenu.server}
-          position={contextMenu.position}
-          onClose={() => setContextMenu(null)}
+          server={serverContextMenu.server}
+          position={serverContextMenu.position}
+          onClose={() => setServerContextMenu(null)}
           onEditServer={handleEditServer}
           onDeleteServer={handleDeleteServer}
         />
@@ -110,6 +150,17 @@ const MainView: React.FC = () => {
           isOpen={!!deletingServer}
           server={deletingServer}
           onClose={() => setDeletingServer(null)}
+        />
+      )}
+
+      {channelContextMenu && activeServer && (
+        <ChannelContextMenu
+          channel={channelContextMenu.channel}
+          position={channelContextMenu.position}
+          userRole={activeServer.role}
+          onClose={() => setChannelContextMenu(null)}
+          onEditChannel={handleEditChannel}
+          onDeleteChannel={handleDeleteChannel}
         />
       )}
     </div>

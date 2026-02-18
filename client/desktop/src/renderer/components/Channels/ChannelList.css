@@ -1,0 +1,187 @@
+.channel-list {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--bg-secondary);
+  overflow-y: auto;
+}
+
+/* Header */
+.channel-list-header {
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.create-channel-btn {
+  width: 100%;
+  padding: 8px 12px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.create-channel-btn:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--accent-color);
+}
+
+.create-channel-btn:active {
+  transform: scale(0.98);
+}
+
+/* Channel Groups */
+.channel-group {
+  margin: 16px 0;
+}
+
+.channel-group-header {
+  padding: 4px 12px;
+  margin-bottom: 4px;
+}
+
+.channel-group-header span {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Channel Items */
+.channel-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  margin: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.channel-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.channel-item.active {
+  background-color: var(--bg-active);
+  color: var(--accent-color);
+}
+
+.channel-icon {
+  margin-right: 8px;
+  font-size: 16px;
+  color: var(--text-secondary);
+  min-width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.channel-item.active .channel-icon {
+  color: var(--accent-color);
+}
+
+.channel-name {
+  font-size: 14px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Loading Skeletons */
+.channel-list-skeletons {
+  padding: 12px;
+}
+
+.channel-skeleton {
+  height: 32px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-tertiary) 25%,
+    var(--bg-hover) 50%,
+    var(--bg-tertiary) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.5s ease-in-out infinite;
+  border-radius: 4px;
+  margin-bottom: 8px;
+}
+
+@keyframes skeleton-loading {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Error State */
+.channel-list-error {
+  padding: 20px;
+  text-align: center;
+  color: var(--error-color);
+}
+
+.channel-list-error p {
+  margin-bottom: 12px;
+  font-size: 14px;
+}
+
+.retry-btn {
+  padding: 8px 16px;
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.retry-btn:hover {
+  background-color: var(--bg-hover);
+  border-color: var(--accent-color);
+}
+
+/* Empty State */
+.channel-list-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.channel-list-empty p {
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.empty-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* Scrollbar Styling */
+.channel-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.channel-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.channel-list::-webkit-scrollbar-thumb {
+  background-color: var(--bg-tertiary);
+  border-radius: 4px;
+}
+
+.channel-list::-webkit-scrollbar-thumb:hover {
+  background-color: var(--bg-hover);
+}
