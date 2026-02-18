@@ -9,6 +9,7 @@ export interface MessageProps {
   onEdit?: (messageId: string, newContent: string) => void;
   onDelete?: (messageId: string) => void;
   showAvatar?: boolean;
+  shiftHeld?: boolean;
 }
 
 const Message: React.FC<MessageProps> = ({
@@ -17,6 +18,7 @@ const Message: React.FC<MessageProps> = ({
   onEdit,
   onDelete,
   showAvatar = true,
+  shiftHeld = false,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
@@ -172,6 +174,18 @@ const Message: React.FC<MessageProps> = ({
 
         {isOwnMessage && !isEditing && (
           <div className="message-options" ref={optionsRef}>
+            {shiftHeld && onDelete && (
+              <button
+                className="message-quick-delete"
+                onClick={() => onDelete(message.id)}
+                aria-label="Delete message"
+                title="Delete message"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M2.5 4.5h11M6 4.5V3.5h4v1M4 4.5v8.5a1 1 0 001 1h6a1 1 0 001-1V4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
             <button
               className="message-options-trigger"
               onClick={() => setShowOptions(!showOptions)}

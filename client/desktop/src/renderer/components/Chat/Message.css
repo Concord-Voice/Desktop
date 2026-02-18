@@ -189,12 +189,34 @@
   position: absolute;
   top: -4px;
   right: 0;
+  display: flex;
+  gap: 4px;
+  align-items: center;
   opacity: 0;
   transition: opacity 0.15s ease;
 }
 
 .message:hover .message-options {
   opacity: 1;
+}
+
+/* Quick delete button (Shift+hover) */
+.message-quick-delete {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 6px;
+  cursor: pointer;
+  color: var(--danger);
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-quick-delete:hover {
+  background-color: rgba(240, 71, 71, 0.15);
+  border-color: var(--danger);
 }
 
 .message-options-trigger {

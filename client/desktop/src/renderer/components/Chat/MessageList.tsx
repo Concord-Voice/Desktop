@@ -31,6 +31,18 @@ const MessageList: React.FC<MessageListProps> = ({
   const bottomRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
+  const [shiftHeld, setShiftHeld] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Shift') setShiftHeld(true); };
+    const onKeyUp = (e: KeyboardEvent) => { if (e.key === 'Shift') setShiftHeld(false); };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
 
   // Auto-scroll when messages change (new message arrives) if user is near bottom
   useEffect(() => {
@@ -169,6 +181,7 @@ const MessageList: React.FC<MessageListProps> = ({
               onEdit={onEditMessage}
               onDelete={onDeleteMessage}
               showAvatar={shouldShowAvatar(index)}
+              shiftHeld={shiftHeld}
             />
           </React.Fragment>
         ))}
