@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { Hash, Volume2, Pin } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useChannelStore } from '../../stores/channelStore';
 import { useServerStore } from '../../stores/serverStore';
@@ -47,9 +48,17 @@ const ChannelList: React.FC<ChannelListProps> = ({
   const voiceChannels = channels.filter((c) => c.type === 'voice');
   const bulletinChannels = channels.filter((c) => c.type === 'bulletin');
 
-  const getChannelIcon = (channel: Channel) => {
-    // Use custom emoji if set, otherwise default to #
-    return channel.emoji || '#';
+  const getChannelTypeIcon = (type: Channel['type']) => {
+    switch (type) {
+      case 'text':
+        return <Hash size={16} />;
+      case 'voice':
+        return <Volume2 size={16} />;
+      case 'bulletin':
+        return <Pin size={16} />;
+      default:
+        return <Hash size={16} />;
+    }
   };
 
   // No server selected
@@ -127,9 +136,12 @@ const ChannelList: React.FC<ChannelListProps> = ({
                   onContextMenu={(e) => handleContextMenu(e, channel)}
                   title={channel.name}
                 >
-                  <span className="channel-icon">
-                    {getChannelIcon(channel)}
+                  <span className="channel-type-icon">
+                    {getChannelTypeIcon(channel.type)}
                   </span>
+                  {channel.emoji && (
+                    <span className="channel-custom-emoji">{channel.emoji}</span>
+                  )}
                   <span className="channel-name">{channel.name}</span>
                 </div>
               ))}
@@ -152,9 +164,12 @@ const ChannelList: React.FC<ChannelListProps> = ({
                   onContextMenu={(e) => handleContextMenu(e, channel)}
                   title={channel.name}
                 >
-                  <span className="channel-icon">
-                    {getChannelIcon(channel)}
+                  <span className="channel-type-icon">
+                    {getChannelTypeIcon(channel.type)}
                   </span>
+                  {channel.emoji && (
+                    <span className="channel-custom-emoji">{channel.emoji}</span>
+                  )}
                   <span className="channel-name">{channel.name}</span>
                 </div>
               ))}
@@ -177,9 +192,12 @@ const ChannelList: React.FC<ChannelListProps> = ({
                   onContextMenu={(e) => handleContextMenu(e, channel)}
                   title={channel.name}
                 >
-                  <span className="channel-icon">
-                    {getChannelIcon(channel)}
+                  <span className="channel-type-icon">
+                    {getChannelTypeIcon(channel.type)}
                   </span>
+                  {channel.emoji && (
+                    <span className="channel-custom-emoji">{channel.emoji}</span>
+                  )}
                   <span className="channel-name">{channel.name}</span>
                 </div>
               ))}

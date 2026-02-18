@@ -7,6 +7,7 @@ import CreateServerModal from '../Servers/CreateServerModal';
 import ChannelList from '../Channels/ChannelList';
 import ChannelContextMenu from '../Channels/ChannelContextMenu';
 import CreateChannelModal from '../Channels/CreateChannelModal';
+import EditChannelModal from '../Channels/EditChannelModal';
 import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
 import UserPanel from '../User/UserPanel';
 import { useServerStore } from '../../stores/serverStore';
@@ -66,7 +67,6 @@ const MainView: React.FC = () => {
   const handleEditChannel = (channel: Channel) => {
     setChannelContextMenu(null);
     setEditingChannel(channel);
-    // TODO: Open edit channel modal (Issue #16)
   };
 
   const handleDeleteChannel = (channel: Channel) => {
@@ -161,6 +161,14 @@ const MainView: React.FC = () => {
           onClose={() => setChannelContextMenu(null)}
           onEditChannel={handleEditChannel}
           onDeleteChannel={handleDeleteChannel}
+        />
+      )}
+
+      {editingChannel && (
+        <EditChannelModal
+          isOpen={!!editingChannel}
+          channel={editingChannel}
+          onClose={() => setEditingChannel(null)}
         />
       )}
     </div>

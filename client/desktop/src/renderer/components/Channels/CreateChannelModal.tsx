@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
+import { Hash, Volume2, Pin } from 'lucide-react';
 import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useAuthStore } from '../../stores/authStore';
@@ -33,10 +35,33 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const accessToken = useAuthStore((state) => state.accessToken);
   const activeServerId = useServerStore((state) => state.activeServerId);
   const addChannel = useChannelStore((state) => state.addChannel);
+
+  const emojiPickerRef = useRef<HTMLDivElement>(null);
+
+  // Close emoji picker when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        emojiPickerRef.current &&
+        !emojiPickerRef.current.contains(event.target as Node)
+      ) {
+        setShowEmojiPicker(false);
+      }
+    };
+
+    if (showEmojiPicker) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showEmojiPicker]);
 
   const resetForm = () => {
     setName('');
@@ -45,6 +70,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
     setErrors({});
     setIsSubmitting(false);
     setSuccessMessage(null);
+    setShowEmojiPicker(false);
   };
 
   const handleClose = () => {
@@ -130,9 +156,22 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
     }
   };
 
+  const handleEmojiClick = (emojiData: EmojiClickData) => {
+    setEmoji(emojiData.emoji);
+    setShowEmojiPicker(false);
+  };
+
   const getChannelTypeIcon = (channelType: 'text' | 'voice' | 'bulletin') => {
-    // Always return # - admins can set custom emojis if desired
-    return '#';
+    switch (channelType) {
+      case 'text':
+        return <Hash size={20} />;
+      case 'voice':
+        return <Volume2 size={20} />;
+      case 'bulletin':
+        return <Pin size={20} />;
+      default:
+        return <Hash size={20} />;
+    }
   };
 
   return (
@@ -175,16 +214,34 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
           <label htmlFor="channel-emoji" className="form-label">
             Channel Emoji (Optional)
           </label>
-          <input
-            id="channel-emoji"
-            type="text"
-            className="form-input"
-            value={emoji}
-            onChange={(e) => setEmoji(e.target.value)}
-            placeholder="😀 (optional)"
-            maxLength={2}
-            disabled={isSubmitting}
-          />
+          <div className="emoji-input-wrapper" ref={emojiPickerRef}>
+            <div className="emoji-input-container">
+              <input
+                id="channel-emoji"
+                type="text"
+                className="form-input"
+                value={emoji}
+                onChange={(e) => setEmoji(e.target.value)}
+                placeholder="😀 (optional)"
+                maxLength={2}
+                disabled={isSubmitting}
+              />
+              <button
+                type="button"
+                className="emoji-picker-button"
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                disabled={isSubmitting}
+                title="Pick an emoji"
+              >
+                😀
+              </button>
+            </div>
+            {showEmojiPicker && (
+              <div className="emoji-picker-container">
+                <EmojiPicker onEmojiClick={handleEmojiClick} />
+              </div>
+            )}
+          </div>
           <span className="form-hint">
             Add a custom emoji to represent this channel
           </span>
