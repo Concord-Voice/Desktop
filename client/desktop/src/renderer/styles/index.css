@@ -344,6 +344,12 @@ body {
   display: flex;
 }
 
+.content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
 .sidebar {
   width: 72px;
   background-color: var(--bg-primary);
