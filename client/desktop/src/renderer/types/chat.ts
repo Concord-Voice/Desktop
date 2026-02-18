@@ -28,7 +28,7 @@ export interface Channel {
   server_id: string;
   name: string;
   description?: string;
-  type: 'text' | 'voice';
+  type: 'text' | 'voice' | 'bulletin';
   position: number;
   created_at: string;
   updated_at: string;
