@@ -40,9 +40,17 @@ const UserPanel: React.FC = () => {
             title={user.username}
             aria-label={`User menu for ${user.username}`}
           >
-            <span className="user-avatar-initial">
-              {user.username.charAt(0).toUpperCase()}
-            </span>
+            {user.avatar_url ? (
+              <img
+                src={user.avatar_url}
+                alt={user.username}
+                className="user-avatar-img"
+              />
+            ) : (
+              <span className="user-avatar-initial">
+                {user.username.charAt(0).toUpperCase()}
+              </span>
+            )}
             <div className="user-status-dot" />
           </button>
 
