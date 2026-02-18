@@ -5,6 +5,7 @@
  */
 
 import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
 import type { MessageWithStatus } from '../types/chat';
 
 export interface TypingUser {
@@ -45,11 +46,13 @@ interface ChatState {
   reset: () => void;
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
-  messagesByChannel: new Map(),
-  typingByChannel: new Map(),
-  isConnected: false,
-  connectionClientId: null,
+export const useChatStore = create<ChatState>()(
+  devtools(
+    (set, get) => ({
+      messagesByChannel: new Map(),
+      typingByChannel: new Map(),
+      isConnected: false,
+      connectionClientId: null,
 
   // Add a new message to a channel
   addMessage: (channelId, message) =>
@@ -239,4 +242,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       isConnected: false,
       connectionClientId: null,
     }),
-}));
+    }),
+    { name: 'ChatStore' }
+  )
+);

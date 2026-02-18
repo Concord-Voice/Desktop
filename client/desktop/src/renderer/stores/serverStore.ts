@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { persist, devtools } from 'zustand/middleware';
 import { ServerWithRole } from '../types/server';
 
 interface ServerState {
@@ -15,11 +16,14 @@ interface ServerState {
   clearServers: () => void;
 }
 
-export const useServerStore = create<ServerState>()((set, get) => ({
-  servers: [],
-  activeServerId: null,
-  isLoading: false,
-  error: null,
+export const useServerStore = create<ServerState>()(
+  devtools(
+    persist(
+      (set, get) => ({
+        servers: [],
+        activeServerId: null,
+        isLoading: false,
+        error: null,
 
   fetchServers: async (accessToken: string) => {
     set({ isLoading: true, error: null });
@@ -73,4 +77,12 @@ export const useServerStore = create<ServerState>()((set, get) => ({
   clearServers: () => {
     set({ servers: [], activeServerId: null, isLoading: false, error: null });
   },
-}));
+      }),
+      {
+        name: 'concord-servers',
+        partialize: (state) => ({ activeServerId: state.activeServerId }),
+      }
+    ),
+    { name: 'ServerStore' }
+  )
+);

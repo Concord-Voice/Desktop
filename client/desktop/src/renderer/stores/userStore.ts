@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { devtools } from 'zustand/middleware';
 import { useAuthStore } from './authStore';
 import { useServerStore } from './serverStore';
 import {
@@ -43,10 +44,12 @@ interface UserState {
   changePassword: (accessToken: string, currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
 }
 
-export const useUserStore = create<UserState>()((set) => ({
-  user: null,
-  isLoading: false,
-  error: null,
+export const useUserStore = create<UserState>()(
+  devtools(
+    (set) => ({
+      user: null,
+      isLoading: false,
+      error: null,
 
   fetchUser: async (accessToken: string) => {
     set({ isLoading: true, error: null });
@@ -201,4 +204,7 @@ export const useUserStore = create<UserState>()((set) => ({
       };
     }
   },
-}));
+    }),
+    { name: 'UserStore' }
+  )
+);
