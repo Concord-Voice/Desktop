@@ -85,7 +85,12 @@ export class WebSocketService {
     this.reconnectAttempts = 0;
 
     if (this.ws) {
-      this.ws.close(1000, 'Client disconnect');
+      // Only close if fully connected to avoid "WebSocket is closed before connection is established" error
+      // This prevents noisy errors in React Strict Mode where cleanup runs immediately after mount
+      if (this.ws.readyState === WebSocket.OPEN) {
+        this.ws.close(1000, 'Client disconnect');
+      }
+      // If still connecting or closing, just clear the reference without calling close()
       this.ws = null;
     }
 
