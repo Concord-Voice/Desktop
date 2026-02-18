@@ -1,8 +1,14 @@
 .message {
   display: flex;
   gap: 12px;
-  padding: 8px 16px;
+  padding: 2px 16px;
+  padding-top: 8px;
   transition: background-color 0.15s ease;
+}
+
+.message.message-grouped {
+  padding-top: 2px;
+  padding-bottom: 2px;
 }
 
 .message:hover {
@@ -11,6 +17,26 @@
 
 .message-avatar {
   flex-shrink: 0;
+}
+
+/* Gutter for grouped messages — holds hover timestamp */
+.message-gutter {
+  flex-shrink: 0;
+  width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-gutter-timestamp {
+  display: none;
+  font-size: calc(10px * var(--font-scale, 1));
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.message.message-grouped:hover .message-gutter-timestamp {
+  display: block;
 }
 
 .avatar-circle {
@@ -25,6 +51,13 @@
   font-size: calc(16px * var(--font-scale, 1));
   font-weight: 600;
   color: var(--bg-primary);
+}
+
+.avatar-image {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 .message-content-wrapper {
@@ -57,6 +90,13 @@
   font-style: italic;
 }
 
+.message-edited-inline {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--text-muted);
+  font-style: italic;
+  margin-left: 4px;
+}
+
 .message-text {
   color: var(--text-secondary);
   font-size: calc(15px * var(--font-scale, 1));
@@ -73,11 +113,11 @@
 
 /* Own message styling */
 .own-message {
-  background-color: rgba(250, 112, 154, 0.05);
+  background-color: color-mix(in srgb, var(--accent-primary) 5%, transparent);
 }
 
 .own-message:hover {
-  background-color: rgba(250, 112, 154, 0.1);
+  background-color: color-mix(in srgb, var(--accent-primary) 10%, transparent);
 }
 
 /* Edit mode */

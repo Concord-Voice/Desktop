@@ -74,7 +74,7 @@ export class MessageQueue {
     this.trimQueue();
     this.saveQueue();
 
-    console.log(`[MessageQueue] Enqueued message ${messageId} for channel ${channelId}`);
+    console.debug(`[MessageQueue] Enqueued ${messageId} for channel ${channelId}`);
 
     return messageId;
   }
@@ -88,7 +88,7 @@ export class MessageQueue {
       message.status = MessageStatus.SENT;
       this.saveQueue();
       this.callbacks.onMessageSent?.(messageId);
-      console.log(`[MessageQueue] Message ${messageId} marked as sent`);
+      console.debug(`[MessageQueue] ${messageId} marked as sent`);
     }
   }
 
@@ -106,7 +106,7 @@ export class MessageQueue {
       this.saveQueue();
 
       this.callbacks.onMessageDelivered?.(messageId, serverMessageId);
-      console.log(`[MessageQueue] Message ${messageId} delivered, removed from queue`);
+      console.debug(`[MessageQueue] ${messageId} delivered, removed from queue`);
     }
   }
 
@@ -161,7 +161,7 @@ export class MessageQueue {
     if (index >= 0) {
       this.queue.splice(index, 1);
       this.saveQueue();
-      console.log(`[MessageQueue] Message ${messageId} removed from queue`);
+      console.debug(`[MessageQueue] ${messageId} removed from queue`);
     }
   }
 
@@ -171,7 +171,7 @@ export class MessageQueue {
   clear(): void {
     this.queue = [];
     this.saveQueue();
-    console.log('[MessageQueue] Queue cleared');
+    console.debug('[MessageQueue] Queue cleared');
   }
 
   /**
@@ -180,7 +180,7 @@ export class MessageQueue {
   clearChannel(channelId: string): void {
     this.queue = this.queue.filter(m => m.channelId !== channelId);
     this.saveQueue();
-    console.log(`[MessageQueue] Cleared messages for channel ${channelId}`);
+    console.debug(`[MessageQueue] Cleared channel ${channelId}`);
   }
 
   /**
@@ -198,7 +198,7 @@ export class MessageQueue {
       return; // Already processing
     }
 
-    console.log('[MessageQueue] Started queue processing');
+    console.debug('[MessageQueue] Started queue processing');
 
     // Process immediately
     this.processQueue(sendFn);
@@ -216,7 +216,7 @@ export class MessageQueue {
     if (this.processingInterval) {
       clearInterval(this.processingInterval);
       this.processingInterval = null;
-      console.log('[MessageQueue] Stopped queue processing');
+      console.debug('[MessageQueue] Stopped queue processing');
     }
   }
 
@@ -229,12 +229,13 @@ export class MessageQueue {
       return;
     }
 
-    console.log(`[MessageQueue] Processing ${pending.length} pending messages`);
+    console.debug(`[MessageQueue] Processing ${pending.length} pending messages`);
 
     for (const message of pending) {
       try {
         await sendFn(message);
         this.markAsSent(message.id);
+        this.remove(message.id); // Server has persisted it — remove from queue
       } catch (error) {
         console.error(`[MessageQueue] Failed to send message ${message.id}:`, error);
         this.markAsFailed(message.id, String(error));
@@ -276,15 +277,19 @@ export class MessageQueue {
     try {
       const stored = localStorage.getItem(QUEUE_STORAGE_KEY);
       if (stored) {
-        this.queue = JSON.parse(stored);
-        console.log(`[MessageQueue] Loaded ${this.queue.length} messages from storage`);
+        const loaded: QueuedMessage[] = JSON.parse(stored);
+        // Only keep PENDING messages — SENT messages were already persisted
+        // server-side and should not be replayed
+        this.queue = loaded.filter(m => m.status === MessageStatus.PENDING);
 
-        // Reset all "sent" messages to "pending" on load (in case app crashed while sending)
-        this.queue.forEach(m => {
-          if (m.status === MessageStatus.SENT) {
-            m.status = MessageStatus.PENDING;
-          }
-        });
+        if (loaded.length !== this.queue.length) {
+          console.debug(`[MessageQueue] Discarded ${loaded.length - this.queue.length} already-sent messages`);
+          this.saveQueue();
+        }
+
+        if (this.queue.length > 0) {
+          console.debug(`[MessageQueue] Loaded ${this.queue.length} pending messages from storage`);
+        }
       }
     } catch (error) {
       console.error('[MessageQueue] Failed to load queue from localStorage:', error);

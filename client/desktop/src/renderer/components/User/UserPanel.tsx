@@ -14,7 +14,7 @@ const UserPanel: React.FC = () => {
   // Fetch user data if not already loaded (e.g., on page refresh)
   useEffect(() => {
     if (accessToken && !user) {
-      fetchUser(accessToken);
+      fetchUser();
     }
   }, [accessToken, user, fetchUser]);
 

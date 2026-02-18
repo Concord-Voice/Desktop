@@ -1,14 +1,17 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { Channel } from '../types/chat';
+import { apiFetch } from '../services/apiClient';
 
 interface ChannelState {
   channels: Channel[];
   activeChannelId: string | null;
+  currentServerId: string | null;
+  lastChannelByServer: Record<string, string>;
   isLoading: boolean;
   error: string | null;
 
-  fetchChannels: (serverId: string, accessToken: string) => Promise<void>;
+  fetchChannels: (serverId: string) => Promise<void>;
   addChannel: (channel: Channel) => void;
   updateChannel: (channelId: string, updates: Partial<Channel>) => void;
   removeChannel: (channelId: string) => void;
@@ -22,20 +25,36 @@ export const useChannelStore = create<ChannelState>()(
       (set, get) => ({
         channels: [],
         activeChannelId: null,
+        currentServerId: null,
+        lastChannelByServer: {},
         isLoading: false,
         error: null,
 
-        fetchChannels: async (serverId: string, accessToken: string) => {
-          set({ isLoading: true, error: null });
+        fetchChannels: async (serverId: string) => {
+          const { activeChannelId, currentServerId, lastChannelByServer } = get();
+
+          // Save current channel for the server we're leaving
+          const updatedLastChannel = { ...lastChannelByServer };
+          if (currentServerId && activeChannelId) {
+            updatedLastChannel[currentServerId] = activeChannelId;
+          }
+
+          // Clear active channel immediately when switching servers
+          if (serverId !== currentServerId) {
+            set({
+              activeChannelId: null,
+              currentServerId: serverId,
+              lastChannelByServer: updatedLastChannel,
+              isLoading: true,
+              error: null,
+            });
+          } else {
+            set({ isLoading: true, error: null });
+          }
 
           try {
-            const response = await fetch(
-              `http://localhost:8080/api/v1/servers/${serverId}/channels`,
-              {
-                headers: {
-                  Authorization: `Bearer ${accessToken}`,
-                },
-              }
+            const response = await apiFetch(
+              `/api/v1/servers/${serverId}/channels`
             );
 
             if (!response.ok) {
@@ -44,7 +63,26 @@ export const useChannelStore = create<ChannelState>()(
             }
 
             const data = await response.json();
-            set({ channels: data.channels || [], isLoading: false });
+            const channels: Channel[] = data.channels || [];
+
+            // Restore last-viewed channel for this server, or pick first text channel
+            const lastChannel = updatedLastChannel[serverId];
+            let nextChannelId: string | null = null;
+
+            if (lastChannel && channels.some((c) => c.id === lastChannel)) {
+              nextChannelId = lastChannel;
+            } else {
+              const firstText = channels.find((c) => c.type === 'text');
+              if (firstText) {
+                nextChannelId = firstText.id;
+              }
+            }
+
+            set({
+              channels,
+              activeChannelId: nextChannelId,
+              isLoading: false,
+            });
           } catch (error) {
             set({
               error:
@@ -78,13 +116,25 @@ export const useChannelStore = create<ChannelState>()(
         },
 
         setActiveChannel: (channelId: string | null) => {
-          set({ activeChannelId: channelId });
+          const { currentServerId, lastChannelByServer } = get();
+          const updates: Partial<ChannelState> = { activeChannelId: channelId };
+
+          // Track last-viewed channel per server
+          if (currentServerId && channelId) {
+            updates.lastChannelByServer = {
+              ...lastChannelByServer,
+              [currentServerId]: channelId,
+            };
+          }
+
+          set(updates as ChannelState);
         },
 
         clearChannels: () => {
           set({
             channels: [],
             activeChannelId: null,
+            currentServerId: null,
             isLoading: false,
             error: null,
           });
@@ -92,7 +142,11 @@ export const useChannelStore = create<ChannelState>()(
       }),
       {
         name: 'concord-channels',
-        partialize: (state) => ({ activeChannelId: state.activeChannelId }),
+        partialize: (state) => ({
+          activeChannelId: state.activeChannelId,
+          currentServerId: state.currentServerId,
+          lastChannelByServer: state.lastChannelByServer,
+        }),
       }
     ),
     { name: 'ChannelStore' }

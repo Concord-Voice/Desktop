@@ -23,6 +23,7 @@ interface ChatState {
 
   // Connection status
   isConnected: boolean;
+  connectionState: 'connected' | 'connecting' | 'disconnected';
   connectionClientId: string | null;
 
   // Actions
@@ -40,7 +41,7 @@ interface ChatState {
   clearOldTypingIndicators: (channelId: string, maxAge?: number) => void;
 
   // Connection
-  setConnectionStatus: (isConnected: boolean, clientId?: string) => void;
+  setConnectionStatus: (isConnected: boolean, clientId?: string, connectionState?: 'connected' | 'connecting' | 'disconnected') => void;
 
   // Cleanup
   reset: () => void;
@@ -52,6 +53,7 @@ export const useChatStore = create<ChatState>()(
       messagesByChannel: new Map(),
       typingByChannel: new Map(),
       isConnected: false,
+      connectionState: 'disconnected',
       connectionClientId: null,
 
   // Add a new message to a channel
@@ -228,9 +230,10 @@ export const useChatStore = create<ChatState>()(
     }),
 
   // Set connection status
-  setConnectionStatus: (isConnected, clientId) =>
+  setConnectionStatus: (isConnected, clientId, connectionState) =>
     set({
       isConnected,
+      connectionState: connectionState || (isConnected ? 'connected' : 'disconnected'),
       connectionClientId: clientId || null,
     }),
 
@@ -240,6 +243,7 @@ export const useChatStore = create<ChatState>()(
       messagesByChannel: new Map(),
       typingByChannel: new Map(),
       isConnected: false,
+      connectionState: 'disconnected',
       connectionClientId: null,
     }),
     }),

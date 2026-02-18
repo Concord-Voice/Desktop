@@ -11,6 +11,8 @@ export interface Message {
 
 export interface MessageWithUser extends Message {
   username: string;
+  display_name?: string;
+  avatar_url?: string;
 }
 
 /**

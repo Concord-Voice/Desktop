@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { useAuthStore } from './authStore';
 import { useServerStore } from './serverStore';
+import { apiFetch } from '../services/apiClient';
 import {
   deriveKeyFromPassword,
   unwrapPrivateKey,
@@ -36,12 +37,12 @@ interface UserState {
   isLoading: boolean;
   error: string | null;
 
-  fetchUser: (accessToken: string) => Promise<void>;
+  fetchUser: () => Promise<void>;
   setUser: (user: UserProfile) => void;
   clearUser: () => void;
   logout: () => Promise<void>;
-  updateProfile: (accessToken: string, updates: UpdateProfileData) => Promise<void>;
-  changePassword: (accessToken: string, currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
+  updateProfile: (updates: UpdateProfileData) => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 export const useUserStore = create<UserState>()(
@@ -51,18 +52,14 @@ export const useUserStore = create<UserState>()(
       isLoading: false,
       error: null,
 
-  fetchUser: async (accessToken: string) => {
+  fetchUser: async () => {
     set({ isLoading: true, error: null });
 
     try {
-      const response = await fetch('http://localhost:8080/api/v1/users/me', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
+      const response = await apiFetch('/api/v1/users/me');
 
       if (response.status === 401) {
-        // Token expired — clear auth and let ProtectedRoute redirect
+        // Token expired and refresh failed — clear auth
         useAuthStore.getState().clearTokens();
         set({ user: null, isLoading: false, error: null });
         return;
@@ -99,7 +96,6 @@ export const useUserStore = create<UserState>()(
       });
     } catch (error) {
       console.error('Logout API error:', error);
-      // Continue with local cleanup even if server call fails
     }
 
     // Clear all stores
@@ -108,13 +104,10 @@ export const useUserStore = create<UserState>()(
     useServerStore.getState().clearServers();
   },
 
-  updateProfile: async (accessToken: string, updates: UpdateProfileData) => {
-    const response = await fetch('http://localhost:8080/api/v1/users/me', {
+  updateProfile: async (updates: UpdateProfileData) => {
+    const response = await apiFetch('/api/v1/users/me', {
       method: 'PATCH',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
     });
 
@@ -139,12 +132,10 @@ export const useUserStore = create<UserState>()(
     set({ user: data.user });
   },
 
-  changePassword: async (accessToken: string, currentPassword: string, newPassword: string) => {
+  changePassword: async (currentPassword: string, newPassword: string) => {
     try {
       // Step 1: Fetch current E2EE keys from the server
-      const keysRes = await fetch('http://localhost:8080/api/v1/users/me/keys', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      const keysRes = await apiFetch('/api/v1/users/me/keys');
 
       if (!keysRes.ok) {
         const keysData = await keysRes.json();
@@ -166,12 +157,9 @@ export const useUserStore = create<UserState>()(
       const newWrappedKey = await wrapPrivateKey(privateKey, newWrappingKey);
 
       // Step 4: Send password change with re-wrapped keys
-      const response = await fetch('http://localhost:8080/api/v1/users/me/password', {
+      const response = await apiFetch('/api/v1/users/me/password', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           current_password: currentPassword,
           new_password: newPassword,

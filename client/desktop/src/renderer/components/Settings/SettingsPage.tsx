@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import { useUserStore } from '../../stores/userStore';
 import { useSettingsStore, AppearanceSettings } from '../../stores/settingsStore';
+import { apiFetch } from '../../services/apiClient';
 import ServerList from '../Servers/ServerList';
 import UserPanel from '../User/UserPanel';
 import LoadingSpinner from '../Auth/LoadingSpinner';
@@ -186,9 +187,7 @@ const PrivacySecuritySection: React.FC = () => {
     setError(null);
 
     try {
-      const response = await fetch('http://localhost:8080/api/v1/sessions', {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      const response = await apiFetch('/api/v1/sessions');
 
       if (!response.ok) {
         const data = await response.json();
@@ -213,9 +212,8 @@ const PrivacySecuritySection: React.FC = () => {
     setRevokingId(sessionId);
 
     try {
-      const response = await fetch(`http://localhost:8080/api/v1/sessions/${sessionId}`, {
+      const response = await apiFetch(`/api/v1/sessions/${sessionId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${accessToken}` },
       });
 
       if (!response.ok) {
@@ -236,10 +234,8 @@ const PrivacySecuritySection: React.FC = () => {
     setIsRevokingAll(true);
 
     try {
-      const response = await fetch('http://localhost:8080/api/v1/sessions', {
+      const response = await apiFetch('/api/v1/sessions', {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${accessToken}` },
-        credentials: 'include',
       });
 
       if (!response.ok) {
