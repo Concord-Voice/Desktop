@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import AuthFlow from './components/Auth/AuthFlow';
 import MainView from './components/MainView/MainView';
+import ProfilePage from './components/Profile/ProfilePage';
 import { useAuthStore } from './stores/authStore';
 
 function ProtectedRoute({ children }: { children: React.ReactElement }) {
@@ -40,6 +41,11 @@ function App() {
         <Route path="/app" element={
           <ProtectedRoute>
             <MainView />
+          </ProtectedRoute>
+        } />
+        <Route path="/app/profile" element={
+          <ProtectedRoute>
+            <ProfilePage />
           </ProtectedRoute>
         } />
       </Routes>

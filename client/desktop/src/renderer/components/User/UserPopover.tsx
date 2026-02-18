@@ -51,9 +51,17 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
       {/* User info header */}
       <div className="user-popover-header">
         <div className="user-popover-avatar">
-          <span className="user-popover-avatar-initial">
-            {user.username.charAt(0).toUpperCase()}
-          </span>
+          {user.avatar_url ? (
+            <img
+              src={user.avatar_url}
+              alt={user.username}
+              className="user-popover-avatar-img"
+            />
+          ) : (
+            <span className="user-popover-avatar-initial">
+              {user.username.charAt(0).toUpperCase()}
+            </span>
+          )}
         </div>
         <div className="user-popover-info">
           <span className="user-popover-username">{user.username}</span>
@@ -71,7 +79,7 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
       <div className="user-popover-separator" />
 
       {/* Menu items */}
-      <button className="user-popover-item" onClick={onClose}>
+      <button className="user-popover-item" onClick={() => { onClose(); navigate('/app/profile'); }}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" />
           <path

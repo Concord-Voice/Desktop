@@ -1,13 +1,33 @@
 import { create } from 'zustand';
 import { useAuthStore } from './authStore';
 import { useServerStore } from './serverStore';
+import {
+  deriveKeyFromPassword,
+  unwrapPrivateKey,
+  wrapPrivateKey,
+  generateSalt,
+  base64ToArrayBuffer,
+  arrayBufferToBase64,
+} from '../utils/crypto';
 
 export interface UserProfile {
   id: string;
   username: string;
   email?: string;
+  display_name?: string;
+  bio?: string;
+  avatar_url?: string;
+  links?: string[];
   e2ee_preference: boolean;
   created_at?: string;
+}
+
+export interface UpdateProfileData {
+  username?: string;
+  display_name?: string | null;
+  bio?: string | null;
+  avatar_url?: string | null;
+  links?: string[];
 }
 
 interface UserState {
@@ -19,6 +39,8 @@ interface UserState {
   setUser: (user: UserProfile) => void;
   clearUser: () => void;
   logout: () => Promise<void>;
+  updateProfile: (accessToken: string, updates: UpdateProfileData) => Promise<void>;
+  changePassword: (accessToken: string, currentPassword: string, newPassword: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 export const useUserStore = create<UserState>()((set) => ({
@@ -81,5 +103,102 @@ export const useUserStore = create<UserState>()((set) => ({
     set({ user: null, isLoading: false, error: null });
     useAuthStore.getState().clearTokens();
     useServerStore.getState().clearServers();
+  },
+
+  updateProfile: async (accessToken: string, updates: UpdateProfileData) => {
+    const response = await fetch('http://localhost:8080/api/v1/users/me', {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(updates),
+    });
+
+    if (response.status === 401) {
+      useAuthStore.getState().clearTokens();
+      set({ user: null, isLoading: false, error: null });
+      throw new Error('Session expired');
+    }
+
+    const text = await response.text();
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error('Server returned an unexpected response. Make sure the backend is running the latest version.');
+    }
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Failed to update profile');
+    }
+
+    set({ user: data.user });
+  },
+
+  changePassword: async (accessToken: string, currentPassword: string, newPassword: string) => {
+    try {
+      // Step 1: Fetch current E2EE keys from the server
+      const keysRes = await fetch('http://localhost:8080/api/v1/users/me/keys', {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+
+      if (!keysRes.ok) {
+        const keysData = await keysRes.json();
+        return { success: false, error: keysData.error || 'Failed to fetch encryption keys' };
+      }
+
+      const keysData = await keysRes.json();
+      const { wrapped_private_key, key_derivation_salt } = keysData.e2ee_keys;
+
+      // Step 2: Unwrap private key with current password
+      const currentSalt = new Uint8Array(base64ToArrayBuffer(key_derivation_salt));
+      const currentWrappingKey = await deriveKeyFromPassword(currentPassword, currentSalt);
+      const wrappedKeyBuffer = base64ToArrayBuffer(wrapped_private_key);
+      const privateKey = await unwrapPrivateKey(wrappedKeyBuffer, currentWrappingKey);
+
+      // Step 3: Re-wrap private key with new password
+      const newSalt = generateSalt();
+      const newWrappingKey = await deriveKeyFromPassword(newPassword, newSalt);
+      const newWrappedKey = await wrapPrivateKey(privateKey, newWrappingKey);
+
+      // Step 4: Send password change with re-wrapped keys
+      const response = await fetch('http://localhost:8080/api/v1/users/me/password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+          wrapped_private_key: arrayBufferToBase64(newWrappedKey),
+          key_derivation_salt: arrayBufferToBase64(newSalt.buffer),
+        }),
+      });
+
+      if (response.status === 401) {
+        const data = await response.json();
+        if (data.error === 'Current password is incorrect') {
+          return { success: false, error: data.error };
+        }
+        useAuthStore.getState().clearTokens();
+        set({ user: null, isLoading: false, error: null });
+        return { success: false, error: 'Session expired' };
+      }
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        return { success: false, error: data.error || 'Failed to change password' };
+      }
+
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to change password',
+      };
+    }
   },
 }));

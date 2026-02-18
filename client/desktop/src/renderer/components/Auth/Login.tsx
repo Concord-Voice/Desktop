@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { unwrapLoginKeys } from '../../utils/crypto';
+import { unwrapLoginKeys, generateRegistrationKeys } from '../../utils/crypto';
 import { UserProfile } from '../../stores/userStore';
 import LoadingSpinner from './LoadingSpinner';
 import './Login.css';
@@ -87,15 +87,39 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
       console.log('Login successful, unwrapping private key...');
 
       // Unwrap the private key using the password
-      const privateKey = await unwrapLoginKeys(
-        formData.password,
-        data.e2ee_keys.wrapped_private_key,
-        data.e2ee_keys.key_derivation_salt
-      );
+      try {
+        await unwrapLoginKeys(
+          formData.password,
+          data.e2ee_keys.wrapped_private_key,
+          data.e2ee_keys.key_derivation_salt
+        );
+        console.log('Private key unwrapped successfully!');
+      } catch (unwrapError) {
+        // Key unwrapping failed — keys are corrupted (e.g. password was changed
+        // without re-wrapping). Regenerate keys with the current password.
+        console.warn('Key unwrap failed, regenerating E2EE keys...', unwrapError);
 
-      console.log('Private key unwrapped successfully!');
+        const newKeys = await generateRegistrationKeys(formData.password);
 
-      // Store the private key in memory (we'll add proper key storage later)
+        const replaceRes = await fetch('http://localhost:8080/api/v1/users/me/keys', {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${data.access_token}`,
+          },
+          body: JSON.stringify({
+            wrapped_private_key: newKeys.wrappedPrivateKey,
+            key_derivation_salt: newKeys.keyDerivationSalt,
+          }),
+        });
+
+        if (!replaceRes.ok) {
+          throw new Error('Failed to recover encryption keys. Please try again.');
+        }
+
+        console.log('E2EE keys regenerated and saved successfully!');
+      }
+
       // Pass tokens and user data up
       onSuccess({
         accessToken: data.access_token,
