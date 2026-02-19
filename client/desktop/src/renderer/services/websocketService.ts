@@ -191,6 +191,26 @@ export class WebSocketService {
   }
 
   /**
+   * Send heartbeat to refresh Redis presence TTL
+   */
+  sendHeartbeat(): void {
+    this.send({
+      type: 'heartbeat',
+      data: {},
+    });
+  }
+
+  /**
+   * Send status change (online/dnd/invisible)
+   */
+  sendSetStatus(status: 'online' | 'dnd' | 'invisible'): void {
+    this.send({
+      type: 'set_status',
+      data: { status },
+    });
+  }
+
+  /**
    * Add a message handler for a specific message type
    */
   on(messageType: string, handler: MessageHandler): () => void {
@@ -364,12 +384,10 @@ export class WebSocketService {
   private startPingInterval(): void {
     this.clearPingInterval();
 
-    // Send ping every 30 seconds (server expects pong within 60 seconds)
+    // Send heartbeat every 30 seconds to refresh Redis presence TTL (120s)
     this.pingInterval = setInterval(() => {
       if (this.state === ConnectionState.CONNECTED && this.ws) {
-        // WebSocket browser API handles ping/pong automatically
-        // But we can send a custom ping message if needed
-        // For now, rely on the server's ping mechanism
+        this.sendHeartbeat();
       }
     }, 30000);
   }

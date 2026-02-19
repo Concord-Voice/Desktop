@@ -1,17 +1,19 @@
 import React, { useEffect, useRef } from 'react';
-import { ServerMember } from '../../stores/memberStore';
+import { ServerMember, PresenceStatus } from '../../stores/memberStore';
 import './MemberProfileCard.css';
 
 interface MemberProfileCardProps {
   member: ServerMember;
-  isOnline: boolean;
+  status: PresenceStatus;
+  lastSeen?: number;
   position: { x: number; y: number };
   onClose: () => void;
 }
 
 const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
   member,
-  isOnline,
+  status,
+  lastSeen,
   position,
   onClose,
 }) => {
@@ -56,6 +58,26 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
     });
   };
 
+  const formatLastSeen = (timestamp: number): string => {
+    const now = Date.now();
+    const diffMs = now - timestamp * 1000;
+    const diffMinutes = Math.floor(diffMs / 60000);
+    if (diffMinutes < 1) return 'Just now';
+    if (diffMinutes < 60) return `${diffMinutes}m ago`;
+    const diffHours = Math.floor(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    return `${diffDays}d ago`;
+  };
+
+  const getStatusText = (): string => {
+    if (status === 'online') return 'Online';
+    if (status === 'dnd') return 'Do Not Disturb';
+    if (status === 'invisible') return 'Offline'; // Invisible shows as Offline to others
+    if (lastSeen) return `Last seen ${formatLastSeen(lastSeen)}`;
+    return 'Offline';
+  };
+
   const roleLabel = member.role.charAt(0).toUpperCase() + member.role.slice(1);
 
   return (
@@ -80,7 +102,7 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
             </span>
           )}
           <span
-            className={`member-profile-status ${isOnline ? 'online' : 'offline'}`}
+            className={`member-profile-status ${status}`}
           />
         </div>
       </div>
@@ -104,9 +126,9 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
           <div className="member-profile-detail-row">
             <span className="member-profile-detail-label">Status</span>
             <span
-              className={`member-profile-detail-value ${isOnline ? 'status-online' : 'status-offline'}`}
+              className={`member-profile-detail-value status-${status}`}
             >
-              {isOnline ? 'Online' : 'Offline'}
+              {getStatusText()}
             </span>
           </div>
 
