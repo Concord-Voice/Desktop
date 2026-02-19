@@ -90,6 +90,10 @@ export const useUserStore = create<UserState>()(
   },
 
   logout: async () => {
+    // Disconnect WebSocket FIRST so the server receives the close frame
+    // and broadcasts offline presence while the connection is still healthy.
+    getWebSocketService().disconnect();
+
     try {
       await fetch('http://localhost:8080/api/v1/auth/logout', {
         method: 'POST',

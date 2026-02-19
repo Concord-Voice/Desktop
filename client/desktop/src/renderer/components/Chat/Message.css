@@ -1,8 +1,8 @@
 .message {
   display: flex;
-  gap: 12px;
-  padding: 2px 16px;
-  padding-top: 8px;
+  gap: calc(12px * var(--sp, 1));
+  padding: 2px calc(16px * var(--sp, 1));
+  padding-top: calc(8px * var(--sp, 1));
   transition: background-color 0.15s ease;
 }
 
@@ -69,8 +69,8 @@
 .message-header {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  margin-bottom: 4px;
+  gap: calc(8px * var(--sp, 1));
+  margin-bottom: calc(4px * var(--sp, 1));
 }
 
 .message-username {
@@ -133,7 +133,7 @@
   color: var(--text-primary);
   font-family: 'SourceSans', sans-serif;
   font-size: calc(15px * var(--font-scale, 1));
-  padding: 8px 12px;
+  padding: calc(8px * var(--sp, 1)) calc(12px * var(--sp, 1));
   resize: vertical;
   min-height: 60px;
 }
@@ -145,13 +145,13 @@
 
 .message-edit-actions {
   display: flex;
-  gap: 8px;
-  margin-top: 8px;
+  gap: calc(8px * var(--sp, 1));
+  margin-top: calc(8px * var(--sp, 1));
 }
 
 .btn-edit-cancel,
 .btn-edit-save {
-  padding: 6px 16px;
+  padding: calc(6px * var(--sp, 1)) calc(16px * var(--sp, 1));
   border-radius: 4px;
   font-size: calc(14px * var(--font-scale, 1));
   font-weight: 500;
@@ -254,9 +254,9 @@
 .message-option {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: calc(8px * var(--sp, 1));
   width: 100%;
-  padding: 10px 12px;
+  padding: calc(10px * var(--sp, 1)) calc(12px * var(--sp, 1));
   background: transparent;
   border: none;
   color: var(--text-primary);

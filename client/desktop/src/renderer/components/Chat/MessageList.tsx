@@ -12,6 +12,7 @@ export interface MessageListProps {
   onLoadMore?: () => void;
   onEditMessage?: (messageId: string, newContent: string) => void;
   onDeleteMessage?: (messageId: string) => void;
+  onUnseenOnLeave?: (count: number) => void;
 }
 
 const NEAR_BOTTOM_THRESHOLD = 150;
@@ -26,12 +27,18 @@ const MessageList: React.FC<MessageListProps> = ({
   onLoadMore,
   onEditMessage,
   onDeleteMessage,
+  onUnseenOnLeave,
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
   const [shiftHeld, setShiftHeld] = useState(false);
+  const [newMessageCount, setNewMessageCount] = useState(0);
+  const prevLastMessageIdRef = useRef<string | null>(null);
+  const newMessageCountRef = useRef(0);
+  const onUnseenOnLeaveRef = useRef(onUnseenOnLeave);
+  onUnseenOnLeaveRef.current = onUnseenOnLeave;
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Shift') setShiftHeld(true); };
@@ -44,14 +51,47 @@ const MessageList: React.FC<MessageListProps> = ({
     };
   }, []);
 
-  // Auto-scroll when messages change (new message arrives) if user is near bottom
+  // Keep ref in sync with state so the unmount cleanup reads the latest value
   useEffect(() => {
-    if (isNearBottomRef.current && listRef.current) {
-      listRef.current.scrollTop = listRef.current.scrollHeight;
+    newMessageCountRef.current = newMessageCount;
+  }, [newMessageCount]);
+
+  // On unmount, report unseen messages so the parent can set unread badges
+  useEffect(() => {
+    return () => {
+      if (newMessageCountRef.current > 0 && onUnseenOnLeaveRef.current) {
+        onUnseenOnLeaveRef.current(newMessageCountRef.current);
+      }
+    };
+  }, []);
+
+  // Auto-scroll when messages change (new message arrives) if user is near bottom.
+  // Also track new messages arriving while the user is scrolled up.
+  useEffect(() => {
+    if (messages.length === 0) {
+      prevLastMessageIdRef.current = null;
+      setNewMessageCount(0);
+      return;
     }
+
+    const lastId = messages[messages.length - 1].id;
+
+    if (isNearBottomRef.current) {
+      // User is at the bottom — auto-scroll and reset counter
+      if (listRef.current) {
+        listRef.current.scrollTop = listRef.current.scrollHeight;
+      }
+      setNewMessageCount(0);
+    } else if (prevLastMessageIdRef.current !== null && lastId !== prevLastMessageIdRef.current) {
+      // User is scrolled up and a new message arrived at the end — count it
+      setNewMessageCount((c) => c + 1);
+    }
+
+    prevLastMessageIdRef.current = lastId;
   }, [messages]);
 
   const scrollToBottom = useCallback((smooth = true) => {
+    setNewMessageCount(0);
     if (listRef.current) {
       listRef.current.scrollTo({
         top: listRef.current.scrollHeight,
@@ -67,6 +107,10 @@ const MessageList: React.FC<MessageListProps> = ({
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
 
     isNearBottomRef.current = distanceFromBottom < NEAR_BOTTOM_THRESHOLD;
+
+    if (isNearBottomRef.current) {
+      setNewMessageCount(0);
+    }
 
     const shouldShow = distanceFromBottom > SHOW_BUTTON_THRESHOLD;
     if (shouldShow !== showScrollButton) {
@@ -194,6 +238,11 @@ const MessageList: React.FC<MessageListProps> = ({
           onClick={() => scrollToBottom(true)}
           aria-label="Return to latest"
         >
+          {newMessageCount > 0 && (
+            <span className="new-message-badge">
+              {newMessageCount > 99 ? '99+' : newMessageCount}
+            </span>
+          )}
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path
               d="M10 14l-6-6h12l-6 6z"

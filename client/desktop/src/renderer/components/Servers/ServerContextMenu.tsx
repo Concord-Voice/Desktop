@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ServerWithRole } from '../../types/server';
 import { useInviteStore } from '../../stores/inviteStore';
+import { useUnreadStore } from '../../stores/unreadStore';
+import { apiFetch } from '../../services/apiClient';
 import './ServerContextMenu.css';
 
 interface ServerContextMenuProps {
@@ -112,6 +114,30 @@ const ServerContextMenu: React.FC<ServerContextMenuProps> = ({
 
         <div className="context-menu-separator" />
 
+        {/* Mark All as Read */}
+        <button
+          className="context-menu-item"
+          onClick={() => {
+            // Clear all channel unreads + server dot locally
+            useUnreadStore.getState().clearAll();
+            useUnreadStore.getState().clearServerUnread(server.id);
+            // Mark all channels as read on the server
+            apiFetch(`/api/v1/servers/${server.id}/read`, { method: 'POST' }).catch(() => {});
+            onClose();
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path
+              d="M2 8.5l3.5 3.5L14 3"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          Mark All as Read
+        </button>
+
         {/* Edit Server */}
         {canEdit && (
           <button
@@ -164,12 +190,7 @@ const ServerContextMenu: React.FC<ServerContextMenuProps> = ({
           </button>
         )}
 
-        {/* No actions available for members */}
-        {!canEdit && !canDelete && (
-          <div className="context-menu-no-actions">
-            No actions available
-          </div>
-        )}
+        {/* "Mark All as Read" is always available, so this is no longer needed */}
       </div>
     </div>
   );

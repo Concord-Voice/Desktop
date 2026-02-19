@@ -183,6 +183,9 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
         updated_at: data.server.updated_at,
       });
 
+      // Server update is broadcast to all clients by the backend PATCH handler,
+      // so no separate WS message is needed here.
+
       setSuccessMessage('Server updated successfully!');
 
       setTimeout(() => {

@@ -1,7 +1,7 @@
 .message-input-container {
   border-top: 1px solid var(--border-color);
   background-color: var(--bg-primary);
-  padding: 16px;
+  padding: calc(14px * var(--sp, 1)) calc(16px * var(--sp, 1));
 }
 
 .message-input-wrapper {
@@ -10,12 +10,12 @@
 
 .message-input-box {
   display: flex;
-  align-items: flex-end;
-  gap: 12px;
+  align-items: center;
+  gap: calc(10px * var(--sp, 1));
   background-color: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  padding: 12px;
+  padding: calc(8px * var(--sp, 1)) calc(12px * var(--sp, 1));
   transition: border-color 0.15s ease;
 }
 
@@ -29,13 +29,12 @@
   border: none;
   color: var(--text-primary);
   font-family: 'SourceSans', sans-serif;
-  font-size: calc(15px * var(--font-scale, 1));
-  line-height: 1.5;
+  font-size: calc(14px * var(--font-scale, 1));
+  line-height: 1.25;
   resize: none;
   outline: none;
-  max-height: 200px;
   overflow-y: auto;
-  min-height: 24px;
+  height: auto;
 }
 
 .message-input-textarea::placeholder {
@@ -50,14 +49,15 @@
 .message-input-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  align-self: flex-end;
+  gap: calc(8px * var(--sp, 1));
 }
 
 .encryption-toggle {
   background: transparent;
   border: 1px solid var(--border-color);
   border-radius: 4px;
-  padding: 6px 8px;
+  padding: calc(6px * var(--sp, 1)) calc(8px * var(--sp, 1));
   cursor: pointer;
   font-size: calc(16px * var(--font-scale, 1));
   transition: all 0.15s ease;
@@ -95,8 +95,8 @@
   background: var(--gradient-brand);
   border: none;
   border-radius: 6px;
-  width: 36px;
-  height: 36px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -124,10 +124,10 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 8px;
+  margin-top: calc(8px * var(--sp, 1));
   font-size: calc(12px * var(--font-scale, 1));
   color: var(--text-muted);
-  gap: 16px;
+  gap: calc(16px * var(--sp, 1));
   flex-wrap: wrap;
 }
 
@@ -147,15 +147,46 @@ kbd {
   color: var(--text-secondary);
 }
 
+.message-input-extras {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--sp, 1));
+  margin-right: calc(8px * var(--sp, 1));
+}
+
 .encryption-hint {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   color: var(--accent-primary);
+  margin-right: 4px;
 }
 
 .encryption-hint svg {
   color: var(--accent-primary);
+}
+
+.media-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 3px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.media-btn:hover:not(:disabled) {
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
+}
+
+.media-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 /* Scrollbar styling for textarea */

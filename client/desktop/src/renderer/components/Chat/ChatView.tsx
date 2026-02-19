@@ -6,6 +6,8 @@ import { useChatStore } from '../../stores/chatStore';
 import { useUserStore } from '../../stores/userStore';
 import { useChannelSubscription } from '../../hooks/useChannelSubscription';
 import { useMessaging } from '../../hooks/useMessaging';
+import { useUnreadStore } from '../../stores/unreadStore';
+import { useServerStore } from '../../stores/serverStore';
 import { apiFetch } from '../../services/apiClient';
 import type { MessageWithStatus } from '../../types/chat';
 import './ChatView.css';
@@ -26,9 +28,26 @@ const ChatView: React.FC = () => {
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fetchedChannels = useRef<Set<string>>(new Set());
+  const prevChannelIdRef = useRef<string | null>(null);
 
-  // Auto-subscribe/unsubscribe to active channel
+  // Subscribe to active channel for full message delivery
   useChannelSubscription(activeChannelId);
+
+  // Track the previous channelId so the unseen callback knows which channel to mark
+  useEffect(() => {
+    prevChannelIdRef.current = activeChannelId ?? null;
+  }, [activeChannelId]);
+
+  // Called by MessageList on unmount when the user left with unseen messages
+  const handleUnseenOnLeave = useCallback((count: number) => {
+    const channelId = prevChannelIdRef.current;
+    if (!channelId || count <= 0) return;
+    useUnreadStore.getState().setUnreadCount(channelId, count);
+    const serverId = useServerStore.getState().activeServerId;
+    if (serverId) {
+      useUnreadStore.getState().markServerUnread(serverId);
+    }
+  }, []);
 
   // Optimistic messaging hook
   const { sendMessage } = useMessaging();
@@ -210,6 +229,7 @@ const ChatView: React.FC = () => {
           onLoadMore={handleLoadMore}
           onEditMessage={handleEditMessage}
           onDeleteMessage={handleDeleteMessage}
+          onUnseenOnLeave={handleUnseenOnLeave}
         />
       </div>
 

@@ -52,11 +52,13 @@ export interface RegisterRequest {
 export interface LoginRequest {
   email: string;
   password: string;
+  remember_me?: boolean;
 }
 
 export interface LoginResponse {
   access_token: string;
   expires_in: number;
+  remember_me: boolean;
   user: UserProfile;
   e2ee_keys: E2EEKeys;
 }

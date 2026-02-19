@@ -1,5 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { Hash, Volume2, Pin } from 'lucide-react';
+import { useUnreadStore } from '../../stores/unreadStore';
+import { useServerStore } from '../../stores/serverStore';
+import { apiFetch } from '../../services/apiClient';
 import { Channel } from '../../types/chat';
 import './ChannelContextMenu.css';
 
@@ -96,6 +99,26 @@ const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
 
         <div className="context-menu-divider" />
 
+        {/* Mark as Read */}
+        <button
+          className="context-menu-item"
+          onClick={() => {
+            useUnreadStore.getState().clearUnread(channel.id);
+            apiFetch(`/api/v1/channels/${channel.id}/read`, { method: 'POST' }).catch(() => {});
+            // Clear server dot if no more unreads
+            const { unreadCounts } = useUnreadStore.getState();
+            if (unreadCounts.size === 0) {
+              const activeServerId = useServerStore.getState().activeServerId;
+              if (activeServerId) {
+                useUnreadStore.getState().clearServerUnread(activeServerId);
+              }
+            }
+            onClose();
+          }}
+        >
+          <span>Mark as Read</span>
+        </button>
+
         {/* Edit option */}
         {canEdit && (
           <button
@@ -122,11 +145,7 @@ const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
           </button>
         )}
 
-        {!canEdit && !canDelete && (
-          <div className="context-menu-item disabled">
-            <span>No actions available</span>
-          </div>
-        )}
+        {/* "Mark as Read" is always available, so no empty-state needed */}
       </div>
     </div>
   );

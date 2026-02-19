@@ -364,6 +364,14 @@
   border-color: var(--accent-primary);
 }
 
+.session-card.past {
+  opacity: 0.6;
+}
+
+.session-card.past:hover {
+  opacity: 0.8;
+}
+
 .session-card-icon {
   width: 40px;
   height: 40px;
@@ -401,6 +409,10 @@
   letter-spacing: 0.5px;
 }
 
+.session-card-badge.past {
+  background: var(--text-muted);
+}
+
 .session-card-details {
   font-size: calc(12px * var(--font-scale, 1));
   color: var(--text-muted);
@@ -412,6 +424,9 @@
 
 .session-card-actions {
   flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .session-revoke-btn {
@@ -432,15 +447,65 @@
   background: rgba(240, 71, 71, 0.08);
 }
 
+.session-revoke-btn.confirm {
+  border-color: var(--danger);
+  color: var(--bg-primary);
+  background: var(--danger);
+}
+
+.session-revoke-btn.confirm:hover:not(:disabled) {
+  background: var(--danger);
+  opacity: 0.9;
+}
+
 .session-revoke-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
+.session-cancel-btn {
+  padding: 6px 14px;
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-family: 'SourceSans', sans-serif;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.session-cancel-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.session-confirm-warning {
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: rgba(240, 71, 71, 0.08);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  color: var(--danger);
+  font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.4;
+}
+
 .sessions-actions {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12px;
   margin-top: 16px;
+}
+
+.sessions-actions .session-confirm-warning {
+  width: 100%;
+}
+
+.sessions-actions-buttons {
+  display: flex;
+  gap: 8px;
 }
 
 .sessions-revoke-all-btn {

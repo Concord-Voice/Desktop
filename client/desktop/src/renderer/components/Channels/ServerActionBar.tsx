@@ -1,23 +1,28 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { Plus, UserPlus } from 'lucide-react';
 import { useInviteStore } from '../../stores/inviteStore';
 import { ServerWithRole } from '../../types/server';
 import './ServerActionBar.css';
 
 interface ServerActionBarProps {
   server: ServerWithRole;
+  onOpenCreateModal: () => void;
 }
 
-const ServerActionBar: React.FC<ServerActionBarProps> = ({ server }) => {
-  const [showInvitePopup, setShowInvitePopup] = useState(false);
+const ServerActionBar: React.FC<ServerActionBarProps> = ({ server, onOpenCreateModal }) => {
+  const [showPopup, setShowPopup] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
 
   const invites = useInviteStore((state) => state.invites[server.id] || []);
   const fetchInvites = useInviteStore((state) => state.fetchInvites);
   const createInvite = useInviteStore((state) => state.createInvite);
 
+  const canCreateChannel = server.role === 'owner' || server.role === 'admin';
   const canInvite = server.role === 'owner' || server.role === 'admin';
+  const buttonCount = (canCreateChannel ? 1 : 0) + (canInvite ? 1 : 0);
 
   const activeInvite = invites.find((inv) => {
     if (inv.is_revoked) return false;
@@ -28,26 +33,29 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({ server }) => {
 
   // Close popup on click outside
   useEffect(() => {
-    if (!showInvitePopup) return;
+    if (!showPopup) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (popupRef.current && !popupRef.current.contains(e.target as Node)) {
-        setShowInvitePopup(false);
+      const target = e.target as Node;
+      if (
+        popupRef.current && !popupRef.current.contains(target) &&
+        btnRef.current && !btnRef.current.contains(target)
+      ) {
+        setShowPopup(false);
         setCopied(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [showInvitePopup]);
+  }, [showPopup]);
 
-  const handleInviteClick = async () => {
-    if (showInvitePopup) {
-      setShowInvitePopup(false);
+  const handleTogglePopup = async () => {
+    if (showPopup) {
+      setShowPopup(false);
       setCopied(false);
       return;
     }
-    setShowInvitePopup(true);
+    setShowPopup(true);
     setCopied(false);
-    // Fetch invites if we don't have any
     if (invites.length === 0) {
       await fetchInvites(server.id);
     }
@@ -72,65 +80,72 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({ server }) => {
     }
   };
 
-  if (!canInvite) return null;
+  // No actions available — just a thin spacer
+  if (buttonCount === 0) {
+    return <div className="channel-actions-spacer" />;
+  }
 
   return (
-    <div className="server-action-bar">
-      <div className="server-action-bar-buttons">
+    <div className={`channel-actions-strip ${buttonCount === 1 ? 'single' : ''}`}>
+      {canCreateChannel && (
         <button
-          className={`server-action-btn ${showInvitePopup ? 'active' : ''}`}
-          onClick={handleInviteClick}
-          title="Invite"
+          className="channel-action-item"
+          onClick={onOpenCreateModal}
+          title="Create a new channel"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M8 1v14M1 8h14"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-            />
-          </svg>
-          <span className="server-action-btn-label">Invite</span>
+          <Plus size={16} />
+          <span>Channel</span>
         </button>
+      )}
 
-        {/* Placeholder for Direct Invite — to be implemented with DM system (Issue #81) */}
+      {canCreateChannel && canInvite && (
+        <div className="channel-action-divider" />
+      )}
+
+      {canInvite && (
         <button
-          className="server-action-btn"
-          disabled
-          title="Direct Invite (coming soon — requires DM system)"
+          ref={btnRef}
+          className={`channel-action-item ${showPopup ? 'active' : ''}`}
+          onClick={handleTogglePopup}
+          title="Invite people to this server"
         >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M11 5a3 3 0 11-6 0 3 3 0 016 0zM2 13.5c0-2.5 2.5-4 6-4s6 1.5 6 4"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          <span className="server-action-btn-label">Direct</span>
+          <UserPlus size={16} />
+          <span>Invite</span>
         </button>
-      </div>
+      )}
 
-      {showInvitePopup && (
+      {showPopup && (
         <div className="invite-popup" ref={popupRef}>
-          <div className="invite-popup-header">Invite Code</div>
-          {activeInvite ? (
-            <>
-              <code className="invite-popup-code">{activeInvite.code}</code>
-              <button className="invite-popup-copy-btn" onClick={handleCopyCode}>
-                {copied ? 'Copied!' : 'Copy Code'}
+          <div className="invite-popup-section">
+            <div className="invite-popup-header">Invite Code</div>
+            {activeInvite ? (
+              <>
+                <code className="invite-popup-code">{activeInvite.code}</code>
+                <button className="invite-popup-action-btn" onClick={handleCopyCode}>
+                  {copied ? 'Copied!' : 'Copy Code'}
+                </button>
+              </>
+            ) : (
+              <button
+                className="invite-popup-action-btn"
+                onClick={handleGenerate}
+                disabled={isGenerating}
+              >
+                {isGenerating ? 'Generating...' : 'Generate Code'}
               </button>
-            </>
-          ) : (
-            <button
-              className="invite-popup-copy-btn"
-              onClick={handleGenerate}
-              disabled={isGenerating}
-            >
-              {isGenerating ? 'Generating...' : 'Generate Code'}
+            )}
+          </div>
+
+          <div className="invite-popup-divider" />
+
+          <div className="invite-popup-section">
+            <div className="invite-popup-header">Direct Invite</div>
+            <button className="invite-popup-action-btn secondary" disabled>
+              <UserPlus size={14} />
+              Send to a Friend
             </button>
-          )}
+            <span className="invite-popup-hint">Coming soon — requires DM system</span>
+          </div>
         </div>
       )}
     </div>

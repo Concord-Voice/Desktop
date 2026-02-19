@@ -164,6 +164,26 @@ export class WebSocketService {
   }
 
   /**
+   * Subscribe to server-level notifications (lightweight unread pings)
+   */
+  subscribeServer(serverId: string): void {
+    this.send({
+      type: 'subscribe_server',
+      data: { server_id: serverId },
+    });
+  }
+
+  /**
+   * Unsubscribe from server-level notifications
+   */
+  unsubscribeServer(serverId: string): void {
+    this.send({
+      type: 'unsubscribe_server',
+      data: { server_id: serverId },
+    });
+  }
+
+  /**
    * Send a chat message to a channel
    */
   sendMessage(channelId: string, content: string, nonce?: string): void {
@@ -185,6 +205,16 @@ export class WebSocketService {
     this.send({
       type: 'profile_update',
       data: {},
+    });
+  }
+
+  /**
+   * Notify the server that a server's settings have been updated
+   */
+  sendServerUpdate(serverId: string): void {
+    this.send({
+      type: 'server_update',
+      data: { server_id: serverId },
     });
   }
 

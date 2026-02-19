@@ -3,7 +3,6 @@ import { useAuthStore } from '../../stores/authStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useUserStore } from '../../stores/userStore';
 import { useMemberStore, ServerMember, PresenceStatus } from '../../stores/memberStore';
-import { getWebSocketService } from '../../services/websocketService';
 import MemberProfileCard from './MemberProfileCard';
 import './MemberList.css';
 
@@ -20,10 +19,6 @@ const MemberList: React.FC = () => {
   const error = useMemberStore((state) => state.error);
   const fetchMembers = useMemberStore((state) => state.fetchMembers);
   const clearMembers = useMemberStore((state) => state.clearMembers);
-  const setOnlineUsers = useMemberStore((state) => state.setOnlineUsers);
-  const setUserStatus = useMemberStore((state) => state.setUserStatus);
-  const setUserLastSeen = useMemberStore((state) => state.setUserLastSeen);
-  const setPresenceSnapshot = useMemberStore((state) => state.setPresenceSnapshot);
 
   const [selectedMember, setSelectedMember] = useState<{
     member: ServerMember;
@@ -39,47 +34,7 @@ const MemberList: React.FC = () => {
     }
   }, [activeServerId, accessToken, fetchMembers, clearMembers]);
 
-  // Register WebSocket presence handlers
-  useEffect(() => {
-    const ws = getWebSocketService();
-
-    const unsubSnapshot = ws.on('presence_snapshot', (msg) => {
-      // Handle enhanced format with per-user status
-      if (msg.data.users && Array.isArray(msg.data.users)) {
-        setPresenceSnapshot(msg.data.users as Array<{ user_id: string; status: string }>);
-      } else if (msg.data.online_user_ids) {
-        // Backward compatibility
-        const userIds = msg.data.online_user_ids as string[];
-        setOnlineUsers(userIds);
-      }
-    });
-
-    const unsubPresence = ws.on('presence', (msg) => {
-      const userId = msg.data.user_id as string;
-      const status = msg.data.status as PresenceStatus;
-      const timestamp = msg.data.timestamp as number | undefined;
-
-      // For the self user, the server broadcasts "offline" for invisible
-      // and the real status for dnd — but we trust selfStatus locally
-      // so skip overriding the self user's status from broadcast
-      const selfId = useUserStore.getState().user?.id;
-      if (userId === selfId) {
-        // Don't override — selfStatus is the source of truth for self
-        return;
-      }
-
-      setUserStatus(userId, status);
-
-      if (status === 'offline' && timestamp) {
-        setUserLastSeen(userId, timestamp);
-      }
-    });
-
-    return () => {
-      unsubSnapshot();
-      unsubPresence();
-    };
-  }, [setOnlineUsers, setUserStatus, setUserLastSeen, setPresenceSnapshot]);
+  // Presence is handled globally in useWebSocket (presence_snapshot + presence events)
 
   const handleMemberClick = useCallback(
     (e: React.MouseEvent, member: ServerMember) => {

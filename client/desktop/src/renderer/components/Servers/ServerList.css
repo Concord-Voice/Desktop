@@ -34,6 +34,25 @@
   height: 36px;
 }
 
+/* Unread server pill indicator */
+.server-unread-pill {
+  position: absolute;
+  left: -12px;
+  width: 4px;
+  height: 8px;
+  background: var(--text-primary);
+  border-radius: 0 4px 4px 0;
+  transition: height 0.2s ease;
+}
+
+.server-icon-wrapper:hover .server-unread-pill {
+  height: 20px;
+}
+
+.server-icon-btn.has-unread {
+  border-color: var(--text-muted);
+}
+
 /* Server icon button */
 .server-icon-btn {
   width: 48px;

@@ -1,55 +1,55 @@
-.server-action-bar {
-  padding: 8px 12px;
+/* Thin spacer when no actions available */
+.channel-actions-spacer {
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* Combined action strip below the server banner */
+.channel-actions-strip {
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
   border-bottom: 1px solid var(--border-color);
   background-color: var(--bg-secondary);
   position: relative;
 }
 
-.server-action-bar-buttons {
-  display: flex;
-  gap: 8px;
-}
-
-.server-action-btn {
+.channel-action-item {
   flex: 1;
-  aspect-ratio: 1;
-  max-height: 48px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
-  color: var(--text-secondary);
+  padding: calc(8px * var(--sp, 1)) 0 calc(6px * var(--sp, 1));
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
-  padding: 4px;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
-.server-action-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--accent-color, var(--accent-primary));
-  color: var(--accent-color, var(--accent-primary));
+/* When only one button, limit its width and center */
+.channel-actions-strip.single .channel-action-item {
+  flex: none;
+  padding: calc(8px * var(--sp, 1)) calc(32px * var(--sp, 1)) calc(6px * var(--sp, 1));
 }
 
-.server-action-btn.active {
-  background: var(--bg-hover);
-  border-color: var(--accent-color, var(--accent-primary));
-  color: var(--accent-color, var(--accent-primary));
+.channel-action-item:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-tertiary);
 }
 
-.server-action-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.channel-action-item.active {
+  color: var(--accent-primary);
 }
 
-.server-action-btn-label {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
+.channel-action-divider {
+  width: 1px;
+  background-color: var(--border-color);
+  align-self: stretch;
+  margin: calc(6px * var(--sp, 1)) 0;
 }
 
 /* Invite popup */
@@ -61,16 +61,28 @@
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: 8px;
-  padding: 12px;
+  padding: calc(12px * var(--sp, 1));
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   z-index: 100;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
+}
+
+.invite-popup-section {
+  display: flex;
+  flex-direction: column;
+  gap: calc(8px * var(--sp, 1));
+}
+
+.invite-popup-divider {
+  height: 1px;
+  background: var(--border-color);
+  margin: calc(10px * var(--sp, 1)) 0;
 }
 
 .invite-popup-header {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale, 1));
   font-weight: 600;
   text-transform: uppercase;
   color: var(--text-secondary);
@@ -82,7 +94,7 @@
   font-size: calc(18px * var(--font-scale, 1));
   letter-spacing: 0.2em;
   text-align: center;
-  padding: 8px;
+  padding: calc(8px * var(--sp, 1));
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   border-radius: 6px;
@@ -90,24 +102,46 @@
   user-select: all;
 }
 
-.invite-popup-copy-btn {
-  padding: 8px 12px;
+.invite-popup-action-btn {
+  padding: calc(8px * var(--sp, 1)) calc(12px * var(--sp, 1));
   background: var(--gradient-brand, var(--accent-primary));
   border: none;
   border-radius: 6px;
   color: var(--bg-primary);
-  font-size: 13px;
+  font-size: calc(13px * var(--font-scale, 1));
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(6px * var(--sp, 1));
 }
 
-.invite-popup-copy-btn:hover:not(:disabled) {
+.invite-popup-action-btn:hover:not(:disabled) {
   transform: translateY(-1px);
   box-shadow: 0 2px 8px rgba(250, 112, 154, 0.3);
 }
 
-.invite-popup-copy-btn:disabled {
-  opacity: 0.7;
+.invite-popup-action-btn:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
+}
+
+.invite-popup-action-btn.secondary {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+
+.invite-popup-action-btn.secondary:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  transform: none;
+  box-shadow: none;
+}
+
+.invite-popup-hint {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--text-muted);
+  text-align: center;
 }

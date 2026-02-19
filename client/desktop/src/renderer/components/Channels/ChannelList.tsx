@@ -3,16 +3,15 @@ import { Hash, Volume2, Pin } from 'lucide-react';
 import { useChannelStore } from '../../stores/channelStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useUnreadStore } from '../../stores/unreadStore';
+import { apiFetch } from '../../services/apiClient';
 import { Channel } from '../../types/chat';
 import './ChannelList.css';
 
 interface ChannelListProps {
-  onOpenCreateModal: () => void;
   onContextMenu: (channel: Channel, position: { x: number; y: number }) => void;
 }
 
 const ChannelList: React.FC<ChannelListProps> = ({
-  onOpenCreateModal,
   onContextMenu,
 }) => {
   const activeServerId = useServerStore((state) => state.activeServerId);
@@ -35,6 +34,20 @@ const ChannelList: React.FC<ChannelListProps> = ({
     }
   }, [activeServerId, fetchChannels, clearChannels]);
 
+  // Clear unread + mark as read whenever the active channel changes
+  // (handles both manual clicks AND auto-focus from server switch)
+  useEffect(() => {
+    if (!activeChannelId) return;
+    clearUnread(activeChannelId);
+    apiFetch(`/api/v1/channels/${activeChannelId}/read`, { method: 'POST' }).catch(() => {});
+
+    // If all channel unreads are now cleared, clear the server dot too
+    const { unreadCounts: currentCounts } = useUnreadStore.getState();
+    if (currentCounts.size === 0 && activeServerId) {
+      useUnreadStore.getState().clearServerUnread(activeServerId);
+    }
+  }, [activeChannelId, activeServerId, clearUnread]);
+
   const handleContextMenu = (e: React.MouseEvent, channel: Channel) => {
     e.preventDefault();
     onContextMenu(channel, { x: e.clientX, y: e.clientY });
@@ -43,6 +56,8 @@ const ChannelList: React.FC<ChannelListProps> = ({
   const handleChannelClick = (channel: Channel) => {
     setActiveChannel(channel.id);
     clearUnread(channel.id);
+    // Mark as read on the server so unread counts persist across sessions
+    apiFetch(`/api/v1/channels/${channel.id}/read`, { method: 'POST' }).catch(() => {});
   };
 
   // Group channels by type
@@ -103,17 +118,6 @@ const ChannelList: React.FC<ChannelListProps> = ({
 
   return (
     <div className="channel-list">
-      {/* Create Channel Button */}
-      <div className="channel-list-header">
-        <button
-          className="create-channel-btn"
-          onClick={onOpenCreateModal}
-          title="Create Channel"
-        >
-          + New Channel
-        </button>
-      </div>
-
       {/* Loading State */}
       {isLoading && channels.length === 0 && (
         <div className="channel-list-skeletons">
@@ -142,7 +146,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
       {!isLoading && !error && channels.length === 0 && (
         <div className="channel-list-empty">
           <p>No channels yet</p>
-          <p className="empty-hint">Click "+ New Channel" to create one</p>
+          <p className="empty-hint">Use "New Channel" above to create one</p>
         </div>
       )}
 

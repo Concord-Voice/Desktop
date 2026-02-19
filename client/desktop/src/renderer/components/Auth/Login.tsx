@@ -6,7 +6,7 @@ import './Login.css';
 
 export interface LoginProps {
   onBack: () => void;
-  onSuccess: (data: { accessToken: string; refreshToken: string; user?: UserProfile }) => void;
+  onSuccess: (data: { accessToken: string; refreshToken: string; user?: UserProfile; rememberMe: boolean }) => void;
   onSwitchToRegister: () => void;
 }
 
@@ -75,6 +75,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
         body: JSON.stringify({
           email: formData.email,
           password: formData.password,
+          remember_me: formData.rememberMe,
         }),
       });
 
@@ -125,6 +126,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
         user: data.user,
+        rememberMe: data.remember_me ?? formData.rememberMe,
       });
     } catch (error) {
       console.error('Login error:', error);

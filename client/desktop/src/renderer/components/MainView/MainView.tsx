@@ -17,11 +17,26 @@ import UserPanel from '../User/UserPanel';
 import { ChatView } from '../Chat';
 import { useServerStore } from '../../stores/serverStore';
 import { useChannelStore } from '../../stores/channelStore';
+import { useServerChannelSubscriptions } from '../../hooks/useServerChannelSubscriptions';
+import { useResizablePanel } from '../../hooks/useResizablePanel';
 import { ServerWithRole } from '../../types/server';
 import { Channel } from '../../types/chat';
 import './MainView.css';
 
 const MainView: React.FC = () => {
+  // Subscribe to ALL channels in the active server for unread tracking
+  useServerChannelSubscriptions();
+
+  // Resizable sidebars
+  const channelPanel = useResizablePanel({
+    defaultWidth: 240, minWidth: 180, maxWidth: 400, side: 'left',
+    storageKey: 'concord:channelSidebarWidth',
+  });
+  const memberPanel = useResizablePanel({
+    defaultWidth: 220, minWidth: 160, maxWidth: 340, side: 'right',
+    storageKey: 'concord:memberListWidth',
+  });
+
   const [isServerActionModalOpen, setIsServerActionModalOpen] = useState(false);
   const [isCreateServerModalOpen, setIsCreateServerModalOpen] = useState(false);
   const [isJoinServerModalOpen, setIsJoinServerModalOpen] = useState(false);
@@ -97,17 +112,22 @@ const MainView: React.FC = () => {
       </div>
 
       <div className="content">
-        <div className="channels-sidebar">
+        <div className="channels-sidebar" style={{ width: channelPanel.width }}>
           <div className="channels-sidebar-header">
             <h3>{activeServer ? activeServer.name : 'Channels'}</h3>
             <ConnectionStatus />
           </div>
-          {activeServer && <ServerActionBar server={activeServer} />}
+          {activeServer && (
+            <ServerActionBar
+              server={activeServer}
+              onOpenCreateModal={() => setIsCreateChannelModalOpen(true)}
+            />
+          )}
           <ChannelList
-            onOpenCreateModal={() => setIsCreateChannelModalOpen(true)}
             onContextMenu={handleChannelContextMenu}
           />
         </div>
+        <div className="resize-handle" onMouseDown={channelPanel.onMouseDown} />
         <div className="main-content">
           {activeChannelId ? (
             <ChatView />
@@ -131,7 +151,14 @@ const MainView: React.FC = () => {
             </div>
           )}
         </div>
-        {activeServer && <MemberList />}
+        {activeServer && (
+          <>
+            <div className="resize-handle" onMouseDown={memberPanel.onMouseDown} />
+            <div className="member-list-container" style={{ width: memberPanel.width }}>
+              <MemberList />
+            </div>
+          </>
+        )}
       </div>
 
       <ServerActionModal

@@ -3,29 +3,33 @@
  *
  * Automatically subscribes to a channel when the component mounts and the channel ID changes,
  * and unsubscribes when the component unmounts or channel changes.
+ *
+ * Uses getWebSocketService() directly (not useWebSocket()) to avoid registering
+ * duplicate event handlers — App.tsx already calls useWebSocket() once for all handlers.
  */
 
 import { useEffect } from 'react';
-import { useWebSocket } from './useWebSocket';
+import { getWebSocketService } from '../services/websocketService';
 import { useChatStore } from '../stores/chatStore';
 
 export function useChannelSubscription(channelId: string | null | undefined) {
-  const { subscribe, unsubscribe } = useWebSocket();
-  const { isConnected } = useChatStore();
+  const isConnected = useChatStore((s) => s.isConnected);
 
   useEffect(() => {
     if (!channelId || !isConnected) {
       return;
     }
 
+    const wsService = getWebSocketService();
+
     // Subscribe to channel
-    subscribe(channelId);
+    wsService.subscribe(channelId);
 
     // Unsubscribe on cleanup
     return () => {
-      unsubscribe(channelId);
+      wsService.unsubscribe(channelId);
     };
-  }, [channelId, isConnected, subscribe, unsubscribe]);
+  }, [channelId, isConnected]);
 
   return {
     isSubscribed: !!channelId && isConnected,

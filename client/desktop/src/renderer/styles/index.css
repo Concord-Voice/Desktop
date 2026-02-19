@@ -23,7 +23,9 @@
 :root {
   /* Font Scale & Spacing Scale */
   --font-scale: 1;
-  --sp: 1;
+  --sp-base: 1;
+  --compact-factor: 1;
+  --sp: calc(var(--sp-base) * var(--compact-factor));
 
   /* Concord Brand Colors */
   --bg-primary: #0d0821;
@@ -42,8 +44,11 @@
 }
 
 /* Font Size Scaling */
-[data-fontsize="small"] { --font-scale: 0.85; --sp: 0.85; }
-[data-fontsize="large"] { --font-scale: 1.5; --sp: 1.5; }
+[data-fontsize="small"] { --font-scale: 0.85; --sp-base: 0.85; }
+[data-fontsize="large"] { --font-scale: 1.5; --sp-base: 1.5; }
+
+/* Compact Mode — reduces spacing globally without affecting font sizes */
+[data-compact="true"] { --compact-factor: 0.75; }
 
 /* Concord Light */
 [data-theme="light"] {
@@ -210,27 +215,6 @@ body {
   overflow: hidden;
 }
 
-/* Compact mode: reduce spacing globally */
-[data-compact="true"] .profile-section,
-[data-compact="true"] .settings-section {
-  padding: 16px;
-  margin-bottom: 16px;
-}
-
-[data-compact="true"] .settings-row {
-  padding: 8px 0;
-}
-
-[data-compact="true"] .session-card {
-  padding: 10px;
-  gap: 10px;
-}
-
-[data-compact="true"] .settings-page-content,
-[data-compact="true"] .profile-page-content {
-  padding: 20px 32px;
-}
-
 .app {
   display: flex;
   flex-direction: column;
@@ -384,7 +368,6 @@ body {
 }
 
 .channels-sidebar {
-  width: 240px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -560,23 +543,6 @@ body {
 .settings-nav-badge,
 .session-card-badge {
   padding: calc(2px * var(--sp, 1)) calc(6px * var(--sp, 1));
-}
-
-/* Messages */
-.message {
-  gap: calc(12px * var(--sp, 1));
-  padding-left: calc(16px * var(--sp, 1));
-  padding-right: calc(16px * var(--sp, 1));
-}
-.message-header {
-  gap: calc(8px * var(--sp, 1));
-  margin-bottom: calc(4px * var(--sp, 1));
-}
-
-/* Chat input */
-.message-input-box {
-  padding: calc(12px * var(--sp, 1));
-  gap: calc(12px * var(--sp, 1));
 }
 
 /* Settings sections */

@@ -175,12 +175,9 @@ export const useMemberStore = create<MemberState>()(
       },
 
       clearMembers: () => {
+        // Preserve presence state — it's global, not tied to a specific server's member list
         set({
           members: [],
-          onlineUserIds: new Set<string>(),
-          userStatuses: new Map<string, PresenceStatus>(),
-          lastSeenByUser: new Map<string, number>(),
-          selfStatus: 'online' as PresenceStatus,
           isLoading: false,
           error: null,
         });
