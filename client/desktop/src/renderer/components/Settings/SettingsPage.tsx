@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import { useUserStore } from '../../stores/userStore';
@@ -20,6 +20,16 @@ interface Session {
   created_at: string;
   last_used: string;
   is_current: boolean;
+}
+
+interface PastSession {
+  id: string;
+  device_name: string;
+  ip_address: string;
+  user_agent: string;
+  created_at: string;
+  last_used: string;
+  revoked_at: string;
 }
 
 // ─── Toggle Switch ──────────────────────────────────────────────────────────
@@ -175,11 +185,15 @@ const AppearanceSection: React.FC = () => {
 
 const PrivacySecuritySection: React.FC = () => {
   const accessToken = useAuthStore((s) => s.accessToken);
+  const logout = useUserStore((s) => s.logout);
+  const navigate = useNavigate();
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [pastSessions, setPastSessions] = useState<PastSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [isRevokingAll, setIsRevokingAll] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null); // session id or 'all'
 
   const fetchSessions = useCallback(async () => {
     if (!accessToken) return;
@@ -196,6 +210,7 @@ const PrivacySecuritySection: React.FC = () => {
 
       const data = await response.json();
       setSessions(data.sessions || []);
+      setPastSessions(data.past_sessions || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch sessions');
     } finally {
@@ -207,8 +222,26 @@ const PrivacySecuritySection: React.FC = () => {
     fetchSessions();
   }, [fetchSessions]);
 
+  // Sort sessions: current session always first, then by last_used descending
+  const sortedSessions = useMemo(() => {
+    return [...sessions].sort((a, b) => {
+      if (a.is_current && !b.is_current) return -1;
+      if (!a.is_current && b.is_current) return 1;
+      return new Date(b.last_used).getTime() - new Date(a.last_used).getTime();
+    });
+  }, [sessions]);
+
   const handleRevoke = async (sessionId: string) => {
     if (!accessToken) return;
+
+    // Check if this is the current session — requires confirmation
+    const session = sessions.find((s) => s.id === sessionId);
+    if (session?.is_current && confirmRevoke !== sessionId) {
+      setConfirmRevoke(sessionId);
+      return;
+    }
+
+    setConfirmRevoke(null);
     setRevokingId(sessionId);
 
     try {
@@ -221,7 +254,29 @@ const PrivacySecuritySection: React.FC = () => {
         throw new Error(data.error || 'Failed to revoke session');
       }
 
-      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+      // If we revoked the current session, log out
+      if (session?.is_current) {
+        await logout();
+        navigate('/');
+        return;
+      }
+
+      // Move to past sessions
+      setSessions((prev) => {
+        const revoked = prev.find((s) => s.id === sessionId);
+        if (revoked) {
+          setPastSessions((past) => [{
+            id: revoked.id,
+            device_name: revoked.device_name,
+            ip_address: revoked.ip_address,
+            user_agent: revoked.user_agent,
+            created_at: revoked.created_at,
+            last_used: revoked.last_used,
+            revoked_at: new Date().toISOString(),
+          }, ...past]);
+        }
+        return prev.filter((s) => s.id !== sessionId);
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to revoke session');
     } finally {
@@ -231,10 +286,18 @@ const PrivacySecuritySection: React.FC = () => {
 
   const handleRevokeAll = async () => {
     if (!accessToken) return;
+
+    // Always require confirmation since this includes the current session
+    if (confirmRevoke !== 'all') {
+      setConfirmRevoke('all');
+      return;
+    }
+
+    setConfirmRevoke(null);
     setIsRevokingAll(true);
 
     try {
-      const response = await apiFetch('/api/v1/sessions', {
+      const response = await apiFetch('/api/v1/sessions?include_current=true', {
         method: 'DELETE',
       });
 
@@ -243,8 +306,9 @@ const PrivacySecuritySection: React.FC = () => {
         throw new Error(data.error || 'Failed to revoke sessions');
       }
 
-      // Keep only the current session
-      setSessions((prev) => prev.filter((s) => s.is_current));
+      // All sessions revoked including current — log out
+      await logout();
+      navigate('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to revoke sessions');
     } finally {
@@ -269,15 +333,12 @@ const PrivacySecuritySection: React.FC = () => {
 
   const parseUserAgent = (ua: string): string => {
     if (!ua) return 'Unknown Device';
-    // Simple user-agent parsing for common patterns
     if (ua.includes('Electron')) return 'Concord Desktop';
     if (ua.includes('Chrome')) return 'Chrome Browser';
     if (ua.includes('Firefox')) return 'Firefox Browser';
     if (ua.includes('Safari')) return 'Safari Browser';
     return 'Unknown Device';
   };
-
-  const otherSessionCount = sessions.filter((s) => !s.is_current).length;
 
   return (
     <>
@@ -296,7 +357,7 @@ const PrivacySecuritySection: React.FC = () => {
         ) : (
           <>
             <div className="sessions-list">
-              {sessions.map((session) => (
+              {sortedSessions.map((session) => (
                 <div key={session.id} className={`session-card ${session.is_current ? 'current' : ''}`}>
                   <div className="session-card-icon">
                     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -307,41 +368,121 @@ const PrivacySecuritySection: React.FC = () => {
                   <div className="session-card-info">
                     <div className="session-card-title">
                       {parseUserAgent(session.user_agent)}
-                      {session.is_current && <span className="session-card-badge">Current</span>}
+                      {session.is_current && <span className="session-card-badge">This Device</span>}
                     </div>
                     <div className="session-card-details">
                       <span>{session.ip_address}</span>
                       <span>Active {formatRelativeTime(session.last_used)}</span>
                       <span>Created {formatRelativeTime(session.created_at)}</span>
                     </div>
+                    {confirmRevoke === session.id && session.is_current && (
+                      <div className="session-confirm-warning">
+                        This is your current active session. Revoking it will log you out and you must sign back in.
+                      </div>
+                    )}
                   </div>
                   <div className="session-card-actions">
-                    <button
-                      className="session-revoke-btn"
-                      onClick={() => handleRevoke(session.id)}
-                      disabled={session.is_current || revokingId === session.id}
-                    >
-                      {revokingId === session.id ? 'Revoking...' : 'Revoke'}
-                    </button>
+                    {confirmRevoke === session.id ? (
+                      <>
+                        <button
+                          className="session-revoke-btn confirm"
+                          onClick={() => handleRevoke(session.id)}
+                          disabled={revokingId === session.id}
+                        >
+                          {revokingId === session.id ? 'Revoking...' : 'Confirm'}
+                        </button>
+                        <button
+                          className="session-cancel-btn"
+                          onClick={() => setConfirmRevoke(null)}
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        className="session-revoke-btn"
+                        onClick={() => handleRevoke(session.id)}
+                        disabled={revokingId === session.id}
+                      >
+                        {revokingId === session.id ? 'Revoking...' : 'Revoke'}
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
             </div>
 
-            {otherSessionCount > 1 && (
+            {sessions.length > 1 && (
               <div className="sessions-actions">
-                <button
-                  className="sessions-revoke-all-btn"
-                  onClick={handleRevokeAll}
-                  disabled={isRevokingAll}
-                >
-                  {isRevokingAll ? 'Revoking...' : `Revoke All Other Sessions (${otherSessionCount})`}
-                </button>
+                {confirmRevoke === 'all' && (
+                  <div className="session-confirm-warning">
+                    This will revoke all sessions, including your current active session.
+                    You will be logged out and must sign back in.
+                  </div>
+                )}
+                {confirmRevoke === 'all' ? (
+                  <div className="sessions-actions-buttons">
+                    <button
+                      className="sessions-revoke-all-btn"
+                      onClick={handleRevokeAll}
+                      disabled={isRevokingAll}
+                    >
+                      {isRevokingAll ? 'Revoking...' : 'Confirm Revoke All'}
+                    </button>
+                    <button
+                      className="session-cancel-btn"
+                      onClick={() => setConfirmRevoke(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    className="sessions-revoke-all-btn"
+                    onClick={handleRevokeAll}
+                    disabled={isRevokingAll}
+                  >
+                    {isRevokingAll ? 'Revoking...' : `Revoke All Sessions (${sessions.length})`}
+                  </button>
+                )}
               </div>
             )}
           </>
         )}
       </div>
+
+      {pastSessions.length > 0 && (
+        <div className="settings-section">
+          <h2 className="settings-section-title">Past Sessions</h2>
+          <p className="settings-section-description">
+            Sessions that were logged out or revoked in the last 30 days.
+          </p>
+
+          <div className="sessions-list">
+            {pastSessions.map((session) => (
+              <div key={session.id} className="session-card past">
+                <div className="session-card-icon past">
+                  <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                    <rect x="2" y="3" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
+                    <path d="M7 19h6M10 15v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                </div>
+                <div className="session-card-info">
+                  <div className="session-card-title">
+                    {parseUserAgent(session.user_agent)}
+                    <span className="session-card-badge past">Revoked</span>
+                  </div>
+                  <div className="session-card-details">
+                    <span>{session.ip_address}</span>
+                    <span>Last active {formatRelativeTime(session.last_used)}</span>
+                    <span>Revoked {formatRelativeTime(session.revoked_at)}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </>
   );
 };

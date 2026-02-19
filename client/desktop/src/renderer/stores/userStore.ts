@@ -3,6 +3,7 @@ import { devtools } from 'zustand/middleware';
 import { useAuthStore } from './authStore';
 import { useServerStore } from './serverStore';
 import { apiFetch } from '../services/apiClient';
+import { getWebSocketService } from '../services/websocketService';
 import {
   deriveKeyFromPassword,
   unwrapPrivateKey,
@@ -89,6 +90,10 @@ export const useUserStore = create<UserState>()(
   },
 
   logout: async () => {
+    // Disconnect WebSocket FIRST so the server receives the close frame
+    // and broadcasts offline presence while the connection is still healthy.
+    getWebSocketService().disconnect();
+
     try {
       await fetch('http://localhost:8080/api/v1/auth/logout', {
         method: 'POST',
@@ -130,6 +135,9 @@ export const useUserStore = create<UserState>()(
     }
 
     set({ user: data.user });
+
+    // Notify other clients via WebSocket so their cached user info updates
+    getWebSocketService().sendProfileUpdate();
   },
 
   changePassword: async (currentPassword: string, newPassword: string) => {

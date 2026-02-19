@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import AuthFlow from './components/Auth/AuthFlow';
 import MainView from './components/MainView/MainView';
 import ProfilePage from './components/Profile/ProfilePage';
@@ -7,15 +7,15 @@ import SettingsPage from './components/Settings/SettingsPage';
 import { useAuthStore } from './stores/authStore';
 import { useWebSocket } from './hooks/useWebSocket';
 
-function ProtectedRoute({ children }: { children: React.ReactElement }) {
+function AuthenticatedLayout() {
   const accessToken = useAuthStore((state) => state.accessToken);
-  // Initialize WebSocket for authenticated users
+  // Single WebSocket connection that persists across all authenticated routes
   useWebSocket();
 
   if (!accessToken) {
     return <Navigate to="/" replace />;
   }
-  return children;
+  return <Outlet />;
 }
 
 function App() {
@@ -43,21 +43,11 @@ function App() {
 
       <Routes>
         <Route path="/" element={<AuthFlow />} />
-        <Route path="/app" element={
-          <ProtectedRoute>
-            <MainView />
-          </ProtectedRoute>
-        } />
-        <Route path="/app/profile" element={
-          <ProtectedRoute>
-            <ProfilePage />
-          </ProtectedRoute>
-        } />
-        <Route path="/app/settings" element={
-          <ProtectedRoute>
-            <SettingsPage />
-          </ProtectedRoute>
-        } />
+        <Route element={<AuthenticatedLayout />}>
+          <Route path="/app" element={<MainView />} />
+          <Route path="/app/profile" element={<ProfilePage />} />
+          <Route path="/app/settings" element={<SettingsPage />} />
+        </Route>
       </Routes>
     </div>
   );

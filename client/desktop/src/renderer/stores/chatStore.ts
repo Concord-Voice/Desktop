@@ -35,6 +35,9 @@ interface ChatState {
   prependMessages: (channelId: string, messages: MessageWithStatus[]) => void; // For pagination
   clearMessages: (channelId: string) => void;
 
+  // User profile updates across all messages
+  updateUserInMessages: (userId: string, updates: { username?: string; display_name?: string | null; avatar_url?: string | null }) => void;
+
   // Typing indicators
   setTyping: (channelId: string, userId: string, isTyping: boolean, username?: string) => void;
   getTypingUsers: (channelId: string) => TypingUser[];
@@ -162,6 +165,27 @@ export const useChatStore = create<ChatState>()(
       return {
         messagesByChannel: new Map(state.messagesByChannel),
       };
+    }),
+
+  // Update user info across all messages in all channels
+  updateUserInMessages: (userId, updates) =>
+    set((state) => {
+      let changed = false;
+      state.messagesByChannel.forEach((messages, channelId) => {
+        const updated = messages.map((m) => {
+          if (m.user_id !== userId) return m;
+          changed = true;
+          return {
+            ...m,
+            ...(updates.username !== undefined && { username: updates.username }),
+            ...(updates.display_name !== undefined && { display_name: updates.display_name || undefined }),
+            ...(updates.avatar_url !== undefined && { avatar_url: updates.avatar_url || undefined }),
+          };
+        });
+        state.messagesByChannel.set(channelId, updated);
+      });
+      if (!changed) return state;
+      return { messagesByChannel: new Map(state.messagesByChannel) };
     }),
 
   // Set typing indicator for a user in a channel

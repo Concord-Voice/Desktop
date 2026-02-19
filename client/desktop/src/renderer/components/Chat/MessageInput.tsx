@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { Smile, ImagePlay, Paperclip } from 'lucide-react';
 import './MessageInput.css';
 
 export interface MessageInputProps {
@@ -26,8 +27,33 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
 
+  const adjustTextareaHeight = () => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    // When empty, collapse to a single row
+    if (!content) {
+      textarea.style.height = 'auto';
+      return;
+    }
+
+    // Cap at 25% of the closest .chat-view ancestor (or 200px fallback)
+    const chatView = textarea.closest('.chat-view');
+    const maxH = chatView ? chatView.clientHeight * 0.25 : 200;
+
+    textarea.style.height = 'auto';
+    textarea.style.height = Math.min(textarea.scrollHeight, maxH) + 'px';
+  };
+
   useEffect(() => {
     adjustTextareaHeight();
+  }, [content]);
+
+  // Re-adjust on window resize so the textarea doesn't retain a stale height
+  useEffect(() => {
+    const onResize = () => adjustTextareaHeight();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
   }, [content]);
 
   // Cleanup typing state on unmount
@@ -41,14 +67,6 @@ const MessageInput: React.FC<MessageInputProps> = ({
       }
     };
   }, [onTyping]);
-
-  const adjustTextareaHeight = () => {
-    const textarea = textareaRef.current;
-    if (textarea) {
-      textarea.style.height = 'auto';
-      textarea.style.height = Math.min(textarea.scrollHeight, 200) + 'px';
-    }
-  };
 
   const handleSend = () => {
     const trimmedContent = content.trim();
@@ -174,19 +192,30 @@ const MessageInput: React.FC<MessageInputProps> = ({
           <span className="hint">
             Press <kbd>Enter</kbd> to send, <kbd>Shift+Enter</kbd> for new line
           </span>
-          {isEncrypted && (
-            <span className="encryption-hint">
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                <path
-                  d="M6 1L3 3v3c0 2 1.5 3.5 3 4 1.5-.5 3-2 3-4V3L6 1z"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  fill="none"
-                />
-              </svg>
-              Messages are end-to-end encrypted
-            </span>
-          )}
+          <div className="message-input-extras">
+            {isEncrypted && (
+              <span className="encryption-hint">
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                  <path
+                    d="M6 1L3 3v3c0 2 1.5 3.5 3 4 1.5-.5 3-2 3-4V3L6 1z"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    fill="none"
+                  />
+                </svg>
+                Encrypted
+              </span>
+            )}
+            <button className="media-btn" title="Emoji" disabled>
+              <Smile size={18} />
+            </button>
+            <button className="media-btn" title="GIF" disabled>
+              <ImagePlay size={18} />
+            </button>
+            <button className="media-btn" title="Attach file" disabled>
+              <Paperclip size={18} />
+            </button>
+          </div>
         </div>
       </div>
     </div>

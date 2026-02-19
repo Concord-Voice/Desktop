@@ -2,16 +2,17 @@ import React, { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import { useServerStore } from '../../stores/serverStore';
+import { useUnreadStore } from '../../stores/unreadStore';
 
 import { ServerWithRole } from '../../types/server';
 import './ServerList.css';
 
 interface ServerListProps {
-  onOpenCreateModal: () => void;
+  onOpenActionModal: () => void;
   onContextMenu: (server: ServerWithRole, position: { x: number; y: number }) => void;
 }
 
-const ServerList: React.FC<ServerListProps> = ({ onOpenCreateModal, onContextMenu }) => {
+const ServerList: React.FC<ServerListProps> = ({ onOpenActionModal, onContextMenu }) => {
   const accessToken = useAuthStore((state) => state.accessToken);
   const servers = useServerStore((state) => state.servers);
   const activeServerId = useServerStore((state) => state.activeServerId);
@@ -21,6 +22,7 @@ const ServerList: React.FC<ServerListProps> = ({ onOpenCreateModal, onContextMen
   const setActiveServer = useServerStore((state) => state.setActiveServer);
   const navigate = useNavigate();
   const location = useLocation();
+  const serverUnreadSet = useUnreadStore((state) => state.serverUnreadSet);
 
   useEffect(() => {
     if (accessToken) {
@@ -66,43 +68,46 @@ const ServerList: React.FC<ServerListProps> = ({ onOpenCreateModal, onContextMen
       )}
 
       {/* Server icons */}
-      {servers.map((server) => (
-        <div key={server.id} className="server-icon-wrapper">
-          {activeServerId === server.id && (
-            <div className="server-active-pill" />
-          )}
-          <button
-            className={`server-icon-btn ${activeServerId === server.id ? 'active' : ''}`}
-            onClick={() => {
-              setActiveServer(server.id);
-              if (location.pathname !== '/app') {
-                navigate('/app');
-              }
-            }}
-            onContextMenu={(e) => handleContextMenu(e, server)}
-            title={`${server.name} (${server.role})`}
-            aria-label={`${server.name} server`}
-          >
-            {server.icon_url ? (
-              <img
-                src={server.icon_url}
-                alt={server.name}
-                className="server-icon-img"
-              />
-            ) : (
-              <span className="server-icon-initial">
-                {server.name.charAt(0).toUpperCase()}
+      {servers.map((server) => {
+        const isActive = activeServerId === server.id;
+        const hasUnread = !isActive && serverUnreadSet.has(server.id);
+        return (
+          <div key={server.id} className="server-icon-wrapper">
+            {isActive && <div className="server-active-pill" />}
+            {hasUnread && <div className="server-unread-pill" />}
+            <button
+              className={`server-icon-btn ${isActive ? 'active' : ''} ${hasUnread ? 'has-unread' : ''}`}
+              onClick={() => {
+                setActiveServer(server.id);
+                if (location.pathname !== '/app') {
+                  navigate('/app');
+                }
+              }}
+              onContextMenu={(e) => handleContextMenu(e, server)}
+              title={`${server.name} (${server.role})`}
+              aria-label={`${server.name} server`}
+            >
+              {server.icon_url ? (
+                <img
+                  src={server.icon_url}
+                  alt={server.name}
+                  className="server-icon-img"
+                />
+              ) : (
+                <span className="server-icon-initial">
+                  {server.name.charAt(0).toUpperCase()}
+                </span>
+              )}
+            </button>
+            <div className="server-tooltip">
+              <span className="server-tooltip-name">{server.name}</span>
+              <span className={`server-tooltip-role role-${server.role}`}>
+                {server.role}
               </span>
-            )}
-          </button>
-          <div className="server-tooltip">
-            <span className="server-tooltip-name">{server.name}</span>
-            <span className={`server-tooltip-role role-${server.role}`}>
-              {server.role}
-            </span>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {/* Separator */}
       {servers.length > 0 && <div className="server-list-separator" />}
@@ -110,9 +115,9 @@ const ServerList: React.FC<ServerListProps> = ({ onOpenCreateModal, onContextMen
       {/* Add server button */}
       <button
         className="add-server-btn"
-        onClick={onOpenCreateModal}
-        title="Create a Server"
-        aria-label="Create a Server"
+        onClick={onOpenActionModal}
+        title="Add a Server"
+        aria-label="Add a Server"
       >
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
           <path

@@ -1,7 +1,7 @@
 /* ─── Member List Panel ─────────────────────────────────────────────────── */
 
 .member-list {
-  width: 220px;
+  width: 100%;
   background-color: var(--bg-secondary);
   border-left: 1px solid var(--border-color);
   display: flex;

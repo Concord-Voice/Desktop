@@ -24,6 +24,8 @@ interface MemberState {
   error: string | null;
 
   fetchMembers: (serverId: string, accessToken: string) => Promise<void>;
+  addMember: (member: ServerMember) => void;
+  updateMemberProfile: (userId: string, updates: Partial<Pick<ServerMember, 'username' | 'display_name' | 'avatar_url'>>) => void;
   setOnlineUsers: (userIds: string[]) => void;
   setUserOnline: (userId: string) => void;
   setUserOffline: (userId: string) => void;
@@ -84,6 +86,26 @@ export const useMemberStore = create<MemberState>()(
             isLoading: false,
           });
         }
+      },
+
+      addMember: (member: ServerMember) => {
+        set((state) => {
+          // Avoid duplicates
+          if (state.members.some((m) => m.user_id === member.user_id)) {
+            return state;
+          }
+          return { members: [...state.members, member] };
+        });
+      },
+
+      updateMemberProfile: (userId: string, updates) => {
+        set((state) => {
+          const idx = state.members.findIndex((m) => m.user_id === userId);
+          if (idx < 0) return state;
+          const updated = [...state.members];
+          updated[idx] = { ...updated[idx], ...updates };
+          return { members: updated };
+        });
       },
 
       setOnlineUsers: (userIds: string[]) => {
@@ -153,12 +175,9 @@ export const useMemberStore = create<MemberState>()(
       },
 
       clearMembers: () => {
+        // Preserve presence state — it's global, not tied to a specific server's member list
         set({
           members: [],
-          onlineUserIds: new Set<string>(),
-          userStatuses: new Map<string, PresenceStatus>(),
-          lastSeenByUser: new Map<string, number>(),
-          selfStatus: 'online' as PresenceStatus,
           isLoading: false,
           error: null,
         });

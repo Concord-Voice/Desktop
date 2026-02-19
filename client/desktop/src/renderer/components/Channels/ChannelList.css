@@ -7,46 +7,18 @@
   overflow-y: auto;
 }
 
-/* Header */
-.channel-list-header {
-  padding: 12px;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.create-channel-btn {
-  width: 100%;
-  padding: 8px 12px;
-  background-color: var(--bg-tertiary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s ease;
-}
-
-.create-channel-btn:hover {
-  background-color: var(--bg-tertiary);
-  border-color: var(--accent-primary);
-}
-
-.create-channel-btn:active {
-  transform: scale(0.98);
-}
-
 /* Channel Groups */
 .channel-group {
-  margin: 16px 0;
+  margin: calc(16px * var(--sp, 1)) 0;
 }
 
 .channel-group-header {
-  padding: 4px 12px;
-  margin-bottom: 4px;
+  padding: calc(4px * var(--sp, 1)) calc(12px * var(--sp, 1));
+  margin-bottom: calc(4px * var(--sp, 1));
 }
 
 .channel-group-header span {
-  font-size: 11px;
+  font-size: calc(11px * var(--font-scale, 1));
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -57,12 +29,14 @@
 .channel-item {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
-  margin: 2px 8px;
+  padding: calc(8px * var(--sp, 1)) calc(12px * var(--sp, 1));
+  margin: calc(2px * var(--sp, 1)) calc(8px * var(--sp, 1));
   border-radius: 4px;
+  border-left: 3px solid transparent;
   cursor: pointer;
   transition: all 0.15s ease;
   user-select: none;
+  position: relative;
 }
 
 .channel-item:hover {
@@ -74,11 +48,25 @@
   color: var(--text-primary);
   font-weight: 600;
   border-left: 3px solid var(--accent-primary);
-  padding-left: 9px;
+  padding-left: calc(9px * var(--sp, 1));
+}
+
+/* Active channel arrow indicator — points right toward the chat area */
+.channel-item.active::after {
+  content: '';
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 0;
+  height: 0;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 6px solid var(--accent-primary);
 }
 
 .channel-type-icon {
-  margin-right: 6px;
+  margin-right: calc(6px * var(--sp, 1));
   color: var(--text-secondary);
   min-width: 16px;
   display: flex;
@@ -96,23 +84,50 @@
 }
 
 .channel-custom-emoji {
-  margin-right: 6px;
-  font-size: 16px;
+  margin-right: calc(6px * var(--sp, 1));
+  font-size: calc(16px * var(--font-scale, 1));
   line-height: 1;
   flex-shrink: 0;
 }
 
 .channel-name {
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+}
+
+.channel-item.active .channel-name {
+  font-weight: 700;
+}
+
+/* Unread badge */
+.channel-unread-badge {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: calc(6px * var(--sp, 1));
+  flex-shrink: 0;
+}
+
+.channel-item.has-unread .channel-name {
+  font-weight: 700;
+  color: var(--text-primary);
 }
 
 /* Loading Skeletons */
 .channel-list-skeletons {
-  padding: 12px;
+  padding: calc(12px * var(--sp, 1));
 }
 
 .channel-skeleton {
@@ -126,7 +141,7 @@
   background-size: 200% 100%;
   animation: skeleton-loading 1.5s ease-in-out infinite;
   border-radius: 4px;
-  margin-bottom: 8px;
+  margin-bottom: calc(8px * var(--sp, 1));
 }
 
 @keyframes skeleton-loading {
@@ -140,24 +155,24 @@
 
 /* Error State */
 .channel-list-error {
-  padding: 20px;
+  padding: calc(20px * var(--sp, 1));
   text-align: center;
   color: var(--error-color);
 }
 
 .channel-list-error p {
-  margin-bottom: 12px;
-  font-size: 14px;
+  margin-bottom: calc(12px * var(--sp, 1));
+  font-size: calc(14px * var(--font-scale, 1));
 }
 
 .retry-btn {
-  padding: 8px 16px;
+  padding: calc(8px * var(--sp, 1)) calc(16px * var(--sp, 1));
   background-color: var(--bg-tertiary);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: calc(14px * var(--font-scale, 1));
   transition: all 0.2s ease;
 }
 
@@ -168,18 +183,18 @@
 
 /* Empty State */
 .channel-list-empty {
-  padding: 40px 20px;
+  padding: calc(40px * var(--sp, 1)) calc(20px * var(--sp, 1));
   text-align: center;
   color: var(--text-secondary);
 }
 
 .channel-list-empty p {
-  margin-bottom: 8px;
-  font-size: 14px;
+  margin-bottom: calc(8px * var(--sp, 1));
+  font-size: calc(14px * var(--font-scale, 1));
 }
 
 .empty-hint {
-  font-size: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
   color: var(--text-tertiary);
 }
 

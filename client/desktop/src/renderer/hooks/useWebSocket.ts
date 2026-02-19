@@ -12,6 +12,11 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { useChatStore } from '../stores/chatStore';
+import { useChannelStore } from '../stores/channelStore';
+import { useServerStore } from '../stores/serverStore';
+import { useMemberStore, PresenceStatus } from '../stores/memberStore';
+import { useUserStore } from '../stores/userStore';
+import { useUnreadStore } from '../stores/unreadStore';
 import {
   getWebSocketService,
   ConnectionState,
@@ -26,6 +31,8 @@ export function useWebSocket() {
     setConnectionStatus,
     addMessage,
     updateMessage,
+    updateMessageStatus,
+    updateUserInMessages,
     deleteMessage,
     setTyping,
   } = useChatStore();
@@ -86,6 +93,10 @@ export function useWebSocket() {
         created_at: data.created_at || new Date().toISOString(),
         updated_at: data.updated_at || new Date().toISOString(),
       });
+
+      // NOTE: Unread tracking is handled exclusively by the 'unread_notify' handler
+      // (server-level subscription). The 'message' event only arrives for the active
+      // channel the user is subscribed to, so no unread increment is needed here.
     });
 
     // Message update handler
@@ -136,6 +147,128 @@ export function useWebSocket() {
       setTyping(channelId, userId, isTyping, username);
     });
 
+    // Message acknowledgment handler — maps temp client IDs to server UUIDs
+    const unsubAck = wsService.on('message_ack', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const nonce = data.nonce;
+      const serverId = data.id;
+      const channelId = data.channel_id;
+
+      if (nonce && serverId && channelId) {
+        updateMessageStatus(channelId, nonce, 'delivered', serverId);
+      }
+    });
+
+    // Member joined handler — updates member list in real time
+    const unsubMemberJoined = wsService.on('member_joined', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const activeServerId = useServerStore.getState().activeServerId;
+
+      // Only update if the event is for the currently viewed server
+      if (data.server_id && data.server_id === activeServerId) {
+        useMemberStore.getState().addMember({
+          user_id: data.user_id,
+          username: data.username || 'Unknown',
+          display_name: data.display_name || undefined,
+          avatar_url: data.avatar_url || undefined,
+          role: data.role || 'member',
+          joined_at: new Date().toISOString(),
+        });
+      }
+    });
+
+    // Profile updated handler — updates messages and member list
+    const unsubProfileUpdated = wsService.on('profile_updated', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const userId = data.user_id;
+
+      if (!userId) return;
+
+      // Update all messages from this user across all channels
+      updateUserInMessages(userId, {
+        username: data.username,
+        display_name: data.display_name,
+        avatar_url: data.avatar_url,
+      });
+
+      // Update member list if applicable
+      useMemberStore.getState().updateMemberProfile(userId, {
+        username: data.username,
+        display_name: data.display_name || undefined,
+        avatar_url: data.avatar_url || undefined,
+      });
+    });
+
+    // Server updated handler — updates server list for all members
+    const unsubServerUpdated = wsService.on('server_updated', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const serverId = data.server_id;
+      if (!serverId) return;
+
+      useServerStore.getState().updateServer(serverId, {
+        name: data.name,
+        icon_url: data.icon_url ?? null,
+      });
+    });
+
+    // Lightweight unread notification handler — from server subscription
+    const unsubUnreadNotify = wsService.on('unread_notify', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const channelId = data.channel_id;
+      const serverId = data.server_id;
+      const activeServerId = useServerStore.getState().activeServerId;
+
+      if (serverId && serverId !== activeServerId) {
+        // Non-active server: just mark the server icon as having unreads
+        useUnreadStore.getState().markServerUnread(serverId);
+      } else if (channelId) {
+        // Active server: increment per-channel unread count
+        const activeChannelId = useChannelStore.getState().activeChannelId;
+        if (channelId !== activeChannelId) {
+          useUnreadStore.getState().incrementUnread(channelId);
+          // Also mark the server so the dot persists if the user switches away.
+          // The dot won't show while this server is active (ServerList filters it).
+          if (serverId) {
+            useUnreadStore.getState().markServerUnread(serverId);
+          }
+        }
+      }
+    });
+
+    // Presence snapshot handler — received on connection with all online users and their statuses
+    const unsubPresenceSnapshot = wsService.on('presence_snapshot', (msg: WebSocketMessage) => {
+      // Enhanced format: array of { user_id, status } objects
+      if (msg.data.users && Array.isArray(msg.data.users)) {
+        useMemberStore.getState().setPresenceSnapshot(
+          msg.data.users as Array<{ user_id: string; status: string }>
+        );
+      } else if (msg.data.online_user_ids) {
+        // Backward compatibility: simple list of online user IDs
+        const userIds = msg.data.online_user_ids as string[];
+        useMemberStore.getState().setOnlineUsers(userIds);
+      }
+    });
+
+    // Presence change handler — individual status updates (online/offline/dnd/invisible)
+    const unsubPresence = wsService.on('presence', (msg: WebSocketMessage) => {
+      const userId = msg.data.user_id as string;
+      const status = msg.data.status as PresenceStatus;
+      const timestamp = msg.data.timestamp as number | undefined;
+      if (!userId) return;
+
+      // Skip overriding self user's status from broadcast — selfStatus is the local source of truth.
+      // The server broadcasts "offline" for invisible users, so trusting the broadcast
+      // would incorrectly show the self user as offline when they chose invisible.
+      const selfId = useUserStore.getState().user?.id;
+      if (userId === selfId) return;
+
+      useMemberStore.getState().setUserStatus(userId, status);
+
+      if (status === 'offline' && timestamp) {
+        useMemberStore.getState().setUserLastSeen(userId, timestamp);
+      }
+    });
+
     // Subscribed confirmation handler
     const unsubSubscribed = wsService.on('subscribed', (msg: WebSocketMessage) => {
       console.debug('[WebSocket] Subscribed to channel:', msg.data.channel_id);
@@ -153,10 +286,17 @@ export function useWebSocket() {
       unsubUpdate();
       unsubDelete();
       unsubTyping();
+      unsubAck();
+      unsubMemberJoined();
+      unsubProfileUpdated();
+      unsubServerUpdated();
+      unsubUnreadNotify();
+      unsubPresenceSnapshot();
+      unsubPresence();
       unsubSubscribed();
       unsubError();
     };
-  }, [wsService, setConnectionStatus, addMessage, updateMessage, deleteMessage, setTyping]);
+  }, [wsService, setConnectionStatus, addMessage, updateMessage, updateMessageStatus, updateUserInMessages, deleteMessage, setTyping]);
 
   // Subscribe to a channel
   const subscribe = useCallback(
