@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ServerWithRole } from '../../types/server';
+import { useInviteStore } from '../../stores/inviteStore';
 import './ServerContextMenu.css';
 
 interface ServerContextMenuProps {
@@ -56,8 +57,43 @@ const ServerContextMenu: React.FC<ServerContextMenuProps> = ({
     }
   }, [position]);
 
+  const [copiedInvite, setCopiedInvite] = useState(false);
+  const createInvite = useInviteStore((state) => state.createInvite);
+  const invites = useInviteStore((state) => state.invites[server.id] || []);
+  const fetchInvites = useInviteStore((state) => state.fetchInvites);
+
   const canEdit = server.role === 'owner' || server.role === 'admin';
   const canDelete = server.role === 'owner';
+
+  // Fetch invites on mount if can manage
+  useEffect(() => {
+    if (canEdit) {
+      fetchInvites(server.id);
+    }
+  }, [canEdit, server.id, fetchInvites]);
+
+  const activeInvite = invites.find((inv) => {
+    if (inv.is_revoked) return false;
+    if (inv.expires_at && new Date(inv.expires_at) < new Date()) return false;
+    if (inv.max_uses !== null && inv.use_count >= inv.max_uses) return false;
+    return true;
+  });
+
+  const handleCopyInvite = async () => {
+    if (activeInvite) {
+      await navigator.clipboard.writeText(activeInvite.code);
+      setCopiedInvite(true);
+      setTimeout(() => onClose(), 800);
+    } else {
+      // Generate a new one on the fly
+      const invite = await createInvite(server.id);
+      if (invite) {
+        await navigator.clipboard.writeText(invite.code);
+        setCopiedInvite(true);
+        setTimeout(() => onClose(), 800);
+      }
+    }
+  };
 
   return (
     <div className="context-menu-overlay">
@@ -92,6 +128,20 @@ const ServerContextMenu: React.FC<ServerContextMenuProps> = ({
               />
             </svg>
             Edit Server
+          </button>
+        )}
+
+        {/* Copy Invite Code */}
+        {canEdit && (
+          <button
+            className="context-menu-item"
+            onClick={handleCopyInvite}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
+            {copiedInvite ? 'Copied!' : 'Copy Invite Code'}
           </button>
         )}
 

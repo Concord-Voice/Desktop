@@ -4,6 +4,8 @@ import ServerContextMenu from '../Servers/ServerContextMenu';
 import ServerSettingsModal from '../Servers/ServerSettingsModal';
 import DeleteServerModal from '../Servers/DeleteServerModal';
 import CreateServerModal from '../Servers/CreateServerModal';
+import ServerActionModal from '../Servers/ServerActionModal';
+import JoinServerModal from '../Servers/JoinServerModal';
 import ChannelList from '../Channels/ChannelList';
 import ChannelContextMenu from '../Channels/ChannelContextMenu';
 import CreateChannelModal from '../Channels/CreateChannelModal';
@@ -19,7 +21,9 @@ import { Channel } from '../../types/chat';
 import './MainView.css';
 
 const MainView: React.FC = () => {
+  const [isServerActionModalOpen, setIsServerActionModalOpen] = useState(false);
   const [isCreateServerModalOpen, setIsCreateServerModalOpen] = useState(false);
+  const [isJoinServerModalOpen, setIsJoinServerModalOpen] = useState(false);
   const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] = useState(false);
   const [serverContextMenu, setServerContextMenu] = useState<{
     server: ServerWithRole;
@@ -84,7 +88,7 @@ const MainView: React.FC = () => {
       <div className="sidebar">
         <div className="sidebar-servers">
           <ServerList
-            onOpenCreateModal={() => setIsCreateServerModalOpen(true)}
+            onOpenActionModal={() => setIsServerActionModalOpen(true)}
             onContextMenu={handleServerContextMenu}
           />
         </div>
@@ -128,9 +132,22 @@ const MainView: React.FC = () => {
         {activeServer && <MemberList />}
       </div>
 
+      <ServerActionModal
+        isOpen={isServerActionModalOpen}
+        onClose={() => setIsServerActionModalOpen(false)}
+        onCreateServer={() => setIsCreateServerModalOpen(true)}
+        onJoinServer={() => setIsJoinServerModalOpen(true)}
+      />
+
       <CreateServerModal
         isOpen={isCreateServerModalOpen}
         onClose={() => setIsCreateServerModalOpen(false)}
+        onSuccess={handleCreateServerSuccess}
+      />
+
+      <JoinServerModal
+        isOpen={isJoinServerModalOpen}
+        onClose={() => setIsJoinServerModalOpen(false)}
         onSuccess={handleCreateServerSuccess}
       />
 

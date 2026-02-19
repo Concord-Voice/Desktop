@@ -6,11 +6,11 @@ import { ServerWithRole } from '../../types/server';
 import './ServerList.css';
 
 interface ServerListProps {
-  onOpenCreateModal: () => void;
+  onOpenActionModal: () => void;
   onContextMenu: (server: ServerWithRole, position: { x: number; y: number }) => void;
 }
 
-const ServerList: React.FC<ServerListProps> = ({ onOpenCreateModal, onContextMenu }) => {
+const ServerList: React.FC<ServerListProps> = ({ onOpenActionModal, onContextMenu }) => {
   const accessToken = useAuthStore((state) => state.accessToken);
   const servers = useServerStore((state) => state.servers);
   const activeServerId = useServerStore((state) => state.activeServerId);
@@ -102,9 +102,9 @@ const ServerList: React.FC<ServerListProps> = ({ onOpenCreateModal, onContextMen
       {/* Add server button */}
       <button
         className="add-server-btn"
-        onClick={onOpenCreateModal}
-        title="Create a Server"
-        aria-label="Create a Server"
+        onClick={onOpenActionModal}
+        title="Add a Server"
+        aria-label="Add a Server"
       >
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
           <path

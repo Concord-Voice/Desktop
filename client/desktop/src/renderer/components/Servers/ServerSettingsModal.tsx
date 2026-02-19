@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useServerStore } from '../../stores/serverStore';
+import { useInviteStore } from '../../stores/inviteStore';
 import { apiFetch } from '../../services/apiClient';
 import { ServerWithRole } from '../../types/server';
 import './ServerSettingsModal.css';
@@ -35,7 +36,23 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [isCreatingInvite, setIsCreatingInvite] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const canManageInvites = server.role === 'owner' || server.role === 'admin';
+  const invites = useInviteStore((state) => state.invites[server.id] || []);
+  const fetchInvites = useInviteStore((state) => state.fetchInvites);
+  const createInvite = useInviteStore((state) => state.createInvite);
+
+  // Find first active (non-revoked, non-expired) invite
+  const activeInvite = invites.find((inv) => {
+    if (inv.is_revoked) return false;
+    if (inv.expires_at && new Date(inv.expires_at) < new Date()) return false;
+    if (inv.max_uses !== null && inv.use_count >= inv.max_uses) return false;
+    return true;
+  });
+
   // Reset form when server changes
   useEffect(() => {
     setName(server.name);
@@ -45,7 +62,16 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
     setErrors({});
     setIsSubmitting(false);
     setSuccessMessage(null);
+    setInviteCopied(false);
+    setIsCreatingInvite(false);
   }, [server]);
+
+  // Fetch invites when modal opens for owner/admin
+  useEffect(() => {
+    if (isOpen && canManageInvites) {
+      fetchInvites(server.id);
+    }
+  }, [isOpen, canManageInvites, server.id, fetchInvites]);
 
   const handleClose = () => {
     if (!isSubmitting) {
@@ -249,6 +275,52 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
             {name.trim().length}/{NAME_MAX} characters
           </span>
         </div>
+
+        {/* Invite Code Section */}
+        {canManageInvites && (
+          <div className="invite-section">
+            <label className="form-label">Invite Code</label>
+            {activeInvite ? (
+              <div className="invite-code-row">
+                <code className="invite-code-display">{activeInvite.code}</code>
+                <button
+                  type="button"
+                  className="invite-copy-btn"
+                  onClick={() => {
+                    navigator.clipboard.writeText(activeInvite.code);
+                    setInviteCopied(true);
+                    setTimeout(() => setInviteCopied(false), 2000);
+                  }}
+                >
+                  {inviteCopied ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                className="invite-generate-btn"
+                disabled={isCreatingInvite}
+                onClick={async () => {
+                  setIsCreatingInvite(true);
+                  await createInvite(server.id);
+                  setIsCreatingInvite(false);
+                }}
+              >
+                {isCreatingInvite ? (
+                  <>
+                    Generating...
+                    <LoadingSpinner size="small" inline />
+                  </>
+                ) : (
+                  'Generate Invite Code'
+                )}
+              </button>
+            )}
+            <span className="form-hint">
+              Invites default to 1 use, expire in 24 hours.
+            </span>
+          </div>
+        )}
 
         {/* General Error */}
         {errors.general && (
