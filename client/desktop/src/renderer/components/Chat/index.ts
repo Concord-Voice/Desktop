@@ -1,3 +1,4 @@
+export { default as ChatView } from './ChatView';
 export { default as Message } from './Message';
 export { default as MessageInput } from './MessageInput';
 export { default as MessageList } from './MessageList';

@@ -7,13 +7,22 @@ import { useChatStore } from '../../stores/chatStore';
 import './ConnectionStatus.css';
 
 const ConnectionStatus: React.FC = () => {
-  const { isConnected, connectionClientId } = useChatStore();
+  const { connectionState, connectionClientId } = useChatStore();
 
-  if (isConnected) {
+  if (connectionState === 'connected') {
     return (
       <div className="connection-status connected" title={`Connected (${connectionClientId})`}>
         <span className="status-dot"></span>
         <span className="status-text">Connected</span>
+      </div>
+    );
+  }
+
+  if (connectionState === 'connecting') {
+    return (
+      <div className="connection-status connecting" title="Connecting to server...">
+        <span className="status-dot"></span>
+        <span className="status-text">Connecting</span>
       </div>
     );
   }

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { MessageWithUser } from '../../types/chat';
 import Message from './Message';
 import './MessageList.css';
@@ -14,6 +14,9 @@ export interface MessageListProps {
   onDeleteMessage?: (messageId: string) => void;
 }
 
+const NEAR_BOTTOM_THRESHOLD = 150;
+const SHOW_BUTTON_THRESHOLD = 300;
+
 const MessageList: React.FC<MessageListProps> = ({
   messages,
   currentUserId,
@@ -25,49 +28,56 @@ const MessageList: React.FC<MessageListProps> = ({
   onDeleteMessage,
 }) => {
   const listRef = useRef<HTMLDivElement>(null);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const prevMessagesLength = useRef(messages.length);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [shiftHeld, setShiftHeld] = useState(false);
 
   useEffect(() => {
-    if (autoScroll && listRef.current) {
-      scrollToBottom();
-    }
-  }, [messages, autoScroll]);
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Shift') setShiftHeld(true); };
+    const onKeyUp = (e: KeyboardEvent) => { if (e.key === 'Shift') setShiftHeld(false); };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, []);
 
+  // Auto-scroll when messages change (new message arrives) if user is near bottom
   useEffect(() => {
-    // Auto-scroll when new messages arrive
-    if (messages.length > prevMessagesLength.current) {
-      const isAtBottom = checkIfAtBottom();
-      if (isAtBottom) {
-        scrollToBottom();
-      }
-    }
-    prevMessagesLength.current = messages.length;
-  }, [messages]);
-
-  const scrollToBottom = () => {
-    if (listRef.current) {
+    if (isNearBottomRef.current && listRef.current) {
       listRef.current.scrollTop = listRef.current.scrollHeight;
     }
-  };
+  }, [messages]);
 
-  const checkIfAtBottom = () => {
-    if (!listRef.current) return false;
-    const { scrollTop, scrollHeight, clientHeight } = listRef.current;
-    return scrollHeight - scrollTop - clientHeight < 100;
-  };
+  const scrollToBottom = useCallback((smooth = true) => {
+    if (listRef.current) {
+      listRef.current.scrollTo({
+        top: listRef.current.scrollHeight,
+        behavior: smooth ? 'smooth' : 'auto',
+      });
+    }
+  }, []);
 
-  const handleScroll = () => {
+  const handleScroll = useCallback(() => {
     if (!listRef.current) return;
 
-    const isAtBottom = checkIfAtBottom();
-    setAutoScroll(isAtBottom);
+    const { scrollTop, scrollHeight, clientHeight } = listRef.current;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
 
-    // Load more messages when scrolled to top
-    if (hasMore && onLoadMore && listRef.current.scrollTop === 0 && !isLoading) {
+    isNearBottomRef.current = distanceFromBottom < NEAR_BOTTOM_THRESHOLD;
+
+    const shouldShow = distanceFromBottom > SHOW_BUTTON_THRESHOLD;
+    if (shouldShow !== showScrollButton) {
+      setShowScrollButton(shouldShow);
+    }
+
+    // Load more messages when scrolled near top
+    if (hasMore && onLoadMore && scrollTop < 50 && !isLoading) {
       onLoadMore();
     }
-  };
+  }, [hasMore, onLoadMore, isLoading, showScrollButton]);
 
   const shouldShowAvatar = (index: number): boolean => {
     if (index === 0) return true;
@@ -79,9 +89,9 @@ const MessageList: React.FC<MessageListProps> = ({
 
     const currentTime = new Date(currentMessage.created_at).getTime();
     const previousTime = new Date(previousMessage.created_at).getTime();
-    const fiveMinutes = 5 * 60 * 1000;
+    const twoMinutes = 2 * 60 * 1000;
 
-    return currentTime - previousTime > fiveMinutes;
+    return currentTime - previousTime > twoMinutes;
   };
 
   const formatDateDivider = (date: Date): string => {
@@ -171,16 +181,18 @@ const MessageList: React.FC<MessageListProps> = ({
               onEdit={onEditMessage}
               onDelete={onDeleteMessage}
               showAvatar={shouldShowAvatar(index)}
+              shiftHeld={shiftHeld}
             />
           </React.Fragment>
         ))}
+        <div ref={bottomRef} />
       </div>
 
-      {!autoScroll && (
+      {showScrollButton && (
         <button
           className="scroll-to-bottom"
-          onClick={scrollToBottom}
-          aria-label="Scroll to bottom"
+          onClick={() => scrollToBottom(true)}
+          aria-label="Return to latest"
         >
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
             <path
@@ -188,7 +200,7 @@ const MessageList: React.FC<MessageListProps> = ({
               fill="currentColor"
             />
           </svg>
-          New messages
+          Return to Latest
         </button>
       )}
     </div>

@@ -1,6 +1,5 @@
 import React, { useEffect } from 'react';
 import { Hash, Volume2, Pin } from 'lucide-react';
-import { useAuthStore } from '../../stores/authStore';
 import { useChannelStore } from '../../stores/channelStore';
 import { useServerStore } from '../../stores/serverStore';
 import { Channel } from '../../types/chat';
@@ -15,7 +14,6 @@ const ChannelList: React.FC<ChannelListProps> = ({
   onOpenCreateModal,
   onContextMenu,
 }) => {
-  const accessToken = useAuthStore((state) => state.accessToken);
   const activeServerId = useServerStore((state) => state.activeServerId);
   const channels = useChannelStore((state) => state.channels);
   const activeChannelId = useChannelStore((state) => state.activeChannelId);
@@ -27,12 +25,12 @@ const ChannelList: React.FC<ChannelListProps> = ({
 
   // Fetch channels when active server changes
   useEffect(() => {
-    if (activeServerId && accessToken) {
-      fetchChannels(activeServerId, accessToken);
+    if (activeServerId) {
+      fetchChannels(activeServerId);
     } else {
       clearChannels();
     }
-  }, [activeServerId, accessToken, fetchChannels, clearChannels]);
+  }, [activeServerId, fetchChannels, clearChannels]);
 
   const handleContextMenu = (e: React.MouseEvent, channel: Channel) => {
     e.preventDefault();
@@ -100,7 +98,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
           <p>{error}</p>
           <button
             onClick={() =>
-              activeServerId && accessToken && fetchChannels(activeServerId, accessToken)
+              activeServerId && fetchChannels(activeServerId)
             }
             className="retry-btn"
           >

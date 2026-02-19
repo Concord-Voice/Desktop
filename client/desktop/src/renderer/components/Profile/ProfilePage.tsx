@@ -202,7 +202,7 @@ const ProfilePage: React.FC = () => {
         updates.bio = bio.trim() || null;
       }
       if (avatarRemoved) {
-        updates.avatar_url = null;
+        updates.avatar_url = '';  // Empty string signals "remove" to backend
       } else if (avatarDataUrl && avatarDataUrl !== user?.avatar_url) {
         updates.avatar_url = avatarDataUrl;
       }
@@ -219,7 +219,7 @@ const ProfilePage: React.FC = () => {
         return;
       }
 
-      await updateProfile(accessToken!, updates);
+      await updateProfile(updates);
       setProfileSuccess('Profile updated successfully!');
       setAvatarRemoved(false);
 
@@ -289,7 +289,7 @@ const ProfilePage: React.FC = () => {
     setPasswordErrors({});
     setPasswordSuccess(null);
 
-    const result = await changePassword(accessToken!, currentPassword, newPassword);
+    const result = await changePassword(currentPassword, newPassword);
 
     if (result.success) {
       setPasswordSuccess('Password changed successfully!');

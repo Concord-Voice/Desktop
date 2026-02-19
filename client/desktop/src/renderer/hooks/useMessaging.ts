@@ -12,8 +12,8 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react';
-import { useAuthStore } from '../stores/authStore';
 import { useChatStore } from '../stores/chatStore';
+import { useUserStore } from '../stores/userStore';
 import { getWebSocketService, ConnectionState } from '../services/websocketService';
 import { getMessageQueue, type QueuedMessage } from '../services/messageQueue';
 import type { MessageWithStatus } from '../types/chat';
@@ -23,28 +23,19 @@ export function useMessaging() {
   const messageQueue = useRef(
     getMessageQueue({
       onMessageSent: (messageId) => {
-        console.log(`[useMessaging] Message ${messageId} sent to server`);
+        console.debug(`[useMessaging] Message ${messageId} sent`);
       },
       onMessageDelivered: (messageId, serverMessageId) => {
-        console.log(`[useMessaging] Message ${messageId} delivered, server ID: ${serverMessageId}`);
+        console.debug(`[useMessaging] Message ${messageId} delivered (${serverMessageId})`);
       },
       onMessageFailed: (messageId, error) => {
-        console.error(`[useMessaging] Message ${messageId} failed: ${error}`);
+        console.warn(`[useMessaging] Message ${messageId} failed: ${error}`);
       },
     })
   ).current;
 
   const { updateMessageStatus, addMessage } = useChatStore();
-  const { accessToken } = useAuthStore();
-  const currentUserId = useRef<string | null>(null);
-
-  // Get current user ID from connection info
-  useEffect(() => {
-    const connectionInfo = wsService.getConnectionInfo();
-    if (connectionInfo) {
-      currentUserId.current = connectionInfo.userId;
-    }
-  }, [wsService]);
+  const userId = useUserStore((s) => s.user?.id);
 
   // Start/stop queue processing based on connection state
   useEffect(() => {
@@ -52,7 +43,10 @@ export function useMessaging() {
       if (state === ConnectionState.CONNECTED) {
         // Start processing queue when connected
         messageQueue.startProcessing(async (msg: QueuedMessage) => {
-          // Send queued message via WebSocket
+          // Only send to channels we're currently subscribed to
+          if (!wsService.isSubscribed(msg.channelId)) {
+            return; // Skip — will retry on next cycle once subscribed
+          }
           wsService.sendMessage(msg.channelId, msg.content);
         });
       } else {
@@ -71,7 +65,7 @@ export function useMessaging() {
    * Send a message with delivery tracking
    */
   const sendMessage = useCallback(
-    (channelId: string, content: string, username: string = 'You'): string => {
+    (channelId: string, content: string, username: string = 'You', avatarUrl?: string, displayName?: string): string => {
       // Generate client-side message ID
       const clientMessageId = messageQueue.enqueue(channelId, content, 'message');
 
@@ -80,8 +74,10 @@ export function useMessaging() {
         id: clientMessageId, // Temporary ID
         clientMessageId,
         channel_id: channelId,
-        user_id: currentUserId.current || 'unknown',
+        user_id: userId || 'unknown',
         username,
+        display_name: displayName,
+        avatar_url: avatarUrl,
         content,
         is_encrypted: false,
         created_at: new Date().toISOString(),
@@ -96,6 +92,7 @@ export function useMessaging() {
         try {
           wsService.sendMessage(channelId, content);
           messageQueue.markAsSent(clientMessageId);
+          messageQueue.remove(clientMessageId); // Server has persisted it — no need to keep in queue
           updateMessageStatus(channelId, clientMessageId, 'sent');
         } catch (error) {
           console.error('[useMessaging] Failed to send message:', error);
@@ -104,12 +101,12 @@ export function useMessaging() {
         }
       } else {
         // Message stays in queue with "pending" status
-        console.log(`[useMessaging] Message queued (offline): ${clientMessageId}`);
+        console.debug(`[useMessaging] Message queued (offline): ${clientMessageId}`);
       }
 
       return clientMessageId;
     },
-    [wsService, messageQueue, addMessage, updateMessageStatus]
+    [wsService, messageQueue, addMessage, updateMessageStatus, userId]
   );
 
   /**

@@ -53,12 +53,14 @@ export function useWebSocket() {
       const isConnected = state === ConnectionState.CONNECTED;
       const connectionInfo = wsService.getConnectionInfo();
 
-      setConnectionStatus(
-        isConnected,
-        connectionInfo?.clientId
-      );
+      // Map WS states to simplified UI states
+      let uiState: 'connected' | 'connecting' | 'disconnected' = 'disconnected';
+      if (state === ConnectionState.CONNECTED) uiState = 'connected';
+      else if (state === ConnectionState.CONNECTING || state === ConnectionState.RECONNECTING) uiState = 'connecting';
 
-      console.log(`WebSocket state changed: ${state}`, connectionInfo);
+      setConnectionStatus(isConnected, connectionInfo?.clientId, uiState);
+
+      console.debug(`[WebSocket] state → ${state}`, connectionInfo);
     });
 
     // Message handler
@@ -77,9 +79,12 @@ export function useWebSocket() {
         channel_id: channelId,
         user_id: data.user_id,
         username: data.username || 'Unknown',
+        display_name: data.display_name || undefined,
+        avatar_url: data.avatar_url || undefined,
         content: data.content,
+        is_encrypted: data.is_encrypted || false,
         created_at: data.created_at || new Date().toISOString(),
-        updated_at: data.updated_at || null,
+        updated_at: data.updated_at || new Date().toISOString(),
       });
     });
 
@@ -96,6 +101,7 @@ export function useWebSocket() {
 
       updateMessage(channelId, messageId, {
         content: data.content,
+        edited_at: data.edited_at,
         updated_at: data.updated_at || new Date().toISOString(),
       });
     });
@@ -132,7 +138,7 @@ export function useWebSocket() {
 
     // Subscribed confirmation handler
     const unsubSubscribed = wsService.on('subscribed', (msg: WebSocketMessage) => {
-      console.log('Subscribed to channel:', msg.data.channel_id);
+      console.debug('[WebSocket] Subscribed to channel:', msg.data.channel_id);
     });
 
     // Error handler

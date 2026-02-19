@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { useAuthStore } from '../../stores/authStore';
 import { useServerStore } from '../../stores/serverStore';
+
 import { ServerWithRole } from '../../types/server';
 import './ServerList.css';
 
@@ -20,7 +21,7 @@ const ServerList: React.FC<ServerListProps> = ({ onOpenCreateModal, onContextMen
 
   useEffect(() => {
     if (accessToken) {
-      fetchServers(accessToken);
+      fetchServers();
     }
   }, [accessToken, fetchServers]);
 
@@ -44,7 +45,7 @@ const ServerList: React.FC<ServerListProps> = ({ onOpenCreateModal, onContextMen
       {error && servers.length === 0 && !isLoading && (
         <button
           className="server-error-btn"
-          onClick={() => accessToken && fetchServers(accessToken)}
+          onClick={() => fetchServers()}
           title={`Failed to load servers: ${error}. Click to retry.`}
           aria-label="Retry loading servers"
         >
