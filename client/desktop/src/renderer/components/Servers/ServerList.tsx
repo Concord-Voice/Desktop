@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import { useServerStore } from '../../stores/serverStore';
 
@@ -18,6 +19,8 @@ const ServerList: React.FC<ServerListProps> = ({ onOpenCreateModal, onContextMen
   const error = useServerStore((state) => state.error);
   const fetchServers = useServerStore((state) => state.fetchServers);
   const setActiveServer = useServerStore((state) => state.setActiveServer);
+  const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     if (accessToken) {
@@ -70,7 +73,12 @@ const ServerList: React.FC<ServerListProps> = ({ onOpenCreateModal, onContextMen
           )}
           <button
             className={`server-icon-btn ${activeServerId === server.id ? 'active' : ''}`}
-            onClick={() => setActiveServer(server.id)}
+            onClick={() => {
+              setActiveServer(server.id);
+              if (location.pathname !== '/app') {
+                navigate('/app');
+              }
+            }}
             onContextMenu={(e) => handleContextMenu(e, server)}
             title={`${server.name} (${server.role})`}
             aria-label={`${server.name} server`}
