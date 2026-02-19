@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { Hash, Volume2, Pin } from 'lucide-react';
 import { useChannelStore } from '../../stores/channelStore';
 import { useServerStore } from '../../stores/serverStore';
+import { useUnreadStore } from '../../stores/unreadStore';
 import { Channel } from '../../types/chat';
 import './ChannelList.css';
 
@@ -22,6 +23,8 @@ const ChannelList: React.FC<ChannelListProps> = ({
   const fetchChannels = useChannelStore((state) => state.fetchChannels);
   const setActiveChannel = useChannelStore((state) => state.setActiveChannel);
   const clearChannels = useChannelStore((state) => state.clearChannels);
+  const unreadCounts = useUnreadStore((state) => state.unreadCounts);
+  const clearUnread = useUnreadStore((state) => state.clearUnread);
 
   // Fetch channels when active server changes
   useEffect(() => {
@@ -39,12 +42,40 @@ const ChannelList: React.FC<ChannelListProps> = ({
 
   const handleChannelClick = (channel: Channel) => {
     setActiveChannel(channel.id);
+    clearUnread(channel.id);
   };
 
   // Group channels by type
   const textChannels = channels.filter((c) => c.type === 'text');
   const voiceChannels = channels.filter((c) => c.type === 'voice');
   const bulletinChannels = channels.filter((c) => c.type === 'bulletin');
+
+  const renderChannelItem = (channel: Channel) => {
+    const isActive = channel.id === activeChannelId;
+    const unread = unreadCounts.get(channel.id) || 0;
+    return (
+      <div
+        key={channel.id}
+        className={`channel-item ${isActive ? 'active' : ''} ${unread > 0 ? 'has-unread' : ''}`}
+        onClick={() => handleChannelClick(channel)}
+        onContextMenu={(e) => handleContextMenu(e, channel)}
+        title={channel.name}
+      >
+        <span className="channel-type-icon">
+          {getChannelTypeIcon(channel.type)}
+        </span>
+        {channel.emoji && (
+          <span className="channel-custom-emoji">{channel.emoji}</span>
+        )}
+        <span className="channel-name">{channel.name}</span>
+        {unread > 0 && !isActive && (
+          <span className="channel-unread-badge">
+            {unread > 99 ? '99+' : unread}
+          </span>
+        )}
+      </div>
+    );
+  };
 
   const getChannelTypeIcon = (type: Channel['type']) => {
     switch (type) {
@@ -124,25 +155,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
               <div className="channel-group-header">
                 <span>BULLETINS</span>
               </div>
-              {bulletinChannels.map((channel) => (
-                <div
-                  key={channel.id}
-                  className={`channel-item ${
-                    channel.id === activeChannelId ? 'active' : ''
-                  }`}
-                  onClick={() => handleChannelClick(channel)}
-                  onContextMenu={(e) => handleContextMenu(e, channel)}
-                  title={channel.name}
-                >
-                  <span className="channel-type-icon">
-                    {getChannelTypeIcon(channel.type)}
-                  </span>
-                  {channel.emoji && (
-                    <span className="channel-custom-emoji">{channel.emoji}</span>
-                  )}
-                  <span className="channel-name">{channel.name}</span>
-                </div>
-              ))}
+              {bulletinChannels.map(renderChannelItem)}
             </div>
           )}
 
@@ -152,25 +165,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
               <div className="channel-group-header">
                 <span>TEXT CHANNELS</span>
               </div>
-              {textChannels.map((channel) => (
-                <div
-                  key={channel.id}
-                  className={`channel-item ${
-                    channel.id === activeChannelId ? 'active' : ''
-                  }`}
-                  onClick={() => handleChannelClick(channel)}
-                  onContextMenu={(e) => handleContextMenu(e, channel)}
-                  title={channel.name}
-                >
-                  <span className="channel-type-icon">
-                    {getChannelTypeIcon(channel.type)}
-                  </span>
-                  {channel.emoji && (
-                    <span className="channel-custom-emoji">{channel.emoji}</span>
-                  )}
-                  <span className="channel-name">{channel.name}</span>
-                </div>
-              ))}
+              {textChannels.map(renderChannelItem)}
             </div>
           )}
 
@@ -180,25 +175,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
               <div className="channel-group-header">
                 <span>VOICE CHANNELS</span>
               </div>
-              {voiceChannels.map((channel) => (
-                <div
-                  key={channel.id}
-                  className={`channel-item ${
-                    channel.id === activeChannelId ? 'active' : ''
-                  }`}
-                  onClick={() => handleChannelClick(channel)}
-                  onContextMenu={(e) => handleContextMenu(e, channel)}
-                  title={channel.name}
-                >
-                  <span className="channel-type-icon">
-                    {getChannelTypeIcon(channel.type)}
-                  </span>
-                  {channel.emoji && (
-                    <span className="channel-custom-emoji">{channel.emoji}</span>
-                  )}
-                  <span className="channel-name">{channel.name}</span>
-                </div>
-              ))}
+              {voiceChannels.map(renderChannelItem)}
             </div>
           )}
         </>

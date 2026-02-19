@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { MessageWithUser } from '../../types/chat';
+import { MessageWithStatus } from '../../types/chat';
 import Message from './Message';
 import './MessageList.css';
 
 export interface MessageListProps {
-  messages: MessageWithUser[];
+  messages: MessageWithStatus[];
   currentUserId: string;
   channelName?: string;
   isLoading?: boolean;

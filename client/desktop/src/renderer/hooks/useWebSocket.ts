@@ -12,6 +12,10 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { useChatStore } from '../stores/chatStore';
+import { useChannelStore } from '../stores/channelStore';
+import { useServerStore } from '../stores/serverStore';
+import { useMemberStore } from '../stores/memberStore';
+import { useUnreadStore } from '../stores/unreadStore';
 import {
   getWebSocketService,
   ConnectionState,
@@ -26,6 +30,8 @@ export function useWebSocket() {
     setConnectionStatus,
     addMessage,
     updateMessage,
+    updateMessageStatus,
+    updateUserInMessages,
     deleteMessage,
     setTyping,
   } = useChatStore();
@@ -86,6 +92,12 @@ export function useWebSocket() {
         created_at: data.created_at || new Date().toISOString(),
         updated_at: data.updated_at || new Date().toISOString(),
       });
+
+      // Track unread if this message is for a non-active channel
+      const activeChannelId = useChannelStore.getState().activeChannelId;
+      if (channelId !== activeChannelId) {
+        useUnreadStore.getState().incrementUnread(channelId);
+      }
     });
 
     // Message update handler
@@ -136,6 +148,58 @@ export function useWebSocket() {
       setTyping(channelId, userId, isTyping, username);
     });
 
+    // Message acknowledgment handler — maps temp client IDs to server UUIDs
+    const unsubAck = wsService.on('message_ack', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const nonce = data.nonce;
+      const serverId = data.id;
+      const channelId = data.channel_id;
+
+      if (nonce && serverId && channelId) {
+        updateMessageStatus(channelId, nonce, 'delivered', serverId);
+      }
+    });
+
+    // Member joined handler — updates member list in real time
+    const unsubMemberJoined = wsService.on('member_joined', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const activeServerId = useServerStore.getState().activeServerId;
+
+      // Only update if the event is for the currently viewed server
+      if (data.server_id && data.server_id === activeServerId) {
+        useMemberStore.getState().addMember({
+          user_id: data.user_id,
+          username: data.username || 'Unknown',
+          display_name: data.display_name || undefined,
+          avatar_url: data.avatar_url || undefined,
+          role: data.role || 'member',
+          joined_at: new Date().toISOString(),
+        });
+      }
+    });
+
+    // Profile updated handler — updates messages and member list
+    const unsubProfileUpdated = wsService.on('profile_updated', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const userId = data.user_id;
+
+      if (!userId) return;
+
+      // Update all messages from this user across all channels
+      updateUserInMessages(userId, {
+        username: data.username,
+        display_name: data.display_name,
+        avatar_url: data.avatar_url,
+      });
+
+      // Update member list if applicable
+      useMemberStore.getState().updateMemberProfile(userId, {
+        username: data.username,
+        display_name: data.display_name || undefined,
+        avatar_url: data.avatar_url || undefined,
+      });
+    });
+
     // Subscribed confirmation handler
     const unsubSubscribed = wsService.on('subscribed', (msg: WebSocketMessage) => {
       console.debug('[WebSocket] Subscribed to channel:', msg.data.channel_id);
@@ -153,10 +217,13 @@ export function useWebSocket() {
       unsubUpdate();
       unsubDelete();
       unsubTyping();
+      unsubAck();
+      unsubMemberJoined();
+      unsubProfileUpdated();
       unsubSubscribed();
       unsubError();
     };
-  }, [wsService, setConnectionStatus, addMessage, updateMessage, deleteMessage, setTyping]);
+  }, [wsService, setConnectionStatus, addMessage, updateMessage, updateMessageStatus, updateUserInMessages, deleteMessage, setTyping]);
 
   // Subscribe to a channel
   const subscribe = useCallback(

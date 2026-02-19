@@ -7,6 +7,7 @@ import CreateServerModal from '../Servers/CreateServerModal';
 import ServerActionModal from '../Servers/ServerActionModal';
 import JoinServerModal from '../Servers/JoinServerModal';
 import ChannelList from '../Channels/ChannelList';
+import ServerActionBar from '../Channels/ServerActionBar';
 import ChannelContextMenu from '../Channels/ChannelContextMenu';
 import CreateChannelModal from '../Channels/CreateChannelModal';
 import EditChannelModal from '../Channels/EditChannelModal';
@@ -101,6 +102,7 @@ const MainView: React.FC = () => {
             <h3>{activeServer ? activeServer.name : 'Channels'}</h3>
             <ConnectionStatus />
           </div>
+          {activeServer && <ServerActionBar server={activeServer} />}
           <ChannelList
             onOpenCreateModal={() => setIsCreateChannelModalOpen(true)}
             onContextMenu={handleChannelContextMenu}

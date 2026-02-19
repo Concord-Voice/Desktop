@@ -1,16 +1,21 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageWithUser } from '../../types/chat';
+import { MessageWithStatus } from '../../types/chat';
 import DeleteMessageModal from './DeleteMessageModal';
 import './Message.css';
 
 export interface MessageProps {
-  message: MessageWithUser;
+  message: MessageWithStatus;
   currentUserId: string;
   onEdit?: (messageId: string, newContent: string) => void;
   onDelete?: (messageId: string) => void;
   showAvatar?: boolean;
   shiftHeld?: boolean;
 }
+
+// Messages with pending/sent status still have temporary client-generated IDs.
+// Only allow edit/delete once the message has a server-assigned UUID.
+const isServerMessage = (msg: MessageWithStatus) =>
+  !msg.status || msg.status === 'delivered';
 
 const Message: React.FC<MessageProps> = ({
   message,
@@ -26,6 +31,7 @@ const Message: React.FC<MessageProps> = ({
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const optionsRef = useRef<HTMLDivElement>(null);
   const isOwnMessage = message.user_id === currentUserId;
+  const canModify = isOwnMessage && isServerMessage(message);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -172,7 +178,7 @@ const Message: React.FC<MessageProps> = ({
           </div>
         )}
 
-        {isOwnMessage && !isEditing && (
+        {canModify && !isEditing && (
           <div className="message-options" ref={optionsRef}>
             {shiftHeld && onDelete && (
               <button

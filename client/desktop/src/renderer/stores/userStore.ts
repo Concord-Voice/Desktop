@@ -3,6 +3,7 @@ import { devtools } from 'zustand/middleware';
 import { useAuthStore } from './authStore';
 import { useServerStore } from './serverStore';
 import { apiFetch } from '../services/apiClient';
+import { getWebSocketService } from '../services/websocketService';
 import {
   deriveKeyFromPassword,
   unwrapPrivateKey,
@@ -130,6 +131,9 @@ export const useUserStore = create<UserState>()(
     }
 
     set({ user: data.user });
+
+    // Notify other clients via WebSocket so their cached user info updates
+    getWebSocketService().sendProfileUpdate();
   },
 
   changePassword: async (currentPassword: string, newPassword: string) => {

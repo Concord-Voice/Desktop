@@ -47,7 +47,7 @@ export function useMessaging() {
           if (!wsService.isSubscribed(msg.channelId)) {
             return; // Skip — will retry on next cycle once subscribed
           }
-          wsService.sendMessage(msg.channelId, msg.content);
+          wsService.sendMessage(msg.channelId, msg.content, msg.id);
         });
       } else {
         // Stop processing when disconnected
@@ -90,7 +90,7 @@ export function useMessaging() {
       // If connected, send immediately
       if (wsService.getState() === ConnectionState.CONNECTED) {
         try {
-          wsService.sendMessage(channelId, content);
+          wsService.sendMessage(channelId, content, clientMessageId);
           messageQueue.markAsSent(clientMessageId);
           messageQueue.remove(clientMessageId); // Server has persisted it — no need to keep in queue
           updateMessageStatus(channelId, clientMessageId, 'sent');

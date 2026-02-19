@@ -166,14 +166,25 @@ export class WebSocketService {
   /**
    * Send a chat message to a channel
    */
-  sendMessage(channelId: string, content: string): void {
+  sendMessage(channelId: string, content: string, nonce?: string): void {
     this.send({
       type: 'message',
       data: {
         channel_id: channelId,
         content,
+        nonce,
         timestamp: Date.now(),
       },
+    });
+  }
+
+  /**
+   * Notify the server that the user's profile has been updated
+   */
+  sendProfileUpdate(): void {
+    this.send({
+      type: 'profile_update',
+      data: {},
     });
   }
 
