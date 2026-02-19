@@ -3,6 +3,7 @@ import './MessageInput.css';
 
 export interface MessageInputProps {
   onSendMessage: (content: string, isEncrypted: boolean) => void;
+  onTyping?: (isTyping: boolean) => void;
   placeholder?: string;
   maxLength?: number;
   disabled?: boolean;
@@ -12,6 +13,7 @@ export interface MessageInputProps {
 
 const MessageInput: React.FC<MessageInputProps> = ({
   onSendMessage,
+  onTyping,
   placeholder = 'Type a message...',
   maxLength = 4000,
   disabled = false,
@@ -21,10 +23,24 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const [content, setContent] = useState('');
   const [isEncrypted, setIsEncrypted] = useState(encryptionEnabled);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const isTypingRef = useRef(false);
 
   useEffect(() => {
     adjustTextareaHeight();
   }, [content]);
+
+  // Cleanup typing state on unmount
+  useEffect(() => {
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      if (onTyping && isTypingRef.current) {
+        onTyping(false);
+      }
+    };
+  }, [onTyping]);
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -37,6 +53,16 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const handleSend = () => {
     const trimmedContent = content.trim();
     if (trimmedContent && trimmedContent.length <= maxLength) {
+      // Stop typing indicator before sending
+      if (onTyping && isTypingRef.current) {
+        isTypingRef.current = false;
+        onTyping(false);
+      }
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+        typingTimeoutRef.current = null;
+      }
+
       onSendMessage(trimmedContent, isEncrypted);
       setContent('');
       if (textareaRef.current) {
@@ -55,6 +81,35 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (e.target.value.length <= maxLength) {
       setContent(e.target.value);
+    }
+
+    // Typing indicator logic
+    if (onTyping) {
+      if (!isTypingRef.current && e.target.value.length > 0) {
+        isTypingRef.current = true;
+        onTyping(true);
+      }
+
+      // Clear previous timeout
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+
+      // If input is cleared, stop typing immediately
+      if (e.target.value.length === 0) {
+        if (isTypingRef.current) {
+          isTypingRef.current = false;
+          onTyping(false);
+        }
+      } else {
+        // Set timeout to stop typing after 3 seconds of no input
+        typingTimeoutRef.current = setTimeout(() => {
+          if (isTypingRef.current) {
+            isTypingRef.current = false;
+            onTyping(false);
+          }
+        }, 3000);
+      }
     }
   };
 

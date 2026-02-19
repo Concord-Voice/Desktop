@@ -57,16 +57,29 @@
   color: var(--text-primary);
 }
 
-/* Green status dot */
+/* Status dot — dynamic by status class */
 .user-status-dot {
   position: absolute;
   bottom: -2px;
   right: -2px;
   width: 10px;
   height: 10px;
-  background: var(--success);
   border-radius: 50%;
   border: 2px solid var(--bg-primary);
+  background: var(--text-muted);
+}
+
+.user-status-dot.online {
+  background: var(--success);
+}
+
+.user-status-dot.dnd {
+  background: var(--danger);
+}
+
+.user-status-dot.invisible,
+.user-status-dot.offline {
+  background: var(--text-muted);
 }
 
 /* Loading skeleton */

@@ -1,8 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../../stores/authStore';
 import { useUserStore } from '../../stores/userStore';
+import { useMemberStore, PresenceStatus } from '../../stores/memberStore';
 import UserPopover from './UserPopover';
 import './UserPanel.css';
+
+const statusClassMap: Record<PresenceStatus, string> = {
+  online: 'online',
+  dnd: 'dnd',
+  invisible: 'invisible',
+  offline: 'offline',
+};
 
 const UserPanel: React.FC = () => {
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
@@ -10,6 +18,7 @@ const UserPanel: React.FC = () => {
   const user = useUserStore((state) => state.user);
   const isLoading = useUserStore((state) => state.isLoading);
   const fetchUser = useUserStore((state) => state.fetchUser);
+  const selfStatus = useMemberStore((state) => state.selfStatus);
 
   // Fetch user data if not already loaded (e.g., on page refresh)
   useEffect(() => {
@@ -51,7 +60,7 @@ const UserPanel: React.FC = () => {
                 {user.username.charAt(0).toUpperCase()}
               </span>
             )}
-            <div className="user-status-dot" />
+            <div className={`user-status-dot ${statusClassMap[selfStatus]}`} />
           </button>
 
           {isPopoverOpen && (

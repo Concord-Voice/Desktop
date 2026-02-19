@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 
+export type PresenceStatus = 'online' | 'offline' | 'dnd' | 'invisible';
+
 export interface ServerMember {
   user_id: string;
   username: string;
@@ -9,11 +11,15 @@ export interface ServerMember {
   avatar_url?: string;
   role: 'owner' | 'admin' | 'member';
   joined_at: string;
+  last_seen?: number;
 }
 
 interface MemberState {
   members: ServerMember[];
   onlineUserIds: Set<string>;
+  userStatuses: Map<string, PresenceStatus>;
+  lastSeenByUser: Map<string, number>;
+  selfStatus: PresenceStatus;
   isLoading: boolean;
   error: string | null;
 
@@ -23,6 +29,10 @@ interface MemberState {
   setOnlineUsers: (userIds: string[]) => void;
   setUserOnline: (userId: string) => void;
   setUserOffline: (userId: string) => void;
+  setUserStatus: (userId: string, status: PresenceStatus) => void;
+  setUserLastSeen: (userId: string, timestamp: number) => void;
+  setPresenceSnapshot: (users: Array<{ user_id: string; status: string }>) => void;
+  setSelfStatus: (status: PresenceStatus) => void;
   clearMembers: () => void;
 }
 
@@ -31,6 +41,9 @@ export const useMemberStore = create<MemberState>()(
     (set) => ({
       members: [],
       onlineUserIds: new Set<string>(),
+      userStatuses: new Map<string, PresenceStatus>(),
+      lastSeenByUser: new Map<string, number>(),
+      selfStatus: 'online' as PresenceStatus,
       isLoading: false,
       error: null,
 
@@ -53,7 +66,17 @@ export const useMemberStore = create<MemberState>()(
           }
 
           const data = await response.json();
-          set({ members: data.members || [], isLoading: false });
+          const members = data.members || [];
+
+          // Populate lastSeenByUser from API response
+          const lastSeenMap = new Map<string, number>();
+          members.forEach((m: ServerMember) => {
+            if (m.last_seen) {
+              lastSeenMap.set(m.user_id, m.last_seen);
+            }
+          });
+
+          set({ members, isLoading: false, lastSeenByUser: lastSeenMap });
         } catch (error) {
           set({
             error:
@@ -86,29 +109,78 @@ export const useMemberStore = create<MemberState>()(
       },
 
       setOnlineUsers: (userIds: string[]) => {
-        set({ onlineUserIds: new Set(userIds) });
+        const onlineSet = new Set(userIds);
+        const statusMap = new Map<string, PresenceStatus>();
+        userIds.forEach((id) => statusMap.set(id, 'online'));
+        set({ onlineUserIds: onlineSet, userStatuses: statusMap });
       },
 
       setUserOnline: (userId: string) => {
         set((state) => {
-          const next = new Set(state.onlineUserIds);
-          next.add(userId);
-          return { onlineUserIds: next };
+          const nextOnline = new Set(state.onlineUserIds);
+          nextOnline.add(userId);
+          const nextStatuses = new Map(state.userStatuses);
+          nextStatuses.set(userId, 'online');
+          return { onlineUserIds: nextOnline, userStatuses: nextStatuses };
         });
       },
 
       setUserOffline: (userId: string) => {
         set((state) => {
-          const next = new Set(state.onlineUserIds);
-          next.delete(userId);
-          return { onlineUserIds: next };
+          const nextOnline = new Set(state.onlineUserIds);
+          nextOnline.delete(userId);
+          const nextStatuses = new Map(state.userStatuses);
+          nextStatuses.set(userId, 'offline');
+          return { onlineUserIds: nextOnline, userStatuses: nextStatuses };
         });
+      },
+
+      setUserStatus: (userId: string, status: PresenceStatus) => {
+        set((state) => {
+          const nextStatuses = new Map(state.userStatuses);
+          nextStatuses.set(userId, status);
+          const nextOnline = new Set(state.onlineUserIds);
+          if (status === 'online' || status === 'dnd') {
+            nextOnline.add(userId);
+          } else {
+            nextOnline.delete(userId);
+          }
+          return { userStatuses: nextStatuses, onlineUserIds: nextOnline };
+        });
+      },
+
+      setUserLastSeen: (userId: string, timestamp: number) => {
+        set((state) => {
+          const nextLastSeen = new Map(state.lastSeenByUser);
+          nextLastSeen.set(userId, timestamp);
+          return { lastSeenByUser: nextLastSeen };
+        });
+      },
+
+      setPresenceSnapshot: (users: Array<{ user_id: string; status: string }>) => {
+        const onlineSet = new Set<string>();
+        const statusMap = new Map<string, PresenceStatus>();
+        users.forEach((u) => {
+          const status = u.status as PresenceStatus;
+          statusMap.set(u.user_id, status);
+          if (status === 'online' || status === 'dnd') {
+            onlineSet.add(u.user_id);
+          }
+        });
+        set({ onlineUserIds: onlineSet, userStatuses: statusMap });
+      },
+
+      setSelfStatus: (status: PresenceStatus) => {
+        set({ selfStatus: status });
       },
 
       clearMembers: () => {
         set({
           members: [],
           onlineUserIds: new Set<string>(),
+          userStatuses: new Map<string, PresenceStatus>(),
+          lastSeenByUser: new Map<string, number>(),
+          selfStatus: 'online' as PresenceStatus,
           isLoading: false,
           error: null,
         });
