@@ -1,6 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UserProfile, useUserStore } from '../../stores/userStore';
+import { useMemberStore, PresenceStatus } from '../../stores/memberStore';
+import { getWebSocketService } from '../../services/websocketService';
 import './UserPopover.css';
 
 interface UserPopoverProps {
@@ -8,10 +10,36 @@ interface UserPopoverProps {
   onClose: () => void;
 }
 
+const statusOptions: Array<{
+  value: PresenceStatus;
+  label: string;
+  color: string;
+}> = [
+  { value: 'online', label: 'Online', color: 'var(--success)' },
+  { value: 'dnd', label: 'Do Not Disturb', color: 'var(--danger)' },
+  { value: 'invisible', label: 'Invisible', color: 'var(--text-muted)' },
+];
+
+const statusColorMap: Record<PresenceStatus, string> = {
+  online: 'var(--success)',
+  dnd: 'var(--danger)',
+  invisible: 'var(--text-muted)',
+  offline: 'var(--text-muted)',
+};
+
+const statusLabelMap: Record<PresenceStatus, string> = {
+  online: 'Online',
+  dnd: 'Do Not Disturb',
+  invisible: 'Invisible',
+  offline: 'Offline',
+};
+
 const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
   const popoverRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const logout = useUserStore((state) => state.logout);
+  const selfStatus = useMemberStore((state) => state.selfStatus);
+  const setSelfStatus = useMemberStore((state) => state.setSelfStatus);
 
   // Close on outside click or Escape
   useEffect(() => {
@@ -46,6 +74,12 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
     navigate('/');
   };
 
+  const handleStatusChange = (status: PresenceStatus) => {
+    setSelfStatus(status);
+    const ws = getWebSocketService();
+    ws.sendSetStatus(status);
+  };
+
   return (
     <div ref={popoverRef} className="user-popover">
       {/* User info header */}
@@ -65,7 +99,12 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
         </div>
         <div className="user-popover-info">
           <span className="user-popover-username">{user.username}</span>
-          <span className="user-popover-status">Online</span>
+          <span
+            className="user-popover-status"
+            style={{ color: statusColorMap[selfStatus] }}
+          >
+            {statusLabelMap[selfStatus]}
+          </span>
         </div>
       </div>
 
@@ -75,6 +114,43 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
           {user.email}
         </div>
       )}
+
+      <div className="user-popover-separator" />
+
+      {/* Status picker */}
+      <div className="user-popover-status-section">
+        <div className="user-popover-status-label">Status</div>
+        {statusOptions.map((opt) => (
+          <button
+            key={opt.value}
+            className={`user-popover-status-item ${selfStatus === opt.value ? 'active' : ''}`}
+            onClick={() => handleStatusChange(opt.value)}
+          >
+            <span
+              className="user-popover-status-dot"
+              style={{ backgroundColor: opt.color }}
+            />
+            <span className="user-popover-status-text">{opt.label}</span>
+            {selfStatus === opt.value && (
+              <svg
+                className="user-popover-status-check"
+                width="14"
+                height="14"
+                viewBox="0 0 14 14"
+                fill="none"
+              >
+                <path
+                  d="M3 7l3 3 5-5.5"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            )}
+          </button>
+        ))}
+      </div>
 
       <div className="user-popover-separator" />
 

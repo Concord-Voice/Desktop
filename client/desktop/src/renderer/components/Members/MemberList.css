@@ -130,7 +130,12 @@
   background-color: var(--success);
 }
 
-.member-status-dot.offline {
+.member-status-dot.dnd {
+  background-color: var(--danger);
+}
+
+.member-status-dot.offline,
+.member-status-dot.invisible {
   background-color: var(--text-muted);
 }
 

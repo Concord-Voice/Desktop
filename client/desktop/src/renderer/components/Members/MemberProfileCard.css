@@ -77,7 +77,12 @@
   background-color: var(--success);
 }
 
-.member-profile-status.offline {
+.member-profile-status.dnd {
+  background-color: var(--danger);
+}
+
+.member-profile-status.offline,
+.member-profile-status.invisible {
   background-color: var(--text-muted);
 }
 
@@ -140,7 +145,12 @@
   color: var(--success);
 }
 
-.member-profile-detail-value.status-offline {
+.member-profile-detail-value.status-dnd {
+  color: var(--danger);
+}
+
+.member-profile-detail-value.status-offline,
+.member-profile-detail-value.status-invisible {
   color: var(--text-muted);
 }
 
