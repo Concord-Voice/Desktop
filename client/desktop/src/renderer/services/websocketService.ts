@@ -66,8 +66,7 @@ export class WebSocketService {
    * Connect to WebSocket server with JWT token
    */
   connect(token: string): void {
-    if (this.ws && this.state === ConnectionState.CONNECTED) {
-      console.warn('WebSocket already connected');
+    if (this.ws && (this.state === ConnectionState.CONNECTED || this.state === ConnectionState.CONNECTING)) {
       return;
     }
 
@@ -85,12 +84,19 @@ export class WebSocketService {
     this.reconnectAttempts = 0;
 
     if (this.ws) {
-      // Only close if fully connected to avoid "WebSocket is closed before connection is established" error
-      // This prevents noisy errors in React Strict Mode where cleanup runs immediately after mount
+      // Detach all handlers first to prevent zombie sockets from firing events
+      // (e.g. a CONNECTING socket whose onopen fires after we've created a new one)
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
+
+      // Only close OPEN sockets. CONNECTING sockets will silently open and
+      // get GC'd since we've already detached all handlers above.
+      // Calling close() on CONNECTING triggers a noisy browser warning.
       if (this.ws.readyState === WebSocket.OPEN) {
         this.ws.close(1000, 'Client disconnect');
       }
-      // If still connecting or closing, just clear the reference without calling close()
       this.ws = null;
     }
 
@@ -116,8 +122,8 @@ export class WebSocketService {
    * Send a message to the WebSocket server
    */
   send(message: WebSocketMessage): void {
-    if (this.state !== ConnectionState.CONNECTED || !this.ws) {
-      console.error('Cannot send message: WebSocket not connected');
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      console.warn('Cannot send message: WebSocket not open');
       return;
     }
 
@@ -126,6 +132,13 @@ export class WebSocketService {
     } catch (error) {
       console.error('Failed to send WebSocket message:', error);
     }
+  }
+
+  /**
+   * Check if a channel is subscribed
+   */
+  isSubscribed(channelId: string): boolean {
+    return this.subscribedChannels.has(channelId);
   }
 
   /**
@@ -267,8 +280,10 @@ export class WebSocketService {
   }
 
   private handleOpen(): void {
-    console.log('WebSocket connection opened');
-    this.setState(ConnectionState.CONNECTED);
+    console.debug('[WebSocket] connection opened');
+    // Don't set CONNECTED yet — wait for the server's "connected" message
+    // which includes client_id and user_id. This prevents subscribers from
+    // trying to send before the handshake is complete.
     this.reconnectAttempts = 0;
     this.reconnectDelay = 1000;
 
@@ -287,10 +302,13 @@ export class WebSocketService {
             clientId: message.data.client_id,
             userId: message.data.user_id,
           };
-          console.log('WebSocket connected:', this.connectionInfo);
+          console.debug('[WebSocket] connected:', this.connectionInfo);
 
           // Resubscribe to channels after reconnect
           this.resubscribeChannels();
+
+          // Now that handshake is complete, mark as connected
+          this.setState(ConnectionState.CONNECTED);
           break;
 
         case 'error':
@@ -320,7 +338,7 @@ export class WebSocketService {
   }
 
   private handleClose(event: CloseEvent): void {
-    console.log(`WebSocket closed (code: ${event.code}, reason: ${event.reason || 'none'})`);
+    console.debug(`[WebSocket] closed (code: ${event.code}, reason: ${event.reason || 'none'})`);
 
     this.clearPingInterval();
     this.ws = null;
@@ -348,7 +366,7 @@ export class WebSocketService {
       this.maxReconnectDelay
     );
 
-    console.log(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
+    console.debug(`[WebSocket] reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectAttempts++;

@@ -3,8 +3,8 @@ import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import { Hash, Volume2, Pin } from 'lucide-react';
 import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
-import { useAuthStore } from '../../stores/authStore';
 import { useChannelStore } from '../../stores/channelStore';
+import { apiFetch } from '../../services/apiClient';
 import { Channel } from '../../types/chat';
 import './CreateChannelModal.css';
 
@@ -38,7 +38,6 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
-  const accessToken = useAuthStore((state) => state.accessToken);
   const updateChannel = useChannelStore((state) => state.updateChannel);
 
   const emojiPickerRef = useRef<HTMLDivElement>(null);
@@ -113,7 +112,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!validateForm() || !accessToken) {
+    if (!validateForm()) {
       return;
     }
 
@@ -126,14 +125,11 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
     setErrors({});
 
     try {
-      const response = await fetch(
-        `http://localhost:8080/api/v1/channels/${channel.id}`,
+      const response = await apiFetch(
+        `/api/v1/channels/${channel.id}`,
         {
           method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             name: name.trim(),
             type,

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, devtools } from 'zustand/middleware';
 import { ServerWithRole } from '../types/server';
+import { apiFetch } from '../services/apiClient';
 
 interface ServerState {
   servers: ServerWithRole[];
@@ -8,7 +9,7 @@ interface ServerState {
   isLoading: boolean;
   error: string | null;
 
-  fetchServers: (accessToken: string) => Promise<void>;
+  fetchServers: () => Promise<void>;
   addServer: (server: ServerWithRole) => void;
   updateServer: (serverId: string, updates: Partial<ServerWithRole>) => void;
   removeServer: (serverId: string) => void;
@@ -25,15 +26,11 @@ export const useServerStore = create<ServerState>()(
         isLoading: false,
         error: null,
 
-  fetchServers: async (accessToken: string) => {
+  fetchServers: async () => {
     set({ isLoading: true, error: null });
 
     try {
-      const response = await fetch('http://localhost:8080/api/v1/servers', {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
+      const response = await apiFetch('/api/v1/servers');
 
       if (!response.ok) {
         const data = await response.json();

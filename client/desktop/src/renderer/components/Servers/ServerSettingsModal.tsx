@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
-import { useAuthStore } from '../../stores/authStore';
 import { useServerStore } from '../../stores/serverStore';
+import { apiFetch } from '../../services/apiClient';
 import { ServerWithRole } from '../../types/server';
 import './ServerSettingsModal.css';
 
@@ -36,8 +36,6 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const accessToken = useAuthStore((state) => state.accessToken);
-
   // Reset form when server changes
   useEffect(() => {
     setName(server.name);
@@ -141,12 +139,9 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
         body.icon_url = iconDataUrl;
       }
 
-      const response = await fetch(`http://localhost:8080/api/v1/servers/${server.id}`, {
+      const response = await apiFetch(`/api/v1/servers/${server.id}`, {
         method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
 

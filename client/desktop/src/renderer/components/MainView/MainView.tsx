@@ -11,6 +11,7 @@ import EditChannelModal from '../Channels/EditChannelModal';
 import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
 import MemberList from '../Members/MemberList';
 import UserPanel from '../User/UserPanel';
+import { ChatView } from '../Chat';
 import { useServerStore } from '../../stores/serverStore';
 import { useChannelStore } from '../../stores/channelStore';
 import { ServerWithRole } from '../../types/server';
@@ -37,6 +38,8 @@ const MainView: React.FC = () => {
   const activeServerId = useServerStore((state) => state.activeServerId);
   const setActiveServer = useServerStore((state) => state.setActiveServer);
   const activeServer = servers.find((s) => s.id === activeServerId) || null;
+  const activeChannelId = useChannelStore((state) => state.activeChannelId);
+  const channels = useChannelStore((state) => state.channels);
   const setActiveChannel = useChannelStore((state) => state.setActiveChannel);
 
   const handleCreateServerSuccess = (server: ServerWithRole) => {
@@ -100,18 +103,26 @@ const MainView: React.FC = () => {
           />
         </div>
         <div className="main-content">
-          {activeServer ? (
-            <>
-              <h2>{activeServer.name}</h2>
-              <p className="server-role-badge">
-                Role: <span className={`role-text role-${activeServer.role}`}>{activeServer.role}</span>
-              </p>
-            </>
+          {activeChannelId ? (
+            <ChatView />
           ) : (
-            <>
-              <h2>Welcome to Concord</h2>
-              <p>Privacy-first, self-hostable voice communication.</p>
-            </>
+            <div className="main-content-placeholder">
+              {activeServer ? (
+                <>
+                  <h2>{activeServer.name}</h2>
+                  {channels.length === 0 ? (
+                    <p className="empty-server-hint">No channels yet — create one to get started.</p>
+                  ) : (
+                    <p className="empty-server-hint">Select a channel to start chatting.</p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <h2>Welcome to Concord</h2>
+                  <p>Privacy-first, self-hostable voice communication.</p>
+                </>
+              )}
+            </div>
           )}
         </div>
         {activeServer && <MemberList />}

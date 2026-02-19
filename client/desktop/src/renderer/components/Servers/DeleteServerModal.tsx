@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
-import { useAuthStore } from '../../stores/authStore';
 import { useServerStore } from '../../stores/serverStore';
+import { apiFetch } from '../../services/apiClient';
 import { ServerWithRole } from '../../types/server';
 import './DeleteServerModal.css';
 
@@ -20,8 +20,6 @@ const DeleteServerModal: React.FC<DeleteServerModalProps> = ({
   const [confirmName, setConfirmName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const accessToken = useAuthStore((state) => state.accessToken);
-
   const handleClose = () => {
     if (!isDeleting) {
       setConfirmName('');
@@ -39,11 +37,8 @@ const DeleteServerModal: React.FC<DeleteServerModalProps> = ({
     setError(null);
 
     try {
-      const response = await fetch(`http://localhost:8080/api/v1/servers/${server.id}`, {
+      const response = await apiFetch(`/api/v1/servers/${server.id}`, {
         method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-        },
       });
 
       if (!response.ok) {

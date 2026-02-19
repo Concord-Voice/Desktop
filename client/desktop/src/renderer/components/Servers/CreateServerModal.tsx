@@ -1,8 +1,8 @@
 import React, { useState, useRef } from 'react';
 import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
-import { useAuthStore } from '../../stores/authStore';
 import { useServerStore } from '../../stores/serverStore';
+import { apiFetch } from '../../services/apiClient';
 import { ServerWithRole } from '../../types/server';
 import './CreateServerModal.css';
 
@@ -35,8 +35,6 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const accessToken = useAuthStore((state) => state.accessToken);
-
   const resetForm = () => {
     setName('');
     setIconPreview(null);
@@ -134,12 +132,9 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({
         body.icon_url = iconDataUrl;
       }
 
-      const response = await fetch('http://localhost:8080/api/v1/servers', {
+      const response = await apiFetch('/api/v1/servers', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
 

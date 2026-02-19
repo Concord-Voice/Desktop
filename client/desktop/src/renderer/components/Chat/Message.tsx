@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { MessageWithUser } from '../../types/chat';
+import DeleteMessageModal from './DeleteMessageModal';
 import './Message.css';
 
 export interface MessageProps {
@@ -8,6 +9,7 @@ export interface MessageProps {
   onEdit?: (messageId: string, newContent: string) => void;
   onDelete?: (messageId: string) => void;
   showAvatar?: boolean;
+  shiftHeld?: boolean;
 }
 
 const Message: React.FC<MessageProps> = ({
@@ -16,10 +18,12 @@ const Message: React.FC<MessageProps> = ({
   onEdit,
   onDelete,
   showAvatar = true,
+  shiftHeld = false,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
   const [showOptions, setShowOptions] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   const optionsRef = useRef<HTMLDivElement>(null);
   const isOwnMessage = message.user_id === currentUserId;
 
@@ -83,25 +87,50 @@ const Message: React.FC<MessageProps> = ({
     }
   };
 
+  const formatShortTime = (timestamp: string) => {
+    const date = new Date(timestamp);
+    return date.toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
+  };
+
   return (
-    <div className={`message ${isOwnMessage ? 'own-message' : ''}`}>
-      {showAvatar && (
+    <div className={`message ${isOwnMessage ? 'own-message' : ''} ${!showAvatar ? 'message-grouped' : ''}`}>
+      {showAvatar ? (
         <div className="message-avatar">
-          <div className="avatar-circle">
-            {getInitials(message.username)}
-          </div>
+          {message.avatar_url ? (
+            <img
+              className="avatar-image"
+              src={message.avatar_url}
+              alt={message.username}
+            />
+          ) : (
+            <div className="avatar-circle">
+              {getInitials(message.display_name || message.username)}
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="message-gutter">
+          <span className="message-gutter-timestamp">
+            {formatShortTime(message.created_at)}
+          </span>
         </div>
       )}
       <div className="message-content-wrapper">
-        <div className="message-header">
-          <span className="message-username">{message.username}</span>
-          <span className="message-timestamp">
-            {formatTimestamp(message.created_at)}
-          </span>
-          {message.edited_at && (
-            <span className="message-edited">(edited)</span>
-          )}
-        </div>
+        {showAvatar && (
+          <div className="message-header">
+            <span className="message-username">{message.display_name || message.username}</span>
+            <span className="message-timestamp">
+              {formatTimestamp(message.created_at)}
+            </span>
+            {message.edited_at && (
+              <span className="message-edited">(edited)</span>
+            )}
+          </div>
+        )}
 
         {isEditing ? (
           <div className="message-edit-box">
@@ -137,11 +166,26 @@ const Message: React.FC<MessageProps> = ({
               </span>
             )}
             {message.content}
+            {!showAvatar && message.edited_at && (
+              <span className="message-edited-inline">(edited)</span>
+            )}
           </div>
         )}
 
         {isOwnMessage && !isEditing && (
           <div className="message-options" ref={optionsRef}>
+            {shiftHeld && onDelete && (
+              <button
+                className="message-quick-delete"
+                onClick={() => onDelete(message.id)}
+                aria-label="Delete message"
+                title="Delete message"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path d="M2.5 4.5h11M6 4.5V3.5h4v1M4 4.5v8.5a1 1 0 001 1h6a1 1 0 001-1V4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+            )}
             <button
               className="message-options-trigger"
               onClick={() => setShowOptions(!showOptions)}
@@ -173,11 +217,13 @@ const Message: React.FC<MessageProps> = ({
                 {onDelete && (
                   <button
                     className="message-option message-option-danger"
-                    onClick={() => {
-                      if (window.confirm('Delete this message?')) {
-                        onDelete(message.id);
-                      }
+                    onClick={(e) => {
                       setShowOptions(false);
+                      if (e.shiftKey) {
+                        onDelete(message.id);
+                      } else {
+                        setShowDeleteModal(true);
+                      }
                     }}
                   >
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -191,6 +237,17 @@ const Message: React.FC<MessageProps> = ({
           </div>
         )}
       </div>
+
+      {onDelete && (
+        <DeleteMessageModal
+          isOpen={showDeleteModal}
+          onClose={() => setShowDeleteModal(false)}
+          onConfirm={() => {
+            onDelete(message.id);
+            setShowDeleteModal(false);
+          }}
+        />
+      )}
     </div>
   );
 };

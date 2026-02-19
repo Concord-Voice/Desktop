@@ -16,6 +16,11 @@
   color: #1aaa55;
 }
 
+.connection-status.connecting {
+  background-color: rgba(230, 180, 50, 0.1);
+  color: #e6b432;
+}
+
 .connection-status.disconnected {
   background-color: rgba(250, 100, 100, 0.1);
   color: #fa6464;
@@ -30,6 +35,11 @@
 
 .connection-status.connected .status-dot {
   background-color: #1aaa55;
+}
+
+.connection-status.connecting .status-dot {
+  background-color: #e6b432;
+  animation: blink 1.5s ease-in-out infinite;
 }
 
 .connection-status.disconnected .status-dot {
