@@ -166,7 +166,7 @@
 
 .member-profile-role-badge.role-owner {
   background: var(--accent-primary);
-  color: #ffffff;
+  color: var(--on-accent);
 }
 
 .member-profile-role-badge.role-admin {

@@ -30,6 +30,13 @@ const Message: React.FC<MessageProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
   const [showOptions, setShowOptions] = useState(false);
+
+  // Sync editContent when message content changes externally (not while editing)
+  useEffect(() => {
+    if (!isEditing) {
+      setEditContent(message.content);
+    }
+  }, [message.content, isEditing]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState<{
     member: ServerMember;

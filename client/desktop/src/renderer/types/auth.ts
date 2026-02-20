@@ -1,4 +1,7 @@
 // Auth configuration types
+import type { UserProfile } from '../stores/userStore';
+export type { UserProfile };
+
 export type ConnectionMode = 'hosted' | 'hosted-login' | 'self-hosted';
 export type AccountType = 'local' | 'bridged';
 
@@ -9,14 +12,6 @@ export interface ServerConnection {
   accountType: AccountType;
   profile?: UserProfile;
   tokens?: AuthTokens;
-}
-
-export interface UserProfile {
-  id: string;
-  username: string;
-  email?: string;
-  e2ee_preference: boolean;
-  created_at: string;
 }
 
 export interface AuthTokens {
