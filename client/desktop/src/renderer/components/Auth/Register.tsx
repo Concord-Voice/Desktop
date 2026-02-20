@@ -189,7 +189,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
     <div className="register-container">
       <div className="register-content">
         <div className="register-header">
-          <img src="/branding/logos/main-logo-transparent-vector.svg" className="register-logo" alt="Concord" />
+          <img src="./branding/logos/main-logo-transparent-vector.svg" className="register-logo" alt="Concord" />
           <h2 className="register-title">Create Your Account</h2>
           <p className="register-subtitle">Join the Concord network with end-to-end encryption</p>
         </div>

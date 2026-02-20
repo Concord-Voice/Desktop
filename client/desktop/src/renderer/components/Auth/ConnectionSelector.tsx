@@ -25,7 +25,7 @@ const ConnectionSelector: React.FC<ConnectionSelectorProps> = ({ onSelect }) => 
         {/* Logo and Tagline */}
         <div className="connection-header">
           <img
-            src="/branding/logos/main-logo-transparent-vector.svg"
+            src="./branding/logos/main-logo-transparent-vector.svg"
             alt="Concord"
             className="connection-logo"
           />
