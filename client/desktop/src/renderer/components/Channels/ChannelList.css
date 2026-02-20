@@ -193,7 +193,7 @@
   font-size: calc(14px * var(--font-scale, 1));
 }
 
-.empty-hint {
+.channel-list-empty-hint {
   font-size: calc(12px * var(--font-scale, 1));
   color: var(--text-tertiary);
 }

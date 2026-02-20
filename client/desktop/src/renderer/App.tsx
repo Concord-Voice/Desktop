@@ -5,12 +5,23 @@ import MainView from './components/MainView/MainView';
 import ProfilePage from './components/Profile/ProfilePage';
 import SettingsPage from './components/Settings/SettingsPage';
 import { useAuthStore } from './stores/authStore';
+import { useUserStore } from './stores/userStore';
 import { useWebSocket } from './hooks/useWebSocket';
 
 function AuthenticatedLayout() {
   const accessToken = useAuthStore((state) => state.accessToken);
+  const user = useUserStore((state) => state.user);
+  const fetchUser = useUserStore((state) => state.fetchUser);
+
   // Single WebSocket connection that persists across all authenticated routes
   useWebSocket();
+
+  // Eagerly fetch user profile when authenticated (before child routes mount)
+  useEffect(() => {
+    if (accessToken && !user) {
+      fetchUser();
+    }
+  }, [accessToken, user, fetchUser]);
 
   if (!accessToken) {
     return <Navigate to="/" replace />;

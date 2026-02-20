@@ -175,23 +175,23 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
       <form onSubmit={handleSubmit} className="create-channel-form">
         {/* General Error */}
         {errors.general && (
-          <div className="form-error-banner">{errors.general}</div>
+          <div className="channel-form-error-banner">{errors.general}</div>
         )}
 
         {/* Success Message */}
         {successMessage && (
-          <div className="form-success-banner">{successMessage}</div>
+          <div className="channel-form-success-banner">{successMessage}</div>
         )}
 
         {/* Channel Name */}
-        <div className="form-group">
-          <label htmlFor="channel-name" className="form-label">
+        <div className="channel-form-group">
+          <label htmlFor="channel-name" className="channel-form-label">
             Channel Name <span className="required">*</span>
           </label>
           <input
             id="channel-name"
             type="text"
-            className={`form-input ${errors.name ? 'error' : ''}`}
+            className={`channel-form-input ${errors.name ? 'error' : ''}`}
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="general-chat"
@@ -199,15 +199,15 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
             disabled={isSubmitting}
             autoFocus
           />
-          {errors.name && <span className="form-error">{errors.name}</span>}
-          <span className="form-hint">
+          {errors.name && <span className="channel-form-error">{errors.name}</span>}
+          <span className="channel-form-hint">
             {name.length}/{NAME_MAX} characters
           </span>
         </div>
 
         {/* Channel Emoji (Optional) */}
-        <div className="form-group">
-          <label htmlFor="channel-emoji" className="form-label">
+        <div className="channel-form-group">
+          <label htmlFor="channel-emoji" className="channel-form-label">
             Channel Emoji (Optional)
           </label>
           <div className="emoji-input-wrapper" ref={emojiPickerRef}>
@@ -215,7 +215,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
               <input
                 id="channel-emoji"
                 type="text"
-                className="form-input"
+                className="channel-form-input"
                 value={emoji}
                 onChange={(e) => setEmoji(e.target.value)}
                 placeholder="😀 (optional)"
@@ -238,14 +238,14 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
               </div>
             )}
           </div>
-          <span className="form-hint">
+          <span className="channel-form-hint">
             Add a custom emoji to represent this channel
           </span>
         </div>
 
         {/* Channel Type */}
-        <div className="form-group">
-          <label className="form-label">
+        <div className="channel-form-group">
+          <label className="channel-form-label">
             Channel Type <span className="required">*</span>
           </label>
           <div className="channel-type-selector">
@@ -306,7 +306,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
               </div>
             </button>
           </div>
-          {errors.type && <span className="form-error">{errors.type}</span>}
+          {errors.type && <span className="channel-form-error">{errors.type}</span>}
         </div>
 
         {/* Submit Button */}

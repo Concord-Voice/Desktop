@@ -173,8 +173,8 @@ const MessageList: React.FC<MessageListProps> = ({
   if (isLoading && messages.length === 0) {
     return (
       <div className="message-list-empty">
-        <div className="loading-spinner">
-          <div className="spinner"></div>
+        <div className="message-list-loading">
+          <div className="message-list-spinner"></div>
         </div>
         <p>Loading messages...</p>
       </div>
@@ -187,7 +187,7 @@ const MessageList: React.FC<MessageListProps> = ({
         <div className="empty-icon">💬</div>
         <h3>Welcome to #{channelName || 'this channel'}!</h3>
         <p>This is the beginning of your conversation.</p>
-        <p className="empty-hint">Send a message to get started.</p>
+        <p className="message-list-empty-hint">Send a message to get started.</p>
       </div>
     );
   }
@@ -202,33 +202,36 @@ const MessageList: React.FC<MessageListProps> = ({
         {isLoading && hasMore && (
           <div className="loading-more">
             <div className="loading-spinner small">
-              <div className="spinner"></div>
+              <div className="message-list-spinner"></div>
             </div>
             <span>Loading more messages...</span>
           </div>
         )}
 
-        {messages.map((message, index) => (
-          <React.Fragment key={message.id}>
-            {shouldShowDateDivider(index) && (
-              <div className="date-divider">
-                <span className="date-divider-line"></span>
-                <span className="date-divider-text">
-                  {shouldShowDateDivider(index)}
-                </span>
-                <span className="date-divider-line"></span>
-              </div>
-            )}
-            <Message
-              message={message}
-              currentUserId={currentUserId}
-              onEdit={onEditMessage}
-              onDelete={onDeleteMessage}
-              showAvatar={shouldShowAvatar(index)}
-              shiftHeld={shiftHeld}
-            />
-          </React.Fragment>
-        ))}
+        {messages.map((message, index) => {
+          const dateDividerLabel = shouldShowDateDivider(index);
+          return (
+            <React.Fragment key={message.id}>
+              {dateDividerLabel && (
+                <div className="date-divider">
+                  <span className="date-divider-line"></span>
+                  <span className="date-divider-text">
+                    {dateDividerLabel}
+                  </span>
+                  <span className="date-divider-line"></span>
+                </div>
+              )}
+              <Message
+                message={message}
+                currentUserId={currentUserId}
+                onEdit={onEditMessage}
+                onDelete={onDeleteMessage}
+                showAvatar={shouldShowAvatar(index)}
+                shiftHeld={shiftHeld}
+              />
+            </React.Fragment>
+          );
+        })}
         <div ref={bottomRef} />
       </div>
 

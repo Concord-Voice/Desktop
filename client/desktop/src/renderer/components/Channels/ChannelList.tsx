@@ -146,7 +146,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
       {!isLoading && !error && channels.length === 0 && (
         <div className="channel-list-empty">
           <p>No channels yet</p>
-          <p className="empty-hint">Use "New Channel" above to create one</p>
+          <p className="channel-list-empty-hint">Use "New Channel" above to create one</p>
         </div>
       )}
 

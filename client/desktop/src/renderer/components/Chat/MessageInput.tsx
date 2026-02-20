@@ -24,6 +24,11 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const [content, setContent] = useState('');
   const [isEncrypted, setIsEncrypted] = useState(encryptionEnabled);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Sync local encryption toggle when channel-level setting changes
+  useEffect(() => {
+    setIsEncrypted(encryptionEnabled);
+  }, [encryptionEnabled]);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
 

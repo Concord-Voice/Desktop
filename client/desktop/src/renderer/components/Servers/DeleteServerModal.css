@@ -79,7 +79,7 @@
   background: var(--danger);
   border: none;
   border-radius: 8px;
-  color: #ffffff;
+  color: var(--on-accent);
   font-size: calc(14px * var(--font-scale, 1));
   font-weight: 700;
   font-family: 'BaronNeue', sans-serif;
@@ -93,7 +93,7 @@
 }
 
 .delete-server-confirm-btn:hover:not(:disabled) {
-  background: #d43b3b;
+  background: var(--danger-hover);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(240, 71, 71, 0.3);
 }
