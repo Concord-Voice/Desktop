@@ -153,7 +153,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
     <div className="login-container">
       <div className="login-content">
         <div className="login-header">
-          <img src="/branding/logos/main-logo-transparent-vector.svg" className="login-logo" alt="Concord" />
+          <img src="./branding/logos/main-logo-transparent-vector.svg" className="login-logo" alt="Concord" />
           <h2 className="login-title">Welcome Back</h2>
           <p className="login-subtitle">Sign in to your Concord account</p>
         </div>

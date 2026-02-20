@@ -70,7 +70,7 @@ const ServerInput: React.FC<ServerInputProps> = ({ onConnect, onBack }) => {
         {/* Header */}
         <div className="server-header">
           <img
-            src="/branding/logos/symbol-transparent-vector.svg"
+            src="./branding/logos/symbol-transparent-vector.svg"
             alt="Concord"
             className="server-icon"
           />
