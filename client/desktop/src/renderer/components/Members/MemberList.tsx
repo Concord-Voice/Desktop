@@ -4,11 +4,14 @@ import { useServerStore } from '../../stores/serverStore';
 import { useUserStore } from '../../stores/userStore';
 import { useMemberStore, ServerMember, PresenceStatus } from '../../stores/memberStore';
 import MemberProfileCard from './MemberProfileCard';
+import MemberContextMenu from './MemberContextMenu';
 import './MemberList.css';
 
 const MemberList: React.FC = () => {
   const accessToken = useAuthStore((state) => state.accessToken);
   const activeServerId = useServerStore((state) => state.activeServerId);
+  const servers = useServerStore((state) => state.servers);
+  const activeServer = servers.find((s) => s.id === activeServerId) || null;
   const selfUser = useUserStore((state) => state.user);
   const members = useMemberStore((state) => state.members);
   const onlineUserIds = useMemberStore((state) => state.onlineUserIds);
@@ -21,6 +24,11 @@ const MemberList: React.FC = () => {
   const clearMembers = useMemberStore((state) => state.clearMembers);
 
   const [selectedMember, setSelectedMember] = useState<{
+    member: ServerMember;
+    position: { x: number; y: number };
+  } | null>(null);
+
+  const [contextMenu, setContextMenu] = useState<{
     member: ServerMember;
     position: { x: number; y: number };
   } | null>(null);
@@ -39,6 +47,17 @@ const MemberList: React.FC = () => {
   const handleMemberClick = useCallback(
     (e: React.MouseEvent, member: ServerMember) => {
       setSelectedMember({
+        member,
+        position: { x: e.clientX, y: e.clientY },
+      });
+    },
+    []
+  );
+
+  const handleMemberContextMenu = useCallback(
+    (e: React.MouseEvent, member: ServerMember) => {
+      e.preventDefault();
+      setContextMenu({
         member,
         position: { x: e.clientX, y: e.clientY },
       });
@@ -79,6 +98,7 @@ const MemberList: React.FC = () => {
         key={member.user_id}
         className={`member-item ${status}`}
         onClick={(e) => handleMemberClick(e, member)}
+        onContextMenu={(e) => handleMemberContextMenu(e, member)}
         title={member.display_name || member.username}
       >
         <div className="member-avatar">
@@ -176,6 +196,23 @@ const MemberList: React.FC = () => {
           lastSeen={lastSeenByUser.get(selectedMember.member.user_id)}
           position={selectedMember.position}
           onClose={() => setSelectedMember(null)}
+        />
+      )}
+
+      {/* Context Menu */}
+      {contextMenu && activeServer && (
+        <MemberContextMenu
+          member={contextMenu.member}
+          position={contextMenu.position}
+          currentUserRole={activeServer.role}
+          serverId={activeServer.id}
+          onClose={() => setContextMenu(null)}
+          onViewProfile={() => {
+            setSelectedMember({
+              member: contextMenu.member,
+              position: contextMenu.position,
+            });
+          }}
         />
       )}
     </div>

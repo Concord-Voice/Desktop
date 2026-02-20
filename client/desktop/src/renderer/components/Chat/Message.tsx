@@ -3,6 +3,7 @@ import { MessageWithStatus } from '../../types/chat';
 import { useMemberStore, ServerMember } from '../../stores/memberStore';
 import MemberProfileCard from '../Members/MemberProfileCard';
 import DeleteMessageModal from './DeleteMessageModal';
+import MessageContextMenu from './MessageContextMenu';
 import './Message.css';
 
 export interface MessageProps {
@@ -38,6 +39,7 @@ const Message: React.FC<MessageProps> = ({
     }
   }, [message.content, isEditing]);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [selectedMember, setSelectedMember] = useState<{
     member: ServerMember;
     position: { x: number; y: number };
@@ -49,6 +51,11 @@ const Message: React.FC<MessageProps> = ({
   const members = useMemberStore((state) => state.members);
   const userStatuses = useMemberStore((state) => state.userStatuses);
   const lastSeenByUser = useMemberStore((state) => state.lastSeenByUser);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  }, []);
 
   const handleAvatarClick = useCallback((e: React.MouseEvent) => {
     const member = members.find((m) => m.user_id === message.user_id);
@@ -126,7 +133,7 @@ const Message: React.FC<MessageProps> = ({
   };
 
   return (
-    <div className={`message ${isOwnMessage ? 'own-message' : ''} ${!showAvatar ? 'message-grouped' : ''}`}>
+    <div className={`message ${isOwnMessage ? 'own-message' : ''} ${!showAvatar ? 'message-grouped' : ''}`} onContextMenu={handleContextMenu}>
       {showAvatar ? (
         <div className="message-avatar" onClick={handleAvatarClick}>
           {message.avatar_url ? (
@@ -285,6 +292,22 @@ const Message: React.FC<MessageProps> = ({
           lastSeen={lastSeenByUser.get(selectedMember.member.user_id)}
           position={selectedMember.position}
           onClose={() => setSelectedMember(null)}
+        />
+      )}
+
+      {contextMenu && (
+        <MessageContextMenu
+          message={message}
+          position={contextMenu}
+          isOwnMessage={isOwnMessage}
+          canModify={canModify}
+          onClose={() => setContextMenu(null)}
+          onEdit={() => setIsEditing(true)}
+          onDelete={() => {
+            if (onDelete) {
+              setShowDeleteModal(true);
+            }
+          }}
         />
       )}
     </div>

@@ -42,7 +42,7 @@ function App() {
   }, []);
 
   return (
-    <div className="app">
+    <div className="app" onContextMenu={(e) => e.preventDefault()}>
       <div className="title-bar">
         <div className="title-bar-text">Concord</div>
         {version && (

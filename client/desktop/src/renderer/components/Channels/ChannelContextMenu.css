@@ -1,31 +1,6 @@
-.context-menu-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 1000;
-}
+/* Channel-specific context menu styles */
 
-.channel-context-menu {
-  position: fixed;
-  min-width: 200px;
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  padding: 8px 0;
-  z-index: 1001;
-}
-
-.context-menu-header {
-  display: flex;
-  align-items: center;
-  padding: 8px 12px;
-  gap: 6px;
-}
-
-.channel-context-type-icon {
+.channel-ctx-type-icon {
   color: var(--text-secondary);
   display: flex;
   align-items: center;
@@ -33,56 +8,17 @@
   flex-shrink: 0;
 }
 
-.channel-context-emoji {
+.channel-ctx-emoji {
   font-size: 16px;
   line-height: 1;
   flex-shrink: 0;
 }
 
-.channel-context-name {
-  font-size: 14px;
+.channel-ctx-name {
+  font-size: calc(14px * var(--font-scale, 1));
   font-weight: 600;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.context-menu-divider {
-  height: 1px;
-  background-color: var(--border-color);
-  margin: 4px 0;
-}
-
-.context-menu-item {
-  width: 100%;
-  padding: 8px 12px;
-  background: none;
-  border: none;
-  text-align: left;
-  cursor: pointer;
-  font-size: 14px;
-  color: var(--text-primary);
-  transition: background-color 0.15s ease;
-}
-
-.context-menu-item:hover:not(.disabled) {
-  background-color: var(--bg-hover);
-}
-
-.context-menu-item.danger {
-  color: var(--error-color);
-}
-
-.context-menu-item.danger:hover {
-  background-color: rgba(220, 38, 38, 0.1);
-}
-
-.context-menu-item.disabled {
-  color: var(--text-tertiary);
-  cursor: not-allowed;
-}
-
-.context-menu-item span {
-  display: block;
 }

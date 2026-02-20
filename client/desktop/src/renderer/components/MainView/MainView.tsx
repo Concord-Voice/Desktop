@@ -6,6 +6,7 @@ import DeleteServerModal from '../Servers/DeleteServerModal';
 import CreateServerModal from '../Servers/CreateServerModal';
 import ServerActionModal from '../Servers/ServerActionModal';
 import JoinServerModal from '../Servers/JoinServerModal';
+import InviteToServerModal from '../Servers/InviteToServerModal';
 import ChannelList from '../Channels/ChannelList';
 import ServerActionBar from '../Channels/ServerActionBar';
 import ChannelContextMenu from '../Channels/ChannelContextMenu';
@@ -17,6 +18,8 @@ import UserPanel from '../User/UserPanel';
 import { ChatView } from '../Chat';
 import { useServerStore } from '../../stores/serverStore';
 import { useChannelStore } from '../../stores/channelStore';
+import { useUserStore } from '../../stores/userStore';
+import { apiFetch } from '../../services/apiClient';
 import { useServerChannelSubscriptions } from '../../hooks/useServerChannelSubscriptions';
 import { useResizablePanel } from '../../hooks/useResizablePanel';
 import { ServerWithRole } from '../../types/server';
@@ -52,6 +55,7 @@ const MainView: React.FC = () => {
   const [editingServer, setEditingServer] = useState<ServerWithRole | null>(null);
   const [deletingServer, setDeletingServer] = useState<ServerWithRole | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
+  const [invitingServer, setInvitingServer] = useState<ServerWithRole | null>(null);
 
   const servers = useServerStore((state) => state.servers);
   const activeServerId = useServerStore((state) => state.activeServerId);
@@ -81,6 +85,26 @@ const MainView: React.FC = () => {
   const handleDeleteServer = (server: ServerWithRole) => {
     setServerContextMenu(null);
     setDeletingServer(server);
+  };
+
+  const handleInviteServer = (server: ServerWithRole) => {
+    setServerContextMenu(null);
+    setInvitingServer(server);
+  };
+
+  const handleLeaveServer = async (server: ServerWithRole) => {
+    setServerContextMenu(null);
+    const user = useUserStore.getState().user;
+    if (!user) return;
+
+    try {
+      await apiFetch(`/api/v1/servers/${server.id}/members/${user.id}`, {
+        method: 'DELETE',
+      });
+      useServerStore.getState().removeServer(server.id);
+    } catch (error) {
+      console.error('Failed to leave server:', error);
+    }
   };
 
   const handleChannelContextMenu = (channel: Channel, position: { x: number; y: number }) => {
@@ -186,6 +210,8 @@ const MainView: React.FC = () => {
           onClose={() => setServerContextMenu(null)}
           onEditServer={handleEditServer}
           onDeleteServer={handleDeleteServer}
+          onLeaveServer={handleLeaveServer}
+          onInvite={handleInviteServer}
         />
       )}
 
@@ -213,6 +239,14 @@ const MainView: React.FC = () => {
           onClose={() => setChannelContextMenu(null)}
           onEditChannel={handleEditChannel}
           onDeleteChannel={() => { /* TODO: Delete channel modal (Issue #16) */ }}
+        />
+      )}
+
+      {invitingServer && (
+        <InviteToServerModal
+          isOpen={!!invitingServer}
+          server={invitingServer}
+          onClose={() => setInvitingServer(null)}
         />
       )}
 

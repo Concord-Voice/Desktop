@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Smile, ImagePlay, Paperclip } from 'lucide-react';
+import MessageInputContextMenu from './MessageInputContextMenu';
 import './MessageInput.css';
 
 export interface MessageInputProps {
@@ -23,6 +24,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
 }) => {
   const [content, setContent] = useState('');
   const [isEncrypted, setIsEncrypted] = useState(encryptionEnabled);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Sync local encryption toggle when channel-level setting changes
@@ -31,6 +33,41 @@ const MessageInput: React.FC<MessageInputProps> = ({
   }, [encryptionEnabled]);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const handlePasteFromMenu = useCallback((text: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      // Fallback: just append
+      setContent((prev) => {
+        const combined = prev + text;
+        return combined.length <= maxLength ? combined : combined.slice(0, maxLength);
+      });
+      return;
+    }
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const before = content.slice(0, start);
+    const after = content.slice(end);
+    const combined = before + text + after;
+    const newContent = combined.length <= maxLength ? combined : combined.slice(0, maxLength);
+
+    setContent(newContent);
+
+    // Restore cursor position after the pasted text
+    requestAnimationFrame(() => {
+      const newCursor = Math.min(start + text.length, newContent.length);
+      textarea.selectionStart = newCursor;
+      textarea.selectionEnd = newCursor;
+      textarea.focus();
+    });
+  }, [content, maxLength]);
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -142,7 +179,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   return (
     <div className="message-input-container">
       <div className="message-input-wrapper">
-        <div className="message-input-box">
+        <div className="message-input-box" onContextMenu={handleContextMenu}>
           <textarea
             ref={textareaRef}
             className="message-input-textarea"
@@ -223,6 +260,14 @@ const MessageInput: React.FC<MessageInputProps> = ({
           </div>
         </div>
       </div>
+
+      {contextMenu && (
+        <MessageInputContextMenu
+          position={contextMenu}
+          onClose={() => setContextMenu(null)}
+          onPaste={handlePasteFromMenu}
+        />
+      )}
     </div>
   );
 };
