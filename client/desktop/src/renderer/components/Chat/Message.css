@@ -17,6 +17,12 @@
 
 .message-avatar {
   flex-shrink: 0;
+  cursor: pointer;
+}
+
+.message-avatar:hover .avatar-image,
+.message-avatar:hover .avatar-circle {
+  opacity: 0.8;
 }
 
 /* Gutter for grouped messages — holds hover timestamp */
