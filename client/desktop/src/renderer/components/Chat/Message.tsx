@@ -1,5 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { MessageWithStatus } from '../../types/chat';
+import { useMemberStore, ServerMember } from '../../stores/memberStore';
+import MemberProfileCard from '../Members/MemberProfileCard';
 import DeleteMessageModal from './DeleteMessageModal';
 import './Message.css';
 
@@ -29,9 +31,23 @@ const Message: React.FC<MessageProps> = ({
   const [editContent, setEditContent] = useState(message.content);
   const [showOptions, setShowOptions] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [selectedMember, setSelectedMember] = useState<{
+    member: ServerMember;
+    position: { x: number; y: number };
+  } | null>(null);
   const optionsRef = useRef<HTMLDivElement>(null);
   const isOwnMessage = message.user_id === currentUserId;
   const canModify = isOwnMessage && isServerMessage(message);
+
+  const members = useMemberStore((state) => state.members);
+  const userStatuses = useMemberStore((state) => state.userStatuses);
+  const lastSeenByUser = useMemberStore((state) => state.lastSeenByUser);
+
+  const handleAvatarClick = useCallback((e: React.MouseEvent) => {
+    const member = members.find((m) => m.user_id === message.user_id);
+    if (!member) return;
+    setSelectedMember({ member, position: { x: e.clientX, y: e.clientY } });
+  }, [members, message.user_id]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -105,7 +121,7 @@ const Message: React.FC<MessageProps> = ({
   return (
     <div className={`message ${isOwnMessage ? 'own-message' : ''} ${!showAvatar ? 'message-grouped' : ''}`}>
       {showAvatar ? (
-        <div className="message-avatar">
+        <div className="message-avatar" onClick={handleAvatarClick}>
           {message.avatar_url ? (
             <img
               className="avatar-image"
@@ -252,6 +268,16 @@ const Message: React.FC<MessageProps> = ({
             onDelete(message.id);
             setShowDeleteModal(false);
           }}
+        />
+      )}
+
+      {selectedMember && (
+        <MemberProfileCard
+          member={selectedMember.member}
+          status={userStatuses.get(selectedMember.member.user_id) || 'offline'}
+          lastSeen={lastSeenByUser.get(selectedMember.member.user_id)}
+          position={selectedMember.position}
+          onClose={() => setSelectedMember(null)}
         />
       )}
     </div>
