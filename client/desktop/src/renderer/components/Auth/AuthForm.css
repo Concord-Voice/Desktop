@@ -170,3 +170,9 @@
   line-height: 1.4;
   max-width: 400px;
 }
+
+/* Shared button pulse animation (used by Login and Register submit buttons) */
+@keyframes buttonPulse {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 0.9; }
+}

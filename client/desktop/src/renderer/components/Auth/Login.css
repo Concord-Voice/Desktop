@@ -133,15 +133,6 @@
   animation: buttonPulse 2s ease-in-out infinite;
 }
 
-@keyframes buttonPulse {
-  0%, 100% {
-    opacity: 0.8;
-  }
-  50% {
-    opacity: 0.9;
-  }
-}
-
 .login-back-btn {
   width: 100%;
   padding: 12px 24px;

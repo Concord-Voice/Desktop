@@ -62,7 +62,7 @@
   margin-bottom: calc(4px * var(--sp, 1));
 }
 
-.empty-hint {
+.message-list-empty-hint {
   color: var(--text-muted);
   font-size: calc(14px * var(--font-scale, 1));
 }
@@ -78,31 +78,25 @@
   font-size: calc(14px * var(--font-scale, 1));
 }
 
-.loading-spinner {
+.message-list-loading {
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
-.loading-spinner.small .spinner {
+.message-list-loading.small .message-list-spinner {
   width: 16px;
   height: 16px;
   border-width: 2px;
 }
 
-.spinner {
+.message-list-spinner {
   width: 24px;
   height: 24px;
   border: 3px solid var(--border-color);
   border-top-color: var(--accent-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 /* Date dividers */
@@ -166,7 +160,7 @@
   top: -8px;
   right: -4px;
   background: var(--accent-primary);
-  color: #fff;
+  color: var(--on-accent);
   font-size: calc(11px * var(--font-scale, 1));
   font-weight: 700;
   min-width: 20px;

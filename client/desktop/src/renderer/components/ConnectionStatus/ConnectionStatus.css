@@ -12,18 +12,18 @@
 }
 
 .connection-status.connected {
-  background-color: rgba(26, 170, 85, 0.1);
-  color: #1aaa55;
+  background-color: color-mix(in srgb, var(--status-connected) 10%, transparent);
+  color: var(--status-connected);
 }
 
 .connection-status.connecting {
-  background-color: rgba(230, 180, 50, 0.1);
-  color: #e6b432;
+  background-color: color-mix(in srgb, var(--status-connecting) 10%, transparent);
+  color: var(--status-connecting);
 }
 
 .connection-status.disconnected {
-  background-color: rgba(250, 100, 100, 0.1);
-  color: #fa6464;
+  background-color: color-mix(in srgb, var(--status-disconnected) 10%, transparent);
+  color: var(--status-disconnected);
 }
 
 .status-dot {
@@ -34,16 +34,16 @@
 }
 
 .connection-status.connected .status-dot {
-  background-color: #1aaa55;
+  background-color: var(--status-connected);
 }
 
 .connection-status.connecting .status-dot {
-  background-color: #e6b432;
+  background-color: var(--status-connecting);
   animation: blink 1.5s ease-in-out infinite;
 }
 
 .connection-status.disconnected .status-dot {
-  background-color: #fa6464;
+  background-color: var(--status-disconnected);
   animation: blink 1.5s ease-in-out infinite;
 }
 

@@ -55,7 +55,6 @@ const MainView: React.FC = () => {
   const [editingServer, setEditingServer] = useState<ServerWithRole | null>(null);
   const [deletingServer, setDeletingServer] = useState<ServerWithRole | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
-  const [deletingChannel, setDeletingChannel] = useState<Channel | null>(null);
   const [invitingServer, setInvitingServer] = useState<ServerWithRole | null>(null);
 
   const servers = useServerStore((state) => state.servers);
@@ -115,12 +114,6 @@ const MainView: React.FC = () => {
   const handleEditChannel = (channel: Channel) => {
     setChannelContextMenu(null);
     setEditingChannel(channel);
-  };
-
-  const handleDeleteChannel = (channel: Channel) => {
-    setChannelContextMenu(null);
-    setDeletingChannel(channel);
-    // TODO: Open delete channel modal (Issue #16)
   };
 
   return (
@@ -245,7 +238,7 @@ const MainView: React.FC = () => {
           userRole={activeServer.role}
           onClose={() => setChannelContextMenu(null)}
           onEditChannel={handleEditChannel}
-          onDeleteChannel={handleDeleteChannel}
+          onDeleteChannel={() => { /* TODO: Delete channel modal (Issue #16) */ }}
         />
       )}
 
