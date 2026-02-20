@@ -137,19 +137,19 @@
 
 /* Fox Den Dark */
 [data-scheme="foxden"] {
-  --bg-primary: #1a0e02;
-  --bg-secondary: #241404;
-  --bg-tertiary: #2e1c08;
+  --bg-primary: #3d1e00;
+  --bg-secondary: #4a2600;
+  --bg-tertiary: #5a3200;
   --text-primary: #ffe0b2;
-  --text-secondary: #f5a040;
-  --text-muted: #b87020;
+  --text-secondary: #ffcc80;
+  --text-muted: #c47a30;
   --accent-primary: #ff6d00;
   --accent-secondary: #ff9100;
   --accent-hover: #ff8a24;
   --gradient-brand: linear-gradient(90deg, #ff6d00 0%, #ff9100 100%);
   --success: #8bc34a;
   --danger: #ef5350;
-  --border-color: #3a2208;
+  --border-color: #6b3f10;
 }
 
 /* Fox Den Light */
