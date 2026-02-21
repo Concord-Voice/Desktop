@@ -113,7 +113,13 @@ const Item: React.FC<ItemProps> = ({ icon, label, danger, disabled, onClick, has
     {hasSubMenu && (
       <span className="ctx-menu-item-chevron">
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-          <path d="M4.5 2.5L8 6L4.5 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path
+            d="M4.5 2.5L8 6L4.5 9.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
       </span>
     )}
@@ -156,7 +162,9 @@ const SubMenu: React.FC<SubMenuProps> = ({ children, closing }) => {
     'ctx-submenu',
     flipped ? 'ctx-submenu-flip' : '',
     closing ? 'ctx-submenu-closing' : '',
-  ].filter(Boolean).join(' ');
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <div ref={subRef} className={classes}>

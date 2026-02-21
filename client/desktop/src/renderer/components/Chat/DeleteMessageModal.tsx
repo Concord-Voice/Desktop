@@ -8,11 +8,7 @@ interface DeleteMessageModalProps {
   onConfirm: () => void;
 }
 
-const DeleteMessageModal: React.FC<DeleteMessageModalProps> = ({
-  isOpen,
-  onClose,
-  onConfirm,
-}) => {
+const DeleteMessageModal: React.FC<DeleteMessageModalProps> = ({ isOpen, onClose, onConfirm }) => {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Delete Message" width="small">
       <div className="delete-message-content">
@@ -25,12 +21,26 @@ const DeleteMessageModal: React.FC<DeleteMessageModalProps> = ({
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            <line x1="12" y1="9" x2="12" y2="13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            <line x1="12" y1="17" x2="12.01" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            <line
+              x1="12"
+              y1="9"
+              x2="12"
+              y2="13"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+            <line
+              x1="12"
+              y1="17"
+              x2="12.01"
+              y2="17"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
           </svg>
-          <p>
-            Are you sure you want to delete this message? This cannot be undone.
-          </p>
+          <p>Are you sure you want to delete this message? This cannot be undone.</p>
         </div>
 
         <span className="delete-message-hint">
@@ -38,11 +48,7 @@ const DeleteMessageModal: React.FC<DeleteMessageModalProps> = ({
         </span>
 
         <div className="delete-message-actions">
-          <button
-            type="button"
-            className="delete-message-cancel-btn"
-            onClick={onClose}
-          >
+          <button type="button" className="delete-message-cancel-btn" onClick={onClose}>
             Cancel
           </button>
           <button

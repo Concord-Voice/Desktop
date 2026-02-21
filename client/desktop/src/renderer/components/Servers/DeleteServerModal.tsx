@@ -12,11 +12,7 @@ interface DeleteServerModalProps {
   onClose: () => void;
 }
 
-const DeleteServerModal: React.FC<DeleteServerModalProps> = ({
-  isOpen,
-  server,
-  onClose,
-}) => {
+const DeleteServerModal: React.FC<DeleteServerModalProps> = ({ isOpen, server, onClose }) => {
   const [confirmName, setConfirmName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -49,20 +45,13 @@ const DeleteServerModal: React.FC<DeleteServerModalProps> = ({
       useServerStore.getState().removeServer(server.id);
       handleClose();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Failed to delete server. Please try again.'
-      );
+      setError(err instanceof Error ? err.message : 'Failed to delete server. Please try again.');
       setIsDeleting(false);
     }
   };
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={handleClose}
-      title="Delete Server"
-      width="small"
-    >
+    <Modal isOpen={isOpen} onClose={handleClose} title="Delete Server" width="small">
       <div className="delete-server-content">
         <div className="delete-server-warning">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="warning-icon">
@@ -73,13 +62,28 @@ const DeleteServerModal: React.FC<DeleteServerModalProps> = ({
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            <line x1="12" y1="9" x2="12" y2="13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            <line x1="12" y1="17" x2="12.01" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            <line
+              x1="12"
+              y1="9"
+              x2="12"
+              y2="13"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+            <line
+              x1="12"
+              y1="17"
+              x2="12.01"
+              y2="17"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
           </svg>
           <p>
-            Are you sure you want to delete <strong>{server.name}</strong>? This action
-            cannot be undone. All channels and messages in this server will be permanently
-            deleted.
+            Are you sure you want to delete <strong>{server.name}</strong>? This action cannot be
+            undone. All channels and messages in this server will be permanently deleted.
           </p>
         </div>
 

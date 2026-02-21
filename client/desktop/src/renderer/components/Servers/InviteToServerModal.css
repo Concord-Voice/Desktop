@@ -178,7 +178,7 @@
   font-family: 'BaronNeue', sans-serif;
   letter-spacing: 0.5px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
   text-transform: uppercase;
   display: flex;
   align-items: center;
@@ -187,6 +187,8 @@
 }
 
 .invite-generate-btn:hover:not(:disabled) {
+  background: var(--gradient-brand);
+  color: var(--bg-primary);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(250, 112, 154, 0.3);
 }

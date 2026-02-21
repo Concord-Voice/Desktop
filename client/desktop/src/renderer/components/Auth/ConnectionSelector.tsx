@@ -92,17 +92,15 @@ const ConnectionSelector: React.FC<ConnectionSelectorProps> = ({ onSelect }) => 
         </div>
 
         {/* Continue Button */}
-        <button
-          className="connection-continue"
-          disabled={!selectedMode}
-          onClick={handleContinue}
-        >
+        <button className="connection-continue" disabled={!selectedMode} onClick={handleContinue}>
           Continue
         </button>
 
         {/* Footer Links */}
         <div className="connection-footer">
-          <a href="#" className="footer-link">Learn about self-hosting</a>
+          <a href="#" className="footer-link">
+            Learn about self-hosting
+          </a>
         </div>
       </div>
     </div>

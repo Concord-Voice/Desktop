@@ -24,11 +24,7 @@ const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const NAME_MIN = 3;
 const NAME_MAX = 100;
 
-const CreateServerModal: React.FC<CreateServerModalProps> = ({
-  isOpen,
-  onClose,
-  onSuccess,
-}) => {
+const CreateServerModal: React.FC<CreateServerModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const [name, setName] = useState('');
   const [iconPreview, setIconPreview] = useState<string | null>(null);
   const [iconDataUrl, setIconDataUrl] = useState<string | null>(null);
@@ -164,21 +160,14 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({
     } catch (error) {
       setErrors({
         general:
-          error instanceof Error
-            ? error.message
-            : 'Failed to create server. Please try again.',
+          error instanceof Error ? error.message : 'Failed to create server. Please try again.',
       });
       setIsSubmitting(false);
     }
   };
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={handleClose}
-      title="Create a Server"
-      width="medium"
-    >
+    <Modal isOpen={isOpen} onClose={handleClose} title="Create a Server" width="medium">
       <form className="create-server-form" onSubmit={handleSubmit}>
         {/* Icon Upload */}
         <div className="server-icon-upload">
@@ -195,19 +184,21 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({
             ) : (
               <div className="icon-placeholder">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.5"/>
+                  <path
+                    d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.5" />
                 </svg>
                 <span className="icon-placeholder-text">Upload</span>
               </div>
             )}
           </div>
           {iconPreview && (
-            <button
-              type="button"
-              className="icon-remove-btn"
-              onClick={handleRemoveIcon}
-            >
+            <button type="button" className="icon-remove-btn" onClick={handleRemoveIcon}>
               Remove
             </button>
           )}

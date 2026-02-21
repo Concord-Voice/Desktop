@@ -44,26 +44,20 @@ const MemberList: React.FC = () => {
 
   // Presence is handled globally in useWebSocket (presence_snapshot + presence events)
 
-  const handleMemberClick = useCallback(
-    (e: React.MouseEvent, member: ServerMember) => {
-      setSelectedMember({
-        member,
-        position: { x: e.clientX, y: e.clientY },
-      });
-    },
-    []
-  );
+  const handleMemberClick = useCallback((e: React.MouseEvent, member: ServerMember) => {
+    setSelectedMember({
+      member,
+      position: { x: e.clientX, y: e.clientY },
+    });
+  }, []);
 
-  const handleMemberContextMenu = useCallback(
-    (e: React.MouseEvent, member: ServerMember) => {
-      e.preventDefault();
-      setContextMenu({
-        member,
-        position: { x: e.clientX, y: e.clientY },
-      });
-    },
-    []
-  );
+  const handleMemberContextMenu = useCallback((e: React.MouseEvent, member: ServerMember) => {
+    e.preventDefault();
+    setContextMenu({
+      member,
+      position: { x: e.clientX, y: e.clientY },
+    });
+  }, []);
 
   // Get status for a member (with fallback)
   // For the self user, use selfStatus as the source of truth
@@ -77,7 +71,12 @@ const MemberList: React.FC = () => {
   // Sort: online first, dnd second, away third, offline/invisible last, then alphabetical
   const sortMembers = (list: ServerMember[]) =>
     [...list].sort((a, b) => {
-      const statusOrder: Record<PresenceStatus, number> = { online: 0, dnd: 1, invisible: 2, offline: 2 };
+      const statusOrder: Record<PresenceStatus, number> = {
+        online: 0,
+        dnd: 1,
+        invisible: 2,
+        offline: 2,
+      };
       const aStatus = getMemberStatus(a.user_id);
       const bStatus = getMemberStatus(b.user_id);
       const aOrder = statusOrder[aStatus];
@@ -103,23 +102,13 @@ const MemberList: React.FC = () => {
       >
         <div className="member-avatar">
           {member.avatar_url ? (
-            <img
-              src={member.avatar_url}
-              alt={member.username}
-              className="member-avatar-img"
-            />
+            <img src={member.avatar_url} alt={member.username} className="member-avatar-img" />
           ) : (
-            <span className="member-avatar-initial">
-              {member.username.charAt(0).toUpperCase()}
-            </span>
+            <span className="member-avatar-initial">{member.username.charAt(0).toUpperCase()}</span>
           )}
-          <span
-            className={`member-status-dot ${status}`}
-          />
+          <span className={`member-status-dot ${status}`} />
         </div>
-        <span className="member-username">
-          {member.display_name || member.username}
-        </span>
+        <span className="member-username">{member.display_name || member.username}</span>
       </div>
     );
   };
@@ -161,9 +150,7 @@ const MemberList: React.FC = () => {
           <p>{error}</p>
           <button
             onClick={() =>
-              activeServerId &&
-              accessToken &&
-              fetchMembers(activeServerId, accessToken)
+              activeServerId && accessToken && fetchMembers(activeServerId, accessToken)
             }
             className="retry-btn"
           >

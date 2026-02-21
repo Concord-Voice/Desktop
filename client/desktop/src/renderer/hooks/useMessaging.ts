@@ -68,7 +68,13 @@ export function useMessaging() {
    * If the channel is E2EE, encrypts before sending (fail-closed: won't send if encryption fails).
    */
   const sendMessage = useCallback(
-    (channelId: string, content: string, username: string = 'You', avatarUrl?: string, displayName?: string): string => {
+    (
+      channelId: string,
+      content: string,
+      username: string = 'You',
+      avatarUrl?: string,
+      displayName?: string
+    ): string => {
       // Check if channel is encrypted
       const channel = useChannelStore.getState().channels.find((c) => c.id === channelId);
       const isEncrypted = channel?.is_encrypted ?? false;

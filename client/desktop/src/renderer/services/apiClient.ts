@@ -65,10 +65,7 @@ async function refreshAccessToken(): Promise<string | null> {
  * - On 401, refreshes token and retries once
  * - Paths are relative to API_BASE (pass full path starting with /)
  */
-export async function apiFetch(
-  path: string,
-  init?: RequestInit
-): Promise<Response> {
+export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const token = useAuthStore.getState().accessToken;
 
   const headers = new Headers(init?.headers);

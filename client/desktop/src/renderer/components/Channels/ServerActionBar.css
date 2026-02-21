@@ -27,7 +27,9 @@
   font-size: calc(11px * var(--font-scale, 1));
   font-weight: 500;
   cursor: pointer;
-  transition: color 0.15s ease, background-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
 }
 
 /* When only one button, limit its width and center */

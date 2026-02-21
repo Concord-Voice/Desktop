@@ -47,9 +47,7 @@ export function useResizablePanel({
     const onMouseMove = (e: MouseEvent) => {
       if (!isDragging.current) return;
       const delta = e.clientX - startX.current;
-      const newWidth = side === 'left'
-        ? startWidth.current + delta
-        : startWidth.current - delta;
+      const newWidth = side === 'left' ? startWidth.current + delta : startWidth.current - delta;
       const clamped = Math.max(minWidth, Math.min(maxWidth, newWidth));
       setWidth(clamped);
     };

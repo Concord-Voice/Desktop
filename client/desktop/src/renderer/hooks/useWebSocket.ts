@@ -64,11 +64,19 @@ export function useWebSocket() {
       // Map WS states to simplified UI states
       let uiState: 'connected' | 'connecting' | 'disconnected' = 'disconnected';
       if (state === ConnectionState.CONNECTED) uiState = 'connected';
-      else if (state === ConnectionState.CONNECTING || state === ConnectionState.RECONNECTING) uiState = 'connecting';
+      else if (state === ConnectionState.CONNECTING || state === ConnectionState.RECONNECTING)
+        uiState = 'connecting';
 
       setConnectionStatus(isConnected, connectionInfo?.clientId, uiState);
 
       console.debug(`[WebSocket] state → ${state}`, connectionInfo);
+
+      // Process any pending key requests on connect/reconnect
+      if (state === ConnectionState.CONNECTED && e2eeService.isInitialized) {
+        e2eeService.processPendingKeyRequests().catch(() => {
+          // Non-critical — will retry on next key_needed event
+        });
+      }
     });
 
     // Message handler
@@ -96,12 +104,19 @@ export function useWebSocket() {
 
       if (isEncrypted && e2eeService.isInitialized) {
         // Decrypt asynchronously, then add to store
-        e2eeService.decryptForChannel(channelId, data.content)
+        e2eeService
+          .decryptForChannel(channelId, data.content)
           .then((plaintext) => {
             addMessage(channelId, { ...baseMessage, content: plaintext });
           })
-          .catch(() => {
-            addMessage(channelId, { ...baseMessage, content: '', decryptFailed: true });
+          .catch((err) => {
+            const isPending = err instanceof Error && err.message === 'PENDING_KEY';
+            addMessage(channelId, {
+              ...baseMessage,
+              content: '',
+              decryptFailed: !isPending,
+              pendingKeys: isPending,
+            });
           });
       } else if (isEncrypted) {
         // E2EE service not initialized — can't decrypt
@@ -302,13 +317,43 @@ export function useWebSocket() {
       }
     });
 
+    // Key needed handler — auto-process pending key requests for new members
+    const unsubKeyNeeded = wsService.on('key_needed', (msg: WebSocketMessage) => {
+      console.debug('[WebSocket] key_needed event received:', msg.data);
+      if (e2eeService.isInitialized) {
+        e2eeService.processPendingKeyRequests().catch((err) => {
+          console.debug('[WebSocket] processPendingKeyRequests failed:', err);
+        });
+      } else {
+        console.debug('[WebSocket] key_needed ignored — E2EE not initialized');
+      }
+    });
+
+    // Key delivered handler — a channel key was distributed to the current user
+    const unsubKeyDelivered = wsService.on('key_delivered', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const channelId = data.channel_id;
+      const targetUserId = data.user_id;
+      if (!channelId) return;
+
+      // Only act if this key delivery is for the current user
+      const selfId = useUserStore.getState().user?.id;
+      if (targetUserId !== selfId) return;
+
+      // Invalidate the cached key so it gets re-fetched
+      e2eeService.invalidateChannelKey(channelId);
+
+      // Dispatch event so ChatView can re-fetch and decrypt messages
+      window.dispatchEvent(new CustomEvent('e2ee-key-delivered', { detail: { channelId } }));
+    });
+
     // Presence snapshot handler — received on connection with all online users and their statuses
     const unsubPresenceSnapshot = wsService.on('presence_snapshot', (msg: WebSocketMessage) => {
       // Enhanced format: array of { user_id, status } objects
       if (msg.data.users && Array.isArray(msg.data.users)) {
-        useMemberStore.getState().setPresenceSnapshot(
-          msg.data.users as Array<{ user_id: string; status: string }>
-        );
+        useMemberStore
+          .getState()
+          .setPresenceSnapshot(msg.data.users as Array<{ user_id: string; status: string }>);
       } else if (msg.data.online_user_ids) {
         // Backward compatibility: simple list of online user IDs
         const userIds = msg.data.online_user_ids as string[];
@@ -362,12 +407,23 @@ export function useWebSocket() {
       unsubServerDeleted();
       unsubMemberRemoved();
       unsubUnreadNotify();
+      unsubKeyNeeded();
+      unsubKeyDelivered();
       unsubPresenceSnapshot();
       unsubPresence();
       unsubSubscribed();
       unsubError();
     };
-  }, [wsService, setConnectionStatus, addMessage, updateMessage, updateMessageStatus, updateUserInMessages, deleteMessage, setTyping]);
+  }, [
+    wsService,
+    setConnectionStatus,
+    addMessage,
+    updateMessage,
+    updateMessageStatus,
+    updateUserInMessages,
+    deleteMessage,
+    setTyping,
+  ]);
 
   // Subscribe to a channel
   const subscribe = useCallback(

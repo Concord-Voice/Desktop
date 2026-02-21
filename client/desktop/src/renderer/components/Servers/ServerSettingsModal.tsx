@@ -24,11 +24,7 @@ const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const NAME_MIN = 3;
 const NAME_MAX = 100;
 
-const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
-  isOpen,
-  server,
-  onClose,
-}) => {
+const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, server, onClose }) => {
   const [name, setName] = useState(server.name);
   const [iconPreview, setIconPreview] = useState<string | null>(server.icon_url || null);
   const [iconDataUrl, setIconDataUrl] = useState<string | null>(server.icon_url || null);
@@ -194,21 +190,14 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
     } catch (error) {
       setErrors({
         general:
-          error instanceof Error
-            ? error.message
-            : 'Failed to update server. Please try again.',
+          error instanceof Error ? error.message : 'Failed to update server. Please try again.',
       });
       setIsSubmitting(false);
     }
   };
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={handleClose}
-      title="Server Settings"
-      width="medium"
-    >
+    <Modal isOpen={isOpen} onClose={handleClose} title="Server Settings" width="medium">
       <form className="server-settings-form" onSubmit={handleSubmit}>
         {/* Icon Upload */}
         <div className="server-icon-upload">
@@ -239,11 +228,7 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
             )}
           </div>
           {iconPreview && (
-            <button
-              type="button"
-              className="icon-remove-btn"
-              onClick={handleRemoveIcon}
-            >
+            <button type="button" className="icon-remove-btn" onClick={handleRemoveIcon}>
               Remove
             </button>
           )}
@@ -319,9 +304,7 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({
                 )}
               </button>
             )}
-            <span className="form-hint">
-              Invites default to 1 use, expire in 24 hours.
-            </span>
+            <span className="form-hint">Invites default to 1 use, expire in 24 hours.</span>
           </div>
         )}
 

@@ -24,6 +24,7 @@ export interface MessageWithStatus extends MessageWithUser {
   clientMessageId?: string; // Temporary ID before server assigns permanent ID
   error?: string; // Error message if status is 'failed'
   decryptFailed?: boolean; // True if E2EE decryption failed (never show raw ciphertext)
+  pendingKeys?: boolean; // True if channel key not yet distributed (waiting for key delivery)
 }
 
 export interface Channel {
@@ -37,12 +38,6 @@ export interface Channel {
   position: number;
   created_at: string;
   updated_at: string;
-}
-
-export interface SendMessageRequest {
-  channel_id: string;
-  content: string;
-  is_encrypted: boolean;
 }
 
 export interface UpdateMessageRequest {

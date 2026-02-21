@@ -9,7 +9,13 @@ import UserPanel from '../User/UserPanel';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import './SettingsPage.css';
 
-type SettingsSection = 'appearance' | 'privacy' | 'account' | 'notifications' | 'voice' | 'accessibility';
+type SettingsSection =
+  | 'appearance'
+  | 'privacy'
+  | 'account'
+  | 'notifications'
+  | 'voice'
+  | 'accessibility';
 
 interface Session {
   id: string;
@@ -60,12 +66,36 @@ const AppearanceSection: React.FC = () => {
   const setFontSize = useSettingsStore((s) => s.setFontSize);
   const setCompactMode = useSettingsStore((s) => s.setCompactMode);
 
-  const colorSchemes: { value: AppearanceSettings['colorScheme']; label: string; gradient: string }[] = [
-    { value: 'concord', label: 'Concord', gradient: 'linear-gradient(135deg, #0d0821, #fa709a, #ffe13f)' },
-    { value: 'morky', label: '9th Circle', gradient: 'linear-gradient(135deg, #0a0a0a, #e63946, #ff6b35)' },
-    { value: 'foxden', label: 'Fox Den', gradient: 'linear-gradient(135deg, #1a0e02, #ff6d00, #ff9100)' },
-    { value: 'hacker', label: 'Hacker', gradient: 'linear-gradient(135deg, #000000, #00ff41, #00ee38)' },
-    { value: 'bardic', label: 'Bardic', gradient: 'linear-gradient(135deg, #120a1e, #c471ed, #f64f8e)' },
+  const colorSchemes: {
+    value: AppearanceSettings['colorScheme'];
+    label: string;
+    gradient: string;
+  }[] = [
+    {
+      value: 'concord',
+      label: 'Concord',
+      gradient: 'linear-gradient(135deg, #0d0821, #fa709a, #ffe13f)',
+    },
+    {
+      value: 'morky',
+      label: '9th Circle',
+      gradient: 'linear-gradient(135deg, #0a0a0a, #e63946, #ff6b35)',
+    },
+    {
+      value: 'foxden',
+      label: 'Fox Den',
+      gradient: 'linear-gradient(135deg, #1a0e02, #ff6d00, #ff9100)',
+    },
+    {
+      value: 'hacker',
+      label: 'Hacker',
+      gradient: 'linear-gradient(135deg, #000000, #00ff41, #00ee38)',
+    },
+    {
+      value: 'bardic',
+      label: 'Bardic',
+      gradient: 'linear-gradient(135deg, #120a1e, #c471ed, #f64f8e)',
+    },
   ];
 
   const themes: { value: AppearanceSettings['theme']; label: string; icon: React.ReactNode }[] = [
@@ -74,7 +104,13 @@ const AppearanceSection: React.FC = () => {
       label: 'Dark',
       icon: (
         <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-          <path d="M21 12.79A9 9 0 119.21 1a7 7 0 0011.79 11.79z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path
+            d="M21 12.79A9 9 0 119.21 1a7 7 0 0011.79 11.79z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
       ),
     },
@@ -84,7 +120,12 @@ const AppearanceSection: React.FC = () => {
       icon: (
         <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
           <circle cx="11" cy="11" r="5" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M11 1v2M11 19v2M3.22 3.22l1.42 1.42M17.36 17.36l1.42 1.42M1 11h2M19 11h2M3.22 18.78l1.42-1.42M17.36 4.64l1.42-1.42" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          <path
+            d="M11 1v2M11 19v2M3.22 3.22l1.42 1.42M17.36 17.36l1.42 1.42M1 11h2M19 11h2M3.22 18.78l1.42-1.42M17.36 4.64l1.42-1.42"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
         </svg>
       ),
     },
@@ -110,9 +151,7 @@ const AppearanceSection: React.FC = () => {
     <>
       <div className="settings-section">
         <h2 className="settings-section-title">Color Scheme</h2>
-        <p className="settings-section-description">
-          Pick a color palette for the entire app.
-        </p>
+        <p className="settings-section-description">Pick a color palette for the entire app.</p>
         <span className="color-scheme-active-label">
           {colorSchemes.find((cs) => cs.value === appearance.colorScheme)?.label}
         </span>
@@ -169,12 +208,11 @@ const AppearanceSection: React.FC = () => {
         <div className="settings-row">
           <div className="settings-row-info">
             <span className="settings-row-label">Compact Mode</span>
-            <span className="settings-row-hint">Reduce padding and spacing for a denser layout</span>
+            <span className="settings-row-hint">
+              Reduce padding and spacing for a denser layout
+            </span>
           </div>
-          <ToggleSwitch
-            checked={appearance.compactMode}
-            onChange={setCompactMode}
-          />
+          <ToggleSwitch checked={appearance.compactMode} onChange={setCompactMode} />
         </div>
       </div>
     </>
@@ -265,15 +303,18 @@ const PrivacySecuritySection: React.FC = () => {
       setSessions((prev) => {
         const revoked = prev.find((s) => s.id === sessionId);
         if (revoked) {
-          setPastSessions((past) => [{
-            id: revoked.id,
-            device_name: revoked.device_name,
-            ip_address: revoked.ip_address,
-            user_agent: revoked.user_agent,
-            created_at: revoked.created_at,
-            last_used: revoked.last_used,
-            revoked_at: new Date().toISOString(),
-          }, ...past]);
+          setPastSessions((past) => [
+            {
+              id: revoked.id,
+              device_name: revoked.device_name,
+              ip_address: revoked.ip_address,
+              user_agent: revoked.user_agent,
+              created_at: revoked.created_at,
+              last_used: revoked.last_used,
+              revoked_at: new Date().toISOString(),
+            },
+            ...past,
+          ]);
         }
         return prev.filter((s) => s.id !== sessionId);
       });
@@ -345,7 +386,8 @@ const PrivacySecuritySection: React.FC = () => {
       <div className="settings-section">
         <h2 className="settings-section-title">Active Sessions</h2>
         <p className="settings-section-description">
-          These are the devices currently logged into your account. Revoke any session you don&apos;t recognize.
+          These are the devices currently logged into your account. Revoke any session you
+          don&apos;t recognize.
         </p>
 
         {error && <div className="settings-error">{error}</div>}
@@ -358,17 +400,35 @@ const PrivacySecuritySection: React.FC = () => {
           <>
             <div className="sessions-list">
               {sortedSessions.map((session) => (
-                <div key={session.id} className={`session-card ${session.is_current ? 'current' : ''}`}>
+                <div
+                  key={session.id}
+                  className={`session-card ${session.is_current ? 'current' : ''}`}
+                >
                   <div className="session-card-icon">
                     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                      <rect x="2" y="3" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
-                      <path d="M7 19h6M10 15v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                      <rect
+                        x="2"
+                        y="3"
+                        width="16"
+                        height="12"
+                        rx="2"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                      />
+                      <path
+                        d="M7 19h6M10 15v4"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                      />
                     </svg>
                   </div>
                   <div className="session-card-info">
                     <div className="session-card-title">
                       {parseUserAgent(session.user_agent)}
-                      {session.is_current && <span className="session-card-badge">This Device</span>}
+                      {session.is_current && (
+                        <span className="session-card-badge">This Device</span>
+                      )}
                     </div>
                     <div className="session-card-details">
                       <span>{session.ip_address}</span>
@@ -377,7 +437,8 @@ const PrivacySecuritySection: React.FC = () => {
                     </div>
                     {confirmRevoke === session.id && session.is_current && (
                       <div className="session-confirm-warning">
-                        This is your current active session. Revoking it will log you out and you must sign back in.
+                        This is your current active session. Revoking it will log you out and you
+                        must sign back in.
                       </div>
                     )}
                   </div>
@@ -416,8 +477,8 @@ const PrivacySecuritySection: React.FC = () => {
               <div className="sessions-actions">
                 {confirmRevoke === 'all' && (
                   <div className="session-confirm-warning">
-                    This will revoke all sessions, including your current active session.
-                    You will be logged out and must sign back in.
+                    This will revoke all sessions, including your current active session. You will
+                    be logged out and must sign back in.
                   </div>
                 )}
                 {confirmRevoke === 'all' ? (
@@ -429,10 +490,7 @@ const PrivacySecuritySection: React.FC = () => {
                     >
                       {isRevokingAll ? 'Revoking...' : 'Confirm Revoke All'}
                     </button>
-                    <button
-                      className="session-cancel-btn"
-                      onClick={() => setConfirmRevoke(null)}
-                    >
+                    <button className="session-cancel-btn" onClick={() => setConfirmRevoke(null)}>
                       Cancel
                     </button>
                   </div>
@@ -463,8 +521,21 @@ const PrivacySecuritySection: React.FC = () => {
               <div key={session.id} className="session-card past">
                 <div className="session-card-icon past">
                   <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                    <rect x="2" y="3" width="16" height="12" rx="2" stroke="currentColor" strokeWidth="1.5" />
-                    <path d="M7 19h6M10 15v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    <rect
+                      x="2"
+                      y="3"
+                      width="16"
+                      height="12"
+                      rx="2"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    />
+                    <path
+                      d="M7 19h6M10 15v4"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                    />
                   </svg>
                 </div>
                 <div className="session-card-info">
@@ -504,7 +575,12 @@ const navItems: NavItem[] = [
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
         <circle cx="9" cy="9" r="4" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M9 1v2M9 15v2M2.64 2.64l1.41 1.41M13.95 13.95l1.41 1.41M1 9h2M15 9h2M2.64 15.36l1.41-1.41M13.95 4.05l1.41-1.41" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <path
+          d="M9 1v2M9 15v2M2.64 2.64l1.41 1.41M13.95 13.95l1.41 1.41M1 9h2M15 9h2M2.64 15.36l1.41-1.41M13.95 4.05l1.41-1.41"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
       </svg>
     ),
   },
@@ -515,7 +591,12 @@ const navItems: NavItem[] = [
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
         <rect x="3" y="8" width="12" height="8" rx="2" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M6 8V5a3 3 0 016 0v3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <path
+          d="M6 8V5a3 3 0 016 0v3"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
       </svg>
     ),
   },
@@ -526,7 +607,12 @@ const navItems: NavItem[] = [
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
         <circle cx="9" cy="6" r="3" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M3 16c0-2.76 2.69-5 6-5s6 2.24 6 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <path
+          d="M3 16c0-2.76 2.69-5 6-5s6 2.24 6 5"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
       </svg>
     ),
   },
@@ -536,8 +622,19 @@ const navItems: NavItem[] = [
     enabled: false,
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-        <path d="M13.73 12.73A15.5 15.5 0 0114.5 9V7.5a5.5 5.5 0 00-11 0V9c0 1.31.26 2.56.77 3.73L3 14h12l-1.27-1.27z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M7 14v.5a2 2 0 004 0V14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <path
+          d="M13.73 12.73A15.5 15.5 0 0114.5 9V7.5a5.5 5.5 0 00-11 0V9c0 1.31.26 2.56.77 3.73L3 14h12l-1.27-1.27z"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path
+          d="M7 14v.5a2 2 0 004 0V14"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
       </svg>
     ),
   },
@@ -548,7 +645,12 @@ const navItems: NavItem[] = [
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
         <rect x="6" y="1" width="6" height="10" rx="3" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M3 8a6 6 0 0012 0M9 14v3M6 17h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+        <path
+          d="M3 8a6 6 0 0012 0M9 14v3M6 17h6"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
       </svg>
     ),
   },
@@ -559,7 +661,13 @@ const navItems: NavItem[] = [
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
         <circle cx="9" cy="4" r="2" stroke="currentColor" strokeWidth="1.5" />
-        <path d="M3 8l6 1 6-1M9 9v4M6 17l3-4 3 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d="M3 8l6 1 6-1M9 9v4M6 17l3-4 3 4"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     ),
   },
@@ -586,10 +694,7 @@ const SettingsPage: React.FC = () => {
     <div className="view-container main-view">
       <div className="sidebar">
         <div className="sidebar-servers">
-          <ServerList
-            onOpenCreateModal={() => navigate('/app')}
-            onContextMenu={() => {}}
-          />
+          <ServerList onOpenCreateModal={() => navigate('/app')} onContextMenu={() => {}} />
         </div>
         <UserPanel />
       </div>
@@ -630,9 +735,7 @@ const SettingsPage: React.FC = () => {
             </nav>
 
             {/* Right content */}
-            <div className="settings-content">
-              {renderSection()}
-            </div>
+            <div className="settings-content">{renderSection()}</div>
           </div>
         </div>
       </div>

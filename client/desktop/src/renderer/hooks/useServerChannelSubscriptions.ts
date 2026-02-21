@@ -65,10 +65,11 @@ export function useServerChannelSubscriptions() {
 
     return () => {
       const wsService = getWebSocketService();
-      for (const serverId of subscribedServersRef.current) {
+      const currentSubscriptions = subscribedServersRef.current;
+      for (const serverId of currentSubscriptions) {
         wsService.unsubscribeServer(serverId);
       }
-      subscribedServersRef.current.clear();
+      currentSubscriptions.clear();
     };
   }, [isConnected, servers, setInitialServerUnreads]);
 

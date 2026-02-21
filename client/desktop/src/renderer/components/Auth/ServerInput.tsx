@@ -75,9 +75,7 @@ const ServerInput: React.FC<ServerInputProps> = ({ onConnect, onBack }) => {
             className="server-icon"
           />
           <h2 className="server-title">Connect to Self-Hosted Server</h2>
-          <p className="server-subtitle">
-            Enter the address provided by your server administrator
-          </p>
+          <p className="server-subtitle">Enter the address provided by your server administrator</p>
         </div>
 
         {/* URL Input */}

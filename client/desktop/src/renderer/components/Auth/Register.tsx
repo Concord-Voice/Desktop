@@ -98,11 +98,11 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
 
     try {
       // Generate E2EE keys
-      console.log('Generating E2EE keys...');
+      console.debug('Generating E2EE keys...');
       const keys = await generateRegistrationKeys(formData.password);
       const publicKeyBase64 = await exportPublicKey(keys.publicKey);
 
-      console.log('Keys generated, registering with server...');
+      console.debug('Keys generated, registering with server...');
 
       // Register with backend
       const response = await fetch('http://localhost:8080/api/v1/auth/register', {
@@ -129,7 +129,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
         throw new Error(data.error || 'Registration failed');
       }
 
-      console.log('Registration successful!');
+      console.debug('Registration successful!');
 
       // Store the private key in memory (we'll add proper key storage later)
       // Pass tokens and user data up
@@ -148,9 +148,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
     }
   };
 
-  const handleChange = (field: keyof FormData) => (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  const handleChange = (field: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     setFormData((prev) => ({ ...prev, [field]: value }));
     // Clear error for this field when user starts typing
@@ -189,7 +187,11 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
     <div className="register-container">
       <div className="register-content">
         <div className="register-header">
-          <img src="./branding/logos/main-logo-transparent-vector.svg" className="register-logo" alt="Concord" />
+          <img
+            src="./branding/logos/main-logo-transparent-vector.svg"
+            className="register-logo"
+            alt="Concord"
+          />
           <h2 className="register-title">Create Your Account</h2>
           <p className="register-subtitle">Join the Concord network with end-to-end encryption</p>
         </div>
@@ -221,7 +223,9 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
               disabled={isSubmitting}
             />
             {errors.username && <span className="form-error">{errors.username}</span>}
-            <span className="form-hint">This will be your identity: {formData.username || 'username'}@concordvoice.chat</span>
+            <span className="form-hint">
+              This will be your identity: {formData.username || 'username'}@concordvoice.chat
+            </span>
           </div>
 
           {/* Password */}
@@ -269,23 +273,37 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
                     content={
                       <div>
                         <strong>What is E2EE?</strong>
-                        <p>End-to-End Encryption means your messages are encrypted on your device before being sent. Only you and the recipient can read them.</p>
-
+                        <p>
+                          End-to-End Encryption means your messages are encrypted on your device
+                          before being sent. Only you and the recipient can read them.
+                        </p>
                         <strong>How it works:</strong>
                         <ul>
-                          <li><strong>User-to-User & Groups:</strong> Always fully encrypted - maximum protection guaranteed</li>
-                          <li><strong>E2EE Servers:</strong> Always fully encrypted - complete privacy protection</li>
-                          <li><strong>Non-E2EE Servers:</strong> Messages downgrade to plaintext with big warning banner</li>
-                          <li><strong>Your Keys:</strong> Protected by your password - keep it safe!</li>
+                          <li>
+                            <strong>User-to-User & Groups:</strong> Always fully encrypted - maximum
+                            protection guaranteed
+                          </li>
+                          <li>
+                            <strong>E2EE Servers:</strong> Always fully encrypted - complete privacy
+                            protection
+                          </li>
+                          <li>
+                            <strong>Non-E2EE Servers:</strong> Messages downgrade to plaintext with
+                            big warning banner
+                          </li>
+                          <li>
+                            <strong>Your Keys:</strong> Protected by your password - keep it safe!
+                          </li>
                         </ul>
-
-                        <strong>Privacy First:</strong> Not even Concord can read your encrypted messages. We can't reset your password if you forget it.
+                        <strong>Privacy First:</strong> Not even Concord can read your encrypted
+                        messages. We can't reset your password if you forget it.
                       </div>
                     }
                   />
                 </div>
                 <p className="info-banner-description">
-                  Your account uses DEFCON-grade encryption by default. Your messages are encrypted on your device before sending — not even Concord can read them.
+                  Your account uses DEFCON-grade encryption by default. Your messages are encrypted
+                  on your device before sending — not even Concord can read them.
                 </p>
               </div>
             </div>
@@ -315,11 +333,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
           )}
 
           {/* Submit Button */}
-          <button
-            type="submit"
-            className="register-submit-btn"
-            disabled={isSubmitting}
-          >
+          <button type="submit" className="register-submit-btn" disabled={isSubmitting}>
             {isSubmitting ? (
               <>
                 Creating Account...

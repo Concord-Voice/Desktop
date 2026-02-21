@@ -205,7 +205,9 @@
 }
 
 .color-scheme-circle.selected {
-  box-shadow: 0 0 0 3px var(--bg-primary), 0 0 0 5px var(--text-primary);
+  box-shadow:
+    0 0 0 3px var(--bg-primary),
+    0 0 0 5px var(--text-primary);
 }
 
 .color-scheme-circle:focus-visible {
@@ -290,9 +292,15 @@
   color: var(--text-primary);
 }
 
-.font-size-option.small { font-size: 12px; }
-.font-size-option.default { font-size: 14px; }
-.font-size-option.large { font-size: 16px; }
+.font-size-option.small {
+  font-size: 12px;
+}
+.font-size-option.default {
+  font-size: 14px;
+}
+.font-size-option.large {
+  font-size: 16px;
+}
 
 /* Toggle switch */
 .settings-toggle {

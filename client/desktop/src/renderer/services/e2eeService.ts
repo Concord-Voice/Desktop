@@ -157,9 +157,7 @@ class E2EEService {
    * @param memberPublicKeys - Map of user_id → base64 public key
    * @returns Map of user_id → base64 wrapped CSK
    */
-  async createChannelKeys(
-    memberPublicKeys: Map<string, string>
-  ): Promise<Map<string, string>> {
+  async createChannelKeys(memberPublicKeys: Map<string, string>): Promise<Map<string, string>> {
     const channelKey = await generateChannelKey();
     const wrappedKeys = new Map<string, string>();
 
@@ -176,10 +174,7 @@ class E2EEService {
    * Wrap the channel key for a new member (key distribution).
    * Used when an existing member distributes keys to a joining member.
    */
-  async wrapKeyForMember(
-    channelId: string,
-    memberPublicKeyBase64: string
-  ): Promise<string> {
+  async wrapKeyForMember(channelId: string, memberPublicKeyBase64: string): Promise<string> {
     // Get the unwrapped channel key
     const channelKey = await this.getChannelKey(channelId);
     const memberPublicKey = await importPublicKey(memberPublicKeyBase64);
@@ -203,38 +198,43 @@ class E2EEService {
     if (!this.isInitialized) return;
 
     try {
-      const res = await apiFetch('/api/v1/channels/pending-keys');
-      if (!res.ok) return;
+      const res = await apiFetch('/api/v1/e2ee/pending-keys');
+      if (!res.ok) {
+        console.debug('[E2EE] pending-keys request failed:', res.status, res.statusText);
+        return;
+      }
 
       const data = await res.json();
       const requests = data.pending_requests || [];
+      console.debug('[E2EE] Pending key requests:', requests.length);
 
       for (const req of requests) {
         try {
           // Fetch new member's public key
           const pkRes = await apiFetch(`/api/v1/users/${req.user_id}/public-key`);
-          if (!pkRes.ok) continue;
+          if (!pkRes.ok) {
+            console.debug('[E2EE] Failed to fetch public key for', req.user_id, pkRes.status);
+            continue;
+          }
 
           const pkData = await pkRes.json();
-          const wrappedKey = await this.wrapKeyForMember(
-            req.channel_id,
-            pkData.public_key
-          );
+          const wrappedKey = await this.wrapKeyForMember(req.channel_id, pkData.public_key);
 
           // Upload the wrapped key
-          await apiFetch(`/api/v1/channels/${req.channel_id}/keys`, {
+          const uploadRes = await apiFetch(`/api/v1/channels/${req.channel_id}/keys`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               wrapped_keys: { [req.user_id]: wrappedKey },
             }),
           });
-        } catch {
-          // Silently continue — another member may have already processed this
+          console.debug('[E2EE] Key distributed for', req.user_id, 'channel', req.channel_id, uploadRes.status);
+        } catch (err) {
+          console.debug('[E2EE] Failed to process key request:', err);
         }
       }
-    } catch {
-      // Non-critical failure — will retry on next check
+    } catch (err) {
+      console.debug('[E2EE] processPendingKeyRequests error:', err);
     }
   }
 

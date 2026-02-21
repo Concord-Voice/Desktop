@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
-import { ServerMember } from '../../stores/memberStore';
-import { useMemberStore } from '../../stores/memberStore';
+import { ServerMember, useMemberStore } from '../../stores/memberStore';
 import { apiFetch } from '../../services/apiClient';
 import ContextMenu from '../ui/ContextMenu';
 
@@ -68,7 +67,13 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
   return (
     <ContextMenu position={position} onClose={onClose}>
       <ContextMenu.Header>
-        <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 'calc(14px * var(--font-scale, 1))' }}>
+        <span
+          style={{
+            fontWeight: 600,
+            color: 'var(--text-primary)',
+            fontSize: 'calc(14px * var(--font-scale, 1))',
+          }}
+        >
           {member.display_name || member.username}
         </span>
       </ContextMenu.Header>
@@ -80,7 +85,12 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
         icon={
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M2 14c0-2.76 2.69-5 6-5s6 2.24 6 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <path
+              d="M2 14c0-2.76 2.69-5 6-5s6 2.24 6 5"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
           </svg>
         }
         label="View Profile"
@@ -94,7 +104,13 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
       <ContextMenu.Item
         icon={
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M2 3h12v9H4l-2 2V3z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="M2 3h12v9H4l-2 2V3z"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         }
         label="Send DM"
@@ -110,7 +126,13 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
             <ContextMenu.Item
               icon={
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M8 1l2 4h4l-3.5 3 1.5 4.5L8 10l-4 2.5L5.5 8 2 5h4l2-4z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <path
+                    d="M8 1l2 4h4l-3.5 3 1.5 4.5L8 10l-4 2.5L5.5 8 2 5h4l2-4z"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               }
               label={isUpdatingRole ? 'Updating...' : 'Assign Role'}
@@ -160,7 +182,12 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
           icon={
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
-              <path d="M3.75 3.75l8.5 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <path
+                d="M3.75 3.75l8.5 8.5"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
             </svg>
           }
           label="Ban"

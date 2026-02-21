@@ -66,7 +66,10 @@ export class WebSocketService {
    * Connect to WebSocket server with JWT token
    */
   connect(token: string): void {
-    if (this.ws && (this.state === ConnectionState.CONNECTED || this.state === ConnectionState.CONNECTING)) {
+    if (
+      this.ws &&
+      (this.state === ConnectionState.CONNECTED || this.state === ConnectionState.CONNECTING)
+    ) {
       return;
     }
 
@@ -186,7 +189,12 @@ export class WebSocketService {
   /**
    * Send a chat message to a channel
    */
-  sendMessage(channelId: string, content: string, nonce?: string, isEncrypted: boolean = false): void {
+  sendMessage(
+    channelId: string,
+    content: string,
+    nonce?: string,
+    isEncrypted: boolean = false
+  ): void {
     this.send({
       type: 'message',
       data: {
@@ -311,13 +319,10 @@ export class WebSocketService {
       let wsUrl: string;
       try {
         const httpBase = this.url.replace(/^ws/, 'http');
-        const ticketRes = await fetch(
-          httpBase.replace('/ws', '/auth/ws-ticket'),
-          {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${this.token}` },
-          }
-        );
+        const ticketRes = await fetch(httpBase.replace('/ws', '/auth/ws-ticket'), {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${this.token}` },
+        });
         if (ticketRes.ok) {
           const { ticket } = await ticketRes.json();
           wsUrl = `${this.url}?ticket=${encodeURIComponent(ticket)}`;
@@ -383,7 +388,7 @@ export class WebSocketService {
       // Notify message handlers
       const handlers = this.messageHandlers.get(message.type);
       if (handlers) {
-        handlers.forEach(handler => {
+        handlers.forEach((handler) => {
           try {
             handler(message);
           } catch (error) {
@@ -430,7 +435,9 @@ export class WebSocketService {
       this.maxReconnectDelay
     );
 
-    console.debug(`[WebSocket] reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`);
+    console.debug(
+      `[WebSocket] reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`
+    );
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectAttempts++;
@@ -465,7 +472,7 @@ export class WebSocketService {
 
   private resubscribeChannels(): void {
     // Resubscribe to all channels after reconnect
-    this.subscribedChannels.forEach(channelId => {
+    this.subscribedChannels.forEach((channelId) => {
       this.subscribe(channelId);
     });
   }
@@ -478,7 +485,7 @@ export class WebSocketService {
   }
 
   private notifyConnectionHandlers(): void {
-    this.connectionHandlers.forEach(handler => {
+    this.connectionHandlers.forEach((handler) => {
       try {
         handler(this.state);
       } catch (error) {

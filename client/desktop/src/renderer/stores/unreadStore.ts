@@ -25,8 +25,7 @@ export const useUnreadStore = create<UnreadState>()(
       unreadCounts: new Map(),
       serverUnreadSet: new Set(),
 
-      setInitialUnreads: (counts: Map<string, number>) =>
-        set({ unreadCounts: new Map(counts) }),
+      setInitialUnreads: (counts: Map<string, number>) => set({ unreadCounts: new Map(counts) }),
 
       setUnreadCount: (channelId: string, count: number) =>
         set((state) => {
@@ -55,8 +54,7 @@ export const useUnreadStore = create<UnreadState>()(
           return state;
         }),
 
-      clearAll: () =>
-        set({ unreadCounts: new Map() }),
+      clearAll: () => set({ unreadCounts: new Map() }),
 
       setInitialServerUnreads: (serverIds: string[]) =>
         set({ serverUnreadSet: new Set(serverIds) }),

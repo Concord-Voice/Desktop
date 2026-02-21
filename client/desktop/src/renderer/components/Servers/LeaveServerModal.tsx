@@ -13,11 +13,7 @@ interface LeaveServerModalProps {
   onClose: () => void;
 }
 
-const LeaveServerModal: React.FC<LeaveServerModalProps> = ({
-  isOpen,
-  server,
-  onClose,
-}) => {
+const LeaveServerModal: React.FC<LeaveServerModalProps> = ({ isOpen, server, onClose }) => {
   const [error, setError] = useState<string | null>(null);
   const [isLeaving, setIsLeaving] = useState(false);
   const userId = useUserStore((s) => s.user?.id);
@@ -36,10 +32,9 @@ const LeaveServerModal: React.FC<LeaveServerModalProps> = ({
     setError(null);
 
     try {
-      const response = await apiFetch(
-        `/api/v1/servers/${server.id}/members/${userId}`,
-        { method: 'DELETE' }
-      );
+      const response = await apiFetch(`/api/v1/servers/${server.id}/members/${userId}`, {
+        method: 'DELETE',
+      });
 
       if (!response.ok) {
         const data = await response.json();
@@ -51,20 +46,13 @@ const LeaveServerModal: React.FC<LeaveServerModalProps> = ({
       useServerStore.getState().removeServer(server.id);
       handleClose();
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Failed to leave server. Please try again.'
-      );
+      setError(err instanceof Error ? err.message : 'Failed to leave server. Please try again.');
       setIsLeaving(false);
     }
   };
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={handleClose}
-      title="Leave Server"
-      width="small"
-    >
+    <Modal isOpen={isOpen} onClose={handleClose} title="Leave Server" width="small">
       <div className="delete-server-content">
         <div className="delete-server-warning">
           <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="warning-icon">
@@ -75,13 +63,28 @@ const LeaveServerModal: React.FC<LeaveServerModalProps> = ({
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            <line x1="12" y1="9" x2="12" y2="13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            <line x1="12" y1="17" x2="12.01" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            <line
+              x1="12"
+              y1="9"
+              x2="12"
+              y2="13"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+            <line
+              x1="12"
+              y1="17"
+              x2="12.01"
+              y2="17"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
           </svg>
           <p>
-            Are you sure you want to leave <strong>{server.name}</strong>? You will lose
-            access to all channels and messages in this server. You will need a new invite
-            to rejoin.
+            Are you sure you want to leave <strong>{server.name}</strong>? You will lose access to
+            all channels and messages in this server. You will need a new invite to rejoin.
           </p>
         </div>
 

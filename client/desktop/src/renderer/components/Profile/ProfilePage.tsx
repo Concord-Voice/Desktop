@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '../../stores/authStore';
 import { useUserStore, UpdateProfileData } from '../../stores/userStore';
 import ServerList from '../Servers/ServerList';
 import UserPanel from '../User/UserPanel';
@@ -34,7 +33,6 @@ interface PasswordFormErrors {
 
 const ProfilePage: React.FC = () => {
   const navigate = useNavigate();
-  const accessToken = useAuthStore((state) => state.accessToken);
   const user = useUserStore((state) => state.user);
   const updateProfile = useUserStore((state) => state.updateProfile);
   const changePassword = useUserStore((state) => state.changePassword);
@@ -157,7 +155,8 @@ const ProfilePage: React.FC = () => {
     } else if (trimmedUsername.length > USERNAME_MAX) {
       errors.username = `Username must be at most ${USERNAME_MAX} characters`;
     } else if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/.test(trimmedUsername)) {
-      errors.username = 'Letters, numbers, underscores, and hyphens only. Must start and end with a letter or number.';
+      errors.username =
+        'Letters, numbers, underscores, and hyphens only. Must start and end with a letter or number.';
     }
 
     if (displayName.length > DISPLAY_NAME_MAX) {
@@ -202,7 +201,7 @@ const ProfilePage: React.FC = () => {
         updates.bio = bio.trim() || null;
       }
       if (avatarRemoved) {
-        updates.avatar_url = '';  // Empty string signals "remove" to backend
+        updates.avatar_url = ''; // Empty string signals "remove" to backend
       } else if (avatarDataUrl && avatarDataUrl !== user?.avatar_url) {
         updates.avatar_url = avatarDataUrl;
       }
@@ -226,8 +225,7 @@ const ProfilePage: React.FC = () => {
       setTimeout(() => setProfileSuccess(null), 3000);
     } catch (error) {
       setProfileErrors({
-        general:
-          error instanceof Error ? error.message : 'Failed to update profile',
+        general: error instanceof Error ? error.message : 'Failed to update profile',
       });
     } finally {
       setIsProfileSubmitting(false);
@@ -317,10 +315,7 @@ const ProfilePage: React.FC = () => {
     <div className="view-container main-view">
       <div className="sidebar">
         <div className="sidebar-servers">
-          <ServerList
-            onOpenCreateModal={() => navigate('/app')}
-            onContextMenu={() => {}}
-          />
+          <ServerList onOpenCreateModal={() => navigate('/app')} onContextMenu={() => {}} />
         </div>
         <UserPanel />
       </div>
@@ -405,9 +400,7 @@ const ProfilePage: React.FC = () => {
                 hidden
               />
             </div>
-            {profileErrors.avatar && (
-              <span className="form-error">{profileErrors.avatar}</span>
-            )}
+            {profileErrors.avatar && <span className="form-error">{profileErrors.avatar}</span>}
 
             {/* Username */}
             <div className="form-group">
@@ -463,15 +456,12 @@ const ProfilePage: React.FC = () => {
                 value={bio}
                 onChange={(e) => {
                   setBio(e.target.value);
-                  if (profileErrors.bio)
-                    setProfileErrors((prev) => ({ ...prev, bio: undefined }));
+                  if (profileErrors.bio) setProfileErrors((prev) => ({ ...prev, bio: undefined }));
                 }}
                 disabled={isProfileSubmitting}
                 maxLength={BIO_MAX}
               />
-              {profileErrors.bio && (
-                <span className="form-error">{profileErrors.bio}</span>
-              )}
+              {profileErrors.bio && <span className="form-error">{profileErrors.bio}</span>}
               <span className="form-hint">
                 {bio.length}/{BIO_MAX} characters
               </span>
@@ -572,9 +562,7 @@ const ProfilePage: React.FC = () => {
 
             {/* Member since */}
             {user?.created_at && (
-              <div className="profile-member-since">
-                Member since {formatDate(user.created_at)}
-              </div>
+              <div className="profile-member-since">Member since {formatDate(user.created_at)}</div>
             )}
           </form>
 

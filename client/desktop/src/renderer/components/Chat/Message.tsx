@@ -18,8 +18,7 @@ export interface MessageProps {
 
 // Messages with pending/sent status still have temporary client-generated IDs.
 // Only allow edit/delete once the message has a server-assigned UUID.
-const isServerMessage = (msg: MessageWithStatus) =>
-  !msg.status || msg.status === 'delivered';
+const isServerMessage = (msg: MessageWithStatus) => !msg.status || msg.status === 'delivered';
 
 const Message: React.FC<MessageProps> = ({
   message,
@@ -58,11 +57,14 @@ const Message: React.FC<MessageProps> = ({
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
-  const handleAvatarClick = useCallback((e: React.MouseEvent) => {
-    const member = members.find((m) => m.user_id === message.user_id);
-    if (!member) return;
-    setSelectedMember({ member, position: { x: e.clientX, y: e.clientY } });
-  }, [members, message.user_id]);
+  const handleAvatarClick = useCallback(
+    (e: React.MouseEvent) => {
+      const member = members.find((m) => m.user_id === message.user_id);
+      if (!member) return;
+      setSelectedMember({ member, position: { x: e.clientX, y: e.clientY } });
+    },
+    [members, message.user_id]
+  );
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -111,7 +113,7 @@ const Message: React.FC<MessageProps> = ({
       return date.toLocaleTimeString('en-US', {
         hour: 'numeric',
         minute: '2-digit',
-        hour12: true
+        hour12: true,
       });
     } else {
       return date.toLocaleDateString('en-US', {
@@ -119,7 +121,7 @@ const Message: React.FC<MessageProps> = ({
         day: 'numeric',
         hour: 'numeric',
         minute: '2-digit',
-        hour12: true
+        hour12: true,
       });
     }
   };
@@ -134,15 +136,14 @@ const Message: React.FC<MessageProps> = ({
   };
 
   return (
-    <div className={`message ${isOwnMessage ? 'own-message' : ''} ${!showAvatar ? 'message-grouped' : ''}`} onContextMenu={handleContextMenu}>
+    <div
+      className={`message ${isOwnMessage ? 'own-message' : ''} ${!showAvatar ? 'message-grouped' : ''}`}
+      onContextMenu={handleContextMenu}
+    >
       {showAvatar ? (
         <div className="message-avatar" onClick={handleAvatarClick}>
           {message.avatar_url ? (
-            <img
-              className="avatar-image"
-              src={message.avatar_url}
-              alt={message.username}
-            />
+            <img className="avatar-image" src={message.avatar_url} alt={message.username} />
           ) : (
             <div className="avatar-circle">
               {getInitials(message.display_name || message.username)}
@@ -151,21 +152,15 @@ const Message: React.FC<MessageProps> = ({
         </div>
       ) : (
         <div className="message-gutter">
-          <span className="message-gutter-timestamp">
-            {formatShortTime(message.created_at)}
-          </span>
+          <span className="message-gutter-timestamp">{formatShortTime(message.created_at)}</span>
         </div>
       )}
       <div className="message-content-wrapper">
         {showAvatar && (
           <div className="message-header">
             <span className="message-username">{message.display_name || message.username}</span>
-            <span className="message-timestamp">
-              {formatTimestamp(message.created_at)}
-            </span>
-            {message.edited_at && (
-              <span className="message-edited">(edited)</span>
-            )}
+            <span className="message-timestamp">{formatTimestamp(message.created_at)}</span>
+            {message.edited_at && <span className="message-edited">(edited)</span>}
           </div>
         )}
 
@@ -180,10 +175,7 @@ const Message: React.FC<MessageProps> = ({
               rows={3}
             />
             <div className="message-edit-actions">
-              <button
-                className="btn-edit-cancel"
-                onClick={handleEditCancel}
-              >
+              <button className="btn-edit-cancel" onClick={handleEditCancel}>
                 Cancel
               </button>
               <button
@@ -202,7 +194,12 @@ const Message: React.FC<MessageProps> = ({
                 <Lock size={12} />
               </span>
             )}
-            {message.decryptFailed ? (
+            {message.pendingKeys ? (
+              <span className="decrypt-failed pending-keys">
+                <Lock size={14} />
+                Waiting for encryption keys...
+              </span>
+            ) : message.decryptFailed ? (
               <span className="decrypt-failed">
                 <Lock size={14} />
                 Unable to decrypt this message
@@ -226,7 +223,13 @@ const Message: React.FC<MessageProps> = ({
                 title="Delete message"
               >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M2.5 4.5h11M6 4.5V3.5h4v1M4 4.5v8.5a1 1 0 001 1h6a1 1 0 001-1V4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <path
+                    d="M2.5 4.5h11M6 4.5V3.5h4v1M4 4.5v8.5a1 1 0 001 1h6a1 1 0 001-1V4.5"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               </button>
             )}
@@ -253,7 +256,11 @@ const Message: React.FC<MessageProps> = ({
                     }}
                   >
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <path d="M10.5 1.5l2 2L4 12H2v-2L10.5 1.5z" stroke="currentColor" strokeWidth="1.5" />
+                      <path
+                        d="M10.5 1.5l2 2L4 12H2v-2L10.5 1.5z"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                      />
                     </svg>
                     Edit
                   </button>
@@ -271,7 +278,11 @@ const Message: React.FC<MessageProps> = ({
                     }}
                   >
                     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                      <path d="M2 4h10M5 4V3h4v1M3 4v8a1 1 0 001 1h6a1 1 0 001-1V4" stroke="currentColor" strokeWidth="1.5" />
+                      <path
+                        d="M2 4h10M5 4V3h4v1M3 4v8a1 1 0 001 1h6a1 1 0 001-1V4"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                      />
                     </svg>
                     Delete
                   </button>

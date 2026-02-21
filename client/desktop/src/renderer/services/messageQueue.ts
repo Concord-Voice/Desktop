@@ -12,14 +12,14 @@
  */
 
 export enum MessageStatus {
-  PENDING = 'pending',     // Waiting to be sent
-  SENT = 'sent',           // Sent to server, awaiting ack
+  PENDING = 'pending', // Waiting to be sent
+  SENT = 'sent', // Sent to server, awaiting ack
   DELIVERED = 'delivered', // Acknowledged by server
-  FAILED = 'failed',       // Failed to send
+  FAILED = 'failed', // Failed to send
 }
 
 export interface QueuedMessage {
-  id: string;              // Unique message ID (client-generated)
+  id: string; // Unique message ID (client-generated)
   channelId: string;
   content: string;
   timestamp: number;
@@ -83,7 +83,7 @@ export class MessageQueue {
    * Mark a message as sent (awaiting server acknowledgment)
    */
   markAsSent(messageId: string): void {
-    const message = this.queue.find(m => m.id === messageId);
+    const message = this.queue.find((m) => m.id === messageId);
     if (message) {
       message.status = MessageStatus.SENT;
       this.saveQueue();
@@ -96,7 +96,7 @@ export class MessageQueue {
    * Mark a message as delivered (server acknowledged)
    */
   markAsDelivered(messageId: string, serverMessageId?: string): void {
-    const index = this.queue.findIndex(m => m.id === messageId);
+    const index = this.queue.findIndex((m) => m.id === messageId);
     if (index >= 0) {
       const message = this.queue[index];
       message.status = MessageStatus.DELIVERED;
@@ -114,18 +114,22 @@ export class MessageQueue {
    * Mark a message as failed
    */
   markAsFailed(messageId: string, error: string): void {
-    const message = this.queue.find(m => m.id === messageId);
+    const message = this.queue.find((m) => m.id === messageId);
     if (message) {
       message.status = MessageStatus.FAILED;
       message.retryCount++;
 
       if (message.retryCount >= message.maxRetries) {
-        console.error(`[MessageQueue] Message ${messageId} failed after ${message.retryCount} retries`);
+        console.error(
+          `[MessageQueue] Message ${messageId} failed after ${message.retryCount} retries`
+        );
         this.callbacks.onMessageFailed?.(messageId, error);
       } else {
         // Reset to pending for retry
         message.status = MessageStatus.PENDING;
-        console.warn(`[MessageQueue] Message ${messageId} failed, will retry (${message.retryCount}/${message.maxRetries})`);
+        console.warn(
+          `[MessageQueue] Message ${messageId} failed, will retry (${message.retryCount}/${message.maxRetries})`
+        );
       }
 
       this.saveQueue();
@@ -136,28 +140,28 @@ export class MessageQueue {
    * Get all pending messages
    */
   getPendingMessages(): QueuedMessage[] {
-    return this.queue.filter(m => m.status === MessageStatus.PENDING);
+    return this.queue.filter((m) => m.status === MessageStatus.PENDING);
   }
 
   /**
    * Get all messages for a channel
    */
   getMessagesForChannel(channelId: string): QueuedMessage[] {
-    return this.queue.filter(m => m.channelId === channelId);
+    return this.queue.filter((m) => m.channelId === channelId);
   }
 
   /**
    * Get a specific message by ID
    */
   getMessage(messageId: string): QueuedMessage | undefined {
-    return this.queue.find(m => m.id === messageId);
+    return this.queue.find((m) => m.id === messageId);
   }
 
   /**
    * Remove a message from the queue
    */
   remove(messageId: string): void {
-    const index = this.queue.findIndex(m => m.id === messageId);
+    const index = this.queue.findIndex((m) => m.id === messageId);
     if (index >= 0) {
       this.queue.splice(index, 1);
       this.saveQueue();
@@ -178,7 +182,7 @@ export class MessageQueue {
    * Clear all messages for a specific channel
    */
   clearChannel(channelId: string): void {
-    this.queue = this.queue.filter(m => m.channelId !== channelId);
+    this.queue = this.queue.filter((m) => m.channelId !== channelId);
     this.saveQueue();
     console.debug(`[MessageQueue] Cleared channel ${channelId}`);
   }
@@ -252,10 +256,10 @@ export class MessageQueue {
       // Remove oldest delivered/failed messages first
       const toRemove = this.queue.length - MAX_QUEUE_SIZE;
       const delivered = this.queue
-        .filter(m => m.status === MessageStatus.DELIVERED || m.status === MessageStatus.FAILED)
+        .filter((m) => m.status === MessageStatus.DELIVERED || m.status === MessageStatus.FAILED)
         .slice(0, toRemove);
 
-      delivered.forEach(m => this.remove(m.id));
+      delivered.forEach((m) => this.remove(m.id));
 
       // If still over limit, remove oldest pending (shouldn't happen normally)
       if (this.queue.length > MAX_QUEUE_SIZE) {
@@ -280,10 +284,12 @@ export class MessageQueue {
         const loaded: QueuedMessage[] = JSON.parse(stored);
         // Only keep PENDING messages — SENT messages were already persisted
         // server-side and should not be replayed
-        this.queue = loaded.filter(m => m.status === MessageStatus.PENDING);
+        this.queue = loaded.filter((m) => m.status === MessageStatus.PENDING);
 
         if (loaded.length !== this.queue.length) {
-          console.debug(`[MessageQueue] Discarded ${loaded.length - this.queue.length} already-sent messages`);
+          console.debug(
+            `[MessageQueue] Discarded ${loaded.length - this.queue.length} already-sent messages`
+          );
           this.saveQueue();
         }
 

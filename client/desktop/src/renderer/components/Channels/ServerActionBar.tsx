@@ -37,8 +37,10 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({ server, onOpenCreateM
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
       if (
-        popupRef.current && !popupRef.current.contains(target) &&
-        btnRef.current && !btnRef.current.contains(target)
+        popupRef.current &&
+        !popupRef.current.contains(target) &&
+        btnRef.current &&
+        !btnRef.current.contains(target)
       ) {
         setShowPopup(false);
         setCopied(false);
@@ -98,9 +100,7 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({ server, onOpenCreateM
         </button>
       )}
 
-      {canCreateChannel && canInvite && (
-        <div className="channel-action-divider" />
-      )}
+      {canCreateChannel && canInvite && <div className="channel-action-divider" />}
 
       {canInvite && (
         <button

@@ -173,6 +173,11 @@
 
 /* Shared button pulse animation (used by Login and Register submit buttons) */
 @keyframes buttonPulse {
-  0%, 100% { opacity: 0.8; }
-  50% { opacity: 0.9; }
+  0%,
+  100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 0.9;
+  }
 }

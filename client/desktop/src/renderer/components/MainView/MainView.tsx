@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import ServerList from '../Servers/ServerList';
 import ServerContextMenu from '../Servers/ServerContextMenu';
 import ServerSettingsModal from '../Servers/ServerSettingsModal';
@@ -13,6 +13,7 @@ import ServerActionBar from '../Channels/ServerActionBar';
 import ChannelContextMenu from '../Channels/ChannelContextMenu';
 import CreateChannelModal from '../Channels/CreateChannelModal';
 import EditChannelModal from '../Channels/EditChannelModal';
+import DeleteChannelModal from '../Channels/DeleteChannelModal';
 import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
 import MemberList from '../Members/MemberList';
 import UserPanel from '../User/UserPanel';
@@ -32,11 +33,17 @@ const MainView: React.FC = () => {
 
   // Resizable sidebars
   const channelPanel = useResizablePanel({
-    defaultWidth: 240, minWidth: 180, maxWidth: 400, side: 'left',
+    defaultWidth: 240,
+    minWidth: 180,
+    maxWidth: 400,
+    side: 'left',
     storageKey: 'concord:channelSidebarWidth',
   });
   const memberPanel = useResizablePanel({
-    defaultWidth: 220, minWidth: 160, maxWidth: 340, side: 'right',
+    defaultWidth: 220,
+    minWidth: 160,
+    maxWidth: 340,
+    side: 'right',
     storageKey: 'concord:memberListWidth',
   });
 
@@ -56,7 +63,32 @@ const MainView: React.FC = () => {
   const [deletingServer, setDeletingServer] = useState<ServerWithRole | null>(null);
   const [leavingServer, setLeavingServer] = useState<ServerWithRole | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
+  const [deletingChannel, setDeletingChannel] = useState<Channel | null>(null);
   const [invitingServer, setInvitingServer] = useState<ServerWithRole | null>(null);
+  const [e2eeTooltipPos, setE2eeTooltipPos] = useState<{ top: number; left: number } | null>(null);
+  const e2eeIndicatorRef = useRef<HTMLSpanElement>(null);
+
+  const showE2eeTooltip = useCallback(() => {
+    if (e2eeIndicatorRef.current) {
+      const rect = e2eeIndicatorRef.current.getBoundingClientRect();
+      const tooltipWidth = 240;
+      const padding = 8;
+      const top = rect.bottom + padding;
+
+      // Try to place tooltip to the left (right-aligned with indicator)
+      const leftAligned = rect.right - tooltipWidth;
+      if (leftAligned >= padding) {
+        setE2eeTooltipPos({ top, left: leftAligned });
+      } else {
+        // Not enough space on the left — place to the right of the indicator
+        const rightAligned = rect.left;
+        // Clamp so it doesn't overflow the right edge either
+        const maxLeft = window.innerWidth - tooltipWidth - padding;
+        setE2eeTooltipPos({ top, left: Math.min(rightAligned, maxLeft) });
+      }
+    }
+  }, []);
+  const hideE2eeTooltip = useCallback(() => setE2eeTooltipPos(null), []);
 
   const servers = useServerStore((state) => state.servers);
   const activeServerId = useServerStore((state) => state.activeServerId);
@@ -126,15 +158,32 @@ const MainView: React.FC = () => {
             <div className="header-status-area">
               {activeServer && (
                 <span
+                  ref={e2eeIndicatorRef}
                   className={`server-e2ee-indicator ${activeServer.e2ee_default ? 'encrypted' : 'unencrypted'}`}
-                  title={
-                    activeServer.e2ee_default
-                      ? 'This server is End-to-End Encrypted by default — all new channels are created with E2EE enabled. Verify each channel\'s status via the indicator near the message box.'
-                      : 'This server does not use End-to-End Encryption by default — channels may still enable E2EE individually. Check each channel\'s status via the indicator near the message box.'
-                  }
+                  onMouseEnter={showE2eeTooltip}
+                  onMouseLeave={hideE2eeTooltip}
                 >
                   {activeServer.e2ee_default ? <Lock size={12} /> : <LockOpen size={12} />}
                 </span>
+              )}
+              {e2eeTooltipPos && activeServer && (
+                <div
+                  className={`e2ee-tooltip visible ${activeServer.e2ee_default ? 'encrypted' : 'unencrypted'}`}
+                  style={{ top: e2eeTooltipPos.top, left: e2eeTooltipPos.left }}
+                >
+                  <span className="e2ee-tooltip-header">
+                    {activeServer.e2ee_default ? <Lock size={11} /> : <LockOpen size={11} />}
+                    {activeServer.e2ee_default ? 'E2EE Enabled' : 'E2EE Disabled'}
+                  </span>
+                  <span className="e2ee-tooltip-body">
+                    {activeServer.e2ee_default
+                      ? 'End-to-End Encryption is enabled by default in this server. New channels are created with E2EE on.'
+                      : 'End-to-End Encryption is not enabled by default in this server. Channels may still enable E2EE individually.'}
+                  </span>
+                  <span className="e2ee-tooltip-hint">
+                    Always check the channel encryption status near the message box to verify E2EE.
+                  </span>
+                </div>
               )}
               <ConnectionStatus />
             </div>
@@ -145,16 +194,23 @@ const MainView: React.FC = () => {
               onOpenCreateModal={() => setIsCreateChannelModalOpen(true)}
             />
           )}
-          <ChannelList
-            onContextMenu={handleChannelContextMenu}
-          />
+          <ChannelList onContextMenu={handleChannelContextMenu} />
         </div>
         <div className="resize-handle" onMouseDown={channelPanel.onMouseDown} />
         <div className="main-content">
           {activeServer && channels.length === 0 ? (
             <div className="main-content-placeholder">
               <div className="empty-server-graphic">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  width="48"
+                  height="48"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                   <line x1="12" y1="8" x2="12" y2="12" />
                   <line x1="10" y1="10" x2="14" y2="10" />
@@ -259,7 +315,10 @@ const MainView: React.FC = () => {
           userRole={activeServer.role}
           onClose={() => setChannelContextMenu(null)}
           onEditChannel={handleEditChannel}
-          onDeleteChannel={() => { /* TODO: Delete channel modal (Issue #16) */ }}
+          onDeleteChannel={(channel) => {
+            setChannelContextMenu(null);
+            setDeletingChannel(channel);
+          }}
         />
       )}
 
@@ -276,6 +335,14 @@ const MainView: React.FC = () => {
           isOpen={!!editingChannel}
           channel={editingChannel}
           onClose={() => setEditingChannel(null)}
+        />
+      )}
+
+      {deletingChannel && (
+        <DeleteChannelModal
+          isOpen={!!deletingChannel}
+          channel={deletingChannel}
+          onClose={() => setDeletingChannel(null)}
         />
       )}
     </div>

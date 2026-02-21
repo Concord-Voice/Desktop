@@ -26,7 +26,10 @@ interface MemberState {
   fetchMembers: (serverId: string, accessToken: string) => Promise<void>;
   addMember: (member: ServerMember) => void;
   removeMember: (userId: string) => void;
-  updateMemberProfile: (userId: string, updates: Partial<Pick<ServerMember, 'username' | 'display_name' | 'avatar_url'>>) => void;
+  updateMemberProfile: (
+    userId: string,
+    updates: Partial<Pick<ServerMember, 'username' | 'display_name' | 'avatar_url'>>
+  ) => void;
   setOnlineUsers: (userIds: string[]) => void;
   setUserOnline: (userId: string) => void;
   setUserOffline: (userId: string) => void;
@@ -52,14 +55,11 @@ export const useMemberStore = create<MemberState>()(
         set({ isLoading: true, error: null });
 
         try {
-          const response = await fetch(
-            `http://localhost:8080/api/v1/servers/${serverId}/members`,
-            {
-              headers: {
-                Authorization: `Bearer ${accessToken}`,
-              },
-            }
-          );
+          const response = await fetch(`http://localhost:8080/api/v1/servers/${serverId}/members`, {
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+            },
+          });
 
           if (!response.ok) {
             const data = await response.json();
@@ -80,10 +80,7 @@ export const useMemberStore = create<MemberState>()(
           set({ members, isLoading: false, lastSeenByUser: lastSeenMap });
         } catch (error) {
           set({
-            error:
-              error instanceof Error
-                ? error.message
-                : 'Failed to load members',
+            error: error instanceof Error ? error.message : 'Failed to load members',
             isLoading: false,
           });
         }

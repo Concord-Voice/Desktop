@@ -78,7 +78,7 @@
   border-color: var(--accent-primary);
 }
 
-.checkbox-label input[type="checkbox"] {
+.checkbox-label input[type='checkbox'] {
   margin-top: 2px;
   width: 18px;
   height: 18px;

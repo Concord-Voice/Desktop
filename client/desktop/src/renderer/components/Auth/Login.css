@@ -75,7 +75,7 @@
   color: var(--text-secondary);
 }
 
-.remember-me-label input[type="checkbox"] {
+.remember-me-label input[type='checkbox'] {
   width: 16px;
   height: 16px;
   cursor: pointer;

@@ -31,16 +31,78 @@
   display: flex;
   align-items: center;
   cursor: default;
+  position: relative;
 }
 
 .server-e2ee-indicator.encrypted {
-  color: var(--success, #43b581);
-  opacity: 0.7;
+  color: color-mix(in srgb, var(--success, #43b581) 70%, transparent);
 }
 
 .server-e2ee-indicator.unencrypted {
+  color: color-mix(in srgb, var(--text-muted) 50%, transparent);
+}
+
+.server-e2ee-indicator:hover {
+  color: inherit;
+}
+
+.server-e2ee-indicator.encrypted:hover {
+  color: var(--success, #43b581);
+}
+
+.server-e2ee-indicator.unencrypted:hover {
   color: var(--text-muted);
-  opacity: 0.5;
+}
+
+/* E2EE tooltip — rendered with position:fixed via JS to escape overflow:hidden containers */
+.e2ee-tooltip {
+  display: none;
+  position: fixed;
+  width: 240px;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.e2ee-tooltip.visible {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.e2ee-tooltip-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: calc(12px * var(--font-scale, 1));
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.e2ee-tooltip.encrypted .e2ee-tooltip-header {
+  color: var(--success, #43b581);
+}
+
+.e2ee-tooltip.unencrypted .e2ee-tooltip-header {
+  color: var(--text-muted);
+}
+
+.e2ee-tooltip-body {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.e2ee-tooltip-hint {
+  font-size: calc(10px * var(--font-scale, 1));
+  color: var(--text-muted);
+  font-style: italic;
+  line-height: 1.4;
 }
 
 /* Server role badge in main content */

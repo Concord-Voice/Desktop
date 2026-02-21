@@ -62,7 +62,12 @@ const ServerList: React.FC<ServerListProps> = ({ onOpenActionModal, onContextMen
               strokeLinecap="round"
             />
             <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.5" />
-            <path d="M10 7v4M10 13v.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <path
+              d="M10 7v4M10 13v.5"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
           </svg>
         </button>
       )}
@@ -88,22 +93,14 @@ const ServerList: React.FC<ServerListProps> = ({ onOpenActionModal, onContextMen
               aria-label={`${server.name} server`}
             >
               {server.icon_url ? (
-                <img
-                  src={server.icon_url}
-                  alt={server.name}
-                  className="server-icon-img"
-                />
+                <img src={server.icon_url} alt={server.name} className="server-icon-img" />
               ) : (
-                <span className="server-icon-initial">
-                  {server.name.charAt(0).toUpperCase()}
-                </span>
+                <span className="server-icon-initial">{server.name.charAt(0).toUpperCase()}</span>
               )}
             </button>
             <div className="server-tooltip">
               <span className="server-tooltip-name">{server.name}</span>
-              <span className={`server-tooltip-role role-${server.role}`}>
-                {server.role}
-              </span>
+              <span className={`server-tooltip-role role-${server.role}`}>{server.role}</span>
             </div>
           </div>
         );
@@ -120,12 +117,7 @@ const ServerList: React.FC<ServerListProps> = ({ onOpenActionModal, onContextMen
         aria-label="Add a Server"
       >
         <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-          <path
-            d="M10 4v12M4 10h12"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-          />
+          <path d="M10 4v12M4 10h12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
         </svg>
       </button>
     </div>

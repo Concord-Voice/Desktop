@@ -33,15 +33,18 @@ const ChatView: React.FC = () => {
   useChannelSubscription(activeChannelId);
 
   // Called by MessageList on unmount when the user left with unseen messages
-  const handleUnseenOnLeave = useCallback((count: number) => {
-    const channelId = activeChannelId;
-    if (!channelId || count <= 0) return;
-    useUnreadStore.getState().setUnreadCount(channelId, count);
-    const serverId = useServerStore.getState().activeServerId;
-    if (serverId) {
-      useUnreadStore.getState().markServerUnread(serverId);
-    }
-  }, [activeChannelId]);
+  const handleUnseenOnLeave = useCallback(
+    (count: number) => {
+      const channelId = activeChannelId;
+      if (!channelId || count <= 0) return;
+      useUnreadStore.getState().setUnreadCount(channelId, count);
+      const serverId = useServerStore.getState().activeServerId;
+      if (serverId) {
+        useUnreadStore.getState().markServerUnread(serverId);
+      }
+    },
+    [activeChannelId]
+  );
 
   // Optimistic messaging hook
   const { sendMessage } = useMessaging();
@@ -51,6 +54,43 @@ const ChatView: React.FC = () => {
   const messages: MessageWithStatus[] =
     (activeChannelId && messagesByChannel.get(activeChannelId)) || [];
   const currentUserId = user?.id || '';
+
+  // Track fetch trigger — incremented when keys are delivered to re-decrypt messages
+  const [fetchTrigger, setFetchTrigger] = useState(0);
+
+  // Listen for key delivery events to re-fetch and decrypt messages
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { channelId } = (e as CustomEvent).detail;
+      if (channelId === activeChannelId) {
+        setFetchTrigger((prev) => prev + 1);
+      }
+    };
+    window.addEventListener('e2ee-key-delivered', handler);
+    return () => window.removeEventListener('e2ee-key-delivered', handler);
+  }, [activeChannelId]);
+
+  // Retry key fetch when messages are stuck in pending state
+  useEffect(() => {
+    const hasPending = messages.some((m) => m.pendingKeys);
+    if (!hasPending || !activeChannelId) return;
+
+    const interval = setInterval(() => {
+      // Try to fetch the key — if it's now available, trigger a re-fetch
+      e2eeService
+        .getChannelKey(activeChannelId)
+        .then(() => {
+          // Key is now available — re-fetch messages to decrypt
+          e2eeService.invalidateChannelKey(activeChannelId);
+          setFetchTrigger((prev) => prev + 1);
+        })
+        .catch(() => {
+          // Still pending — will retry
+        });
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [activeChannelId, messages]);
 
   // Fetch message history when channel changes — always re-fetch to catch up
   // on messages sent while the user was viewing another channel
@@ -76,9 +116,10 @@ const ChatView: React.FC = () => {
 
         const data = await res.json();
         if (aborted) return;
-        const rawMsgs: MessageWithStatus[] = (data.messages || []).map(
-          (m: MessageWithStatus) => ({ ...m, status: 'delivered' as const })
-        );
+        const rawMsgs: MessageWithStatus[] = (data.messages || []).map((m: MessageWithStatus) => ({
+          ...m,
+          status: 'delivered' as const,
+        }));
 
         // Decrypt encrypted messages (fail-closed: show placeholder, never raw ciphertext)
         const msgs = await Promise.all(
@@ -87,8 +128,9 @@ const ChatView: React.FC = () => {
               try {
                 const plaintext = await e2eeService.decryptForChannel(activeChannelId, m.content);
                 return { ...m, content: plaintext };
-              } catch {
-                return { ...m, content: '', decryptFailed: true };
+              } catch (err) {
+                const isPending = err instanceof Error && err.message === 'PENDING_KEY';
+                return { ...m, content: '', decryptFailed: !isPending, pendingKeys: isPending };
               }
             }
             return m;
@@ -114,7 +156,7 @@ const ChatView: React.FC = () => {
     return () => {
       aborted = true;
     };
-  }, [activeChannelId, setMessages]);
+  }, [activeChannelId, setMessages, fetchTrigger]);
 
   // Load older messages (pagination)
   const handleLoadMore = useCallback(async () => {
@@ -137,9 +179,10 @@ const ChatView: React.FC = () => {
       }
 
       const data = await res.json();
-      const msgs: MessageWithStatus[] = (data.messages || []).map(
-        (m: MessageWithStatus) => ({ ...m, status: 'delivered' as const })
-      );
+      const msgs: MessageWithStatus[] = (data.messages || []).map((m: MessageWithStatus) => ({
+        ...m,
+        status: 'delivered' as const,
+      }));
 
       prependMessages(activeChannelId, msgs);
       setHasMore(msgs.length === MESSAGES_LIMIT);
@@ -154,7 +197,13 @@ const ChatView: React.FC = () => {
   const handleSendMessage = useCallback(
     (content: string) => {
       if (!activeChannelId) return;
-      sendMessage(activeChannelId, content, user?.username || 'You', user?.avatar_url, user?.display_name);
+      sendMessage(
+        activeChannelId,
+        content,
+        user?.username || 'You',
+        user?.avatar_url,
+        user?.display_name
+      );
     },
     [activeChannelId, sendMessage, user?.username, user?.avatar_url, user?.display_name]
   );
@@ -230,9 +279,7 @@ const ChatView: React.FC = () => {
             />
           </svg>
         )}
-        <span className="chat-header-name">
-          {activeChannel?.name || 'Channel'}
-        </span>
+        <span className="chat-header-name">{activeChannel?.name || 'Channel'}</span>
       </div>
 
       {error && <div className="chat-error">{error}</div>}

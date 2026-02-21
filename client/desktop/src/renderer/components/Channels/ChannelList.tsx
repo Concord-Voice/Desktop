@@ -11,9 +11,7 @@ interface ChannelListProps {
   onContextMenu: (channel: Channel, position: { x: number; y: number }) => void;
 }
 
-const ChannelList: React.FC<ChannelListProps> = ({
-  onContextMenu,
-}) => {
+const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
   const activeServerId = useServerStore((state) => state.activeServerId);
   const channels = useChannelStore((state) => state.channels);
   const activeChannelId = useChannelStore((state) => state.activeChannelId);
@@ -76,12 +74,8 @@ const ChannelList: React.FC<ChannelListProps> = ({
         onContextMenu={(e) => handleContextMenu(e, channel)}
         title={channel.name}
       >
-        <span className="channel-type-icon">
-          {getChannelTypeIcon(channel.type)}
-        </span>
-        {channel.emoji && (
-          <span className="channel-custom-emoji">{channel.emoji}</span>
-        )}
+        <span className="channel-type-icon">{getChannelTypeIcon(channel.type)}</span>
+        {channel.emoji && <span className="channel-custom-emoji">{channel.emoji}</span>}
         <span className="channel-name">{channel.name}</span>
         {channel.is_encrypted && (
           <span className="channel-encrypted-icon" title="End-to-End Encrypted">
@@ -89,9 +83,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
           </span>
         )}
         {unread > 0 && !isActive && (
-          <span className="channel-unread-badge">
-            {unread > 99 ? '99+' : unread}
-          </span>
+          <span className="channel-unread-badge">{unread > 99 ? '99+' : unread}</span>
         )}
       </div>
     );
@@ -137,9 +129,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
         <div className="channel-list-error">
           <p>{error}</p>
           <button
-            onClick={() =>
-              activeServerId && fetchChannels(activeServerId)
-            }
+            onClick={() => activeServerId && fetchChannels(activeServerId)}
             className="retry-btn"
           >
             Retry

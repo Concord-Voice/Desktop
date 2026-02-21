@@ -9,13 +9,7 @@ export interface ModalProps {
   width?: 'small' | 'medium' | 'large';
 }
 
-const Modal: React.FC<ModalProps> = ({
-  isOpen,
-  onClose,
-  title,
-  children,
-  width = 'medium',
-}) => {
+const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, width = 'medium' }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -41,13 +35,16 @@ const Modal: React.FC<ModalProps> = ({
           <h3 className="modal-title">{title}</h3>
           <button className="modal-close" onClick={onClose} aria-label="Close">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+              <path
+                d="M4 4l8 8M12 4l-8 8"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
             </svg>
           </button>
         </div>
-        <div className="modal-body">
-          {children}
-        </div>
+        <div className="modal-body">{children}</div>
       </div>
     </div>
   );

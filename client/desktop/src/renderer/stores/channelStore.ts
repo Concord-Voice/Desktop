@@ -55,9 +55,7 @@ export const useChannelStore = create<ChannelState>()(
           }
 
           try {
-            const response = await apiFetch(
-              `/api/v1/servers/${serverId}/channels`
-            );
+            const response = await apiFetch(`/api/v1/servers/${serverId}/channels`);
 
             if (!response.ok) {
               const data = await response.json();
@@ -87,10 +85,7 @@ export const useChannelStore = create<ChannelState>()(
             });
           } catch (error) {
             set({
-              error:
-                error instanceof Error
-                  ? error.message
-                  : 'Failed to load channels',
+              error: error instanceof Error ? error.message : 'Failed to load channels',
               isLoading: false,
             });
           }
@@ -122,8 +117,7 @@ export const useChannelStore = create<ChannelState>()(
 
           set((state) => ({
             channels: state.channels.filter((c) => c.id !== channelId),
-            activeChannelId:
-              activeChannelId === channelId ? null : activeChannelId,
+            activeChannelId: activeChannelId === channelId ? null : activeChannelId,
             lastChannelByServer: updatedLastChannel,
           }));
 

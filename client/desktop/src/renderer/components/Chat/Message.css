@@ -128,6 +128,11 @@
   opacity: 0.8;
 }
 
+.decrypt-failed.pending-keys {
+  color: var(--warning, #faa61a);
+  opacity: 0.9;
+}
+
 /* Own message styling */
 .own-message {
   background-color: color-mix(in srgb, var(--accent-primary) 5%, transparent);

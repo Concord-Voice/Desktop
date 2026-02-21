@@ -101,16 +101,12 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
               {member.username.charAt(0).toUpperCase()}
             </span>
           )}
-          <span
-            className={`member-profile-status ${status}`}
-          />
+          <span className={`member-profile-status ${status}`} />
         </div>
       </div>
 
       <div className="member-profile-body">
-        <div className="member-profile-name">
-          {member.display_name || member.username}
-        </div>
+        <div className="member-profile-name">{member.display_name || member.username}</div>
         <div className="member-profile-username">@{member.username}</div>
 
         <div className="member-profile-separator" />
@@ -118,25 +114,19 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
         <div className="member-profile-details">
           <div className="member-profile-detail-row">
             <span className="member-profile-detail-label">Role</span>
-            <span className={`member-profile-role-badge role-${member.role}`}>
-              {roleLabel}
-            </span>
+            <span className={`member-profile-role-badge role-${member.role}`}>{roleLabel}</span>
           </div>
 
           <div className="member-profile-detail-row">
             <span className="member-profile-detail-label">Status</span>
-            <span
-              className={`member-profile-detail-value status-${status}`}
-            >
+            <span className={`member-profile-detail-value status-${status}`}>
               {getStatusText()}
             </span>
           </div>
 
           <div className="member-profile-detail-row">
             <span className="member-profile-detail-label">Joined</span>
-            <span className="member-profile-detail-value">
-              {formatDate(member.joined_at)}
-            </span>
+            <span className="member-profile-detail-value">{formatDate(member.joined_at)}</span>
           </div>
         </div>
 

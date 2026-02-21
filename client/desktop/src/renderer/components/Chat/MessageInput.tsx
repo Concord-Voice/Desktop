@@ -34,34 +34,37 @@ const MessageInput: React.FC<MessageInputProps> = ({
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
-  const handlePasteFromMenu = useCallback((text: string) => {
-    const textarea = textareaRef.current;
-    if (!textarea) {
-      // Fallback: just append
-      setContent((prev) => {
-        const combined = prev + text;
-        return combined.length <= maxLength ? combined : combined.slice(0, maxLength);
+  const handlePasteFromMenu = useCallback(
+    (text: string) => {
+      const textarea = textareaRef.current;
+      if (!textarea) {
+        // Fallback: just append
+        setContent((prev) => {
+          const combined = prev + text;
+          return combined.length <= maxLength ? combined : combined.slice(0, maxLength);
+        });
+        return;
+      }
+
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const before = content.slice(0, start);
+      const after = content.slice(end);
+      const combined = before + text + after;
+      const newContent = combined.length <= maxLength ? combined : combined.slice(0, maxLength);
+
+      setContent(newContent);
+
+      // Restore cursor position after the pasted text
+      requestAnimationFrame(() => {
+        const newCursor = Math.min(start + text.length, newContent.length);
+        textarea.selectionStart = newCursor;
+        textarea.selectionEnd = newCursor;
+        textarea.focus();
       });
-      return;
-    }
-
-    const start = textarea.selectionStart;
-    const end = textarea.selectionEnd;
-    const before = content.slice(0, start);
-    const after = content.slice(end);
-    const combined = before + text + after;
-    const newContent = combined.length <= maxLength ? combined : combined.slice(0, maxLength);
-
-    setContent(newContent);
-
-    // Restore cursor position after the pasted text
-    requestAnimationFrame(() => {
-      const newCursor = Math.min(start + text.length, newContent.length);
-      textarea.selectionStart = newCursor;
-      textarea.selectionEnd = newCursor;
-      textarea.focus();
-    });
-  }, [content, maxLength]);
+    },
+    [content, maxLength]
+  );
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -192,11 +195,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
           <textarea
             ref={textareaRef}
             className="message-input-textarea"
-            placeholder={
-              channelName
-                ? `Message #${channelName}`
-                : placeholder
-            }
+            placeholder={channelName ? `Message #${channelName}` : placeholder}
             value={content}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
@@ -219,10 +218,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
               aria-label="Send message"
             >
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <path
-                  d="M2 10l16-8-8 16-2-6-6-2z"
-                  fill="currentColor"
-                />
+                <path d="M2 10l16-8-8 16-2-6-6-2z" fill="currentColor" />
               </svg>
             </button>
           </div>

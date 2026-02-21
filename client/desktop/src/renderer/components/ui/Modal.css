@@ -24,9 +24,15 @@
   animation: modalSlideIn 0.3s ease-out;
 }
 
-.modal-small { width: 400px; }
-.modal-medium { width: 480px; }
-.modal-large { width: 600px; }
+.modal-small {
+  width: 400px;
+}
+.modal-medium {
+  width: 480px;
+}
+.modal-large {
+  width: 600px;
+}
 
 .modal-header {
   display: flex;
@@ -72,8 +78,12 @@
 }
 
 @keyframes modalOverlayFadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 @keyframes modalSlideIn {

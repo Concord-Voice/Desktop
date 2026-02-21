@@ -3,8 +3,7 @@ import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useInviteStore } from '../../stores/inviteStore';
 import { useServerStore } from '../../stores/serverStore';
-import { ServerWithRole } from '../../types/server';
-import { InviteInfoResponse } from '../../types/server';
+import { ServerWithRole, InviteInfoResponse } from '../../types/server';
 import './JoinServerModal.css';
 
 interface JoinServerModalProps {
@@ -15,11 +14,7 @@ interface JoinServerModalProps {
 
 const CODE_LENGTH = 8;
 
-const JoinServerModal: React.FC<JoinServerModalProps> = ({
-  isOpen,
-  onClose,
-  onSuccess,
-}) => {
+const JoinServerModal: React.FC<JoinServerModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const [code, setCode] = useState('');
   const [preview, setPreview] = useState<InviteInfoResponse | null>(null);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
@@ -203,7 +198,9 @@ const JoinServerModal: React.FC<JoinServerModalProps> = ({
           <button
             type="submit"
             className="join-server-submit-btn"
-            disabled={code.length !== CODE_LENGTH || !preview?.valid || isJoining || !!successMessage}
+            disabled={
+              code.length !== CODE_LENGTH || !preview?.valid || isJoining || !!successMessage
+            }
           >
             {isJoining ? (
               <>

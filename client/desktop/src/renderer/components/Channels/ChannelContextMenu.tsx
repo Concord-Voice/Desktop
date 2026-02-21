@@ -50,12 +50,8 @@ const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
   return (
     <ContextMenu position={position} onClose={onClose}>
       <ContextMenu.Header>
-        <span className="channel-ctx-type-icon">
-          {getChannelTypeIcon(channel.type)}
-        </span>
-        {channel.emoji && (
-          <span className="channel-ctx-emoji">{channel.emoji}</span>
-        )}
+        <span className="channel-ctx-type-icon">{getChannelTypeIcon(channel.type)}</span>
+        {channel.emoji && <span className="channel-ctx-emoji">{channel.emoji}</span>}
         <span className="channel-ctx-name">{channel.name}</span>
       </ContextMenu.Header>
 
@@ -65,7 +61,13 @@ const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
       <ContextMenu.Item
         icon={
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M2 8.5l3.5 3.5L14 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="M2 8.5l3.5 3.5L14 3"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         }
         label="Mark as Read"
@@ -87,9 +89,20 @@ const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
       <ContextMenu.Item
         icon={
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M12.5 5.5v-1a2 2 0 00-2-2h-5a2 2 0 00-2 2v5a2 2 0 002 2h1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <path
+              d="M12.5 5.5v-1a2 2 0 00-2-2h-5a2 2 0 00-2 2v5a2 2 0 002 2h1"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
             <path d="M2 2l12 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            <path d="M9 8a3 3 0 013 3v1H8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path
+              d="M9 8a3 3 0 013 3v1H8"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         }
         label="Mute Channel"
@@ -102,8 +115,18 @@ const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
         icon={
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
             <path d="M6.5 9.5l3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            <path d="M9 10.5l1.5-1.5a2.83 2.83 0 000-4l0 0a2.83 2.83 0 00-4 0L5 6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            <path d="M7 5.5L5.5 7a2.83 2.83 0 000 4l0 0a2.83 2.83 0 004 0L11 9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+            <path
+              d="M9 10.5l1.5-1.5a2.83 2.83 0 000-4l0 0a2.83 2.83 0 00-4 0L5 6.5"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+            <path
+              d="M7 5.5L5.5 7a2.83 2.83 0 000 4l0 0a2.83 2.83 0 004 0L11 9.5"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
           </svg>
         }
         label={copiedLink ? 'Copied!' : 'Copy Link'}
@@ -117,7 +140,13 @@ const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
           <ContextMenu.Item
             icon={
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                <path
+                  d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </svg>
             }
             label="Edit Channel"
@@ -134,7 +163,13 @@ const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
         <ContextMenu.Item
           icon={
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path d="M2 4h12M5.33 4V2.67a1.33 1.33 0 011.34-1.34h2.66a1.33 1.33 0 011.34 1.34V4M12.67 4v9.33a1.33 1.33 0 01-1.34 1.34H4.67a1.33 1.33 0 01-1.34-1.34V4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M2 4h12M5.33 4V2.67a1.33 1.33 0 011.34-1.34h2.66a1.33 1.33 0 011.34 1.34V4M12.67 4v9.33a1.33 1.33 0 01-1.34 1.34H4.67a1.33 1.33 0 01-1.34-1.34V4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           }
           label="Delete Channel"

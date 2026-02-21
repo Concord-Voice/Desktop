@@ -14,7 +14,10 @@ interface InviteState {
   error: string | null;
 
   fetchInvites: (serverId: string) => Promise<void>;
-  createInvite: (serverId: string, opts?: CreateInviteRequest) => Promise<ServerInviteWithCreator | null>;
+  createInvite: (
+    serverId: string,
+    opts?: CreateInviteRequest
+  ) => Promise<ServerInviteWithCreator | null>;
   revokeInvite: (serverId: string, inviteId: string) => Promise<boolean>;
   joinServer: (code: string) => Promise<JoinServerResponse | null>;
   getInviteInfo: (code: string) => Promise<InviteInfoResponse | null>;
@@ -23,7 +26,7 @@ interface InviteState {
 
 export const useInviteStore = create<InviteState>()(
   devtools(
-    (set, get) => ({
+    (set, _get) => ({
       invites: {},
       isLoading: false,
       error: null,

@@ -89,8 +89,7 @@
 /* ─── Body ──────────────────────────────────────────────────────────────── */
 
 .member-profile-body {
-  padding: calc(12px * var(--sp, 1)) calc(16px * var(--sp, 1))
-    calc(16px * var(--sp, 1));
+  padding: calc(12px * var(--sp, 1)) calc(16px * var(--sp, 1)) calc(16px * var(--sp, 1));
 }
 
 .member-profile-name {

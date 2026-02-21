@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ConnectionMode } from '../../types/auth';
 import { useAuthStore } from '../../stores/authStore';
@@ -9,12 +9,17 @@ import Register from './Register';
 import Login from './Login';
 import './AuthFlow.css';
 
-type AuthStep = 'connection-select' | 'server-input' | 'hosted-register' | 'hosted-login' | 'self-hosted-auth';
+type AuthStep =
+  | 'connection-select'
+  | 'server-input'
+  | 'hosted-register'
+  | 'hosted-login'
+  | 'self-hosted-auth';
 
 const AuthFlow: React.FC = () => {
   const navigate = useNavigate();
   const [step, setStep] = useState<AuthStep>('connection-select');
-  const [selectedMode, setSelectedMode] = useState<ConnectionMode | null>(null);
+  const [_selectedMode, setSelectedMode] = useState<ConnectionMode | null>(null);
   const [serverUrl, setServerUrl] = useState<string>('');
 
   const handleConnectionSelect = (mode: ConnectionMode) => {
@@ -35,7 +40,7 @@ const AuthFlow: React.FC = () => {
     setStep('self-hosted-auth');
 
     // TODO: Discover server capabilities and forward to server's auth
-    console.log('Connecting to self-hosted server:', url);
+    console.debug('Connecting to self-hosted server:', url);
   };
 
   const handleBack = () => {
@@ -44,8 +49,12 @@ const AuthFlow: React.FC = () => {
     setServerUrl('');
   };
 
-  const handleRegistrationSuccess = (data: { accessToken: string; refreshToken: string; user?: UserProfile }) => {
-    console.log('Registration successful, tokens received');
+  const handleRegistrationSuccess = (data: {
+    accessToken: string;
+    refreshToken: string;
+    user?: UserProfile;
+  }) => {
+    console.debug('Registration successful, tokens received');
     useAuthStore.getState().setTokens(data.accessToken, data.refreshToken);
     useAuthStore.getState().setRememberMe(true); // Registration always remembers
     if (data.user) {
@@ -54,8 +63,13 @@ const AuthFlow: React.FC = () => {
     navigate('/app');
   };
 
-  const handleLoginSuccess = (data: { accessToken: string; refreshToken: string; user?: UserProfile; rememberMe: boolean }) => {
-    console.log('Login successful, tokens received');
+  const handleLoginSuccess = (data: {
+    accessToken: string;
+    refreshToken: string;
+    user?: UserProfile;
+    rememberMe: boolean;
+  }) => {
+    console.debug('Login successful, tokens received');
     useAuthStore.getState().setTokens(data.accessToken, data.refreshToken);
     useAuthStore.getState().setRememberMe(data.rememberMe);
     if (data.user) {

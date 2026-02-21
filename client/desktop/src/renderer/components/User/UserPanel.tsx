@@ -36,9 +36,7 @@ const UserPanel: React.FC = () => {
       <div className="user-panel-separator" />
 
       {/* Loading skeleton */}
-      {isLoading && !user && (
-        <div className="user-avatar-skeleton" />
-      )}
+      {isLoading && !user && <div className="user-avatar-skeleton" />}
 
       {/* Loaded state */}
       {user && (
@@ -50,25 +48,14 @@ const UserPanel: React.FC = () => {
             aria-label={`User menu for ${user.username}`}
           >
             {user.avatar_url ? (
-              <img
-                src={user.avatar_url}
-                alt={user.username}
-                className="user-avatar-img"
-              />
+              <img src={user.avatar_url} alt={user.username} className="user-avatar-img" />
             ) : (
-              <span className="user-avatar-initial">
-                {user.username.charAt(0).toUpperCase()}
-              </span>
+              <span className="user-avatar-initial">{user.username.charAt(0).toUpperCase()}</span>
             )}
             <div className={`user-status-dot ${statusClassMap[selfStatus]}`} />
           </button>
 
-          {isPopoverOpen && (
-            <UserPopover
-              user={user}
-              onClose={() => setIsPopoverOpen(false)}
-            />
-          )}
+          {isPopoverOpen && <UserPopover user={user} onClose={() => setIsPopoverOpen(false)} />}
         </div>
       )}
     </div>

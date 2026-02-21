@@ -26,11 +26,7 @@ interface FormErrors {
 const NAME_MIN = 3;
 const NAME_MAX = 100;
 
-const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
-  isOpen,
-  onClose,
-  onSuccess,
-}) => {
+const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState('');
   const [type, setType] = useState<'text' | 'voice' | 'bulletin'>('text');
@@ -58,10 +54,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
   // Close emoji picker when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (
-        emojiPickerRef.current &&
-        !emojiPickerRef.current.contains(event.target as Node)
-      ) {
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(event.target as Node)) {
         setShowEmojiPicker(false);
       }
     };
@@ -192,8 +185,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
       }, 1000);
     } catch (error) {
       setErrors({
-        general:
-          error instanceof Error ? error.message : 'Failed to create channel',
+        general: error instanceof Error ? error.message : 'Failed to create channel',
       });
     } finally {
       setIsSubmitting(false);
@@ -222,14 +214,10 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
     <Modal isOpen={isOpen} onClose={handleClose} title="Create Channel">
       <form onSubmit={handleSubmit} className="create-channel-form">
         {/* General Error */}
-        {errors.general && (
-          <div className="channel-form-error-banner">{errors.general}</div>
-        )}
+        {errors.general && <div className="channel-form-error-banner">{errors.general}</div>}
 
         {/* Success Message */}
-        {successMessage && (
-          <div className="channel-form-success-banner">{successMessage}</div>
-        )}
+        {successMessage && <div className="channel-form-success-banner">{successMessage}</div>}
 
         {/* Channel Name */}
         <div className="channel-form-group">
@@ -286,9 +274,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
               </div>
             )}
           </div>
-          <span className="channel-form-hint">
-            Add a custom emoji to represent this channel
-          </span>
+          <span className="channel-form-hint">Add a custom emoji to represent this channel</span>
         </div>
 
         {/* Channel Type */}
@@ -299,58 +285,40 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
           <div className="channel-type-selector">
             <button
               type="button"
-              className={`channel-type-option ${
-                type === 'text' ? 'selected' : ''
-              }`}
+              className={`channel-type-option ${type === 'text' ? 'selected' : ''}`}
               onClick={() => setType('text')}
               disabled={isSubmitting}
             >
-              <span className="channel-type-icon">
-                {getChannelTypeIcon('text')}
-              </span>
+              <span className="channel-type-icon">{getChannelTypeIcon('text')}</span>
               <div className="channel-type-info">
                 <span className="channel-type-name">Text</span>
-                <span className="channel-type-desc">
-                  Send messages, images, and files
-                </span>
+                <span className="channel-type-desc">Send messages, images, and files</span>
               </div>
             </button>
 
             <button
               type="button"
-              className={`channel-type-option ${
-                type === 'voice' ? 'selected' : ''
-              }`}
+              className={`channel-type-option ${type === 'voice' ? 'selected' : ''}`}
               onClick={() => setType('voice')}
               disabled={isSubmitting}
             >
-              <span className="channel-type-icon">
-                {getChannelTypeIcon('voice')}
-              </span>
+              <span className="channel-type-icon">{getChannelTypeIcon('voice')}</span>
               <div className="channel-type-info">
                 <span className="channel-type-name">Voice</span>
-                <span className="channel-type-desc">
-                  Voice and video conversations
-                </span>
+                <span className="channel-type-desc">Voice and video conversations</span>
               </div>
             </button>
 
             <button
               type="button"
-              className={`channel-type-option ${
-                type === 'bulletin' ? 'selected' : ''
-              }`}
+              className={`channel-type-option ${type === 'bulletin' ? 'selected' : ''}`}
               onClick={() => setType('bulletin')}
               disabled={isSubmitting}
             >
-              <span className="channel-type-icon">
-                {getChannelTypeIcon('bulletin')}
-              </span>
+              <span className="channel-type-icon">{getChannelTypeIcon('bulletin')}</span>
               <div className="channel-type-info">
                 <span className="channel-type-name">Bulletin</span>
-                <span className="channel-type-desc">
-                  Important announcements only
-                </span>
+                <span className="channel-type-desc">Important announcements only</span>
               </div>
             </button>
           </div>
@@ -359,9 +327,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({
 
         {/* E2EE Toggle */}
         <div className="channel-form-group">
-          <label className="channel-form-label">
-            End-to-End Encryption
-          </label>
+          <label className="channel-form-label">End-to-End Encryption</label>
           <button
             type="button"
             className={`e2ee-toggle-option ${isEncrypted ? 'enabled' : 'disabled'}`}

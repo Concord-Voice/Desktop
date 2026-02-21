@@ -39,8 +39,20 @@ const ServerActionModal: React.FC<ServerActionModalProps> = ({
             <span className="server-action-title">Create a Server</span>
             <span className="server-action-desc">Start a new community from scratch</span>
           </div>
-          <svg className="server-action-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <svg
+            className="server-action-arrow"
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+          >
+            <path
+              d="M6 4l4 4-4 4"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </button>
 
@@ -64,10 +76,24 @@ const ServerActionModal: React.FC<ServerActionModalProps> = ({
           </div>
           <div className="server-action-text">
             <span className="server-action-title">Join a Server</span>
-            <span className="server-action-desc">Enter an invite code to join an existing server</span>
+            <span className="server-action-desc">
+              Enter an invite code to join an existing server
+            </span>
           </div>
-          <svg className="server-action-arrow" width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path d="M6 4l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <svg
+            className="server-action-arrow"
+            width="16"
+            height="16"
+            viewBox="0 0 16 16"
+            fill="none"
+          >
+            <path
+              d="M6 4l4 4-4 4"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </button>
       </div>

@@ -28,14 +28,7 @@ const InfoTooltip: React.FC<InfoTooltipProps> = ({ content }) => {
           fill="none"
           xmlns="http://www.w3.org/2000/svg"
         >
-          <circle
-            cx="8"
-            cy="8"
-            r="7"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            fill="none"
-          />
+          <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" fill="none" />
           <path
             d="M8 11V7.5M8 5.5H8.005"
             stroke="currentColor"

@@ -41,8 +41,12 @@ const MessageList: React.FC<MessageListProps> = ({
   onUnseenOnLeaveRef.current = onUnseenOnLeave;
 
   useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Shift') setShiftHeld(true); };
-    const onKeyUp = (e: KeyboardEvent) => { if (e.key === 'Shift') setShiftHeld(false); };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') setShiftHeld(true);
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') setShiftHeld(false);
+    };
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
     return () => {
@@ -152,7 +156,7 @@ const MessageList: React.FC<MessageListProps> = ({
         weekday: 'long',
         year: 'numeric',
         month: 'long',
-        day: 'numeric'
+        day: 'numeric',
       });
     }
   };
@@ -194,11 +198,7 @@ const MessageList: React.FC<MessageListProps> = ({
 
   return (
     <div className="message-list-container">
-      <div
-        className="message-list"
-        ref={listRef}
-        onScroll={handleScroll}
-      >
+      <div className="message-list" ref={listRef} onScroll={handleScroll}>
         {isLoading && hasMore && (
           <div className="loading-more">
             <div className="loading-spinner small">
@@ -215,9 +215,7 @@ const MessageList: React.FC<MessageListProps> = ({
               {dateDividerLabel && (
                 <div className="date-divider">
                   <span className="date-divider-line"></span>
-                  <span className="date-divider-text">
-                    {dateDividerLabel}
-                  </span>
+                  <span className="date-divider-text">{dateDividerLabel}</span>
                   <span className="date-divider-line"></span>
                 </div>
               )}
@@ -247,10 +245,7 @@ const MessageList: React.FC<MessageListProps> = ({
             </span>
           )}
           <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path
-              d="M10 14l-6-6h12l-6 6z"
-              fill="currentColor"
-            />
+            <path d="M10 14l-6-6h12l-6 6z" fill="currentColor" />
           </svg>
           Return to Latest
         </button>

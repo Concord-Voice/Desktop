@@ -1,9 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useInviteStore } from '../../stores/inviteStore';
-import { ServerWithRole } from '../../types/server';
-import { ServerInviteWithCreator } from '../../types/server';
+import { ServerWithRole, ServerInviteWithCreator } from '../../types/server';
 import './InviteToServerModal.css';
 
 interface InviteToServerModalProps {
@@ -30,11 +29,7 @@ const MAX_USES_OPTIONS = [
   { label: '100 uses', value: 100 },
 ];
 
-const InviteToServerModal: React.FC<InviteToServerModalProps> = ({
-  isOpen,
-  server,
-  onClose,
-}) => {
+const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, server, onClose }) => {
   const [generatedCode, setGeneratedCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -60,16 +55,35 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({
     }
   }, [isOpen, server.id, fetchInvites]);
 
-  // Filter active invites
-  useEffect(() => {
-    const active = invites.filter((inv) => {
+  // Filter active invites (recalculated on each tick)
+  const filterActive = useCallback(() => {
+    const now = Date.now();
+    return invites.filter((inv) => {
       if (inv.is_revoked) return false;
-      if (inv.expires_at && new Date(inv.expires_at) < new Date()) return false;
+      if (inv.expires_at && new Date(inv.expires_at).getTime() <= now) return false;
       if (inv.max_uses !== null && inv.max_uses > 0 && inv.use_count >= inv.max_uses) return false;
       return true;
     });
-    setExistingInvites(active);
   }, [invites]);
+
+  useEffect(() => {
+    setExistingInvites(filterActive());
+  }, [filterActive]);
+
+  // Tick timer so expiry countdowns update live
+  useEffect(() => {
+    if (!isOpen || existingInvites.length === 0) return;
+    // Tick every second when any invite is under 1 hour, otherwise every 30s
+    const hasSubHour = existingInvites.some((inv) => {
+      if (!inv.expires_at) return false;
+      const diff = new Date(inv.expires_at).getTime() - Date.now();
+      return diff > 0 && diff < 3600000;
+    });
+    const interval = setInterval(() => {
+      setExistingInvites(filterActive());
+    }, hasSubHour ? 1000 : 30000);
+    return () => clearInterval(interval);
+  }, [isOpen, existingInvites, filterActive]);
 
   const handleGenerateCode = async () => {
     setIsGenerating(true);
@@ -77,12 +91,10 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({
     setCopied(false);
 
     try {
-      const opts: { max_uses?: number; expires_in?: number } = {
+      const opts: { max_uses: number; expires_in: number } = {
         expires_in: expiresIn,
+        max_uses: maxUses, // 0 = unlimited (backend stores NULL)
       };
-      if (maxUses > 0) {
-        opts.max_uses = maxUses;
-      }
 
       const invite = await createInvite(server.id, opts);
       if (invite) {
@@ -117,9 +129,10 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({
     if (diff <= 0) return 'Expired';
     const hours = Math.floor(diff / 3600000);
     const minutes = Math.floor((diff % 3600000) / 60000);
+    const seconds = Math.floor((diff % 60000) / 1000);
     if (hours >= 24) return `${Math.floor(hours / 24)}d remaining`;
-    if (hours > 0) return `${hours}h remaining`;
-    return `${minutes}m remaining`;
+    if (hours >= 1) return `${hours}h remaining`;
+    return `${minutes}m ${seconds}s remaining`;
   };
 
   return (
@@ -154,7 +167,9 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({
                 disabled={isGenerating}
               >
                 {EXPIRY_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -168,7 +183,9 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({
                 disabled={isGenerating}
               >
                 {MAX_USES_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -190,12 +207,30 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({
               >
                 {copied ? (
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <path d="M2 8.5l3.5 3.5L14 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <path
+                      d="M2 8.5l3.5 3.5L14 3"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
                   </svg>
                 ) : (
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                    <rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-                    <path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5" stroke="currentColor" strokeWidth="1.5" />
+                    <rect
+                      x="5"
+                      y="5"
+                      width="9"
+                      height="9"
+                      rx="1.5"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    />
+                    <path
+                      d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                    />
                   </svg>
                 )}
                 {copied ? 'Copied!' : 'Copy'}
@@ -237,9 +272,9 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({
                   <div className="invite-existing-info">
                     <span className="invite-existing-code">{inv.code}</span>
                     <span className="invite-existing-meta">
-                      {inv.use_count} use{inv.use_count !== 1 ? 's' : ''}
-                      {inv.max_uses !== null && inv.max_uses > 0 ? ` / ${inv.max_uses}` : ''}
-                      {' · '}
+                      {inv.use_count} /{' '}
+                      {inv.max_uses !== null && inv.max_uses > 0 ? inv.max_uses : '\u221E'} Uses
+                      {' \u00B7 '}
                       {formatExpiry(inv.expires_at)}
                     </span>
                   </div>
@@ -249,8 +284,20 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({
                     title="Copy code"
                   >
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                      <rect x="5" y="5" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-                      <path d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5" stroke="currentColor" strokeWidth="1.5" />
+                      <rect
+                        x="5"
+                        y="5"
+                        width="9"
+                        height="9"
+                        rx="1.5"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                      />
+                      <path
+                        d="M11 5V3.5A1.5 1.5 0 009.5 2h-6A1.5 1.5 0 002 3.5v6A1.5 1.5 0 003.5 11H5"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                      />
                     </svg>
                   </button>
                 </div>

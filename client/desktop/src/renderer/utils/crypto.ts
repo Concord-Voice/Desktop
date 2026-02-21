@@ -92,15 +92,10 @@ export async function wrapPrivateKey(
   const iv = crypto.getRandomValues(new Uint8Array(12));
 
   // Wrap the private key
-  const wrappedKey = await crypto.subtle.wrapKey(
-    'pkcs8',
-    privateKey,
-    wrappingKey,
-    {
-      name: 'AES-GCM',
-      iv: iv,
-    }
-  );
+  const wrappedKey = await crypto.subtle.wrapKey('pkcs8', privateKey, wrappingKey, {
+    name: 'AES-GCM',
+    iv: iv,
+  });
 
   // Prepend IV to wrapped key (we'll need it for unwrapping)
   const result = new Uint8Array(iv.length + wrappedKey.byteLength);
@@ -212,9 +207,7 @@ export interface RegistrationKeys {
   keyDerivationSalt: string; // base64
 }
 
-export async function generateRegistrationKeys(
-  password: string
-): Promise<RegistrationKeys> {
+export async function generateRegistrationKeys(password: string): Promise<RegistrationKeys> {
   // Generate salt
   const salt = generateSalt();
 
@@ -287,30 +280,20 @@ export async function exportChannelKey(key: CryptoKey): Promise<ArrayBuffer> {
  * Import a channel key from raw bytes
  */
 export async function importChannelKey(raw: ArrayBuffer): Promise<CryptoKey> {
-  return crypto.subtle.importKey(
-    'raw',
-    raw,
-    { name: 'AES-GCM', length: 256 },
-    true,
-    ['encrypt', 'decrypt']
-  );
+  return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM', length: 256 }, true, [
+    'encrypt',
+    'decrypt',
+  ]);
 }
 
 /**
  * Wrap a channel key with a member's RSA-OAEP public key.
  * Returns base64-encoded wrapped key.
  */
-export async function wrapChannelKey(
-  channelKey: CryptoKey,
-  publicKey: CryptoKey
-): Promise<string> {
+export async function wrapChannelKey(channelKey: CryptoKey, publicKey: CryptoKey): Promise<string> {
   // Export the channel key as raw, then encrypt with RSA-OAEP
   const rawKey = await exportChannelKey(channelKey);
-  const encrypted = await crypto.subtle.encrypt(
-    { name: 'RSA-OAEP' },
-    publicKey,
-    rawKey
-  );
+  const encrypted = await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, publicKey, rawKey);
   return arrayBufferToBase64(encrypted);
 }
 
@@ -323,11 +306,7 @@ export async function unwrapChannelKey(
   privateKey: CryptoKey
 ): Promise<CryptoKey> {
   const wrappedData = base64ToArrayBuffer(wrappedKeyBase64);
-  const rawKey = await crypto.subtle.decrypt(
-    { name: 'RSA-OAEP' },
-    privateKey,
-    wrappedData
-  );
+  const rawKey = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, privateKey, wrappedData);
   return importChannelKey(rawKey);
 }
 
@@ -335,18 +314,11 @@ export async function unwrapChannelKey(
  * Encrypt a message with a channel key (AES-256-GCM).
  * Prepends 12-byte random IV to ciphertext. Returns base64.
  */
-export async function encryptMessage(
-  plaintext: string,
-  channelKey: CryptoKey
-): Promise<string> {
+export async function encryptMessage(plaintext: string, channelKey: CryptoKey): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(AES_GCM_IV_LENGTH));
   const encoded = new TextEncoder().encode(plaintext);
 
-  const ciphertext = await crypto.subtle.encrypt(
-    { name: 'AES-GCM', iv },
-    channelKey,
-    encoded
-  );
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, channelKey, encoded);
 
   // Prepend IV to ciphertext
   const result = new Uint8Array(iv.length + ciphertext.byteLength);
@@ -368,11 +340,7 @@ export async function decryptMessage(
   const iv = data.slice(0, AES_GCM_IV_LENGTH);
   const ciphertext = data.slice(AES_GCM_IV_LENGTH);
 
-  const plaintext = await crypto.subtle.decrypt(
-    { name: 'AES-GCM', iv },
-    channelKey,
-    ciphertext
-  );
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, channelKey, ciphertext);
 
   return new TextDecoder().decode(plaintext);
 }

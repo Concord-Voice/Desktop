@@ -7,7 +7,12 @@ import './Login.css';
 
 export interface LoginProps {
   onBack: () => void;
-  onSuccess: (data: { accessToken: string; refreshToken: string; user?: UserProfile; rememberMe: boolean }) => void;
+  onSuccess: (data: {
+    accessToken: string;
+    refreshToken: string;
+    user?: UserProfile;
+    rememberMe: boolean;
+  }) => void;
   onSwitchToRegister: () => void;
 }
 
@@ -64,7 +69,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
     setIsSubmitting(true);
 
     try {
-      console.log('Logging in...');
+      console.debug('Logging in...');
 
       // Login with backend
       const response = await fetch('http://localhost:8080/api/v1/auth/login', {
@@ -86,7 +91,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
         throw new Error(data.error || 'Login failed');
       }
 
-      console.log('Login successful, unwrapping private key...');
+      console.debug('Login successful, unwrapping private key...');
 
       // Unwrap the private key using the password and initialize E2EE service
       try {
@@ -101,7 +106,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
           data.e2ee_keys.wrapped_private_key,
           data.e2ee_keys.key_derivation_salt
         );
-        console.log('Private key unwrapped and E2EE service initialized!');
+        console.debug('Private key unwrapped and E2EE service initialized!');
       } catch (unwrapError) {
         // Key unwrapping failed — keys are corrupted (e.g. password was changed
         // without re-wrapping). Regenerate keys with the current password.
@@ -131,7 +136,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
           newKeys.wrappedPrivateKey,
           newKeys.keyDerivationSalt
         );
-        console.log('E2EE keys regenerated and service initialized!');
+        console.debug('E2EE keys regenerated and service initialized!');
       }
 
       // Pass tokens and user data up
@@ -151,9 +156,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
     }
   };
 
-  const handleChange = (field: keyof FormData) => (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  const handleChange = (field: keyof FormData) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     setFormData((prev) => ({ ...prev, [field]: value }));
     // Clear error for this field when user starts typing
@@ -166,7 +169,11 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
     <div className="login-container">
       <div className="login-content">
         <div className="login-header">
-          <img src="./branding/logos/main-logo-transparent-vector.svg" className="login-logo" alt="Concord" />
+          <img
+            src="./branding/logos/main-logo-transparent-vector.svg"
+            className="login-logo"
+            alt="Concord"
+          />
           <h2 className="login-title">Welcome Back</h2>
           <p className="login-subtitle">Sign in to your Concord account</p>
         </div>
@@ -225,11 +232,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
           )}
 
           {/* Submit Button */}
-          <button
-            type="submit"
-            className="login-submit-btn"
-            disabled={isSubmitting}
-          >
+          <button type="submit" className="login-submit-btn" disabled={isSubmitting}>
             {isSubmitting ? (
               <>
                 Signing In...
@@ -241,12 +244,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
           </button>
 
           {/* Back Button */}
-          <button
-            type="button"
-            className="login-back-btn"
-            onClick={onBack}
-            disabled={isSubmitting}
-          >
+          <button type="button" className="login-back-btn" onClick={onBack} disabled={isSubmitting}>
             ← Back to Connection Options
           </button>
         </form>

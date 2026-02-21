@@ -86,11 +86,7 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
       <div className="user-popover-header">
         <div className="user-popover-avatar">
           {user.avatar_url ? (
-            <img
-              src={user.avatar_url}
-              alt={user.username}
-              className="user-popover-avatar-img"
-            />
+            <img src={user.avatar_url} alt={user.username} className="user-popover-avatar-img" />
           ) : (
             <span className="user-popover-avatar-initial">
               {user.username.charAt(0).toUpperCase()}
@@ -99,21 +95,14 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
         </div>
         <div className="user-popover-info">
           <span className="user-popover-username">{user.username}</span>
-          <span
-            className="user-popover-status"
-            style={{ color: statusColorMap[selfStatus] }}
-          >
+          <span className="user-popover-status" style={{ color: statusColorMap[selfStatus] }}>
             {statusLabelMap[selfStatus]}
           </span>
         </div>
       </div>
 
       {/* Email */}
-      {user.email && (
-        <div className="user-popover-email">
-          {user.email}
-        </div>
-      )}
+      {user.email && <div className="user-popover-email">{user.email}</div>}
 
       <div className="user-popover-separator" />
 
@@ -126,10 +115,7 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
             className={`user-popover-status-item ${selfStatus === opt.value ? 'active' : ''}`}
             onClick={() => handleStatusChange(opt.value)}
           >
-            <span
-              className="user-popover-status-dot"
-              style={{ backgroundColor: opt.color }}
-            />
+            <span className="user-popover-status-dot" style={{ backgroundColor: opt.color }} />
             <span className="user-popover-status-text">{opt.label}</span>
             {selfStatus === opt.value && (
               <svg
@@ -155,7 +141,13 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
       <div className="user-popover-separator" />
 
       {/* Menu items */}
-      <button className="user-popover-item" onClick={() => { onClose(); navigate('/app/profile'); }}>
+      <button
+        className="user-popover-item"
+        onClick={() => {
+          onClose();
+          navigate('/app/profile');
+        }}
+      >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" />
           <path
@@ -168,7 +160,13 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
         My Profile
       </button>
 
-      <button className="user-popover-item" onClick={() => { onClose(); navigate('/app/settings'); }}>
+      <button
+        className="user-popover-item"
+        onClick={() => {
+          onClose();
+          navigate('/app/settings');
+        }}
+      >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path
             d="M6.86 2.57a1.14 1.14 0 012.28 0 4.57 4.57 0 012.64 1.53 1.14 1.14 0 011.97 1.14 4.57 4.57 0 010 3.05 1.14 1.14 0 01-1.97 1.14 4.57 4.57 0 01-2.64 1.53 1.14 1.14 0 01-2.28 0 4.57 4.57 0 01-2.64-1.53 1.14 1.14 0 01-1.97-1.14 4.57 4.57 0 010-3.05 1.14 1.14 0 011.97-1.14A4.57 4.57 0 016.86 2.57z"
