@@ -4,6 +4,27 @@
   padding: calc(14px * var(--sp, 1)) calc(16px * var(--sp, 1));
 }
 
+/* E2EE status bar — always visible above the message input */
+.e2ee-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  margin-bottom: 6px;
+  font-size: calc(12px * var(--font-scale, 1));
+  border-radius: 4px;
+}
+
+.e2ee-status-bar.encrypted {
+  color: var(--success, #4caf50);
+  background-color: rgba(76, 175, 80, 0.08);
+}
+
+.e2ee-status-bar.unencrypted {
+  color: var(--text-muted);
+  background-color: rgba(128, 128, 128, 0.06);
+}
+
 .message-input-wrapper {
   max-width: 100%;
 }

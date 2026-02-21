@@ -19,6 +19,30 @@
   white-space: nowrap;
 }
 
+/* Header status area — connection + E2EE indicator */
+.header-status-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.server-e2ee-indicator {
+  display: flex;
+  align-items: center;
+  cursor: default;
+}
+
+.server-e2ee-indicator.encrypted {
+  color: var(--success, #43b581);
+  opacity: 0.7;
+}
+
+.server-e2ee-indicator.unencrypted {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
 /* Server role badge in main content */
 .server-role-badge {
   color: var(--text-secondary);

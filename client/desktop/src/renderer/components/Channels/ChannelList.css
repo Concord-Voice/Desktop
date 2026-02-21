@@ -103,6 +103,16 @@
   font-weight: 700;
 }
 
+/* E2EE lock icon */
+.channel-encrypted-icon {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted, var(--text-tertiary));
+  margin-left: calc(4px * var(--sp, 1));
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
 /* Unread badge */
 .channel-unread-badge {
   min-width: 18px;

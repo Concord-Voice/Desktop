@@ -31,15 +31,16 @@ function calculateStrength(password: string): StrengthResult {
   let hasPenalty = false;
 
   // Length scoring (most important factor per NIST)
-  if (password.length >= 8) score++;
+  // Minimum is 12 chars (matches backend ValidatePasswordStrength)
   if (password.length >= 12) score++;
   if (password.length >= 16) score++;
-  if (password.length >= 20) score++; // Bonus for very long passwords
+  if (password.length >= 20) score++;
+  if (password.length >= 24) score++; // Bonus for very long passwords
 
-  if (password.length < 8) {
-    feedback.push('Use at least 8 characters');
-  } else if (password.length < 12) {
-    feedback.push('Try 12+ characters for better security');
+  if (password.length < 12) {
+    feedback.push('Use at least 12 characters');
+  } else if (password.length < 16) {
+    feedback.push('Try 16+ characters for better security');
   }
 
   // Character variety

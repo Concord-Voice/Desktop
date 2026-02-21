@@ -2,6 +2,8 @@ import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { Channel } from '../types/chat';
 import { apiFetch } from '../services/apiClient';
+import { useChatStore } from './chatStore';
+import { useUnreadStore } from './unreadStore';
 
 interface ChannelState {
   channels: Channel[];
@@ -107,12 +109,24 @@ export const useChannelStore = create<ChannelState>()(
         },
 
         removeChannel: (channelId: string) => {
-          const { activeChannelId } = get();
+          const { activeChannelId, lastChannelByServer } = get();
+
+          // Clean up lastChannelByServer references to this channel
+          const updatedLastChannel = { ...lastChannelByServer };
+          for (const [serverId, chId] of Object.entries(updatedLastChannel)) {
+            if (chId === channelId) delete updatedLastChannel[serverId];
+          }
+
           set((state) => ({
             channels: state.channels.filter((c) => c.id !== channelId),
             activeChannelId:
               activeChannelId === channelId ? null : activeChannelId,
+            lastChannelByServer: updatedLastChannel,
           }));
+
+          // Cascade: clear messages and unread count for this channel
+          useChatStore.getState().clearMessages(channelId);
+          useUnreadStore.getState().clearUnread(channelId);
         },
 
         setActiveChannel: (channelId: string | null) => {

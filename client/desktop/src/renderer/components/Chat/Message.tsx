@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Lock } from 'lucide-react';
 import { MessageWithStatus } from '../../types/chat';
 import { useMemberStore, ServerMember } from '../../stores/memberStore';
 import MemberProfileCard from '../Members/MemberProfileCard';
@@ -198,10 +199,17 @@ const Message: React.FC<MessageProps> = ({
           <div className="message-text">
             {message.is_encrypted && (
               <span className="encrypted-indicator" title="End-to-end encrypted">
-                🔒
+                <Lock size={12} />
               </span>
             )}
-            {message.content}
+            {message.decryptFailed ? (
+              <span className="decrypt-failed">
+                <Lock size={14} />
+                Unable to decrypt this message
+              </span>
+            ) : (
+              message.content
+            )}
             {!showAvatar && message.edited_at && (
               <span className="message-edited-inline">(edited)</span>
             )}

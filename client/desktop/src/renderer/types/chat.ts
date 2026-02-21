@@ -23,6 +23,7 @@ export interface MessageWithStatus extends MessageWithUser {
   status?: 'pending' | 'sent' | 'delivered' | 'failed';
   clientMessageId?: string; // Temporary ID before server assigns permanent ID
   error?: string; // Error message if status is 'failed'
+  decryptFailed?: boolean; // True if E2EE decryption failed (never show raw ciphertext)
 }
 
 export interface Channel {
@@ -32,6 +33,7 @@ export interface Channel {
   description?: string;
   type: 'text' | 'voice' | 'bulletin';
   emoji?: string; // Optional custom emoji set by admins
+  is_encrypted: boolean;
   position: number;
   created_at: string;
   updated_at: string;

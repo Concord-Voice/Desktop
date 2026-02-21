@@ -3,6 +3,7 @@ import ServerList from '../Servers/ServerList';
 import ServerContextMenu from '../Servers/ServerContextMenu';
 import ServerSettingsModal from '../Servers/ServerSettingsModal';
 import DeleteServerModal from '../Servers/DeleteServerModal';
+import LeaveServerModal from '../Servers/LeaveServerModal';
 import CreateServerModal from '../Servers/CreateServerModal';
 import ServerActionModal from '../Servers/ServerActionModal';
 import JoinServerModal from '../Servers/JoinServerModal';
@@ -16,10 +17,9 @@ import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
 import MemberList from '../Members/MemberList';
 import UserPanel from '../User/UserPanel';
 import { ChatView } from '../Chat';
+import { Lock, LockOpen } from 'lucide-react';
 import { useServerStore } from '../../stores/serverStore';
 import { useChannelStore } from '../../stores/channelStore';
-import { useUserStore } from '../../stores/userStore';
-import { apiFetch } from '../../services/apiClient';
 import { useServerChannelSubscriptions } from '../../hooks/useServerChannelSubscriptions';
 import { useResizablePanel } from '../../hooks/useResizablePanel';
 import { ServerWithRole } from '../../types/server';
@@ -54,6 +54,7 @@ const MainView: React.FC = () => {
   } | null>(null);
   const [editingServer, setEditingServer] = useState<ServerWithRole | null>(null);
   const [deletingServer, setDeletingServer] = useState<ServerWithRole | null>(null);
+  const [leavingServer, setLeavingServer] = useState<ServerWithRole | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
   const [invitingServer, setInvitingServer] = useState<ServerWithRole | null>(null);
 
@@ -92,19 +93,9 @@ const MainView: React.FC = () => {
     setInvitingServer(server);
   };
 
-  const handleLeaveServer = async (server: ServerWithRole) => {
+  const handleLeaveServer = (server: ServerWithRole) => {
     setServerContextMenu(null);
-    const user = useUserStore.getState().user;
-    if (!user) return;
-
-    try {
-      await apiFetch(`/api/v1/servers/${server.id}/members/${user.id}`, {
-        method: 'DELETE',
-      });
-      useServerStore.getState().removeServer(server.id);
-    } catch (error) {
-      console.error('Failed to leave server:', error);
-    }
+    setLeavingServer(server);
   };
 
   const handleChannelContextMenu = (channel: Channel, position: { x: number; y: number }) => {
@@ -132,7 +123,21 @@ const MainView: React.FC = () => {
         <div className="channels-sidebar" style={{ width: channelPanel.width }}>
           <div className="channels-sidebar-header">
             <h3>{activeServer ? activeServer.name : 'Channels'}</h3>
-            <ConnectionStatus />
+            <div className="header-status-area">
+              {activeServer && (
+                <span
+                  className={`server-e2ee-indicator ${activeServer.e2ee_default ? 'encrypted' : 'unencrypted'}`}
+                  title={
+                    activeServer.e2ee_default
+                      ? 'This server is End-to-End Encrypted by default — all new channels are created with E2EE enabled. Verify each channel\'s status via the indicator near the message box.'
+                      : 'This server does not use End-to-End Encryption by default — channels may still enable E2EE individually. Check each channel\'s status via the indicator near the message box.'
+                  }
+                >
+                  {activeServer.e2ee_default ? <Lock size={12} /> : <LockOpen size={12} />}
+                </span>
+              )}
+              <ConnectionStatus />
+            </div>
           </div>
           {activeServer && (
             <ServerActionBar
@@ -146,18 +151,26 @@ const MainView: React.FC = () => {
         </div>
         <div className="resize-handle" onMouseDown={channelPanel.onMouseDown} />
         <div className="main-content">
-          {activeChannelId ? (
+          {activeServer && channels.length === 0 ? (
+            <div className="main-content-placeholder">
+              <div className="empty-server-graphic">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                  <line x1="12" y1="8" x2="12" y2="12" />
+                  <line x1="10" y1="10" x2="14" y2="10" />
+                </svg>
+              </div>
+              <h2>This server appears empty.</h2>
+              <p className="empty-server-hint">Add some channels to start chatting!</p>
+            </div>
+          ) : activeChannelId ? (
             <ChatView />
           ) : (
             <div className="main-content-placeholder">
               {activeServer ? (
                 <>
                   <h2>{activeServer.name}</h2>
-                  {channels.length === 0 ? (
-                    <p className="empty-server-hint">No channels yet — create one to get started.</p>
-                  ) : (
-                    <p className="empty-server-hint">Select a channel to start chatting.</p>
-                  )}
+                  <p className="empty-server-hint">Select a channel to start chatting.</p>
                 </>
               ) : (
                 <>
@@ -228,6 +241,14 @@ const MainView: React.FC = () => {
           isOpen={!!deletingServer}
           server={deletingServer}
           onClose={() => setDeletingServer(null)}
+        />
+      )}
+
+      {leavingServer && (
+        <LeaveServerModal
+          isOpen={!!leavingServer}
+          server={leavingServer}
+          onClose={() => setLeavingServer(null)}
         />
       )}
 

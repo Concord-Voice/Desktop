@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { unwrapLoginKeys, generateRegistrationKeys } from '../../utils/crypto';
+import { e2eeService } from '../../services/e2eeService';
 import { UserProfile } from '../../stores/userStore';
 import LoadingSpinner from './LoadingSpinner';
 import './Login.css';
@@ -87,14 +88,20 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
 
       console.log('Login successful, unwrapping private key...');
 
-      // Unwrap the private key using the password
+      // Unwrap the private key using the password and initialize E2EE service
       try {
         await unwrapLoginKeys(
           formData.password,
           data.e2ee_keys.wrapped_private_key,
           data.e2ee_keys.key_derivation_salt
         );
-        console.log('Private key unwrapped successfully!');
+        // Initialize the E2EE service for JIT encrypt/decrypt during the session
+        await e2eeService.initialize(
+          formData.password,
+          data.e2ee_keys.wrapped_private_key,
+          data.e2ee_keys.key_derivation_salt
+        );
+        console.log('Private key unwrapped and E2EE service initialized!');
       } catch (unwrapError) {
         // Key unwrapping failed — keys are corrupted (e.g. password was changed
         // without re-wrapping). Regenerate keys with the current password.
@@ -118,7 +125,13 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
           throw new Error('Failed to recover encryption keys. Please try again.');
         }
 
-        console.log('E2EE keys regenerated and saved successfully!');
+        // Initialize E2EE service with the regenerated keys
+        await e2eeService.initialize(
+          formData.password,
+          newKeys.wrappedPrivateKey,
+          newKeys.keyDerivationSalt
+        );
+        console.log('E2EE keys regenerated and service initialized!');
       }
 
       // Pass tokens and user data up

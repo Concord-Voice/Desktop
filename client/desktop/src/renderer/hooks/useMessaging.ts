@@ -14,8 +14,10 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useChatStore } from '../stores/chatStore';
 import { useUserStore } from '../stores/userStore';
+import { useChannelStore } from '../stores/channelStore';
 import { getWebSocketService, ConnectionState } from '../services/websocketService';
 import { getMessageQueue, type QueuedMessage } from '../services/messageQueue';
+import { e2eeService } from '../services/e2eeService';
 import type { MessageWithStatus } from '../types/chat';
 
 export function useMessaging() {
@@ -62,14 +64,20 @@ export function useMessaging() {
   }, [wsService, messageQueue]);
 
   /**
-   * Send a message with delivery tracking
+   * Send a message with delivery tracking.
+   * If the channel is E2EE, encrypts before sending (fail-closed: won't send if encryption fails).
    */
   const sendMessage = useCallback(
     (channelId: string, content: string, username: string = 'You', avatarUrl?: string, displayName?: string): string => {
+      // Check if channel is encrypted
+      const channel = useChannelStore.getState().channels.find((c) => c.id === channelId);
+      const isEncrypted = channel?.is_encrypted ?? false;
+
       // Generate client-side message ID
       const clientMessageId = messageQueue.enqueue(channelId, content, 'message');
 
       // Optimistically add message to UI with "pending" status
+      // Always show plaintext locally for the sender
       const optimisticMessage: MessageWithStatus = {
         id: clientMessageId, // Temporary ID
         clientMessageId,
@@ -79,7 +87,7 @@ export function useMessaging() {
         display_name: displayName,
         avatar_url: avatarUrl,
         content,
-        is_encrypted: false,
+        is_encrypted: isEncrypted,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         status: 'pending',
@@ -87,18 +95,27 @@ export function useMessaging() {
 
       addMessage(channelId, optimisticMessage);
 
-      // If connected, send immediately
+      // If connected, send immediately (with encryption if needed)
       if (wsService.getState() === ConnectionState.CONNECTED) {
-        try {
-          wsService.sendMessage(channelId, content, clientMessageId);
-          messageQueue.markAsSent(clientMessageId);
-          messageQueue.remove(clientMessageId); // Server has persisted it — no need to keep in queue
-          updateMessageStatus(channelId, clientMessageId, 'sent');
-        } catch (error) {
-          console.error('[useMessaging] Failed to send message:', error);
-          messageQueue.markAsFailed(clientMessageId, String(error));
-          updateMessageStatus(channelId, clientMessageId, 'failed', undefined, String(error));
-        }
+        const doSend = async () => {
+          try {
+            let sendContent = content;
+            if (isEncrypted) {
+              // Fail-closed: if encryption fails, do NOT send
+              sendContent = await e2eeService.encryptForChannel(channelId, content);
+            }
+            wsService.sendMessage(channelId, sendContent, clientMessageId, isEncrypted);
+            messageQueue.markAsSent(clientMessageId);
+            messageQueue.remove(clientMessageId);
+            updateMessageStatus(channelId, clientMessageId, 'sent');
+          } catch (error) {
+            console.error('[useMessaging] Failed to send message:', error);
+            const errMsg = isEncrypted ? 'Encryption failed — message not sent' : String(error);
+            messageQueue.markAsFailed(clientMessageId, errMsg);
+            updateMessageStatus(channelId, clientMessageId, 'failed', undefined, errMsg);
+          }
+        };
+        doSend();
       } else {
         // Message stays in queue with "pending" status
         console.debug(`[useMessaging] Message queued (offline): ${clientMessageId}`);

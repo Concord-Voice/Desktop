@@ -515,6 +515,17 @@ body {
   align-items: center;
   justify-content: center;
   padding: calc(40px * var(--sp, 1));
+  text-align: center;
+}
+
+.empty-server-graphic {
+  color: var(--text-muted);
+  opacity: 0.4;
+  margin-bottom: calc(16px * var(--sp, 1));
+}
+
+.empty-server-hint {
+  color: var(--text-secondary);
 }
 
 .main-content h2 {

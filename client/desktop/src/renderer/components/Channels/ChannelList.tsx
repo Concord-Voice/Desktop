@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Hash, Volume2, Pin } from 'lucide-react';
+import { Hash, Volume2, Pin, Lock } from 'lucide-react';
 import { useChannelStore } from '../../stores/channelStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useUnreadStore } from '../../stores/unreadStore';
@@ -83,6 +83,11 @@ const ChannelList: React.FC<ChannelListProps> = ({
           <span className="channel-custom-emoji">{channel.emoji}</span>
         )}
         <span className="channel-name">{channel.name}</span>
+        {channel.is_encrypted && (
+          <span className="channel-encrypted-icon" title="End-to-End Encrypted">
+            <Lock size={12} />
+          </span>
+        )}
         {unread > 0 && !isActive && (
           <span className="channel-unread-badge">
             {unread > 99 ? '99+' : unread}

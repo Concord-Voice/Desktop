@@ -25,6 +25,7 @@ interface MemberState {
 
   fetchMembers: (serverId: string, accessToken: string) => Promise<void>;
   addMember: (member: ServerMember) => void;
+  removeMember: (userId: string) => void;
   updateMemberProfile: (userId: string, updates: Partial<Pick<ServerMember, 'username' | 'display_name' | 'avatar_url'>>) => void;
   setOnlineUsers: (userIds: string[]) => void;
   setUserOnline: (userId: string) => void;
@@ -96,6 +97,12 @@ export const useMemberStore = create<MemberState>()(
           }
           return { members: [...state.members, member] };
         });
+      },
+
+      removeMember: (userId: string) => {
+        set((state) => ({
+          members: state.members.filter((m) => m.user_id !== userId),
+        }));
       },
 
       updateMemberProfile: (userId: string, updates) => {

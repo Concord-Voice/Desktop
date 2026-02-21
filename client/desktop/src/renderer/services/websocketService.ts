@@ -186,12 +186,13 @@ export class WebSocketService {
   /**
    * Send a chat message to a channel
    */
-  sendMessage(channelId: string, content: string, nonce?: string): void {
+  sendMessage(channelId: string, content: string, nonce?: string, isEncrypted: boolean = false): void {
     this.send({
       type: 'message',
       data: {
         channel_id: channelId,
         content,
+        is_encrypted: isEncrypted,
         nonce,
         timestamp: Date.now(),
       },
@@ -298,7 +299,7 @@ export class WebSocketService {
 
   // Private methods
 
-  private createConnection(): void {
+  private async createConnection(): Promise<void> {
     if (!this.token) {
       console.error('Cannot connect: No JWT token provided');
       this.setState(ConnectionState.ERROR);
@@ -306,8 +307,30 @@ export class WebSocketService {
     }
 
     try {
-      const urlWithToken = `${this.url}?token=${encodeURIComponent(this.token)}`;
-      this.ws = new WebSocket(urlWithToken);
+      // Prefer ticket-based auth (short-lived, single-use — doesn't expose JWT in URLs)
+      let wsUrl: string;
+      try {
+        const httpBase = this.url.replace(/^ws/, 'http');
+        const ticketRes = await fetch(
+          httpBase.replace('/ws', '/auth/ws-ticket'),
+          {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${this.token}` },
+          }
+        );
+        if (ticketRes.ok) {
+          const { ticket } = await ticketRes.json();
+          wsUrl = `${this.url}?ticket=${encodeURIComponent(ticket)}`;
+        } else {
+          // Ticket endpoint failed — fall back to token query param
+          wsUrl = `${this.url}?token=${encodeURIComponent(this.token)}`;
+        }
+      } catch {
+        // Network error fetching ticket — fall back to token query param
+        wsUrl = `${this.url}?token=${encodeURIComponent(this.token)}`;
+      }
+
+      this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = this.handleOpen.bind(this);
       this.ws.onmessage = this.handleMessage.bind(this);

@@ -1,16 +1,16 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Smile, ImagePlay, Paperclip } from 'lucide-react';
+import { Smile, ImagePlay, Paperclip, Lock, Unlock } from 'lucide-react';
 import MessageInputContextMenu from './MessageInputContextMenu';
 import './MessageInput.css';
 
 export interface MessageInputProps {
-  onSendMessage: (content: string, isEncrypted: boolean) => void;
+  onSendMessage: (content: string) => void;
   onTyping?: (isTyping: boolean) => void;
   placeholder?: string;
   maxLength?: number;
   disabled?: boolean;
   channelName?: string;
-  encryptionEnabled?: boolean;
+  isChannelEncrypted?: boolean;
 }
 
 const MessageInput: React.FC<MessageInputProps> = ({
@@ -20,17 +20,11 @@ const MessageInput: React.FC<MessageInputProps> = ({
   maxLength = 4000,
   disabled = false,
   channelName,
-  encryptionEnabled = false,
+  isChannelEncrypted = false,
 }) => {
   const [content, setContent] = useState('');
-  const [isEncrypted, setIsEncrypted] = useState(encryptionEnabled);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Sync local encryption toggle when channel-level setting changes
-  useEffect(() => {
-    setIsEncrypted(encryptionEnabled);
-  }, [encryptionEnabled]);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
 
@@ -123,7 +117,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
         typingTimeoutRef.current = null;
       }
 
-      onSendMessage(trimmedContent, isEncrypted);
+      onSendMessage(trimmedContent);
       setContent('');
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
@@ -178,6 +172,21 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
   return (
     <div className="message-input-container">
+      {/* Always-visible E2EE status indicator */}
+      <div className={`e2ee-status-bar ${isChannelEncrypted ? 'encrypted' : 'unencrypted'}`}>
+        {isChannelEncrypted ? (
+          <>
+            <Lock size={14} />
+            <span>Messages are Encrypted End-to-End</span>
+          </>
+        ) : (
+          <>
+            <Unlock size={14} />
+            <span>Channel is NOT using End-to-End Encryption</span>
+          </>
+        )}
+      </div>
+
       <div className="message-input-wrapper">
         <div className="message-input-box" onContextMenu={handleContextMenu}>
           <textarea
@@ -197,17 +206,6 @@ const MessageInput: React.FC<MessageInputProps> = ({
           />
 
           <div className="message-input-actions">
-            {encryptionEnabled && (
-              <button
-                className={`encryption-toggle ${isEncrypted ? 'active' : ''}`}
-                onClick={() => setIsEncrypted(!isEncrypted)}
-                title={isEncrypted ? 'End-to-end encryption enabled' : 'Click to enable encryption'}
-                aria-label="Toggle encryption"
-              >
-                {isEncrypted ? '🔒' : '🔓'}
-              </button>
-            )}
-
             {showCounter && (
               <span className={`char-counter ${charactersRemaining < 100 ? 'warning' : ''}`}>
                 {charactersRemaining}
@@ -235,19 +233,6 @@ const MessageInput: React.FC<MessageInputProps> = ({
             Press <kbd>Enter</kbd> to send, <kbd>Shift+Enter</kbd> for new line
           </span>
           <div className="message-input-extras">
-            {isEncrypted && (
-              <span className="encryption-hint">
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-                  <path
-                    d="M6 1L3 3v3c0 2 1.5 3.5 3 4 1.5-.5 3-2 3-4V3L6 1z"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    fill="none"
-                  />
-                </svg>
-                Encrypted
-              </span>
-            )}
             <button className="media-btn" title="Emoji" disabled>
               <Smile size={18} />
             </button>

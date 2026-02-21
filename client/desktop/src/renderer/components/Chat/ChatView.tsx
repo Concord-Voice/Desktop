@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
 import { useChannelStore } from '../../stores/channelStore';
@@ -9,6 +9,7 @@ import { useMessaging } from '../../hooks/useMessaging';
 import { useUnreadStore } from '../../stores/unreadStore';
 import { useServerStore } from '../../stores/serverStore';
 import { apiFetch } from '../../services/apiClient';
+import { e2eeService } from '../../services/e2eeService';
 import type { MessageWithStatus } from '../../types/chat';
 import './ChatView.css';
 
@@ -27,27 +28,20 @@ const ChatView: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fetchedChannels = useRef<Set<string>>(new Set());
-  const prevChannelIdRef = useRef<string | null>(null);
 
   // Subscribe to active channel for full message delivery
   useChannelSubscription(activeChannelId);
 
-  // Track the previous channelId so the unseen callback knows which channel to mark
-  useEffect(() => {
-    prevChannelIdRef.current = activeChannelId ?? null;
-  }, [activeChannelId]);
-
   // Called by MessageList on unmount when the user left with unseen messages
   const handleUnseenOnLeave = useCallback((count: number) => {
-    const channelId = prevChannelIdRef.current;
+    const channelId = activeChannelId;
     if (!channelId || count <= 0) return;
     useUnreadStore.getState().setUnreadCount(channelId, count);
     const serverId = useServerStore.getState().activeServerId;
     if (serverId) {
       useUnreadStore.getState().markServerUnread(serverId);
     }
-  }, []);
+  }, [activeChannelId]);
 
   // Optimistic messaging hook
   const { sendMessage } = useMessaging();
@@ -58,12 +52,12 @@ const ChatView: React.FC = () => {
     (activeChannelId && messagesByChannel.get(activeChannelId)) || [];
   const currentUserId = user?.id || '';
 
-  // Fetch message history when channel changes
+  // Fetch message history when channel changes — always re-fetch to catch up
+  // on messages sent while the user was viewing another channel
   useEffect(() => {
     if (!activeChannelId) return;
 
-    // Skip if already fetched for this channel
-    if (fetchedChannels.current.has(activeChannelId)) return;
+    let aborted = false;
 
     const fetchMessages = async () => {
       setIsLoading(true);
@@ -73,6 +67,7 @@ const ChatView: React.FC = () => {
         const res = await apiFetch(
           `/api/v1/channels/${activeChannelId}/messages?limit=${MESSAGES_LIMIT}`
         );
+        if (aborted) return;
 
         if (!res.ok) {
           const data = await res.json();
@@ -80,21 +75,45 @@ const ChatView: React.FC = () => {
         }
 
         const data = await res.json();
-        const msgs: MessageWithStatus[] = (data.messages || []).map(
+        if (aborted) return;
+        const rawMsgs: MessageWithStatus[] = (data.messages || []).map(
           (m: MessageWithStatus) => ({ ...m, status: 'delivered' as const })
         );
 
+        // Decrypt encrypted messages (fail-closed: show placeholder, never raw ciphertext)
+        const msgs = await Promise.all(
+          rawMsgs.map(async (m) => {
+            if (m.is_encrypted && activeChannelId && e2eeService.isInitialized) {
+              try {
+                const plaintext = await e2eeService.decryptForChannel(activeChannelId, m.content);
+                return { ...m, content: plaintext };
+              } catch {
+                return { ...m, content: '', decryptFailed: true };
+              }
+            }
+            return m;
+          })
+        );
+        if (aborted) return;
+
         setMessages(activeChannelId, msgs);
         setHasMore(msgs.length === MESSAGES_LIMIT);
-        fetchedChannels.current.add(activeChannelId);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load messages');
+        if (!aborted) {
+          setError(err instanceof Error ? err.message : 'Failed to load messages');
+        }
       } finally {
-        setIsLoading(false);
+        if (!aborted) {
+          setIsLoading(false);
+        }
       }
     };
 
     fetchMessages();
+
+    return () => {
+      aborted = true;
+    };
   }, [activeChannelId, setMessages]);
 
   // Load older messages (pagination)
@@ -131,9 +150,9 @@ const ChatView: React.FC = () => {
     }
   }, [activeChannelId, isLoading, hasMore, messagesByChannel, prependMessages]);
 
-  // Send message (optimistic via useMessaging)
+  // Send message (optimistic via useMessaging — E2EE handled internally)
   const handleSendMessage = useCallback(
-    (content: string, _isEncrypted: boolean) => {
+    (content: string) => {
       if (!activeChannelId) return;
       sendMessage(activeChannelId, content, user?.username || 'You', user?.avatar_url, user?.display_name);
     },
@@ -238,6 +257,7 @@ const ChatView: React.FC = () => {
           onSendMessage={handleSendMessage}
           channelName={activeChannel?.name}
           disabled={!currentUserId}
+          isChannelEncrypted={activeChannel?.is_encrypted ?? false}
         />
       </div>
     </div>

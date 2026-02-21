@@ -3,6 +3,7 @@ export interface Server {
   name: string;
   icon_url?: string;
   owner_id: string;
+  e2ee_default: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -14,6 +15,7 @@ export interface ServerWithRole extends Server {
 export interface CreateServerRequest {
   name: string;
   icon_url?: string;
+  e2ee_default?: boolean;
 }
 
 export interface CreateServerResponse {

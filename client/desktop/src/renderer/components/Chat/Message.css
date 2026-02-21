@@ -114,7 +114,18 @@
 .encrypted-indicator {
   font-size: calc(12px * var(--font-scale, 1));
   margin-right: 4px;
-  opacity: 0.7;
+  opacity: 0.5;
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.decrypt-failed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-style: italic;
+  opacity: 0.8;
 }
 
 /* Own message styling */

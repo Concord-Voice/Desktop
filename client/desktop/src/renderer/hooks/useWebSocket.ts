@@ -22,6 +22,7 @@ import {
   ConnectionState,
   type WebSocketMessage,
 } from '../services/websocketService';
+import { e2eeService } from '../services/e2eeService';
 
 export function useWebSocket() {
   const accessToken = useAuthStore((state) => state.accessToken);
@@ -80,19 +81,34 @@ export function useWebSocket() {
         return;
       }
 
-      // Add message to store
-      addMessage(channelId, {
+      const isEncrypted = data.is_encrypted || false;
+      const baseMessage = {
         id: data.id || crypto.randomUUID(),
         channel_id: channelId,
         user_id: data.user_id,
         username: data.username || 'Unknown',
         display_name: data.display_name || undefined,
         avatar_url: data.avatar_url || undefined,
-        content: data.content,
-        is_encrypted: data.is_encrypted || false,
+        is_encrypted: isEncrypted,
         created_at: data.created_at || new Date().toISOString(),
         updated_at: data.updated_at || new Date().toISOString(),
-      });
+      };
+
+      if (isEncrypted && e2eeService.isInitialized) {
+        // Decrypt asynchronously, then add to store
+        e2eeService.decryptForChannel(channelId, data.content)
+          .then((plaintext) => {
+            addMessage(channelId, { ...baseMessage, content: plaintext });
+          })
+          .catch(() => {
+            addMessage(channelId, { ...baseMessage, content: '', decryptFailed: true });
+          });
+      } else if (isEncrypted) {
+        // E2EE service not initialized — can't decrypt
+        addMessage(channelId, { ...baseMessage, content: '', decryptFailed: true });
+      } else {
+        addMessage(channelId, { ...baseMessage, content: data.content });
+      }
 
       // NOTE: Unread tracking is handled exclusively by the 'unread_notify' handler
       // (server-level subscription). The 'message' event only arrives for the active
@@ -211,6 +227,57 @@ export function useWebSocket() {
       });
     });
 
+    // Channel updated handler — updates channel list for all server members
+    const unsubChannelUpdated = wsService.on('channel_updated', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const channelId = data.channel_id;
+      if (!channelId) return;
+
+      useChannelStore.getState().updateChannel(channelId, {
+        name: data.name,
+        type: data.type,
+        emoji: data.emoji ?? null,
+      });
+    });
+
+    // Channel deleted handler — removes channel and cascades cleanup
+    const unsubChannelDeleted = wsService.on('channel_deleted', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const channelId = data.channel_id;
+      if (!channelId) return;
+
+      useChannelStore.getState().removeChannel(channelId);
+    });
+
+    // Server deleted handler — removes server and cascades cleanup
+    const unsubServerDeleted = wsService.on('server_deleted', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const serverId = data.server_id;
+      if (!serverId) return;
+
+      useServerStore.getState().removeServer(serverId);
+    });
+
+    // Member removed handler — handles both kicks and self-leave
+    const unsubMemberRemoved = wsService.on('member_removed', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const serverId = data.server_id;
+      const removedUserId = data.user_id;
+      if (!serverId || !removedUserId) return;
+
+      const selfId = useUserStore.getState().user?.id;
+      if (removedUserId === selfId) {
+        // Current user was removed/left — purge server data entirely
+        useServerStore.getState().removeServer(serverId);
+      } else {
+        // Another member was removed — update the member list
+        const activeServerId = useServerStore.getState().activeServerId;
+        if (serverId === activeServerId) {
+          useMemberStore.getState().removeMember(removedUserId);
+        }
+      }
+    });
+
     // Lightweight unread notification handler — from server subscription
     const unsubUnreadNotify = wsService.on('unread_notify', (msg: WebSocketMessage) => {
       const { data } = msg;
@@ -290,6 +357,10 @@ export function useWebSocket() {
       unsubMemberJoined();
       unsubProfileUpdated();
       unsubServerUpdated();
+      unsubChannelUpdated();
+      unsubChannelDeleted();
+      unsubServerDeleted();
+      unsubMemberRemoved();
       unsubUnreadNotify();
       unsubPresenceSnapshot();
       unsubPresence();

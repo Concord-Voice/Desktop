@@ -2,6 +2,9 @@ import { create } from 'zustand';
 import { persist, devtools } from 'zustand/middleware';
 import { ServerWithRole } from '../types/server';
 import { apiFetch } from '../services/apiClient';
+import { useChannelStore } from './channelStore';
+import { useChatStore } from './chatStore';
+import { useUnreadStore } from './unreadStore';
 
 interface ServerState {
   servers: ServerWithRole[];
@@ -61,6 +64,30 @@ export const useServerStore = create<ServerState>()(
 
   removeServer: (serverId: string) => {
     const { activeServerId } = get();
+    const channelStore = useChannelStore.getState();
+
+    // Cascade: clear all channels belonging to this server
+    // (and their messages/unreads via removeChannel's own cascade)
+    if (channelStore.currentServerId === serverId) {
+      // Active server being deleted — clear messages for each channel, then wipe channel state
+      for (const ch of channelStore.channels) {
+        useChatStore.getState().clearMessages(ch.id);
+        useUnreadStore.getState().clearUnread(ch.id);
+      }
+      channelStore.clearChannels();
+    }
+
+    // Clean up lastChannelByServer for this server
+    const { lastChannelByServer } = channelStore;
+    if (lastChannelByServer[serverId]) {
+      const updated = { ...lastChannelByServer };
+      delete updated[serverId];
+      useChannelStore.setState({ lastChannelByServer: updated });
+    }
+
+    // Clear server-level unread
+    useUnreadStore.getState().clearServerUnread(serverId);
+
     set((state) => ({
       servers: state.servers.filter((s) => s.id !== serverId),
       activeServerId: activeServerId === serverId ? null : activeServerId,

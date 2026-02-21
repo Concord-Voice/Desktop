@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { Lock } from 'lucide-react';
 import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useServerStore } from '../../stores/serverStore';
@@ -31,6 +32,7 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({
   const [name, setName] = useState('');
   const [iconPreview, setIconPreview] = useState<string | null>(null);
   const [iconDataUrl, setIconDataUrl] = useState<string | null>(null);
+  const [e2eeDefault, setE2eeDefault] = useState(true);
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -39,6 +41,7 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({
     setName('');
     setIconPreview(null);
     setIconDataUrl(null);
+    setE2eeDefault(true);
     setErrors({});
     setIsSubmitting(false);
     setSuccessMessage(null);
@@ -125,8 +128,9 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({
     setIsSubmitting(true);
 
     try {
-      const body: { name: string; icon_url?: string } = {
+      const body: { name: string; icon_url?: string; e2ee_default: boolean } = {
         name: name.trim(),
+        e2ee_default: e2eeDefault,
       };
       if (iconDataUrl) {
         body.icon_url = iconDataUrl;
@@ -237,6 +241,34 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({
           <span className="form-hint">
             {name.trim().length}/{NAME_MAX} characters
           </span>
+        </div>
+
+        {/* E2EE Default Toggle */}
+        <div className="form-group">
+          <label className="form-label">End-to-End Encryption</label>
+          <button
+            type="button"
+            className={`server-e2ee-toggle ${e2eeDefault ? 'enabled' : 'disabled'}`}
+            onClick={() => setE2eeDefault(!e2eeDefault)}
+            disabled={isSubmitting}
+          >
+            <span className="server-e2ee-toggle-icon">
+              <Lock size={18} />
+            </span>
+            <div className="server-e2ee-toggle-info">
+              <span className="server-e2ee-toggle-name">
+                {e2eeDefault ? 'E2EE Enabled by Default' : 'E2EE Disabled by Default'}
+              </span>
+              <span className="server-e2ee-toggle-desc">
+                {e2eeDefault
+                  ? 'New channels will be encrypted end-to-end'
+                  : 'New channels will not be encrypted by default'}
+              </span>
+            </div>
+            <div className={`server-e2ee-switch ${e2eeDefault ? 'on' : 'off'}`}>
+              <div className="server-e2ee-knob" />
+            </div>
+          </button>
         </div>
 
         {/* General Error */}
