@@ -9,7 +9,7 @@ const SALT_LENGTH = 16; // 16 bytes
 const DERIVED_KEY_LENGTH = 32; // 32 bytes (256 bits)
 
 // Constants for RSA key pair
-const RSA_KEY_SIZE = 2048; // 2048-bit RSA keys
+const RSA_KEY_SIZE = 4096; // 4096-bit RSA keys (NIST secure through 2040+)
 const RSA_PUBLIC_EXPONENT = new Uint8Array([1, 0, 1]); // 65537
 
 /**

@@ -101,9 +101,12 @@ export const useChannelStore = create<ChannelState>()(
         },
 
         updateChannel: (channelId: string, updates: Partial<Channel>) => {
+          // Defense-in-depth: strip is_encrypted — immutable after creation
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { is_encrypted: _, ...safeUpdates } = updates;
           set((state) => ({
             channels: state.channels.map((c) =>
-              c.id === channelId ? { ...c, ...updates } : c
+              c.id === channelId ? { ...c, ...safeUpdates } : c
             ),
           }));
         },

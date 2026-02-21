@@ -103,6 +103,11 @@ export function useMessaging() {
             if (isEncrypted) {
               // Fail-closed: if encryption fails, do NOT send
               sendContent = await e2eeService.encryptForChannel(channelId, content);
+              // Validate encrypted output: must be non-empty base64 with minimum size
+              // (12-byte IV + 16-byte auth tag = 28 bytes minimum decoded)
+              if (!sendContent || sendContent.length < 40) {
+                throw new Error('Encryption produced invalid output');
+              }
             }
             wsService.sendMessage(channelId, sendContent, clientMessageId, isEncrypted);
             messageQueue.markAsSent(clientMessageId);

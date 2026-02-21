@@ -37,6 +37,7 @@ class E2EEService {
   private wrappingKey: CryptoKey | null = null;
   private wrappedPrivateKey: string = '';
   private channelKeyCache: Map<string, CachedWrappedKey> = new Map();
+  private pendingKeyFetches: Map<string, Promise<CryptoKey>> = new Map();
   private cacheCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   /**
@@ -78,39 +79,57 @@ class E2EEService {
   /**
    * Get the unwrapped channel key for a channel (JIT).
    * Fetches the wrapped key from cache or server, unwraps with private key.
+   * Uses pendingKeyFetches to prevent cache stampeding (concurrent fetches for the same channel).
    */
   async getChannelKey(channelId: string): Promise<CryptoKey> {
     // Check cache for wrapped key
-    let wrappedKey: string | null = null;
     const cached = this.channelKeyCache.get(channelId);
     if (cached && Date.now() - cached.lastUsed < CHANNEL_KEY_CACHE_TTL) {
-      wrappedKey = cached.wrappedKey;
       cached.lastUsed = Date.now();
+      const privateKey = await this.derivePrivateKey();
+      return unwrapChannelKey(cached.wrappedKey, privateKey);
     }
 
-    // Fetch from server if not cached
-    if (!wrappedKey) {
-      const res = await apiFetch(`/api/v1/channels/${channelId}/keys`);
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        if (data.pending) {
-          throw new Error('PENDING_KEY');
-        }
-        throw new Error('Failed to fetch channel key');
+    // Deduplicate concurrent fetches for the same channel
+    const pending = this.pendingKeyFetches.get(channelId);
+    if (pending) {
+      return pending;
+    }
+
+    const fetchPromise = this.fetchAndUnwrapChannelKey(channelId);
+    this.pendingKeyFetches.set(channelId, fetchPromise);
+
+    try {
+      return await fetchPromise;
+    } finally {
+      this.pendingKeyFetches.delete(channelId);
+    }
+  }
+
+  /**
+   * Internal: fetch wrapped key from server, cache it, and unwrap.
+   */
+  private async fetchAndUnwrapChannelKey(channelId: string): Promise<CryptoKey> {
+    const res = await apiFetch(`/api/v1/channels/${channelId}/keys`);
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      if (data.pending) {
+        throw new Error('PENDING_KEY');
       }
-      const data = await res.json();
-      wrappedKey = data.key.wrapped_key;
-
-      // Cache the wrapped key
-      this.channelKeyCache.set(channelId, {
-        wrappedKey: wrappedKey!,
-        lastUsed: Date.now(),
-      });
+      throw new Error('Failed to fetch channel key');
     }
+    const data = await res.json();
+    const wrappedKey: string = data.key.wrapped_key;
+
+    // Cache the wrapped key
+    this.channelKeyCache.set(channelId, {
+      wrappedKey,
+      lastUsed: Date.now(),
+    });
 
     // JIT unwrap: derive private key, unwrap channel key, private key falls out of scope
     const privateKey = await this.derivePrivateKey();
-    return unwrapChannelKey(wrappedKey!, privateKey);
+    return unwrapChannelKey(wrappedKey, privateKey);
   }
 
   /**
@@ -226,6 +245,7 @@ class E2EEService {
     this.wrappingKey = null;
     this.wrappedPrivateKey = '';
     this.channelKeyCache.clear();
+    this.pendingKeyFetches.clear();
     if (this.cacheCleanupInterval) {
       clearInterval(this.cacheCleanupInterval);
       this.cacheCleanupInterval = null;
