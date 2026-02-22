@@ -212,6 +212,14 @@ kbd {
   cursor: default;
 }
 
+/* ─── User Panel inline in message input ─────────────────────────────────── */
+
+.message-input-user-panel {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
 /* Scrollbar styling for textarea */
 .message-input-textarea::-webkit-scrollbar {
   width: 8px;

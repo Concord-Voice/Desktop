@@ -1,5 +1,10 @@
 @import '../Auth/AuthForm.css';
 
+/* Full-page profile wrapper (no sidebar) */
+.profile-fullpage {
+  background: var(--bg-primary);
+}
+
 /* Profile page content area */
 .profile-page-content {
   flex: 1;

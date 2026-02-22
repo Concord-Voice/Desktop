@@ -344,3 +344,81 @@ export async function decryptMessage(
 
   return new TextDecoder().decode(plaintext);
 }
+
+// ========================================
+// Encrypted User Preferences
+// ========================================
+
+const PREFERENCES_DOMAIN_SEPARATOR = 'concord-preferences-v1';
+
+/**
+ * Derive an AES-256-GCM key for encrypting user preferences.
+ * Uses the same PBKDF2 parameters as deriveKeyFromPassword but with a
+ * domain-separated salt to ensure cryptographic independence from the wrapping key.
+ */
+export async function derivePreferencesKey(
+  password: string,
+  salt: Uint8Array
+): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+
+  // Domain-separate: append a fixed suffix to the salt
+  const separator = encoder.encode(PREFERENCES_DOMAIN_SEPARATOR);
+  const domainSalt = new Uint8Array(salt.length + separator.length);
+  domainSalt.set(salt, 0);
+  domainSalt.set(separator, salt.length);
+
+  const passwordKey = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: domainSalt,
+      iterations: PBKDF2_ITERATIONS,
+      hash: 'SHA-256',
+    },
+    passwordKey,
+    {
+      name: 'AES-GCM',
+      length: DERIVED_KEY_LENGTH * 8,
+    },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+/**
+ * Encrypt a JSON-serializable object with AES-256-GCM.
+ * Prepends 12-byte random IV. Returns base64.
+ */
+export async function encryptBlob<T>(data: T, key: CryptoKey): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(AES_GCM_IV_LENGTH));
+  const encoded = new TextEncoder().encode(JSON.stringify(data));
+
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+
+  const result = new Uint8Array(iv.length + ciphertext.byteLength);
+  result.set(iv, 0);
+  result.set(new Uint8Array(ciphertext), iv.length);
+
+  return arrayBufferToBase64(result.buffer);
+}
+
+/**
+ * Decrypt a base64 blob (12-byte IV + AES-256-GCM ciphertext) back to a typed object.
+ */
+export async function decryptBlob<T>(ciphertextBase64: string, key: CryptoKey): Promise<T> {
+  const data = new Uint8Array(base64ToArrayBuffer(ciphertextBase64));
+  const iv = data.slice(0, AES_GCM_IV_LENGTH);
+  const ciphertext = data.slice(AES_GCM_IV_LENGTH);
+
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+
+  return JSON.parse(new TextDecoder().decode(plaintext)) as T;
+}

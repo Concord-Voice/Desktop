@@ -15,6 +15,7 @@ interface ServerState {
   fetchServers: () => Promise<void>;
   addServer: (server: ServerWithRole) => void;
   updateServer: (serverId: string, updates: Partial<ServerWithRole>) => void;
+  updateOnlineCounts: (counts: Record<string, number>) => void;
   removeServer: (serverId: string) => void;
   setActiveServer: (serverId: string | null) => void;
   clearServers: () => void;
@@ -57,6 +58,14 @@ export const useServerStore = create<ServerState>()(
         updateServer: (serverId: string, updates: Partial<ServerWithRole>) => {
           set((state) => ({
             servers: state.servers.map((s) => (s.id === serverId ? { ...s, ...updates } : s)),
+          }));
+        },
+
+        updateOnlineCounts: (counts: Record<string, number>) => {
+          set((state) => ({
+            servers: state.servers.map((s) =>
+              counts[s.id] !== undefined ? { ...s, online_count: counts[s.id] } : s
+            ),
           }));
         },
 

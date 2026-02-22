@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Smile, ImagePlay, Paperclip, Lock, Unlock } from 'lucide-react';
 import MessageInputContextMenu from './MessageInputContextMenu';
+import UserPanel from '../User/UserPanel';
+import { useLayoutStore } from '../../stores/layoutStore';
 import './MessageInput.css';
 
 export interface MessageInputProps {
@@ -22,6 +24,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   channelName,
   isChannelEncrypted = false,
 }) => {
+  const channelPanelPinned = useLayoutStore((s) => s.channelPanelPinned);
   const [content, setContent] = useState('');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -192,6 +195,11 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
       <div className="message-input-wrapper">
         <div className="message-input-box" onContextMenu={handleContextMenu}>
+          {!channelPanelPinned && (
+            <div className="message-input-user-panel">
+              <UserPanel compact />
+            </div>
+          )}
           <textarea
             ref={textareaRef}
             className="message-input-textarea"

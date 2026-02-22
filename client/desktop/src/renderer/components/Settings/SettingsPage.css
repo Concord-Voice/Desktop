@@ -1,5 +1,10 @@
 @import '../Auth/AuthForm.css';
 
+/* Full-page settings wrapper (no sidebar) */
+.settings-fullpage {
+  background: var(--bg-primary);
+}
+
 /* Settings page content area */
 .settings-page-content {
   flex: 1;
@@ -183,7 +188,8 @@
 /* Grid of gradient circles */
 .color-scheme-grid {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 /* Individual gradient circle */

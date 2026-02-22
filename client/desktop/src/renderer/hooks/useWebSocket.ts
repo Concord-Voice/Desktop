@@ -23,6 +23,7 @@ import {
   type WebSocketMessage,
 } from '../services/websocketService';
 import { e2eeService } from '../services/e2eeService';
+import { preferencesSyncService } from '../services/preferencesSync';
 
 export function useWebSocket() {
   const accessToken = useAuthStore((state) => state.accessToken);
@@ -347,6 +348,11 @@ export function useWebSocket() {
       window.dispatchEvent(new CustomEvent('e2ee-key-delivered', { detail: { channelId } }));
     });
 
+    // Preferences updated handler — another device pushed new preferences
+    const unsubPreferencesUpdated = wsService.on('preferences_updated', () => {
+      preferencesSyncService.fetchAndApply();
+    });
+
     // Presence snapshot handler — received on connection with all online users and their statuses
     const unsubPresenceSnapshot = wsService.on('presence_snapshot', (msg: WebSocketMessage) => {
       // Enhanced format: array of { user_id, status } objects
@@ -381,6 +387,14 @@ export function useWebSocket() {
       }
     });
 
+    // Server online counts handler — updates online_count on server objects after presence changes
+    const unsubServerOnlineCounts = wsService.on('server_online_counts', (msg: WebSocketMessage) => {
+      const counts = msg.data.counts as Record<string, number> | undefined;
+      if (counts) {
+        useServerStore.getState().updateOnlineCounts(counts);
+      }
+    });
+
     // Subscribed confirmation handler
     const unsubSubscribed = wsService.on('subscribed', (msg: WebSocketMessage) => {
       console.debug('[WebSocket] Subscribed to channel:', msg.data.channel_id);
@@ -409,8 +423,10 @@ export function useWebSocket() {
       unsubUnreadNotify();
       unsubKeyNeeded();
       unsubKeyDelivered();
+      unsubPreferencesUpdated();
       unsubPresenceSnapshot();
       unsubPresence();
+      unsubServerOnlineCounts();
       unsubSubscribed();
       unsubError();
     };

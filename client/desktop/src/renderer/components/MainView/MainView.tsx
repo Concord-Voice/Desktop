@@ -1,5 +1,4 @@
 import React, { useState, useRef, useCallback } from 'react';
-import ServerList from '../Servers/ServerList';
 import ServerContextMenu from '../Servers/ServerContextMenu';
 import ServerSettingsModal from '../Servers/ServerSettingsModal';
 import DeleteServerModal from '../Servers/DeleteServerModal';
@@ -15,14 +14,19 @@ import CreateChannelModal from '../Channels/CreateChannelModal';
 import EditChannelModal from '../Channels/EditChannelModal';
 import DeleteChannelModal from '../Channels/DeleteChannelModal';
 import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
-import MemberList from '../Members/MemberList';
-import UserPanel from '../User/UserPanel';
 import { ChatView } from '../Chat';
 import { Lock, LockOpen } from 'lucide-react';
+
+// New layout components
+import AppLayout from '../Layout/AppLayout';
+import ServerBar from '../Layout/ServerBar';
+import FolderBar from '../Layout/FolderBar';
+import ChannelPanel from '../Layout/ChannelPanel';
+import MemberFlexSpace from '../Layout/MemberFlexSpace';
+
 import { useServerStore } from '../../stores/serverStore';
 import { useChannelStore } from '../../stores/channelStore';
 import { useServerChannelSubscriptions } from '../../hooks/useServerChannelSubscriptions';
-import { useResizablePanel } from '../../hooks/useResizablePanel';
 import { ServerWithRole } from '../../types/server';
 import { Channel } from '../../types/chat';
 import './MainView.css';
@@ -30,22 +34,6 @@ import './MainView.css';
 const MainView: React.FC = () => {
   // Subscribe to ALL channels in the active server for unread tracking
   useServerChannelSubscriptions();
-
-  // Resizable sidebars
-  const channelPanel = useResizablePanel({
-    defaultWidth: 240,
-    minWidth: 180,
-    maxWidth: 400,
-    side: 'left',
-    storageKey: 'concord:channelSidebarWidth',
-  });
-  const memberPanel = useResizablePanel({
-    defaultWidth: 220,
-    minWidth: 160,
-    maxWidth: 340,
-    side: 'right',
-    storageKey: 'concord:memberListWidth',
-  });
 
   const [isServerActionModalOpen, setIsServerActionModalOpen] = useState(false);
   const [isCreateServerModalOpen, setIsCreateServerModalOpen] = useState(false);
@@ -75,14 +63,11 @@ const MainView: React.FC = () => {
       const padding = 8;
       const top = rect.bottom + padding;
 
-      // Try to place tooltip to the left (right-aligned with indicator)
       const leftAligned = rect.right - tooltipWidth;
       if (leftAligned >= padding) {
         setE2eeTooltipPos({ top, left: leftAligned });
       } else {
-        // Not enough space on the left — place to the right of the indicator
         const rightAligned = rect.left;
-        // Clamp so it doesn't overflow the right edge either
         const maxLeft = window.innerWidth - tooltipWidth - padding;
         setE2eeTooltipPos({ top, left: Math.min(rightAligned, maxLeft) });
       }
@@ -139,113 +124,126 @@ const MainView: React.FC = () => {
     setEditingChannel(channel);
   };
 
+  // ─── Channel panel header content ───
+  const channelHeader = (
+    <div className="channel-header-info">
+      <div className="channel-header-name-row">
+        <h3>{activeServer ? activeServer.name : 'Channels'}</h3>
+        {activeServer && (
+          <span
+            ref={e2eeIndicatorRef}
+            className={`server-e2ee-indicator ${activeServer.e2ee_default ? 'encrypted' : 'unencrypted'}`}
+            onMouseEnter={showE2eeTooltip}
+            onMouseLeave={hideE2eeTooltip}
+          >
+            {activeServer.e2ee_default ? <Lock size={12} /> : <LockOpen size={12} />}
+          </span>
+        )}
+        {e2eeTooltipPos && activeServer && (
+          <div
+            className={`e2ee-tooltip visible ${activeServer.e2ee_default ? 'encrypted' : 'unencrypted'}`}
+            style={{ top: e2eeTooltipPos.top, left: e2eeTooltipPos.left }}
+          >
+            <span className="e2ee-tooltip-header">
+              {activeServer.e2ee_default ? <Lock size={11} /> : <LockOpen size={11} />}
+              {activeServer.e2ee_default ? 'E2EE Enabled' : 'E2EE Disabled'}
+            </span>
+            <span className="e2ee-tooltip-body">
+              {activeServer.e2ee_default
+                ? 'End-to-End Encryption is enabled by default in this server. New channels are created with E2EE on.'
+                : 'End-to-End Encryption is not enabled by default in this server. Channels may still enable E2EE individually.'}
+            </span>
+            <span className="e2ee-tooltip-hint">
+              Always check the channel encryption status near the message box to verify E2EE.
+            </span>
+          </div>
+        )}
+      </div>
+      <ConnectionStatus />
+    </div>
+  );
+
+  // ─── Channel panel body content ───
+  const channelBody = (
+    <>
+      {activeServer && (
+        <ServerActionBar
+          server={activeServer}
+          onOpenCreateModal={() => setIsCreateChannelModalOpen(true)}
+        />
+      )}
+      <ChannelList onContextMenu={handleChannelContextMenu} />
+    </>
+  );
+
+  // ─── Chat area content ───
+  const chatContent = (
+    <div className="main-content">
+      {activeServer && channels.length === 0 ? (
+        <div className="main-content-placeholder">
+          <div className="empty-server-graphic">
+            <svg
+              width="48"
+              height="48"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="10" y1="10" x2="14" y2="10" />
+            </svg>
+          </div>
+          <h2>This server appears empty.</h2>
+          <p className="empty-server-hint">Add some channels to start chatting!</p>
+        </div>
+      ) : activeChannelId ? (
+        <ChatView />
+      ) : (
+        <div className="main-content-placeholder">
+          {activeServer ? (
+            <>
+              <h2>{activeServer.name}</h2>
+              <p className="empty-server-hint">Select a channel to start chatting.</p>
+            </>
+          ) : (
+            <>
+              <h2>Welcome to Concord</h2>
+              <p>Privacy-first, self-hostable voice communication.</p>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="view-container main-view">
-      <div className="sidebar">
-        <div className="sidebar-servers">
-          <ServerList
+      <AppLayout
+        forceChannelPin={!!activeServer && channels.length === 0}
+        serverBar={
+          <ServerBar
             onOpenActionModal={() => setIsServerActionModalOpen(true)}
             onContextMenu={handleServerContextMenu}
           />
-        </div>
-        <UserPanel />
-      </div>
+        }
+        folderBar={<FolderBar />}
+        channelPanel={
+          <ChannelPanel
+            header={channelHeader}
+            forcePin={!!activeServer && channels.length === 0}
+          >
+            {channelBody}
+          </ChannelPanel>
+        }
+        chatArea={chatContent}
+        memberSpace={<MemberFlexSpace />}
+      />
 
-      <div className="content">
-        <div className="channels-sidebar" style={{ width: channelPanel.width }}>
-          <div className="channels-sidebar-header">
-            <h3>{activeServer ? activeServer.name : 'Channels'}</h3>
-            <div className="header-status-area">
-              {activeServer && (
-                <span
-                  ref={e2eeIndicatorRef}
-                  className={`server-e2ee-indicator ${activeServer.e2ee_default ? 'encrypted' : 'unencrypted'}`}
-                  onMouseEnter={showE2eeTooltip}
-                  onMouseLeave={hideE2eeTooltip}
-                >
-                  {activeServer.e2ee_default ? <Lock size={12} /> : <LockOpen size={12} />}
-                </span>
-              )}
-              {e2eeTooltipPos && activeServer && (
-                <div
-                  className={`e2ee-tooltip visible ${activeServer.e2ee_default ? 'encrypted' : 'unencrypted'}`}
-                  style={{ top: e2eeTooltipPos.top, left: e2eeTooltipPos.left }}
-                >
-                  <span className="e2ee-tooltip-header">
-                    {activeServer.e2ee_default ? <Lock size={11} /> : <LockOpen size={11} />}
-                    {activeServer.e2ee_default ? 'E2EE Enabled' : 'E2EE Disabled'}
-                  </span>
-                  <span className="e2ee-tooltip-body">
-                    {activeServer.e2ee_default
-                      ? 'End-to-End Encryption is enabled by default in this server. New channels are created with E2EE on.'
-                      : 'End-to-End Encryption is not enabled by default in this server. Channels may still enable E2EE individually.'}
-                  </span>
-                  <span className="e2ee-tooltip-hint">
-                    Always check the channel encryption status near the message box to verify E2EE.
-                  </span>
-                </div>
-              )}
-              <ConnectionStatus />
-            </div>
-          </div>
-          {activeServer && (
-            <ServerActionBar
-              server={activeServer}
-              onOpenCreateModal={() => setIsCreateChannelModalOpen(true)}
-            />
-          )}
-          <ChannelList onContextMenu={handleChannelContextMenu} />
-        </div>
-        <div className="resize-handle" onMouseDown={channelPanel.onMouseDown} />
-        <div className="main-content">
-          {activeServer && channels.length === 0 ? (
-            <div className="main-content-placeholder">
-              <div className="empty-server-graphic">
-                <svg
-                  width="48"
-                  height="48"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                  <line x1="12" y1="8" x2="12" y2="12" />
-                  <line x1="10" y1="10" x2="14" y2="10" />
-                </svg>
-              </div>
-              <h2>This server appears empty.</h2>
-              <p className="empty-server-hint">Add some channels to start chatting!</p>
-            </div>
-          ) : activeChannelId ? (
-            <ChatView />
-          ) : (
-            <div className="main-content-placeholder">
-              {activeServer ? (
-                <>
-                  <h2>{activeServer.name}</h2>
-                  <p className="empty-server-hint">Select a channel to start chatting.</p>
-                </>
-              ) : (
-                <>
-                  <h2>Welcome to Concord</h2>
-                  <p>Privacy-first, self-hostable voice communication.</p>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-        {activeServer && (
-          <>
-            <div className="resize-handle" onMouseDown={memberPanel.onMouseDown} />
-            <div className="member-list-container" style={{ width: memberPanel.width }}>
-              <MemberList />
-            </div>
-          </>
-        )}
-      </div>
+      {/* ─── Modals (z-index overlays, unaffected by layout) ─── */}
 
       <ServerActionModal
         isOpen={isServerActionModalOpen}

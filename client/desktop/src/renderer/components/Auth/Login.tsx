@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { unwrapLoginKeys, generateRegistrationKeys } from '../../utils/crypto';
 import { e2eeService } from '../../services/e2eeService';
+import { preferencesSyncService } from '../../services/preferencesSync';
+import { useAuthStore } from '../../stores/authStore';
 import { UserProfile } from '../../stores/userStore';
 import LoadingSpinner from './LoadingSpinner';
 import './Login.css';
@@ -138,6 +140,14 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
         );
         console.debug('E2EE keys regenerated and service initialized!');
       }
+
+      // Set token early so apiFetch can authenticate the preferences request.
+      // onSuccess will call setTokens again (idempotent) and navigate to /app.
+      useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
+
+      // Start watching for local preference changes and fetch remote preferences
+      preferencesSyncService.startWatching();
+      await preferencesSyncService.fetchAndApply();
 
       // Pass tokens and user data up
       onSuccess({

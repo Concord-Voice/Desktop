@@ -2,6 +2,8 @@
 
 .member-list {
   width: 100%;
+  flex: 1;
+  min-height: 0;
   background-color: var(--bg-secondary);
   border-left: 1px solid var(--border-color);
   display: flex;
@@ -127,11 +129,11 @@
 }
 
 .member-status-dot.online {
-  background-color: var(--success);
+  background-color: var(--status-connected);
 }
 
 .member-status-dot.dnd {
-  background-color: var(--danger);
+  background-color: var(--status-disconnected);
 }
 
 .member-status-dot.offline,

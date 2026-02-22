@@ -1,7 +1,7 @@
 .connection-status {
   display: flex;
   align-items: center;
-  gap: calc(6px * var(--sp, 1));
+  align-self: flex-start;
   padding: calc(4px * var(--sp, 1)) calc(10px * var(--sp, 1));
   border-radius: 12px;
   font-size: calc(12px * var(--font-scale, 1));
@@ -9,6 +9,8 @@
   transition: all 0.2s ease;
   flex-shrink: 0;
   white-space: nowrap;
+  /* Fixed width to prevent resizing between status changes ("CONNECTING" is the longest) */
+  min-width: calc(120px * var(--font-scale, 1));
 }
 
 .connection-status.connected {
@@ -30,6 +32,8 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  flex-shrink: 0;
+  margin-right: calc(6px * var(--sp, 1));
   animation: pulse 2s ease-in-out infinite;
 }
 
@@ -48,6 +52,8 @@
 }
 
 .status-text {
+  flex: 1;
+  text-align: center;
   font-size: calc(11px * var(--font-scale, 1));
   text-transform: uppercase;
   letter-spacing: 0.5px;

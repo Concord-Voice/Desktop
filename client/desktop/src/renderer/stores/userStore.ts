@@ -4,6 +4,8 @@ import { useAuthStore } from './authStore';
 import { useServerStore } from './serverStore';
 import { apiFetch } from '../services/apiClient';
 import { getWebSocketService } from '../services/websocketService';
+import { e2eeService } from '../services/e2eeService';
+import { preferencesSyncService } from '../services/preferencesSync';
 import {
   deriveKeyFromPassword,
   unwrapPrivateKey,
@@ -93,6 +95,10 @@ export const useUserStore = create<UserState>()(
       },
 
       logout: async () => {
+        // Stop syncing preferences before tearing down
+        preferencesSyncService.stopWatching();
+        e2eeService.clearKeys();
+
         // Disconnect WebSocket FIRST so the server receives the close frame
         // and broadcasts offline presence while the connection is still healthy.
         getWebSocketService().disconnect();
@@ -196,6 +202,16 @@ export const useUserStore = create<UserState>()(
           if (!response.ok) {
             return { success: false, error: data.error || 'Failed to change password' };
           }
+
+          // Re-initialize E2EE service with new password so preferences key is updated
+          await e2eeService.initialize(
+            newPassword,
+            arrayBufferToBase64(newWrappedKey),
+            arrayBufferToBase64(newSalt.buffer)
+          );
+
+          // Re-encrypt and push preferences with the new key
+          await preferencesSyncService.pushPreferences();
 
           return { success: true };
         } catch (error) {

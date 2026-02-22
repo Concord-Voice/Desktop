@@ -9,8 +9,25 @@
   flex-shrink: 0;
 }
 
+/* Left info block: name row + connection status stacked vertically */
+.channel-header-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* Top row: server name + E2EE lock inline */
+.channel-header-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
 .channels-sidebar-header h3 {
-  font-size: calc(16px * var(--font-scale, 1));
+  font-size: calc(22px * var(--font-scale, 1));
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
@@ -19,19 +36,12 @@
   white-space: nowrap;
 }
 
-/* Header status area — connection + E2EE indicator */
-.header-status-area {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-
 .server-e2ee-indicator {
   display: flex;
   align-items: center;
   cursor: default;
   position: relative;
+  padding: 2px 6px;
 }
 
 .server-e2ee-indicator.encrypted {

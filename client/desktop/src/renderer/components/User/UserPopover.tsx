@@ -15,14 +15,14 @@ const statusOptions: Array<{
   label: string;
   color: string;
 }> = [
-  { value: 'online', label: 'Online', color: 'var(--success)' },
-  { value: 'dnd', label: 'Do Not Disturb', color: 'var(--danger)' },
+  { value: 'online', label: 'Online', color: 'var(--status-connected)' },
+  { value: 'dnd', label: 'Do Not Disturb', color: 'var(--status-disconnected)' },
   { value: 'invisible', label: 'Invisible', color: 'var(--text-muted)' },
 ];
 
 const statusColorMap: Record<PresenceStatus, string> = {
-  online: 'var(--success)',
-  dnd: 'var(--danger)',
+  online: 'var(--status-connected)',
+  dnd: 'var(--status-disconnected)',
   invisible: 'var(--text-muted)',
   offline: 'var(--text-muted)',
 };

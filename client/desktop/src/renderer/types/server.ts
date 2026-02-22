@@ -10,6 +10,8 @@ export interface Server {
 
 export interface ServerWithRole extends Server {
   role: 'owner' | 'admin' | 'member';
+  member_count: number;
+  online_count: number;
 }
 
 export interface CreateServerRequest {

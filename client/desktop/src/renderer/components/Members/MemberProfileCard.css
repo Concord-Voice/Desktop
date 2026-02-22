@@ -74,11 +74,11 @@
 }
 
 .member-profile-status.online {
-  background-color: var(--success);
+  background-color: var(--status-connected);
 }
 
 .member-profile-status.dnd {
-  background-color: var(--danger);
+  background-color: var(--status-disconnected);
 }
 
 .member-profile-status.offline,
@@ -141,11 +141,11 @@
 }
 
 .member-profile-detail-value.status-online {
-  color: var(--success);
+  color: var(--status-connected);
 }
 
 .member-profile-detail-value.status-dnd {
-  color: var(--danger);
+  color: var(--status-disconnected);
 }
 
 .member-profile-detail-value.status-offline,

@@ -4,8 +4,6 @@ import { useAuthStore } from '../../stores/authStore';
 import { useUserStore } from '../../stores/userStore';
 import { useSettingsStore, AppearanceSettings } from '../../stores/settingsStore';
 import { apiFetch } from '../../services/apiClient';
-import ServerList from '../Servers/ServerList';
-import UserPanel from '../User/UserPanel';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import './SettingsPage.css';
 
@@ -65,6 +63,7 @@ const AppearanceSection: React.FC = () => {
   const setColorScheme = useSettingsStore((s) => s.setColorScheme);
   const setFontSize = useSettingsStore((s) => s.setFontSize);
   const setCompactMode = useSettingsStore((s) => s.setCompactMode);
+  const setReduceAnimations = useSettingsStore((s) => s.setReduceAnimations);
 
   const colorSchemes: {
     value: AppearanceSettings['colorScheme'];
@@ -77,6 +76,11 @@ const AppearanceSection: React.FC = () => {
       gradient: 'linear-gradient(135deg, #0d0821, #fa709a, #ffe13f)',
     },
     {
+      value: 'eclipse',
+      label: 'Eclipse',
+      gradient: 'linear-gradient(135deg, #000000, #cc0000, #880000)',
+    },
+    {
       value: 'morky',
       label: '9th Circle',
       gradient: 'linear-gradient(135deg, #0a0a0a, #e63946, #ff6b35)',
@@ -87,14 +91,44 @@ const AppearanceSection: React.FC = () => {
       gradient: 'linear-gradient(135deg, #1a0e02, #ff6d00, #ff9100)',
     },
     {
+      value: 'spooky',
+      label: 'Spooky',
+      gradient: 'linear-gradient(135deg, #0a0a0a, #ff6a00, #8b20aa)',
+    },
+    {
+      value: 'driftwood',
+      label: 'Driftwood',
+      gradient: 'linear-gradient(135deg, #120e0a, #c8a46c, #a07848)',
+    },
+    {
+      value: 'grassynill',
+      label: 'Grassy Nill',
+      gradient: 'linear-gradient(135deg, #0c0e08, #6b8e23, #8b7355)',
+    },
+    {
       value: 'hacker',
       label: 'Hacker',
       gradient: 'linear-gradient(135deg, #000000, #00ff41, #00ee38)',
     },
     {
+      value: 'leviathan',
+      label: 'Leviathan',
+      gradient: 'linear-gradient(135deg, #020c14, #0ea5e9, #06b6d4)',
+    },
+    {
+      value: 'midnightsky',
+      label: 'Midnight Sky',
+      gradient: 'linear-gradient(135deg, #060a18, #6d8cff, #a78bfa)',
+    },
+    {
       value: 'bardic',
       label: 'Bardic',
       gradient: 'linear-gradient(135deg, #120a1e, #c471ed, #f64f8e)',
+    },
+    {
+      value: 'cottoncandy',
+      label: 'Cotton Candy',
+      gradient: 'linear-gradient(135deg, #0a0810, #ff6ea8, #40c8ff)',
     },
   ];
 
@@ -213,6 +247,16 @@ const AppearanceSection: React.FC = () => {
             </span>
           </div>
           <ToggleSwitch checked={appearance.compactMode} onChange={setCompactMode} />
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Reduce Animations</span>
+            <span className="settings-row-hint">
+              Minimize motion and transitions for a snappier experience
+            </span>
+          </div>
+          <ToggleSwitch checked={appearance.reduceAnimations} onChange={setReduceAnimations} />
         </div>
       </div>
     </>
@@ -691,14 +735,7 @@ const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div className="view-container main-view">
-      <div className="sidebar">
-        <div className="sidebar-servers">
-          <ServerList onOpenCreateModal={() => navigate('/app')} onContextMenu={() => {}} />
-        </div>
-        <UserPanel />
-      </div>
-
+    <div className="view-container settings-fullpage">
       <div className="settings-page-content">
         <div className="settings-page-inner">
           {/* Back button */}

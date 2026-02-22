@@ -3,9 +3,10 @@ import { persist, subscribeWithSelector } from 'zustand/middleware';
 
 export interface AppearanceSettings {
   theme: 'dark' | 'light' | 'system';
-  colorScheme: 'concord' | 'morky' | 'bardic' | 'hacker' | 'foxden';
+  colorScheme: 'concord' | 'morky' | 'bardic' | 'hacker' | 'foxden' | 'spooky' | 'leviathan' | 'grassynill' | 'cottoncandy' | 'driftwood' | 'eclipse' | 'midnightsky';
   fontSize: 'small' | 'default' | 'large';
   compactMode: boolean;
+  reduceAnimations: boolean;
 }
 
 interface SettingsState {
@@ -14,6 +15,7 @@ interface SettingsState {
   setColorScheme: (scheme: AppearanceSettings['colorScheme']) => void;
   setFontSize: (size: AppearanceSettings['fontSize']) => void;
   setCompactMode: (enabled: boolean) => void;
+  setReduceAnimations: (enabled: boolean) => void;
 }
 
 const defaultAppearance: AppearanceSettings = {
@@ -21,6 +23,7 @@ const defaultAppearance: AppearanceSettings = {
   colorScheme: 'concord',
   fontSize: 'default',
   compactMode: false,
+  reduceAnimations: false,
 };
 
 function resolveTheme(theme: AppearanceSettings['theme']): 'dark' | 'light' {
@@ -46,6 +49,10 @@ function applyCompactMode(enabled: boolean) {
   document.documentElement.dataset.compact = enabled ? 'true' : 'false';
 }
 
+function applyReduceAnimations(enabled: boolean) {
+  document.documentElement.dataset.reduceAnimations = enabled ? 'true' : 'false';
+}
+
 export const useSettingsStore = create<SettingsState>()(
   persist(
     subscribeWithSelector((set) => ({
@@ -69,6 +76,11 @@ export const useSettingsStore = create<SettingsState>()(
       setCompactMode: (compactMode) =>
         set((state) => ({
           appearance: { ...state.appearance, compactMode },
+        })),
+
+      setReduceAnimations: (reduceAnimations) =>
+        set((state) => ({
+          appearance: { ...state.appearance, reduceAnimations },
         })),
     })),
     {
@@ -120,5 +132,12 @@ useSettingsStore.subscribe(
 useSettingsStore.subscribe(
   (state) => state.appearance.compactMode,
   (compactMode) => applyCompactMode(compactMode),
+  { fireImmediately: true }
+);
+
+// Subscribe to reduce animations changes and apply to DOM
+useSettingsStore.subscribe(
+  (state) => state.appearance.reduceAnimations,
+  (reduceAnimations) => applyReduceAnimations(reduceAnimations),
   { fireImmediately: true }
 );

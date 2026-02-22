@@ -14,6 +14,9 @@
 
 import {
   deriveKeyFromPassword,
+  derivePreferencesKey,
+  encryptBlob,
+  decryptBlob,
   unwrapPrivateKey,
   unwrapChannelKey,
   wrapChannelKey,
@@ -35,6 +38,7 @@ interface CachedWrappedKey {
 
 class E2EEService {
   private wrappingKey: CryptoKey | null = null;
+  private preferencesKey: CryptoKey | null = null;
   private wrappedPrivateKey: string = '';
   private channelKeyCache: Map<string, CachedWrappedKey> = new Map();
   private pendingKeyFetches: Map<string, Promise<CryptoKey>> = new Map();
@@ -51,6 +55,7 @@ class E2EEService {
   ): Promise<void> {
     const saltBytes = new Uint8Array(base64ToArrayBuffer(saltBase64));
     this.wrappingKey = await deriveKeyFromPassword(password, saltBytes);
+    this.preferencesKey = await derivePreferencesKey(password, saltBytes);
     this.wrappedPrivateKey = wrappedPrivateKeyBase64;
 
     // Start cache cleanup
@@ -239,10 +244,31 @@ class E2EEService {
   }
 
   /**
+   * Encrypt a preferences blob using the domain-separated preferences key.
+   */
+  async encryptPreferences<T>(data: T): Promise<string> {
+    if (!this.preferencesKey) {
+      throw new Error('E2EE service not initialized');
+    }
+    return encryptBlob(data, this.preferencesKey);
+  }
+
+  /**
+   * Decrypt a preferences blob using the domain-separated preferences key.
+   */
+  async decryptPreferences<T>(ciphertextBase64: string): Promise<T> {
+    if (!this.preferencesKey) {
+      throw new Error('E2EE service not initialized');
+    }
+    return decryptBlob<T>(ciphertextBase64, this.preferencesKey);
+  }
+
+  /**
    * Clear all keys on logout.
    */
   clearKeys(): void {
     this.wrappingKey = null;
+    this.preferencesKey = null;
     this.wrappedPrivateKey = '';
     this.channelKeyCache.clear();
     this.pendingKeyFetches.clear();

@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useUserStore, UpdateProfileData } from '../../stores/userStore';
-import ServerList from '../Servers/ServerList';
-import UserPanel from '../User/UserPanel';
 import PasswordStrength from '../Auth/PasswordStrength';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import './ProfilePage.css';
@@ -312,14 +310,7 @@ const ProfilePage: React.FC = () => {
   };
 
   return (
-    <div className="view-container main-view">
-      <div className="sidebar">
-        <div className="sidebar-servers">
-          <ServerList onOpenCreateModal={() => navigate('/app')} onContextMenu={() => {}} />
-        </div>
-        <UserPanel />
-      </div>
-
+    <div className="view-container profile-fullpage">
       <div className="profile-page-content">
         <div className="profile-page-inner">
           {/* Back button */}
