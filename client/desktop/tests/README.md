@@ -1,202 +1,133 @@
 # Desktop Client Tests
 
-This directory contains tests for the Concord Desktop Client (Electron app).
+Test suite for the Concord Desktop Client (Electron/React/TypeScript).
+
+**Coverage:** 70.28% lines — 783 tests across 69 files
 
 ## Structure
 
 ```
 tests/
-├── unit/         # Unit tests for components and utilities
-├── integration/  # Integration tests for features
-├── e2e/          # End-to-end tests with Electron
-└── __mocks__/    # Mock modules and data
+├── setup.ts                        # Global test setup (jest-dom, crypto polyfill, window.electron mock)
+├── test-utils.tsx                  # Custom render() with BrowserRouter, re-exports Testing Library
+├── helpers/
+│   ├── store-helpers.ts            # resetAllStores() for all 10 Zustand stores
+│   └── crypto-helpers.ts           # mockE2EEService() stubs
+├── mocks/
+│   ├── fixtures.ts                 # Typed mock data: mockUser, mockServer, mockChannel, mockMessage, mockMember
+│   ├── handlers.ts                 # MSW v2 request handlers (auth, servers, channels, messages, users, members)
+│   └── server.ts                   # MSW setupServer()
+├── unit/
+│   ├── stores/                     # 11 files — Zustand store tests
+│   │   ├── authStore.test.ts
+│   │   ├── chatStore.test.ts
+│   │   ├── serverStore.test.ts
+│   │   ├── channelStore.test.ts
+│   │   ├── memberStore.test.ts
+│   │   ├── unreadStore.test.ts
+│   │   ├── userStore.test.ts
+│   │   ├── userStore.changePassword.test.ts
+│   │   ├── settingsStore.test.ts
+│   │   ├── inviteStore.test.ts
+│   │   └── layoutStore.test.ts
+│   ├── components/                 # 39 files — React component tests
+│   │   ├── Auth/                   # AuthFlow, ConnectionSelector, InfoTooltip, LoadingSpinner, Login, PasswordStrength, Register, ServerInput
+│   │   ├── Chat/                   # ChatView, DeleteMessageModal, Message, MessageContextMenu, MessageInput, MessageInputContextMenu, MessageList, TypingIndicator
+│   │   ├── Channels/               # ChannelContextMenu, ChannelList, CreateChannelModal, DeleteChannelModal, EditChannelModal, ServerActionBar
+│   │   ├── Servers/                # CreateServerModal, DeleteServerModal, JoinServerModal, LeaveServerModal, ServerActionModal, ServerContextMenu, ServerList, ServerSettingsModal
+│   │   ├── Members/                # MemberContextMenu, MemberList, MemberProfileCard
+│   │   ├── Layout/                 # AppLayout, ChannelPanel, FolderBar, MemberFlexSpace, ServerBar
+│   │   ├── User/                   # UserPanel, UserPopover
+│   │   ├── Settings/               # SettingsPage
+│   │   ├── Profile/                # ProfilePage
+│   │   ├── MainView/               # MainView
+│   │   ├── ConnectionStatus/       # ConnectionStatus
+│   │   ├── ui/                     # ContextMenu, Modal
+│   │   └── App.test.tsx
+│   ├── hooks/                      # 4 files — Custom hook tests
+│   │   ├── useChannelSubscription.test.ts
+│   │   ├── useMessaging.test.ts
+│   │   ├── useResizablePanel.test.ts
+│   │   ├── useServerChannelSubscriptions.test.ts
+│   │   └── useWebSocket.test.ts
+│   ├── services/                   # 5 files — Service tests
+│   │   ├── apiClient.test.ts       # Auth header injection, 401 refresh retry, token clearing
+│   │   ├── e2eeService.test.ts     # Initialize, channel key caching, encrypt/decrypt
+│   │   ├── messageQueue.test.ts    # Enqueue, status transitions, max retries, queue limits
+│   │   ├── preferencesSync.test.ts
+│   │   └── websocketService.test.ts
+│   └── utils/
+│       └── crypto.test.ts          # Key derivation, key pair generation, wrap/unwrap, encrypt/decrypt (uses real Node webcrypto)
+└── e2e/                            # Playwright E2E tests
+    ├── helpers.ts                  # registerUser, loginUser, createServer, createChannel helpers
+    ├── auth.spec.ts
+    ├── servers.spec.ts
+    ├── channels.spec.ts
+    ├── messaging.spec.ts
+    └── invites.spec.ts
 ```
 
 ## Running Tests
 
-### All Tests
 ```bash
-npm test
+cd client/desktop
+
+# Run all unit tests
+npx vitest run
+
+# Watch mode (re-runs on file changes)
+npx vitest
+
+# Run with coverage report
+npx vitest run --coverage
+
+# Run specific test file
+npx vitest run tests/unit/stores/chatStore.test.ts
+
+# Run tests matching a pattern
+npx vitest run -t "renders login form"
+
+# Run a specific directory
+npx vitest run tests/unit/components/Auth/
+
+# Run E2E tests (requires running dev server + backend)
+npx playwright test
 ```
 
-### Unit Tests
-```bash
-npm run test:unit
-```
+## Test Tools
 
-### Integration Tests
-```bash
-npm run test:integration
-```
+| Tool | Purpose |
+|------|---------|
+| **Vitest** | Test runner (Vite-native, jest-compatible API) |
+| **@testing-library/react** | Component rendering and querying |
+| **@testing-library/jest-dom** | Custom DOM matchers (`toBeInTheDocument`, etc.) |
+| **@testing-library/user-event** | Realistic user interaction simulation |
+| **MSW v2** | API mocking for store tests (Mock Service Worker) |
+| **jsdom** | Browser environment simulation |
+| **@vitest/coverage-v8** | V8-based code coverage |
+| **Playwright** | E2E browser testing |
 
-### E2E Tests
-```bash
-npm run test:e2e
-```
+## Testing Patterns
 
-### Watch Mode
-```bash
-npm run test:watch
-```
+### Component Tests
+Components are tested with the custom `render()` from `test-utils.tsx` which wraps with `BrowserRouter`. Zustand stores are set directly via `setState()` for setup and read via `getState()` for assertions.
 
-### Coverage
-```bash
-npm run test:coverage
-```
+### Store Tests
+Zustand stores are tested directly — call actions, assert state changes. MSW intercepts API calls made by async actions. Stores are reset between tests.
 
-## Writing Tests
+### Mocking
+- **`vi.mock()`** for module mocks (crypto, e2eeService, preferencesSync)
+- **`vi.stubGlobal('fetch', mockFetch)`** for direct fetch mocking in component submission tests
+- **MSW** for store-level API mocking (avoids `credentials: 'include'` hang in jsdom)
+- **`vi.fn()`** for callback props and function mocks
 
-### Unit Test Example (React Component)
-```typescript
-// tests/unit/Message.test.tsx
-import { render, screen } from '@testing-library/react';
-import Message from '../../src/renderer/components/Chat/Message';
-
-describe('Message Component', () => {
-  it('renders message content', () => {
-    const message = {
-      id: '1',
-      content: 'Hello World',
-      username: 'TestUser',
-      created_at: new Date().toISOString()
-    };
-
-    render(<Message message={message} currentUserId="user1" />);
-
-    expect(screen.getByText('Hello World')).toBeInTheDocument();
-    expect(screen.getByText('TestUser')).toBeInTheDocument();
-  });
-});
-```
-
-### Integration Test Example
-```typescript
-// tests/integration/auth-flow.test.tsx
-import { render, screen, fireEvent } from '@testing-library/react';
-import AuthFlow from '../../src/renderer/components/Auth/AuthFlow';
-
-describe('Authentication Flow', () => {
-  it('completes login flow', async () => {
-    render(<AuthFlow />);
-
-    // Select hosted login
-    fireEvent.click(screen.getByText('Sign In to Existing Account'));
-
-    // Fill in credentials
-    fireEvent.change(screen.getByLabelText('Email'), {
-      target: { value: 'test@example.com' }
-    });
-
-    // Submit form
-    fireEvent.click(screen.getByText('Sign In'));
-
-    // Assert success
-    await screen.findByText('Welcome back!');
-  });
-});
-```
-
-### E2E Test Example (Spectron/Playwright)
-```typescript
-// tests/e2e/app.spec.ts
-import { test, expect } from '@playwright/test';
-
-test('app launches successfully', async ({ page }) => {
-  await page.waitForSelector('.app-container');
-  expect(await page.title()).toBe('Concord');
-});
-```
-
-## Test Utilities
-
-### Common Test Setup
-```typescript
-// tests/utils/test-utils.tsx
-import { render } from '@testing-library/react';
-import { BrowserRouter } from 'react-router-dom';
-
-export function renderWithRouter(ui: React.ReactElement) {
-  return render(ui, { wrapper: BrowserRouter });
-}
-```
-
-### Mock Data
-Place reusable mock data in `__mocks__/`:
-- `__mocks__/messages.ts` - Sample messages
-- `__mocks__/users.ts` - Sample users
-- `__mocks__/servers.ts` - Sample servers
-
-## Testing Best Practices
-
-1. **Test User Behavior, Not Implementation**
-   - Focus on what users see and do
-   - Avoid testing internal state
-
-2. **Use Testing Library Queries**
-   - Prefer `getByRole`, `getByLabelText`
-   - Avoid `getByTestId` unless necessary
-
-3. **Write Descriptive Test Names**
-   - Use "it should..." format
-   - Describe expected behavior
-
-4. **Keep Tests Isolated**
-   - Each test should be independent
-   - Clean up after tests
-
-5. **Mock External Dependencies**
-   - Mock API calls
-   - Mock Electron APIs
-   - Use `__mocks__/` for module mocks
+### Known Limitations
+- `window.matchMedia` is unavailable in jsdom — system theme tests must be skipped
+- `InviteToServerModal` causes OOM in jsdom — excluded from test suite
+- Components that fetch in `useEffect` on mount will override manually-set store state — mock the fetch function or API client
 
 ## CI/CD
 
-Tests run automatically on:
-- Pull requests
-- Pushes to main/develop
+Tests run automatically on pull requests and pushes to main/develop. See `.github/workflows/ci.yml`.
 
-See `.github/workflows/ci.yml` for configuration.
-
-## Dependencies
-
-Testing libraries included:
-- `@testing-library/react` - React component testing
-- `@testing-library/jest-dom` - Custom matchers
-- `@playwright/test` - E2E testing (planned)
-- `vitest` - Test runner
-
-## Coverage Goals
-
-Maintain minimum coverage:
-- Overall: 80%
-- Components: 85%
-- Utilities: 90%
-- Critical paths: 95%
-
-## Troubleshooting
-
-### Tests Not Running
-```bash
-# Clear test cache
-npm test -- --clearCache
-
-# Reinstall dependencies
-rm -rf node_modules package-lock.json
-npm install
-```
-
-### Electron Tests Failing
-```bash
-# Check Electron version compatibility
-npm ls electron
-
-# Rebuild native modules
-npm run rebuild
-```
-
-## Resources
-
-- [Testing Library Docs](https://testing-library.com/)
-- [Vitest Docs](https://vitest.dev/)
-- [Playwright Docs](https://playwright.dev/)
-- [Electron Testing Guide](https://www.electronjs.org/docs/latest/tutorial/automated-testing)
+Coverage threshold: **70%+** enforced in CI.
