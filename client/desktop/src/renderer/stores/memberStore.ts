@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { apiFetch } from '../services/apiClient';
 
 export type PresenceStatus = 'online' | 'offline' | 'dnd' | 'invisible';
 
@@ -23,7 +24,7 @@ interface MemberState {
   isLoading: boolean;
   error: string | null;
 
-  fetchMembers: (serverId: string, accessToken: string) => Promise<void>;
+  fetchMembers: (serverId: string) => Promise<void>;
   addMember: (member: ServerMember) => void;
   removeMember: (userId: string) => void;
   updateMemberProfile: (
@@ -42,7 +43,7 @@ interface MemberState {
 
 export const useMemberStore = create<MemberState>()(
   devtools(
-    (set) => ({
+    (set, get) => ({
       members: [],
       onlineUserIds: new Set<string>(),
       userStatuses: new Map<string, PresenceStatus>(),
@@ -51,15 +52,11 @@ export const useMemberStore = create<MemberState>()(
       isLoading: false,
       error: null,
 
-      fetchMembers: async (serverId: string, accessToken: string) => {
+      fetchMembers: async (serverId: string) => {
         set({ isLoading: true, error: null });
 
         try {
-          const response = await fetch(`http://localhost:8080/api/v1/servers/${serverId}/members`, {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-            },
-          });
+          const response = await apiFetch(`/api/v1/servers/${serverId}/members`);
 
           if (!response.ok) {
             const data = await response.json();
@@ -114,8 +111,13 @@ export const useMemberStore = create<MemberState>()(
 
       setOnlineUsers: (userIds: string[]) => {
         const onlineSet = new Set(userIds);
+        const existing = get().userStatuses;
         const statusMap = new Map<string, PresenceStatus>();
-        userIds.forEach((id) => statusMap.set(id, 'online'));
+        userIds.forEach((id) => {
+          // Preserve existing non-offline status (e.g. dnd, invisible)
+          const current = existing.get(id);
+          statusMap.set(id, current && current !== 'offline' ? current : 'online');
+        });
         set({ onlineUserIds: onlineSet, userStatuses: statusMap });
       },
 

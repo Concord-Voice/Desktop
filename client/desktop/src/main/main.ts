@@ -39,9 +39,16 @@ const createWindow = (): void => {
     mainWindow?.show();
   });
 
-  // Open external links in browser
+  // Open external links in browser (validate protocol to prevent code injection)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+        shell.openExternal(url);
+      }
+    } catch {
+      // Invalid URL, ignore
+    }
     return { action: 'deny' };
   });
 

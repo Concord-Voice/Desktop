@@ -138,7 +138,7 @@ export const useChannelStore = create<ChannelState>()(
             };
           }
 
-          set(updates as ChannelState);
+          set(updates);
         },
 
         clearChannels: () => {

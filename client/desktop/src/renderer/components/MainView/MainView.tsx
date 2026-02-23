@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import ServerContextMenu from '../Servers/ServerContextMenu';
 import ServerSettingsModal from '../Servers/ServerSettingsModal';
 import DeleteServerModal from '../Servers/DeleteServerModal';
@@ -138,25 +139,6 @@ const MainView: React.FC = () => {
           >
             {activeServer.e2ee_default ? <Lock size={12} /> : <LockOpen size={12} />}
           </span>
-        )}
-        {e2eeTooltipPos && activeServer && (
-          <div
-            className={`e2ee-tooltip visible ${activeServer.e2ee_default ? 'encrypted' : 'unencrypted'}`}
-            style={{ top: e2eeTooltipPos.top, left: e2eeTooltipPos.left }}
-          >
-            <span className="e2ee-tooltip-header">
-              {activeServer.e2ee_default ? <Lock size={11} /> : <LockOpen size={11} />}
-              {activeServer.e2ee_default ? 'E2EE Enabled' : 'E2EE Disabled'}
-            </span>
-            <span className="e2ee-tooltip-body">
-              {activeServer.e2ee_default
-                ? 'End-to-End Encryption is enabled by default in this server. New channels are created with E2EE on.'
-                : 'End-to-End Encryption is not enabled by default in this server. Channels may still enable E2EE individually.'}
-            </span>
-            <span className="e2ee-tooltip-hint">
-              Always check the channel encryption status near the message box to verify E2EE.
-            </span>
-          </div>
         )}
       </div>
       <ConnectionStatus />
@@ -342,6 +324,28 @@ const MainView: React.FC = () => {
           channel={deletingChannel}
           onClose={() => setDeletingChannel(null)}
         />
+      )}
+
+      {/* E2EE tooltip — portaled to body to escape transform-based containing blocks */}
+      {e2eeTooltipPos && activeServer && createPortal(
+        <div
+          className={`e2ee-tooltip visible ${activeServer.e2ee_default ? 'encrypted' : 'unencrypted'}`}
+          style={{ top: e2eeTooltipPos.top, left: e2eeTooltipPos.left }}
+        >
+          <span className="e2ee-tooltip-header">
+            {activeServer.e2ee_default ? <Lock size={11} /> : <LockOpen size={11} />}
+            {activeServer.e2ee_default ? 'E2EE Enabled' : 'E2EE Disabled'}
+          </span>
+          <span className="e2ee-tooltip-body">
+            {activeServer.e2ee_default
+              ? 'End-to-End Encryption is enabled by default in this server. New channels are created with E2EE on.'
+              : 'End-to-End Encryption is not enabled by default in this server. Channels may still enable E2EE individually.'}
+          </span>
+          <span className="e2ee-tooltip-hint">
+            Always check the channel encryption status near the message box to verify E2EE.
+          </span>
+        </div>,
+        document.body
       )}
     </div>
   );

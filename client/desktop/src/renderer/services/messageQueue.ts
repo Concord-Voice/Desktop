@@ -248,7 +248,7 @@ export class MessageQueue {
   }
 
   private generateMessageId(): string {
-    return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    return crypto.randomUUID();
   }
 
   private trimQueue(): void {
@@ -270,36 +270,16 @@ export class MessageQueue {
   }
 
   private saveQueue(): void {
-    try {
-      localStorage.setItem(QUEUE_STORAGE_KEY, JSON.stringify(this.queue));
-    } catch (error) {
-      console.error('[MessageQueue] Failed to save queue to localStorage:', error);
-    }
+    // No-op: plaintext message content must not be persisted to localStorage
+    // in an E2EE application. Queued messages are transient and lost on restart.
   }
 
   private loadQueue(): void {
+    // Clean up any previously persisted plaintext messages
     try {
-      const stored = localStorage.getItem(QUEUE_STORAGE_KEY);
-      if (stored) {
-        const loaded: QueuedMessage[] = JSON.parse(stored);
-        // Only keep PENDING messages — SENT messages were already persisted
-        // server-side and should not be replayed
-        this.queue = loaded.filter((m) => m.status === MessageStatus.PENDING);
-
-        if (loaded.length !== this.queue.length) {
-          console.debug(
-            `[MessageQueue] Discarded ${loaded.length - this.queue.length} already-sent messages`
-          );
-          this.saveQueue();
-        }
-
-        if (this.queue.length > 0) {
-          console.debug(`[MessageQueue] Loaded ${this.queue.length} pending messages from storage`);
-        }
-      }
-    } catch (error) {
-      console.error('[MessageQueue] Failed to load queue from localStorage:', error);
-      this.queue = [];
+      localStorage.removeItem(QUEUE_STORAGE_KEY);
+    } catch {
+      // Ignore
     }
   }
 }

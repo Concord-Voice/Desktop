@@ -317,23 +317,16 @@ export class WebSocketService {
     try {
       // Prefer ticket-based auth (short-lived, single-use — doesn't expose JWT in URLs)
       let wsUrl: string;
-      try {
-        const httpBase = this.url.replace(/^ws/, 'http');
-        const ticketRes = await fetch(httpBase.replace('/ws', '/auth/ws-ticket'), {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${this.token}` },
-        });
-        if (ticketRes.ok) {
-          const { ticket } = await ticketRes.json();
-          wsUrl = `${this.url}?ticket=${encodeURIComponent(ticket)}`;
-        } else {
-          // Ticket endpoint failed — fall back to token query param
-          wsUrl = `${this.url}?token=${encodeURIComponent(this.token)}`;
-        }
-      } catch {
-        // Network error fetching ticket — fall back to token query param
-        wsUrl = `${this.url}?token=${encodeURIComponent(this.token)}`;
+      const httpBase = this.url.replace(/^ws/, 'http');
+      const ticketRes = await fetch(httpBase.replace('/ws', '/auth/ws-ticket'), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${this.token}` },
+      });
+      if (!ticketRes.ok) {
+        throw new Error(`WebSocket ticket request failed: ${ticketRes.status}`);
       }
+      const { ticket } = await ticketRes.json();
+      wsUrl = `${this.url}?ticket=${encodeURIComponent(ticket)}`;
 
       this.ws = new WebSocket(wsUrl);
 

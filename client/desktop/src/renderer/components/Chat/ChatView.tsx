@@ -71,9 +71,9 @@ const ChatView: React.FC = () => {
   }, [activeChannelId]);
 
   // Retry key fetch when messages are stuck in pending state
+  const hasPendingKeys = messages.some((m) => m.pendingKeys);
   useEffect(() => {
-    const hasPending = messages.some((m) => m.pendingKeys);
-    if (!hasPending || !activeChannelId) return;
+    if (!hasPendingKeys || !activeChannelId) return;
 
     const interval = setInterval(() => {
       // Try to fetch the key — if it's now available, trigger a re-fetch
@@ -90,7 +90,7 @@ const ChatView: React.FC = () => {
     }, 5000);
 
     return () => clearInterval(interval);
-  }, [activeChannelId, messages]);
+  }, [activeChannelId, hasPendingKeys]);
 
   // Fetch message history when channel changes — always re-fetch to catch up
   // on messages sent while the user was viewing another channel
@@ -179,10 +179,26 @@ const ChatView: React.FC = () => {
       }
 
       const data = await res.json();
-      const msgs: MessageWithStatus[] = (data.messages || []).map((m: MessageWithStatus) => ({
+      const rawMsgs: MessageWithStatus[] = (data.messages || []).map((m: MessageWithStatus) => ({
         ...m,
         status: 'delivered' as const,
       }));
+
+      // Decrypt encrypted messages (same as initial fetch)
+      const msgs = await Promise.all(
+        rawMsgs.map(async (m) => {
+          if (m.is_encrypted && activeChannelId && e2eeService.isInitialized) {
+            try {
+              const plaintext = await e2eeService.decryptForChannel(activeChannelId, m.content);
+              return { ...m, content: plaintext };
+            } catch (err) {
+              const isPending = err instanceof Error && err.message === 'PENDING_KEY';
+              return { ...m, content: '', decryptFailed: !isPending, pendingKeys: isPending };
+            }
+          }
+          return m;
+        })
+      );
 
       prependMessages(activeChannelId, msgs);
       setHasMore(msgs.length === MESSAGES_LIMIT);

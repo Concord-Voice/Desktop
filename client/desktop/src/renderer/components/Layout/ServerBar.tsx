@@ -184,6 +184,7 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
 
   // Click server in bar
   const handleServerClick = (server: ServerWithRole) => {
+    setHoveredServer(null); // Clear tooltip before the icon unmounts
     setActiveServer(server.id);
     if (location.pathname !== '/app') navigate('/app');
   };
@@ -319,6 +320,14 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
       setDraggingId(null);
     }
   }, [barServers, draggingId]);
+
+  // Clear tooltip if the hovered server is no longer in the bar (e.g. it became active)
+  // — the unmounted element can't fire onMouseLeave, so we clean up here
+  useEffect(() => {
+    if (hoveredServer && !barServers.some((s) => s.id === hoveredServer.server.id)) {
+      setHoveredServer(null);
+    }
+  }, [barServers, hoveredServer]);
 
   // Dock magnification — compute per-icon scale from cursor distance
   const handleMouseMove = useCallback(

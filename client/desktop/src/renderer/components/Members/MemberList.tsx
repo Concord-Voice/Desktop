@@ -35,12 +35,12 @@ const MemberList: React.FC = () => {
 
   // Fetch members when active server changes
   useEffect(() => {
-    if (activeServerId && accessToken) {
-      fetchMembers(activeServerId, accessToken);
+    if (activeServerId) {
+      fetchMembers(activeServerId);
     } else {
       clearMembers();
     }
-  }, [activeServerId, accessToken, fetchMembers, clearMembers]);
+  }, [activeServerId, fetchMembers, clearMembers]);
 
   // Presence is handled globally in useWebSocket (presence_snapshot + presence events)
 
@@ -150,7 +150,7 @@ const MemberList: React.FC = () => {
           <p>{error}</p>
           <button
             onClick={() =>
-              activeServerId && accessToken && fetchMembers(activeServerId, accessToken)
+              activeServerId && fetchMembers(activeServerId)
             }
             className="retry-btn"
           >

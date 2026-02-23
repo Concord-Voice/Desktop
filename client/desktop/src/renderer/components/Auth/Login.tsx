@@ -3,6 +3,7 @@ import { unwrapLoginKeys, generateRegistrationKeys } from '../../utils/crypto';
 import { e2eeService } from '../../services/e2eeService';
 import { preferencesSyncService } from '../../services/preferencesSync';
 import { useAuthStore } from '../../stores/authStore';
+import { API_BASE, apiFetch } from '../../services/apiClient';
 import { UserProfile } from '../../stores/userStore';
 import LoadingSpinner from './LoadingSpinner';
 import './Login.css';
@@ -74,7 +75,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
       console.debug('Logging in...');
 
       // Login with backend
-      const response = await fetch('http://localhost:8080/api/v1/auth/login', {
+      const response = await fetch(`${API_BASE}/api/v1/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -116,11 +117,13 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
 
         const newKeys = await generateRegistrationKeys(formData.password);
 
-        const replaceRes = await fetch('http://localhost:8080/api/v1/users/me/keys', {
+        // Set tokens first so apiFetch can use them for auth
+        useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
+
+        const replaceRes = await apiFetch('/api/v1/users/me/keys', {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${data.access_token}`,
           },
           body: JSON.stringify({
             wrapped_private_key: newKeys.wrappedPrivateKey,

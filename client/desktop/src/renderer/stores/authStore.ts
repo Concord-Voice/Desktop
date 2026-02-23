@@ -19,7 +19,7 @@ export const useAuthStore = create<AuthState>()(
       setTokens: (accessToken, refreshToken) =>
         set({ accessToken, refreshToken: refreshToken ?? null }),
       setRememberMe: (rememberMe) => set({ rememberMe }),
-      clearTokens: () => set({ accessToken: null, refreshToken: null, rememberMe: true }),
+      clearTokens: () => set({ accessToken: null, refreshToken: null }),
     }),
     {
       name: 'concord-auth',

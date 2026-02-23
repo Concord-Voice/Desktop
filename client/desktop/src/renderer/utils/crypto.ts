@@ -134,7 +134,7 @@ export async function unwrapPrivateKey(
       name: 'RSA-OAEP',
       hash: 'SHA-256',
     },
-    true, // extractable
+    false, // non-extractable: prevent key export via XSS
     ['decrypt']
   );
 }

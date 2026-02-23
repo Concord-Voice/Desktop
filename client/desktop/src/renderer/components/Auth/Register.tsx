@@ -3,6 +3,10 @@ import PasswordStrength from './PasswordStrength';
 import InfoTooltip from './InfoTooltip';
 import LoadingSpinner from './LoadingSpinner';
 import { generateRegistrationKeys, exportPublicKey } from '../../utils/crypto';
+import { e2eeService } from '../../services/e2eeService';
+import { preferencesSyncService } from '../../services/preferencesSync';
+import { useAuthStore } from '../../stores/authStore';
+import { API_BASE } from '../../services/apiClient';
 import { UserProfile } from '../../stores/userStore';
 import './Register.css';
 
@@ -105,7 +109,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
       console.debug('Keys generated, registering with server...');
 
       // Register with backend
-      const response = await fetch('http://localhost:8080/api/v1/auth/register', {
+      const response = await fetch(`${API_BASE}/api/v1/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -129,10 +133,17 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
         throw new Error(data.error || 'Registration failed');
       }
 
-      console.debug('Registration successful!');
+      console.debug('Registration successful, initializing E2EE service...');
 
-      // Store the private key in memory (we'll add proper key storage later)
-      // Pass tokens and user data up
+      // Initialize E2EE service so encryption works immediately after registration
+      await e2eeService.initialize(
+        formData.password,
+        keys.wrappedPrivateKey,
+        keys.keyDerivationSalt
+      );
+      preferencesSyncService.startWatching();
+      useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
+
       onSuccess({
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
