@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, act } from '../../../test-utils';
-import ContextMenu from '@/renderer/components/UI/ContextMenu';
+import ContextMenu from '@/renderer/components/ui/ContextMenu';
 
 describe('ContextMenu', () => {
   const mockOnClose = vi.fn();

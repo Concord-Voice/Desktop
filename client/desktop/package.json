@@ -81,5 +81,8 @@
     "tar": "^7.5.9",
     "tmp": "^0.2.5",
     "webpack-dev-server": "^5.2.3"
+  },
+  "optionalDependencies": {
+    "@noble/hashes": "^2.0.1"
   }
 }

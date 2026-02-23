@@ -34,36 +34,39 @@ if (!globalThis.crypto?.subtle) {
   Object.defineProperty(globalThis, 'crypto', { value: webcrypto });
 }
 
-// Mock window.electron (Electron preload bridge)
-Object.defineProperty(window, 'electron', {
-  value: {
-    getVersion: vi.fn().mockResolvedValue('0.1.0-test'),
-    getPlatform: vi.fn().mockResolvedValue('darwin'),
-  },
-  writable: true,
-});
+// Browser-specific mocks — only applied in jsdom environment (skipped for @vitest-environment node)
+if (typeof window !== 'undefined') {
+  // Mock window.electron (Electron preload bridge)
+  Object.defineProperty(window, 'electron', {
+    value: {
+      getVersion: vi.fn().mockResolvedValue('0.1.0-test'),
+      getPlatform: vi.fn().mockResolvedValue('darwin'),
+    },
+    writable: true,
+  });
 
-// Mock IntersectionObserver (jsdom doesn't support it)
-class MockIntersectionObserver {
-  observe = vi.fn();
-  unobserve = vi.fn();
-  disconnect = vi.fn();
-}
-Object.defineProperty(window, 'IntersectionObserver', {
-  value: MockIntersectionObserver,
-  writable: true,
-});
+  // Mock IntersectionObserver (jsdom doesn't support it)
+  class MockIntersectionObserver {
+    observe = vi.fn();
+    unobserve = vi.fn();
+    disconnect = vi.fn();
+  }
+  Object.defineProperty(window, 'IntersectionObserver', {
+    value: MockIntersectionObserver,
+    writable: true,
+  });
 
-// Mock ResizeObserver (jsdom doesn't support it)
-class MockResizeObserver {
-  observe = vi.fn();
-  unobserve = vi.fn();
-  disconnect = vi.fn();
+  // Mock ResizeObserver (jsdom doesn't support it)
+  class MockResizeObserver {
+    observe = vi.fn();
+    unobserve = vi.fn();
+    disconnect = vi.fn();
+  }
+  Object.defineProperty(window, 'ResizeObserver', {
+    value: MockResizeObserver,
+    writable: true,
+  });
 }
-Object.defineProperty(window, 'ResizeObserver', {
-  value: MockResizeObserver,
-  writable: true,
-});
 
 // Suppress React act() warnings in test output
 const originalError = console.error;
