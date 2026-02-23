@@ -1,8 +1,9 @@
 import React, { useEffect } from 'react';
-import { Hash, Volume2, Pin, Lock } from 'lucide-react';
+import { Hash, Volume2, Pin, Lock, Mic, MicOff } from 'lucide-react';
 import { useChannelStore } from '../../stores/channelStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useUnreadStore } from '../../stores/unreadStore';
+import { useVoiceStore } from '../../stores/voiceStore';
 import { apiFetch } from '../../services/apiClient';
 import { Channel } from '../../types/chat';
 import './ChannelList.css';
@@ -22,6 +23,9 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
   const clearChannels = useChannelStore((state) => state.clearChannels);
   const unreadCounts = useUnreadStore((state) => state.unreadCounts);
   const clearUnread = useUnreadStore((state) => state.clearUnread);
+  const voiceChannelId = useVoiceStore((s) => s.activeChannelId);
+  const voiceParticipants = useVoiceStore((s) => s.participants);
+  const voiceConnectionState = useVoiceStore((s) => s.connectionState);
 
   // Fetch channels when active server changes
   useEffect(() => {
@@ -66,24 +70,46 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
   const renderChannelItem = (channel: Channel) => {
     const isActive = channel.id === activeChannelId;
     const unread = unreadCounts.get(channel.id) || 0;
+    const isVoiceConnected =
+      channel.type === 'voice' &&
+      channel.id === voiceChannelId &&
+      voiceConnectionState === 'connected';
+    const participants = isVoiceConnected ? Object.values(voiceParticipants) : [];
+
     return (
-      <div
-        key={channel.id}
-        className={`channel-item ${isActive ? 'active' : ''} ${unread > 0 ? 'has-unread' : ''}`}
-        onClick={() => handleChannelClick(channel)}
-        onContextMenu={(e) => handleContextMenu(e, channel)}
-        title={channel.name}
-      >
-        <span className="channel-type-icon">{getChannelTypeIcon(channel.type)}</span>
-        {channel.emoji && <span className="channel-custom-emoji">{channel.emoji}</span>}
-        <span className="channel-name">{channel.name}</span>
-        {channel.is_encrypted && (
-          <span className="channel-encrypted-icon" title="End-to-End Encrypted">
-            <Lock size={12} />
-          </span>
-        )}
-        {unread > 0 && !isActive && (
-          <span className="channel-unread-badge">{unread > 99 ? '99+' : unread}</span>
+      <div key={channel.id}>
+        <div
+          className={`channel-item ${isActive ? 'active' : ''} ${unread > 0 ? 'has-unread' : ''}`}
+          onClick={() => handleChannelClick(channel)}
+          onContextMenu={(e) => handleContextMenu(e, channel)}
+          title={channel.name}
+        >
+          <span className="channel-type-icon">{getChannelTypeIcon(channel.type)}</span>
+          {channel.emoji && <span className="channel-custom-emoji">{channel.emoji}</span>}
+          <span className="channel-name">{channel.name}</span>
+          {channel.is_encrypted && (
+            <span className="channel-encrypted-icon" title="End-to-End Encrypted">
+              <Lock size={12} />
+            </span>
+          )}
+          {unread > 0 && !isActive && (
+            <span className="channel-unread-badge">{unread > 99 ? '99+' : unread}</span>
+          )}
+        </div>
+        {participants.length > 0 && (
+          <div className="voice-channel-participants">
+            {participants.map((p) => (
+              <div
+                key={p.userId}
+                className={`voice-channel-participant ${p.isSpeaking ? 'speaking' : ''}`}
+              >
+                {p.isMuted ? <MicOff size={12} /> : <Mic size={12} />}
+                <span className="voice-channel-participant-name">
+                  {p.displayName || p.username}
+                </span>
+              </div>
+            ))}
+          </div>
         )}
       </div>
     );

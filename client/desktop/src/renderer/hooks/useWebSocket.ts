@@ -24,6 +24,7 @@ import {
 } from '../services/websocketService';
 import { e2eeService } from '../services/e2eeService';
 import { preferencesSyncService } from '../services/preferencesSync';
+import { useVoiceStore } from '../stores/voiceStore';
 
 export function useWebSocket() {
   const accessToken = useAuthStore((state) => state.accessToken);
@@ -395,6 +396,40 @@ export function useWebSocket() {
       }
     });
 
+    // Voice state update handler — from control plane via NATS
+    const unsubVoiceState = wsService.on('voice_state_update', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const channelId = data.channel_id as string | undefined;
+      const action = data.action as string | undefined;
+      const userId = data.user_id as string | undefined;
+      if (!channelId || !action || !userId) return;
+
+      const voiceStore = useVoiceStore.getState();
+      // Only process if it's for the channel we're connected to
+      if (voiceStore.activeChannelId !== channelId) return;
+
+      switch (action) {
+        case 'muted':
+          voiceStore.updateParticipant(userId, { isMuted: true });
+          break;
+        case 'unmuted':
+          voiceStore.updateParticipant(userId, { isMuted: false });
+          break;
+        case 'video_on':
+          voiceStore.updateParticipant(userId, { isVideoOn: true });
+          break;
+        case 'video_off':
+          voiceStore.updateParticipant(userId, { isVideoOn: false });
+          break;
+        case 'screen_on':
+          voiceStore.updateParticipant(userId, { isScreenSharing: true });
+          break;
+        case 'screen_off':
+          voiceStore.updateParticipant(userId, { isScreenSharing: false });
+          break;
+      }
+    });
+
     // Subscribed confirmation handler
     const unsubSubscribed = wsService.on('subscribed', (msg: WebSocketMessage) => {
       console.debug('[WebSocket] Subscribed to channel:', msg.data.channel_id);
@@ -427,6 +462,7 @@ export function useWebSocket() {
       unsubPresenceSnapshot();
       unsubPresence();
       unsubServerOnlineCounts();
+      unsubVoiceState();
       unsubSubscribed();
       unsubError();
     };

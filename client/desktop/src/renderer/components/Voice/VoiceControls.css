@@ -1,0 +1,118 @@
+/* ─── Shared ──────────────────────────────────────────────────── */
+
+.voice-controls__buttons {
+  display: flex;
+  align-items: center;
+  gap: calc(4px * var(--sp, 1));
+}
+
+.voice-controls__btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px;
+  border: none;
+  border-radius: 50%;
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.voice-controls__btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.voice-controls__btn--active {
+  background-color: var(--danger);
+  color: #fff;
+}
+
+.voice-controls__btn--active:hover {
+  background-color: #d83c3c;
+  color: #fff;
+}
+
+.voice-controls__btn--danger {
+  background-color: rgba(240, 71, 71, 0.2);
+  color: var(--danger);
+}
+
+.voice-controls__btn--danger:hover {
+  background-color: var(--danger);
+  color: #fff;
+}
+
+/* ─── Full variant (inside VoiceView) ─────────────────────────── */
+
+.voice-controls--full {
+  padding: calc(12px * var(--sp, 1));
+  background-color: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: center;
+}
+
+.voice-controls--full .voice-controls__btn {
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.voice-controls__btn-label {
+  font-size: calc(12px * var(--font-scale, 1));
+  white-space: nowrap;
+}
+
+/* ─── Compact variant (sidebar mini-bar) ──────────────────────── */
+
+.voice-controls--compact {
+  padding: calc(8px * var(--sp, 1));
+  background-color: var(--bg-tertiary);
+  border-top: 1px solid var(--border-color);
+}
+
+.voice-controls__info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 0 4px;
+}
+
+.voice-controls__status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--success);
+  flex-shrink: 0;
+}
+
+.voice-controls__channel-name {
+  font-size: calc(12px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--success);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.voice-controls__lock {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.voice-controls__count {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.voice-controls--compact .voice-controls__buttons {
+  justify-content: center;
+}
+
+.voice-controls--compact .voice-controls__btn {
+  padding: 6px;
+}

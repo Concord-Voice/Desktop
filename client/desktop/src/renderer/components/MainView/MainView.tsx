@@ -16,7 +16,10 @@ import EditChannelModal from '../Channels/EditChannelModal';
 import DeleteChannelModal from '../Channels/DeleteChannelModal';
 import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
 import { ChatView } from '../Chat';
+import VoiceView from '../Voice/VoiceView';
+import VoiceControls from '../Voice/VoiceControls';
 import { Lock, LockOpen } from 'lucide-react';
+import { useVoiceStore } from '../../stores/voiceStore';
 
 // New layout components
 import AppLayout from '../Layout/AppLayout';
@@ -83,6 +86,9 @@ const MainView: React.FC = () => {
   const activeChannelId = useChannelStore((state) => state.activeChannelId);
   const channels = useChannelStore((state) => state.channels);
   const setActiveChannel = useChannelStore((state) => state.setActiveChannel);
+  const activeChannel = channels.find((c) => c.id === activeChannelId);
+  const voiceActiveChannelId = useVoiceStore((s) => s.activeChannelId);
+  const voiceConnectionState = useVoiceStore((s) => s.connectionState);
 
   const handleCreateServerSuccess = (server: ServerWithRole) => {
     setActiveServer(server.id);
@@ -146,6 +152,7 @@ const MainView: React.FC = () => {
   );
 
   // ─── Channel panel body content ───
+  const isInVoice = voiceActiveChannelId && voiceConnectionState === 'connected';
   const channelBody = (
     <>
       {activeServer && (
@@ -155,6 +162,7 @@ const MainView: React.FC = () => {
         />
       )}
       <ChannelList onContextMenu={handleChannelContextMenu} />
+      {isInVoice && <VoiceControls variant="compact" />}
     </>
   );
 
@@ -182,6 +190,8 @@ const MainView: React.FC = () => {
           <h2>This server appears empty.</h2>
           <p className="empty-server-hint">Add some channels to start chatting!</p>
         </div>
+      ) : activeChannel?.type === 'voice' ? (
+        <VoiceView channelId={activeChannel.id} channelName={activeChannel.name} />
       ) : activeChannelId ? (
         <ChatView />
       ) : (

@@ -208,6 +208,31 @@
   color: var(--text-tertiary);
 }
 
+/* Voice channel participants */
+.voice-channel-participants {
+  padding: 2px 0 4px calc(32px * var(--sp, 1));
+}
+
+.voice-channel-participant {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-muted);
+  border-radius: 3px;
+}
+
+.voice-channel-participant.speaking {
+  color: var(--success);
+}
+
+.voice-channel-participant-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Scrollbar Styling */
 .channel-list::-webkit-scrollbar {
   width: 8px;

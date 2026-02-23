@@ -1,5 +1,8 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, desktopCapturer, ipcMain, session, shell } from 'electron';
 import path from 'path';
+
+// Hardware acceleration flags for video encode/decode (IGNIS insight: fastest preset wins)
+app.commandLine.appendSwitch('enable-features', 'AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxGL');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling
 if (require('electron-squirrel-startup')) {
@@ -59,6 +62,12 @@ const createWindow = (): void => {
 
 // App lifecycle handlers
 app.whenReady().then(() => {
+  // Media permission handler (#44): only allow media and display-capture
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    const allowed = ['media', 'display-capture'].includes(permission);
+    callback(allowed);
+  });
+
   createWindow();
 
   app.on('activate', () => {
@@ -83,6 +92,20 @@ ipcMain.handle('app:getVersion', () => {
 
 ipcMain.handle('app:getPlatform', () => {
   return process.platform;
+});
+
+// Screen capture sources for voice/video screen share picker (#44)
+ipcMain.handle('media:getDesktopSources', async () => {
+  const sources = await desktopCapturer.getSources({
+    types: ['window', 'screen'],
+    thumbnailSize: { width: 320, height: 180 },
+  });
+  return sources.map((s) => ({
+    id: s.id,
+    name: s.name,
+    thumbnail: s.thumbnail.toDataURL(),
+    appIcon: s.appIcon?.toDataURL() || null,
+  }));
 });
 
 // Prevent multiple instances
