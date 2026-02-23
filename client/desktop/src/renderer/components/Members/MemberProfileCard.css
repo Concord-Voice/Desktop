@@ -187,3 +187,24 @@
   margin-top: calc(4px * var(--sp, 1));
   word-wrap: break-word;
 }
+
+/* ─── View Full Profile Button ──────────────────────────────────────────── */
+
+.member-profile-view-full-btn {
+  width: 100%;
+  padding: calc(8px * var(--sp, 1));
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: calc(12px * var(--font-scale, 1));
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.member-profile-view-full-btn:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  background: var(--bg-secondary);
+}

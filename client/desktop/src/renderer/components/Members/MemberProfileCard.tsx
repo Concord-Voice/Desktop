@@ -8,6 +8,7 @@ interface MemberProfileCardProps {
   lastSeen?: number;
   position: { x: number; y: number };
   onClose: () => void;
+  onViewFullProfile: () => void;
 }
 
 const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
@@ -16,6 +17,7 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
   lastSeen,
   position,
   onClose,
+  onViewFullProfile,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -139,6 +141,17 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
             </div>
           </>
         )}
+
+        <div className="member-profile-separator" />
+        <button
+          className="member-profile-view-full-btn"
+          onClick={() => {
+            onClose();
+            onViewFullProfile();
+          }}
+        >
+          View Full Profile
+        </button>
       </div>
     </div>
   );

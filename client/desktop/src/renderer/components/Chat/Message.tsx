@@ -3,6 +3,7 @@ import { Lock } from 'lucide-react';
 import { MessageWithStatus } from '../../types/chat';
 import { useMemberStore, ServerMember } from '../../stores/memberStore';
 import MemberProfileCard from '../Members/MemberProfileCard';
+import UserProfileModal from '../Members/UserProfileModal';
 import DeleteMessageModal from './DeleteMessageModal';
 import MessageContextMenu from './MessageContextMenu';
 import './Message.css';
@@ -44,6 +45,7 @@ const Message: React.FC<MessageProps> = ({
     member: ServerMember;
     position: { x: number; y: number };
   } | null>(null);
+  const [fullProfileMember, setFullProfileMember] = useState<ServerMember | null>(null);
   const optionsRef = useRef<HTMLDivElement>(null);
   const isOwnMessage = message.user_id === currentUserId;
   const canModify = isOwnMessage && isServerMessage(message);
@@ -311,6 +313,20 @@ const Message: React.FC<MessageProps> = ({
           lastSeen={lastSeenByUser.get(selectedMember.member.user_id)}
           position={selectedMember.position}
           onClose={() => setSelectedMember(null)}
+          onViewFullProfile={() => {
+            setFullProfileMember(selectedMember.member);
+            setSelectedMember(null);
+          }}
+        />
+      )}
+
+      {fullProfileMember && (
+        <UserProfileModal
+          isOpen={!!fullProfileMember}
+          onClose={() => setFullProfileMember(null)}
+          member={fullProfileMember}
+          presenceStatus={userStatuses.get(fullProfileMember.user_id) || 'offline'}
+          lastSeen={lastSeenByUser.get(fullProfileMember.user_id)}
         />
       )}
 
