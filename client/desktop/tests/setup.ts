@@ -1,3 +1,23 @@
+// Fix localStorage: Node 22+ provides `globalThis.localStorage` as a stub without
+// working methods (setItem/getItem). Zustand persist middleware references the
+// bare `localStorage` global. Replace it with a proper in-memory implementation.
+{
+  const store = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => { store.set(key, value); },
+    removeItem: (key: string) => { store.delete(key); },
+    clear: () => { store.clear(); },
+    get length() { return store.size; },
+    key: (index: number) => [...store.keys()][index] ?? null,
+  };
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: storage,
+    writable: true,
+    configurable: true,
+  });
+}
+
 import '@testing-library/jest-dom/vitest';
 import { cleanup } from '@testing-library/react';
 import { afterEach, vi } from 'vitest';
