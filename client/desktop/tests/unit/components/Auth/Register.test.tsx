@@ -2,6 +2,10 @@ import { render, screen, userEvent } from '../../../test-utils';
 import Register from '@/renderer/components/Auth/Register';
 import { vi } from 'vitest';
 
+// Mock global fetch
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
+
 // Mock crypto and services
 vi.mock('@/renderer/utils/crypto', () => ({
   generateRegistrationKeys: vi.fn().mockResolvedValue({
@@ -130,5 +134,64 @@ describe('Register', () => {
   it('renders terms text', () => {
     render(<Register onBack={onBack} onSuccess={onSuccess} onSwitchToLogin={onSwitchToLogin} />);
     expect(screen.getByText(/Terms of Service and Privacy Policy/)).toBeInTheDocument();
+  });
+
+  it('submits registration and calls onSuccess', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        access_token: 'mock-access',
+        refresh_token: 'mock-refresh',
+        user: { id: 'user-1', username: 'testuser', email: 'test@example.com' },
+      }),
+    });
+
+    const user = userEvent.setup();
+    render(<Register onBack={onBack} onSuccess={onSuccess} onSwitchToLogin={onSwitchToLogin} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('your_username'), 'testuser');
+    await user.type(screen.getByPlaceholderText('Create a strong password'), 'MySecurePassword123!');
+    await user.type(screen.getByPlaceholderText('Confirm your password'), 'MySecurePassword123!');
+    // Click age confirmation checkbox
+    await user.click(screen.getByText(/at least 16 years old/));
+    await user.click(screen.getByText('Create Account'));
+
+    await vi.waitFor(() => {
+      expect(onSuccess).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accessToken: 'mock-access',
+          refreshToken: 'mock-refresh',
+        }),
+      );
+    });
+  });
+
+  it('shows error on registration failure', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: 'Email already registered' }),
+    });
+
+    const user = userEvent.setup();
+    render(<Register onBack={onBack} onSuccess={onSuccess} onSwitchToLogin={onSwitchToLogin} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('your_username'), 'testuser');
+    await user.type(screen.getByPlaceholderText('Create a strong password'), 'MySecurePassword123!');
+    await user.type(screen.getByPlaceholderText('Confirm your password'), 'MySecurePassword123!');
+    await user.click(screen.getByText(/at least 16 years old/));
+    await user.click(screen.getByText('Create Account'));
+
+    await vi.waitFor(() => {
+      expect(screen.getByText('Email already registered')).toBeInTheDocument();
+    });
+  });
+
+  it('clears field error when user starts typing', async () => {
+    const user = userEvent.setup();
+    render(<Register onBack={onBack} onSuccess={onSuccess} onSwitchToLogin={onSwitchToLogin} />);
+    await user.click(screen.getByText('Create Account'));
+    expect(screen.getByText('Email is required')).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText('you@example.com'), 't');
+    expect(screen.queryByText('Email is required')).not.toBeInTheDocument();
   });
 });

@@ -26,6 +26,14 @@ describe('TypingIndicator', () => {
     expect(screen.getByText(/alice.*bob.*typing/i)).toBeInTheDocument();
   });
 
+  it('shows three people typing with comma-separated names', () => {
+    useChatStore.getState().setTyping('channel-1', 'u1', true, 'alice');
+    useChatStore.getState().setTyping('channel-1', 'u2', true, 'bob');
+    useChatStore.getState().setTyping('channel-1', 'u3', true, 'charlie');
+    render(<TypingIndicator channelId="channel-1" />);
+    expect(screen.getByText(/alice.*bob.*charlie.*typing/i)).toBeInTheDocument();
+  });
+
   it('shows several people for 4+ users', () => {
     useChatStore.getState().setTyping('channel-1', 'u1', true, 'a');
     useChatStore.getState().setTyping('channel-1', 'u2', true, 'b');
@@ -33,5 +41,17 @@ describe('TypingIndicator', () => {
     useChatStore.getState().setTyping('channel-1', 'u4', true, 'd');
     render(<TypingIndicator channelId="channel-1" />);
     expect(screen.getByText(/several people.*typing/i)).toBeInTheDocument();
+  });
+
+  it('does not show typing for a different channel', () => {
+    useChatStore.getState().setTyping('channel-2', 'user-2', true, 'testuser2');
+    const { container } = render(<TypingIndicator channelId="channel-1" />);
+    expect(container.querySelector('.typing-indicator-text')).toBeNull();
+  });
+
+  it('renders typing dots when someone is typing', () => {
+    useChatStore.getState().setTyping('channel-1', 'user-2', true, 'testuser2');
+    const { container } = render(<TypingIndicator channelId="channel-1" />);
+    expect(container.querySelector('.typing-dots')).toBeInTheDocument();
   });
 });

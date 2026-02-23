@@ -2,6 +2,10 @@ import { render, screen, userEvent } from '../../../test-utils';
 import Login from '@/renderer/components/Auth/Login';
 import { vi } from 'vitest';
 
+// Mock global fetch
+const mockFetch = vi.fn();
+vi.stubGlobal('fetch', mockFetch);
+
 // Mock crypto and services to avoid real key operations
 vi.mock('@/renderer/utils/crypto', () => ({
   unwrapLoginKeys: vi.fn().mockResolvedValue(undefined),
@@ -110,5 +114,67 @@ describe('Login', () => {
     // Start typing to clear error
     await user.type(screen.getByPlaceholderText('you@example.com'), 't');
     expect(screen.queryByText('Email is required')).not.toBeInTheDocument();
+  });
+
+  it('submits login and calls onSuccess', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        access_token: 'mock-access',
+        refresh_token: 'mock-refresh',
+        user: { id: 'user-1', username: 'testuser', email: 'test@example.com' },
+        remember_me: true,
+        e2ee_keys: {
+          wrapped_private_key: 'mock-wrapped',
+          key_derivation_salt: 'mock-salt',
+        },
+      }),
+    });
+
+    const user = userEvent.setup();
+    render(<Login onBack={onBack} onSuccess={onSuccess} onSwitchToRegister={onSwitchToRegister} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'MySecurePassword123!');
+    await user.click(screen.getByText('Sign In'));
+
+    await vi.waitFor(() => {
+      expect(onSuccess).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accessToken: 'mock-access',
+          refreshToken: 'mock-refresh',
+        }),
+      );
+    });
+  });
+
+  it('shows error on login failure', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: 'Invalid credentials' }),
+    });
+
+    const user = userEvent.setup();
+    render(<Login onBack={onBack} onSuccess={onSuccess} onSwitchToRegister={onSwitchToRegister} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'WrongPassword123!');
+    await user.click(screen.getByText('Sign In'));
+
+    await vi.waitFor(() => {
+      expect(screen.getByText('Invalid credentials')).toBeInTheDocument();
+    });
+  });
+
+  it('shows generic error on network failure', async () => {
+    mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+    const user = userEvent.setup();
+    render(<Login onBack={onBack} onSuccess={onSuccess} onSwitchToRegister={onSwitchToRegister} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'MySecurePassword123!');
+    await user.click(screen.getByText('Sign In'));
+
+    await vi.waitFor(() => {
+      expect(screen.getByText('Network error')).toBeInTheDocument();
+    });
   });
 });
