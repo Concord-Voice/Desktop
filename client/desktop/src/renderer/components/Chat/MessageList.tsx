@@ -78,7 +78,8 @@ const MessageList: React.FC<MessageListProps> = ({
       return;
     }
 
-    const lastId = messages[messages.length - 1].id;
+    const lastMessage = messages[messages.length - 1];
+    const lastId = lastMessage.id;
 
     if (isNearBottomRef.current) {
       // User is at the bottom — auto-scroll and reset counter
@@ -87,12 +88,14 @@ const MessageList: React.FC<MessageListProps> = ({
       }
       setNewMessageCount(0);
     } else if (prevLastMessageIdRef.current !== null && lastId !== prevLastMessageIdRef.current) {
-      // User is scrolled up and a new message arrived at the end — count it
-      setNewMessageCount((c) => c + 1);
+      // User is scrolled up and a new message arrived — only count others' messages
+      if (lastMessage.user_id !== currentUserId) {
+        setNewMessageCount((c) => c + 1);
+      }
     }
 
     prevLastMessageIdRef.current = lastId;
-  }, [messages]);
+  }, [messages, currentUserId]);
 
   const scrollToBottom = useCallback((smooth = true) => {
     setNewMessageCount(0);
