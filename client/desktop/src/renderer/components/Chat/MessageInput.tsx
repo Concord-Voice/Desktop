@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Smile, ImagePlay, Paperclip, Lock, Unlock } from 'lucide-react';
 import MessageInputContextMenu from './MessageInputContextMenu';
+import EmojiPicker from '../EmojiPicker/EmojiPicker';
 import UserPanel from '../User/UserPanel';
 import { useLayoutStore } from '../../stores/layoutStore';
 import './MessageInput.css';
@@ -27,7 +28,10 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const channelPanelPinned = useLayoutStore((s) => s.channelPanelPinned);
   const [content, setContent] = useState('');
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [emojiPickerPos, setEmojiPickerPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const emojiBtnRef = useRef<HTMLButtonElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
 
@@ -68,6 +72,64 @@ const MessageInput: React.FC<MessageInputProps> = ({
     },
     [content, maxLength]
   );
+
+  const handleEmojiSelect = useCallback(
+    (emoji: string) => {
+      const textarea = textareaRef.current;
+      if (!textarea) {
+        setContent((prev) => {
+          const combined = prev + emoji;
+          return combined.length <= maxLength ? combined : combined.slice(0, maxLength);
+        });
+        setShowEmojiPicker(false);
+        return;
+      }
+
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const before = content.slice(0, start);
+      const after = content.slice(end);
+      const combined = before + emoji + after;
+      const newContent = combined.length <= maxLength ? combined : combined.slice(0, maxLength);
+
+      setContent(newContent);
+      setShowEmojiPicker(false);
+
+      requestAnimationFrame(() => {
+        const newCursor = Math.min(start + emoji.length, newContent.length);
+        textarea.selectionStart = newCursor;
+        textarea.selectionEnd = newCursor;
+        textarea.focus();
+      });
+    },
+    [content, maxLength]
+  );
+
+  const getPickerPosition = useCallback(() => {
+    if (!emojiBtnRef.current) return { x: 0, y: 0 };
+    const rect = emojiBtnRef.current.getBoundingClientRect();
+    const pickerWidth = 352;
+    const pickerHeight = 420;
+
+    // Position above the button, right-aligned to the button
+    let x = rect.right - pickerWidth;
+    let y = rect.top - pickerHeight - 8;
+
+    // Viewport clamping
+    x = Math.max(8, Math.min(x, window.innerWidth - pickerWidth - 8));
+    y = Math.max(8, y);
+
+    return { x, y };
+  }, []);
+
+  const toggleEmojiPicker = useCallback(() => {
+    if (showEmojiPicker) {
+      setShowEmojiPicker(false);
+    } else {
+      setEmojiPickerPos(getPickerPosition());
+      setShowEmojiPicker(true);
+    }
+  }, [showEmojiPicker, getPickerPosition]);
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -237,7 +299,12 @@ const MessageInput: React.FC<MessageInputProps> = ({
             Press <kbd>Enter</kbd> to send, <kbd>Shift+Enter</kbd> for new line
           </span>
           <div className="message-input-extras">
-            <button className="media-btn" title="Emoji" disabled>
+            <button
+              ref={emojiBtnRef}
+              className={`media-btn ${showEmojiPicker ? 'active' : ''}`}
+              title="Emoji"
+              onClick={toggleEmojiPicker}
+            >
               <Smile size={18} />
             </button>
             <button className="media-btn" title="GIF" disabled>
@@ -250,11 +317,21 @@ const MessageInput: React.FC<MessageInputProps> = ({
         </div>
       </div>
 
+      {showEmojiPicker && (
+        <EmojiPicker
+          mode="popover"
+          position={emojiPickerPos}
+          onSelect={handleEmojiSelect}
+          onClose={() => setShowEmojiPicker(false)}
+        />
+      )}
+
       {contextMenu && (
         <MessageInputContextMenu
           position={contextMenu}
           onClose={() => setContextMenu(null)}
           onPaste={handlePasteFromMenu}
+          onOpenEmojiPicker={toggleEmojiPicker}
         />
       )}
     </div>

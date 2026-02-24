@@ -207,6 +207,11 @@ kbd {
   background-color: var(--bg-tertiary);
 }
 
+.media-btn.active {
+  color: var(--accent-primary);
+  background-color: var(--bg-tertiary);
+}
+
 .media-btn:disabled {
   opacity: 0.5;
   cursor: default;
