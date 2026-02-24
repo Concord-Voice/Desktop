@@ -322,4 +322,61 @@ describe('ProfilePage', () => {
     expect(screen.queryByText('+ Add link')).not.toBeInTheDocument();
     expect(screen.getByText('5/5 links')).toBeInTheDocument();
   });
+
+  // --- Header image tests ---
+
+  it('renders header image upload area', () => {
+    render(<ProfilePage />);
+    expect(screen.getByLabelText('Upload header image')).toBeInTheDocument();
+  });
+
+  it('shows placeholder text when no header image', () => {
+    render(<ProfilePage />);
+    expect(screen.getByText('Click to upload a banner image')).toBeInTheDocument();
+  });
+
+  it('renders header image preview when header URL exists', () => {
+    useUserStore.setState({
+      user: {
+        ...mockUser,
+        header_image_url: 'data:image/png;base64,abc123',
+        display_name: 'Test Display',
+        bio: 'Test bio here',
+        links: ['https://example.com'],
+      },
+    });
+    render(<ProfilePage />);
+    const img = screen.getByAltText('Header preview');
+    expect(img).toBeInTheDocument();
+  });
+
+  it('renders remove banner button when header image exists', () => {
+    useUserStore.setState({
+      user: {
+        ...mockUser,
+        header_image_url: 'data:image/png;base64,abc123',
+        display_name: 'Test Display',
+        bio: 'Test bio here',
+        links: [],
+      },
+    });
+    render(<ProfilePage />);
+    expect(screen.getByText('Remove banner')).toBeInTheDocument();
+  });
+
+  it('handles remove banner click', () => {
+    useUserStore.setState({
+      user: {
+        ...mockUser,
+        header_image_url: 'data:image/png;base64,abc123',
+        display_name: 'Test Display',
+        bio: 'Test bio here',
+        links: [],
+      },
+    });
+    render(<ProfilePage />);
+    fireEvent.click(screen.getByText('Remove banner'));
+    // After removing, placeholder should show
+    expect(screen.getByText('Click to upload a banner image')).toBeInTheDocument();
+  });
 });

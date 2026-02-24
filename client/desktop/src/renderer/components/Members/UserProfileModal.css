@@ -51,6 +51,19 @@
   border-radius: 12px 12px 0 0;
 }
 
+/* When the banner has a custom image, remove gradient opacity */
+.user-profile-modal-banner.has-image {
+  opacity: 1;
+  background: var(--bg-tertiary);
+}
+
+.user-profile-modal-banner-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 12px 12px 0 0;
+}
+
 .user-profile-modal-close {
   position: absolute;
   top: 12px;

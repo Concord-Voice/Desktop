@@ -10,6 +10,7 @@ export const mockUser = {
   display_name: 'Test User',
   bio: null,
   avatar_url: null,
+  header_image_url: null,
   links: [],
   email_verified: false,
   age_verified: true,
