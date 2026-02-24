@@ -99,6 +99,93 @@ class VoiceService {
   private mediaEncryption: MediaEncryption | null = null;
   private isEncrypted = false;
 
+  // ─── Codec preference helpers ──────────────────────────────────────
+
+  /**
+   * Find a video codec from the loaded device's send capabilities.
+   * Returns the RtpCodecCapability matching the given mimeType, or undefined.
+   */
+  private findSendCodec(mimeType: string): mediasoupTypes.RtpCodecCapability | undefined {
+    if (!this.device?.rtpCapabilities?.codecs) return undefined;
+    return this.device.rtpCapabilities.codecs.find(
+      (c) => c.mimeType.toLowerCase() === mimeType.toLowerCase() && c.kind === 'video'
+    );
+  }
+
+  /**
+   * Pick the best codec for camera video.
+   * Preference: VP9 (SVC L3T3) → H264 (simulcast) → VP8 (simulcast)
+   */
+  private pickCameraCodec(): {
+    codec?: mediasoupTypes.RtpCodecCapability;
+    encodings: mediasoupTypes.RtpEncodingParameters[];
+  } {
+    // VP9 with SVC — single stream, 3 spatial + 3 temporal layers
+    const vp9 = this.findSendCodec('video/VP9');
+    if (vp9) {
+      return {
+        codec: vp9,
+        encodings: [{ scalabilityMode: 'L3T3', maxBitrate: 1_500_000 }],
+      };
+    }
+
+    // H264 with simulcast — 3 layers at different resolutions
+    const h264 = this.findSendCodec('video/H264');
+    if (h264) {
+      return {
+        codec: h264,
+        encodings: [
+          { maxBitrate: 100_000, scaleResolutionDownBy: 4 },
+          { maxBitrate: 300_000, scaleResolutionDownBy: 2 },
+          { maxBitrate: 900_000 },
+        ],
+      };
+    }
+
+    // VP8 fallback with simulcast
+    return {
+      codec: this.findSendCodec('video/VP8'),
+      encodings: [
+        { maxBitrate: 100_000, scaleResolutionDownBy: 4 },
+        { maxBitrate: 300_000, scaleResolutionDownBy: 2 },
+        { maxBitrate: 900_000 },
+      ],
+    };
+  }
+
+  /**
+   * Pick the best codec for screen sharing.
+   * Preference: AV1 (SVC, best compression for static content) → VP9 (SVC) → H264
+   */
+  private pickScreenCodec(): {
+    codec?: mediasoupTypes.RtpCodecCapability;
+    encodings: mediasoupTypes.RtpEncodingParameters[];
+  } {
+    // AV1 with SVC — ideal for screen share (huge compression gains on static content)
+    const av1 = this.findSendCodec('video/AV1');
+    if (av1) {
+      return {
+        codec: av1,
+        encodings: [{ scalabilityMode: 'L3T3', maxBitrate: 8_000_000 }],
+      };
+    }
+
+    // VP9 with SVC fallback
+    const vp9 = this.findSendCodec('video/VP9');
+    if (vp9) {
+      return {
+        codec: vp9,
+        encodings: [{ scalabilityMode: 'L3T3', maxBitrate: 5_000_000 }],
+      };
+    }
+
+    // H264 fallback — no SVC, generous bitrate
+    return {
+      codec: this.findSendCodec('video/H264'),
+      encodings: [{ maxBitrate: 5_000_000 }],
+    };
+  }
+
   // Decoder budget profiling
   private decoderProfilingTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -272,7 +359,7 @@ class VoiceService {
     });
   }
 
-  /** Produce camera video */
+  /** Produce camera video — VP9 SVC (L3T3) preferred, H264 simulcast fallback */
   async produceVideo(deviceId?: string): Promise<void> {
     if (!this.sendTransport || !this.device) return;
 
@@ -288,13 +375,12 @@ class VoiceService {
     this.localCameraStream = await navigator.mediaDevices.getUserMedia(constraints);
     const track = this.localCameraStream.getVideoTracks()[0];
 
+    const { codec, encodings } = this.pickCameraCodec();
+
     const producer = await this.sendTransport.produce({
       track,
-      encodings: [
-        { maxBitrate: 100_000, scaleResolutionDownBy: 4 },   // 180p
-        { maxBitrate: 300_000, scaleResolutionDownBy: 2 },   // 360p
-        { maxBitrate: 900_000 },                              // 720p
-      ],
+      encodings,
+      codec,
       codecOptions: {
         videoGoogleStartBitrate: 300,
       },
@@ -314,7 +400,7 @@ class VoiceService {
     });
   }
 
-  /** Produce screen share */
+  /** Produce screen share — AV1 SVC preferred (best compression for static content), VP9 fallback */
   async produceScreen(): Promise<void> {
     if (!this.sendTransport || !this.device) return;
 
@@ -347,11 +433,12 @@ class VoiceService {
     this.localScreenStream = stream;
     const track = stream.getVideoTracks()[0];
 
+    const { codec, encodings } = this.pickScreenCodec();
+
     const producer = await this.sendTransport.produce({
       track,
-      encodings: [
-        { maxBitrate: 5_000_000 }, // Generous — let congestion control adapt
-      ],
+      encodings,
+      codec,
       codecOptions: {
         videoGoogleStartBitrate: 1000,
       },
