@@ -88,7 +88,15 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
       className="member-profile-card"
       style={{ position: 'fixed', top, left, zIndex: 400 }}
     >
-      <div className="member-profile-banner" />
+      <div className={`member-profile-banner ${member.header_image_url ? 'has-image' : ''}`}>
+        {member.header_image_url && (
+          <img
+            src={member.header_image_url}
+            alt=""
+            className="member-profile-banner-img"
+          />
+        )}
+      </div>
 
       <div className="member-profile-header">
         <div className="member-profile-avatar">

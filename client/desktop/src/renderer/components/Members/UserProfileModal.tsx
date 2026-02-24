@@ -14,6 +14,7 @@ interface UserProfileModalProps {
 interface PublicProfile {
   links: string[];
   created_at: string;
+  header_image_url?: string;
 }
 
 const formatDate = (dateStr: string): string => {
@@ -90,6 +91,7 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
           setProfile({
             links: data.user?.links || [],
             created_at: data.user?.created_at || '',
+            header_image_url: data.user?.header_image_url || undefined,
           });
         }
       })
@@ -125,7 +127,14 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
     <div className="user-profile-overlay" ref={overlayRef} onClick={handleOverlayClick}>
       <div className="user-profile-container">
         {/* Banner + Close Button */}
-        <div className="user-profile-modal-banner">
+        <div className={`user-profile-modal-banner ${profile?.header_image_url ? 'has-image' : ''}`}>
+          {profile?.header_image_url && (
+            <img
+              src={profile.header_image_url}
+              alt=""
+              className="user-profile-modal-banner-img"
+            />
+          )}
           <button className="user-profile-modal-close" onClick={onClose} aria-label="Close">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path

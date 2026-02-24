@@ -29,6 +29,17 @@
   opacity: 0.6;
 }
 
+.member-profile-banner.has-image {
+  opacity: 1;
+  background: var(--bg-tertiary);
+}
+
+.member-profile-banner-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 /* ─── Header / Avatar ───────────────────────────────────────────────────── */
 
 .member-profile-header {
