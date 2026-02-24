@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   Mic,
   MicOff,
@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { getVoiceService } from '../../services/voiceLazy';
+import ScreenSharePicker from './ScreenSharePicker';
 import './VoiceControls.css';
 
 interface VoiceControlsProps {
@@ -32,6 +33,7 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
     participants,
   } = useVoiceStore();
 
+  const [showScreenPicker, setShowScreenPicker] = useState(false);
   const participantCount = Object.keys(participants).length;
 
   const handleToggleMute = async () => {
@@ -50,8 +52,34 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
   };
 
   const handleToggleScreen = async () => {
-    const { voiceService } = await getVoiceService();
-    await voiceService.toggleScreenShare();
+    try {
+      if (isScreenSharing) {
+        // Stop sharing — no picker needed
+        const { voiceService } = await getVoiceService();
+        await voiceService.toggleScreenShare();
+      } else {
+        // Start sharing — show picker if Electron API is available
+        if (window.electron?.getDesktopSources) {
+          setShowScreenPicker(true);
+        } else {
+          // Fallback: browser getDisplayMedia shows its own native picker
+          const { voiceService } = await getVoiceService();
+          await voiceService.toggleScreenShare();
+        }
+      }
+    } catch (err) {
+      console.error('Failed to toggle screen share:', err);
+    }
+  };
+
+  const handleScreenSourceSelected = async (sourceId: string) => {
+    setShowScreenPicker(false);
+    try {
+      const { voiceService } = await getVoiceService();
+      await voiceService.toggleScreenShare(sourceId);
+    } catch (err) {
+      console.error('Failed to start screen share:', err);
+    }
   };
 
   const handleLeave = async () => {
@@ -100,54 +128,63 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
   }
 
   return (
-    <div className="voice-controls voice-controls--full">
-      <div className="voice-controls__buttons">
-        <button
-          className={`voice-controls__btn ${isMuted ? 'voice-controls__btn--active' : ''}`}
-          onClick={handleToggleMute}
-          title={isMuted ? 'Unmute' : 'Mute'}
-        >
-          {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
-          <span className="voice-controls__btn-label">{isMuted ? 'Unmute' : 'Mute'}</span>
-        </button>
+    <>
+      <div className="voice-controls voice-controls--full">
+        <div className="voice-controls__buttons">
+          <button
+            className={`voice-controls__btn ${isMuted ? 'voice-controls__btn--active' : ''}`}
+            onClick={handleToggleMute}
+            title={isMuted ? 'Unmute' : 'Mute'}
+          >
+            {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
+            <span className="voice-controls__btn-label">{isMuted ? 'Unmute' : 'Mute'}</span>
+          </button>
 
-        <button
-          className={`voice-controls__btn ${isDeafened ? 'voice-controls__btn--active' : ''}`}
-          onClick={handleToggleDeafen}
-          title={isDeafened ? 'Undeafen' : 'Deafen'}
-        >
-          {isDeafened ? <HeadphoneOff size={18} /> : <Headphones size={18} />}
-          <span className="voice-controls__btn-label">{isDeafened ? 'Undeafen' : 'Deafen'}</span>
-        </button>
+          <button
+            className={`voice-controls__btn ${isDeafened ? 'voice-controls__btn--active' : ''}`}
+            onClick={handleToggleDeafen}
+            title={isDeafened ? 'Undeafen' : 'Deafen'}
+          >
+            {isDeafened ? <HeadphoneOff size={18} /> : <Headphones size={18} />}
+            <span className="voice-controls__btn-label">{isDeafened ? 'Undeafen' : 'Deafen'}</span>
+          </button>
 
-        <button
-          className={`voice-controls__btn ${isVideoOn ? 'voice-controls__btn--active' : ''}`}
-          onClick={handleToggleVideo}
-          title={isVideoOn ? 'Stop Video' : 'Start Video'}
-        >
-          {isVideoOn ? <VideoOff size={18} /> : <Video size={18} />}
-          <span className="voice-controls__btn-label">{isVideoOn ? 'Stop Video' : 'Video'}</span>
-        </button>
+          <button
+            className={`voice-controls__btn ${isVideoOn ? 'voice-controls__btn--active' : ''}`}
+            onClick={handleToggleVideo}
+            title={isVideoOn ? 'Stop Video' : 'Start Video'}
+          >
+            {isVideoOn ? <VideoOff size={18} /> : <Video size={18} />}
+            <span className="voice-controls__btn-label">{isVideoOn ? 'Stop Video' : 'Video'}</span>
+          </button>
 
-        <button
-          className={`voice-controls__btn ${isScreenSharing ? 'voice-controls__btn--active' : ''}`}
-          onClick={handleToggleScreen}
-          title={isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
-        >
-          {isScreenSharing ? <MonitorOff size={18} /> : <Monitor size={18} />}
-          <span className="voice-controls__btn-label">{isScreenSharing ? 'Stop' : 'Screen'}</span>
-        </button>
+          <button
+            className={`voice-controls__btn ${isScreenSharing ? 'voice-controls__btn--active' : ''}`}
+            onClick={handleToggleScreen}
+            title={isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
+          >
+            {isScreenSharing ? <MonitorOff size={18} /> : <Monitor size={18} />}
+            <span className="voice-controls__btn-label">{isScreenSharing ? 'Stop' : 'Screen'}</span>
+          </button>
 
-        <button
-          className="voice-controls__btn voice-controls__btn--danger"
-          onClick={handleLeave}
-          title="Leave Voice"
-        >
-          <PhoneOff size={18} />
-          <span className="voice-controls__btn-label">Leave</span>
-        </button>
+          <button
+            className="voice-controls__btn voice-controls__btn--danger"
+            onClick={handleLeave}
+            title="Leave Voice"
+          >
+            <PhoneOff size={18} />
+            <span className="voice-controls__btn-label">Leave</span>
+          </button>
+        </div>
       </div>
-    </div>
+
+      {showScreenPicker && (
+        <ScreenSharePicker
+          onSelect={handleScreenSourceSelected}
+          onCancel={() => setShowScreenPicker(false)}
+        />
+      )}
+    </>
   );
 };
 

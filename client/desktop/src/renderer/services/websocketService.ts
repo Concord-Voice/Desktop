@@ -13,6 +13,8 @@
  * @see services/control-plane/internal/websocket for backend implementation
  */
 
+import { WS_BASE } from '../config';
+
 export enum ConnectionState {
   DISCONNECTED = 'disconnected',
   CONNECTING = 'connecting',
@@ -55,10 +57,11 @@ export class WebSocketService {
   // Connection info
   private connectionInfo: ConnectionInfo | null = null;
 
-  // Subscribed channels
+  // Subscribed channels and servers (tracked for resubscription on reconnect)
   private subscribedChannels = new Set<string>();
+  private subscribedServers = new Set<string>();
 
-  constructor(baseUrl: string = 'ws://localhost:8080') {
+  constructor(baseUrl: string = WS_BASE) {
     this.url = `${baseUrl}/api/v1/ws`;
   }
 
@@ -126,7 +129,11 @@ export class WebSocketService {
    */
   send(message: WebSocketMessage): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('Cannot send message: WebSocket not open');
+      // Subscription lifecycle messages are expected when WS isn't open (startup, teardown)
+      const subTypes = ['subscribe', 'subscribe_server', 'unsubscribe', 'unsubscribe_server'];
+      if (!subTypes.includes(message.type)) {
+        console.warn('Cannot send message: WebSocket not open', message.type);
+      }
       return;
     }
 
@@ -170,6 +177,7 @@ export class WebSocketService {
    * Subscribe to server-level notifications (lightweight unread pings)
    */
   subscribeServer(serverId: string): void {
+    this.subscribedServers.add(serverId);
     this.send({
       type: 'subscribe_server',
       data: { server_id: serverId },
@@ -180,6 +188,7 @@ export class WebSocketService {
    * Unsubscribe from server-level notifications
    */
   unsubscribeServer(serverId: string): void {
+    this.subscribedServers.delete(serverId);
     this.send({
       type: 'unsubscribe_server',
       data: { server_id: serverId },
@@ -467,6 +476,10 @@ export class WebSocketService {
     // Resubscribe to all channels after reconnect
     this.subscribedChannels.forEach((channelId) => {
       this.subscribe(channelId);
+    });
+    // Resubscribe to all servers after reconnect
+    this.subscribedServers.forEach((serverId) => {
+      this.subscribeServer(serverId);
     });
   }
 

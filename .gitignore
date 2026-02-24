@@ -71,6 +71,7 @@ out/
 go.work
 vendor/
 bin/
+services/control-plane/server
 coverage.txt
 *.prof
 

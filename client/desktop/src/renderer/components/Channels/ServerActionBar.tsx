@@ -63,9 +63,17 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({ server, onOpenCreateM
     }
   };
 
+  const writeClipboard = async (text: string) => {
+    if (window.electron?.writeClipboard) {
+      await window.electron.writeClipboard(text);
+    } else {
+      await navigator.clipboard.writeText(text);
+    }
+  };
+
   const handleCopyCode = async () => {
     if (activeInvite) {
-      await navigator.clipboard.writeText(activeInvite.code);
+      await writeClipboard(activeInvite.code);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -76,7 +84,7 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({ server, onOpenCreateM
     const invite = await createInvite(server.id);
     setIsGenerating(false);
     if (invite) {
-      await navigator.clipboard.writeText(invite.code);
+      await writeClipboard(invite.code);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }

@@ -3,8 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import { useUserStore } from '../../stores/userStore';
 import { useSettingsStore, AppearanceSettings } from '../../stores/settingsStore';
+import { useVoiceStore, AUDIO_QUALITY_TIERS } from '../../stores/voiceStore';
+import type { AudioQualityTier } from '../../stores/voiceStore';
 import { apiFetch } from '../../services/apiClient';
 import LoadingSpinner from '../Auth/LoadingSpinner';
+import DeviceSelector from '../Voice/DeviceSelector';
 import './SettingsPage.css';
 
 type SettingsSection =
@@ -602,6 +605,93 @@ const PrivacySecuritySection: React.FC = () => {
   );
 };
 
+// ─── Voice & Audio Section ──────────────────────────────────────────────────
+
+const TIER_ORDER: AudioQualityTier[] = ['voice', 'standard', 'high', 'hifi', 'studio'];
+
+const VoiceAudioSection: React.FC = () => {
+  const qualityTier = useVoiceStore((s) => s.qualityTier);
+  const setQualityTier = useVoiceStore((s) => s.setQualityTier);
+
+  return (
+    <>
+      <div className="settings-section">
+        <h2 className="settings-section-title">Input Device</h2>
+        <p className="settings-section-description">
+          Select which microphone to use for voice channels.
+        </p>
+        <div className="settings-device-row">
+          <DeviceSelector kind="audioinput" />
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h2 className="settings-section-title">Output Device</h2>
+        <p className="settings-section-description">
+          Select which speaker or headphones to use for voice channels.
+        </p>
+        <div className="settings-device-row">
+          <DeviceSelector kind="audiooutput" />
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h2 className="settings-section-title">Camera</h2>
+        <p className="settings-section-description">
+          Select which camera to use for video calls.
+        </p>
+        <div className="settings-device-row">
+          <DeviceSelector kind="videoinput" />
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h2 className="settings-section-title">Audio Quality</h2>
+        <p className="settings-section-description">
+          Higher quality uses more bandwidth. Premium tiers require a subscription.
+        </p>
+        <div className="settings-quality-tiers">
+          {TIER_ORDER.map((tier) => {
+            const config = AUDIO_QUALITY_TIERS[tier];
+            return (
+              <button
+                key={tier}
+                className={`settings-quality-option ${qualityTier === tier ? 'selected' : ''}`}
+                onClick={() => setQualityTier(tier)}
+              >
+                <div className="settings-quality-option-info">
+                  <span className="settings-quality-option-label">
+                    {config.label}
+                    {config.premium && <span className="settings-quality-premium-badge">Premium</span>}
+                  </span>
+                  <span className="settings-quality-option-detail">
+                    {config.maxBitrate >= 1000
+                      ? `${(config.maxBitrate / 1000).toFixed(0)} kbps`
+                      : `${config.maxBitrate} bps`}
+                    {config.opusStereo ? ' · Stereo' : ' · Mono'}
+                    {config.opusFec ? ' · FEC' : ''}
+                  </span>
+                </div>
+                {qualityTier === tier && (
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path
+                      d="M3 8.5l3.5 3.5L13 4"
+                      stroke="var(--accent-primary)"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+};
+
 // ─── Nav Items ──────────────────────────────────────────────────────────────
 
 interface NavItem {
@@ -685,7 +775,7 @@ const navItems: NavItem[] = [
   {
     id: 'voice',
     label: 'Voice & Audio',
-    enabled: false,
+    enabled: true,
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
         <rect x="6" y="1" width="6" height="10" rx="3" stroke="currentColor" strokeWidth="1.5" />
@@ -729,6 +819,8 @@ const SettingsPage: React.FC = () => {
         return <AppearanceSection />;
       case 'privacy':
         return <PrivacySecuritySection />;
+      case 'voice':
+        return <VoiceAudioSection />;
       default:
         return null;
     }

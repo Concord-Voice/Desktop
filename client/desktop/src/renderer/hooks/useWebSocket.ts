@@ -405,28 +405,52 @@ export function useWebSocket() {
       if (!channelId || !action || !userId) return;
 
       const voiceStore = useVoiceStore.getState();
-      // Only process if it's for the channel we're connected to
-      if (voiceStore.activeChannelId !== channelId) return;
 
+      // Update channel voice members (sidebar display) for ALL channels
       switch (action) {
-        case 'muted':
-          voiceStore.updateParticipant(userId, { isMuted: true });
+        case 'joined':
+          if (userId) {
+            voiceStore.addChannelVoiceMember(channelId, {
+              userId,
+              username: (data.username as string) || 'Unknown',
+              displayName: data.display_name as string | undefined,
+              isMuted: false,
+            });
+          }
           break;
-        case 'unmuted':
-          voiceStore.updateParticipant(userId, { isMuted: false });
+        case 'left':
+          if (userId) {
+            voiceStore.removeChannelVoiceMember(channelId, userId);
+          }
           break;
-        case 'video_on':
-          voiceStore.updateParticipant(userId, { isVideoOn: true });
+        case 'room_empty':
+          // Safety net: server confirmed the room is empty — clear all members
+          voiceStore.setChannelVoiceMembers(channelId, []);
           break;
-        case 'video_off':
-          voiceStore.updateParticipant(userId, { isVideoOn: false });
-          break;
-        case 'screen_on':
-          voiceStore.updateParticipant(userId, { isScreenSharing: true });
-          break;
-        case 'screen_off':
-          voiceStore.updateParticipant(userId, { isScreenSharing: false });
-          break;
+      }
+
+      // Update detailed participants only for the channel we're connected to
+      if (voiceStore.activeChannelId === channelId) {
+        switch (action) {
+          case 'muted':
+            voiceStore.updateParticipant(userId, { isMuted: true });
+            break;
+          case 'unmuted':
+            voiceStore.updateParticipant(userId, { isMuted: false });
+            break;
+          case 'video_on':
+            voiceStore.updateParticipant(userId, { isVideoOn: true });
+            break;
+          case 'video_off':
+            voiceStore.updateParticipant(userId, { isVideoOn: false });
+            break;
+          case 'screen_on':
+            voiceStore.updateParticipant(userId, { isScreenSharing: true });
+            break;
+          case 'screen_off':
+            voiceStore.updateParticipant(userId, { isScreenSharing: false });
+            break;
+        }
       }
     });
 

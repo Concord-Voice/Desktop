@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { useAuthStore } from './authStore';
 import { useServerStore } from './serverStore';
-import { apiFetch } from '../services/apiClient';
+import { apiFetch, API_BASE } from '../services/apiClient';
 import { getWebSocketService } from '../services/websocketService';
 import { e2eeService } from '../services/e2eeService';
 import { preferencesSyncService } from '../services/preferencesSync';
@@ -104,7 +104,7 @@ export const useUserStore = create<UserState>()(
         getWebSocketService().disconnect();
 
         try {
-          await fetch('http://localhost:8080/api/v1/auth/logout', {
+          await fetch(`${API_BASE}/api/v1/auth/logout`, {
             method: 'POST',
             credentials: 'include',
           });

@@ -10,8 +10,9 @@
  */
 
 import { useAuthStore } from '../stores/authStore';
+import { API_BASE } from '../config';
 
-export const API_BASE = 'http://localhost:8080';
+export { API_BASE };
 
 let refreshPromise: Promise<string | null> | null = null;
 

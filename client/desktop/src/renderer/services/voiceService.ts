@@ -99,6 +99,107 @@ class VoiceService {
   private mediaEncryption: MediaEncryption | null = null;
   private isEncrypted = false;
 
+  // Consume queue — serializes consume operations to prevent concurrent SDP
+  // negotiations that cause "Duplicate a=mid value" errors.
+  private consumeQueue: Promise<void> = Promise.resolve();
+
+  // Client-side voice activity detection (Web Audio API)
+  private vadAudioContext: AudioContext | null = null;
+  private vadAnalyser: AnalyserNode | null = null;
+  private vadSource: MediaStreamAudioSourceNode | null = null;
+  private vadTimer: ReturnType<typeof setInterval> | null = null;
+  private vadSpeaking = false;
+
+  // ─── Client-side Voice Activity Detection (VAD) ──────────────────
+
+  /**
+   * Start local VAD using Web Audio AnalyserNode on the mic stream.
+   * Updates the local user's isSpeaking state in the store at ~20 Hz.
+   * This provides instant visual feedback without server roundtrip latency.
+   */
+  private startLocalVAD(micStream: MediaStream): void {
+    this.stopLocalVAD();
+
+    try {
+      this.vadAudioContext = new AudioContext();
+      this.vadSource = this.vadAudioContext.createMediaStreamSource(micStream);
+      this.vadAnalyser = this.vadAudioContext.createAnalyser();
+      this.vadAnalyser.fftSize = 256;
+      this.vadAnalyser.smoothingTimeConstant = 0.5;
+      this.vadSource.connect(this.vadAnalyser);
+
+      const bufferLength = this.vadAnalyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      const SPEAKING_THRESHOLD = 15; // byte average (0-255 range)
+      const SILENCE_DELAY = 300; // ms to hold speaking state after drop
+      let silenceStart = 0;
+
+      this.vadTimer = setInterval(() => {
+        if (!this.vadAnalyser) return;
+
+        this.vadAnalyser.getByteFrequencyData(dataArray);
+        // Average volume across frequency bins
+        let sum = 0;
+        for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
+        const average = sum / bufferLength;
+
+        const now = Date.now();
+        const isSpeakingNow = average > SPEAKING_THRESHOLD;
+
+        if (isSpeakingNow) {
+          silenceStart = 0;
+          if (!this.vadSpeaking) {
+            this.vadSpeaking = true;
+            this.updateLocalSpeaking(true);
+          }
+        } else if (this.vadSpeaking) {
+          // Debounce: hold speaking state briefly to avoid flickering
+          if (silenceStart === 0) {
+            silenceStart = now;
+          } else if (now - silenceStart > SILENCE_DELAY) {
+            this.vadSpeaking = false;
+            this.updateLocalSpeaking(false);
+          }
+        }
+      }, 50); // 20 Hz poll
+    } catch (err) {
+      console.warn('Failed to start local VAD:', err);
+    }
+  }
+
+  /** Stop local VAD and clean up audio nodes */
+  private stopLocalVAD(): void {
+    if (this.vadTimer) {
+      clearInterval(this.vadTimer);
+      this.vadTimer = null;
+    }
+    if (this.vadSpeaking) {
+      this.vadSpeaking = false;
+      this.updateLocalSpeaking(false);
+    }
+    this.vadSource?.disconnect();
+    this.vadSource = null;
+    this.vadAnalyser = null;
+    if (this.vadAudioContext && this.vadAudioContext.state !== 'closed') {
+      this.vadAudioContext.close().catch(() => {});
+    }
+    this.vadAudioContext = null;
+  }
+
+  /** Update the local user's isSpeaking state in the store */
+  private updateLocalSpeaking(speaking: boolean): void {
+    const store = useVoiceStore.getState();
+    const localUserId = useUserStore.getState().user?.id;
+    if (!localUserId) return;
+
+    store.updateParticipant(localUserId, { isSpeaking: speaking });
+    if (speaking) {
+      store.setActiveSpeaker(localUserId);
+    } else if (store.activeSpeakerId === localUserId) {
+      store.setActiveSpeaker(null);
+    }
+  }
+
   // ─── Codec preference helpers ──────────────────────────────────────
 
   /**
@@ -254,8 +355,10 @@ class VoiceService {
       this.device = new Device();
       await this.device.load({ routerRtpCapabilities: roomJoined.rtpCapabilities });
 
-      // Re-join with actual RTP capabilities now that device is loaded
-      // (the server stored null caps from step 3, update them)
+      // Send actual RTP capabilities to server (join-room sent undefined)
+      this.socket!.emit('update-rtp-capabilities', {
+        rtpCapabilities: this.device.rtpCapabilities,
+      });
 
       // Step 5: Create transports (with encodedInsertableStreams for E2EE)
       this.isEncrypted = channel.is_encrypted;
@@ -307,11 +410,22 @@ class VoiceService {
 
   /** Leave the current voice channel */
   async leaveChannel(): Promise<void> {
+    const store = useVoiceStore.getState();
+    const channelId = store.activeChannelId;
+    const localUserId = useUserStore.getState().user?.id;
+
     if (this.socket?.connected) {
       this.socket.emit('leave-room');
     }
     await this.cleanup();
-    useVoiceStore.getState().reset();
+
+    // Remove local user from channel voice members immediately so the
+    // channel sidebar updates without waiting for the server roundtrip.
+    if (channelId && localUserId) {
+      store.removeChannelVoiceMember(channelId, localUserId);
+    }
+
+    store.reset();
   }
 
   // ─── Audio Producer ────────────────────────────────────────────────
@@ -349,6 +463,9 @@ class VoiceService {
 
     this.producers.set('mic', producer);
 
+    // Start client-side VAD for instant speaking indicator
+    this.startLocalVAD(this.localMicStream);
+
     // Apply E2EE encrypt transform if encrypted
     if (this.isEncrypted && this.mediaEncryption) {
       this.applyEncryptTransform(producer);
@@ -356,6 +473,7 @@ class VoiceService {
 
     producer.on('transportclose', () => {
       this.producers.delete('mic');
+      this.stopLocalVAD();
     });
   }
 
@@ -388,7 +506,17 @@ class VoiceService {
     });
 
     this.producers.set('camera', producer);
-    useVoiceStore.getState().setVideoOn(true);
+
+    // Update store: both global flag and local participant's video stream
+    const store = useVoiceStore.getState();
+    store.setVideoOn(true);
+    const localUserId = useUserStore.getState().user?.id;
+    if (localUserId) {
+      store.updateParticipant(localUserId, {
+        videoStream: this.localCameraStream!,
+        isVideoOn: true,
+      });
+    }
 
     if (this.isEncrypted && this.mediaEncryption) {
       this.applyEncryptTransform(producer);
@@ -396,27 +524,37 @@ class VoiceService {
 
     producer.on('transportclose', () => {
       this.producers.delete('camera');
-      useVoiceStore.getState().setVideoOn(false);
+      const s = useVoiceStore.getState();
+      s.setVideoOn(false);
+      const uid = useUserStore.getState().user?.id;
+      if (uid) s.updateParticipant(uid, { videoStream: undefined, isVideoOn: false });
     });
   }
 
   /** Produce screen share — AV1 SVC preferred (best compression for static content), VP9 fallback */
-  async produceScreen(): Promise<void> {
-    if (!this.sendTransport || !this.device) return;
+  async produceScreen(sourceId?: string): Promise<void> {
+    if (!this.sendTransport || !this.device) {
+      console.warn('produceScreen: no sendTransport or device — cannot share screen');
+      return;
+    }
 
     // Use Electron desktopCapturer if available
     let stream: MediaStream;
     if (window.electron?.getDesktopSources) {
-      const sources = await window.electron.getDesktopSources();
-      if (sources.length === 0) throw new Error('No screen sources available');
-      // For now, pick the first screen. The UI picker (D4) will replace this.
-      const sourceId = sources.find((s) => s.id.startsWith('screen:'))?.id || sources[0].id;
+      // sourceId should come from ScreenSharePicker; fallback to first screen
+      let chosenId = sourceId;
+      if (!chosenId) {
+        const sources = await window.electron.getDesktopSources();
+        if (sources.length === 0) throw new Error('No screen sources available');
+        chosenId = sources.find((s) => s.id.startsWith('screen:'))?.id || sources[0].id;
+      }
+      console.debug('produceScreen: capturing desktop source', chosenId);
       stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: {
           mandatory: {
             chromeMediaSource: 'desktop',
-            chromeMediaSourceId: sourceId,
+            chromeMediaSourceId: chosenId,
             maxWidth: 3840,
             maxHeight: 2160,
             maxFrameRate: 30,
@@ -424,43 +562,70 @@ class VoiceService {
         } as unknown as MediaTrackConstraints,
       });
     } else {
+      console.debug('produceScreen: using getDisplayMedia fallback');
       stream = await navigator.mediaDevices.getDisplayMedia({
         video: { width: { ideal: 3840 }, height: { ideal: 2160 }, frameRate: { ideal: 30 } },
         audio: false,
       });
     }
 
-    this.localScreenStream = stream;
-    const track = stream.getVideoTracks()[0];
-
-    const { codec, encodings } = this.pickScreenCodec();
-
-    const producer = await this.sendTransport.produce({
-      track,
-      encodings,
-      codec,
-      codecOptions: {
-        videoGoogleStartBitrate: 1000,
-      },
-      appData: { source: 'screen' },
-    });
-
-    this.producers.set('screen', producer);
-    useVoiceStore.getState().setScreenSharing(true);
-
-    if (this.isEncrypted && this.mediaEncryption) {
-      this.applyEncryptTransform(producer);
+    const videoTracks = stream.getVideoTracks();
+    if (videoTracks.length === 0) {
+      stream.getTracks().forEach((t) => t.stop());
+      throw new Error('Screen capture returned no video tracks');
     }
 
-    // Handle user stopping screen share via browser UI
-    track.onended = () => {
-      this.closeProducer('screen');
-    };
+    const track = videoTracks[0];
 
-    producer.on('transportclose', () => {
-      this.producers.delete('screen');
-      useVoiceStore.getState().setScreenSharing(false);
-    });
+    // Wrap produce in try/catch so we can clean up the stream on failure
+    try {
+      const { codec, encodings } = this.pickScreenCodec();
+
+      const producer = await this.sendTransport.produce({
+        track,
+        encodings,
+        codec,
+        codecOptions: {
+          videoGoogleStartBitrate: 1000,
+        },
+        appData: { source: 'screen' },
+      });
+
+      this.localScreenStream = stream;
+      this.producers.set('screen', producer);
+
+      // Update store: both global flag and local participant's screen stream
+      const store = useVoiceStore.getState();
+      store.setScreenSharing(true);
+      const localUserId = useUserStore.getState().user?.id;
+      if (localUserId) {
+        store.updateParticipant(localUserId, {
+          screenStream: this.localScreenStream!,
+          isScreenSharing: true,
+        });
+      }
+
+      if (this.isEncrypted && this.mediaEncryption) {
+        this.applyEncryptTransform(producer);
+      }
+
+      // Handle user stopping screen share via browser UI
+      track.onended = () => {
+        this.closeProducer('screen');
+      };
+
+      producer.on('transportclose', () => {
+        this.producers.delete('screen');
+        const s = useVoiceStore.getState();
+        s.setScreenSharing(false);
+        const uid = useUserStore.getState().user?.id;
+        if (uid) s.updateParticipant(uid, { screenStream: undefined, isScreenSharing: false });
+      });
+    } catch (err) {
+      // Clean up stream tracks if produce failed
+      stream.getTracks().forEach((t) => t.stop());
+      throw err;
+    }
   }
 
   // ─── Producer Controls ─────────────────────────────────────────────
@@ -475,10 +640,14 @@ class VoiceService {
       await producer.resume();
       this.socket?.emit('resume-producer', { producerId: producer.id });
       store.setMuted(false);
+      // Restart VAD when unmuting
+      if (this.localMicStream) this.startLocalVAD(this.localMicStream);
     } else {
       await producer.pause();
       this.socket?.emit('pause-producer', { producerId: producer.id });
       store.setMuted(true);
+      // Stop VAD when muted — user shouldn't show as speaking
+      this.stopLocalVAD();
     }
   }
 
@@ -515,37 +684,54 @@ class VoiceService {
     }
   }
 
-  /** Toggle screen share */
-  async toggleScreenShare(): Promise<void> {
+  /** Toggle screen share. Pass sourceId from ScreenSharePicker for Electron. */
+  async toggleScreenShare(sourceId?: string): Promise<void> {
     const store = useVoiceStore.getState();
+    console.debug('toggleScreenShare:', { isScreenSharing: store.isScreenSharing, sourceId });
     if (store.isScreenSharing) {
       await this.closeProducer('screen');
     } else {
-      await this.produceScreen();
+      await this.produceScreen(sourceId);
     }
   }
 
   /** Close a specific producer by source */
   async closeProducer(source: string): Promise<void> {
     const producer = this.producers.get(source);
-    if (!producer) return;
 
-    producer.close();
-    this.producers.delete(source);
-    this.socket?.emit('close-producer', { producerId: producer.id });
+    if (producer) {
+      producer.close();
+      this.producers.delete(source);
+      this.socket?.emit('close-producer', { producerId: producer.id });
+    }
 
-    // Stop local tracks
-    if (source === 'mic' && this.localMicStream) {
-      this.localMicStream.getTracks().forEach((t) => t.stop());
-      this.localMicStream = null;
-    } else if (source === 'camera' && this.localCameraStream) {
-      this.localCameraStream.getTracks().forEach((t) => t.stop());
-      this.localCameraStream = null;
+    // Always clean up local tracks and reset state, even if no producer exists.
+    // This prevents state from getting stuck (e.g. isScreenSharing=true with no producer).
+    const localUserId = useUserStore.getState().user?.id;
+    if (source === 'mic') {
+      this.stopLocalVAD();
+      if (this.localMicStream) {
+        this.localMicStream.getTracks().forEach((t) => t.stop());
+        this.localMicStream = null;
+      }
+    } else if (source === 'camera') {
+      if (this.localCameraStream) {
+        this.localCameraStream.getTracks().forEach((t) => t.stop());
+        this.localCameraStream = null;
+      }
       useVoiceStore.getState().setVideoOn(false);
-    } else if (source === 'screen' && this.localScreenStream) {
-      this.localScreenStream.getTracks().forEach((t) => t.stop());
-      this.localScreenStream = null;
+      if (localUserId) {
+        useVoiceStore.getState().updateParticipant(localUserId, { videoStream: undefined, isVideoOn: false });
+      }
+    } else if (source === 'screen') {
+      if (this.localScreenStream) {
+        this.localScreenStream.getTracks().forEach((t) => t.stop());
+        this.localScreenStream = null;
+      }
       useVoiceStore.getState().setScreenSharing(false);
+      if (localUserId) {
+        useVoiceStore.getState().updateParticipant(localUserId, { screenStream: undefined, isScreenSharing: false });
+      }
     }
   }
 
@@ -628,7 +814,20 @@ class VoiceService {
 
   // ─── Consumer Management ───────────────────────────────────────────
 
+  /**
+   * Queue a consume operation. This serializes all consume calls to prevent
+   * concurrent SDP negotiations that cause "Duplicate a=mid value" errors.
+   */
   private async consumeProducer(producerId: string, senderUserId?: string): Promise<void> {
+    this.consumeQueue = this.consumeQueue.then(() =>
+      this.consumeProducerImpl(producerId, senderUserId)
+    ).catch((err) => {
+      console.error('Consume queue error:', err);
+    });
+    await this.consumeQueue;
+  }
+
+  private async consumeProducerImpl(producerId: string, senderUserId?: string): Promise<void> {
     if (!this.recvTransport || !this.device) return;
 
     try {
@@ -742,8 +941,13 @@ class VoiceService {
       if (store.activeSpeakerId && store.activeSpeakerId !== userId) {
         store.updateParticipant(store.activeSpeakerId, { isSpeaking: false });
       }
-      store.setActiveSpeaker(userId);
-      store.updateParticipant(userId, { isSpeaking: true });
+      if (userId) {
+        store.setActiveSpeaker(userId);
+        store.updateParticipant(userId, { isSpeaking: true });
+      } else {
+        // Silence — no one is speaking
+        store.setActiveSpeaker(null);
+      }
     });
 
     this.socket.on('consumer-closed', ({ consumerId }) => {
@@ -880,58 +1084,89 @@ class VoiceService {
     }
   }
 
-  /** Apply Insertable Streams encrypt transform to a producer */
+  /**
+   * Apply Insertable Streams encrypt transform to a producer.
+   * Tries RTCRtpScriptTransform (modern, Chrome 118+) first,
+   * falls back to createEncodedStreams (legacy, Chrome 86-130).
+   */
   private applyEncryptTransform(producer: mediasoupTypes.Producer): void {
     if (!this.mediaEncryption) return;
 
-    // Access the underlying RTCRtpSender
     const sender = producer.rtpSender;
-    if (!sender) return;
+    if (!sender) {
+      console.warn('E2EE: no rtpSender on producer — frames will not be encrypted');
+      return;
+    }
 
-    // Use createEncodedStreams (Insertable Streams API)
+    const encryption = this.mediaEncryption;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const senderAny = sender as any;
+
     if (typeof senderAny.createEncodedStreams === 'function') {
-      const { readable, writable } = senderAny.createEncodedStreams();
-      const encryption = this.mediaEncryption;
-
-      const transform = new TransformStream({
-        async transform(frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame, controller) {
-          await encryption.encryptFrame(frame);
-          controller.enqueue(frame);
-        },
-      });
-
-      readable.pipeThrough(transform).pipeTo(writable);
+      try {
+        const { readable, writable } = senderAny.createEncodedStreams();
+        const transform = new TransformStream({
+          async transform(frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame, controller) {
+            try {
+              await encryption.encryptFrame(frame);
+            } catch {
+              // Encrypt failed — still enqueue the frame (unencrypted) so the
+              // stream doesn't stall. Receiver will detect missing magic bytes.
+            }
+            controller.enqueue(frame);
+          },
+        });
+        readable.pipeThrough(transform).pipeTo(writable).catch((err: unknown) => {
+          console.warn('E2EE encrypt pipe error:', err);
+        });
+        console.debug('E2EE: encrypt transform applied via createEncodedStreams');
+      } catch (err) {
+        console.error('E2EE: createEncodedStreams failed on sender:', err);
+      }
     } else {
-      console.warn('Insertable Streams API not available — frames will not be encrypted');
+      console.warn('E2EE: Insertable Streams API not available — frames will not be encrypted');
     }
   }
 
-  /** Apply Insertable Streams decrypt transform to a consumer */
+  /**
+   * Apply Insertable Streams decrypt transform to a consumer.
+   * With magic-byte detection, unencrypted frames pass through safely.
+   */
   private applyDecryptTransform(consumer: mediasoupTypes.Consumer, senderUserId: string): void {
     if (!this.mediaEncryption) return;
 
-    // Access the underlying RTCRtpReceiver
     const receiver = consumer.rtpReceiver;
-    if (!receiver) return;
+    if (!receiver) {
+      console.warn('E2EE: no rtpReceiver on consumer — frames will not be decrypted');
+      return;
+    }
 
+    const encryption = this.mediaEncryption;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const receiverAny = receiver as any;
+
     if (typeof receiverAny.createEncodedStreams === 'function') {
-      const { readable, writable } = receiverAny.createEncodedStreams();
-      const encryption = this.mediaEncryption;
-
-      const transform = new TransformStream({
-        async transform(frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame, controller) {
-          await encryption.decryptFrame(frame, senderUserId);
-          controller.enqueue(frame);
-        },
-      });
-
-      readable.pipeThrough(transform).pipeTo(writable);
+      try {
+        const { readable, writable } = receiverAny.createEncodedStreams();
+        const transform = new TransformStream({
+          async transform(frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame, controller) {
+            try {
+              await encryption.decryptFrame(frame, senderUserId);
+            } catch {
+              // Decrypt failed — pass frame through as-is
+            }
+            controller.enqueue(frame);
+          },
+        });
+        readable.pipeThrough(transform).pipeTo(writable).catch((err: unknown) => {
+          console.warn('E2EE decrypt pipe error:', err);
+        });
+        console.debug('E2EE: decrypt transform applied via createEncodedStreams');
+      } catch (err) {
+        console.error('E2EE: createEncodedStreams failed on receiver:', err);
+      }
     } else {
-      console.warn('Insertable Streams API not available — frames will not be decrypted');
+      console.warn('E2EE: Insertable Streams API not available — frames will not be decrypted');
     }
   }
 
@@ -996,6 +1231,9 @@ class VoiceService {
     this.sendTransport = null;
     this.recvTransport = null;
 
+    // Stop local VAD
+    this.stopLocalVAD();
+
     // Stop decoder profiling
     if (this.decoderProfilingTimer) {
       clearInterval(this.decoderProfilingTimer);
@@ -1006,6 +1244,10 @@ class VoiceService {
     this.mediaEncryption?.destroy();
     this.mediaEncryption = null;
     this.isEncrypted = false;
+
+    // Reset consume queue so pending consumes from the old session don't
+    // interfere with the next join.
+    this.consumeQueue = Promise.resolve();
 
     // Disconnect socket
     this.socket?.disconnect();

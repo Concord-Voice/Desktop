@@ -1,6 +1,36 @@
 import { create } from 'zustand';
 
 // ---------------------------------------------------------------------------
+// Persisted device settings (per-machine via localStorage)
+// ---------------------------------------------------------------------------
+const VOICE_SETTINGS_KEY = 'concord:voice-settings';
+
+interface PersistedVoiceSettings {
+  audioInputDeviceId: string | null;
+  audioOutputDeviceId: string | null;
+  videoDeviceId: string | null;
+  qualityTier: AudioQualityTier;
+}
+
+function loadPersistedSettings(): Partial<PersistedVoiceSettings> {
+  try {
+    const raw = localStorage.getItem(VOICE_SETTINGS_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw) as Partial<PersistedVoiceSettings>;
+  } catch {
+    return {};
+  }
+}
+
+function savePersistedSettings(settings: PersistedVoiceSettings): void {
+  try {
+    localStorage.setItem(VOICE_SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // localStorage full or unavailable — ignore
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Voice participant state
 // ---------------------------------------------------------------------------
 export interface VoiceParticipant {
@@ -42,6 +72,17 @@ export const AUDIO_QUALITY_TIERS: Record<
 };
 
 // ---------------------------------------------------------------------------
+// Channel voice members (sidebar display — who's in each voice channel)
+// ---------------------------------------------------------------------------
+export interface ChannelVoiceMember {
+  userId: string;
+  username: string;
+  displayName?: string;
+  avatarUrl?: string;
+  isMuted: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Connection state
 // ---------------------------------------------------------------------------
 export type VoiceConnectionState =
@@ -80,6 +121,9 @@ interface VoiceState {
   // Quality
   qualityTier: AudioQualityTier;
 
+  // Channel voice members (sidebar — all voice channels, not just the one we're in)
+  channelVoiceMembers: Record<string, ChannelVoiceMember[]>;
+
   // Actions
   setConnectionState: (state: VoiceConnectionState) => void;
   setActiveChannel: (channelId: string | null, channelName?: string, serverId?: string) => void;
@@ -101,9 +145,18 @@ interface VoiceState {
   setParticipants: (participants: VoiceParticipant[]) => void;
   clearParticipants: () => void;
 
+  // Channel voice members management (sidebar)
+  setChannelVoiceMembers: (channelId: string, members: ChannelVoiceMember[]) => void;
+  addChannelVoiceMember: (channelId: string, member: ChannelVoiceMember) => void;
+  removeChannelVoiceMember: (channelId: string, userId: string) => void;
+  clearAllChannelVoiceMembers: () => void;
+
   // Full reset (on disconnect)
   reset: () => void;
 }
+
+// Load persisted device settings from localStorage
+const persisted = loadPersistedSettings();
 
 const initialState = {
   activeChannelId: null as string | null,
@@ -117,10 +170,11 @@ const initialState = {
   isScreenSharing: false,
   participants: {} as Record<string, VoiceParticipant>,
   activeSpeakerId: null as string | null,
-  audioInputDeviceId: null as string | null,
-  audioOutputDeviceId: null as string | null,
-  videoDeviceId: null as string | null,
-  qualityTier: 'standard' as AudioQualityTier,
+  audioInputDeviceId: (persisted.audioInputDeviceId ?? null) as string | null,
+  audioOutputDeviceId: (persisted.audioOutputDeviceId ?? null) as string | null,
+  videoDeviceId: (persisted.videoDeviceId ?? null) as string | null,
+  qualityTier: (persisted.qualityTier ?? 'standard') as AudioQualityTier,
+  channelVoiceMembers: {} as Record<string, ChannelVoiceMember[]>,
 };
 
 export const useVoiceStore = create<VoiceState>()((set) => ({
@@ -139,10 +193,26 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
   setVideoOn: (isVideoOn) => set({ isVideoOn }),
   setScreenSharing: (isScreenSharing) => set({ isScreenSharing }),
   setActiveSpeaker: (activeSpeakerId) => set({ activeSpeakerId }),
-  setAudioInputDevice: (audioInputDeviceId) => set({ audioInputDeviceId }),
-  setAudioOutputDevice: (audioOutputDeviceId) => set({ audioOutputDeviceId }),
-  setVideoDevice: (videoDeviceId) => set({ videoDeviceId }),
-  setQualityTier: (qualityTier) => set({ qualityTier }),
+  setAudioInputDevice: (audioInputDeviceId) => {
+    set({ audioInputDeviceId });
+    const s = useVoiceStore.getState();
+    savePersistedSettings({ audioInputDeviceId, audioOutputDeviceId: s.audioOutputDeviceId, videoDeviceId: s.videoDeviceId, qualityTier: s.qualityTier });
+  },
+  setAudioOutputDevice: (audioOutputDeviceId) => {
+    set({ audioOutputDeviceId });
+    const s = useVoiceStore.getState();
+    savePersistedSettings({ audioInputDeviceId: s.audioInputDeviceId, audioOutputDeviceId, videoDeviceId: s.videoDeviceId, qualityTier: s.qualityTier });
+  },
+  setVideoDevice: (videoDeviceId) => {
+    set({ videoDeviceId });
+    const s = useVoiceStore.getState();
+    savePersistedSettings({ audioInputDeviceId: s.audioInputDeviceId, audioOutputDeviceId: s.audioOutputDeviceId, videoDeviceId, qualityTier: s.qualityTier });
+  },
+  setQualityTier: (qualityTier) => {
+    set({ qualityTier });
+    const s = useVoiceStore.getState();
+    savePersistedSettings({ audioInputDeviceId: s.audioInputDeviceId, audioOutputDeviceId: s.audioOutputDeviceId, videoDeviceId: s.videoDeviceId, qualityTier });
+  },
 
   addParticipant: (participant) =>
     set((state) => ({
@@ -170,5 +240,47 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
     }),
   clearParticipants: () => set({ participants: {} }),
 
-  reset: () => set(initialState),
+  // Channel voice members (sidebar)
+  setChannelVoiceMembers: (channelId, members) =>
+    set((state) => ({
+      channelVoiceMembers: { ...state.channelVoiceMembers, [channelId]: members },
+    })),
+  addChannelVoiceMember: (channelId, member) =>
+    set((state) => {
+      const existing = state.channelVoiceMembers[channelId] || [];
+      // Avoid duplicates
+      if (existing.some((m) => m.userId === member.userId)) return state;
+      return {
+        channelVoiceMembers: {
+          ...state.channelVoiceMembers,
+          [channelId]: [...existing, member],
+        },
+      };
+    }),
+  removeChannelVoiceMember: (channelId, userId) =>
+    set((state) => {
+      const existing = state.channelVoiceMembers[channelId];
+      if (!existing) return state;
+      const filtered = existing.filter((m) => m.userId !== userId);
+      if (filtered.length === 0) {
+        const { [channelId]: _, ...rest } = state.channelVoiceMembers;
+        return { channelVoiceMembers: rest };
+      }
+      return {
+        channelVoiceMembers: { ...state.channelVoiceMembers, [channelId]: filtered },
+      };
+    }),
+  clearAllChannelVoiceMembers: () => set({ channelVoiceMembers: {} }),
+
+  reset: () =>
+    set((state) => ({
+      ...initialState,
+      // Preserve server-wide voice member data (sidebar display) across join/leave
+      channelVoiceMembers: state.channelVoiceMembers,
+      // Preserve device settings across join/leave (they're persisted to localStorage)
+      audioInputDeviceId: state.audioInputDeviceId,
+      audioOutputDeviceId: state.audioOutputDeviceId,
+      videoDeviceId: state.videoDeviceId,
+      qualityTier: state.qualityTier,
+    })),
 }));

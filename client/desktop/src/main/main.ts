@@ -1,4 +1,4 @@
-import { app, BrowserWindow, desktopCapturer, ipcMain, session, shell } from 'electron';
+import { app, BrowserWindow, clipboard, desktopCapturer, ipcMain, session, shell } from 'electron';
 import path from 'path';
 
 // Hardware acceleration flags for video encode/decode (IGNIS insight: fastest preset wins)
@@ -108,6 +108,11 @@ ipcMain.handle('media:getDesktopSources', async () => {
   }));
 });
 
+// Clipboard write (navigator.clipboard.writeText is blocked in Electron)
+ipcMain.handle('clipboard:writeText', (_event, text: string) => {
+  clipboard.writeText(text);
+});
+
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -128,12 +133,13 @@ app.on('web-contents-created', (_, contents) => {
   contents.on('will-navigate', (event, navigationUrl) => {
     const parsedUrl = new URL(navigationUrl);
 
-    // Only allow navigation to localhost in development
     if (process.env.NODE_ENV === 'development') {
-      if (parsedUrl.origin !== 'http://localhost:3001') {
+      // In dev, allow localhost navigation (any port) for HMR
+      if (parsedUrl.hostname !== 'localhost') {
         event.preventDefault();
       }
     } else {
+      // In production, block all navigation (app loads from file://)
       event.preventDefault();
     }
   });

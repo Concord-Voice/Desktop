@@ -1,9 +1,9 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Hash, Volume2, Pin, Lock, Mic, MicOff } from 'lucide-react';
 import { useChannelStore } from '../../stores/channelStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useUnreadStore } from '../../stores/unreadStore';
-import { useVoiceStore } from '../../stores/voiceStore';
+import { useVoiceStore, type ChannelVoiceMember } from '../../stores/voiceStore';
 import { apiFetch } from '../../services/apiClient';
 import { Channel } from '../../types/chat';
 import './ChannelList.css';
@@ -26,6 +26,10 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
   const voiceChannelId = useVoiceStore((s) => s.activeChannelId);
   const voiceParticipants = useVoiceStore((s) => s.participants);
   const voiceConnectionState = useVoiceStore((s) => s.connectionState);
+  const channelVoiceMembers = useVoiceStore((s) => s.channelVoiceMembers);
+  const setChannelVoiceMembers = useVoiceStore((s) => s.setChannelVoiceMembers);
+  const clearAllChannelVoiceMembers = useVoiceStore((s) => s.clearAllChannelVoiceMembers);
+  const fetchedServerRef = useRef<string | null>(null);
 
   // Fetch channels when active server changes
   useEffect(() => {
@@ -35,6 +39,45 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
       clearChannels();
     }
   }, [activeServerId, fetchChannels, clearChannels]);
+
+  // Fetch voice participants for all voice channels when channel list loads
+  useEffect(() => {
+    const voiceChans = channels.filter((c) => c.type === 'voice');
+    if (voiceChans.length === 0 || !activeServerId) return;
+    // Only fetch once per server switch
+    if (fetchedServerRef.current === activeServerId) return;
+    fetchedServerRef.current = activeServerId;
+
+    voiceChans.forEach(async (channel) => {
+      try {
+        const res = await apiFetch(`/api/v1/channels/${channel.id}/voice/participants`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const members: ChannelVoiceMember[] = (data.participants || []).map(
+          (p: { user_id: string; username: string; display_name?: string; avatar_url?: string; is_muted?: boolean }) => ({
+            userId: p.user_id,
+            username: p.username,
+            displayName: p.display_name,
+            avatarUrl: p.avatar_url,
+            isMuted: p.is_muted || false,
+          }),
+        );
+        if (members.length > 0) {
+          setChannelVoiceMembers(channel.id, members);
+        }
+      } catch {
+        // Non-critical — voice participants just won't show
+      }
+    });
+  }, [channels, activeServerId, setChannelVoiceMembers]);
+
+  // Clear voice members when server changes
+  useEffect(() => {
+    return () => {
+      clearAllChannelVoiceMembers();
+      fetchedServerRef.current = null;
+    };
+  }, [activeServerId, clearAllChannelVoiceMembers]);
 
   // Clear unread + mark as read whenever the active channel changes
   // (handles both manual clicks AND auto-focus from server switch)
@@ -74,7 +117,36 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
       channel.type === 'voice' &&
       channel.id === voiceChannelId &&
       voiceConnectionState === 'connected';
-    const participants = isVoiceConnected ? Object.values(voiceParticipants) : [];
+
+    // For voice channels: use detailed voiceParticipants if we're connected to this channel,
+    // otherwise use channelVoiceMembers from the server-wide WS feed / REST fetch
+    let voiceMembers: Array<{
+      userId: string;
+      displayName?: string;
+      username: string;
+      isMuted: boolean;
+      isSpeaking?: boolean;
+    }> = [];
+
+    if (channel.type === 'voice') {
+      if (isVoiceConnected) {
+        voiceMembers = Object.values(voiceParticipants).map((p) => ({
+          userId: p.userId,
+          displayName: p.displayName,
+          username: p.username,
+          isMuted: p.isMuted,
+          isSpeaking: p.isSpeaking,
+        }));
+      } else {
+        voiceMembers = (channelVoiceMembers[channel.id] || []).map((m) => ({
+          userId: m.userId,
+          displayName: m.displayName,
+          username: m.username,
+          isMuted: m.isMuted,
+          isSpeaking: false,
+        }));
+      }
+    }
 
     return (
       <div key={channel.id}>
@@ -96,9 +168,9 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
             <span className="channel-unread-badge">{unread > 99 ? '99+' : unread}</span>
           )}
         </div>
-        {participants.length > 0 && (
+        {voiceMembers.length > 0 && (
           <div className="voice-channel-participants">
-            {participants.map((p) => (
+            {voiceMembers.map((p) => (
               <div
                 key={p.userId}
                 className={`voice-channel-participant ${p.isSpeaking ? 'speaking' : ''}`}

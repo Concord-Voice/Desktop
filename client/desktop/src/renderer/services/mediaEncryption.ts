@@ -8,8 +8,13 @@
  * Key derivation:
  *   frameKey = HKDF-SHA256(channelCSK, salt="concord-voice-e2ee", info=senderUserId)
  *
- * Frame format:
- *   [unencrypted codec header (variable)][AES-GCM ciphertext][16-byte auth tag][1-byte keyId][12-byte IV]
+ * Frame format (encrypted):
+ *   [unencrypted codec header (variable)][AES-GCM ciphertext][16-byte auth tag][1-byte keyId][12-byte IV][0xDE 0xAD magic]
+ *
+ * The 2-byte magic trailer (0xDE 0xAD) allows the receiver to distinguish
+ * encrypted frames from unencrypted ones. If the encrypt transform fails to
+ * apply (e.g. Insertable Streams API unavailable for a particular producer),
+ * the receiver skips decryption instead of misinterpreting raw codec bytes.
  *
  * Epoch-based key rotation (#96):
  *   On member join/leave → new epoch → new keys derived
@@ -22,6 +27,13 @@
 
 const SALT = new TextEncoder().encode('concord-voice-e2ee');
 const RATCHET_INFO = new TextEncoder().encode('concord-e2ee-ratchet');
+
+// Magic trailer bytes appended to every encrypted frame so the receiver can
+// distinguish encrypted frames from unencrypted ones.
+const MAGIC_0 = 0xde;
+const MAGIC_1 = 0xad;
+// Total trailer size: 1-byte keyId + 12-byte IV + 2-byte magic = 15
+const TRAILER_SIZE = 15;
 
 // Number of unencrypted header bytes per codec
 // VP8: 1 byte, VP9: 1 byte, H264: varies, Opus: 1 byte (TOC)
@@ -47,7 +59,7 @@ async function deriveFrameKey(
     'deriveKey',
   ]);
 
-  // Derive AES-128-GCM frame key
+  // Derive AES-128-GCM frame key (extractable: true so it can be ratcheted on epoch rotation)
   return crypto.subtle.deriveKey(
     {
       name: 'HKDF',
@@ -57,7 +69,7 @@ async function deriveFrameKey(
     },
     hkdfKey,
     { name: 'AES-GCM', length: 128 },
-    false,
+    true,
     ['encrypt', 'decrypt']
   );
 }
@@ -77,7 +89,7 @@ async function ratchetKey(currentKey: CryptoKey): Promise<CryptoKey> {
     },
     hkdfKey,
     { name: 'AES-GCM', length: 128 },
-    false,
+    true,
     ['encrypt', 'decrypt']
   );
 }
@@ -163,16 +175,60 @@ export class MediaEncryption {
       payload
     );
 
-    // Compose: [header][ciphertext + 16-byte tag][1-byte keyId][12-byte IV]
+    // Compose: [header][ciphertext + 16-byte tag][1-byte keyId][12-byte IV][2-byte magic]
     const result = new Uint8Array(
-      header.length + ciphertext.byteLength + 1 + 12
+      header.length + ciphertext.byteLength + 1 + 12 + 2
     );
     result.set(header);
     result.set(new Uint8Array(ciphertext), header.length);
-    result[header.length + ciphertext.byteLength] = this.currentKeyId;
-    result.set(iv, header.length + ciphertext.byteLength + 1);
+    let offset = header.length + ciphertext.byteLength;
+    result[offset] = this.currentKeyId;
+    offset += 1;
+    result.set(iv, offset);
+    offset += 12;
+    result[offset] = MAGIC_0;
+    result[offset + 1] = MAGIC_1;
 
     frame.data = result.buffer;
+  }
+
+  /**
+   * Self-healing key derivation: when we receive a frame with a keyId we don't
+   * have, ratchet forward from the nearest known key for that sender.
+   * This handles the race where sender rotated keys before we learned the new epoch.
+   * Max 10 ratchets to prevent abuse.
+   */
+  private async deriveRatchetedKey(
+    senderUserId: string,
+    targetKeyId: number
+  ): Promise<{ key: CryptoKey; expires: number } | null> {
+    let bestKeyId = -1;
+    let bestEntry: { key: CryptoKey; expires: number } | null = null;
+
+    for (const [id, entry] of this.decryptKeys) {
+      if (!id.startsWith(`${senderUserId}:`)) continue;
+      const kid = parseInt(id.split(':')[1], 10);
+      if (kid < targetKeyId && kid > bestKeyId) {
+        bestKeyId = kid;
+        bestEntry = entry;
+      }
+    }
+
+    if (!bestEntry || bestKeyId < 0) return null;
+
+    const steps = targetKeyId - bestKeyId;
+    if (steps > 10) return null; // Sanity limit
+
+    let currentKey = bestEntry.key;
+    for (let i = bestKeyId; i < targetKeyId; i++) {
+      currentKey = await ratchetKey(currentKey);
+      this.decryptKeys.set(`${senderUserId}:${i + 1}`, {
+        key: currentKey,
+        expires: Date.now() + 3600_000,
+      });
+    }
+
+    return this.decryptKeys.get(`${senderUserId}:${targetKeyId}`) ?? null;
   }
 
   /** Decrypt a media frame (called by Insertable Streams transform) */
@@ -181,19 +237,30 @@ export class MediaEncryption {
     senderUserId: string
   ): Promise<void> {
     const data = new Uint8Array(frame.data);
-    if (data.length < 14) return; // Too small to be encrypted
+    if (data.length < TRAILER_SIZE + 1) return; // Too small to be encrypted
+
+    // Check magic trailer — if absent, frame is not encrypted (pass through)
+    if (
+      data[data.length - 1] !== MAGIC_1 ||
+      data[data.length - 2] !== MAGIC_0
+    ) {
+      return; // Unencrypted frame — leave as-is for the decoder
+    }
 
     const isVideo = 'type' in frame;
     const headerBytes = isVideo ? 2 : 1;
 
-    // Extract components from the end
-    const iv = data.slice(data.length - 12);
-    const keyId = data[data.length - 13];
+    // Extract components from the end (before magic bytes)
+    const iv = data.slice(data.length - 14, data.length - 2);
+    const keyId = data[data.length - 15];
     const header = data.slice(0, headerBytes);
-    const ciphertext = data.slice(headerBytes, data.length - 13);
+    const ciphertext = data.slice(headerBytes, data.length - 15);
 
-    // Find the right decryption key
-    const keyEntry = this.decryptKeys.get(`${senderUserId}:${keyId}`);
+    // Find the right decryption key, ratcheting forward if needed
+    let keyEntry = this.decryptKeys.get(`${senderUserId}:${keyId}`);
+    if (!keyEntry) {
+      keyEntry = await this.deriveRatchetedKey(senderUserId, keyId);
+    }
     if (!keyEntry) {
       console.warn('No decrypt key for sender', senderUserId, 'keyId', keyId);
       return;
