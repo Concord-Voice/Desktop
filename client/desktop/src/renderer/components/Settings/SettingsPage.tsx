@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import { useUserStore } from '../../stores/userStore';
 import { useSettingsStore, AppearanceSettings } from '../../stores/settingsStore';
+import { isValidHex } from '../../utils/colorUtils';
 import { apiFetch } from '../../services/apiClient';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import './SettingsPage.css';
@@ -61,6 +62,7 @@ const AppearanceSection: React.FC = () => {
   const appearance = useSettingsStore((s) => s.appearance);
   const setTheme = useSettingsStore((s) => s.setTheme);
   const setColorScheme = useSettingsStore((s) => s.setColorScheme);
+  const setCustomColors = useSettingsStore((s) => s.setCustomColors);
   const setFontSize = useSettingsStore((s) => s.setFontSize);
   const setCompactMode = useSettingsStore((s) => s.setCompactMode);
   const setReduceAnimations = useSettingsStore((s) => s.setReduceAnimations);
@@ -187,7 +189,9 @@ const AppearanceSection: React.FC = () => {
         <h2 className="settings-section-title">Color Scheme</h2>
         <p className="settings-section-description">Pick a color palette for the entire app.</p>
         <span className="color-scheme-active-label">
-          {colorSchemes.find((cs) => cs.value === appearance.colorScheme)?.label}
+          {appearance.colorScheme === 'custom'
+            ? 'Custom'
+            : colorSchemes.find((cs) => cs.value === appearance.colorScheme)?.label}
         </span>
         <div className="color-scheme-grid">
           {colorSchemes.map((cs) => (
@@ -199,7 +203,85 @@ const AppearanceSection: React.FC = () => {
               title={cs.label}
             />
           ))}
+          {/* Custom theme circle */}
+          <button
+            className={`color-scheme-circle custom-add ${appearance.colorScheme === 'custom' ? 'selected' : ''}`}
+            style={
+              appearance.customColors
+                ? {
+                    background: `linear-gradient(135deg, ${appearance.customColors.background}, ${appearance.customColors.accentPrimary}, ${appearance.customColors.accentSecondary})`,
+                  }
+                : undefined
+            }
+            onClick={() => {
+              if (appearance.customColors) {
+                setCustomColors(appearance.customColors);
+              } else {
+                setCustomColors({
+                  background: '#0d0821',
+                  accentPrimary: '#fa709a',
+                  accentSecondary: '#ffe13f',
+                });
+              }
+            }}
+            title="Custom"
+          >
+            {!appearance.customColors && (
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path
+                  d="M8 2v12M2 8h12"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            )}
+          </button>
         </div>
+
+        {/* Custom theme color picker panel */}
+        {appearance.colorScheme === 'custom' && appearance.customColors && (
+          <div className="custom-theme-picker">
+            {([
+              { key: 'background' as const, label: 'Background' },
+              { key: 'accentPrimary' as const, label: 'Primary Accent' },
+              { key: 'accentSecondary' as const, label: 'Secondary Accent' },
+            ]).map(({ key, label }) => (
+              <div key={key} className="custom-theme-picker-row">
+                <label className="custom-theme-picker-label">{label}</label>
+                <div className="custom-theme-picker-input-group">
+                  <input
+                    type="color"
+                    value={appearance.customColors![key]}
+                    onChange={(e) =>
+                      setCustomColors({
+                        ...appearance.customColors!,
+                        [key]: e.target.value,
+                      })
+                    }
+                    className="custom-theme-color-input"
+                  />
+                  <input
+                    type="text"
+                    value={appearance.customColors![key]}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (isValidHex(val)) {
+                        setCustomColors({
+                          ...appearance.customColors!,
+                          [key]: val,
+                        });
+                      }
+                    }}
+                    className="custom-theme-hex-input"
+                    maxLength={7}
+                    spellCheck={false}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="settings-section">
