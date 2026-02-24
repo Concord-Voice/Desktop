@@ -2,7 +2,7 @@ import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
 import { MakerDeb } from '@electron-forge/maker-deb';
-import { MakerRPM } from '@electron-forge/maker-rpm';
+import { MakerRpm } from '@electron-forge/maker-rpm';
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -27,7 +27,7 @@ const config: ForgeConfig = {
         icon: '../../branding/logos/favicon ICOs/android-chrome-512x512.png',
       },
     }),
-    new MakerRPM({
+    new MakerRpm({
       options: {
         name: 'concord',
         productName: 'Concord',
