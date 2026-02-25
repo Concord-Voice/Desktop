@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { MicOff, VideoOff, Monitor } from 'lucide-react';
+import { MicOff, Monitor } from 'lucide-react';
 import type { VoiceParticipant } from '../../stores/voiceStore';
 import './ParticipantTile.css';
 
@@ -18,8 +18,12 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
 
   // Attach video stream to video element
   useEffect(() => {
-    if (videoRef.current && participant.videoStream) {
-      videoRef.current.srcObject = participant.videoStream;
+    const el = videoRef.current;
+    if (el && participant.videoStream) {
+      el.srcObject = participant.videoStream;
+      // Explicit play() — autoPlay attribute alone can be blocked by Chrome's
+      // autoplay policy in some edge cases (dynamic element creation, etc.)
+      el.play().catch(() => {});
     }
     return () => {
       if (videoRef.current) {
@@ -43,7 +47,7 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
           className="participant-tile__video"
           autoPlay
           playsInline
-          muted={isLocal}
+          muted
         />
       ) : (
         <div className="participant-tile__avatar">

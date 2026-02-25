@@ -48,8 +48,10 @@ const ParticipantGrid: React.FC = () => {
 
   // Attach screen share stream
   useEffect(() => {
-    if (screenShareRef.current && screenSharer?.screenStream) {
-      screenShareRef.current.srcObject = screenSharer.screenStream;
+    const el = screenShareRef.current;
+    if (el && screenSharer?.screenStream) {
+      el.srcObject = screenSharer.screenStream;
+      el.play().catch(() => {});
     }
     return () => {
       if (screenShareRef.current) {
@@ -88,6 +90,7 @@ const ParticipantGrid: React.FC = () => {
             className="participant-grid__screen-video"
             autoPlay
             playsInline
+            muted
           />
           <div className="participant-grid__screen-label">
             {screenSharer.displayName || screenSharer.username}'s screen

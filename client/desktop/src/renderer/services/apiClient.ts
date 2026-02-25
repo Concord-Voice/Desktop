@@ -28,9 +28,19 @@ async function refreshAccessToken(): Promise<string | null> {
 
   refreshPromise = (async () => {
     try {
+      // Build headers — include the stored refresh token via header as fallback
+      // for Electron/native clients where SameSite=Lax cookies aren't sent on
+      // cross-site POST requests from file:// origins.
+      const refreshHeaders: Record<string, string> = {};
+      const storedRefreshToken = useAuthStore.getState().refreshToken;
+      if (storedRefreshToken) {
+        refreshHeaders['X-Refresh-Token'] = storedRefreshToken;
+      }
+
       const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
+        headers: refreshHeaders,
       });
 
       if (!res.ok) {
@@ -39,9 +49,10 @@ async function refreshAccessToken(): Promise<string | null> {
 
       const data = await res.json();
       const newToken = data.access_token;
+      const newRefreshToken = data.refresh_token;
 
       if (newToken) {
-        useAuthStore.getState().setTokens(newToken, undefined);
+        useAuthStore.getState().setTokens(newToken, newRefreshToken);
         return newToken as string;
       }
 

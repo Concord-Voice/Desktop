@@ -21,7 +21,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useUserStore } from '../stores/userStore';
 import { useVoiceStore, AUDIO_QUALITY_TIERS } from '../stores/voiceStore';
 import type { AudioQualityTier, VoiceParticipant } from '../stores/voiceStore';
-import { API_BASE } from './apiClient';
+import { API_BASE, apiFetch } from './apiClient';
 import { MediaEncryption } from './mediaEncryption';
 import { e2eeService } from './e2eeService';
 
@@ -302,16 +302,10 @@ class VoiceService {
     store.setConnectionState('connecting');
 
     try {
-      // Step 1: Authorize via control plane
-      const token = useAuthStore.getState().accessToken;
-      if (!token) throw new Error('Not authenticated');
-
-      const res = await fetch(`${API_BASE}/api/v1/channels/${channelId}/voice/join`, {
+      // Step 1: Authorize via control plane (uses apiFetch for automatic token refresh)
+      const res = await apiFetch(`/api/v1/channels/${channelId}/voice/join`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
       });
 
       if (!res.ok) {
@@ -328,6 +322,10 @@ class VoiceService {
       store.setEncrypted(channel.is_encrypted);
 
       // Step 2: Connect Socket.IO to media plane
+      // Get the (possibly refreshed) access token for Socket.IO auth
+      const token = useAuthStore.getState().accessToken;
+      if (!token) throw new Error('Not authenticated');
+
       const user = useUserStore.getState().user;
       this.socket = io(media_server_url, {
         auth: {
@@ -374,30 +372,46 @@ class VoiceService {
         }
       }
 
-      // Step 7: Produce audio
+      // Step 7: Set participants BEFORE consuming producers so that
+      // updateParticipant calls inside consumeProducerImpl can find them.
+      // Derive initial video/screen state from existingProducers so joiners
+      // immediately see who has camera or screen share active.
+      const producersByUser = new Map<string, { isVideoOn: boolean; isScreenSharing: boolean }>();
+      for (const ep of roomJoined.existingProducers) {
+        const entry = producersByUser.get(ep.userId) || { isVideoOn: false, isScreenSharing: false };
+        if (ep.source === 'camera') entry.isVideoOn = true;
+        if (ep.source === 'screen') entry.isScreenSharing = true;
+        producersByUser.set(ep.userId, entry);
+      }
+
+      const participants: VoiceParticipant[] = roomJoined.participants.map((p) => {
+        const producerState = producersByUser.get(p.userId);
+        return {
+          userId: p.userId,
+          username: p.username,
+          displayName: p.displayName,
+          avatarUrl: p.avatarUrl,
+          isMuted: false,
+          isDeafened: false,
+          isVideoOn: producerState?.isVideoOn ?? false,
+          isScreenSharing: producerState?.isScreenSharing ?? false,
+          isSpeaking: false,
+        };
+      });
+      store.setParticipants(participants);
+
+      // Step 8: Produce audio
       await this.produceAudio();
 
-      // Step 8: Consume existing producers
+      // Step 9: Consume existing producers (participants already in store,
+      // so updateParticipant will attach streams correctly)
       for (const producer of roomJoined.existingProducers) {
         await this.consumeProducer(producer.producerId, producer.userId);
       }
 
-      // Set participants
-      const participants: VoiceParticipant[] = roomJoined.participants.map((p) => ({
-        userId: p.userId,
-        username: p.username,
-        displayName: p.displayName,
-        avatarUrl: p.avatarUrl,
-        isMuted: false,
-        isDeafened: false,
-        isVideoOn: false,
-        isScreenSharing: false,
-        isSpeaking: false,
-      }));
-      store.setParticipants(participants);
       store.setConnectionState('connected');
 
-      // Step 9: Start decoder budget profiling (IGNIS insight)
+      // Step 10: Start decoder budget profiling (IGNIS insight)
       // Profiles decode performance and adjusts SVC layers to avoid queue buildup
       this.startDecoderBudgetProfiling();
     } catch (err) {

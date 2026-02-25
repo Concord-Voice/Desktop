@@ -257,6 +257,18 @@ export function useWebSocket() {
       });
     });
 
+    // Channel created handler — adds new channel to the list for all server members
+    const unsubChannelCreated = wsService.on('channel_created', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const channel = data.channel;
+      if (!channel) return;
+
+      const activeServerId = useServerStore.getState().activeServerId;
+      if (channel.server_id === activeServerId) {
+        useChannelStore.getState().addChannel(channel);
+      }
+    });
+
     // Channel deleted handler — removes channel and cascades cleanup
     const unsubChannelDeleted = wsService.on('channel_deleted', (msg: WebSocketMessage) => {
       const { data } = msg;
@@ -476,6 +488,7 @@ export function useWebSocket() {
       unsubProfileUpdated();
       unsubServerUpdated();
       unsubChannelUpdated();
+      unsubChannelCreated();
       unsubChannelDeleted();
       unsubServerDeleted();
       unsubMemberRemoved();

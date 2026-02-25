@@ -99,10 +99,14 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, serve
       const invite = await createInvite(server.id, opts);
       if (invite) {
         setGeneratedCode(invite.code);
-        // Auto-copy to clipboard
-        await navigator.clipboard.writeText(invite.code);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        // Auto-copy to clipboard (non-fatal if clipboard access fails)
+        try {
+          await navigator.clipboard.writeText(invite.code);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        } catch {
+          // Clipboard unavailable — user can copy manually via the copy button
+        }
       } else {
         setError('Failed to create invite');
       }

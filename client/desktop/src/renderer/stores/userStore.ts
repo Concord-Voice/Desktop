@@ -104,9 +104,18 @@ export const useUserStore = create<UserState>()(
         getWebSocketService().disconnect();
 
         try {
+          // Include refresh token via header for Electron/native clients
+          // where SameSite=Lax cookies aren't sent on cross-site POST
+          const refreshToken = useAuthStore.getState().refreshToken;
+          const headers: Record<string, string> = {};
+          if (refreshToken) {
+            headers['X-Refresh-Token'] = refreshToken;
+          }
+
           await fetch(`${API_BASE}/api/v1/auth/logout`, {
             method: 'POST',
             credentials: 'include',
+            headers,
           });
         } catch (error) {
           console.error('Logout API error:', error);
