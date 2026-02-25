@@ -100,9 +100,7 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
 
   const handleChannelClick = (channel: Channel) => {
     setActiveChannel(channel.id);
-    clearUnread(channel.id);
-    // Mark as read on the server so unread counts persist across sessions
-    apiFetch(`/api/v1/channels/${channel.id}/read`, { method: 'POST' }).catch(() => {});
+    // clearUnread + read mark handled by useEffect([activeChannelId]) above
   };
 
   // Group channels by type

@@ -70,8 +70,8 @@ export class WebSocketService {
    */
   connect(token: string): void {
     if (
-      this.ws &&
-      (this.state === ConnectionState.CONNECTED || this.state === ConnectionState.CONNECTING)
+      this.state === ConnectionState.CONNECTED ||
+      this.state === ConnectionState.CONNECTING
     ) {
       return;
     }

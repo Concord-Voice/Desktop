@@ -31,6 +31,8 @@ export const useServerStore = create<ServerState>()(
         error: null,
 
         fetchServers: async () => {
+          // Deduplicate concurrent fetches (e.g. multiple components mounting)
+          if (get().isLoading) return;
           set({ isLoading: true, error: null });
 
           try {
