@@ -40,8 +40,8 @@ interface JoinResponse {
     name: string;
     server_id: string;
     is_encrypted: boolean;
+    audio_quality_tier?: string | null;
   };
-  quality_tier: string;
 }
 
 interface RoomJoinedResponse {
@@ -265,7 +265,7 @@ class VoiceService {
             const targetFecPercent = Math.min(100, baselineFec + lossPercent * 3);
 
             // Apply via maxBitrate adjustment (increase bitrate budget for FEC overhead)
-            const tier = useVoiceStore.getState().qualityTier;
+            const tier = useVoiceStore.getState().effectiveQualityTier;
             const tierConfig = AUDIO_QUALITY_TIERS[tier];
             const fecOverhead = 1 + targetFecPercent / 100;
             params.encodings[0].maxBitrate = Math.round(tierConfig.maxBitrate * fecOverhead);
@@ -439,6 +439,15 @@ class VoiceService {
       store.setActiveChannel(channel.id, channel.name, channel.server_id);
       store.setEncrypted(channel.is_encrypted);
 
+      // Resolve effective quality tier: channel override takes priority over personal setting
+      const channelTier = channel.audio_quality_tier;
+      const validTiers = ['voice', 'standard', 'high', 'hifi', 'studio'];
+      if (channelTier && validTiers.includes(channelTier)) {
+        store.setEffectiveQualityTier(channelTier as AudioQualityTier);
+      } else {
+        store.setEffectiveQualityTier(store.qualityTier);
+      }
+
       // Step 2: Connect Socket.IO to media plane
       // Get the (possibly refreshed) access token for Socket.IO auth
       const token = useAuthStore.getState().accessToken;
@@ -582,7 +591,7 @@ class VoiceService {
     this.localMicStream = await navigator.mediaDevices.getUserMedia(constraints);
     const track = this.localMicStream.getAudioTracks()[0];
 
-    const tier = useVoiceStore.getState().qualityTier;
+    const tier = useVoiceStore.getState().effectiveQualityTier;
     const tierConfig = AUDIO_QUALITY_TIERS[tier];
 
     // Resolve effective Opus settings: advanced overrides tier defaults

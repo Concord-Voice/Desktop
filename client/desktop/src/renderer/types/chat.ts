@@ -35,6 +35,7 @@ export interface Channel {
   type: 'text' | 'voice' | 'bulletin';
   emoji?: string; // Optional custom emoji set by admins
   is_encrypted: boolean;
+  audio_quality_tier?: string | null; // Admin override: voice/standard/high/hifi/studio or null (personal)
   position: number;
   created_at: string;
   updated_at: string;

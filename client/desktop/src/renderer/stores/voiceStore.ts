@@ -172,6 +172,7 @@ interface VoiceState {
 
   // Quality
   qualityTier: AudioQualityTier;
+  effectiveQualityTier: AudioQualityTier; // Resolved: channel override or personal tier
 
   // Network quality (updated by packet loss monitor)
   packetLossPercent: number;
@@ -193,6 +194,7 @@ interface VoiceState {
   setAudioOutputDevice: (deviceId: string) => void;
   setVideoDevice: (deviceId: string) => void;
   setQualityTier: (tier: AudioQualityTier) => void;
+  setEffectiveQualityTier: (tier: AudioQualityTier) => void;
   setPacketLoss: (percent: number, warningThreshold?: number) => void;
 
   // Participant management
@@ -231,6 +233,7 @@ const initialState = {
   audioOutputDeviceId: (persisted.audioOutputDeviceId ?? null) as string | null,
   videoDeviceId: (persisted.videoDeviceId ?? null) as string | null,
   qualityTier: (persisted.qualityTier ?? 'standard') as AudioQualityTier,
+  effectiveQualityTier: (persisted.qualityTier ?? 'standard') as AudioQualityTier,
   packetLossPercent: 0,
   packetLossWarning: false,
   channelVoiceMembers: {} as Record<string, ChannelVoiceMember[]>,
@@ -272,6 +275,7 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
     const s = useVoiceStore.getState();
     savePersistedSettings({ audioInputDeviceId: s.audioInputDeviceId, audioOutputDeviceId: s.audioOutputDeviceId, videoDeviceId: s.videoDeviceId, qualityTier });
   },
+  setEffectiveQualityTier: (effectiveQualityTier) => set({ effectiveQualityTier }),
   setPacketLoss: (percent, warningThreshold = 3) => {
     set({ packetLossPercent: percent, packetLossWarning: percent >= warningThreshold });
   },

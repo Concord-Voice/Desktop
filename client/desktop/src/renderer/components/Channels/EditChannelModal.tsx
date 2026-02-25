@@ -4,6 +4,8 @@ import { Hash, Volume2, Pin } from 'lucide-react';
 import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useChannelStore } from '../../stores/channelStore';
+import { AUDIO_QUALITY_TIERS } from '../../stores/voiceStore';
+import type { AudioQualityTier } from '../../stores/voiceStore';
 import { apiFetch } from '../../services/apiClient';
 import { Channel } from '../../types/chat';
 import './CreateChannelModal.css';
@@ -33,6 +35,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
   const [name, setName] = useState(channel.name);
   const [emoji, setEmoji] = useState(channel.emoji || '');
   const [type, setType] = useState<'text' | 'voice' | 'bulletin'>(channel.type);
+  const [audioQualityTier, setAudioQualityTier] = useState<string | null>(channel.audio_quality_tier ?? null);
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -47,6 +50,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
     setName(channel.name);
     setEmoji(channel.emoji || '');
     setType(channel.type);
+    setAudioQualityTier(channel.audio_quality_tier ?? null);
     setErrors({});
     setSuccessMessage(null);
     setShowEmojiPicker(false);
@@ -102,7 +106,8 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
     return (
       name.trim() !== channel.name ||
       (emoji.trim() || '') !== (channel.emoji || '') ||
-      type !== channel.type
+      type !== channel.type ||
+      audioQualityTier !== (channel.audio_quality_tier ?? null)
     );
   };
 
@@ -129,6 +134,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
           name: name.trim(),
           type,
           emoji: emoji.trim() || null,
+          audio_quality_tier: audioQualityTier || null,
         }),
       });
 
@@ -294,6 +300,46 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
           </div>
           {errors.type && <span className="channel-form-error">{errors.type}</span>}
         </div>
+
+        {/* Audio Quality Tier (voice channels only) */}
+        {type === 'voice' && (
+          <div className="channel-form-group">
+            <label className="channel-form-label">Audio Quality</label>
+            <span className="channel-form-hint" style={{ marginBottom: 8 }}>
+              Override personal quality settings for all users in this channel.
+            </span>
+            <div className="channel-type-selector">
+              <button
+                type="button"
+                className={`channel-type-option ${audioQualityTier === null ? 'selected' : ''}`}
+                onClick={() => setAudioQualityTier(null)}
+                disabled={isSubmitting}
+              >
+                <div className="channel-type-info">
+                  <span className="channel-type-name">Personal</span>
+                  <span className="channel-type-desc">Each user uses their own quality setting</span>
+                </div>
+              </button>
+              {(Object.keys(AUDIO_QUALITY_TIERS) as AudioQualityTier[]).map((tier) => {
+                const config = AUDIO_QUALITY_TIERS[tier];
+                return (
+                  <button
+                    key={tier}
+                    type="button"
+                    className={`channel-type-option ${audioQualityTier === tier ? 'selected' : ''}`}
+                    onClick={() => setAudioQualityTier(tier)}
+                    disabled={isSubmitting}
+                  >
+                    <div className="channel-type-info">
+                      <span className="channel-type-name">{config.label}</span>
+                      <span className="channel-type-desc">{config.description}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Submit Button */}
         <div className="form-actions">
