@@ -19,7 +19,7 @@ let refreshPromise: Promise<string | null> | null = null;
  * Attempt to refresh the access token using the httpOnly refresh cookie.
  * Deduplicates concurrent refresh attempts.
  */
-async function refreshAccessToken(): Promise<string | null> {
+export async function refreshAccessToken(): Promise<string | null> {
   // If a refresh is already in flight, piggyback on it
   if (refreshPromise) {
     return refreshPromise;
