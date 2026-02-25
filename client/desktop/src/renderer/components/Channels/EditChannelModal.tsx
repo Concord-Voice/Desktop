@@ -19,7 +19,6 @@ interface EditChannelModalProps {
 
 interface FormErrors {
   name?: string;
-  type?: string;
   general?: string;
 }
 
@@ -34,7 +33,6 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
 }) => {
   const [name, setName] = useState(channel.name);
   const [emoji, setEmoji] = useState(channel.emoji || '');
-  const [type, setType] = useState<'text' | 'voice' | 'bulletin'>(channel.type);
   const [groupId, setGroupId] = useState<string>(channel.group_id || '');
   const [audioQualityTier, setAudioQualityTier] = useState<string | null>(channel.audio_quality_tier ?? null);
   const [errors, setErrors] = useState<FormErrors>({});
@@ -51,7 +49,6 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
   useEffect(() => {
     setName(channel.name);
     setEmoji(channel.emoji || '');
-    setType(channel.type);
     setGroupId(channel.group_id || '');
     setAudioQualityTier(channel.audio_quality_tier ?? null);
     setErrors({});
@@ -97,10 +94,6 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
       newErrors.name = `Channel name must be at most ${NAME_MAX} characters`;
     }
 
-    if (!type) {
-      newErrors.type = 'Channel type is required';
-    }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -109,7 +102,6 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
     return (
       name.trim() !== channel.name ||
       (emoji.trim() || '') !== (channel.emoji || '') ||
-      type !== channel.type ||
       groupId !== (channel.group_id || '') ||
       audioQualityTier !== (channel.audio_quality_tier ?? null)
     );
@@ -136,7 +128,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: name.trim(),
-          type,
+          type: channel.type,
           emoji: emoji.trim() || null,
           group_id: groupId || null,
           audio_quality_tier: audioQualityTier || null,
@@ -258,52 +250,27 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
           <span className="channel-form-hint">Add a custom emoji to represent this channel</span>
         </div>
 
-        {/* Channel Type */}
+        {/* Channel Type (read-only) */}
         <div className="channel-form-group">
-          <label className="channel-form-label">
-            Channel Type <span className="required">*</span>
-          </label>
+          <label className="channel-form-label">Channel Type</label>
           <div className="channel-type-selector">
-            <button
-              type="button"
-              className={`channel-type-option ${type === 'text' ? 'selected' : ''}`}
-              onClick={() => setType('text')}
-              disabled={isSubmitting}
-            >
-              <span className="channel-type-icon">{getChannelTypeIcon('text')}</span>
+            <div className="channel-type-option selected" style={{ cursor: 'default' }}>
+              <span className="channel-type-icon">{getChannelTypeIcon(channel.type)}</span>
               <div className="channel-type-info">
-                <span className="channel-type-name">Text</span>
-                <span className="channel-type-desc">Send messages, images, and files</span>
+                <span className="channel-type-name">
+                  {channel.type === 'text' ? 'Text' : channel.type === 'voice' ? 'Voice' : 'Bulletin'}
+                </span>
+                <span className="channel-type-desc">
+                  {channel.type === 'text'
+                    ? 'Send messages, images, and files'
+                    : channel.type === 'voice'
+                    ? 'Voice and video conversations'
+                    : 'Important announcements only'}
+                </span>
               </div>
-            </button>
-
-            <button
-              type="button"
-              className={`channel-type-option ${type === 'voice' ? 'selected' : ''}`}
-              onClick={() => setType('voice')}
-              disabled={isSubmitting}
-            >
-              <span className="channel-type-icon">{getChannelTypeIcon('voice')}</span>
-              <div className="channel-type-info">
-                <span className="channel-type-name">Voice</span>
-                <span className="channel-type-desc">Voice and video conversations</span>
-              </div>
-            </button>
-
-            <button
-              type="button"
-              className={`channel-type-option ${type === 'bulletin' ? 'selected' : ''}`}
-              onClick={() => setType('bulletin')}
-              disabled={isSubmitting}
-            >
-              <span className="channel-type-icon">{getChannelTypeIcon('bulletin')}</span>
-              <div className="channel-type-info">
-                <span className="channel-type-name">Bulletin</span>
-                <span className="channel-type-desc">Important announcements only</span>
-              </div>
-            </button>
+            </div>
           </div>
-          {errors.type && <span className="channel-form-error">{errors.type}</span>}
+          <span className="channel-form-hint">Channel type cannot be changed after creation</span>
         </div>
 
         {/* Channel Group */}
@@ -331,7 +298,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
         )}
 
         {/* Audio Quality Tier (voice channels only) */}
-        {type === 'voice' && (
+        {channel.type === 'voice' && (
           <div className="channel-form-group">
             <label className="channel-form-label">Audio Quality</label>
             <span className="channel-form-hint" style={{ marginBottom: 8 }}>

@@ -60,6 +60,65 @@
   flex-shrink: 0;
 }
 
+/* Stacked voice user avatars (collapsed category) */
+.channel-group-header__voice-users {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.channel-group-header__avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-tertiary);
+  border: 2px solid var(--bg-secondary);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: -6px;
+  position: relative;
+}
+
+.channel-group-header__avatar:first-child {
+  margin-left: 0;
+}
+
+.channel-group-header__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.channel-group-header__avatar span {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.channel-group-header__avatar-overflow {
+  font-size: calc(9px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-left: 2px;
+  flex-shrink: 0;
+}
+
+/* When both voice users and unread count are shown, unread needs explicit margin */
+.channel-group-header__voice-users + .channel-group-header__count {
+  margin-left: calc(6px * var(--sp, 1));
+}
+
+/* Uncategorized group — no header, no top margin */
+.channel-group--uncategorized {
+  margin-top: calc(4px * var(--sp, 1));
+}
+
 /* Channel Items */
 .channel-item {
   display: flex;
@@ -243,10 +302,63 @@
   color: var(--text-tertiary);
 }
 
+/* ── Hierarchy connector lines for grouped channels ── */
+
+/* Grouped channel wrapper — provides positioning context for connectors */
+.channel-item-wrapper--grouped {
+  position: relative;
+}
+
+/* Vertical line running down the left side of grouped items */
+.channel-item-wrapper--grouped::before {
+  content: '';
+  position: absolute;
+  left: calc(18px * var(--sp, 1));
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px solid var(--border-color);
+  pointer-events: none;
+}
+
+/* Grouped channel items — indented with connector space */
+.channel-item--grouped {
+  margin-left: calc(12px * var(--sp, 1));
+  padding-left: calc(18px * var(--sp, 1));
+}
+
+/* Horizontal connector from vertical line to channel */
+.channel-item--grouped::before {
+  content: '';
+  position: absolute;
+  left: calc(-6px * var(--sp, 1));
+  top: 50%;
+  width: calc(10px * var(--sp, 1));
+  height: 0;
+  border-bottom: 1px solid var(--border-color);
+  pointer-events: none;
+}
+
+/* Last grouped item — vertical line stops at midpoint (└ elbow) */
+.channel-item-wrapper--grouped:last-child::before {
+  bottom: 50%;
+}
+
+/* Active grouped channel — keep accent left border */
+.channel-item--grouped.active {
+  border-left: 3px solid var(--accent-primary);
+  padding-left: calc(15px * var(--sp, 1));
+}
+
 /* Voice text chat — indented below parent voice channel */
 .channel-item--voice-text {
   padding-left: calc(36px * var(--sp, 1));
   border-left: none;
+}
+
+/* Voice text chat within a grouped channel — extra indent for hierarchy */
+.channel-item--voice-text-grouped {
+  padding-left: calc(48px * var(--sp, 1));
 }
 
 .channel-item--voice-text .channel-name {
@@ -267,6 +379,11 @@
   padding: 2px 0 4px calc(32px * var(--sp, 1));
 }
 
+/* Voice participants within grouped channels — extra indent */
+.voice-channel-participants--grouped {
+  padding-left: calc(44px * var(--sp, 1));
+}
+
 .voice-channel-participant {
   display: flex;
   align-items: center;
@@ -285,6 +402,36 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ── Drag-and-drop ── */
+
+.channel-item[draggable='true'],
+.channel-group-header[draggable='true'] {
+  cursor: grab;
+}
+
+.channel-item[draggable='true']:active,
+.channel-group-header[draggable='true']:active {
+  cursor: grabbing;
+}
+
+.channel-item.dragging,
+.channel-group-header.dragging {
+  opacity: 0.4;
+}
+
+.channel-group-header.drag-over {
+  background-color: color-mix(in srgb, var(--accent-primary) 15%, transparent);
+  border-radius: 4px;
+}
+
+.channel-drag-ghost {
+  height: 2px;
+  margin: 0 calc(8px * var(--sp, 1));
+  background: var(--accent-primary);
+  border-radius: 1px;
+  pointer-events: none;
 }
 
 /* Scrollbar Styling */

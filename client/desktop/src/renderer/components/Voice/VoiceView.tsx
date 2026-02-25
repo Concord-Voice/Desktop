@@ -43,6 +43,7 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     setStreamBarHeight,
     toggleUserFrameBar,
     toggleStreamBar,
+    stageLayout,
     removePipWindow,
   } = useVoiceStore();
 
@@ -219,7 +220,9 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
   }
 
   const showChat = showVoiceTextChat && hasLinkedText;
-  const nonDominantCount = Object.keys(tunedInScreenShares).length - 1;
+  const tunedInCount = Object.keys(tunedInScreenShares).length;
+  const nonDominantCount = tunedInCount - 1;
+  const showStreamSection = stageLayout === 'focus' && nonDominantCount > 0;
 
   return (
     <div className="voice-view" ref={containerRef}>
@@ -279,8 +282,8 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
             {/* Center Stage (dominant screen share) */}
             <VoiceStage />
 
-            {/* Resize handle: VoiceStage ↔ StreamBar */}
-            {nonDominantCount > 0 && (
+            {/* Resize handle: VoiceStage ↔ StreamBar (focus mode only) */}
+            {showStreamSection && (
               <div className="voice-view__section-handle">
                 <div
                   className="voice-view__section-handle-grip"
@@ -296,8 +299,8 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
               </div>
             )}
 
-            {/* Stream Bar (bottom — non-dominant shares) */}
-            {showStreamBar && nonDominantCount > 0 && (
+            {/* Stream Bar (bottom — non-dominant shares, focus mode only) */}
+            {showStreamSection && showStreamBar && (
               <StreamBar height={streamBarHeight} />
             )}
           </>

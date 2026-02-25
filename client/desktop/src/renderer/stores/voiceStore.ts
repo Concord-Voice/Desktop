@@ -218,6 +218,10 @@ interface VoiceState {
   userFrameBarHeight: number;
   streamBarHeight: number;
 
+  // Stage layout: 'equal' = all streams share center stage equally,
+  //               'focus' = one dominant stream + others in bottom StreamBar
+  stageLayout: 'equal' | 'focus';
+
   // PiP state
   pipWindows: string[];
 
@@ -278,6 +282,8 @@ interface VoiceState {
   toggleStreamBar: () => void;
   setUserFrameBarHeight: (height: number) => void;
   setStreamBarHeight: (height: number) => void;
+  setStageLayout: (layout: 'equal' | 'focus') => void;
+  toggleStageLayout: () => void;
 
   // PiP
   addPipWindow: (id: string) => void;
@@ -323,6 +329,7 @@ const initialState = {
   showStreamBar: true,
   userFrameBarHeight: 120,
   streamBarHeight: 120,
+  stageLayout: 'focus' as 'equal' | 'focus',
   pipWindows: [] as string[],
 };
 
@@ -505,6 +512,9 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
   toggleStreamBar: () => set((state) => ({ showStreamBar: !state.showStreamBar })),
   setUserFrameBarHeight: (userFrameBarHeight) => set({ userFrameBarHeight }),
   setStreamBarHeight: (streamBarHeight) => set({ streamBarHeight }),
+  setStageLayout: (stageLayout) => set({ stageLayout }),
+  toggleStageLayout: () =>
+    set((state) => ({ stageLayout: state.stageLayout === 'equal' ? 'focus' : 'equal' })),
 
   // PiP
   addPipWindow: (id) =>
@@ -530,8 +540,9 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
       voiceTextChatHeight: state.voiceTextChatHeight,
       // Preserve server voice counts (cross-server state)
       serverVoiceCounts: state.serverVoiceCounts,
-      // Preserve section height preferences
+      // Preserve section height & layout preferences
       userFrameBarHeight: state.userFrameBarHeight,
       streamBarHeight: state.streamBarHeight,
+      stageLayout: state.stageLayout,
     })),
 }));

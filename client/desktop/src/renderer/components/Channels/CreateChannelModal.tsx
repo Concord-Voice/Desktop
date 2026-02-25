@@ -327,6 +327,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
             </button>
           </div>
           {errors.type && <span className="channel-form-error">{errors.type}</span>}
+          <span className="channel-form-hint">Channel type cannot be changed after creation</span>
         </div>
 
         {/* Channel Group */}

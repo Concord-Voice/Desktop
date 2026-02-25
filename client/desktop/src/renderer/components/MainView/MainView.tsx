@@ -11,7 +11,9 @@ import InviteToServerModal from '../Servers/InviteToServerModal';
 import ChannelList from '../Channels/ChannelList';
 import ServerActionBar from '../Channels/ServerActionBar';
 import ChannelContextMenu from '../Channels/ChannelContextMenu';
+import ChannelListContextMenu from '../Channels/ChannelListContextMenu';
 import CreateChannelModal from '../Channels/CreateChannelModal';
+import CreateCategoryModal from '../Channels/CreateCategoryModal';
 import EditChannelModal from '../Channels/EditChannelModal';
 import DeleteChannelModal from '../Channels/DeleteChannelModal';
 import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
@@ -43,6 +45,8 @@ const MainView: React.FC = () => {
   const [isCreateServerModalOpen, setIsCreateServerModalOpen] = useState(false);
   const [isJoinServerModalOpen, setIsJoinServerModalOpen] = useState(false);
   const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] = useState(false);
+  const [isCreateCategoryModalOpen, setIsCreateCategoryModalOpen] = useState(false);
+  const [emptyContextMenu, setEmptyContextMenu] = useState<{ position: { x: number; y: number } } | null>(null);
   const [serverContextMenu, setServerContextMenu] = useState<{
     server: ServerWithRole;
     position: { x: number; y: number };
@@ -159,9 +163,13 @@ const MainView: React.FC = () => {
         <ServerActionBar
           server={activeServer}
           onOpenCreateModal={() => setIsCreateChannelModalOpen(true)}
+          onOpenCreateCategoryModal={() => setIsCreateCategoryModalOpen(true)}
         />
       )}
-      <ChannelList onContextMenu={handleChannelContextMenu} />
+      <ChannelList
+        onContextMenu={handleChannelContextMenu}
+        onEmptyContextMenu={(pos) => setEmptyContextMenu({ position: pos })}
+      />
       {isInVoice && <VoiceControls variant="compact" />}
     </>
   );
@@ -262,6 +270,11 @@ const MainView: React.FC = () => {
         onSuccess={handleCreateChannelSuccess}
       />
 
+      <CreateCategoryModal
+        isOpen={isCreateCategoryModalOpen}
+        onClose={() => setIsCreateCategoryModalOpen(false)}
+      />
+
       {serverContextMenu && (
         <ServerContextMenu
           server={serverContextMenu.server}
@@ -309,6 +322,15 @@ const MainView: React.FC = () => {
             setChannelContextMenu(null);
             setDeletingChannel(channel);
           }}
+        />
+      )}
+
+      {emptyContextMenu && activeServer && (activeServer.role === 'owner' || activeServer.role === 'admin') && (
+        <ChannelListContextMenu
+          position={emptyContextMenu.position}
+          onClose={() => setEmptyContextMenu(null)}
+          onCreateChannel={() => { setEmptyContextMenu(null); setIsCreateChannelModalOpen(true); }}
+          onCreateCategory={() => { setEmptyContextMenu(null); setIsCreateCategoryModalOpen(true); }}
         />
       )}
 

@@ -1,53 +1,89 @@
 import React, { useRef, useEffect, useCallback } from 'react';
-import { ChevronLeft, ChevronRight, PictureInPicture2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, PictureInPicture2, LayoutGrid, Focus } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
 import './VoiceStage.css';
 
 /**
- * Center stage for the dominant screen share (Mode B — middle section).
- * Shows the active screen share full-size with letterboxing.
- * Supports cycling through multiple tuned-in shares.
+ * Single screen share video cell (used in both equal and focus modes).
+ */
+const StageVideo: React.FC<{
+  stream?: MediaStream;
+  sharerName: string;
+  showOverlay?: boolean;
+  label?: string;
+}> = ({ stream, sharerName, showOverlay = true, label }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const el = videoRef.current;
+    if (!el) return;
+    if (stream) {
+      el.srcObject = stream;
+      el.play().catch(() => {});
+    } else {
+      el.srcObject = null;
+    }
+    return () => {
+      if (videoRef.current) {
+        videoRef.current.srcObject = null;
+      }
+    };
+  }, [stream]);
+
+  return (
+    <div className="voice-stage__cell">
+      <video
+        ref={videoRef}
+        className="voice-stage__video"
+        autoPlay
+        playsInline
+        muted
+      />
+      {showOverlay && (
+        <div className="voice-stage__cell-overlay">
+          <span className="voice-stage__sharer-name">
+            {label || `${sharerName}\u2019s screen`}
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+/**
+ * Center stage for tuned-in screen shares (Mode B — middle section).
+ *
+ * Two sub-layouts controlled by `stageLayout`:
+ * - **equal**: All tuned-in streams displayed in an equal-weight grid
+ * - **focus**: Single dominant stream fills the stage; others go to StreamBar
  */
 const VoiceStage: React.FC = () => {
   const dominantScreenShareId = useVoiceStore((s) => s.dominantScreenShareId);
   const tunedInScreenShares = useVoiceStore((s) => s.tunedInScreenShares);
   const participants = useVoiceStore((s) => s.participants);
   const setDominantScreenShare = useVoiceStore((s) => s.setDominantScreenShare);
+  const stageLayout = useVoiceStore((s) => s.stageLayout);
+  const toggleStageLayout = useVoiceStore((s) => s.toggleStageLayout);
   const addPipWindow = useVoiceStore((s) => s.addPipWindow);
   const pipWindows = useVoiceStore((s) => s.pipWindows);
   const hasPipSupport = !!window.electron?.openPipWindow;
-  const videoRef = useRef<HTMLVideoElement>(null);
 
   const tunedInIds = Object.keys(tunedInScreenShares);
   const hasMultiple = tunedInIds.length > 1;
 
-  // Find the participant sharing the dominant screen
-  const sharer = dominantScreenShareId
-    ? Object.values(participants).find(
-        (p) => p.isScreenSharing && p.screenStream
-      )
-    : null;
+  // Helper: find participant who owns a given producerId.
+  // For now, each participant has a single screenStream, so we match via
+  // the isScreenSharing flag. With multiple sharers this will need a
+  // producerId → userId lookup (future enhancement).
+  const findSharer = useCallback(
+    (_producerId: string) =>
+      Object.values(participants).find((p) => p.isScreenSharing && p.screenStream),
+    [participants]
+  );
 
-  // Attach the dominant screen share stream
-  useEffect(() => {
-    const el = videoRef.current;
-    if (!el) return;
+  // ── Focus mode helpers ──────────────────────────────────────────────
+  const dominantSharer = dominantScreenShareId ? findSharer(dominantScreenShareId) : null;
 
-    if (sharer?.screenStream) {
-      el.srcObject = sharer.screenStream;
-      el.play().catch(() => {});
-    } else {
-      el.srcObject = null;
-    }
-
-    return () => {
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
-    };
-  }, [sharer?.screenStream]);
-
-  // Cycle to the next/previous dominant share
   const cycle = useCallback(
     (direction: 1 | -1) => {
       if (!hasMultiple || !dominantScreenShareId) return;
@@ -58,18 +94,19 @@ const VoiceStage: React.FC = () => {
     [hasMultiple, dominantScreenShareId, tunedInIds, setDominantScreenShare]
   );
 
-  // Keyboard navigation
+  // Keyboard navigation (focus mode only)
   useEffect(() => {
-    if (!hasMultiple) return;
+    if (stageLayout !== 'focus' || !hasMultiple) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'ArrowLeft') cycle(-1);
       if (e.key === 'ArrowRight') cycle(1);
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [hasMultiple, cycle]);
+  }, [stageLayout, hasMultiple, cycle]);
 
-  if (!dominantScreenShareId) {
+  // ── Empty state ─────────────────────────────────────────────────────
+  if (tunedInIds.length === 0) {
     return (
       <div className="voice-stage voice-stage--empty">
         <span className="voice-stage__empty-text">
@@ -79,29 +116,74 @@ const VoiceStage: React.FC = () => {
     );
   }
 
-  const sharerName = sharer?.displayName || sharer?.username || 'Unknown';
+  const dominantSharerName = dominantSharer?.displayName || dominantSharer?.username || 'Unknown';
 
+  // ── Equal mode: grid of all tuned-in streams ────────────────────────
+  if (stageLayout === 'equal') {
+    return (
+      <div className="voice-stage voice-stage--equal">
+        {/* Layout toggle (top-left) */}
+        {hasMultiple && (
+          <button
+            className="voice-stage__layout-toggle"
+            onClick={toggleStageLayout}
+            title="Switch to focus mode"
+          >
+            <Focus size={16} />
+          </button>
+        )}
+
+        <div
+          className="voice-stage__grid"
+          data-count={tunedInIds.length}
+        >
+          {tunedInIds.map((producerId) => {
+            const sharer = findSharer(producerId);
+            const name = sharer?.displayName || sharer?.username || 'Unknown';
+            return (
+              <StageVideo
+                key={producerId}
+                stream={sharer?.screenStream}
+                sharerName={name}
+              />
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Focus mode: single dominant stream ──────────────────────────────
   return (
     <div className="voice-stage">
-      <video
-        ref={videoRef}
-        className="voice-stage__video"
-        autoPlay
-        playsInline
-        muted
+      <StageVideo
+        stream={dominantSharer?.screenStream}
+        sharerName={dominantSharerName}
+        showOverlay={false}
       />
 
       {/* Bottom overlay */}
       <div className="voice-stage__overlay">
         <span className="voice-stage__sharer-name">
-          {sharerName}&apos;s screen
+          {dominantSharerName}&apos;s screen
         </span>
         {hasMultiple && (
           <span className="voice-stage__count">
-            {tunedInIds.indexOf(dominantScreenShareId) + 1} / {tunedInIds.length}
+            {tunedInIds.indexOf(dominantScreenShareId!) + 1} / {tunedInIds.length}
           </span>
         )}
       </div>
+
+      {/* Layout toggle (top-left) */}
+      {hasMultiple && (
+        <button
+          className="voice-stage__layout-toggle"
+          onClick={toggleStageLayout}
+          title="Switch to equal layout"
+        >
+          <LayoutGrid size={16} />
+        </button>
+      )}
 
       {/* PiP button (top-right) */}
       {hasPipSupport && dominantScreenShareId && (
@@ -112,7 +194,7 @@ const VoiceStage: React.FC = () => {
             if (!pipWindows.includes(pipId)) {
               window.electron?.openPipWindow({
                 id: pipId,
-                title: `${sharerName}'s Screen`,
+                title: `${dominantSharerName}'s Screen`,
                 width: 400,
                 height: 300,
               });
@@ -126,7 +208,7 @@ const VoiceStage: React.FC = () => {
         </button>
       )}
 
-      {/* Cycle buttons (only when multiple shares) */}
+      {/* Cycle buttons (only when multiple shares in focus mode) */}
       {hasMultiple && (
         <>
           <button
