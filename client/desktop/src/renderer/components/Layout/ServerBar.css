@@ -253,6 +253,11 @@
   color: var(--text-muted);
 }
 
+.server-bar-tooltip-voice--active {
+  color: var(--success);
+  font-weight: 600;
+}
+
 .server-bar-tooltip-unread {
   font-size: calc(11px * var(--font-scale, 1));
   color: var(--danger);

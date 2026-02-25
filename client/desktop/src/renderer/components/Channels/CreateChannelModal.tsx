@@ -30,6 +30,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState('');
   const [type, setType] = useState<'text' | 'voice' | 'bulletin'>('text');
+  const [groupId, setGroupId] = useState<string | ''>('');
   const [isEncrypted, setIsEncrypted] = useState(false);
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -39,6 +40,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
   const activeServerId = useServerStore((state) => state.activeServerId);
   const servers = useServerStore((state) => state.servers);
   const addChannel = useChannelStore((state) => state.addChannel);
+  const channelGroups = useChannelStore((state) => state.channelGroups);
   const members = useMemberStore((state) => state.members);
 
   // Set initial E2EE toggle to the server's default
@@ -72,6 +74,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
     setName('');
     setEmoji('');
     setType('text');
+    setGroupId('');
     const server = servers.find((s) => s.id === activeServerId);
     setIsEncrypted(server?.e2ee_default ?? false);
     setErrors({});
@@ -157,6 +160,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
           name: name.trim(),
           type,
           emoji: emoji.trim() || undefined,
+          group_id: groupId || undefined,
           is_encrypted: isEncrypted,
           wrapped_keys: wrappedKeys,
         }),
@@ -324,6 +328,30 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
           </div>
           {errors.type && <span className="channel-form-error">{errors.type}</span>}
         </div>
+
+        {/* Channel Group */}
+        {channelGroups.length > 0 && (
+          <div className="channel-form-group">
+            <label htmlFor="channel-group" className="channel-form-label">
+              Channel Group
+            </label>
+            <select
+              id="channel-group"
+              className="channel-form-input"
+              value={groupId}
+              onChange={(e) => setGroupId(e.target.value)}
+              disabled={isSubmitting}
+            >
+              <option value="">Uncategorized</option>
+              {channelGroups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+            <span className="channel-form-hint">Organize this channel into a group</span>
+          </div>
+        )}
 
         {/* E2EE Toggle */}
         <div className="channel-form-group">

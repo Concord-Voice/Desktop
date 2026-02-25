@@ -35,6 +35,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
   const [name, setName] = useState(channel.name);
   const [emoji, setEmoji] = useState(channel.emoji || '');
   const [type, setType] = useState<'text' | 'voice' | 'bulletin'>(channel.type);
+  const [groupId, setGroupId] = useState<string>(channel.group_id || '');
   const [audioQualityTier, setAudioQualityTier] = useState<string | null>(channel.audio_quality_tier ?? null);
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -42,6 +43,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const updateChannel = useChannelStore((state) => state.updateChannel);
+  const channelGroups = useChannelStore((state) => state.channelGroups);
 
   const emojiPickerRef = useRef<HTMLDivElement>(null);
 
@@ -50,6 +52,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
     setName(channel.name);
     setEmoji(channel.emoji || '');
     setType(channel.type);
+    setGroupId(channel.group_id || '');
     setAudioQualityTier(channel.audio_quality_tier ?? null);
     setErrors({});
     setSuccessMessage(null);
@@ -107,6 +110,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
       name.trim() !== channel.name ||
       (emoji.trim() || '') !== (channel.emoji || '') ||
       type !== channel.type ||
+      groupId !== (channel.group_id || '') ||
       audioQualityTier !== (channel.audio_quality_tier ?? null)
     );
   };
@@ -134,6 +138,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
           name: name.trim(),
           type,
           emoji: emoji.trim() || null,
+          group_id: groupId || null,
           audio_quality_tier: audioQualityTier || null,
         }),
       });
@@ -300,6 +305,30 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
           </div>
           {errors.type && <span className="channel-form-error">{errors.type}</span>}
         </div>
+
+        {/* Channel Group */}
+        {channelGroups.length > 0 && (
+          <div className="channel-form-group">
+            <label htmlFor="edit-channel-group" className="channel-form-label">
+              Channel Group
+            </label>
+            <select
+              id="edit-channel-group"
+              className="channel-form-input"
+              value={groupId}
+              onChange={(e) => setGroupId(e.target.value)}
+              disabled={isSubmitting}
+            >
+              <option value="">Uncategorized</option>
+              {channelGroups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+            <span className="channel-form-hint">Move this channel to a different group</span>
+          </div>
+        )}
 
         {/* Audio Quality Tier (voice channels only) */}
         {type === 'voice' && (

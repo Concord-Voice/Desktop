@@ -197,6 +197,30 @@ interface VoiceState {
   // Channel voice members (sidebar — all voice channels, not just the one we're in)
   channelVoiceMembers: Record<string, ChannelVoiceMember[]>;
 
+  // Voice text chat
+  showVoiceTextChat: boolean;
+  voiceTextChatHeight: number;
+
+  // Server-wide voice counts (for tooltip display)
+  serverVoiceCounts: Record<string, number>;
+
+  // Multi-stream screen share consumption (producerId → consumerId, up to 5)
+  tunedInScreenShares: Record<string, string>;
+  dominantScreenShareId: string | null;
+
+  // Video slot enforcement: 50 - (5 * tuned-in screen share count)
+  maxVideoSlots: number;
+  videoSlotError: string | null;
+
+  // Layout section visibility (Mode B — three-section layout)
+  showUserFrameBar: boolean;
+  showStreamBar: boolean;
+  userFrameBarHeight: number;
+  streamBarHeight: number;
+
+  // PiP state
+  pipWindows: string[];
+
   // Actions
   setConnectionState: (state: VoiceConnectionState) => void;
   setActiveChannel: (channelId: string | null, channelName?: string, serverId?: string) => void;
@@ -232,6 +256,33 @@ interface VoiceState {
   removeChannelVoiceMember: (channelId: string, userId: string) => void;
   clearAllChannelVoiceMembers: () => void;
 
+  // Voice text chat
+  setShowVoiceTextChat: (show: boolean) => void;
+  toggleVoiceTextChat: () => void;
+  setVoiceTextChatHeight: (height: number) => void;
+
+  // Server voice counts (tooltip)
+  setServerVoiceCount: (serverId: string, count: number) => void;
+  incrementServerVoiceCount: (serverId: string) => void;
+  decrementServerVoiceCount: (serverId: string) => void;
+
+  // Multi-stream screen share
+  tuneIn: (producerId: string, consumerId: string) => void;
+  tuneOut: (producerId: string) => void;
+  setDominantScreenShare: (producerId: string | null) => void;
+  recalculateMaxVideoSlots: () => void;
+  setVideoSlotError: (msg: string | null) => void;
+
+  // Layout sections (Mode B)
+  toggleUserFrameBar: () => void;
+  toggleStreamBar: () => void;
+  setUserFrameBarHeight: (height: number) => void;
+  setStreamBarHeight: (height: number) => void;
+
+  // PiP
+  addPipWindow: (id: string) => void;
+  removePipWindow: (id: string) => void;
+
   // Full reset (on disconnect)
   reset: () => void;
 }
@@ -261,6 +312,18 @@ const initialState = {
   decoderHealth: 'green' as 'green' | 'yellow' | 'red',
   availableScreenShares: [] as AvailableScreenShare[],
   channelVoiceMembers: {} as Record<string, ChannelVoiceMember[]>,
+  showVoiceTextChat: false,
+  voiceTextChatHeight: 300,
+  serverVoiceCounts: {} as Record<string, number>,
+  tunedInScreenShares: {} as Record<string, string>,
+  dominantScreenShareId: null as string | null,
+  maxVideoSlots: 50,
+  videoSlotError: null as string | null,
+  showUserFrameBar: true,
+  showStreamBar: true,
+  userFrameBarHeight: 120,
+  streamBarHeight: 120,
+  pipWindows: [] as string[],
 };
 
 export const useVoiceStore = create<VoiceState>()((set) => ({
@@ -376,6 +439,83 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
     }),
   clearAllChannelVoiceMembers: () => set({ channelVoiceMembers: {} }),
 
+  // Voice text chat
+  setShowVoiceTextChat: (show) => set({ showVoiceTextChat: show }),
+  toggleVoiceTextChat: () => set((state) => ({ showVoiceTextChat: !state.showVoiceTextChat })),
+  setVoiceTextChatHeight: (height) => {
+    set({ voiceTextChatHeight: height });
+    try {
+      localStorage.setItem('concord:voice-text-chat-height', String(height));
+    } catch { /* ignore */ }
+  },
+
+  // Server voice counts
+  setServerVoiceCount: (serverId, count) =>
+    set((state) => ({
+      serverVoiceCounts: { ...state.serverVoiceCounts, [serverId]: Math.max(0, count) },
+    })),
+  incrementServerVoiceCount: (serverId) =>
+    set((state) => ({
+      serverVoiceCounts: {
+        ...state.serverVoiceCounts,
+        [serverId]: (state.serverVoiceCounts[serverId] ?? 0) + 1,
+      },
+    })),
+  decrementServerVoiceCount: (serverId) =>
+    set((state) => ({
+      serverVoiceCounts: {
+        ...state.serverVoiceCounts,
+        [serverId]: Math.max(0, (state.serverVoiceCounts[serverId] ?? 0) - 1),
+      },
+    })),
+
+  // Multi-stream screen share
+  tuneIn: (producerId, consumerId) =>
+    set((state) => {
+      const next = { ...state.tunedInScreenShares, [producerId]: consumerId };
+      const count = Object.keys(next).length;
+      return {
+        tunedInScreenShares: next,
+        maxVideoSlots: 50 - 5 * count,
+      };
+    }),
+  tuneOut: (producerId) =>
+    set((state) => {
+      const { [producerId]: _, ...rest } = state.tunedInScreenShares;
+      const count = Object.keys(rest).length;
+      const dominant =
+        state.dominantScreenShareId === producerId
+          ? Object.keys(rest)[0] ?? null
+          : state.dominantScreenShareId;
+      return {
+        tunedInScreenShares: rest,
+        dominantScreenShareId: dominant,
+        maxVideoSlots: 50 - 5 * count,
+      };
+    }),
+  setDominantScreenShare: (dominantScreenShareId) => set({ dominantScreenShareId }),
+  recalculateMaxVideoSlots: () =>
+    set((state) => ({
+      maxVideoSlots: 50 - 5 * Object.keys(state.tunedInScreenShares).length,
+    })),
+  setVideoSlotError: (videoSlotError) => set({ videoSlotError }),
+
+  // Layout sections (Mode B)
+  toggleUserFrameBar: () => set((state) => ({ showUserFrameBar: !state.showUserFrameBar })),
+  toggleStreamBar: () => set((state) => ({ showStreamBar: !state.showStreamBar })),
+  setUserFrameBarHeight: (userFrameBarHeight) => set({ userFrameBarHeight }),
+  setStreamBarHeight: (streamBarHeight) => set({ streamBarHeight }),
+
+  // PiP
+  addPipWindow: (id) =>
+    set((state) => ({
+      pipWindows: state.pipWindows.includes(id) ? state.pipWindows : [...state.pipWindows, id],
+    })),
+  removePipWindow: (id) =>
+    set((state) => ({
+      pipWindows: state.pipWindows.filter((w) => w !== id),
+    })),
+
   reset: () =>
     set((state) => ({
       ...initialState,
@@ -386,5 +526,12 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
       audioOutputDeviceId: state.audioOutputDeviceId,
       videoDeviceId: state.videoDeviceId,
       qualityTier: state.qualityTier,
+      // Preserve text chat height preference
+      voiceTextChatHeight: state.voiceTextChatHeight,
+      // Preserve server voice counts (cross-server state)
+      serverVoiceCounts: state.serverVoiceCounts,
+      // Preserve section height preferences
+      userFrameBarHeight: state.userFrameBarHeight,
+      streamBarHeight: state.streamBarHeight,
     })),
 }));

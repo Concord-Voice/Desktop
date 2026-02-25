@@ -1,15 +1,25 @@
-import React, { useEffect, useRef } from 'react';
-import { Lock, Users } from 'lucide-react';
+import React, { useEffect, useRef, useCallback } from 'react';
+import { Lock, Users, ChevronUp, ChevronDown } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
+import { useChannelStore } from '../../stores/channelStore';
 import { getVoiceService } from '../../services/voiceLazy';
-import ParticipantGrid from './ParticipantGrid';
+import { AudioOutputs, UserFrameGrid } from './ParticipantGrid';
+import UserFrameBar from './UserFrameBar';
+import VoiceStage from './VoiceStage';
+import StreamBar from './StreamBar';
+import { TuneInOverlay } from './TuneInButton';
 import VoiceControls from './VoiceControls';
+import VoiceTextChat from './VoiceTextChat';
 import './VoiceView.css';
 
 interface VoiceViewProps {
   channelId: string;
   channelName: string;
 }
+
+const MIN_CHAT_HEIGHT = 150;
+const MAX_CHAT_RATIO = 0.7;
+const MIN_SECTION_HEIGHT = 80;
 
 const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
   const {
@@ -20,12 +30,32 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     channelVoiceMembers,
     effectiveQualityTier,
     decoderHealth,
+    showVoiceTextChat,
+    voiceTextChatHeight,
+    setVoiceTextChatHeight,
+    tunedInScreenShares,
+    availableScreenShares,
+    showUserFrameBar,
+    showStreamBar,
+    userFrameBarHeight,
+    streamBarHeight,
+    setUserFrameBarHeight,
+    setStreamBarHeight,
+    toggleUserFrameBar,
+    toggleStreamBar,
+    removePipWindow,
   } = useVoiceStore();
 
+  const getLinkedTextChannel = useChannelStore((s) => s.getLinkedTextChannel);
+  const hasLinkedText = !!getLinkedTextChannel(channelId);
+
   const hasJoinedRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const resizingRef = useRef(false);
   const participantCount = Object.keys(participants).length;
 
-  // Auto-connect when viewing a voice channel we're not connected to
+  const hasScreenShares = Object.keys(tunedInScreenShares).length > 0;
+
   const isConnected = activeChannelId === channelId && connectionState === 'connected';
   const isConnecting = connectionState === 'connecting';
 
@@ -40,10 +70,104 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     }
   };
 
-  // Reset join ref when channel changes
   useEffect(() => {
     hasJoinedRef.current = isConnected;
   }, [channelId, isConnected]);
+
+  // Broadcast participant state to PiP windows via BroadcastChannel
+  const pipChannelRef = useRef<BroadcastChannel | null>(null);
+
+  useEffect(() => {
+    if (!isConnected) return;
+    const bc = new BroadcastChannel('concord-pip');
+    pipChannelRef.current = bc;
+
+    // Listen for state requests from PiP windows
+    bc.onmessage = (event: MessageEvent) => {
+      if (event.data?.type === 'pip-request-state') {
+        bc.postMessage({ type: 'pip-state', participants });
+      }
+    };
+
+    return () => {
+      bc.close();
+      pipChannelRef.current = null;
+    };
+  }, [isConnected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Push participant updates to PiP windows
+  useEffect(() => {
+    pipChannelRef.current?.postMessage({ type: 'pip-state', participants });
+  }, [participants]);
+
+  // Listen for PiP window closed events from main process
+  useEffect(() => {
+    if (!window.electron?.onPipClosed) return;
+    const unsub = window.electron.onPipClosed((id: string) => {
+      removePipWindow(id);
+    });
+    return unsub;
+  }, [removePipWindow]);
+
+  // Text chat resize
+  const handleChatResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      resizingRef.current = true;
+      const startY = e.clientY;
+      const startHeight = voiceTextChatHeight;
+
+      const onMouseMove = (moveEvent: MouseEvent) => {
+        if (!resizingRef.current || !containerRef.current) return;
+        const containerHeight = containerRef.current.getBoundingClientRect().height;
+        const maxHeight = containerHeight * MAX_CHAT_RATIO;
+        const delta = startY - moveEvent.clientY;
+        const newHeight = Math.min(maxHeight, Math.max(MIN_CHAT_HEIGHT, startHeight + delta));
+        setVoiceTextChatHeight(newHeight);
+      };
+
+      const onMouseUp = () => {
+        resizingRef.current = false;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    },
+    [voiceTextChatHeight, setVoiceTextChatHeight]
+  );
+
+  // Section resize factory (for UserFrameBar / StreamBar)
+  const makeSectionResizeStart = useCallback(
+    (
+      section: 'top' | 'bottom',
+      currentHeight: number,
+      setter: (h: number) => void
+    ) =>
+      (e: React.MouseEvent) => {
+        e.preventDefault();
+        const startY = e.clientY;
+        const startHeight = currentHeight;
+
+        const onMouseMove = (moveEvent: MouseEvent) => {
+          const delta = section === 'top'
+            ? moveEvent.clientY - startY
+            : startY - moveEvent.clientY;
+          const newHeight = Math.max(MIN_SECTION_HEIGHT, startHeight + delta);
+          setter(newHeight);
+        };
+
+        const onMouseUp = () => {
+          document.removeEventListener('mousemove', onMouseMove);
+          document.removeEventListener('mouseup', onMouseUp);
+        };
+
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+      },
+    []
+  );
 
   // Not connected — show join prompt
   if (!isConnected) {
@@ -73,8 +197,11 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     );
   }
 
+  const showChat = showVoiceTextChat && hasLinkedText;
+  const nonDominantCount = Object.keys(tunedInScreenShares).length - 1;
+
   return (
-    <div className="voice-view">
+    <div className="voice-view" ref={containerRef}>
       {/* Header */}
       <div className="voice-view__header">
         <h2 className="voice-view__channel-name">{channelName}</h2>
@@ -100,8 +227,85 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
         </div>
       </div>
 
-      {/* Participant grid */}
-      <ParticipantGrid />
+      {/* Voice area — one resizable entity vs text chat */}
+      <div className="voice-view__voice-area">
+        {/* Audio outputs (always rendered, hidden) */}
+        <AudioOutputs />
+
+        {hasScreenShares ? (
+          /* Mode B: Three-section layout */
+          <>
+            {/* User Frame Bar (top) */}
+            {showUserFrameBar && (
+              <UserFrameBar height={userFrameBarHeight} />
+            )}
+
+            {/* Resize handle: UserFrameBar ↔ VoiceStage */}
+            <div className="voice-view__section-handle">
+              <div
+                className="voice-view__section-handle-grip"
+                onMouseDown={makeSectionResizeStart('top', userFrameBarHeight, setUserFrameBarHeight)}
+              />
+              <button
+                className="voice-view__section-toggle"
+                onClick={toggleUserFrameBar}
+                title={showUserFrameBar ? 'Hide user frames' : 'Show user frames'}
+              >
+                {showUserFrameBar ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              </button>
+            </div>
+
+            {/* Center Stage (dominant screen share) */}
+            <VoiceStage />
+
+            {/* Resize handle: VoiceStage ↔ StreamBar */}
+            {nonDominantCount > 0 && (
+              <div className="voice-view__section-handle">
+                <div
+                  className="voice-view__section-handle-grip"
+                  onMouseDown={makeSectionResizeStart('bottom', streamBarHeight, setStreamBarHeight)}
+                />
+                <button
+                  className="voice-view__section-toggle"
+                  onClick={toggleStreamBar}
+                  title={showStreamBar ? 'Hide stream bar' : 'Show stream bar'}
+                >
+                  {showStreamBar ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                </button>
+              </div>
+            )}
+
+            {/* Stream Bar (bottom — non-dominant shares) */}
+            {showStreamBar && nonDominantCount > 0 && (
+              <StreamBar height={streamBarHeight} />
+            )}
+          </>
+        ) : (
+          /* Mode A: Centered user frames */
+          <UserFrameGrid />
+        )}
+
+        {/* Available screen shares — Tune In buttons */}
+        {availableScreenShares.length > 0 && <TuneInOverlay />}
+      </div>
+
+      {/* Text chat panel (when toggled on) */}
+      {showChat && (
+        <>
+          <div
+            className="voice-text-chat-resize"
+            onMouseDown={handleChatResizeStart}
+          >
+            <div className="voice-text-chat-resize__grip" />
+          </div>
+          <div
+            className="voice-view__text-chat"
+            style={{ height: voiceTextChatHeight }}
+          >
+            <VoiceTextChat />
+          </div>
+        </>
+      )}
 
       {/* Controls bar */}
       <VoiceControls variant="full" />

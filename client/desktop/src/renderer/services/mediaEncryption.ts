@@ -221,11 +221,12 @@ export class MediaEncryption {
     }
   }
 
-  /** Encrypt a media frame (called by Insertable Streams transform) */
+  /** Encrypt a media frame (called by Insertable Streams transform).
+   *  Throws if encryption fails — caller should drop the frame. */
   async encryptFrame(
     frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame
   ): Promise<void> {
-    if (!this.encryptKey) return;
+    if (!this.encryptKey) throw new Error('E2EE: no encrypt key');
 
     const data = new Uint8Array(frame.data);
     const isVideo = 'type' in frame; // RTCEncodedVideoFrame has `type`
@@ -304,7 +305,14 @@ export class MediaEncryption {
     return this.decryptKeys.get(`${senderUserId}:${targetKeyId}`) ?? null;
   }
 
-  /** Decrypt a media frame (called by Insertable Streams transform) */
+  /**
+   * Decrypt a media frame (called by Insertable Streams transform).
+   *
+   * Returns normally if decryption succeeds OR the frame is unencrypted
+   * (no magic trailer). Throws if the frame IS encrypted but can't be
+   * decrypted — the caller should DROP the frame to avoid feeding
+   * ciphertext into the audio/video decoder (garbled noise / black screen).
+   */
   async decryptFrame(
     frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame,
     senderUserId: string
@@ -332,29 +340,23 @@ export class MediaEncryption {
     // Find the right decryption key, ratcheting forward if needed
     let keyEntry = this.decryptKeys.get(`${senderUserId}:${keyId}`);
     if (!keyEntry) {
-      keyEntry = await this.deriveRatchetedKey(senderUserId, keyId);
+      keyEntry = (await this.deriveRatchetedKey(senderUserId, keyId)) ?? undefined;
     }
     if (!keyEntry) {
-      console.warn('No decrypt key for sender', senderUserId, 'keyId', keyId);
-      return;
+      throw new Error(`E2EE: no decrypt key for sender=${senderUserId} keyId=${keyId}`);
     }
 
-    try {
-      const plaintext = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv, additionalData: header },
-        keyEntry.key,
-        ciphertext
-      );
+    const plaintext = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv, additionalData: header },
+      keyEntry.key,
+      ciphertext
+    );
 
-      // Reconstruct: [header][plaintext]
-      const result = new Uint8Array(header.length + plaintext.byteLength);
-      result.set(header);
-      result.set(new Uint8Array(plaintext), header.length);
-      frame.data = result.buffer;
-    } catch {
-      // Decryption failed — likely wrong key or corrupted frame
-      // Leave frame as-is (will produce garbled output, not a crash)
-    }
+    // Reconstruct: [header][plaintext]
+    const result = new Uint8Array(header.length + plaintext.byteLength);
+    result.set(header);
+    result.set(new Uint8Array(plaintext), header.length);
+    frame.data = result.buffer;
   }
 
   /** Clean up */

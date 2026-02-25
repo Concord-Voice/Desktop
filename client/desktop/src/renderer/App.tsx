@@ -4,6 +4,7 @@ import AuthFlow from './components/Auth/AuthFlow';
 import MainView from './components/MainView/MainView';
 import ProfilePage from './components/Profile/ProfilePage';
 import SettingsPage from './components/Settings/SettingsPage';
+import PipWindow from './components/Voice/PipWindow';
 import { useAuthStore } from './stores/authStore';
 import { useUserStore } from './stores/userStore';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -59,6 +60,8 @@ function App() {
           <Route path="/app/profile" element={<ProfilePage />} />
           <Route path="/app/settings" element={<SettingsPage />} />
         </Route>
+        {/* PiP windows — separate Electron BrowserWindows, state synced via BroadcastChannel */}
+        <Route path="/pip/:pipId" element={<PipWindow />} />
       </Routes>
     </div>
   );

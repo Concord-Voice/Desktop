@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, FolderPlus, Pencil, Trash2 } from 'lucide-react';
 import { useServerStore } from '../../stores/serverStore';
 import { useUnreadStore } from '../../stores/unreadStore';
+import { useVoiceStore } from '../../stores/voiceStore';
 import { useLayoutStore, ServerFolder } from '../../stores/layoutStore';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ServerWithRole } from '../../types/server';
@@ -17,6 +18,7 @@ const FolderBar: React.FC = () => {
   const servers = useServerStore((s) => s.servers);
   const setActiveServer = useServerStore((s) => s.setActiveServer);
   const serverUnreadSet = useUnreadStore((s) => s.serverUnreadSet);
+  const serverVoiceCounts = useVoiceStore((s) => s.serverVoiceCounts);
 
   const serverFolders = useLayoutStore((s) => s.serverFolders);
   const createFolder = useLayoutStore((s) => s.createFolder);
@@ -479,7 +481,7 @@ const FolderBar: React.FC = () => {
             <span>{hoveredServer.server.online_count ?? 0} Online</span>
           </div>
           <div className="server-bar-tooltip-stats">
-            <span className="server-bar-tooltip-voice">0 In Voice</span>
+            <span className={`server-bar-tooltip-voice${(serverVoiceCounts[hoveredServer.server.id] ?? 0) > 0 ? ' server-bar-tooltip-voice--active' : ''}`}>{serverVoiceCounts[hoveredServer.server.id] ?? 0} In Voice</span>
           </div>
           {serverUnreadSet.has(hoveredServer.server.id) && (
             <span className="server-bar-tooltip-unread">Unread notifications</span>

@@ -1,12 +1,14 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
-import { Channel } from '../types/chat';
+import { Channel, ChannelGroup } from '../types/chat';
 import { apiFetch } from '../services/apiClient';
 import { useChatStore } from './chatStore';
 import { useUnreadStore } from './unreadStore';
 
 interface ChannelState {
   channels: Channel[];
+  channelGroups: ChannelGroup[];
+  collapsedGroups: string[]; // group IDs that are collapsed (persisted)
   activeChannelId: string | null;
   currentServerId: string | null;
   lastChannelByServer: Record<string, string>;
@@ -19,6 +21,16 @@ interface ChannelState {
   removeChannel: (channelId: string) => void;
   setActiveChannel: (channelId: string | null) => void;
   clearChannels: () => void;
+
+  // Channel group actions
+  addChannelGroup: (group: ChannelGroup) => void;
+  updateChannelGroup: (groupId: string, updates: Partial<ChannelGroup>) => void;
+  removeChannelGroup: (groupId: string) => void;
+  toggleGroupCollapsed: (groupId: string) => void;
+  reorderChannels: (updates: { channel_id: string; group_id: string | null; position: number }[]) => void;
+
+  // Voice text chat helpers
+  getLinkedTextChannel: (voiceChannelId: string) => Channel | undefined;
 }
 
 export const useChannelStore = create<ChannelState>()(
@@ -26,6 +38,8 @@ export const useChannelStore = create<ChannelState>()(
     persist(
       (set, get) => ({
         channels: [],
+        channelGroups: [],
+        collapsedGroups: [],
         activeChannelId: null,
         currentServerId: null,
         lastChannelByServer: {},
@@ -64,6 +78,7 @@ export const useChannelStore = create<ChannelState>()(
 
             const data = await response.json();
             const channels: Channel[] = data.channels || [];
+            const channelGroups: ChannelGroup[] = data.channel_groups || [];
 
             // Restore last-viewed channel for this server, or pick first text channel
             const lastChannel = updatedLastChannel[serverId];
@@ -80,6 +95,7 @@ export const useChannelStore = create<ChannelState>()(
 
             set({
               channels,
+              channelGroups,
               activeChannelId: nextChannelId,
               isLoading: false,
             });
@@ -144,11 +160,64 @@ export const useChannelStore = create<ChannelState>()(
         clearChannels: () => {
           set({
             channels: [],
+            channelGroups: [],
             activeChannelId: null,
             currentServerId: null,
             isLoading: false,
             error: null,
           });
+        },
+
+        // Channel group actions
+        addChannelGroup: (group: ChannelGroup) => {
+          set((state) => ({
+            channelGroups: [...state.channelGroups, group].sort((a, b) => a.position - b.position),
+          }));
+        },
+
+        updateChannelGroup: (groupId: string, updates: Partial<ChannelGroup>) => {
+          set((state) => ({
+            channelGroups: state.channelGroups
+              .map((g) => (g.id === groupId ? { ...g, ...updates } : g))
+              .sort((a, b) => a.position - b.position),
+          }));
+        },
+
+        removeChannelGroup: (groupId: string) => {
+          set((state) => ({
+            channelGroups: state.channelGroups.filter((g) => g.id !== groupId),
+            // Channels in this group become uncategorized (group_id = null)
+            channels: state.channels.map((c) =>
+              c.group_id === groupId ? { ...c, group_id: null } : c
+            ),
+            collapsedGroups: state.collapsedGroups.filter((id) => id !== groupId),
+          }));
+        },
+
+        toggleGroupCollapsed: (groupId: string) => {
+          set((state) => ({
+            collapsedGroups: state.collapsedGroups.includes(groupId)
+              ? state.collapsedGroups.filter((id) => id !== groupId)
+              : [...state.collapsedGroups, groupId],
+          }));
+        },
+
+        reorderChannels: (updates) => {
+          set((state) => {
+            const channelMap = new Map(state.channels.map((c) => [c.id, c]));
+            for (const u of updates) {
+              const ch = channelMap.get(u.channel_id);
+              if (ch) {
+                channelMap.set(u.channel_id, { ...ch, group_id: u.group_id, position: u.position });
+              }
+            }
+            return { channels: Array.from(channelMap.values()) };
+          });
+        },
+
+        // Voice text chat helpers
+        getLinkedTextChannel: (voiceChannelId: string) => {
+          return get().channels.find((c) => c.linked_voice_channel_id === voiceChannelId);
         },
       }),
       {
@@ -157,6 +226,7 @@ export const useChannelStore = create<ChannelState>()(
           activeChannelId: state.activeChannelId,
           currentServerId: state.currentServerId,
           lastChannelByServer: state.lastChannelByServer,
+          collapsedGroups: state.collapsedGroups,
         }),
       }
     ),

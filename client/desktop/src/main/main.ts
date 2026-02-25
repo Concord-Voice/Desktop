@@ -165,6 +165,59 @@ ipcMain.handle('app:relaunch', () => {
   app.quit();
 });
 
+// ─── PiP (Picture-in-Picture) Window Management ──────────────────────
+const pipWindows = new Map<string, BrowserWindow>();
+
+ipcMain.handle('pip:open', (_event, opts: { id: string; width?: number; height?: number; title?: string }) => {
+  if (pipWindows.has(opts.id)) {
+    pipWindows.get(opts.id)!.focus();
+    return;
+  }
+
+  const pip = new BrowserWindow({
+    width: opts.width || 320,
+    height: opts.height || 240,
+    minWidth: 160,
+    minHeight: 120,
+    frame: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: true,
+    title: opts.title || 'Concord PiP',
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+    },
+    backgroundColor: '#000',
+  });
+
+  // Load PiP route (hash-based routing)
+  if (process.env.NODE_ENV === 'development') {
+    pip.loadURL(`http://localhost:3001#/pip/${opts.id}`);
+  } else {
+    pip.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      hash: `/pip/${opts.id}`,
+    });
+  }
+
+  pipWindows.set(opts.id, pip);
+
+  pip.on('closed', () => {
+    pipWindows.delete(opts.id);
+    mainWindow?.webContents.send('pip:closed', { id: opts.id });
+  });
+});
+
+ipcMain.handle('pip:close', (_event, opts: { id: string }) => {
+  pipWindows.get(opts.id)?.close();
+});
+
+ipcMain.handle('pip:setAlwaysOnTop', (_event, opts: { id: string; flag: boolean }) => {
+  pipWindows.get(opts.id)?.setAlwaysOnTop(opts.flag);
+});
+
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
 

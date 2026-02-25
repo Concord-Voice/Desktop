@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { MicOff, Monitor } from 'lucide-react';
 import type { VoiceParticipant } from '../../stores/voiceStore';
 import './ParticipantTile.css';
@@ -6,13 +6,29 @@ import './ParticipantTile.css';
 interface ParticipantTileProps {
   participant: VoiceParticipant;
   isLocal?: boolean;
-  size?: 'small' | 'normal' | 'large';
+  compact?: boolean;
+  magnificationScale?: number;
+}
+
+/**
+ * Generate a consistent banner gradient from a userId.
+ * Seeds two HSL hues 60deg apart from the char-code sum.
+ */
+function bannerGradient(userId: string): string {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = ((hash << 5) - hash + userId.charCodeAt(i)) | 0;
+  }
+  const hue1 = ((hash >>> 0) % 360);
+  const hue2 = (hue1 + 60) % 360;
+  return `linear-gradient(135deg, hsl(${hue1}, 60%, 35%), hsl(${hue2}, 60%, 25%))`;
 }
 
 const ParticipantTile: React.FC<ParticipantTileProps> = ({
   participant,
   isLocal = false,
-  size = 'normal',
+  compact = false,
+  magnificationScale = 1,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
@@ -21,8 +37,6 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
     const el = videoRef.current;
     if (el && participant.videoStream) {
       el.srcObject = participant.videoStream;
-      // Explicit play() — autoPlay attribute alone can be blocked by Chrome's
-      // autoplay policy in some edge cases (dynamic element creation, etc.)
       el.play().catch(() => {});
     }
     return () => {
@@ -34,60 +48,76 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
 
   const displayName = participant.displayName || participant.username;
   const hasVideo = participant.isVideoOn && participant.videoStream;
+  const gradient = useMemo(() => bannerGradient(participant.userId), [participant.userId]);
+
+  const scaleStyle =
+    magnificationScale !== 1
+      ? { transform: `scale(${magnificationScale})`, zIndex: 2 }
+      : undefined;
 
   return (
     <div
-      className={`participant-tile participant-tile--${size} ${
-        participant.isSpeaking ? 'participant-tile--speaking' : ''
-      }`}
+      className={`participant-tile${hasVideo ? ' participant-tile--video' : ''}${compact ? ' participant-tile--compact' : ''}`}
+      style={scaleStyle}
     >
       {hasVideo ? (
-        <video
-          ref={videoRef}
-          className="participant-tile__video"
-          autoPlay
-          playsInline
-          muted
-        />
+        /* Video mode — fills the frame, name overlay at bottom */
+        <>
+          <video
+            ref={videoRef}
+            className="participant-tile__video"
+            autoPlay
+            playsInline
+            muted
+          />
+          <div className="participant-tile__video-name">
+            <span className="participant-tile__video-name-text">
+              {displayName}
+              {isLocal && ' (You)'}
+            </span>
+          </div>
+        </>
       ) : (
-        <div className="participant-tile__avatar">
-          {participant.avatarUrl ? (
-            <img
-              src={participant.avatarUrl}
-              alt={displayName}
-              className="participant-tile__avatar-img"
-            />
-          ) : (
-            <div className="participant-tile__avatar-fallback">
-              {displayName.charAt(0).toUpperCase()}
+        /* Default square frame — banner + avatar + name */
+        <>
+          <div
+            className="participant-tile__banner"
+            style={{ background: gradient }}
+          />
+          <div className="participant-tile__body">
+            <div className="participant-tile__avatar">
+              {participant.avatarUrl ? (
+                <img
+                  src={participant.avatarUrl}
+                  alt={displayName}
+                  className="participant-tile__avatar-img"
+                />
+              ) : (
+                <div className="participant-tile__avatar-fallback">
+                  {displayName.charAt(0).toUpperCase()}
+                </div>
+              )}
             </div>
-          )}
-        </div>
+            <span className="participant-tile__name">
+              {displayName}
+              {isLocal && ' (You)'}
+            </span>
+          </div>
+        </>
       )}
 
       {/* Status overlays */}
       <div className="participant-tile__overlays">
         {participant.isMuted && (
           <div className="participant-tile__status participant-tile__status--muted">
-            <MicOff size={14} />
+            <MicOff size={compact ? 10 : 14} />
           </div>
         )}
         {participant.isScreenSharing && (
           <div className="participant-tile__status participant-tile__status--screen">
-            <Monitor size={14} />
+            <Monitor size={compact ? 10 : 14} />
           </div>
         )}
-        {!participant.isVideoOn && participant.videoStream === undefined && (
-          <div className="participant-tile__status participant-tile__status--no-video" />
-        )}
-      </div>
-
-      {/* Name label */}
-      <div className="participant-tile__name">
-        <span className="participant-tile__name-text">
-          {displayName}
-          {isLocal && ' (You)'}
-        </span>
       </div>
     </div>
   );

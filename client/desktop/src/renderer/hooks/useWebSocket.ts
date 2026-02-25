@@ -25,6 +25,7 @@ import {
 import { e2eeService } from '../services/e2eeService';
 import { preferencesSyncService } from '../services/preferencesSync';
 import { useVoiceStore } from '../stores/voiceStore';
+import { speak as ttsSpeak } from '../services/ttsService';
 
 export function useWebSocket() {
   const accessToken = useAuthStore((state) => state.accessToken);
@@ -104,12 +105,24 @@ export function useWebSocket() {
         updated_at: data.updated_at || new Date().toISOString(),
       };
 
+      // TTS helper: speak message if it's in a voice-linked text channel and not from self
+      const maybeSpeakTTS = (text: string) => {
+        const selfId = useUserStore.getState().user?.id;
+        if (data.user_id === selfId) return;
+        const ch = useChannelStore.getState().channels.find((c) => c.id === channelId);
+        if (!ch?.linked_voice_channel_id) return;
+        const voiceActiveId = useVoiceStore.getState().activeChannelId;
+        if (voiceActiveId !== ch.linked_voice_channel_id) return;
+        ttsSpeak(text, data.display_name || data.username);
+      };
+
       if (isEncrypted && e2eeService.isInitialized) {
         // Decrypt asynchronously, then add to store
         e2eeService
           .decryptForChannel(channelId, data.content)
           .then((plaintext) => {
             addMessage(channelId, { ...baseMessage, content: plaintext });
+            maybeSpeakTTS(plaintext);
           })
           .catch((err) => {
             const isPending = err instanceof Error && err.message === 'PENDING_KEY';
@@ -125,6 +138,7 @@ export function useWebSocket() {
         addMessage(channelId, { ...baseMessage, content: '', decryptFailed: true });
       } else {
         addMessage(channelId, { ...baseMessage, content: data.content });
+        maybeSpeakTTS(data.content);
       }
 
       // NOTE: Unread tracking is handled exclusively by the 'unread_notify' handler
@@ -254,6 +268,7 @@ export function useWebSocket() {
         name: data.name,
         type: data.type,
         emoji: data.emoji ?? null,
+        group_id: data.group_id ?? null,
       });
     });
 
@@ -276,6 +291,47 @@ export function useWebSocket() {
       if (!channelId) return;
 
       useChannelStore.getState().removeChannel(channelId);
+    });
+
+    // Channel group created handler
+    const unsubGroupCreated = wsService.on('channel_group_created', (msg: WebSocketMessage) => {
+      const group = msg.data.channel_group;
+      if (!group) return;
+      const activeServerId = useServerStore.getState().activeServerId;
+      if (group.server_id === activeServerId) {
+        useChannelStore.getState().addChannelGroup(group);
+      }
+    });
+
+    // Channel group updated handler
+    const unsubGroupUpdated = wsService.on('channel_group_updated', (msg: WebSocketMessage) => {
+      const group = msg.data.channel_group;
+      if (!group) return;
+      useChannelStore.getState().updateChannelGroup(group.id, {
+        name: group.name,
+        position: group.position,
+        updated_at: group.updated_at,
+      });
+    });
+
+    // Channel group deleted handler
+    const unsubGroupDeleted = wsService.on('channel_group_deleted', (msg: WebSocketMessage) => {
+      const groupId = msg.data.group_id;
+      if (!groupId) return;
+      useChannelStore.getState().removeChannelGroup(groupId);
+    });
+
+    // Channels reordered handler — bulk position/group update
+    const unsubChannelsReordered = wsService.on('channels_reordered', (msg: WebSocketMessage) => {
+      const channels = msg.data.channels;
+      if (!Array.isArray(channels)) return;
+      useChannelStore.getState().reorderChannels(
+        channels.map((c: { channel_id: string; group_id: string | null; position: number }) => ({
+          channel_id: c.channel_id,
+          group_id: c.group_id,
+          position: c.position,
+        }))
+      );
     });
 
     // Server deleted handler — removes server and cascades cleanup
@@ -313,6 +369,17 @@ export function useWebSocket() {
       const channelId = data.channel_id;
       const serverId = data.server_id;
       const activeServerId = useServerStore.getState().activeServerId;
+
+      // Voice-linked text channels: only notify when user is in the parent voice channel
+      if (channelId) {
+        const channel = useChannelStore.getState().channels.find((c) => c.id === channelId);
+        if (channel?.linked_voice_channel_id) {
+          const voiceActiveChannelId = useVoiceStore.getState().activeChannelId;
+          if (voiceActiveChannelId !== channel.linked_voice_channel_id) {
+            return; // User not in voice — suppress notification entirely
+          }
+        }
+      }
 
       if (serverId && serverId !== activeServerId) {
         // Non-active server: just mark the server icon as having unreads
@@ -414,6 +481,7 @@ export function useWebSocket() {
       const channelId = data.channel_id as string | undefined;
       const action = data.action as string | undefined;
       const userId = data.user_id as string | undefined;
+      const serverId = data.server_id as string | undefined;
       if (!channelId || !action || !userId) return;
 
       const voiceStore = useVoiceStore.getState();
@@ -428,11 +496,13 @@ export function useWebSocket() {
               displayName: data.display_name as string | undefined,
               isMuted: false,
             });
+            if (serverId) voiceStore.incrementServerVoiceCount(serverId);
           }
           break;
         case 'left':
           if (userId) {
             voiceStore.removeChannelVoiceMember(channelId, userId);
+            if (serverId) voiceStore.decrementServerVoiceCount(serverId);
           }
           break;
         case 'room_empty':
@@ -490,6 +560,10 @@ export function useWebSocket() {
       unsubChannelUpdated();
       unsubChannelCreated();
       unsubChannelDeleted();
+      unsubGroupCreated();
+      unsubGroupUpdated();
+      unsubGroupDeleted();
+      unsubChannelsReordered();
       unsubServerDeleted();
       unsubMemberRemoved();
       unsubUnreadNotify();

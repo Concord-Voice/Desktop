@@ -1,11 +1,11 @@
-import React, { useEffect, useRef } from 'react';
-import { Hash, Volume2, Pin, Lock, Mic, MicOff } from 'lucide-react';
+import React, { useEffect, useRef, useMemo } from 'react';
+import { Hash, Volume2, Pin, Lock, Mic, MicOff, ChevronDown, ChevronRight, MessageSquare } from 'lucide-react';
 import { useChannelStore } from '../../stores/channelStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useUnreadStore } from '../../stores/unreadStore';
 import { useVoiceStore, type ChannelVoiceMember } from '../../stores/voiceStore';
 import { apiFetch } from '../../services/apiClient';
-import { Channel } from '../../types/chat';
+import { Channel, ChannelGroup } from '../../types/chat';
 import './ChannelList.css';
 
 interface ChannelListProps {
@@ -15,6 +15,9 @@ interface ChannelListProps {
 const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
   const activeServerId = useServerStore((state) => state.activeServerId);
   const channels = useChannelStore((state) => state.channels);
+  const channelGroups = useChannelStore((state) => state.channelGroups);
+  const collapsedGroups = useChannelStore((state) => state.collapsedGroups);
+  const toggleGroupCollapsed = useChannelStore((state) => state.toggleGroupCollapsed);
   const activeChannelId = useChannelStore((state) => state.activeChannelId);
   const isLoading = useChannelStore((state) => state.isLoading);
   const error = useChannelStore((state) => state.error);
@@ -28,6 +31,7 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
   const voiceConnectionState = useVoiceStore((s) => s.connectionState);
   const channelVoiceMembers = useVoiceStore((s) => s.channelVoiceMembers);
   const setChannelVoiceMembers = useVoiceStore((s) => s.setChannelVoiceMembers);
+  const setServerVoiceCount = useVoiceStore((s) => s.setServerVoiceCount);
   const clearAllChannelVoiceMembers = useVoiceStore((s) => s.clearAllChannelVoiceMembers);
   const fetchedServerRef = useRef<string | null>(null);
 
@@ -48,10 +52,11 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
     if (fetchedServerRef.current === activeServerId) return;
     fetchedServerRef.current = activeServerId;
 
-    voiceChans.forEach(async (channel) => {
+    let totalVoiceCount = 0;
+    const fetchAll = voiceChans.map(async (channel) => {
       try {
         const res = await apiFetch(`/api/v1/channels/${channel.id}/voice/participants`);
-        if (!res.ok) return;
+        if (!res.ok) return 0;
         const data = await res.json();
         const members: ChannelVoiceMember[] = (data.participants || []).map(
           (p: { user_id: string; username: string; display_name?: string; avatar_url?: string; is_muted?: boolean }) => ({
@@ -65,11 +70,17 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
         if (members.length > 0) {
           setChannelVoiceMembers(channel.id, members);
         }
+        return members.length;
       } catch {
         // Non-critical — voice participants just won't show
+        return 0;
       }
     });
-  }, [channels, activeServerId, setChannelVoiceMembers]);
+    Promise.all(fetchAll).then((counts) => {
+      totalVoiceCount = counts.reduce((sum, c) => sum + c, 0);
+      if (activeServerId) setServerVoiceCount(activeServerId, totalVoiceCount);
+    });
+  }, [channels, activeServerId, setChannelVoiceMembers, setServerVoiceCount]);
 
   // Clear voice members when server changes
   useEffect(() => {
@@ -103,10 +114,43 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
     // clearUnread + read mark handled by useEffect([activeChannelId]) above
   };
 
-  // Group channels by type
-  const textChannels = channels.filter((c) => c.type === 'text');
-  const voiceChannels = channels.filter((c) => c.type === 'voice');
-  const bulletinChannels = channels.filter((c) => c.type === 'bulletin');
+  // Build grouped channel structure: groups sorted by position, channels within groups sorted by position
+  // Filter out linked text channels — they render inline below their parent voice channel
+  const groupedChannels = useMemo(() => {
+    const nonLinked = channels.filter((c) => !c.linked_voice_channel_id);
+
+    // Sort groups by position
+    const sortedGroups = [...channelGroups].sort((a, b) => a.position - b.position);
+
+    // Map channels into their groups
+    const grouped: { group: ChannelGroup | null; channels: Channel[] }[] = sortedGroups.map((g) => ({
+      group: g,
+      channels: nonLinked
+        .filter((c) => c.group_id === g.id)
+        .sort((a, b) => a.position - b.position),
+    }));
+
+    // Uncategorized channels (no group_id) go at the bottom
+    const uncategorized = nonLinked
+      .filter((c) => !c.group_id)
+      .sort((a, b) => a.position - b.position);
+    if (uncategorized.length > 0) {
+      grouped.push({ group: null, channels: uncategorized });
+    }
+
+    return grouped;
+  }, [channels, channelGroups]);
+
+  // Map voice channel ID → linked text channel (for inline rendering)
+  const linkedTextByVoice = useMemo(() => {
+    const map = new Map<string, Channel>();
+    for (const c of channels) {
+      if (c.linked_voice_channel_id) {
+        map.set(c.linked_voice_channel_id, c);
+      }
+    }
+    return map;
+  }, [channels]);
 
   const renderChannelItem = (channel: Channel) => {
     const isActive = channel.id === activeChannelId;
@@ -146,6 +190,12 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
       }
     }
 
+    // Check if this voice channel has a linked text chat that should be shown
+    const linkedText = channel.type === 'voice' ? linkedTextByVoice.get(channel.id) : null;
+    const showLinkedText = linkedText && voiceChannelId === channel.id;
+    const linkedTextUnread = linkedText ? (unreadCounts.get(linkedText.id) || 0) : 0;
+    const isLinkedTextActive = linkedText?.id === activeChannelId;
+
     return (
       <div key={channel.id}>
         <div
@@ -166,6 +216,20 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
             <span className="channel-unread-badge">{unread > 99 ? '99+' : unread}</span>
           )}
         </div>
+        {/* Linked text chat — only visible when user is in this voice channel */}
+        {showLinkedText && linkedText && (
+          <div
+            className={`channel-item channel-item--voice-text ${isLinkedTextActive ? 'active' : ''} ${linkedTextUnread > 0 ? 'has-unread' : ''}`}
+            onClick={() => handleChannelClick(linkedText)}
+            title={`${channel.name} Text Chat`}
+          >
+            <span className="channel-type-icon"><MessageSquare size={14} /></span>
+            <span className="channel-name">{channel.name} Text Chat</span>
+            {linkedTextUnread > 0 && !isLinkedTextActive && (
+              <span className="channel-unread-badge">{linkedTextUnread > 99 ? '99+' : linkedTextUnread}</span>
+            )}
+          </div>
+        )}
         {voiceMembers.length > 0 && (
           <div className="voice-channel-participants">
             {voiceMembers.map((p) => (
@@ -241,38 +305,43 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu }) => {
         </div>
       )}
 
-      {/* Channel Groups */}
+      {/* Dynamic Channel Groups */}
       {channels.length > 0 && (
         <>
-          {/* Bulletin Channels */}
-          {bulletinChannels.length > 0 && (
-            <div className="channel-group">
-              <div className="channel-group-header">
-                <span>BULLETINS</span>
-              </div>
-              {bulletinChannels.map(renderChannelItem)}
-            </div>
-          )}
+          {groupedChannels.map(({ group, channels: groupChannels }) => {
+            if (groupChannels.length === 0) return null;
 
-          {/* Text Channels */}
-          {textChannels.length > 0 && (
-            <div className="channel-group">
-              <div className="channel-group-header">
-                <span>TEXT CHANNELS</span>
-              </div>
-              {textChannels.map(renderChannelItem)}
-            </div>
-          )}
+            const groupId = group?.id ?? '__uncategorized';
+            const isCollapsed = group ? collapsedGroups.includes(group.id) : false;
+            const groupName = group?.name ?? 'Uncategorized';
 
-          {/* Voice Channels */}
-          {voiceChannels.length > 0 && (
-            <div className="channel-group">
-              <div className="channel-group-header">
-                <span>VOICE CHANNELS</span>
+            // Count unreads in collapsed group
+            const groupUnreadCount = isCollapsed
+              ? groupChannels.reduce((sum, c) => sum + (unreadCounts.get(c.id) || 0), 0)
+              : 0;
+
+            return (
+              <div key={groupId} className="channel-group">
+                <div
+                  className={`channel-group-header ${group ? 'channel-group-header--collapsible' : ''}`}
+                  onClick={group ? () => toggleGroupCollapsed(group.id) : undefined}
+                >
+                  {group && (
+                    <span className="channel-group-header__chevron">
+                      {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                    </span>
+                  )}
+                  <span>{groupName.toUpperCase()}</span>
+                  {isCollapsed && groupUnreadCount > 0 && (
+                    <span className="channel-group-header__count">
+                      {groupUnreadCount > 99 ? '99+' : groupUnreadCount}
+                    </span>
+                  )}
+                </div>
+                {!isCollapsed && groupChannels.map(renderChannelItem)}
               </div>
-              {voiceChannels.map(renderChannelItem)}
-            </div>
-          )}
+            );
+          })}
         </>
       )}
     </div>

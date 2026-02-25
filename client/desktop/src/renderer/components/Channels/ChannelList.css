@@ -13,8 +13,27 @@
 }
 
 .channel-group-header {
+  display: flex;
+  align-items: center;
+  gap: calc(4px * var(--sp, 1));
   padding: calc(4px * var(--sp, 1)) calc(12px * var(--sp, 1));
   margin-bottom: calc(4px * var(--sp, 1));
+}
+
+.channel-group-header--collapsible {
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.channel-group-header--collapsible:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.channel-group-header__chevron {
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
+  flex-shrink: 0;
 }
 
 .channel-group-header span {
@@ -23,6 +42,22 @@
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.channel-group-header__count {
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+  font-size: calc(10px * var(--font-scale, 1));
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 /* Channel Items */
@@ -206,6 +241,25 @@
 .channel-list-empty-hint {
   font-size: calc(12px * var(--font-scale, 1));
   color: var(--text-tertiary);
+}
+
+/* Voice text chat — indented below parent voice channel */
+.channel-item--voice-text {
+  padding-left: calc(36px * var(--sp, 1));
+  border-left: none;
+}
+
+.channel-item--voice-text .channel-name {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-secondary);
+}
+
+.channel-item--voice-text .channel-type-icon {
+  color: var(--text-muted);
+}
+
+.channel-item--voice-text.active .channel-name {
+  color: var(--text-primary);
 }
 
 /* Voice channel participants */

@@ -8,6 +8,7 @@ import type { AudioQualityTier } from '../../stores/voiceStore';
 import { useAudioSettingsStore } from '../../stores/audioSettingsStore';
 import { useVideoSettingsStore, VIDEO_QUALITY_PRESETS } from '../../stores/videoSettingsStore';
 import type { ScreenResolution, ScreenContentType } from '../../stores/videoSettingsStore';
+import { useTTSSettingsStore } from '../../stores/ttsSettingsStore';
 import { detectCodecCapabilities } from '../../services/mediaCapabilities';
 import type { CodecCapability } from '../../services/mediaCapabilities';
 import { apiFetch } from '../../services/apiClient';
@@ -1044,7 +1045,119 @@ const VoiceAudioSection: React.FC = () => {
           </div>
         )}
       </div>
+
+      <TTSSection />
     </>
+  );
+};
+
+// ─── Text-to-Speech Section ─────────────────────────────────────────────────
+
+const TTSSection: React.FC = () => {
+  const ttsEnabled = useTTSSettingsStore((s) => s.ttsEnabled);
+  const ttsVoice = useTTSSettingsStore((s) => s.ttsVoice);
+  const ttsRate = useTTSSettingsStore((s) => s.ttsRate);
+  const ttsVolume = useTTSSettingsStore((s) => s.ttsVolume);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+  useEffect(() => {
+    const loadVoices = () => {
+      const available = window.speechSynthesis?.getVoices() ?? [];
+      setVoices(available);
+    };
+    loadVoices();
+    window.speechSynthesis?.addEventListener('voiceschanged', loadVoices);
+    return () => window.speechSynthesis?.removeEventListener('voiceschanged', loadVoices);
+  }, []);
+
+  const handlePreview = () => {
+    if (!window.speechSynthesis) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance('This is a preview of text-to-speech in Concord.');
+    utterance.rate = ttsRate;
+    utterance.volume = ttsVolume;
+    if (ttsVoice) {
+      const match = voices.find((v) => v.voiceURI === ttsVoice);
+      if (match) utterance.voice = match;
+    }
+    window.speechSynthesis.speak(utterance);
+  };
+
+  return (
+    <div className="settings-section">
+      <h2 className="settings-section-title">Text-to-Speech</h2>
+      <p className="settings-section-description">
+        Read voice text chat messages aloud while you're in a voice channel.
+      </p>
+
+      <div className="settings-row">
+        <div className="settings-row-info">
+          <span className="settings-row-label">Enable TTS Playback</span>
+          <span className="settings-row-hint">Incoming voice text chat messages will be spoken aloud</span>
+        </div>
+        <ToggleSwitch
+          checked={ttsEnabled}
+          onChange={(v) => useTTSSettingsStore.getState().setTtsEnabled(v)}
+        />
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row-info">
+          <span className="settings-row-label">Voice</span>
+          <span className="settings-row-hint">Select the TTS voice to use</span>
+        </div>
+        <select
+          className="settings-select"
+          value={ttsVoice ?? ''}
+          onChange={(e) => useTTSSettingsStore.getState().setTtsVoice(e.target.value || null)}
+        >
+          <option value="">System Default</option>
+          {voices.map((v) => (
+            <option key={v.voiceURI} value={v.voiceURI}>
+              {v.name} ({v.lang})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row-info">
+          <span className="settings-row-label">Speed</span>
+          <span className="settings-row-hint">{ttsRate.toFixed(1)}x</span>
+        </div>
+        <input
+          type="range"
+          className="settings-slider"
+          min={0.5}
+          max={2.0}
+          step={0.1}
+          value={ttsRate}
+          onChange={(e) => useTTSSettingsStore.getState().setTtsRate(Number(e.target.value))}
+        />
+      </div>
+
+      <div className="settings-row">
+        <div className="settings-row-info">
+          <span className="settings-row-label">Volume</span>
+          <span className="settings-row-hint">{Math.round(ttsVolume * 100)}%</span>
+        </div>
+        <input
+          type="range"
+          className="settings-slider"
+          min={0}
+          max={1}
+          step={0.05}
+          value={ttsVolume}
+          onChange={(e) => useTTSSettingsStore.getState().setTtsVolume(Number(e.target.value))}
+        />
+      </div>
+
+      <div className="settings-row">
+        <button className="settings-btn-secondary" onClick={handlePreview}>
+          Preview
+        </button>
+      </div>
+    </div>
   );
 };
 

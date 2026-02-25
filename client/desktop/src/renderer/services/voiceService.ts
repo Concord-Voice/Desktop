@@ -60,6 +60,7 @@ interface RoomJoinedResponse {
   }>;
   isEncrypted: boolean;
   channelName: string;
+  e2eeEpoch?: number;
 }
 
 interface TransportOptions {
@@ -497,6 +498,13 @@ class VoiceService {
         for (const p of roomJoined.participants) {
           await this.addDecryptKeyForUser(channel.id, p.userId);
         }
+        // Catch up to server epoch immediately (existing participants may be
+        // encrypting at a higher keyId due to prior join/leave rotations).
+        // The self-healing ratchet handles frame-level catch-up, but catching
+        // up now means the first frame won't need an expensive ratchet chain.
+        if (roomJoined.e2eeEpoch && this.mediaEncryption) {
+          await this.mediaEncryption.catchUpToEpoch(roomJoined.e2eeEpoch);
+        }
       }
 
       // Step 7: Set participants BEFORE consuming producers so that
@@ -648,6 +656,17 @@ class VoiceService {
   /** Produce camera video — VP9 SVC (L3T3) preferred, H264 simulcast fallback */
   async produceVideo(deviceId?: string): Promise<void> {
     if (!this.sendTransport || !this.device) return;
+
+    // Video slot enforcement
+    const voiceState = useVoiceStore.getState();
+    const videoOnCount = Object.values(voiceState.participants).filter((p) => p.isVideoOn).length;
+    if (videoOnCount >= voiceState.maxVideoSlots) {
+      voiceState.setVideoSlotError(
+        `Maximum video streams reached (${voiceState.maxVideoSlots}). ` +
+        'Wait for someone to turn off video or a screen share to end.'
+      );
+      return;
+    }
 
     // Read video settings for camera preset
     const videoSettings = useVideoSettingsStore.getState();
@@ -895,12 +914,100 @@ class VoiceService {
     }
   }
 
-  /** Opt-in to consume a remote screen share ("Tune In" model) */
+  /** Opt-in to consume a remote screen share ("Tune In" model) — up to 5 concurrent */
   async tuneInToScreenShare(producerId: string, userId: string): Promise<void> {
+    const store = useVoiceStore.getState();
+
+    // Enforce 5-stream limit
+    if (Object.keys(store.tunedInScreenShares).length >= 5) {
+      store.setVideoSlotError('Maximum 5 screen shares reached. Tune out of one first.');
+      return;
+    }
+
+    // Ensure decrypt key is ready for E2EE screen share
+    if (this.isEncrypted && this.mediaEncryption) {
+      const channelId = store.activeChannelId;
+      if (channelId) await this.addDecryptKeyForUser(channelId, userId);
+    }
+
     // Remove from available list and consume the producer
-    useVoiceStore.getState().removeAvailableScreenShare(producerId);
+    store.removeAvailableScreenShare(producerId);
     await this.consumeProducer(producerId, userId);
-    useVoiceStore.getState().updateParticipant(userId, { isScreenSharing: true });
+
+    // Find the consumer that was just created for this producer
+    let consumerId = '';
+    for (const [cid, consumer] of this.consumers) {
+      if (consumer.producerId === producerId) {
+        consumerId = cid;
+        break;
+      }
+    }
+
+    // Track in store
+    store.tuneIn(producerId, consumerId);
+
+    // Set as dominant if first tuned-in share
+    if (!store.dominantScreenShareId) {
+      store.setDominantScreenShare(producerId);
+    }
+
+    store.updateParticipant(userId, { isScreenSharing: true });
+  }
+
+  /** Opt-out of a tuned-in screen share */
+  async tuneOutOfScreenShare(producerId: string): Promise<void> {
+    const store = useVoiceStore.getState();
+    const consumerId = store.tunedInScreenShares[producerId];
+
+    // Close the consumer
+    if (consumerId) {
+      const consumer = this.consumers.get(consumerId);
+      if (consumer) {
+        consumer.close();
+        this.consumers.delete(consumerId);
+      }
+    }
+
+    // Find the producing user to update their participant state
+    const participants = store.participants;
+    let producerUserId: string | undefined;
+    for (const [uid, p] of Object.entries(participants)) {
+      if (p.screenStream) {
+        // Check if this participant's screen stream matches
+        producerUserId = uid;
+        break;
+      }
+    }
+
+    // Add back to available shares
+    if (producerUserId) {
+      const participant = participants[producerUserId];
+      store.addAvailableScreenShare({
+        producerId,
+        userId: producerUserId,
+        username: participant?.username || 'Unknown',
+        displayName: participant?.displayName,
+      });
+    }
+
+    // Remove from tuned-in (this also handles dominant swap & slot recalculation)
+    store.tuneOut(producerId);
+  }
+
+  /** Pause a consumer (for soft-pause when section is hidden) */
+  pauseConsumer(consumerId: string): void {
+    const consumer = this.consumers.get(consumerId);
+    if (consumer && !consumer.paused) {
+      consumer.pause();
+    }
+  }
+
+  /** Resume a consumer (for soft-resume when section is shown) */
+  resumeConsumer(consumerId: string): void {
+    const consumer = this.consumers.get(consumerId);
+    if (consumer && consumer.paused) {
+      consumer.resume();
+    }
   }
 
   /** Close a specific producer by source */
@@ -1142,6 +1249,26 @@ class VoiceService {
         return;
       }
 
+      // E2EE: ensure decrypt key is ready BEFORE consuming so the first
+      // frames can be decrypted. Socket.IO doesn't await async handlers,
+      // so user-joined's addDecryptKeyForUser may still be in-flight.
+      if (this.isEncrypted && this.mediaEncryption) {
+        const channelId = store.activeChannelId;
+        if (channelId) {
+          await this.addDecryptKeyForUser(channelId, userId);
+        }
+      }
+
+      // Video slot enforcement for camera streams
+      if (source === 'camera') {
+        const videoOnCount = Object.values(store.participants).filter((p) => p.isVideoOn).length;
+        if (videoOnCount >= store.maxVideoSlots) {
+          console.warn(`[new-producer] Video slot limit reached (${store.maxVideoSlots}), skipping camera consume for ${userId}`);
+          store.updateParticipant(userId, { isVideoOn: true }); // Mark them as video-on even if we can't consume
+          return;
+        }
+      }
+
       await this.consumeProducer(producerId, userId);
       if (source === 'camera') store.updateParticipant(userId, { isVideoOn: true });
       if (source === 'screen') store.updateParticipant(userId, { isScreenSharing: true });
@@ -1353,11 +1480,29 @@ class VoiceService {
                 `(rho=${rho.toFixed(2)})`,
               );
             } else {
-              // Already at lowest layers — pause lowest-priority consumer
-              consumer.pause();
-              console.warn(
-                `IGNIS RED: pausing consumer ${consumer.id} — no layers to reduce`,
-              );
+              // Already at lowest layers — pause lowest-priority consumer.
+              // Prefer pausing camera consumers over screen share consumers.
+              const tunedIn = useVoiceStore.getState().tunedInScreenShares;
+              const isScreenShare = Object.values(tunedIn).includes(consumer.id);
+              if (isScreenShare) {
+                // Try to find a camera consumer to pause instead
+                let pausedCamera = false;
+                for (const [, c] of this.consumers) {
+                  if (c.kind === 'video' && !c.paused && !Object.values(tunedIn).includes(c.id)) {
+                    c.pause();
+                    console.warn(`IGNIS RED: pausing camera consumer ${c.id} instead of screen share ${consumer.id}`);
+                    pausedCamera = true;
+                    break;
+                  }
+                }
+                if (!pausedCamera) {
+                  consumer.pause();
+                  console.warn(`IGNIS RED: pausing screen share consumer ${consumer.id} — no camera to demote`);
+                }
+              } else {
+                consumer.pause();
+                console.warn(`IGNIS RED: pausing camera consumer ${consumer.id} — no layers to reduce`);
+              }
             }
           } else if (rho >= 0.80) {
             // YELLOW zone — approaching limit
@@ -1436,11 +1581,11 @@ class VoiceService {
           async transform(frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame, controller) {
             try {
               await encryption.encryptFrame(frame);
+              controller.enqueue(frame);
             } catch {
-              // Encrypt failed — still enqueue the frame (unencrypted) so the
-              // stream doesn't stall. Receiver will detect missing magic bytes.
+              // Encrypt failed — DROP the frame to avoid sending unencrypted
+              // plaintext on an encrypted channel. Silence/blank is correct.
             }
-            controller.enqueue(frame);
           },
         });
         readable.pipeThrough(transform).pipeTo(writable).catch((err: unknown) => {
@@ -1475,14 +1620,26 @@ class VoiceService {
     if (typeof receiverAny.createEncodedStreams === 'function') {
       try {
         const { readable, writable } = receiverAny.createEncodedStreams();
+        let dropCount = 0;
         const transform = new TransformStream({
           async transform(frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame, controller) {
             try {
               await encryption.decryptFrame(frame, senderUserId);
+              controller.enqueue(frame);
+              // Reset drop counter on success
+              if (dropCount > 0) {
+                console.debug(`E2EE: decrypt recovered after ${dropCount} dropped frames for ${senderUserId}`);
+                dropCount = 0;
+              }
             } catch {
-              // Decrypt failed — pass frame through as-is
+              // Decrypt failed — DROP the frame. Silence (audio) or freeze/black
+              // (video) is far better than feeding ciphertext to the decoder,
+              // which produces garbled noise or corrupted video.
+              dropCount++;
+              if (dropCount === 1 || dropCount % 100 === 0) {
+                console.warn(`E2EE: dropping undecryptable frame for ${senderUserId} (total dropped: ${dropCount})`);
+              }
             }
-            controller.enqueue(frame);
           },
         });
         readable.pipeThrough(transform).pipeTo(writable).catch((err: unknown) => {

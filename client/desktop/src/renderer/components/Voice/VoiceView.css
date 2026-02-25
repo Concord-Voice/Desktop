@@ -59,6 +59,75 @@
   background-color: rgba(240, 71, 71, 0.12);
 }
 
+/* ─── Voice Area (Mode A/B container — resizable vs text chat) ── */
+
+.voice-view__voice-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 200px;
+}
+
+/* ─── Section Resize Handle (between Mode B sections) ─────────── */
+
+.voice-view__section-handle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  height: 8px;
+}
+
+.voice-view__section-handle-grip {
+  width: 100%;
+  height: 100%;
+  cursor: row-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.voice-view__section-handle-grip::after {
+  content: '';
+  width: 40px;
+  height: 3px;
+  border-radius: 2px;
+  background-color: var(--border-color);
+  transition: background-color 150ms ease;
+}
+
+.voice-view__section-handle-grip:hover::after {
+  background-color: var(--text-muted);
+}
+
+.voice-view__section-toggle {
+  position: absolute;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 150ms ease, background 150ms ease;
+}
+
+.voice-view__section-handle:hover .voice-view__section-toggle {
+  opacity: 1;
+}
+
+.voice-view__section-toggle:hover {
+  background: var(--bg-modifier-hover);
+  color: var(--text-primary);
+}
+
 /* ─── Join prompt (not connected) ─────────────────────────────── */
 
 .voice-view__join {
@@ -108,4 +177,13 @@
 .voice-view__join-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ─── Text chat panel (below participant grid) ───────────────── */
+
+.voice-view__text-chat {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
