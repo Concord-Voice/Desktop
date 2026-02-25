@@ -129,14 +129,29 @@ export class MediaEncryption {
     if (!this.encryptKey) return;
 
     const oldKeyId = this.currentKeyId;
-    this.currentKeyId++;
+    const newKeyId = oldKeyId + 1;
+    this.currentKeyId = newKeyId;
     this.encryptKey = await ratchetKey(this.encryptKey);
 
-    // Keep old decrypt keys for 10 second overlap window
+    // Ratchet ALL decrypt keys at oldKeyId → newKeyId so receivers stay in
+    // sync with senders.  Without this, decrypt keys stay at keyId 0 while
+    // senders advance on every join/leave, causing "No decrypt key" errors
+    // once the gap exceeds the self-healing ratchet limit.
+    const toRatchet: { senderUserId: string; entry: { key: CryptoKey; expires: number } }[] = [];
     for (const [id, entry] of this.decryptKeys) {
       if (id.endsWith(`:${oldKeyId}`)) {
-        entry.expires = Date.now() + 10_000;
+        const senderUserId = id.slice(0, id.lastIndexOf(':'));
+        toRatchet.push({ senderUserId, entry });
       }
+    }
+    for (const { senderUserId, entry } of toRatchet) {
+      const newKey = await ratchetKey(entry.key);
+      this.decryptKeys.set(`${senderUserId}:${newKeyId}`, {
+        key: newKey,
+        expires: Date.now() + 3600_000,
+      });
+      // Expire the old key after overlap window
+      entry.expires = Date.now() + 10_000;
     }
 
     // Clean expired keys
@@ -217,7 +232,7 @@ export class MediaEncryption {
     if (!bestEntry || bestKeyId < 0) return null;
 
     const steps = targetKeyId - bestKeyId;
-    if (steps > 10) return null; // Sanity limit
+    if (steps > 100) return null; // Sanity limit (covers many join/leave cycles)
 
     let currentKey = bestEntry.key;
     for (let i = bestKeyId; i < targetKeyId; i++) {
