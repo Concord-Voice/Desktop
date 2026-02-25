@@ -125,13 +125,13 @@ class VoiceService {
       this.vadSource = this.vadAudioContext.createMediaStreamSource(micStream);
       this.vadAnalyser = this.vadAudioContext.createAnalyser();
       this.vadAnalyser.fftSize = 256;
-      this.vadAnalyser.smoothingTimeConstant = 0.5;
+      this.vadAnalyser.smoothingTimeConstant = 0.3;
       this.vadSource.connect(this.vadAnalyser);
 
       const bufferLength = this.vadAnalyser.frequencyBinCount;
       const dataArray = new Uint8Array(bufferLength);
-      const SPEAKING_THRESHOLD = 15; // byte average (0-255 range)
-      const SILENCE_DELAY = 300; // ms to hold speaking state after drop
+      const SPEAKING_THRESHOLD = 8; // byte average (0-255 range) — lower = more sensitive
+      const SILENCE_DELAY = 200; // ms to hold speaking state after drop
       let silenceStart = 0;
 
       this.vadTimer = setInterval(() => {
@@ -488,6 +488,10 @@ class VoiceService {
     producer.on('transportclose', () => {
       this.producers.delete('mic');
       this.stopLocalVAD();
+      if (this.localMicStream) {
+        this.localMicStream.getTracks().forEach((t) => t.stop());
+        this.localMicStream = null;
+      }
     });
   }
 
@@ -538,6 +542,10 @@ class VoiceService {
 
     producer.on('transportclose', () => {
       this.producers.delete('camera');
+      if (this.localCameraStream) {
+        this.localCameraStream.getTracks().forEach((t) => t.stop());
+        this.localCameraStream = null;
+      }
       const s = useVoiceStore.getState();
       s.setVideoOn(false);
       const uid = useUserStore.getState().user?.id;
@@ -630,6 +638,10 @@ class VoiceService {
 
       producer.on('transportclose', () => {
         this.producers.delete('screen');
+        if (this.localScreenStream) {
+          this.localScreenStream.getTracks().forEach((t) => t.stop());
+          this.localScreenStream = null;
+        }
         const s = useVoiceStore.getState();
         s.setScreenSharing(false);
         const uid = useUserStore.getState().user?.id;
@@ -1267,10 +1279,22 @@ class VoiceService {
   }
 
   private async cleanup(): Promise<void> {
-    // Close all producers
-    for (const [source] of this.producers) {
+    // Close all producers — snapshot keys first because closeProducer()
+    // mutates the Map (deletes entries), which breaks for..of iteration
+    // and causes producers to be skipped (camera stays alive).
+    const producerSources = [...this.producers.keys()];
+    for (const source of producerSources) {
       await this.closeProducer(source);
     }
+
+    // Safety net: ensure ALL local media tracks are stopped even if
+    // closeProducer missed them (e.g. due to a prior error or race).
+    for (const stream of [this.localMicStream, this.localCameraStream, this.localScreenStream]) {
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+    }
+    this.localMicStream = null;
+    this.localCameraStream = null;
+    this.localScreenStream = null;
 
     // Close all consumers
     for (const [, consumer] of this.consumers) {
