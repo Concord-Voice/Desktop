@@ -531,9 +531,20 @@ class VoiceService {
       await this.produceAudio();
 
       // Step 9: Consume existing producers (participants already in store,
-      // so updateParticipant will attach streams correctly)
+      // so updateParticipant will attach streams correctly).
+      // Screen shares use opt-in ("Tune In") model — add to available list instead.
       for (const producer of roomJoined.existingProducers) {
-        await this.consumeProducer(producer.producerId, producer.userId);
+        if (producer.source === 'screen') {
+          const participant = store.participants[producer.userId];
+          store.addAvailableScreenShare({
+            producerId: producer.producerId,
+            userId: producer.userId,
+            username: participant?.username || 'Unknown',
+            displayName: participant?.displayName,
+          });
+        } else {
+          await this.consumeProducer(producer.producerId, producer.userId);
+        }
       }
 
       store.setConnectionState('connected');
@@ -884,6 +895,14 @@ class VoiceService {
     }
   }
 
+  /** Opt-in to consume a remote screen share ("Tune In" model) */
+  async tuneInToScreenShare(producerId: string, userId: string): Promise<void> {
+    // Remove from available list and consume the producer
+    useVoiceStore.getState().removeAvailableScreenShare(producerId);
+    await this.consumeProducer(producerId, userId);
+    useVoiceStore.getState().updateParticipant(userId, { isScreenSharing: true });
+  }
+
   /** Close a specific producer by source */
   async closeProducer(source: string): Promise<void> {
     const producer = this.producers.get(source);
@@ -1107,9 +1126,23 @@ class VoiceService {
   private setupSocketListeners(): void {
     if (!this.socket) return;
 
-    this.socket.on('new-producer', async ({ producerId, userId, kind, source }) => {
-      await this.consumeProducer(producerId, userId);
+    this.socket.on('new-producer', async ({ producerId, userId, kind, source, requiresOptIn }) => {
       const store = useVoiceStore.getState();
+
+      // Screen shares use opt-in ("Tune In") model — announce but don't auto-consume
+      if (requiresOptIn && source === 'screen') {
+        const participant = store.participants[userId];
+        store.addAvailableScreenShare({
+          producerId,
+          userId,
+          username: participant?.username || 'Unknown',
+          displayName: participant?.displayName,
+        });
+        store.updateParticipant(userId, { isScreenSharing: true });
+        return;
+      }
+
+      await this.consumeProducer(producerId, userId);
       if (source === 'camera') store.updateParticipant(userId, { isVideoOn: true });
       if (source === 'screen') store.updateParticipant(userId, { isScreenSharing: true });
     });
@@ -1134,7 +1167,11 @@ class VoiceService {
 
       const store = useVoiceStore.getState();
       if (source === 'camera') store.updateParticipant(userId, { isVideoOn: false, videoStream: undefined });
-      else if (source === 'screen') store.updateParticipant(userId, { isScreenSharing: false, screenStream: undefined });
+      else if (source === 'screen') {
+        store.updateParticipant(userId, { isScreenSharing: false, screenStream: undefined });
+        // Also remove from available screen shares (opt-in list)
+        store.removeAvailableScreenShare(producerId);
+      }
     });
 
     this.socket.on('user-joined', async ({ userId, username, displayName, avatarUrl }) => {
@@ -1249,7 +1286,27 @@ class VoiceService {
     }, 5_000);
   }
 
+  /**
+   * Full IGNIS decoder budget profiling.
+   *
+   * Zone thresholds:
+   *   Green:  rho < 0.67  (decode time < 67% of frame interval)
+   *   Yellow: rho < 0.80  (approaching limit)
+   *   Red:    rho >= 0.925 (near-critical, 92.5% capacity)
+   *
+   * Formulas:
+   *   Load Ratio:  rho = T_d_p95 / T_f = (T_d_p95 × FPS) / 1000
+   *   Safe FPS:    FPS_safe = margin × (1000 / T_d_p95)
+   *   Risk Score:  R = (FPS × T_d_p95) / 1000
+   *
+   * Actions:
+   *   Green:  full quality, no intervention
+   *   Yellow: lower temporal layer by 1
+   *   Red:    lower spatial layer by 1, if already lowest → pause lowest-priority consumer
+   */
   private async profileDecoders(): Promise<void> {
+    let worstZone: 'green' | 'yellow' | 'red' = 'green';
+
     for (const [, consumer] of this.consumers) {
       if (consumer.kind !== 'video') continue;
 
@@ -1259,39 +1316,71 @@ class VoiceService {
         for (const report of stats.values()) {
           if (report.type !== 'inbound-rtp' || report.kind !== 'video') continue;
 
-          // Extract decode time metrics (Chrome/Electron expose these)
           const totalDecodeTime = (report as Record<string, unknown>).totalDecodeTime as number | undefined;
           const framesDecoded = (report as Record<string, unknown>).framesDecoded as number | undefined;
+          const currentFps = (report as Record<string, unknown>).framesPerSecond as number | undefined;
 
-          if (!totalDecodeTime || !framesDecoded || framesDecoded === 0) continue;
+          if (!totalDecodeTime || !framesDecoded || framesDecoded === 0 || !currentFps) continue;
 
           // Average decode time per frame (ms)
           const avgDecodeMs = (totalDecodeTime / framesDecoded) * 1000;
-          // Use p95 estimate ≈ 1.5× average (conservative)
+          // p95 estimate ≈ 1.5× average
           const p95DecodeMs = avgDecodeMs * 1.5;
-          // IGNIS safe FPS formula
-          const fpsSafe = 0.8 * (1000 / p95DecodeMs);
+          // Load ratio (rho)
+          const rho = (p95DecodeMs * currentFps) / 1000;
 
-          const currentFps = (report as Record<string, unknown>).framesPerSecond as number | undefined;
-          if (currentFps && currentFps > fpsSafe) {
-            // Decoder is overloaded — request lower temporal layer
-            const currentLayers = consumer.currentLayers;
+          const currentLayers = consumer.currentLayers;
+
+          if (rho >= 0.925) {
+            // RED zone — critical decoder load
+            worstZone = 'red';
+            if (currentLayers && currentLayers.spatialLayer > 0) {
+              consumer.setPreferredLayers({
+                spatialLayer: currentLayers.spatialLayer - 1,
+                temporalLayer: currentLayers.temporalLayer,
+              });
+              console.warn(
+                `IGNIS RED: lowering spatial layer for consumer ${consumer.id}`,
+                `(rho=${rho.toFixed(2)}, decode p95=${p95DecodeMs.toFixed(1)}ms, fps=${currentFps})`,
+              );
+            } else if (currentLayers && currentLayers.temporalLayer > 0) {
+              consumer.setPreferredLayers({
+                spatialLayer: currentLayers.spatialLayer,
+                temporalLayer: currentLayers.temporalLayer - 1,
+              });
+              console.warn(
+                `IGNIS RED: lowering temporal layer for consumer ${consumer.id}`,
+                `(rho=${rho.toFixed(2)})`,
+              );
+            } else {
+              // Already at lowest layers — pause lowest-priority consumer
+              consumer.pause();
+              console.warn(
+                `IGNIS RED: pausing consumer ${consumer.id} — no layers to reduce`,
+              );
+            }
+          } else if (rho >= 0.80) {
+            // YELLOW zone — approaching limit
+            if (worstZone !== 'red') worstZone = 'yellow';
             if (currentLayers && currentLayers.temporalLayer > 0) {
               consumer.setPreferredLayers({
                 spatialLayer: currentLayers.spatialLayer,
                 temporalLayer: currentLayers.temporalLayer - 1,
               });
               console.info(
-                `Decoder budget: lowering temporal layer for consumer ${consumer.id}`,
-                `(decode p95: ${p95DecodeMs.toFixed(1)}ms, fps: ${currentFps}, safe: ${fpsSafe.toFixed(0)})`,
+                `IGNIS YELLOW: lowering temporal layer for consumer ${consumer.id}`,
+                `(rho=${rho.toFixed(2)}, decode p95=${p95DecodeMs.toFixed(1)}ms, fps=${currentFps})`,
               );
             }
           }
+          // GREEN zone (rho < 0.67) — no intervention needed
         }
       } catch {
         // Stats not available — skip
       }
     }
+
+    useVoiceStore.getState().setDecoderHealth(worstZone);
   }
 
   // ─── E2EE ─────────────────────────────────────────────────────
@@ -1497,6 +1586,9 @@ class VoiceService {
     this.mediaEncryption?.destroy();
     this.mediaEncryption = null;
     this.isEncrypted = false;
+
+    // Clear screen share opt-in list
+    useVoiceStore.getState().clearAvailableScreenShares();
 
     // Reset consume queue so pending consumes from the old session don't
     // interfere with the next join.

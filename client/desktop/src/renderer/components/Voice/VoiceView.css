@@ -45,6 +45,20 @@
   background-color: rgba(67, 181, 129, 0.1);
 }
 
+.voice-view__badge--quality {
+  text-transform: capitalize;
+}
+
+.voice-view__badge--decoder-yellow {
+  color: #faa61a;
+  background-color: rgba(250, 166, 26, 0.12);
+}
+
+.voice-view__badge--decoder-red {
+  color: #f04747;
+  background-color: rgba(240, 71, 71, 0.12);
+}
+
 /* ─── Join prompt (not connected) ─────────────────────────────── */
 
 .voice-view__join {

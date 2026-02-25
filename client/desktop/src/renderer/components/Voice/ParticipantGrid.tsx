@@ -1,6 +1,7 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useCallback } from 'react';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useUserStore } from '../../stores/userStore';
+import { voiceService } from '../../services/voiceService';
 import ParticipantTile from './ParticipantTile';
 import './ParticipantGrid.css';
 
@@ -42,13 +43,22 @@ const ParticipantGrid: React.FC = () => {
   const participants = useVoiceStore((s) => s.participants);
   const localUserId = useUserStore((s) => s.user?.id);
   const audioOutputDeviceId = useVoiceStore((s) => s.audioOutputDeviceId);
+  const availableScreenShares = useVoiceStore((s) => s.availableScreenShares);
   const screenShareRef = useRef<HTMLVideoElement>(null);
 
   const participantList = Object.values(participants);
   const count = participantList.length;
 
-  // Find active screen share (first one found)
+  // Find active screen share (first one found — already consumed / tuned-in)
   const screenSharer = participantList.find((p) => p.isScreenSharing && p.screenStream);
+
+  const handleTuneIn = useCallback(async (producerId: string, userId: string) => {
+    try {
+      await voiceService.tuneInToScreenShare(producerId, userId);
+    } catch (err) {
+      console.error('Failed to tune in to screen share:', err);
+    }
+  }, []);
 
   // Attach screen share stream
   useEffect(() => {
@@ -99,6 +109,22 @@ const ParticipantGrid: React.FC = () => {
           <div className="participant-grid__screen-label">
             {screenSharer.displayName || screenSharer.username}'s screen
           </div>
+        </div>
+      )}
+
+      {/* Available screen shares — "Tune In" buttons (opt-in model) */}
+      {availableScreenShares.length > 0 && (
+        <div className="participant-grid__tune-in">
+          {availableScreenShares.map((share) => (
+            <button
+              key={share.producerId}
+              className="participant-grid__tune-in-btn"
+              onClick={() => handleTuneIn(share.producerId, share.userId)}
+            >
+              <span className="tune-in-icon">&#9654;</span>
+              {share.displayName || share.username}'s screen
+            </button>
+          ))}
         </div>
       )}
 

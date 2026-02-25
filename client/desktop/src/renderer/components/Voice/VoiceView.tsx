@@ -18,6 +18,8 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     isEncrypted,
     participants,
     channelVoiceMembers,
+    effectiveQualityTier,
+    decoderHealth,
   } = useVoiceStore();
 
   const hasJoinedRef = useRef(false);
@@ -87,6 +89,14 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
             <Users size={12} />
             {participantCount}
           </span>
+          <span className="voice-view__badge voice-view__badge--quality">
+            {effectiveQualityTier}
+          </span>
+          {decoderHealth !== 'green' && (
+            <span className={`voice-view__badge voice-view__badge--decoder-${decoderHealth}`}>
+              {decoderHealth === 'yellow' ? 'Decode Warning' : 'Decode Overload'}
+            </span>
+          )}
         </div>
       </div>
 

@@ -124,6 +124,16 @@ export const AUDIO_QUALITY_TIERS: Record<AudioQualityTier, AudioQualityTierConfi
 };
 
 // ---------------------------------------------------------------------------
+// Available screen shares (opt-in "Tune In" model)
+// ---------------------------------------------------------------------------
+export interface AvailableScreenShare {
+  producerId: string;
+  userId: string;
+  username: string;
+  displayName?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Channel voice members (sidebar display — who's in each voice channel)
 // ---------------------------------------------------------------------------
 export interface ChannelVoiceMember {
@@ -178,6 +188,12 @@ interface VoiceState {
   packetLossPercent: number;
   packetLossWarning: boolean;
 
+  // Decoder health (IGNIS profiling)
+  decoderHealth: 'green' | 'yellow' | 'red';
+
+  // Available screen shares (opt-in "Tune In" model — not auto-consumed)
+  availableScreenShares: AvailableScreenShare[];
+
   // Channel voice members (sidebar — all voice channels, not just the one we're in)
   channelVoiceMembers: Record<string, ChannelVoiceMember[]>;
 
@@ -196,6 +212,12 @@ interface VoiceState {
   setQualityTier: (tier: AudioQualityTier) => void;
   setEffectiveQualityTier: (tier: AudioQualityTier) => void;
   setPacketLoss: (percent: number, warningThreshold?: number) => void;
+  setDecoderHealth: (health: 'green' | 'yellow' | 'red') => void;
+
+  // Screen share opt-in management
+  addAvailableScreenShare: (share: AvailableScreenShare) => void;
+  removeAvailableScreenShare: (producerId: string) => void;
+  clearAvailableScreenShares: () => void;
 
   // Participant management
   addParticipant: (participant: VoiceParticipant) => void;
@@ -236,6 +258,8 @@ const initialState = {
   effectiveQualityTier: (persisted.qualityTier ?? 'standard') as AudioQualityTier,
   packetLossPercent: 0,
   packetLossWarning: false,
+  decoderHealth: 'green' as 'green' | 'yellow' | 'red',
+  availableScreenShares: [] as AvailableScreenShare[],
   channelVoiceMembers: {} as Record<string, ChannelVoiceMember[]>,
 };
 
@@ -276,9 +300,23 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
     savePersistedSettings({ audioInputDeviceId: s.audioInputDeviceId, audioOutputDeviceId: s.audioOutputDeviceId, videoDeviceId: s.videoDeviceId, qualityTier });
   },
   setEffectiveQualityTier: (effectiveQualityTier) => set({ effectiveQualityTier }),
+  setDecoderHealth: (decoderHealth) => set({ decoderHealth }),
   setPacketLoss: (percent, warningThreshold = 3) => {
     set({ packetLossPercent: percent, packetLossWarning: percent >= warningThreshold });
   },
+
+  // Screen share opt-in
+  addAvailableScreenShare: (share) =>
+    set((state) => {
+      // Avoid duplicates
+      if (state.availableScreenShares.some((s) => s.producerId === share.producerId)) return state;
+      return { availableScreenShares: [...state.availableScreenShares, share] };
+    }),
+  removeAvailableScreenShare: (producerId) =>
+    set((state) => ({
+      availableScreenShares: state.availableScreenShares.filter((s) => s.producerId !== producerId),
+    })),
+  clearAvailableScreenShares: () => set({ availableScreenShares: [] }),
 
   addParticipant: (participant) =>
     set((state) => ({
