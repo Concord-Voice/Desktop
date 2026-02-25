@@ -4,6 +4,11 @@ import path from 'path';
 // Hardware acceleration flags for video encode/decode (IGNIS insight: fastest preset wins)
 app.commandLine.appendSwitch('enable-features', 'AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxGL');
 
+// Allow autoplay for all media — Concord is a real-time communication app that
+// dynamically creates <audio>/<video> elements for voice/video calls.  The default
+// 'document-user-activation-required' policy can silently block these elements.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
 // Handle creating/removing shortcuts on Windows when installing/uninstalling
 if (require('electron-squirrel-startup')) {
   app.quit();

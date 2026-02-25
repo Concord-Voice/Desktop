@@ -19,6 +19,10 @@ const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: string }> = 
     if (!el) return;
     el.srcObject = stream;
 
+    // Explicit play() — autoPlay attribute alone can be blocked by Chromium's
+    // autoplay policy in some edge cases (dynamic element creation, etc.)
+    el.play().catch(() => {});
+
     // Set output device if available (Chrome/Electron setSinkId)
     if (outputDeviceId && 'setSinkId' in el) {
       (el as HTMLAudioElement & { setSinkId: (id: string) => Promise<void> })

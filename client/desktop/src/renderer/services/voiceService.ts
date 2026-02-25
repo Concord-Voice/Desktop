@@ -842,11 +842,25 @@ class VoiceService {
   }
 
   private async consumeProducerImpl(producerId: string, senderUserId?: string): Promise<void> {
-    if (!this.recvTransport || !this.device) return;
+    if (!this.recvTransport || !this.device) {
+      console.warn('[consume] skipped — no recvTransport or device', { producerId });
+      return;
+    }
 
     try {
+      console.debug('[consume] requesting', { producerId, senderUserId });
       const result = await this.emitAsync<ConsumeResponse>('consume', { producerId });
-      if (!result || 'error' in result) return;
+      if (!result || 'error' in result) {
+        console.warn('[consume] server returned error or empty result', { producerId, result });
+        return;
+      }
+
+      console.debug('[consume] server responded', {
+        consumerId: result.id,
+        kind: result.kind,
+        source: result.source,
+        producerUserId: result.producerUserId,
+      });
 
       const consumer = await this.recvTransport.consume({
         id: result.id,
@@ -856,6 +870,14 @@ class VoiceService {
       });
 
       this.consumers.set(consumer.id, consumer);
+
+      console.debug('[consume] consumer created', {
+        consumerId: consumer.id,
+        kind: consumer.kind,
+        trackState: consumer.track.readyState,
+        trackEnabled: consumer.track.enabled,
+        paused: consumer.paused,
+      });
 
       // Apply E2EE decrypt transform if encrypted
       const producerUserId = senderUserId || result.producerUserId;
@@ -867,6 +889,14 @@ class VoiceService {
       const stream = new MediaStream([consumer.track]);
       const store = useVoiceStore.getState();
       const source = result.source;
+      const hasParticipant = !!store.participants[result.producerUserId];
+
+      if (!hasParticipant) {
+        console.warn('[consume] participant not in store!', {
+          producerUserId: result.producerUserId,
+          knownUserIds: Object.keys(store.participants),
+        });
+      }
 
       if (result.kind === 'audio') {
         store.updateParticipant(result.producerUserId, { audioStream: stream });
@@ -876,15 +906,24 @@ class VoiceService {
         store.updateParticipant(result.producerUserId, { screenStream: stream, isScreenSharing: true });
       }
 
+      console.debug('[consume] stream attached', {
+        kind: result.kind,
+        source,
+        producerUserId: result.producerUserId,
+        hasParticipant,
+      });
+
       // Clean up on close
       consumer.on('transportclose', () => {
+        console.debug('[consume] transport closed for consumer', consumer.id);
         this.consumers.delete(consumer.id);
       });
 
-      // Resume the consumer (was created paused)
-      this.socket?.emit('resume-consumer', { consumerId: consumer.id });
+      // Resume the consumer (was created paused on server)
+      await this.emitAsync('resume-consumer', { consumerId: consumer.id });
+      console.debug('[consume] consumer resumed', { consumerId: consumer.id });
     } catch (err) {
-      console.error('Failed to consume producer:', producerId, err);
+      console.error('[consume] Failed to consume producer:', producerId, err);
     }
   }
 
