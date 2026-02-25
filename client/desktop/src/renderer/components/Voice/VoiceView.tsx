@@ -74,8 +74,26 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     hasJoinedRef.current = isConnected;
   }, [channelId, isConnected]);
 
-  // Broadcast participant state to PiP windows via BroadcastChannel
+  // Broadcast participant state to PiP windows via BroadcastChannel.
+  // MediaStream objects can't be cloned for postMessage — strip them.
   const pipChannelRef = useRef<BroadcastChannel | null>(null);
+
+  const serializeParticipants = useCallback(
+    (p: typeof participants) => {
+      const safe: Record<string, unknown> = {};
+      for (const [id, part] of Object.entries(p)) {
+        const { audioStream, videoStream, screenStream, ...rest } = part;
+        safe[id] = {
+          ...rest,
+          hasAudio: !!audioStream,
+          hasVideo: !!videoStream,
+          hasScreen: !!screenStream,
+        };
+      }
+      return safe;
+    },
+    []
+  );
 
   useEffect(() => {
     if (!isConnected) return;
@@ -85,7 +103,7 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     // Listen for state requests from PiP windows
     bc.onmessage = (event: MessageEvent) => {
       if (event.data?.type === 'pip-request-state') {
-        bc.postMessage({ type: 'pip-state', participants });
+        bc.postMessage({ type: 'pip-state', participants: serializeParticipants(participants) });
       }
     };
 
@@ -97,8 +115,11 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
 
   // Push participant updates to PiP windows
   useEffect(() => {
-    pipChannelRef.current?.postMessage({ type: 'pip-state', participants });
-  }, [participants]);
+    pipChannelRef.current?.postMessage({
+      type: 'pip-state',
+      participants: serializeParticipants(participants),
+    });
+  }, [participants, serializeParticipants]);
 
   // Listen for PiP window closed events from main process
   useEffect(() => {
