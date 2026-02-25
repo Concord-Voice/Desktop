@@ -20,6 +20,12 @@ contextBridge.exposeInMainWorld('electron', {
 
   // Clipboard (navigator.clipboard.writeText is blocked in Electron renderers)
   writeClipboard: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
+
+  // GPU & hardware acceleration
+  getGPUInfo: () => ipcRenderer.invoke('gpu:getInfo') as Promise<{ vendor: string; device: string } | null>,
+  getHardwareAcceleration: () => ipcRenderer.invoke('app:getHardwareAcceleration') as Promise<boolean>,
+  setHardwareAcceleration: (enabled: boolean) => ipcRenderer.invoke('app:setHardwareAcceleration', enabled),
+  relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
 });
 
 // Type definitions for the exposed API
@@ -28,6 +34,10 @@ export interface ElectronAPI {
   getPlatform: () => Promise<string>;
   getDesktopSources: () => Promise<DesktopSource[]>;
   writeClipboard: (text: string) => Promise<void>;
+  getGPUInfo: () => Promise<{ vendor: string; device: string } | null>;
+  getHardwareAcceleration: () => Promise<boolean>;
+  setHardwareAcceleration: (enabled: boolean) => Promise<void>;
+  relaunchApp: () => Promise<void>;
 }
 
 declare global {

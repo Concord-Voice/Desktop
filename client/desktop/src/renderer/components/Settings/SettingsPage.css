@@ -710,3 +710,86 @@
   font-size: calc(12px * var(--font-scale, 1));
   line-height: 1.5;
 }
+
+/* ─── Codec & Hardware Section ─────────────────────────────────────── */
+
+.settings-gpu-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--text-muted);
+  font-family: monospace;
+}
+
+.settings-codec-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.settings-codec-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  font-size: calc(12px * var(--font-scale, 1));
+}
+
+.settings-codec-name {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.settings-codec-badge {
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: calc(10px * var(--font-scale, 1));
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.settings-codec-badge.hw {
+  background: rgba(80, 200, 120, 0.15);
+  color: #50c878;
+}
+
+.settings-codec-badge.sw {
+  background: rgba(180, 180, 180, 0.15);
+  color: var(--text-muted);
+}
+
+.settings-restart-prompt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  margin-top: 8px;
+  border-radius: 6px;
+  background: rgba(255, 170, 0, 0.08);
+  border: 1px solid rgba(255, 170, 0, 0.25);
+  font-size: calc(13px * var(--font-scale, 1));
+  color: var(--text-secondary);
+}
+
+.settings-restart-btn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.settings-restart-btn:hover {
+  filter: brightness(1.1);
+}

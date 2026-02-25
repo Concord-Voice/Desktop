@@ -1,8 +1,24 @@
 import { app, BrowserWindow, clipboard, desktopCapturer, ipcMain, session, shell } from 'electron';
 import path from 'path';
+import fs from 'fs';
 
-// Hardware acceleration flags for video encode/decode (IGNIS insight: fastest preset wins)
-app.commandLine.appendSwitch('enable-features', 'AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxGL');
+// Hardware acceleration preference — must be checked before app.whenReady()
+const hwAccelPrefPath = path.join(app.getPath('userData'), 'hw-accel.json');
+function readHwAccelPref(): boolean {
+  try {
+    const data = JSON.parse(fs.readFileSync(hwAccelPrefPath, 'utf-8'));
+    return data.enabled !== false;
+  } catch {
+    return true; // Default: enabled
+  }
+}
+
+if (!readHwAccelPref()) {
+  app.disableHardwareAcceleration();
+} else {
+  // Hardware acceleration flags for video encode/decode (IGNIS insight: fastest preset wins)
+  app.commandLine.appendSwitch('enable-features', 'AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxGL');
+}
 
 // Allow autoplay for all media — Concord is a real-time communication app that
 // dynamically creates <audio>/<video> elements for voice/video calls.  The default
@@ -116,6 +132,37 @@ ipcMain.handle('media:getDesktopSources', async () => {
 // Clipboard write (navigator.clipboard.writeText is blocked in Electron)
 ipcMain.handle('clipboard:writeText', (_event, text: string) => {
   clipboard.writeText(text);
+});
+
+// GPU info
+ipcMain.handle('gpu:getInfo', async () => {
+  try {
+    const info = await app.getGPUInfo('basic');
+    const gpu = (info as { gpuDevice?: Array<{ vendorId: number; deviceId: number; driverVendor?: string }> })
+      .gpuDevice?.[0];
+    if (gpu) {
+      return {
+        vendor: gpu.driverVendor || `0x${gpu.vendorId.toString(16)}`,
+        device: `0x${gpu.deviceId.toString(16)}`,
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+});
+
+// Hardware acceleration preference
+ipcMain.handle('app:getHardwareAcceleration', () => readHwAccelPref());
+
+ipcMain.handle('app:setHardwareAcceleration', (_event, enabled: boolean) => {
+  fs.writeFileSync(hwAccelPrefPath, JSON.stringify({ enabled }), 'utf-8');
+});
+
+// Relaunch (for hardware acceleration toggle)
+ipcMain.handle('app:relaunch', () => {
+  app.relaunch();
+  app.quit();
 });
 
 // Prevent multiple instances

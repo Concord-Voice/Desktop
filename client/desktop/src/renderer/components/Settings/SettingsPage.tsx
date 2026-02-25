@@ -6,6 +6,10 @@ import { useSettingsStore, AppearanceSettings } from '../../stores/settingsStore
 import { useVoiceStore, AUDIO_QUALITY_TIERS } from '../../stores/voiceStore';
 import type { AudioQualityTier } from '../../stores/voiceStore';
 import { useAudioSettingsStore } from '../../stores/audioSettingsStore';
+import { useVideoSettingsStore, VIDEO_QUALITY_PRESETS } from '../../stores/videoSettingsStore';
+import type { ScreenResolution, ScreenContentType } from '../../stores/videoSettingsStore';
+import { detectCodecCapabilities } from '../../services/mediaCapabilities';
+import type { CodecCapability } from '../../services/mediaCapabilities';
 import { apiFetch } from '../../services/apiClient';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import DeviceSelector from '../Voice/DeviceSelector';
@@ -621,6 +625,32 @@ const VoiceAudioSection: React.FC = () => {
   const autoGainControl = useAudioSettingsStore((s) => s.autoGainControl);
   const noiseGateLevel = useAudioSettingsStore((s) => s.noiseGateLevel);
 
+  // Video settings
+  const cameraPreset = useVideoSettingsStore((s) => s.cameraPreset);
+  const screenResolution = useVideoSettingsStore((s) => s.screenResolution);
+  const screenFrameRate = useVideoSettingsStore((s) => s.screenFrameRate);
+  const screenContentType = useVideoSettingsStore((s) => s.screenContentType);
+  const preferredVideoCodec = useVideoSettingsStore((s) => s.preferredVideoCodec);
+  const preferredScreenCodec = useVideoSettingsStore((s) => s.preferredScreenCodec);
+  const hardwareAcceleration = useVideoSettingsStore((s) => s.hardwareAcceleration);
+  const codecCapabilities = useVideoSettingsStore((s) => s.codecCapabilities);
+  const gpuInfo = useVideoSettingsStore((s) => s.gpuInfo);
+
+  const [restartPrompt, setRestartPrompt] = useState(false);
+
+  // Load codec capabilities + GPU info on mount
+  useEffect(() => {
+    detectCodecCapabilities().then((caps) => {
+      useVideoSettingsStore.getState().setCodecCapabilities(caps);
+    });
+    window.electron?.getGPUInfo?.().then((info) => {
+      useVideoSettingsStore.getState().setGpuInfo(info);
+    });
+    window.electron?.getHardwareAcceleration?.().then((enabled) => {
+      useVideoSettingsStore.getState().setHardwareAcceleration(enabled);
+    });
+  }, []);
+
   // Advanced audio settings
   const musicMode = useAudioSettingsStore((s) => s.musicMode);
   const frameSize = useAudioSettingsStore((s) => s.frameSize);
@@ -851,6 +881,166 @@ const VoiceAudioSection: React.FC = () => {
                 />
               </div>
             )}
+          </div>
+        )}
+      </div>
+
+      <div className="settings-section">
+        <h2 className="settings-section-title">Video Quality</h2>
+        <p className="settings-section-description">
+          Set the default camera resolution and frame rate.
+        </p>
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Camera Preset</span>
+            <span className="settings-row-hint">Resolution and frame rate for your webcam</span>
+          </div>
+          <select
+            className="settings-select"
+            value={cameraPreset}
+            onChange={(e) => useVideoSettingsStore.getState().setCameraPreset(e.target.value)}
+          >
+            {Object.entries(VIDEO_QUALITY_PRESETS).map(([key, preset]) => (
+              <option key={key} value={key}>{preset.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h2 className="settings-section-title">Screen Share Defaults</h2>
+        <p className="settings-section-description">
+          Default settings for screen sharing. These can be changed per-share in the picker.
+        </p>
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Resolution</span>
+          </div>
+          <select
+            className="settings-select"
+            value={screenResolution}
+            onChange={(e) => useVideoSettingsStore.getState().setScreenResolution(e.target.value as ScreenResolution)}
+          >
+            <option value="source">Source Native</option>
+            <option value="4K">4K</option>
+            <option value="1440p">1440p</option>
+            <option value="1080p">1080p</option>
+            <option value="720p">720p</option>
+          </select>
+        </div>
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Frame Rate</span>
+          </div>
+          <select
+            className="settings-select"
+            value={screenFrameRate}
+            onChange={(e) => useVideoSettingsStore.getState().setScreenFrameRate(Number(e.target.value) as 5 | 15 | 30 | 60)}
+          >
+            <option value={5}>5 FPS</option>
+            <option value={15}>15 FPS</option>
+            <option value={30}>30 FPS</option>
+            <option value={60}>60 FPS</option>
+          </select>
+        </div>
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Content Type</span>
+          </div>
+          <select
+            className="settings-select"
+            value={screenContentType}
+            onChange={(e) => useVideoSettingsStore.getState().setScreenContentType(e.target.value as ScreenContentType)}
+          >
+            <option value="auto">Auto</option>
+            <option value="motion">Motion (video playback)</option>
+            <option value="detail">Detail (text/code)</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <h2 className="settings-section-title">Codec & Hardware</h2>
+        <p className="settings-section-description">
+          Select preferred video codecs and manage hardware acceleration.
+          {gpuInfo && <span className="settings-gpu-badge">{gpuInfo.vendor} {gpuInfo.device}</span>}
+        </p>
+
+        {codecCapabilities.length > 0 && (
+          <div className="settings-codec-list">
+            {codecCapabilities.map((c) => (
+              <div key={c.mimeType} className="settings-codec-item">
+                <span className="settings-codec-name">{c.mimeType.replace('video/', '')}</span>
+                <span className={`settings-codec-badge ${c.powerEfficient ? 'hw' : 'sw'}`}>
+                  {c.powerEfficient ? 'HW' : 'SW'}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Camera Codec</span>
+            <span className="settings-row-hint">Auto uses the best available codec</span>
+          </div>
+          <select
+            className="settings-select"
+            value={preferredVideoCodec ?? ''}
+            onChange={(e) => useVideoSettingsStore.getState().setPreferredVideoCodec(e.target.value || null)}
+          >
+            <option value="">Auto</option>
+            {codecCapabilities.map((c) => (
+              <option key={c.mimeType} value={c.mimeType}>
+                {c.mimeType.replace('video/', '')}{c.powerEfficient ? ' (HW)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Screen Share Codec</span>
+            <span className="settings-row-hint">Auto uses the best available codec</span>
+          </div>
+          <select
+            className="settings-select"
+            value={preferredScreenCodec ?? ''}
+            onChange={(e) => useVideoSettingsStore.getState().setPreferredScreenCodec(e.target.value || null)}
+          >
+            <option value="">Auto</option>
+            {codecCapabilities.map((c) => (
+              <option key={c.mimeType} value={c.mimeType}>
+                {c.mimeType.replace('video/', '')}{c.powerEfficient ? ' (HW)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Hardware Acceleration</span>
+            <span className="settings-row-hint">Uses GPU for video encoding/decoding. Requires restart to apply.</span>
+          </div>
+          <ToggleSwitch
+            checked={hardwareAcceleration}
+            onChange={async (enabled) => {
+              await window.electron?.setHardwareAcceleration?.(enabled);
+              useVideoSettingsStore.getState().setHardwareAcceleration(enabled);
+              setRestartPrompt(true);
+            }}
+          />
+        </div>
+
+        {restartPrompt && (
+          <div className="settings-restart-prompt">
+            <span>Hardware acceleration change requires a restart.</span>
+            <button
+              className="settings-restart-btn"
+              onClick={() => window.electron?.relaunchApp?.()}
+            >
+              Restart Now
+            </button>
           </div>
         )}
       </div>

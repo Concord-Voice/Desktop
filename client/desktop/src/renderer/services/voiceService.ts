@@ -22,6 +22,7 @@ import { useUserStore } from '../stores/userStore';
 import { useVoiceStore, AUDIO_QUALITY_TIERS } from '../stores/voiceStore';
 import type { AudioQualityTier, VoiceParticipant } from '../stores/voiceStore';
 import { useAudioSettingsStore } from '../stores/audioSettingsStore';
+import { useVideoSettingsStore, VIDEO_QUALITY_PRESETS } from '../stores/videoSettingsStore';
 import { API_BASE, apiFetch } from './apiClient';
 import { MediaEncryption } from './mediaEncryption';
 import { e2eeService } from './e2eeService';
@@ -300,18 +301,38 @@ class VoiceService {
 
   /**
    * Pick the best codec for camera video.
-   * Preference: VP9 (SVC L3T3) → H264 (simulcast) → VP8 (simulcast)
+   * User preference → VP9 (SVC L3T3) → H264 (simulcast) → VP8 (simulcast)
    */
   private pickCameraCodec(): {
     codec?: mediasoupTypes.RtpCodecCapability;
     encodings: mediasoupTypes.RtpEncodingParameters[];
   } {
-    // VP9 with SVC — single stream, 3 spatial + 3 temporal layers
+    const preset = VIDEO_QUALITY_PRESETS[useVideoSettingsStore.getState().cameraPreset]
+      || VIDEO_QUALITY_PRESETS['720p30'];
+
+    // Check user's preferred codec first
+    const preferred = useVideoSettingsStore.getState().preferredVideoCodec;
+    if (preferred) {
+      const codec = this.findSendCodec(preferred);
+      if (codec) {
+        // SVC-capable codecs get L3T3, others get simulcast
+        const isSvc = preferred.includes('VP9') || preferred.includes('AV1');
+        return isSvc
+          ? { codec, encodings: [{ scalabilityMode: 'L3T3', maxBitrate: preset.maxBitrate }] }
+          : { codec, encodings: [
+              { maxBitrate: Math.round(preset.maxBitrate * 0.1), scaleResolutionDownBy: 4 },
+              { maxBitrate: Math.round(preset.maxBitrate * 0.33), scaleResolutionDownBy: 2 },
+              { maxBitrate: preset.maxBitrate },
+            ] };
+      }
+    }
+
+    // Auto selection: VP9 with SVC — single stream, 3 spatial + 3 temporal layers
     const vp9 = this.findSendCodec('video/VP9');
     if (vp9) {
       return {
         codec: vp9,
-        encodings: [{ scalabilityMode: 'L3T3', maxBitrate: 1_500_000 }],
+        encodings: [{ scalabilityMode: 'L3T3', maxBitrate: preset.maxBitrate }],
       };
     }
 
@@ -321,9 +342,9 @@ class VoiceService {
       return {
         codec: h264,
         encodings: [
-          { maxBitrate: 100_000, scaleResolutionDownBy: 4 },
-          { maxBitrate: 300_000, scaleResolutionDownBy: 2 },
-          { maxBitrate: 900_000 },
+          { maxBitrate: Math.round(preset.maxBitrate * 0.1), scaleResolutionDownBy: 4 },
+          { maxBitrate: Math.round(preset.maxBitrate * 0.33), scaleResolutionDownBy: 2 },
+          { maxBitrate: preset.maxBitrate },
         ],
       };
     }
@@ -332,21 +353,33 @@ class VoiceService {
     return {
       codec: this.findSendCodec('video/VP8'),
       encodings: [
-        { maxBitrate: 100_000, scaleResolutionDownBy: 4 },
-        { maxBitrate: 300_000, scaleResolutionDownBy: 2 },
-        { maxBitrate: 900_000 },
+        { maxBitrate: Math.round(preset.maxBitrate * 0.1), scaleResolutionDownBy: 4 },
+        { maxBitrate: Math.round(preset.maxBitrate * 0.33), scaleResolutionDownBy: 2 },
+        { maxBitrate: preset.maxBitrate },
       ],
     };
   }
 
   /**
    * Pick the best codec for screen sharing.
-   * Preference: AV1 (SVC, best compression for static content) → VP9 (SVC) → H264
+   * User preference → AV1 (SVC, best compression) → VP9 (SVC) → H264
    */
   private pickScreenCodec(): {
     codec?: mediasoupTypes.RtpCodecCapability;
     encodings: mediasoupTypes.RtpEncodingParameters[];
   } {
+    // Check user's preferred screen share codec
+    const preferred = useVideoSettingsStore.getState().preferredScreenCodec;
+    if (preferred) {
+      const codec = this.findSendCodec(preferred);
+      if (codec) {
+        const isSvc = preferred.includes('VP9') || preferred.includes('AV1');
+        return isSvc
+          ? { codec, encodings: [{ scalabilityMode: 'L3T3', maxBitrate: 8_000_000 }] }
+          : { codec, encodings: [{ maxBitrate: 5_000_000 }] };
+      }
+    }
+
     // AV1 with SVC — ideal for screen share (huge compression gains on static content)
     const av1 = this.findSendCodec('video/AV1');
     if (av1) {
@@ -596,12 +629,16 @@ class VoiceService {
   async produceVideo(deviceId?: string): Promise<void> {
     if (!this.sendTransport || !this.device) return;
 
+    // Read video settings for camera preset
+    const videoSettings = useVideoSettingsStore.getState();
+    const preset = VIDEO_QUALITY_PRESETS[videoSettings.cameraPreset] || VIDEO_QUALITY_PRESETS['720p30'];
+
     const constraints: MediaStreamConstraints = {
       video: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        frameRate: { ideal: 30 },
+        width: { ideal: preset.width },
+        height: { ideal: preset.height },
+        frameRate: { ideal: preset.frameRate },
       },
     };
 
@@ -657,6 +694,18 @@ class VoiceService {
       return;
     }
 
+    // Read screen share quality settings
+    const screenSettings = useVideoSettingsStore.getState();
+    const screenFps = screenSettings.screenFrameRate;
+    const resMap: Record<string, { w: number; h: number }> = {
+      'source': { w: 3840, h: 2160 },
+      '720p': { w: 1280, h: 720 },
+      '1080p': { w: 1920, h: 1080 },
+      '1440p': { w: 2560, h: 1440 },
+      '4K': { w: 3840, h: 2160 },
+    };
+    const screenRes = resMap[screenSettings.screenResolution] || resMap['source'];
+
     // Use Electron desktopCapturer if available
     let stream: MediaStream;
     if (window.electron?.getDesktopSources) {
@@ -674,16 +723,16 @@ class VoiceService {
           mandatory: {
             chromeMediaSource: 'desktop',
             chromeMediaSourceId: chosenId,
-            maxWidth: 3840,
-            maxHeight: 2160,
-            maxFrameRate: 30,
+            maxWidth: screenRes.w,
+            maxHeight: screenRes.h,
+            maxFrameRate: screenFps,
           },
         } as unknown as MediaTrackConstraints,
       });
     } else {
       console.debug('produceScreen: using getDisplayMedia fallback');
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { width: { ideal: 3840 }, height: { ideal: 2160 }, frameRate: { ideal: 30 } },
+        video: { width: { ideal: screenRes.w }, height: { ideal: screenRes.h }, frameRate: { ideal: screenFps } },
         audio: false,
       });
     }
@@ -695,6 +744,14 @@ class VoiceService {
     }
 
     const track = videoTracks[0];
+
+    // Apply content hint for screen share optimization
+    if (screenSettings.screenContentType === 'motion') {
+      track.contentHint = 'motion';
+    } else if (screenSettings.screenContentType === 'detail') {
+      track.contentHint = 'detail';
+    }
+    // 'auto' → don't set contentHint, let the browser decide
 
     // Wrap produce in try/catch so we can clean up the stream on failure
     try {
