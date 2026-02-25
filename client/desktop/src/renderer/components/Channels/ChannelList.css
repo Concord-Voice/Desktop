@@ -304,50 +304,63 @@
 
 /* ── Hierarchy connector lines for grouped channels ── */
 
-/* Grouped channel wrapper — provides positioning context for connectors */
+/* Grouped channel wrapper — positioning context + continuous vertical trunk.
+   display:flex creates a BFC so child margins are contained within the wrapper,
+   preventing margin-collapse gaps that would break the vertical trunk line. */
 .channel-item-wrapper--grouped {
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
-/* Vertical line running down the left side of grouped items */
+/* Vertical trunk line — runs between items to form the tree spine */
 .channel-item-wrapper--grouped::before {
   content: '';
   position: absolute;
   left: calc(18px * var(--sp, 1));
   top: 0;
   bottom: 0;
-  width: 0;
-  border-left: 1px solid var(--border-color);
+  border-left: 1.5px solid var(--border-color);
   pointer-events: none;
+  z-index: 1;
 }
 
-/* Grouped channel items — indented with connector space */
+/* First wrapper after header — extend trunk up to bridge the header gap */
+.channel-group-header + .channel-item-wrapper--grouped::before {
+  top: calc(-6px * var(--sp, 1));
+}
+
+/* Last wrapper — hide trunk entirely; the L-connector on the channel item
+   draws the full └ elbow so a separate trunk line would peek below the curve. */
+.channel-item-wrapper--grouped:last-child::before {
+  display: none;
+}
+
+/* Grouped channel items — indented to make room for tree connectors */
 .channel-item--grouped {
-  margin-left: calc(12px * var(--sp, 1));
-  padding-left: calc(18px * var(--sp, 1));
+  margin-left: calc(30px * var(--sp, 1));
+  padding-left: calc(8px * var(--sp, 1));
 }
 
-/* Horizontal connector from vertical line to channel */
+/* Rounded L-connector: curves from trunk to the channel item */
 .channel-item--grouped::before {
   content: '';
   position: absolute;
-  left: calc(-6px * var(--sp, 1));
-  top: 50%;
-  width: calc(10px * var(--sp, 1));
-  height: 0;
-  border-bottom: 1px solid var(--border-color);
+  left: calc(-12px * var(--sp, 1) - 3px);
+  top: 0;
+  height: calc(50% + 0.75px);
+  width: calc(12px * var(--sp, 1) + 3px);
+  border-left: 1.5px solid var(--border-color);
+  border-bottom: 1.5px solid var(--border-color);
+  border-bottom-left-radius: 8px;
   pointer-events: none;
+  z-index: 1;
 }
 
-/* Last grouped item — vertical line stops at midpoint (└ elbow) */
-.channel-item-wrapper--grouped:last-child::before {
-  bottom: 50%;
-}
-
-/* Active grouped channel — keep accent left border */
+/* Active grouped channel — accent border, keep consistent padding */
 .channel-item--grouped.active {
   border-left: 3px solid var(--accent-primary);
-  padding-left: calc(15px * var(--sp, 1));
+  padding-left: calc(8px * var(--sp, 1));
 }
 
 /* Voice text chat — indented below parent voice channel */
@@ -358,7 +371,7 @@
 
 /* Voice text chat within a grouped channel — extra indent for hierarchy */
 .channel-item--voice-text-grouped {
-  padding-left: calc(48px * var(--sp, 1));
+  padding-left: calc(20px * var(--sp, 1));
 }
 
 .channel-item--voice-text .channel-name {
@@ -381,7 +394,7 @@
 
 /* Voice participants within grouped channels — extra indent */
 .voice-channel-participants--grouped {
-  padding-left: calc(44px * var(--sp, 1));
+  padding-left: calc(52px * var(--sp, 1));
 }
 
 .voice-channel-participant {

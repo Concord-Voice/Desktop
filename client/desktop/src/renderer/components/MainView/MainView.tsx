@@ -12,10 +12,13 @@ import ChannelList from '../Channels/ChannelList';
 import ServerActionBar from '../Channels/ServerActionBar';
 import ChannelContextMenu from '../Channels/ChannelContextMenu';
 import ChannelListContextMenu from '../Channels/ChannelListContextMenu';
+import CategoryContextMenu from '../Channels/CategoryContextMenu';
 import CreateChannelModal from '../Channels/CreateChannelModal';
 import CreateCategoryModal from '../Channels/CreateCategoryModal';
 import EditChannelModal from '../Channels/EditChannelModal';
+import EditCategoryModal from '../Channels/EditCategoryModal';
 import DeleteChannelModal from '../Channels/DeleteChannelModal';
+import DeleteCategoryModal from '../Channels/DeleteCategoryModal';
 import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
 import { ChatView } from '../Chat';
 import VoiceView from '../Voice/VoiceView';
@@ -34,7 +37,7 @@ import { useServerStore } from '../../stores/serverStore';
 import { useChannelStore } from '../../stores/channelStore';
 import { useServerChannelSubscriptions } from '../../hooks/useServerChannelSubscriptions';
 import { ServerWithRole } from '../../types/server';
-import { Channel } from '../../types/chat';
+import { Channel, ChannelGroup } from '../../types/chat';
 import './MainView.css';
 
 const MainView: React.FC = () => {
@@ -60,6 +63,12 @@ const MainView: React.FC = () => {
   const [leavingServer, setLeavingServer] = useState<ServerWithRole | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
   const [deletingChannel, setDeletingChannel] = useState<Channel | null>(null);
+  const [categoryContextMenu, setCategoryContextMenu] = useState<{
+    group: ChannelGroup;
+    position: { x: number; y: number };
+  } | null>(null);
+  const [editingCategory, setEditingCategory] = useState<ChannelGroup | null>(null);
+  const [deletingCategory, setDeletingCategory] = useState<ChannelGroup | null>(null);
   const [invitingServer, setInvitingServer] = useState<ServerWithRole | null>(null);
   const [e2eeTooltipPos, setE2eeTooltipPos] = useState<{ top: number; left: number } | null>(null);
   const e2eeIndicatorRef = useRef<HTMLSpanElement>(null);
@@ -135,6 +144,10 @@ const MainView: React.FC = () => {
     setEditingChannel(channel);
   };
 
+  const handleCategoryContextMenu = (group: ChannelGroup, position: { x: number; y: number }) => {
+    setCategoryContextMenu({ group, position });
+  };
+
   // ─── Channel panel header content ───
   const channelHeader = (
     <div className="channel-header-info">
@@ -169,6 +182,7 @@ const MainView: React.FC = () => {
       <ChannelList
         onContextMenu={handleChannelContextMenu}
         onEmptyContextMenu={(pos) => setEmptyContextMenu({ position: pos })}
+        onCategoryContextMenu={handleCategoryContextMenu}
       />
       {isInVoice && <VoiceControls variant="compact" />}
     </>
@@ -342,6 +356,22 @@ const MainView: React.FC = () => {
         />
       )}
 
+      {categoryContextMenu && activeServer && (activeServer.role === 'owner' || activeServer.role === 'admin') && (
+        <CategoryContextMenu
+          group={categoryContextMenu.group}
+          position={categoryContextMenu.position}
+          onClose={() => setCategoryContextMenu(null)}
+          onEditCategory={(group) => {
+            setCategoryContextMenu(null);
+            setEditingCategory(group);
+          }}
+          onDeleteCategory={(group) => {
+            setCategoryContextMenu(null);
+            setDeletingCategory(group);
+          }}
+        />
+      )}
+
       {editingChannel && (
         <EditChannelModal
           isOpen={!!editingChannel}
@@ -355,6 +385,22 @@ const MainView: React.FC = () => {
           isOpen={!!deletingChannel}
           channel={deletingChannel}
           onClose={() => setDeletingChannel(null)}
+        />
+      )}
+
+      {editingCategory && (
+        <EditCategoryModal
+          isOpen={!!editingCategory}
+          group={editingCategory}
+          onClose={() => setEditingCategory(null)}
+        />
+      )}
+
+      {deletingCategory && (
+        <DeleteCategoryModal
+          isOpen={!!deletingCategory}
+          group={deletingCategory}
+          onClose={() => setDeletingCategory(null)}
         />
       )}
 

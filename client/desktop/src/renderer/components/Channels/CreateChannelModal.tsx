@@ -343,7 +343,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
               onChange={(e) => setGroupId(e.target.value)}
               disabled={isSubmitting}
             >
-              <option value="">Uncategorized</option>
+              <option key="" value="">Uncategorized</option>
               {channelGroups.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.name}

@@ -11,9 +11,10 @@ import './ChannelList.css';
 interface ChannelListProps {
   onContextMenu: (channel: Channel, position: { x: number; y: number }) => void;
   onEmptyContextMenu: (position: { x: number; y: number }) => void;
+  onCategoryContextMenu: (group: ChannelGroup, position: { x: number; y: number }) => void;
 }
 
-const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContextMenu }) => {
+const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContextMenu, onCategoryContextMenu }) => {
   const activeServerId = useServerStore((state) => state.activeServerId);
   const servers = useServerStore((state) => state.servers);
   const channels = useChannelStore((state) => state.channels);
@@ -543,8 +544,8 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
         </div>
       )}
 
-      {/* Empty State */}
-      {!isLoading && !error && channels.length === 0 && (
+      {/* Empty State — only when no channels AND no categories */}
+      {!isLoading && !error && channels.length === 0 && channelGroups.length === 0 && (
         <div className="channel-list-empty">
           <p>No channels yet</p>
           <p className="channel-list-empty-hint">Use "+ Add" above to create one</p>
@@ -552,7 +553,7 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
       )}
 
       {/* Dynamic Channel Groups */}
-      {channels.length > 0 && (
+      {(channels.length > 0 || channelGroups.length > 0) && (
         <>
           {groupedChannels.map(({ group, channels: groupChannels }) => {
             const groupId = group?.id ?? '__uncategorized';
@@ -611,6 +612,11 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
                   onDrop={handleDrop}
                   onDragEnd={handleDragEnd}
                   onClick={() => toggleGroupCollapsed(group.id)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onCategoryContextMenu(group, { x: e.clientX, y: e.clientY });
+                  }}
                 >
                   <span className="channel-group-header__chevron">
                     {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
