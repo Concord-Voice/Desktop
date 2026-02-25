@@ -55,6 +55,7 @@ pnpm-lock.yaml
 # Build Outputs
 dist/
 build/
+!client/desktop/build/
 out/
 .next/
 .nuxt/

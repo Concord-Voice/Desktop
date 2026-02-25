@@ -9,13 +9,13 @@ const config: ForgeConfig = {
     asar: true,
     name: 'Concord',
     executableName: 'concord',
-    icon: '../../branding/logos/favicon ICOs/favicon',
+    icon: './build/icon',
     appBundleId: 'com.concord.desktop',
   },
   makers: [
     new MakerSquirrel({
       name: 'Concord',
-      setupIcon: '../../branding/logos/favicon ICOs/favicon.ico',
+      setupIcon: './build/icon.ico',
     }),
     new MakerZIP({}, ['darwin']),
     new MakerDeb({
@@ -25,7 +25,7 @@ const config: ForgeConfig = {
         productName: 'Concord',
         genericName: 'Voice Communication',
         categories: ['Network', 'Chat'],
-        icon: '../../branding/logos/favicon ICOs/android-chrome-512x512.png',
+        icon: './build/icon.png',
       },
     }),
     new MakerRpm({
@@ -35,7 +35,7 @@ const config: ForgeConfig = {
         productName: 'Concord',
         genericName: 'Voice Communication',
         categories: ['Network', 'Chat'],
-        icon: '../../branding/logos/favicon ICOs/android-chrome-512x512.png',
+        icon: './build/icon.png',
       },
     }),
   ],
