@@ -7,7 +7,7 @@
           content="default-src 'self';
                    script-src 'self';
                    style-src 'self' 'unsafe-inline';
-                   connect-src 'self' ws://localhost:* http://localhost:*;
+                   connect-src 'self' ws://localhost:* http://localhost:* ws://%VITE_SERVER_HOST%:* http://%VITE_SERVER_HOST%:* wss://%VITE_SERVER_HOST%:* https://%VITE_SERVER_HOST%:*;
                    img-src 'self' data: https://cdn.jsdelivr.net;
                    media-src 'self';
                    base-uri 'self';
