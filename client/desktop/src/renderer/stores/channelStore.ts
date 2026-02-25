@@ -108,7 +108,11 @@ export const useChannelStore = create<ChannelState>()(
         },
 
         addChannel: (channel: Channel) => {
-          set((state) => ({ channels: [...state.channels, channel] }));
+          set((state) => {
+            // Deduplicate: API response + WS broadcast can both call addChannel
+            if (state.channels.some((c) => c.id === channel.id)) return state;
+            return { channels: [...state.channels, channel] };
+          });
         },
 
         updateChannel: (channelId: string, updates: Partial<Channel>) => {
@@ -170,9 +174,11 @@ export const useChannelStore = create<ChannelState>()(
 
         // Channel group actions
         addChannelGroup: (group: ChannelGroup) => {
-          set((state) => ({
-            channelGroups: [...state.channelGroups, group].sort((a, b) => a.position - b.position),
-          }));
+          set((state) => {
+            // Deduplicate: API response + WS broadcast can both call addChannelGroup
+            if (state.channelGroups.some((g) => g.id === group.id)) return state;
+            return { channelGroups: [...state.channelGroups, group].sort((a, b) => a.position - b.position) };
+          });
         },
 
         updateChannelGroup: (groupId: string, updates: Partial<ChannelGroup>) => {
