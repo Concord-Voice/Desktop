@@ -986,7 +986,7 @@ class VoiceService {
         const channelId = useVoiceStore.getState().activeChannelId;
         if (channelId) {
           await this.addDecryptKeyForUser(channelId, userId);
-          await this.mediaEncryption.rotateKeys();
+          this.mediaEncryption.debouncedRotateKeys();
         }
       }
     });
@@ -996,7 +996,17 @@ class VoiceService {
 
       // E2EE: rotate keys when a member leaves (forward secrecy)
       if (this.isEncrypted && this.mediaEncryption) {
-        await this.mediaEncryption.rotateKeys();
+        this.mediaEncryption.debouncedRotateKeys();
+      }
+    });
+
+    // E2EE: periodic epoch sync — recover from missed join/leave events
+    this.socket.on('epoch-sync', ({ epoch }: { epoch: number }) => {
+      if (!this.isEncrypted || !this.mediaEncryption) return;
+      const localEpoch = this.mediaEncryption.getCurrentKeyId();
+      if (epoch > localEpoch) {
+        console.info(`E2EE epoch sync: local=${localEpoch}, server=${epoch}, catching up ${epoch - localEpoch} steps`);
+        this.mediaEncryption.catchUpToEpoch(epoch);
       }
     });
 

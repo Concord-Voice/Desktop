@@ -104,6 +104,14 @@ export class MediaEncryption {
   private decryptKeys: Map<string, { key: CryptoKey; expires: number }> = new Map();
   private frameCounter = 0;
 
+  // Debounced key rotation — collapses rapid join/leave bursts into a single
+  // rotation to avoid O(N²) HKDF cost when many users join simultaneously.
+  private rotationTimer: ReturnType<typeof setTimeout> | null = null;
+  private rotationPending = false;
+  private rotationDeadline = 0; // Max-cap absolute deadline (0 = none)
+  private static readonly DEBOUNCE_MS = 2000;
+  private static readonly MAX_CAP_MS = 5000;
+
   /** Initialize encryption for a channel with the given CSK and local userId */
   async init(channelCSK: CryptoKey, localUserId: string): Promise<void> {
     this.encryptKey = await deriveFrameKey(channelCSK, localUserId);
@@ -160,6 +168,56 @@ export class MediaEncryption {
       if (entry.expires < now) {
         this.decryptKeys.delete(id);
       }
+    }
+  }
+
+  /** Current epoch number (for sync checks) */
+  getCurrentKeyId(): number {
+    return this.currentKeyId;
+  }
+
+  /**
+   * Debounced key rotation: collapses rapid join/leave bursts into a single
+   * rotation. Waits 2s of silence, but never delays more than 5s from the
+   * first pending event (max cap prevents indefinite deferral during a
+   * sustained trickle of joins).
+   */
+  debouncedRotateKeys(): void {
+    this.rotationPending = true;
+
+    // Set the max-cap deadline on the first pending event
+    if (!this.rotationDeadline) {
+      this.rotationDeadline = Date.now() + MediaEncryption.MAX_CAP_MS;
+    }
+
+    if (this.rotationTimer) clearTimeout(this.rotationTimer);
+
+    // If we've already exceeded the max cap, rotate immediately
+    const remaining = this.rotationDeadline - Date.now();
+    const delay = remaining <= 0 ? 0 : Math.min(MediaEncryption.DEBOUNCE_MS, remaining);
+
+    this.rotationTimer = setTimeout(async () => {
+      this.rotationTimer = null;
+      this.rotationDeadline = 0;
+      if (!this.rotationPending) return;
+      this.rotationPending = false;
+      await this.rotateKeys();
+    }, delay);
+  }
+
+  /**
+   * Catch up to a server-reported epoch by ratcheting forward.
+   * Used by the periodic epoch-sync mechanism to recover from missed events.
+   */
+  async catchUpToEpoch(targetEpoch: number): Promise<void> {
+    const steps = targetEpoch - this.currentKeyId;
+    if (steps <= 0) return; // Already at or ahead of target
+    if (steps > 100) {
+      console.warn(`E2EE epoch gap too large (${steps}), rejoin required`);
+      return;
+    }
+    for (let i = 0; i < steps; i++) {
+      await this.rotateKeys();
     }
   }
 
@@ -301,6 +359,12 @@ export class MediaEncryption {
 
   /** Clean up */
   destroy(): void {
+    if (this.rotationTimer) {
+      clearTimeout(this.rotationTimer);
+      this.rotationTimer = null;
+    }
+    this.rotationPending = false;
+    this.rotationDeadline = 0;
     this.encryptKey = null;
     this.decryptKeys.clear();
     this.frameCounter = 0;
