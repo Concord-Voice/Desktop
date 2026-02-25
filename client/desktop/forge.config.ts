@@ -21,6 +21,7 @@ const config: ForgeConfig = {
     new MakerDeb({
       options: {
         name: 'concord',
+        bin: 'concord',
         productName: 'Concord',
         genericName: 'Voice Communication',
         categories: ['Network', 'Chat'],
@@ -30,6 +31,7 @@ const config: ForgeConfig = {
     new MakerRpm({
       options: {
         name: 'concord',
+        bin: 'concord',
         productName: 'Concord',
         genericName: 'Voice Communication',
         categories: ['Network', 'Chat'],
