@@ -5,6 +5,7 @@ import { useUserStore } from '../../stores/userStore';
 import { useSettingsStore, AppearanceSettings } from '../../stores/settingsStore';
 import { useVoiceStore, AUDIO_QUALITY_TIERS } from '../../stores/voiceStore';
 import type { AudioQualityTier } from '../../stores/voiceStore';
+import { useAudioSettingsStore } from '../../stores/audioSettingsStore';
 import { apiFetch } from '../../services/apiClient';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import DeviceSelector from '../Voice/DeviceSelector';
@@ -612,6 +613,20 @@ const TIER_ORDER: AudioQualityTier[] = ['voice', 'standard', 'high', 'hifi', 'st
 const VoiceAudioSection: React.FC = () => {
   const qualityTier = useVoiceStore((s) => s.qualityTier);
   const setQualityTier = useVoiceStore((s) => s.setQualityTier);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Audio processing settings
+  const noiseCancellation = useAudioSettingsStore((s) => s.noiseCancellation);
+  const echoCancellation = useAudioSettingsStore((s) => s.echoCancellation);
+  const autoGainControl = useAudioSettingsStore((s) => s.autoGainControl);
+  const noiseGateLevel = useAudioSettingsStore((s) => s.noiseGateLevel);
+
+  // Advanced audio settings
+  const musicMode = useAudioSettingsStore((s) => s.musicMode);
+  const frameSize = useAudioSettingsStore((s) => s.frameSize);
+  const silenceDetection = useAudioSettingsStore((s) => s.silenceDetection);
+  const fecMode = useAudioSettingsStore((s) => s.fecMode);
+  const fecManualPercent = useAudioSettingsStore((s) => s.fecManualPercent);
 
   return (
     <>
@@ -664,12 +679,16 @@ const VoiceAudioSection: React.FC = () => {
                     {config.label}
                     {config.premium && <span className="settings-quality-premium-badge">Premium</span>}
                   </span>
+                  <span className="settings-quality-option-description">
+                    {config.description}
+                  </span>
                   <span className="settings-quality-option-detail">
                     {config.maxBitrate >= 1000
                       ? `${(config.maxBitrate / 1000).toFixed(0)} kbps`
                       : `${config.maxBitrate} bps`}
                     {config.opusStereo ? ' · Stereo' : ' · Mono'}
                     {config.opusFec ? ' · FEC' : ''}
+                    {config.frameSize !== 20 ? ` · ${config.frameSize}ms` : ''}
                   </span>
                 </div>
                 {qualityTier === tier && (
@@ -687,6 +706,153 @@ const VoiceAudioSection: React.FC = () => {
             );
           })}
         </div>
+      </div>
+
+      <div className="settings-section">
+        <h2 className="settings-section-title">Audio Processing</h2>
+        <p className="settings-section-description">
+          Configure real-time audio processing for your microphone input.
+        </p>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Noise Cancellation</span>
+            <span className="settings-row-hint">Reduces background noise from your microphone</span>
+          </div>
+          <ToggleSwitch checked={noiseCancellation} onChange={(v) => useAudioSettingsStore.getState().setNoiseCancellation(v)} />
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Echo Cancellation</span>
+            <span className="settings-row-hint">Prevents your speakers from feeding back into your mic</span>
+          </div>
+          <ToggleSwitch checked={echoCancellation} onChange={(v) => useAudioSettingsStore.getState().setEchoCancellation(v)} />
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Auto Gain Control</span>
+            <span className="settings-row-hint">Automatically adjusts microphone volume level</span>
+          </div>
+          <ToggleSwitch checked={autoGainControl} onChange={(v) => useAudioSettingsStore.getState().setAutoGainControl(v)} />
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Noise Gate</span>
+            <span className="settings-row-hint">Mutes input below {noiseGateLevel} dBFS</span>
+          </div>
+          <input
+            type="range"
+            className="settings-slider"
+            min={-80}
+            max={-20}
+            value={noiseGateLevel}
+            onChange={(e) => useAudioSettingsStore.getState().setNoiseGateLevel(Number(e.target.value))}
+          />
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <button
+          className="settings-advanced-toggle"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+        >
+          <span>Advanced Audio Settings</span>
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 12 12"
+            fill="none"
+            style={{ transform: showAdvanced ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
+          >
+            <path d="M3 4.5L6 7.5L9 4.5" stroke="var(--text-secondary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+
+        {showAdvanced && (
+          <div className="settings-advanced-panel">
+            <div className="settings-advanced-warning">
+              These settings affect audio encoding at a low level. Incorrect values may degrade voice quality.
+            </div>
+
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <span className="settings-row-label">Music Mode (CELT)</span>
+                <span className="settings-row-hint">
+                  Optimizes for music and ambient audio instead of speech. Uses the CELT sub-codec for better tonal fidelity.
+                </span>
+              </div>
+              <ToggleSwitch checked={musicMode} onChange={(v) => useAudioSettingsStore.getState().setMusicMode(v)} />
+            </div>
+
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <span className="settings-row-label">Frame Size</span>
+                <span className="settings-row-hint">
+                  Lower values reduce latency, higher values improve encoding efficiency.
+                </span>
+              </div>
+              <select
+                className="settings-select"
+                value={frameSize}
+                onChange={(e) => useAudioSettingsStore.getState().setFrameSize(Number(e.target.value) as 10 | 20 | 40 | 60)}
+              >
+                <option value={10}>10 ms (lowest latency)</option>
+                <option value={20}>20 ms (default)</option>
+                <option value={40}>40 ms (efficient)</option>
+                <option value={60}>60 ms (most efficient)</option>
+              </select>
+            </div>
+
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <span className="settings-row-label">Silence Detection (DTX)</span>
+                <span className="settings-row-hint">
+                  Reduces bandwidth when not speaking by sending fewer packets during silence.
+                </span>
+              </div>
+              <ToggleSwitch checked={silenceDetection} onChange={(v) => useAudioSettingsStore.getState().setSilenceDetection(v)} />
+            </div>
+
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <span className="settings-row-label">Forward Error Correction</span>
+                <span className="settings-row-hint">
+                  {fecMode === 'auto'
+                    ? 'Automatically adjusts based on detected packet loss and network type.'
+                    : `Manually set to ${fecManualPercent}% redundancy.`}
+                </span>
+              </div>
+              <select
+                className="settings-select"
+                value={fecMode}
+                onChange={(e) => useAudioSettingsStore.getState().setFecMode(e.target.value as 'auto' | 'manual')}
+              >
+                <option value="auto">Auto</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+
+            {fecMode === 'manual' && (
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <span className="settings-row-label">FEC Redundancy</span>
+                  <span className="settings-row-hint">{fecManualPercent}%</span>
+                </div>
+                <input
+                  type="range"
+                  className="settings-slider"
+                  min={0}
+                  max={100}
+                  value={fecManualPercent}
+                  onChange={(e) => useAudioSettingsStore.getState().setFecManualPercent(Number(e.target.value))}
+                />
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </>
   );

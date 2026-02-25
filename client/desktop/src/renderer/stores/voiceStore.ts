@@ -53,22 +53,74 @@ export interface VoiceParticipant {
 // ---------------------------------------------------------------------------
 export type AudioQualityTier = 'voice' | 'standard' | 'high' | 'hifi' | 'studio';
 
-export const AUDIO_QUALITY_TIERS: Record<
-  AudioQualityTier,
-  {
-    label: string;
-    maxBitrate: number;
-    opusDtx: boolean;
-    opusFec: boolean;
-    opusStereo: boolean;
-    premium: boolean;
-  }
-> = {
-  voice: { label: 'Voice', maxBitrate: 24_000, opusDtx: true, opusFec: true, opusStereo: false, premium: false },
-  standard: { label: 'Standard', maxBitrate: 64_000, opusDtx: false, opusFec: true, opusStereo: true, premium: false },
-  high: { label: 'High Quality', maxBitrate: 128_000, opusDtx: false, opusFec: false, opusStereo: true, premium: true },
-  hifi: { label: 'Hi-Fi', maxBitrate: 320_000, opusDtx: false, opusFec: false, opusStereo: true, premium: true },
-  studio: { label: 'Studio', maxBitrate: 510_000, opusDtx: false, opusFec: false, opusStereo: true, premium: true },
+export interface AudioQualityTierConfig {
+  label: string;
+  description: string;
+  maxBitrate: number;
+  opusDtx: boolean;
+  opusFec: boolean;
+  opusStereo: boolean;
+  opusApplication: 'voip' | 'audio' | 'lowdelay';
+  frameSize: number; // ms: 10, 20, 40, 60
+  premium: boolean;
+}
+
+export const AUDIO_QUALITY_TIERS: Record<AudioQualityTier, AudioQualityTierConfig> = {
+  voice: {
+    label: 'Voice',
+    description: 'Optimized for speech, minimal bandwidth',
+    maxBitrate: 24_000,
+    opusDtx: true,
+    opusFec: true,
+    opusStereo: false,
+    opusApplication: 'voip',
+    frameSize: 20,
+    premium: false,
+  },
+  standard: {
+    label: 'Standard',
+    description: 'Clear stereo voice for general use',
+    maxBitrate: 64_000,
+    opusDtx: false,
+    opusFec: true,
+    opusStereo: true,
+    opusApplication: 'audio',
+    frameSize: 20,
+    premium: false,
+  },
+  high: {
+    label: 'High Quality',
+    description: 'Streaming quality, music-friendly',
+    maxBitrate: 128_000,
+    opusDtx: false,
+    opusFec: false,
+    opusStereo: true,
+    opusApplication: 'audio',
+    frameSize: 20,
+    premium: true,
+  },
+  hifi: {
+    label: 'Hi-Fi',
+    description: 'Near-lossless, perceptually transparent',
+    maxBitrate: 320_000,
+    opusDtx: false,
+    opusFec: false,
+    opusStereo: true,
+    opusApplication: 'audio',
+    frameSize: 10,
+    premium: true,
+  },
+  studio: {
+    label: 'Studio',
+    description: 'Maximum Opus quality, 48 kHz full-bandwidth stereo',
+    maxBitrate: 510_000,
+    opusDtx: false,
+    opusFec: false,
+    opusStereo: true,
+    opusApplication: 'audio',
+    frameSize: 10,
+    premium: true,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -121,6 +173,10 @@ interface VoiceState {
   // Quality
   qualityTier: AudioQualityTier;
 
+  // Network quality (updated by packet loss monitor)
+  packetLossPercent: number;
+  packetLossWarning: boolean;
+
   // Channel voice members (sidebar — all voice channels, not just the one we're in)
   channelVoiceMembers: Record<string, ChannelVoiceMember[]>;
 
@@ -137,6 +193,7 @@ interface VoiceState {
   setAudioOutputDevice: (deviceId: string) => void;
   setVideoDevice: (deviceId: string) => void;
   setQualityTier: (tier: AudioQualityTier) => void;
+  setPacketLoss: (percent: number, warningThreshold?: number) => void;
 
   // Participant management
   addParticipant: (participant: VoiceParticipant) => void;
@@ -174,6 +231,8 @@ const initialState = {
   audioOutputDeviceId: (persisted.audioOutputDeviceId ?? null) as string | null,
   videoDeviceId: (persisted.videoDeviceId ?? null) as string | null,
   qualityTier: (persisted.qualityTier ?? 'standard') as AudioQualityTier,
+  packetLossPercent: 0,
+  packetLossWarning: false,
   channelVoiceMembers: {} as Record<string, ChannelVoiceMember[]>,
 };
 
@@ -212,6 +271,9 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
     set({ qualityTier });
     const s = useVoiceStore.getState();
     savePersistedSettings({ audioInputDeviceId: s.audioInputDeviceId, audioOutputDeviceId: s.audioOutputDeviceId, videoDeviceId: s.videoDeviceId, qualityTier });
+  },
+  setPacketLoss: (percent, warningThreshold = 3) => {
+    set({ packetLossPercent: percent, packetLossWarning: percent >= warningThreshold });
   },
 
   addParticipant: (participant) =>

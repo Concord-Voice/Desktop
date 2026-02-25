@@ -21,6 +21,7 @@ import { useAuthStore } from '../stores/authStore';
 import { useUserStore } from '../stores/userStore';
 import { useVoiceStore, AUDIO_QUALITY_TIERS } from '../stores/voiceStore';
 import type { AudioQualityTier, VoiceParticipant } from '../stores/voiceStore';
+import { useAudioSettingsStore } from '../stores/audioSettingsStore';
 import { API_BASE, apiFetch } from './apiClient';
 import { MediaEncryption } from './mediaEncryption';
 import { e2eeService } from './e2eeService';
@@ -110,6 +111,11 @@ class VoiceService {
   private vadTimer: ReturnType<typeof setInterval> | null = null;
   private vadSpeaking = false;
 
+  // Packet loss monitor
+  private packetLossTimer: ReturnType<typeof setInterval> | null = null;
+  private lastPacketsLost = 0;
+  private lastPacketsSent = 0;
+
   // ─── Client-side Voice Activity Detection (VAD) ──────────────────
 
   /**
@@ -198,6 +204,85 @@ class VoiceService {
     } else if (store.activeSpeakerId === localUserId) {
       store.setActiveSpeaker(null);
     }
+  }
+
+  // ─── Packet loss monitor ─────────────────────────────────────────
+
+  /**
+   * Poll outbound-rtp + remote-inbound-rtp stats every 5s to measure packet loss.
+   * When fecMode='auto', dynamically adjusts FEC parameters on the mic producer.
+   * Baseline FEC: WiFi=20%, Wired=5%. Loss > threshold → packetLossWarning in store.
+   */
+  private startPacketLossMonitor(): void {
+    this.stopPacketLossMonitor();
+    this.lastPacketsLost = 0;
+    this.lastPacketsSent = 0;
+
+    this.packetLossTimer = setInterval(async () => {
+      const micProducer = this.producers.get('mic');
+      if (!micProducer) return;
+
+      try {
+        const stats = await micProducer.getStats();
+
+        let totalPacketsSent = 0;
+        let totalPacketsLost = 0;
+
+        for (const report of stats.values()) {
+          if (report.type === 'outbound-rtp') {
+            totalPacketsSent = (report as { packetsSent?: number }).packetsSent ?? 0;
+          }
+          if (report.type === 'remote-inbound-rtp') {
+            totalPacketsLost = (report as { packetsLost?: number }).packetsLost ?? 0;
+          }
+        }
+
+        // Calculate delta loss since last poll
+        const deltaSent = totalPacketsSent - this.lastPacketsSent;
+        const deltaLost = totalPacketsLost - this.lastPacketsLost;
+        this.lastPacketsSent = totalPacketsSent;
+        this.lastPacketsLost = totalPacketsLost;
+
+        if (deltaSent <= 0) return;
+
+        const lossPercent = Math.max(0, (deltaLost / deltaSent) * 100);
+        const adv = useAudioSettingsStore.getState();
+        useVoiceStore.getState().setPacketLoss(lossPercent, adv.packetLossWarningThreshold);
+
+        // Dynamic FEC adjustment (auto mode only)
+        if (adv.fecMode === 'auto' && micProducer.rtpSender) {
+          const params = micProducer.rtpSender.getParameters();
+          if (params.encodings?.[0]) {
+            // Detect network type for baseline
+            const conn = (navigator as { connection?: { type?: string } }).connection;
+            const networkType = adv.networkType === 'auto'
+              ? (conn?.type === 'ethernet' ? 'wired' : 'wifi')
+              : adv.networkType;
+            const baselineFec = networkType === 'wired' ? 5 : 20;
+
+            // Scale FEC proportionally to loss, capped at 100%
+            const targetFecPercent = Math.min(100, baselineFec + lossPercent * 3);
+
+            // Apply via maxBitrate adjustment (increase bitrate budget for FEC overhead)
+            const tier = useVoiceStore.getState().qualityTier;
+            const tierConfig = AUDIO_QUALITY_TIERS[tier];
+            const fecOverhead = 1 + targetFecPercent / 100;
+            params.encodings[0].maxBitrate = Math.round(tierConfig.maxBitrate * fecOverhead);
+            micProducer.rtpSender.setParameters(params).catch(() => {});
+          }
+        }
+      } catch {
+        // Stats unavailable — ignore
+      }
+    }, 5000);
+  }
+
+  private stopPacketLossMonitor(): void {
+    if (this.packetLossTimer) {
+      clearInterval(this.packetLossTimer);
+      this.packetLossTimer = null;
+    }
+    useVoiceStore.getState().setPacketLoss(0);
   }
 
   // ─── Codec preference helpers ──────────────────────────────────────
@@ -447,12 +532,15 @@ class VoiceService {
   async produceAudio(deviceId?: string): Promise<void> {
     if (!this.sendTransport || !this.device) return;
 
+    // Read advanced audio settings
+    const adv = useAudioSettingsStore.getState();
+
     const constraints: MediaStreamConstraints = {
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        echoCancellation: adv.echoCancellation,
+        noiseSuppression: adv.noiseCancellation,
+        autoGainControl: adv.autoGainControl,
         sampleRate: 48000,
         channelCount: 2,
       },
@@ -464,13 +552,19 @@ class VoiceService {
     const tier = useVoiceStore.getState().qualityTier;
     const tierConfig = AUDIO_QUALITY_TIERS[tier];
 
+    // Resolve effective Opus settings: advanced overrides tier defaults
+    const effectiveDtx = adv.silenceDetection || tierConfig.opusDtx;
+    const effectiveFec = adv.fecMode === 'manual' ? adv.fecManualPercent > 0 : tierConfig.opusFec;
+    const effectiveFrameSize = adv.frameSize !== 20 ? adv.frameSize : tierConfig.frameSize;
+
     const producer = await this.sendTransport.produce({
       track,
       codecOptions: {
         opusStereo: tierConfig.opusStereo,
-        opusDtx: tierConfig.opusDtx,
-        opusFec: tierConfig.opusFec,
+        opusDtx: effectiveDtx,
+        opusFec: effectiveFec,
         opusMaxAverageBitrate: tierConfig.maxBitrate,
+        opusPtime: effectiveFrameSize,
       },
       appData: { source: 'mic' },
     });
@@ -479,6 +573,9 @@ class VoiceService {
 
     // Start client-side VAD for instant speaking indicator
     this.startLocalVAD(this.localMicStream);
+
+    // Start packet loss monitor for dynamic FEC
+    this.startPacketLossMonitor();
 
     // Apply E2EE encrypt transform if encrypted
     if (this.isEncrypted && this.mediaEncryption) {
@@ -1320,6 +1417,9 @@ class VoiceService {
 
     // Stop local VAD
     this.stopLocalVAD();
+
+    // Stop packet loss monitor
+    this.stopPacketLossMonitor();
 
     // Stop decoder profiling
     if (this.decoderProfilingTimer) {
