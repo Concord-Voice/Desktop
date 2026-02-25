@@ -212,7 +212,8 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    const insertPos = dragInsertPos;
+    // Read from ref (always current) instead of state closure (can be stale)
+    const insertPos = lastInsertRef.current;
     handleDragEnd();
 
     if (!insertPos || !activeServerId) return;
@@ -330,7 +331,7 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
         fetchChannels(activeServerId);
       });
     }
-  }, [dragInsertPos, activeServerId, channels, channelGroups, reorderChannels, updateChannelGroup, fetchChannels, handleDragEnd]);
+  }, [activeServerId, channels, channelGroups, reorderChannels, updateChannelGroup, fetchChannels, handleDragEnd]);
 
   // Build grouped channel structure: groups sorted by position, channels within groups sorted by position
   // Filter out linked text channels — they render inline below their parent voice channel
@@ -514,7 +515,12 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
   }
 
   return (
-    <div className="channel-list" onContextMenu={handleEmptyContextMenu}>
+    <div
+      className="channel-list"
+      onContextMenu={handleEmptyContextMenu}
+      onDragOver={canReorder ? (e) => e.preventDefault() : undefined}
+      onDrop={canReorder ? handleDrop : undefined}
+    >
       {/* Loading State */}
       {isLoading && channels.length === 0 && (
         <div className="channel-list-skeletons">
