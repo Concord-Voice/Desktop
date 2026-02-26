@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { MessageSquare, Volume2 } from 'lucide-react';
+import { MessageSquare, Volume2, PanelBottom, PanelRight } from 'lucide-react';
 import MessageList from '../Chat/MessageList';
 import MessageInput from '../Chat/MessageInput';
 import { useChannelStore } from '../../stores/channelStore';
@@ -18,6 +18,8 @@ const MESSAGES_LIMIT = 50;
 
 const VoiceTextChat: React.FC = () => {
   const activeChannelId = useVoiceStore((s) => s.activeChannelId);
+  const voiceTextChatLayout = useVoiceStore((s) => s.voiceTextChatLayout);
+  const toggleVoiceTextChatLayout = useVoiceStore((s) => s.toggleVoiceTextChatLayout);
   const getLinkedTextChannel = useChannelStore((s) => s.getLinkedTextChannel);
 
   const linkedChannel = activeChannelId ? getLinkedTextChannel(activeChannelId) : undefined;
@@ -238,6 +240,14 @@ const VoiceTextChat: React.FC = () => {
       <div className="voice-text-chat__header">
         <MessageSquare size={14} />
         <span className="voice-text-chat__title">{linkedChannel.name} Text Chat</span>
+        <button
+          type="button"
+          className="voice-text-chat__layout-toggle"
+          onClick={toggleVoiceTextChatLayout}
+          title={voiceTextChatLayout === 'horizontal' ? 'Switch to side layout' : 'Switch to bottom layout'}
+        >
+          {voiceTextChatLayout === 'horizontal' ? <PanelRight size={14} /> : <PanelBottom size={14} />}
+        </button>
       </div>
 
       {error && <div className="voice-text-chat__error">{error}</div>}

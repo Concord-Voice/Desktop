@@ -19,6 +19,8 @@ interface VoiceViewProps {
 
 const MIN_CHAT_HEIGHT = 150;
 const MAX_CHAT_RATIO = 0.7;
+const MIN_CHAT_WIDTH = 250;
+const MAX_CHAT_WIDTH_RATIO = 0.5;
 const MIN_SECTION_HEIGHT = 80;
 
 const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
@@ -33,6 +35,9 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     showVoiceTextChat,
     voiceTextChatHeight,
     setVoiceTextChatHeight,
+    voiceTextChatLayout,
+    voiceTextChatWidth,
+    setVoiceTextChatWidth,
     tunedInScreenShares,
     availableScreenShares,
     showUserFrameBar,
@@ -101,25 +106,39 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
   }, [isConnected, isScreenSharing, keepActiveWhileUnfocused]);
 
-  // Text chat resize
+  // Text chat resize (layout-aware: vertical uses X axis, horizontal uses Y axis)
   const handleChatResizeStart = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
       resizingRef.current = true;
-      const startY = e.clientY;
-      const startHeight = voiceTextChatHeight;
+      const isVertical = voiceTextChatLayout === 'vertical';
+      const startPos = isVertical ? e.clientX : e.clientY;
+      const startSize = isVertical ? voiceTextChatWidth : voiceTextChatHeight;
+
+      document.body.style.cursor = isVertical ? 'col-resize' : 'row-resize';
+      document.body.style.userSelect = 'none';
 
       const onMouseMove = (moveEvent: MouseEvent) => {
         if (!resizingRef.current || !containerRef.current) return;
-        const containerHeight = containerRef.current.getBoundingClientRect().height;
-        const maxHeight = containerHeight * MAX_CHAT_RATIO;
-        const delta = startY - moveEvent.clientY;
-        const newHeight = Math.min(maxHeight, Math.max(MIN_CHAT_HEIGHT, startHeight + delta));
-        setVoiceTextChatHeight(newHeight);
+        const rect = containerRef.current.getBoundingClientRect();
+
+        if (isVertical) {
+          const maxWidth = rect.width * MAX_CHAT_WIDTH_RATIO;
+          const delta = startPos - moveEvent.clientX;
+          const newWidth = Math.min(maxWidth, Math.max(MIN_CHAT_WIDTH, startSize + delta));
+          setVoiceTextChatWidth(newWidth);
+        } else {
+          const maxHeight = rect.height * MAX_CHAT_RATIO;
+          const delta = startPos - moveEvent.clientY;
+          const newHeight = Math.min(maxHeight, Math.max(MIN_CHAT_HEIGHT, startSize + delta));
+          setVoiceTextChatHeight(newHeight);
+        }
       };
 
       const onMouseUp = () => {
         resizingRef.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
         document.removeEventListener('mousemove', onMouseMove);
         document.removeEventListener('mouseup', onMouseUp);
       };
@@ -127,7 +146,7 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
       document.addEventListener('mousemove', onMouseMove);
       document.addEventListener('mouseup', onMouseUp);
     },
-    [voiceTextChatHeight, setVoiceTextChatHeight]
+    [voiceTextChatLayout, voiceTextChatHeight, voiceTextChatWidth, setVoiceTextChatHeight, setVoiceTextChatWidth]
   );
 
   // Section resize factory (for UserFrameBar / StreamBar)
@@ -190,6 +209,7 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
   }
 
   const showChat = showVoiceTextChat && hasLinkedText;
+  const isVerticalLayout = showChat && voiceTextChatLayout === 'vertical';
   const tunedInCount = Object.keys(tunedInScreenShares).length;
   const nonDominantCount = tunedInCount - 1;
   const showStreamSection = stageLayout === 'focus' && nonDominantCount > 0;
@@ -221,85 +241,88 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
         </div>
       </div>
 
-      {/* Voice area — one resizable entity vs text chat */}
-      <div className="voice-view__voice-area">
-        {/* Audio outputs (always rendered, hidden) */}
-        <AudioOutputs />
+      {/* Content wrapper: voice area + optional text chat (switches flex direction) */}
+      <div className={`voice-view__content ${isVerticalLayout ? 'voice-view__content--vertical' : 'voice-view__content--horizontal'}`}>
+        {/* Voice area — one resizable entity vs text chat */}
+        <div className="voice-view__voice-area">
+          {/* Audio outputs (always rendered, hidden) */}
+          <AudioOutputs />
 
-        {hasScreenShares ? (
-          /* Mode B: Three-section layout */
-          <>
-            {/* User Frame Bar (top) */}
-            {showUserFrameBar && (
-              <UserFrameBar height={userFrameBarHeight} />
-            )}
+          {hasScreenShares ? (
+            /* Mode B: Three-section layout */
+            <>
+              {/* User Frame Bar (top) */}
+              {showUserFrameBar && (
+                <UserFrameBar height={userFrameBarHeight} />
+              )}
 
-            {/* Resize handle: UserFrameBar ↔ VoiceStage */}
-            <div className="voice-view__section-handle">
-              <div
-                className="voice-view__section-handle-grip"
-                onMouseDown={makeSectionResizeStart('top', userFrameBarHeight, setUserFrameBarHeight)}
-              />
-              <button
-                className="voice-view__section-toggle"
-                onClick={toggleUserFrameBar}
-                title={showUserFrameBar ? 'Hide user frames' : 'Show user frames'}
-              >
-                {showUserFrameBar ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-              </button>
-            </div>
-
-            {/* Center Stage (dominant screen share) */}
-            <VoiceStage />
-
-            {/* Resize handle: VoiceStage ↔ StreamBar (focus mode only) */}
-            {showStreamSection && (
+              {/* Resize handle: UserFrameBar ↔ VoiceStage */}
               <div className="voice-view__section-handle">
                 <div
                   className="voice-view__section-handle-grip"
-                  onMouseDown={makeSectionResizeStart('bottom', streamBarHeight, setStreamBarHeight)}
+                  onMouseDown={makeSectionResizeStart('top', userFrameBarHeight, setUserFrameBarHeight)}
                 />
                 <button
                   className="voice-view__section-toggle"
-                  onClick={toggleStreamBar}
-                  title={showStreamBar ? 'Hide stream bar' : 'Show stream bar'}
+                  onClick={toggleUserFrameBar}
+                  title={showUserFrameBar ? 'Hide user frames' : 'Show user frames'}
                 >
-                  {showStreamBar ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                  {showUserFrameBar ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                 </button>
               </div>
-            )}
 
-            {/* Stream Bar (bottom — non-dominant shares, focus mode only) */}
-            {showStreamSection && showStreamBar && (
-              <StreamBar height={streamBarHeight} />
-            )}
+              {/* Center Stage (dominant screen share) */}
+              <VoiceStage />
+
+              {/* Resize handle: VoiceStage ↔ StreamBar (focus mode only) */}
+              {showStreamSection && (
+                <div className="voice-view__section-handle">
+                  <div
+                    className="voice-view__section-handle-grip"
+                    onMouseDown={makeSectionResizeStart('bottom', streamBarHeight, setStreamBarHeight)}
+                  />
+                  <button
+                    className="voice-view__section-toggle"
+                    onClick={toggleStreamBar}
+                    title={showStreamBar ? 'Hide stream bar' : 'Show stream bar'}
+                  >
+                    {showStreamBar ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                  </button>
+                </div>
+              )}
+
+              {/* Stream Bar (bottom — non-dominant shares, focus mode only) */}
+              {showStreamSection && showStreamBar && (
+                <StreamBar height={streamBarHeight} />
+              )}
+            </>
+          ) : (
+            /* Mode A: Centered user frames */
+            <UserFrameGrid />
+          )}
+
+          {/* Available screen shares — Tune In buttons */}
+          {availableScreenShares.length > 0 && <TuneInOverlay />}
+        </div>
+
+        {/* Text chat panel (when toggled on) */}
+        {showChat && (
+          <>
+            <div
+              className={`voice-text-chat-resize ${isVerticalLayout ? 'voice-text-chat-resize--vertical' : ''}`}
+              onMouseDown={handleChatResizeStart}
+            >
+              <div className="voice-text-chat-resize__grip" />
+            </div>
+            <div
+              className={`voice-view__text-chat ${isVerticalLayout ? 'voice-view__text-chat--vertical' : ''}`}
+              style={isVerticalLayout ? { width: voiceTextChatWidth } : { height: voiceTextChatHeight }}
+            >
+              <VoiceTextChat />
+            </div>
           </>
-        ) : (
-          /* Mode A: Centered user frames */
-          <UserFrameGrid />
         )}
-
-        {/* Available screen shares — Tune In buttons */}
-        {availableScreenShares.length > 0 && <TuneInOverlay />}
       </div>
-
-      {/* Text chat panel (when toggled on) */}
-      {showChat && (
-        <>
-          <div
-            className="voice-text-chat-resize"
-            onMouseDown={handleChatResizeStart}
-          >
-            <div className="voice-text-chat-resize__grip" />
-          </div>
-          <div
-            className="voice-view__text-chat"
-            style={{ height: voiceTextChatHeight }}
-          >
-            <VoiceTextChat />
-          </div>
-        </>
-      )}
 
       {/* Controls bar */}
       <VoiceControls variant="full" />

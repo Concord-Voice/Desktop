@@ -59,6 +59,23 @@
   background-color: rgba(240, 71, 71, 0.12);
 }
 
+/* ─── Content Wrapper (voice area + optional text chat) ────────── */
+
+.voice-view__content {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.voice-view__content--horizontal {
+  flex-direction: column;
+}
+
+.voice-view__content--vertical {
+  flex-direction: row;
+}
+
 /* ─── Voice Area (Mode A/B container — resizable vs text chat) ── */
 
 .voice-view__voice-area {
@@ -67,6 +84,10 @@
   flex-direction: column;
   overflow: hidden;
   min-height: 200px;
+}
+
+.voice-view__content--vertical .voice-view__voice-area {
+  min-width: 200px;
 }
 
 /* ─── Section Resize Handle (between Mode B sections) ─────────── */
@@ -179,11 +200,16 @@
   cursor: not-allowed;
 }
 
-/* ─── Text chat panel (below participant grid) ───────────────── */
+/* ─── Text chat panel (horizontal: below voice, vertical: right side) ── */
 
 .voice-view__text-chat {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.voice-view__text-chat--vertical {
+  border-left: 1px solid var(--border-color);
+  height: auto;
 }

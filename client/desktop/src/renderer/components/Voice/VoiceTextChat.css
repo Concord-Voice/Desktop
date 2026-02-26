@@ -114,3 +114,43 @@
   background-color: #fff;
   opacity: 0.8;
 }
+
+/* ─── Vertical Resize Handle ────────────────────────────────────── */
+
+.voice-text-chat-resize--vertical {
+  width: 6px;
+  height: auto;
+  cursor: col-resize;
+  border-top: none;
+  border-bottom: none;
+  border-left: 1px solid var(--border-color);
+  border-right: 1px solid var(--border-color);
+  flex-shrink: 0;
+  flex-direction: column;
+}
+
+.voice-text-chat-resize--vertical .voice-text-chat-resize__grip {
+  width: 2px;
+  height: 32px;
+}
+
+/* ─── Layout Toggle Button ──────────────────────────────────────── */
+
+.voice-text-chat__layout-toggle {
+  margin-left: auto;
+  padding: 2px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.voice-text-chat__layout-toggle:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-modifier-hover);
+}

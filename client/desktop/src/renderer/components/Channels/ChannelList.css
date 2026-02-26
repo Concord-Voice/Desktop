@@ -9,7 +9,7 @@
 
 /* Channel Groups */
 .channel-group {
-  margin: calc(16px * var(--sp, 1)) 0;
+  margin: calc(6px * var(--sp, 1)) 0;
 }
 
 .channel-group-header {
@@ -114,9 +114,9 @@
   margin-left: calc(6px * var(--sp, 1));
 }
 
-/* Uncategorized group — no header, no top margin */
+/* Uncategorized group — no header, tighter spacing */
 .channel-group--uncategorized {
-  margin-top: calc(4px * var(--sp, 1));
+  margin-top: calc(2px * var(--sp, 1));
 }
 
 /* Channel Items */
@@ -413,6 +413,21 @@
   margin-left: calc(30px * var(--sp, 1) + 4px);
 }
 
+/* Trunk line continuation through voice sub-containers in grouped channels.
+   The sub-container sits as a sibling between channel-item-wrapper--grouped
+   elements — without this, the vertical trunk line has a gap when the
+   sub-container expands. Only render when more grouped items follow. */
+.voice-channel-sub-container--grouped:has(~ .channel-item-wrapper--grouped)::before {
+  content: '';
+  position: absolute;
+  left: calc(-12px * var(--sp, 1) - 4px);
+  top: 0;
+  bottom: 0;
+  border-left: 1.5px solid var(--border-color);
+  pointer-events: none;
+  z-index: 1;
+}
+
 /* Children indentation — relative to container.
    Ungrouped: container left = 8sp+4. Connector target 36px: M + 4 = 36 → M = 32.
    Grouped: container left = 30sp+4. Connector target 70px: M + 4 + 30 = 70 → M = 36. */
@@ -565,6 +580,25 @@
   background: var(--accent-primary);
   border-radius: 1px;
   pointer-events: none;
+}
+
+/* Gap drop zone between categories — drop here to ungroup a channel.
+   Always rendered in DOM to avoid drag soft-locks; hidden until dragging. */
+.channel-drag-gap {
+  height: 0;
+  margin: 0 calc(8px * var(--sp, 1));
+  border-radius: 4px;
+  transition: height 0.1s ease, background-color 0.15s ease;
+  overflow: hidden;
+}
+
+.channel-drag-gap--visible {
+  height: 8px;
+}
+
+.channel-drag-gap--active {
+  background-color: color-mix(in srgb, var(--accent-primary) 25%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--accent-primary);
 }
 
 /* Scrollbar Styling */

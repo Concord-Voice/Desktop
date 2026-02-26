@@ -200,6 +200,8 @@ interface VoiceState {
   // Voice text chat
   showVoiceTextChat: boolean;
   voiceTextChatHeight: number;
+  voiceTextChatLayout: 'horizontal' | 'vertical';
+  voiceTextChatWidth: number;
 
   // Server-wide voice counts (for tooltip display)
   serverVoiceCounts: Record<string, number>;
@@ -267,6 +269,9 @@ interface VoiceState {
   setShowVoiceTextChat: (show: boolean) => void;
   toggleVoiceTextChat: () => void;
   setVoiceTextChatHeight: (height: number) => void;
+  setVoiceTextChatLayout: (layout: 'horizontal' | 'vertical') => void;
+  toggleVoiceTextChatLayout: () => void;
+  setVoiceTextChatWidth: (width: number) => void;
 
   // Server voice counts (tooltip)
   setServerVoiceCount: (serverId: string, count: number) => void;
@@ -325,7 +330,27 @@ const initialState = {
   availableScreenShares: [] as AvailableScreenShare[],
   channelVoiceMembers: {} as Record<string, ChannelVoiceMember[]>,
   showVoiceTextChat: false,
-  voiceTextChatHeight: 300,
+  voiceTextChatHeight: (() => {
+    try {
+      const s = localStorage.getItem('concord:voice-text-chat-height');
+      if (s) { const n = parseInt(s, 10); if (!isNaN(n) && n >= 150) return n; }
+    } catch { /* ignore */ }
+    return 300;
+  })(),
+  voiceTextChatLayout: (() => {
+    try {
+      const s = localStorage.getItem('concord:voice-text-chat-layout');
+      if (s === 'horizontal' || s === 'vertical') return s;
+    } catch { /* ignore */ }
+    return 'horizontal' as const;
+  })(),
+  voiceTextChatWidth: (() => {
+    try {
+      const s = localStorage.getItem('concord:voice-text-chat-width');
+      if (s) { const n = parseInt(s, 10); if (!isNaN(n) && n >= 250) return n; }
+    } catch { /* ignore */ }
+    return 350;
+  })(),
   serverVoiceCounts: {} as Record<string, number>,
   tunedInScreenShares: {} as Record<string, string>,
   dominantScreenShareId: null as string | null,
@@ -464,6 +489,20 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
       localStorage.setItem('concord:voice-text-chat-height', String(height));
     } catch { /* ignore */ }
   },
+  setVoiceTextChatLayout: (layout) => {
+    set({ voiceTextChatLayout: layout });
+    try { localStorage.setItem('concord:voice-text-chat-layout', layout); } catch { /* ignore */ }
+  },
+  toggleVoiceTextChatLayout: () =>
+    set((state) => {
+      const next = state.voiceTextChatLayout === 'horizontal' ? 'vertical' : 'horizontal';
+      try { localStorage.setItem('concord:voice-text-chat-layout', next); } catch { /* ignore */ }
+      return { voiceTextChatLayout: next };
+    }),
+  setVoiceTextChatWidth: (width) => {
+    set({ voiceTextChatWidth: width });
+    try { localStorage.setItem('concord:voice-text-chat-width', String(width)); } catch { /* ignore */ }
+  },
 
   // Server voice counts
   setServerVoiceCount: (serverId, count) =>
@@ -551,8 +590,10 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
       audioOutputDeviceId: state.audioOutputDeviceId,
       videoDeviceId: state.videoDeviceId,
       qualityTier: state.qualityTier,
-      // Preserve text chat height preference
+      // Preserve text chat preferences
       voiceTextChatHeight: state.voiceTextChatHeight,
+      voiceTextChatLayout: state.voiceTextChatLayout,
+      voiceTextChatWidth: state.voiceTextChatWidth,
       // Preserve server voice counts (cross-server state)
       serverVoiceCounts: state.serverVoiceCounts,
       // Preserve section height & layout preferences

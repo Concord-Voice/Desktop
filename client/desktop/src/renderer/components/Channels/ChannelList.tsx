@@ -48,7 +48,7 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
   const [dragInsertPos, setDragInsertPos] = useState<{
     targetId: string;
     side: 'before' | 'after';
-    targetType: 'channel' | 'category';
+    targetType: 'channel' | 'category' | 'gap';
   } | null>(null);
   const lastInsertRef = useRef<typeof dragInsertPos>(null);
   const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -213,11 +213,26 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
     lastInsertRef.current = null;
   }, []);
 
+  // Gap zones between categories — dropping here makes a channel uncategorized
+  const handleGapDragOver = useCallback((e: React.DragEvent, gapId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    const newPos = { targetId: gapId, side: 'after' as const, targetType: 'gap' as const };
+    lastInsertRef.current = newPos;
+    setDragInsertPos(newPos);
+  }, []);
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     // Read from ref (always current) instead of state closure (can be stale)
     const insertPos = lastInsertRef.current;
-    handleDragEnd();
+    // Clear ref immediately to prevent duplicate processing from event bubbling
+    // (drop fires on the item, then bubbles to the container)
+    lastInsertRef.current = null;
+    // Defer React state cleanup so the browser's dragend fires on the original DOM
+    // (prevents soft-lock caused by DOM mutations mid-drag lifecycle)
+    requestAnimationFrame(() => handleDragEnd());
 
     if (!insertPos || !activeServerId) return;
 
@@ -232,19 +247,32 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
     if (sourceId === insertPos.targetId) return;
 
     if (sourceType === 'channel') {
-      // Build flat list of all non-linked channels sorted by group then position
       const nonLinked = channels.filter((c) => !c.linked_voice_channel_id);
       const sortedGroups = [...channelGroups].sort((a, b) => a.position - b.position);
+      const sourceChannel = nonLinked.find((c) => c.id === sourceId);
+      if (!sourceChannel) return;
 
-      // Determine target group and position
+      // Determine target group and slot for gap drops
       const targetChannel = nonLinked.find((c) => c.id === insertPos.targetId);
       const targetGroup = insertPos.targetType === 'category'
         ? channelGroups.find((g) => g.id === insertPos.targetId)
         : null;
 
       let targetGroupId: string | null;
-      if (targetGroup) {
-        // Dropped on a category header — move into that category
+      let gapSlot: number | null = null; // which inter-category slot for gap drops
+
+      if (insertPos.targetType === 'gap') {
+        targetGroupId = null;
+        // Parse gap ID to determine slot index
+        const gapId = insertPos.targetId;
+        if (gapId === '__gap-bottom' || gapId === '__gap-uncategorized') {
+          gapSlot = sortedGroups.length; // after last category
+        } else if (gapId.startsWith('__gap-before-')) {
+          const catId = gapId.replace('__gap-before-', '');
+          const catIdx = sortedGroups.findIndex((g) => g.id === catId);
+          gapSlot = catIdx >= 0 ? catIdx : 0;
+        }
+      } else if (targetGroup) {
         targetGroupId = targetGroup.id;
       } else if (targetChannel) {
         targetGroupId = targetChannel.group_id || null;
@@ -252,34 +280,57 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
         return;
       }
 
-      // Get channels in the target group, sorted by position
-      const groupChans = nonLinked
-        .filter((c) => (targetGroupId ? c.group_id === targetGroupId : !c.group_id))
-        .filter((c) => c.id !== sourceId)
-        .sort((a, b) => a.position - b.position);
+      const updates: { channel_id: string; group_id: string | null; position: number }[] = [];
 
-      // Find insert index
-      let insertIdx: number;
-      if (targetGroup) {
-        // Dropped on category header — append at end
-        insertIdx = groupChans.length;
+      if (insertPos.targetType === 'gap' && gapSlot !== null) {
+        // Gap drop: make uncategorized with slot-encoded position.
+        // Collect existing uncategorized channels in this same slot (excluding source).
+        const slotBase = (gapSlot + 1) * 1000;
+        const slotEnd = slotBase + 1000;
+        const sameSlot = nonLinked
+          .filter((c) => !c.group_id && c.id !== sourceId && c.position >= slotBase && c.position < slotEnd)
+          .sort((a, b) => a.position - b.position);
+        // Append source at end of slot
+        sameSlot.push(sourceChannel);
+        sameSlot.forEach((c, i) => {
+          updates.push({ channel_id: c.id, group_id: null, position: slotBase + i });
+        });
       } else {
-        const targetIdx = groupChans.findIndex((c) => c.id === insertPos.targetId);
-        insertIdx = insertPos.side === 'after' ? targetIdx + 1 : targetIdx;
-        if (insertIdx < 0) insertIdx = groupChans.length;
+        // Normal drop (into a category or reorder within group)
+        const groupChans = nonLinked
+          .filter((c) => (targetGroupId ? c.group_id === targetGroupId : !c.group_id))
+          .filter((c) => c.id !== sourceId)
+          .sort((a, b) => a.position - b.position);
+
+        let insertIdx: number;
+        if (targetGroup) {
+          insertIdx = groupChans.length;
+        } else {
+          const targetIdx = groupChans.findIndex((c) => c.id === insertPos.targetId);
+          insertIdx = insertPos.side === 'after' ? targetIdx + 1 : targetIdx;
+          if (insertIdx < 0) insertIdx = groupChans.length;
+        }
+        groupChans.splice(insertIdx, 0, sourceChannel);
+
+        if (targetGroupId) {
+          // Inside a category: simple 0-based positions
+          groupChans.forEach((c, i) => {
+            updates.push({ channel_id: c.id, group_id: targetGroupId, position: i });
+          });
+        } else {
+          // Reordering within uncategorized — preserve slot encoding.
+          // Determine which slot this drop targets based on the target channel's position.
+          let slot = sortedGroups.length; // default: after last category
+          if (targetChannel && targetChannel.position >= 1000) {
+            slot = Math.floor(targetChannel.position / 1000) - 1;
+            slot = Math.max(0, Math.min(slot, sortedGroups.length));
+          }
+          const slotBase = (slot + 1) * 1000;
+          groupChans.forEach((c, i) => {
+            updates.push({ channel_id: c.id, group_id: null, position: slotBase + i });
+          });
+        }
       }
-
-      // Insert source channel
-      const sourceChannel = nonLinked.find((c) => c.id === sourceId);
-      if (!sourceChannel) return;
-      groupChans.splice(insertIdx, 0, sourceChannel);
-
-      // Build updates for this group
-      const updates = groupChans.map((c, i) => ({
-        channel_id: c.id,
-        group_id: targetGroupId,
-        position: i,
-      }));
 
       // If source moved between groups, also reorder the old group
       const oldGroupId = sourceChannel.group_id || null;
@@ -288,9 +339,26 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
           .filter((c) => (oldGroupId ? c.group_id === oldGroupId : !c.group_id))
           .filter((c) => c.id !== sourceId)
           .sort((a, b) => a.position - b.position);
-        oldGroupChans.forEach((c, i) => {
-          updates.push({ channel_id: c.id, group_id: oldGroupId, position: i });
-        });
+        if (oldGroupId) {
+          // Simple 0-based for categorized
+          oldGroupChans.forEach((c, i) => {
+            updates.push({ channel_id: c.id, group_id: oldGroupId, position: i });
+          });
+        } else {
+          // Uncategorized: re-pack each slot to close gaps
+          const slotMap = new Map<number, Channel[]>();
+          for (const c of oldGroupChans) {
+            const s = c.position >= 1000 ? Math.floor(c.position / 1000) - 1 : sortedGroups.length;
+            if (!slotMap.has(s)) slotMap.set(s, []);
+            slotMap.get(s)!.push(c);
+          }
+          for (const [s, chans] of slotMap) {
+            const base = (s + 1) * 1000;
+            chans.sort((a, b) => a.position - b.position).forEach((c, i) => {
+              updates.push({ channel_id: c.id, group_id: null, position: base + i });
+            });
+          }
+        }
       }
 
       // Optimistic update + API call
@@ -300,7 +368,6 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ channels: updates }),
       }).catch(() => {
-        // Revert: re-fetch channels on failure
         fetchChannels(activeServerId);
       });
 
@@ -336,31 +403,60 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
     }
   }, [activeServerId, channels, channelGroups, reorderChannels, updateChannelGroup, fetchChannels, handleDragEnd]);
 
-  // Build grouped channel structure: groups sorted by position, channels within groups sorted by position
-  // Filter out linked text channels — they render inline below their parent voice channel
+  // Build interleaved channel structure: categories sorted by position, with
+  // uncategorized channels able to appear between/above/below categories.
+  //
+  // Uncategorized channels use a slot-encoded position: (slot+1)*1000 + orderInSlot
+  //   slot 0 → before first category, slot 1 → after first category, etc.
+  // Legacy channels (position < 1000) render at the bottom for backward compat.
+  // Filter out linked text channels — they render inline below their parent voice channel.
   const groupedChannels = useMemo(() => {
     const nonLinked = channels.filter((c) => !c.linked_voice_channel_id);
-
-    // Sort groups by position
     const sortedGroups = [...channelGroups].sort((a, b) => a.position - b.position);
+    const numSlots = sortedGroups.length + 1; // slots 0..N (before first, between each, after last)
 
-    // Map channels into their groups
-    const grouped: { group: ChannelGroup | null; channels: Channel[] }[] = sortedGroups.map((g) => ({
-      group: g,
-      channels: nonLinked
-        .filter((c) => c.group_id === g.id)
-        .sort((a, b) => a.position - b.position),
-    }));
+    // Separate uncategorized channels into slots
+    const uncategorized = nonLinked.filter((c) => !c.group_id);
+    const slotBuckets: Channel[][] = Array.from({ length: numSlots }, () => []);
+    const legacyBucket: Channel[] = [];
 
-    // Uncategorized channels (no group_id) go at the bottom
-    const uncategorized = nonLinked
-      .filter((c) => !c.group_id)
-      .sort((a, b) => a.position - b.position);
-    if (uncategorized.length > 0) {
-      grouped.push({ group: null, channels: uncategorized });
+    for (const ch of uncategorized) {
+      if (ch.position >= 1000) {
+        const slot = Math.floor(ch.position / 1000) - 1;
+        const clampedSlot = Math.max(0, Math.min(slot, numSlots - 1));
+        slotBuckets[clampedSlot].push(ch);
+      } else {
+        legacyBucket.push(ch);
+      }
+    }
+    // Sort within each bucket by position
+    for (const bucket of slotBuckets) bucket.sort((a, b) => a.position - b.position);
+    legacyBucket.sort((a, b) => a.position - b.position);
+
+    // Interleave: slot0, category0, slot1, category1, ..., slotN, legacy
+    const result: { group: ChannelGroup | null; channels: Channel[]; slotIndex?: number }[] = [];
+
+    for (let i = 0; i <= sortedGroups.length; i++) {
+      if (slotBuckets[i].length > 0) {
+        result.push({ group: null, channels: slotBuckets[i], slotIndex: i });
+      }
+      if (i < sortedGroups.length) {
+        const g = sortedGroups[i];
+        result.push({
+          group: g,
+          channels: nonLinked
+            .filter((c) => c.group_id === g.id)
+            .sort((a, b) => a.position - b.position),
+        });
+      }
     }
 
-    return grouped;
+    // Legacy uncategorized at the bottom
+    if (legacyBucket.length > 0) {
+      result.push({ group: null, channels: legacyBucket });
+    }
+
+    return result;
   }, [channels, channelGroups]);
 
   // Map voice channel ID → linked text channel (for inline rendering)
@@ -592,8 +688,8 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
       {/* Dynamic Channel Groups */}
       {(channels.length > 0 || channelGroups.length > 0) && (
         <>
-          {groupedChannels.map(({ group, channels: groupChannels }) => {
-            const groupId = group?.id ?? '__uncategorized';
+          {groupedChannels.map(({ group, channels: groupChannels, slotIndex }, groupIdx) => {
+            const groupId = group?.id ?? `__uncategorized-${slotIndex ?? 'legacy'}`;
             const isCollapsed = group ? collapsedGroups.includes(group.id) : false;
 
             // Uncategorized channels render at root level with no header
@@ -625,67 +721,87 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
             const showCategoryGhostAfter = dragInsertPos?.targetId === group.id && dragInsertPos?.side === 'after' && isCollapsed;
             const isCategoryDragOver = draggingType === 'channel' && dragInsertPos?.targetId === group.id && dragInsertPos?.targetType === 'category';
 
+            // Gap zone IDs for before this category
+            const gapId = `__gap-before-${group.id}`;
+            const isGapActive = dragInsertPos?.targetId === gapId;
+
             return (
-              <div key={groupId} className="channel-group">
-                {showCategoryGhostBefore && <div className="channel-drag-ghost" />}
+              <React.Fragment key={groupId}>
+                {/* Gap zone before category — drop here to ungroup a channel */}
                 <div
-                  ref={(el) => { if (el) itemRefs.current.set(group.id, el); else itemRefs.current.delete(group.id); }}
-                  className={`channel-group-header channel-group-header--collapsible ${isCategoryDragging ? 'dragging' : ''} ${isCategoryDragOver ? 'drag-over' : ''}`}
-                  draggable={canReorder}
-                  onDragStart={(e) => handleDragStart(e, group.id, 'category')}
-                  onDragOver={(e) => {
-                    // If dragging a channel over a category, treat as "move into category"
-                    if (draggingType === 'channel') {
+                  className={`channel-drag-gap ${draggingType === 'channel' ? 'channel-drag-gap--visible' : ''} ${isGapActive ? 'channel-drag-gap--active' : ''}`}
+                  onDragOver={(e) => handleGapDragOver(e, gapId)}
+                  onDrop={handleDrop}
+                />
+                <div className="channel-group">
+                  {showCategoryGhostBefore && <div className="channel-drag-ghost" />}
+                  <div
+                    ref={(el) => { if (el) itemRefs.current.set(group.id, el); else itemRefs.current.delete(group.id); }}
+                    className={`channel-group-header channel-group-header--collapsible ${isCategoryDragging ? 'dragging' : ''} ${isCategoryDragOver ? 'drag-over' : ''}`}
+                    draggable={canReorder}
+                    onDragStart={(e) => handleDragStart(e, group.id, 'category')}
+                    onDragOver={(e) => {
+                      // If dragging a channel over a category, treat as "move into category"
+                      if (draggingType === 'channel') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        e.dataTransfer.dropEffect = 'move';
+                        const newPos = { targetId: group.id, side: 'after' as const, targetType: 'category' as const };
+                        lastInsertRef.current = newPos;
+                        setDragInsertPos(newPos);
+                      } else {
+                        handleDragOver(e, group.id, 'category');
+                      }
+                    }}
+                    onDrop={handleDrop}
+                    onDragEnd={handleDragEnd}
+                    onClick={() => toggleGroupCollapsed(group.id)}
+                    onContextMenu={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      e.dataTransfer.dropEffect = 'move';
-                      const newPos = { targetId: group.id, side: 'after' as const, targetType: 'category' as const };
-                      lastInsertRef.current = newPos;
-                      setDragInsertPos(newPos);
-                    } else {
-                      handleDragOver(e, group.id, 'category');
-                    }
-                  }}
-                  onDrop={handleDrop}
-                  onDragEnd={handleDragEnd}
-                  onClick={() => toggleGroupCollapsed(group.id)}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    onCategoryContextMenu(group, { x: e.clientX, y: e.clientY });
-                  }}
-                >
-                  <span className="channel-group-header__chevron">
-                    {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-                  </span>
-                  <span>{(group.name ?? '').toUpperCase()}</span>
-                  {isCollapsed && groupVoiceUsers.length > 0 && (
-                    <div className="channel-group-header__voice-users">
-                      {groupVoiceUsers.slice(0, 3).map((user) => (
-                        <div key={user.userId} className="channel-group-header__avatar" title={user.displayName || user.username}>
-                          {user.avatarUrl
-                            ? <img src={user.avatarUrl} alt="" />
-                            : <span>{(user.displayName || user.username).charAt(0).toUpperCase()}</span>}
-                        </div>
-                      ))}
-                      {groupVoiceUsers.length > 3 && (
-                        <span className="channel-group-header__avatar-overflow">
-                          +{groupVoiceUsers.length - 3}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {isCollapsed && groupUnreadCount > 0 && (
-                    <span className="channel-group-header__count">
-                      {groupUnreadCount > 99 ? '99+' : groupUnreadCount}
+                      onCategoryContextMenu(group, { x: e.clientX, y: e.clientY });
+                    }}
+                  >
+                    <span className="channel-group-header__chevron">
+                      {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                     </span>
-                  )}
+                    <span>{(group.name ?? '').toUpperCase()}</span>
+                    {isCollapsed && groupVoiceUsers.length > 0 && (
+                      <div className="channel-group-header__voice-users">
+                        {groupVoiceUsers.slice(0, 3).map((user) => (
+                          <div key={user.userId} className="channel-group-header__avatar" title={user.displayName || user.username}>
+                            {user.avatarUrl
+                              ? <img src={user.avatarUrl} alt="" />
+                              : <span>{(user.displayName || user.username).charAt(0).toUpperCase()}</span>}
+                          </div>
+                        ))}
+                        {groupVoiceUsers.length > 3 && (
+                          <span className="channel-group-header__avatar-overflow">
+                            +{groupVoiceUsers.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {isCollapsed && groupUnreadCount > 0 && (
+                      <span className="channel-group-header__count">
+                        {groupUnreadCount > 99 ? '99+' : groupUnreadCount}
+                      </span>
+                    )}
+                  </div>
+                  {!isCollapsed && groupChannels.map((ch, i, arr) => renderChannelItem(ch, i, arr, true))}
+                  {showCategoryGhostAfter && <div className="channel-drag-ghost" />}
                 </div>
-                {!isCollapsed && groupChannels.map((ch, i, arr) => renderChannelItem(ch, i, arr, true))}
-                {showCategoryGhostAfter && <div className="channel-drag-ghost" />}
-              </div>
+              </React.Fragment>
             );
           })}
+          {/* Gap zone after all groups — drop here to ungroup at the bottom */}
+          {channelGroups.length > 0 && (
+            <div
+              className={`channel-drag-gap ${draggingType === 'channel' ? 'channel-drag-gap--visible' : ''} ${dragInsertPos?.targetId === '__gap-bottom' ? 'channel-drag-gap--active' : ''}`}
+              onDragOver={(e) => handleGapDragOver(e, '__gap-bottom')}
+              onDrop={handleDrop}
+            />
+          )}
         </>
       )}
     </div>
