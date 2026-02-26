@@ -38,6 +38,8 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
   const setChannelVoiceMembers = useVoiceStore((s) => s.setChannelVoiceMembers);
   const setServerVoiceCount = useVoiceStore((s) => s.setServerVoiceCount);
   const clearAllChannelVoiceMembers = useVoiceStore((s) => s.clearAllChannelVoiceMembers);
+  const showVoiceTextChat = useVoiceStore((s) => s.showVoiceTextChat);
+  const setShowVoiceTextChat = useVoiceStore((s) => s.setShowVoiceTextChat);
   const fetchedServerRef = useRef<string | null>(null);
 
   // DnD state
@@ -415,7 +417,7 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
     const linkedText = channel.type === 'voice' ? linkedTextByVoice.get(channel.id) : null;
     const showLinkedText = linkedText && voiceChannelId === channel.id;
     const linkedTextUnread = linkedText ? (unreadCounts.get(linkedText.id) || 0) : 0;
-    const isLinkedTextActive = linkedText?.id === activeChannelId;
+    const isLinkedTextActive = showLinkedText && showVoiceTextChat;
 
     // Build class list for grouped hierarchy
     const itemClasses = [
@@ -427,67 +429,82 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
     ].filter(Boolean).join(' ');
 
     const isDragging = draggingId === channel.id;
-    const showGhostBefore = dragInsertPos?.targetId === channel.id && dragInsertPos.side === 'before';
-    const showGhostAfter = dragInsertPos?.targetId === channel.id && dragInsertPos.side === 'after';
+    const showGhostBefore = dragInsertPos?.targetId === channel.id && dragInsertPos?.side === 'before';
+    const showGhostAfter = dragInsertPos?.targetId === channel.id && dragInsertPos?.side === 'after';
 
     return (
-      <div key={channel.id} className={isGrouped ? 'channel-item-wrapper channel-item-wrapper--grouped' : 'channel-item-wrapper'}>
-        {showGhostBefore && <div className="channel-drag-ghost" />}
-        <div
-          ref={(el) => { if (el) itemRefs.current.set(channel.id, el); else itemRefs.current.delete(channel.id); }}
-          className={`${itemClasses} ${isDragging ? 'dragging' : ''}`}
-          draggable={canReorder}
-          onDragStart={(e) => handleDragStart(e, channel.id, 'channel')}
-          onDragOver={(e) => handleDragOver(e, channel.id, 'channel')}
-          onDrop={handleDrop}
-          onDragEnd={handleDragEnd}
-          onClick={() => handleChannelClick(channel)}
-          onContextMenu={(e) => handleContextMenu(e, channel)}
-          title={channel.name}
-        >
-          <span className="channel-type-icon">{getChannelTypeIcon(channel.type)}</span>
-          {channel.emoji && <span className="channel-custom-emoji">{channel.emoji}</span>}
-          <span className="channel-name">{channel.name}</span>
-          {channel.is_encrypted && (
-            <span className="channel-encrypted-icon" title="End-to-End Encrypted">
-              <Lock size={12} />
-            </span>
-          )}
-          {unread > 0 && !isActive && (
-            <span className="channel-unread-badge">{unread > 99 ? '99+' : unread}</span>
-          )}
-        </div>
-        {/* Linked text chat — only visible when user is in this voice channel */}
-        {showLinkedText && linkedText && (
+      <React.Fragment key={channel.id}>
+        <div className={`channel-item-wrapper${isGrouped ? ' channel-item-wrapper--grouped' : ''}`}>
+          {showGhostBefore && <div className="channel-drag-ghost" />}
           <div
-            className={`channel-item channel-item--voice-text ${isGrouped ? 'channel-item--voice-text-grouped' : ''} ${isLinkedTextActive ? 'active' : ''} ${linkedTextUnread > 0 ? 'has-unread' : ''}`}
-            onClick={() => handleChannelClick(linkedText)}
-            title={`${channel.name} Text Chat`}
+            ref={(el) => { if (el) itemRefs.current.set(channel.id, el); else itemRefs.current.delete(channel.id); }}
+            className={`${itemClasses} ${isDragging ? 'dragging' : ''}`}
+            draggable={canReorder}
+            onDragStart={(e) => handleDragStart(e, channel.id, 'channel')}
+            onDragOver={(e) => handleDragOver(e, channel.id, 'channel')}
+            onDrop={handleDrop}
+            onDragEnd={handleDragEnd}
+            onClick={() => handleChannelClick(channel)}
+            onContextMenu={(e) => handleContextMenu(e, channel)}
+            title={channel.name}
           >
-            <span className="channel-type-icon"><MessageSquare size={14} /></span>
-            <span className="channel-name">{channel.name} Text Chat</span>
-            {linkedTextUnread > 0 && !isLinkedTextActive && (
-              <span className="channel-unread-badge">{linkedTextUnread > 99 ? '99+' : linkedTextUnread}</span>
+            <span className="channel-type-icon">{getChannelTypeIcon(channel.type)}</span>
+            {channel.emoji && <span className="channel-custom-emoji">{channel.emoji}</span>}
+            <span className="channel-name">{channel.name}</span>
+            {channel.is_encrypted && (
+              <span className="channel-encrypted-icon" title="End-to-End Encrypted">
+                <Lock size={12} />
+              </span>
+            )}
+            {unread > 0 && !isActive && (
+              <span className="channel-unread-badge">{unread > 99 ? '99+' : unread}</span>
+            )}
+          </div>
+          {showGhostAfter && <div className="channel-drag-ghost" />}
+        </div>
+        {/* Voice sub-items — rendered outside the grouped wrapper so category
+            trunk lines don't extend through them. Wrapped in a container for
+            subtle visual grouping that grows with the member list. */}
+        {((showLinkedText && linkedText) || voiceMembers.length > 0) && (
+          <div
+            className={`voice-channel-sub-container ${isGrouped ? 'voice-channel-sub-container--grouped' : ''} ${isActive ? 'voice-channel-sub-container--active' : ''}`}
+            onClick={() => handleChannelClick(channel)}
+          >
+            {showLinkedText && linkedText && (
+              <div
+                className={`channel-item--voice-text ${isGrouped ? 'channel-item--voice-text-grouped' : ''} ${isLinkedTextActive ? 'active' : ''} ${linkedTextUnread > 0 ? 'has-unread' : ''}`}
+                onClick={() => {
+                  // Keep voice channel active and toggle the integrated text chat panel
+                  setActiveChannel(channel.id);
+                  setShowVoiceTextChat(!showVoiceTextChat);
+                }}
+                title={`${channel.name} Text Chat`}
+              >
+                <span className="channel-type-icon"><MessageSquare size={12} /></span>
+                <span className="channel-name">{channel.name} Text Chat</span>
+                {linkedTextUnread > 0 && !isLinkedTextActive && (
+                  <span className="channel-unread-badge">{linkedTextUnread > 99 ? '99+' : linkedTextUnread}</span>
+                )}
+              </div>
+            )}
+            {voiceMembers.length > 0 && (
+              <div className={`voice-channel-participants ${isGrouped ? 'voice-channel-participants--grouped' : ''}`}>
+                {voiceMembers.map((p) => (
+                  <div
+                    key={p.userId}
+                    className={`voice-channel-participant ${p.isSpeaking ? 'speaking' : ''}`}
+                  >
+                    {p.isMuted ? <MicOff size={12} /> : <Mic size={12} />}
+                    <span className="voice-channel-participant-name">
+                      {p.displayName || p.username}
+                    </span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}
-        {voiceMembers.length > 0 && (
-          <div className={`voice-channel-participants ${isGrouped ? 'voice-channel-participants--grouped' : ''}`}>
-            {voiceMembers.map((p) => (
-              <div
-                key={p.userId}
-                className={`voice-channel-participant ${p.isSpeaking ? 'speaking' : ''}`}
-              >
-                {p.isMuted ? <MicOff size={12} /> : <Mic size={12} />}
-                <span className="voice-channel-participant-name">
-                  {p.displayName || p.username}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-        {showGhostAfter && <div className="channel-drag-ghost" />}
-      </div>
+      </React.Fragment>
     );
   };
 
@@ -584,9 +601,9 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
               : [];
 
             const isCategoryDragging = draggingId === group.id;
-            const showCategoryGhostBefore = dragInsertPos?.targetId === group.id && dragInsertPos.side === 'before';
-            const showCategoryGhostAfter = dragInsertPos?.targetId === group.id && dragInsertPos.side === 'after' && isCollapsed;
-            const isCategoryDragOver = draggingType === 'channel' && dragInsertPos?.targetId === group.id && dragInsertPos.targetType === 'category';
+            const showCategoryGhostBefore = dragInsertPos?.targetId === group.id && dragInsertPos?.side === 'before';
+            const showCategoryGhostAfter = dragInsertPos?.targetId === group.id && dragInsertPos?.side === 'after' && isCollapsed;
+            const isCategoryDragOver = draggingType === 'channel' && dragInsertPos?.targetId === group.id && dragInsertPos?.targetType === 'category';
 
             return (
               <div key={groupId} className="channel-group">
