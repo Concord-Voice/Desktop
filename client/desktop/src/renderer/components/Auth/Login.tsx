@@ -12,7 +12,6 @@ export interface LoginProps {
   onBack: () => void;
   onSuccess: (data: {
     accessToken: string;
-    refreshToken: string;
     user?: UserProfile;
     rememberMe: boolean;
   }) => void;
@@ -117,8 +116,15 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
 
         const newKeys = await generateRegistrationKeys(formData.password);
 
-        // Set tokens first so apiFetch can use them for auth
-        useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
+        // Store refresh token securely in main process, set access token for apiFetch
+        if (window.electron?.storeRefreshToken) {
+          await window.electron.storeRefreshToken({
+            refreshToken: data.refresh_token,
+            rememberMe: formData.rememberMe,
+            apiBase: API_BASE,
+          });
+        }
+        useAuthStore.getState().setAccessToken(data.access_token);
 
         const replaceRes = await apiFetch('/api/v1/users/me/keys', {
           method: 'PUT',
@@ -144,9 +150,15 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
         console.debug('E2EE keys regenerated and service initialized!');
       }
 
-      // Set token early so apiFetch can authenticate the preferences request.
-      // onSuccess will call setTokens again (idempotent) and navigate to /app.
-      useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
+      // Store refresh token securely in main process, set access token for apiFetch
+      if (window.electron?.storeRefreshToken) {
+        await window.electron.storeRefreshToken({
+          refreshToken: data.refresh_token,
+          rememberMe: data.remember_me ?? formData.rememberMe,
+          apiBase: API_BASE,
+        });
+      }
+      useAuthStore.getState().setAccessToken(data.access_token);
 
       // Start watching for local preference changes and fetch remote preferences
       preferencesSyncService.startWatching();
@@ -155,7 +167,6 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
       // Pass tokens and user data up
       onSuccess({
         accessToken: data.access_token,
-        refreshToken: data.refresh_token,
         user: data.user,
         rememberMe: data.remember_me ?? formData.rememberMe,
       });

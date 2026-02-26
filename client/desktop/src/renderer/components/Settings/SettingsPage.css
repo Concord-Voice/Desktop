@@ -617,6 +617,38 @@
   gap: 8px;
 }
 
+.revoke-password-input {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.revoke-password-input label {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-secondary);
+}
+
+.revoke-password-input input {
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-family: 'SourceSans', sans-serif;
+  outline: none;
+}
+
+.revoke-password-input input:focus {
+  border-color: var(--danger);
+}
+
+.revoke-password-error {
+  color: var(--danger);
+  font-size: calc(12px * var(--font-scale, 1));
+}
+
 .sessions-revoke-all-btn {
   padding: 10px 20px;
   background: none;

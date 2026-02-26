@@ -1,6 +1,14 @@
 import { app, BrowserWindow, clipboard, desktopCapturer, ipcMain, session, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import {
+  storeRefreshToken,
+  restoreRefreshToken,
+  performRefresh,
+  performLogout,
+  clearTokens,
+  getCapabilities,
+} from './tokenManager';
 
 // Hardware acceleration preference — must be checked before app.whenReady()
 const hwAccelPrefPath = path.join(app.getPath('userData'), 'hw-accel.json');
@@ -168,6 +176,45 @@ ipcMain.handle('app:relaunch', () => {
 // Clean app exit (preserves persisted auth/remember-me state)
 ipcMain.handle('app:quit', () => {
   app.quit();
+});
+
+// ─── Secure Auth Token Management (safeStorage) ──────────────────────
+
+ipcMain.handle('auth:storeRefreshToken', (_event, data: {
+  refreshToken: string;
+  rememberMe: boolean;
+  apiBase: string;
+}) => {
+  storeRefreshToken(data);
+});
+
+ipcMain.handle('auth:restoreSession', async () => {
+  const restored = restoreRefreshToken();
+  if (restored.status !== 'ok') {
+    return { status: restored.status };
+  }
+  // Token restored from disk — refresh it to get a fresh access token
+  const refreshResult = await performRefresh();
+  if (refreshResult.status === 'ok' && refreshResult.accessToken) {
+    return { status: 'restored', accessToken: refreshResult.accessToken };
+  }
+  return { status: 'refresh_failed' };
+});
+
+ipcMain.handle('auth:refreshToken', async () => {
+  return performRefresh();
+});
+
+ipcMain.handle('auth:logout', async (_event, data?: { accessToken?: string }) => {
+  await performLogout(data?.accessToken);
+});
+
+ipcMain.handle('auth:clearTokens', () => {
+  clearTokens();
+});
+
+ipcMain.handle('auth:getCapabilities', () => {
+  return getCapabilities();
 });
 
 // ─── PiP (Picture-in-Picture) Window Management ──────────────────────

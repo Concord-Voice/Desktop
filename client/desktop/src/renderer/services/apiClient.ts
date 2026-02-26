@@ -3,10 +3,12 @@
  *
  * Wraps native fetch to:
  * - Auto-inject Authorization header from authStore
- * - Include credentials (cookies) for refresh token
- * - On 401, attempt token refresh via /api/v1/auth/refresh
+ * - On 401, attempt token refresh via main process IPC
  * - Retry the original request once with the new token
  * - If refresh fails, clear tokens (triggers logout redirect)
+ *
+ * The refresh token never enters the renderer process — the main process
+ * handles refresh via safeStorage-encrypted token + net.fetch().
  */
 
 import { useAuthStore } from '../stores/authStore';
@@ -14,57 +16,19 @@ import { API_BASE } from '../config';
 
 export { API_BASE };
 
-let refreshPromise: Promise<string | null> | null = null;
-
 /**
- * Attempt to refresh the access token using the httpOnly refresh cookie.
- * Deduplicates concurrent refresh attempts.
+ * Attempt to refresh the access token via the main process IPC.
+ * The main process holds the refresh token securely and makes the HTTP call.
  */
 export async function refreshAccessToken(): Promise<string | null> {
-  // If a refresh is already in flight, piggyback on it
-  if (refreshPromise) {
-    return refreshPromise;
+  if (!window.electron?.refreshToken) return null;
+
+  const result = await window.electron.refreshToken();
+  if (result.status === 'ok' && result.accessToken) {
+    useAuthStore.getState().setAccessToken(result.accessToken);
+    return result.accessToken;
   }
-
-  refreshPromise = (async () => {
-    try {
-      // Build headers — include the stored refresh token via header as fallback
-      // for Electron/native clients where SameSite=Lax cookies aren't sent on
-      // cross-site POST requests from file:// origins.
-      const refreshHeaders: Record<string, string> = {};
-      const storedRefreshToken = useAuthStore.getState().refreshToken;
-      if (storedRefreshToken) {
-        refreshHeaders['X-Refresh-Token'] = storedRefreshToken;
-      }
-
-      const res = await fetch(`${API_BASE}/api/v1/auth/refresh`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: refreshHeaders,
-      });
-
-      if (!res.ok) {
-        return null;
-      }
-
-      const data = await res.json();
-      const newToken = data.access_token;
-      const newRefreshToken = data.refresh_token;
-
-      if (newToken) {
-        useAuthStore.getState().setTokens(newToken, newRefreshToken);
-        return newToken as string;
-      }
-
-      return null;
-    } catch {
-      return null;
-    } finally {
-      refreshPromise = null;
-    }
-  })();
-
-  return refreshPromise;
+  return null;
 }
 
 /**
@@ -73,8 +37,7 @@ export async function refreshAccessToken(): Promise<string | null> {
  * Usage: `apiFetch('/api/v1/messages/123', { method: 'PATCH', body: ... })`
  *
  * - Automatically adds Authorization header
- * - Automatically includes credentials (cookies)
- * - On 401, refreshes token and retries once
+ * - On 401, refreshes token via main process IPC and retries once
  * - Paths are relative to API_BASE (pass full path starting with /)
  */
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
@@ -96,11 +59,12 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
     return response;
   }
 
-  // Attempt token refresh
+  // Attempt token refresh via main process
   const newToken = await refreshAccessToken();
   if (!newToken) {
     // Refresh failed — clear auth (triggers logout)
-    useAuthStore.getState().clearTokens();
+    useAuthStore.getState().clearAccessToken();
+    window.electron?.clearTokens?.();
     return response; // Return the original 401
   }
 

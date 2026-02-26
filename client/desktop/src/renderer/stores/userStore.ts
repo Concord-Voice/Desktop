@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { useAuthStore } from './authStore';
 import { useServerStore } from './serverStore';
-import { apiFetch, API_BASE } from '../services/apiClient';
+import { apiFetch } from '../services/apiClient';
 import { getWebSocketService } from '../services/websocketService';
 import { e2eeService } from '../services/e2eeService';
 import { preferencesSyncService } from '../services/preferencesSync';
@@ -68,7 +68,8 @@ export const useUserStore = create<UserState>()(
 
           if (response.status === 401) {
             // Token expired and refresh failed — clear auth
-            useAuthStore.getState().clearTokens();
+            useAuthStore.getState().clearAccessToken();
+            window.electron?.clearTokens?.();
             set({ user: null, isLoading: false, error: null });
             return;
           }
@@ -106,26 +107,19 @@ export const useUserStore = create<UserState>()(
         getWebSocketService().disconnect();
 
         try {
-          // Include refresh token via header for Electron/native clients
-          // where SameSite=Lax cookies aren't sent on cross-site POST
-          const refreshToken = useAuthStore.getState().refreshToken;
-          const headers: Record<string, string> = {};
-          if (refreshToken) {
-            headers['X-Refresh-Token'] = refreshToken;
+          // Main process handles logout API call (it holds the refresh token)
+          if (window.electron?.logout) {
+            await window.electron.logout({
+              accessToken: useAuthStore.getState().accessToken ?? undefined,
+            });
           }
-
-          await fetch(`${API_BASE}/api/v1/auth/logout`, {
-            method: 'POST',
-            credentials: 'include',
-            headers,
-          });
         } catch (error) {
           console.error('Logout API error:', error);
         }
 
         // Clear all stores
         set({ user: null, isLoading: false, error: null });
-        useAuthStore.getState().clearTokens();
+        useAuthStore.getState().clearAccessToken();
         useServerStore.getState().clearServers();
       },
 
@@ -137,7 +131,8 @@ export const useUserStore = create<UserState>()(
         });
 
         if (response.status === 401) {
-          useAuthStore.getState().clearTokens();
+          useAuthStore.getState().clearAccessToken();
+          window.electron?.clearTokens?.();
           set({ user: null, isLoading: false, error: null });
           throw new Error('Session expired');
         }
@@ -203,7 +198,8 @@ export const useUserStore = create<UserState>()(
             if (data.error === 'Current password is incorrect') {
               return { success: false, error: data.error };
             }
-            useAuthStore.getState().clearTokens();
+            useAuthStore.getState().clearAccessToken();
+            window.electron?.clearTokens?.();
             set({ user: null, isLoading: false, error: null });
             return { success: false, error: 'Session expired' };
           }

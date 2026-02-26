@@ -40,6 +40,20 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('pip:closed', handler);
     return () => { ipcRenderer.removeListener('pip:closed', handler); };
   },
+
+  // Secure auth token management (safeStorage via main process)
+  storeRefreshToken: (data: { refreshToken: string; rememberMe: boolean; apiBase: string }) =>
+    ipcRenderer.invoke('auth:storeRefreshToken', data),
+  restoreSession: () =>
+    ipcRenderer.invoke('auth:restoreSession') as Promise<{ status: string; accessToken?: string }>,
+  refreshToken: () =>
+    ipcRenderer.invoke('auth:refreshToken') as Promise<{ status: string; accessToken?: string }>,
+  clearTokens: () =>
+    ipcRenderer.invoke('auth:clearTokens'),
+  logout: (data?: { accessToken?: string }) =>
+    ipcRenderer.invoke('auth:logout', data),
+  getAuthCapabilities: () =>
+    ipcRenderer.invoke('auth:getCapabilities') as Promise<{ persistAvailable: boolean }>,
 });
 
 // Type definitions for the exposed API
@@ -57,6 +71,14 @@ export interface ElectronAPI {
   closePipWindow: (id: string) => Promise<void>;
   setPipAlwaysOnTop: (id: string, flag: boolean) => Promise<void>;
   onPipClosed: (callback: (id: string) => void) => () => void;
+
+  // Secure auth token management
+  storeRefreshToken: (data: { refreshToken: string; rememberMe: boolean; apiBase: string }) => Promise<void>;
+  restoreSession: () => Promise<{ status: string; accessToken?: string }>;
+  refreshToken: () => Promise<{ status: string; accessToken?: string }>;
+  clearTokens: () => Promise<void>;
+  logout: (data?: { accessToken?: string }) => Promise<void>;
+  getAuthCapabilities: () => Promise<{ persistAvailable: boolean }>;
 }
 
 declare global {

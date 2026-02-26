@@ -367,6 +367,8 @@ const PrivacySecuritySection: React.FC = () => {
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [isRevokingAll, setIsRevokingAll] = useState(false);
   const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null); // session id or 'all'
+  const [revokePassword, setRevokePassword] = useState('');
+  const [revokePasswordError, setRevokePasswordError] = useState('');
 
   const fetchSessions = useCallback(async () => {
     if (!accessToken) return;
@@ -463,9 +465,17 @@ const PrivacySecuritySection: React.FC = () => {
   const handleRevokeAll = async () => {
     if (!accessToken) return;
 
-    // Always require confirmation since this includes the current session
+    // First click: show confirmation with password input
     if (confirmRevoke !== 'all') {
       setConfirmRevoke('all');
+      setRevokePassword('');
+      setRevokePasswordError('');
+      return;
+    }
+
+    // Require password before proceeding
+    if (!revokePassword) {
+      setRevokePasswordError('Password is required');
       return;
     }
 
@@ -473,15 +483,28 @@ const PrivacySecuritySection: React.FC = () => {
     setIsRevokingAll(true);
 
     try {
-      const response = await apiFetch('/api/v1/sessions?include_current=true', {
-        method: 'DELETE',
+      const response = await apiFetch('/api/v1/sessions/revoke-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          password: revokePassword,
+          include_current: true,
+        }),
       });
 
       if (!response.ok) {
         const data = await response.json();
+        if (response.status === 403) {
+          // Wrong password — re-show confirmation with error
+          setConfirmRevoke('all');
+          setRevokePasswordError(data.error || 'Incorrect password');
+          setIsRevokingAll(false);
+          return;
+        }
         throw new Error(data.error || 'Failed to revoke sessions');
       }
 
+      setRevokePassword('');
       // All sessions revoked including current — log out
       await logout();
       navigate('/');
@@ -614,6 +637,22 @@ const PrivacySecuritySection: React.FC = () => {
                   <div className="session-confirm-warning">
                     This will revoke all sessions, including your current active session. You will
                     be logged out and must sign back in.
+                    <div className="revoke-password-input">
+                      <label>Enter your password to confirm:</label>
+                      <input
+                        type="password"
+                        value={revokePassword}
+                        onChange={(e) => {
+                          setRevokePassword(e.target.value);
+                          setRevokePasswordError('');
+                        }}
+                        placeholder="Password"
+                        autoFocus
+                      />
+                      {revokePasswordError && (
+                        <span className="revoke-password-error">{revokePasswordError}</span>
+                      )}
+                    </div>
                   </div>
                 )}
                 {confirmRevoke === 'all' ? (
@@ -621,11 +660,18 @@ const PrivacySecuritySection: React.FC = () => {
                     <button
                       className="sessions-revoke-all-btn"
                       onClick={handleRevokeAll}
-                      disabled={isRevokingAll}
+                      disabled={isRevokingAll || !revokePassword}
                     >
                       {isRevokingAll ? 'Revoking...' : 'Confirm Revoke All'}
                     </button>
-                    <button className="session-cancel-btn" onClick={() => setConfirmRevoke(null)}>
+                    <button
+                      className="session-cancel-btn"
+                      onClick={() => {
+                        setConfirmRevoke(null);
+                        setRevokePassword('');
+                        setRevokePasswordError('');
+                      }}
+                    >
                       Cancel
                     </button>
                   </div>

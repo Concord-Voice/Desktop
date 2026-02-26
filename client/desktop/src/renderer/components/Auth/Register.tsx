@@ -12,7 +12,7 @@ import './Register.css';
 
 export interface RegisterProps {
   onBack: () => void;
-  onSuccess: (data: { accessToken: string; refreshToken: string; user?: UserProfile }) => void;
+  onSuccess: (data: { accessToken: string; user?: UserProfile }) => void;
   onSwitchToLogin: () => void;
 }
 
@@ -142,11 +142,19 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
         keys.keyDerivationSalt
       );
       preferencesSyncService.startWatching();
-      useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
+
+      // Store refresh token securely in main process, set access token in renderer
+      if (window.electron?.storeRefreshToken) {
+        await window.electron.storeRefreshToken({
+          refreshToken: data.refresh_token,
+          rememberMe: true, // Registration always remembers
+          apiBase: API_BASE,
+        });
+      }
+      useAuthStore.getState().setAccessToken(data.access_token);
 
       onSuccess({
         accessToken: data.access_token,
-        refreshToken: data.refresh_token,
         user: data.user,
       });
     } catch (error) {

@@ -9,7 +9,6 @@ import ConnectionLostOverlay from './components/ui/ConnectionLostOverlay';
 import { useAuthStore } from './stores/authStore';
 import { useUserStore } from './stores/userStore';
 import { useWebSocket } from './hooks/useWebSocket';
-import { refreshAccessToken } from './services/apiClient';
 
 function AuthenticatedLayout() {
   const accessToken = useAuthStore((state) => state.accessToken);
@@ -43,24 +42,21 @@ function App() {
   const [isRestoring, setIsRestoring] = useState(true);
   const accessToken = useAuthStore((state) => state.accessToken);
 
-  // Restore session on startup: wait for Zustand persist hydration,
-  // then proactively refresh the access token so users with
-  // "Remember Me" checked don't see a login flash
+  // Restore session on startup: ask main process to decrypt the
+  // safeStorage-encrypted refresh token and exchange it for a fresh
+  // access token, so users with "Remember Me" don't see a login flash
   useEffect(() => {
     const restore = async () => {
-      // Wait for Zustand persist to hydrate from localStorage
-      if (!useAuthStore.persist.hasHydrated()) {
-        await new Promise<void>((resolve) => {
-          useAuthStore.persist.onFinishHydration(() => resolve());
-        });
+      if (!window.electron?.restoreSession) {
+        setIsRestoring(false);
+        return;
       }
 
-      const { accessToken } = useAuthStore.getState();
-      if (accessToken) {
-        const newToken = await refreshAccessToken();
-        if (!newToken) {
-          useAuthStore.getState().clearTokens();
-        }
+      const result = await window.electron.restoreSession();
+      if (result.status === 'restored' && result.accessToken) {
+        useAuthStore.getState().setAccessToken(result.accessToken);
+      } else if (result.status === 'tampered') {
+        console.error('Secure token tamper detected — forcing re-login');
       }
       setIsRestoring(false);
     };
