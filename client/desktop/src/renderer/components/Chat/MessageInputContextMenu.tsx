@@ -5,12 +5,14 @@ interface MessageInputContextMenuProps {
   position: { x: number; y: number };
   onClose: () => void;
   onPaste: (text: string) => void;
+  onOpenEmojiPicker?: () => void;
 }
 
 const MessageInputContextMenu: React.FC<MessageInputContextMenuProps> = ({
   position,
   onClose,
   onPaste,
+  onOpenEmojiPicker,
 }) => {
   const handlePaste = async () => {
     try {
@@ -22,6 +24,14 @@ const MessageInputContextMenu: React.FC<MessageInputContextMenuProps> = ({
       console.error('Failed to read clipboard:', err);
     }
     onClose();
+  };
+
+  const handleInsertEmoji = () => {
+    onClose();
+    // Small delay so the context menu closes before the picker opens
+    setTimeout(() => {
+      onOpenEmojiPicker?.();
+    }, 50);
   };
 
   return (
@@ -92,8 +102,7 @@ const MessageInputContextMenu: React.FC<MessageInputContextMenuProps> = ({
           </svg>
         }
         label="Insert Emoji"
-        disabled
-        onClick={() => {}}
+        onClick={handleInsertEmoji}
       />
     </ContextMenu>
   );

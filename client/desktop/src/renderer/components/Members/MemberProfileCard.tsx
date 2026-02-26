@@ -8,6 +8,7 @@ interface MemberProfileCardProps {
   lastSeen?: number;
   position: { x: number; y: number };
   onClose: () => void;
+  onViewFullProfile: () => void;
 }
 
 const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
@@ -16,6 +17,7 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
   lastSeen,
   position,
   onClose,
+  onViewFullProfile,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -86,7 +88,15 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
       className="member-profile-card"
       style={{ position: 'fixed', top, left, zIndex: 400 }}
     >
-      <div className="member-profile-banner" />
+      <div className={`member-profile-banner ${member.header_image_url ? 'has-image' : ''}`}>
+        {member.header_image_url && (
+          <img
+            src={member.header_image_url}
+            alt=""
+            className="member-profile-banner-img"
+          />
+        )}
+      </div>
 
       <div className="member-profile-header">
         <div className="member-profile-avatar">
@@ -139,6 +149,17 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
             </div>
           </>
         )}
+
+        <div className="member-profile-separator" />
+        <button
+          className="member-profile-view-full-btn"
+          onClick={() => {
+            onClose();
+            onViewFullProfile();
+          }}
+        >
+          View Full Profile
+        </button>
       </div>
     </div>
   );

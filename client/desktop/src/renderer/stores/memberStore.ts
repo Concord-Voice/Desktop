@@ -10,6 +10,7 @@ export interface ServerMember {
   display_name?: string;
   bio?: string;
   avatar_url?: string;
+  header_image_url?: string;
   role: 'owner' | 'admin' | 'member';
   joined_at: string;
   last_seen?: number;
@@ -29,7 +30,7 @@ interface MemberState {
   removeMember: (userId: string) => void;
   updateMemberProfile: (
     userId: string,
-    updates: Partial<Pick<ServerMember, 'username' | 'display_name' | 'avatar_url'>>
+    updates: Partial<Pick<ServerMember, 'username' | 'display_name' | 'avatar_url' | 'header_image_url'>>
   ) => void;
   setOnlineUsers: (userIds: string[]) => void;
   setUserOnline: (userId: string) => void;

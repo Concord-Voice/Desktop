@@ -1,13 +1,22 @@
 import { create } from 'zustand';
 import { persist, subscribeWithSelector } from 'zustand/middleware';
+import {
+  type CustomColors,
+  deriveThemeVariables,
+  applyCustomThemeVariables,
+  clearCustomThemeVariables,
+} from '../utils/colorUtils';
 
 export interface AppearanceSettings {
   theme: 'dark' | 'light' | 'system';
-  colorScheme: 'concord' | 'morky' | 'bardic' | 'hacker' | 'foxden' | 'spooky' | 'leviathan' | 'grassynill' | 'cottoncandy' | 'driftwood' | 'eclipse' | 'midnightsky';
+  colorScheme: 'concord' | 'morky' | 'bardic' | 'hacker' | 'foxden' | 'spooky' | 'leviathan' | 'grassynill' | 'cottoncandy' | 'driftwood' | 'eclipse' | 'midnightsky' | 'custom';
   fontSize: 'small' | 'default' | 'large';
   compactMode: boolean;
   reduceAnimations: boolean;
+  customColors: CustomColors | null;
 }
+
+export type { CustomColors };
 
 interface SettingsState {
   appearance: AppearanceSettings;
@@ -16,6 +25,7 @@ interface SettingsState {
   setFontSize: (size: AppearanceSettings['fontSize']) => void;
   setCompactMode: (enabled: boolean) => void;
   setReduceAnimations: (enabled: boolean) => void;
+  setCustomColors: (colors: CustomColors) => void;
 }
 
 const defaultAppearance: AppearanceSettings = {
@@ -24,6 +34,7 @@ const defaultAppearance: AppearanceSettings = {
   fontSize: 'default',
   compactMode: false,
   reduceAnimations: false,
+  customColors: null,
 };
 
 function resolveTheme(theme: AppearanceSettings['theme']): 'dark' | 'light' {
@@ -38,7 +49,14 @@ function applyTheme(theme: AppearanceSettings['theme']) {
 }
 
 function applyColorScheme(scheme: AppearanceSettings['colorScheme']) {
-  document.documentElement.dataset.scheme = scheme;
+  if (scheme === 'custom') {
+    // Clear data-scheme so no CSS scheme block applies; custom vars handled by subscriber
+    delete document.documentElement.dataset.scheme;
+  } else {
+    // Clear any inline custom theme variables from a previous custom scheme
+    clearCustomThemeVariables();
+    document.documentElement.dataset.scheme = scheme;
+  }
 }
 
 function applyFontSize(fontSize: AppearanceSettings['fontSize']) {
@@ -81,6 +99,11 @@ export const useSettingsStore = create<SettingsState>()(
       setReduceAnimations: (reduceAnimations) =>
         set((state) => ({
           appearance: { ...state.appearance, reduceAnimations },
+        })),
+
+      setCustomColors: (customColors) =>
+        set((state) => ({
+          appearance: { ...state.appearance, customColors, colorScheme: 'custom' as const },
         })),
     })),
     {
@@ -140,4 +163,33 @@ useSettingsStore.subscribe(
   (state) => state.appearance.reduceAnimations,
   (reduceAnimations) => applyReduceAnimations(reduceAnimations),
   { fireImmediately: true }
+);
+
+// Subscribe to custom colors + theme changes — derive and apply inline CSS variables
+useSettingsStore.subscribe(
+  (state) => ({
+    colorScheme: state.appearance.colorScheme,
+    customColors: state.appearance.customColors,
+    theme: state.appearance.theme,
+  }),
+  ({ colorScheme, customColors, theme }) => {
+    if (colorScheme === 'custom' && customColors) {
+      const isDark = resolveTheme(theme) === 'dark';
+      const vars = deriveThemeVariables(customColors, isDark);
+      applyCustomThemeVariables(vars);
+      // Cache derived vars for flash-free startup
+      try {
+        localStorage.setItem('concord-custom-theme-vars', JSON.stringify(vars));
+      } catch {
+        // Ignore storage errors
+      }
+    }
+  },
+  {
+    equalityFn: (a, b) =>
+      a.colorScheme === b.colorScheme &&
+      a.theme === b.theme &&
+      JSON.stringify(a.customColors) === JSON.stringify(b.customColors),
+    fireImmediately: true,
+  }
 );

@@ -73,7 +73,17 @@ class PreferencesSyncService {
         if (blob.settings.theme !== settings.appearance.theme) {
           settings.setTheme(blob.settings.theme);
         }
-        if (blob.settings.colorScheme !== settings.appearance.colorScheme) {
+        // Handle custom colors + color scheme together to avoid flickering
+        if (blob.settings.colorScheme === 'custom' && blob.settings.customColors) {
+          if (
+            JSON.stringify(blob.settings.customColors) !==
+            JSON.stringify(settings.appearance.customColors)
+          ) {
+            settings.setCustomColors(blob.settings.customColors); // also sets colorScheme to 'custom'
+          } else if (blob.settings.colorScheme !== settings.appearance.colorScheme) {
+            settings.setColorScheme(blob.settings.colorScheme);
+          }
+        } else if (blob.settings.colorScheme !== settings.appearance.colorScheme) {
           settings.setColorScheme(blob.settings.colorScheme);
         }
         if (blob.settings.fontSize !== settings.appearance.fontSize) {
@@ -185,6 +195,8 @@ class PreferencesSyncService {
           colorScheme: settings.colorScheme,
           fontSize: settings.fontSize,
           compactMode: settings.compactMode,
+          reduceAnimations: settings.reduceAnimations,
+          customColors: settings.customColors,
         },
         layout: {
           channelPanelPinned: layout.channelPanelPinned,

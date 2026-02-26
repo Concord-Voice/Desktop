@@ -36,6 +36,7 @@ describe('SettingsPage', () => {
         fontSize: 'default',
         compactMode: false,
         reduceAnimations: false,
+        customColors: null,
       },
     });
   });
@@ -213,5 +214,117 @@ describe('SettingsPage', () => {
     // Switch back to appearance
     fireEvent.click(screen.getByText('Appearance'));
     expect(screen.getByText('Color Scheme')).toBeInTheDocument();
+  });
+
+  // ─── Custom Theme Tests ──────────────────────────────────────────────────
+
+  it('renders custom "+" circle in color scheme grid', () => {
+    render(<SettingsPage />);
+    const customCircle = document.querySelector('.color-scheme-circle.custom-add');
+    expect(customCircle).toBeInTheDocument();
+    // 12 built-in + 1 custom = 13 total circles
+    const allCircles = document.querySelectorAll('.color-scheme-circle');
+    expect(allCircles.length).toBe(13);
+  });
+
+  it('clicking custom circle when no customColors opens picker with defaults', () => {
+    render(<SettingsPage />);
+    const customCircle = document.querySelector('.color-scheme-circle.custom-add')!;
+    fireEvent.click(customCircle);
+    const state = useSettingsStore.getState().appearance;
+    expect(state.colorScheme).toBe('custom');
+    expect(state.customColors).not.toBeNull();
+    expect(state.customColors!.background).toBe('#0d0821');
+    expect(state.customColors!.accentPrimary).toBe('#fa709a');
+    expect(state.customColors!.accentSecondary).toBe('#ffe13f');
+  });
+
+  it('shows custom theme picker when colorScheme is custom', () => {
+    useSettingsStore.setState({
+      appearance: {
+        theme: 'dark',
+        colorScheme: 'custom',
+        fontSize: 'default',
+        compactMode: false,
+        reduceAnimations: false,
+        customColors: {
+          background: '#0d0821',
+          accentPrimary: '#fa709a',
+          accentSecondary: '#ffe13f',
+        },
+      },
+    });
+    render(<SettingsPage />);
+    expect(screen.getByText('Background')).toBeInTheDocument();
+    expect(screen.getByText('Primary Accent')).toBeInTheDocument();
+    expect(screen.getByText('Secondary Accent')).toBeInTheDocument();
+    // 3 color inputs + 3 hex text inputs
+    const colorInputs = document.querySelectorAll('.custom-theme-color-input');
+    const hexInputs = document.querySelectorAll('.custom-theme-hex-input');
+    expect(colorInputs.length).toBe(3);
+    expect(hexInputs.length).toBe(3);
+  });
+
+  it('displays "Custom" as the active label when custom is selected', () => {
+    useSettingsStore.setState({
+      appearance: {
+        theme: 'dark',
+        colorScheme: 'custom',
+        fontSize: 'default',
+        compactMode: false,
+        reduceAnimations: false,
+        customColors: {
+          background: '#0d0821',
+          accentPrimary: '#fa709a',
+          accentSecondary: '#ffe13f',
+        },
+      },
+    });
+    render(<SettingsPage />);
+    expect(screen.getByText('Custom')).toBeInTheDocument();
+  });
+
+  it('switching from custom to built-in changes colorScheme', () => {
+    useSettingsStore.setState({
+      appearance: {
+        theme: 'dark',
+        colorScheme: 'custom',
+        fontSize: 'default',
+        compactMode: false,
+        reduceAnimations: false,
+        customColors: {
+          background: '#0d0821',
+          accentPrimary: '#fa709a',
+          accentSecondary: '#ffe13f',
+        },
+      },
+    });
+    render(<SettingsPage />);
+    // Click the first built-in circle (Concord)
+    const circles = document.querySelectorAll('.color-scheme-circle:not(.custom-add)');
+    fireEvent.click(circles[0]);
+    expect(useSettingsStore.getState().appearance.colorScheme).toBe('concord');
+  });
+
+  it('custom circle shows gradient preview when customColors exist', () => {
+    useSettingsStore.setState({
+      appearance: {
+        theme: 'dark',
+        colorScheme: 'concord',
+        fontSize: 'default',
+        compactMode: false,
+        reduceAnimations: false,
+        customColors: {
+          background: '#1a1a2e',
+          accentPrimary: '#e94560',
+          accentSecondary: '#0f3460',
+        },
+      },
+    });
+    render(<SettingsPage />);
+    const customCircle = document.querySelector('.color-scheme-circle.custom-add') as HTMLElement;
+    // jsdom converts hex to rgb in inline styles, so check for gradient presence
+    expect(customCircle.style.background).toContain('linear-gradient');
+    expect(customCircle.style.background).toContain('135deg');
   });
 });

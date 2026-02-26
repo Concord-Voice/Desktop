@@ -25,7 +25,21 @@ try {
 
     // Apply color scheme
     const colorScheme = state?.appearance?.colorScheme;
-    if (colorScheme && colorScheme !== 'concord') {
+    if (colorScheme === 'custom') {
+      // Apply cached derived custom theme variables synchronously
+      const cachedVars = localStorage.getItem('concord-custom-theme-vars');
+      if (cachedVars) {
+        try {
+          const vars = JSON.parse(cachedVars);
+          const el = document.documentElement;
+          for (const [prop, value] of Object.entries(vars)) {
+            el.style.setProperty(prop, value as string);
+          }
+        } catch {
+          // Ignore parse errors, store subscriber will re-apply
+        }
+      }
+    } else if (colorScheme && colorScheme !== 'concord') {
       document.documentElement.dataset.scheme = colorScheme;
     }
 

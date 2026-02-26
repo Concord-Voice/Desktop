@@ -22,6 +22,7 @@ export interface UserProfile {
   display_name?: string;
   bio?: string;
   avatar_url?: string;
+  header_image_url?: string;
   links?: string[];
   e2ee_preference: boolean;
   created_at?: string;
@@ -32,6 +33,7 @@ export interface UpdateProfileData {
   display_name?: string | null;
   bio?: string | null;
   avatar_url?: string | null;
+  header_image_url?: string | null;
   links?: string[];
 }
 

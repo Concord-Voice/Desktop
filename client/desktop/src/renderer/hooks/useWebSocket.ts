@@ -284,6 +284,7 @@ export function useWebSocket() {
         username: data.username,
         display_name: data.display_name || undefined,
         avatar_url: data.avatar_url || undefined,
+        header_image_url: data.header_image_url || undefined,
       });
     });
 

@@ -5,6 +5,7 @@ import { useUserStore } from '../../stores/userStore';
 import { useMemberStore, ServerMember, PresenceStatus } from '../../stores/memberStore';
 import MemberProfileCard from './MemberProfileCard';
 import MemberContextMenu from './MemberContextMenu';
+import UserProfileModal from './UserProfileModal';
 import './MemberList.css';
 
 const MemberList: React.FC = () => {
@@ -32,6 +33,8 @@ const MemberList: React.FC = () => {
     member: ServerMember;
     position: { x: number; y: number };
   } | null>(null);
+
+  const [fullProfileMember, setFullProfileMember] = useState<ServerMember | null>(null);
 
   // Fetch members when active server changes
   useEffect(() => {
@@ -183,6 +186,10 @@ const MemberList: React.FC = () => {
           lastSeen={lastSeenByUser.get(selectedMember.member.user_id)}
           position={selectedMember.position}
           onClose={() => setSelectedMember(null)}
+          onViewFullProfile={() => {
+            setFullProfileMember(selectedMember.member);
+            setSelectedMember(null);
+          }}
         />
       )}
 
@@ -195,11 +202,19 @@ const MemberList: React.FC = () => {
           serverId={activeServer.id}
           onClose={() => setContextMenu(null)}
           onViewProfile={() => {
-            setSelectedMember({
-              member: contextMenu.member,
-              position: contextMenu.position,
-            });
+            setFullProfileMember(contextMenu.member);
           }}
+        />
+      )}
+
+      {/* Full Profile Modal */}
+      {fullProfileMember && (
+        <UserProfileModal
+          isOpen={!!fullProfileMember}
+          onClose={() => setFullProfileMember(null)}
+          member={fullProfileMember}
+          presenceStatus={getMemberStatus(fullProfileMember.user_id)}
+          lastSeen={lastSeenByUser.get(fullProfileMember.user_id)}
         />
       )}
     </div>

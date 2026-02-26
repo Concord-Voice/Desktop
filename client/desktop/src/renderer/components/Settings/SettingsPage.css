@@ -221,6 +221,101 @@
   outline-offset: 4px;
 }
 
+/* Custom "+" circle */
+.color-scheme-circle.custom-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  transition: all 0.2s ease;
+}
+
+.color-scheme-circle.custom-add:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.color-scheme-circle.custom-add.selected {
+  border-style: solid;
+  border-color: transparent;
+}
+
+/* Custom theme picker panel */
+.custom-theme-picker {
+  margin-top: calc(16px * var(--sp, 1));
+  padding: calc(16px * var(--sp, 1));
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: calc(12px * var(--sp, 1));
+}
+
+.custom-theme-picker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.custom-theme-picker-label {
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.custom-theme-picker-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Native color picker input */
+.custom-theme-color-input {
+  width: 36px;
+  height: 36px;
+  border: 2px solid var(--border-color);
+  border-radius: 8px;
+  padding: 2px;
+  cursor: pointer;
+  background: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.custom-theme-color-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.custom-theme-color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 4px;
+}
+
+.custom-theme-color-input:hover {
+  border-color: var(--accent-primary);
+}
+
+/* Hex text input */
+.custom-theme-hex-input {
+  width: 80px;
+  padding: calc(6px * var(--sp, 1)) calc(8px * var(--sp, 1));
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-family: monospace;
+  text-transform: uppercase;
+}
+
+.custom-theme-hex-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
 /* Theme selector */
 .theme-selector {
   display: flex;

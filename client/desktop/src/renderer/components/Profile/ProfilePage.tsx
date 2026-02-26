@@ -6,6 +6,7 @@ import LoadingSpinner from '../Auth/LoadingSpinner';
 import './ProfilePage.css';
 
 const MAX_AVATAR_SIZE = 256 * 1024;
+const MAX_HEADER_SIZE = 512 * 1024;
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const USERNAME_MIN = 3;
 const USERNAME_MAX = 32;
@@ -18,6 +19,7 @@ interface ProfileFormErrors {
   displayName?: string;
   bio?: string;
   avatar?: string;
+  header?: string;
   general?: string;
   [key: string]: string | undefined;
 }
@@ -35,6 +37,7 @@ const ProfilePage: React.FC = () => {
   const updateProfile = useUserStore((state) => state.updateProfile);
   const changePassword = useUserStore((state) => state.changePassword);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const headerFileInputRef = useRef<HTMLInputElement>(null);
 
   // Profile form state
   const [username, setUsername] = useState('');
@@ -43,6 +46,9 @@ const ProfilePage: React.FC = () => {
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null);
   const [avatarRemoved, setAvatarRemoved] = useState(false);
+  const [headerPreview, setHeaderPreview] = useState<string | null>(null);
+  const [headerDataUrl, setHeaderDataUrl] = useState<string | null>(null);
+  const [headerRemoved, setHeaderRemoved] = useState(false);
   const [links, setLinks] = useState<string[]>([]);
   const [profileErrors, setProfileErrors] = useState<ProfileFormErrors>({});
   const [isProfileSubmitting, setIsProfileSubmitting] = useState(false);
@@ -65,6 +71,9 @@ const ProfilePage: React.FC = () => {
       setAvatarPreview(user.avatar_url || null);
       setAvatarDataUrl(user.avatar_url || null);
       setAvatarRemoved(false);
+      setHeaderPreview(user.header_image_url || null);
+      setHeaderDataUrl(user.header_image_url || null);
+      setHeaderRemoved(false);
       setLinks(user.links || []);
     }
   }, [user]);
@@ -118,6 +127,57 @@ const ProfilePage: React.FC = () => {
     setAvatarDataUrl(null);
     setAvatarRemoved(true);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // Header image handlers
+  const handleHeaderClick = () => {
+    headerFileInputRef.current?.click();
+  };
+
+  const handleHeaderKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleHeaderClick();
+    }
+  };
+
+  const handleHeaderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setProfileErrors((prev) => ({
+        ...prev,
+        header: 'Only PNG, JPEG, GIF, and WebP images are allowed',
+      }));
+      return;
+    }
+
+    if (file.size > MAX_HEADER_SIZE) {
+      setProfileErrors((prev) => ({
+        ...prev,
+        header: 'Header image must be smaller than 512KB',
+      }));
+      return;
+    }
+
+    setProfileErrors((prev) => ({ ...prev, header: undefined }));
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      setHeaderPreview(dataUrl);
+      setHeaderDataUrl(dataUrl);
+      setHeaderRemoved(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveHeader = () => {
+    setHeaderPreview(null);
+    setHeaderDataUrl(null);
+    setHeaderRemoved(true);
+    if (headerFileInputRef.current) headerFileInputRef.current.value = '';
   };
 
   // Link handlers
@@ -203,6 +263,11 @@ const ProfilePage: React.FC = () => {
       } else if (avatarDataUrl && avatarDataUrl !== user?.avatar_url) {
         updates.avatar_url = avatarDataUrl;
       }
+      if (headerRemoved) {
+        updates.header_image_url = ''; // Empty string signals "remove" to backend
+      } else if (headerDataUrl && headerDataUrl !== user?.header_image_url) {
+        updates.header_image_url = headerDataUrl;
+      }
 
       const filteredLinks = links.filter((l) => l.trim());
       const currentLinks = user?.links || [];
@@ -238,6 +303,8 @@ const ProfilePage: React.FC = () => {
     if (bio !== (user.bio || '')) return true;
     if (avatarRemoved) return true;
     if (avatarDataUrl && avatarDataUrl !== user.avatar_url) return true;
+    if (headerRemoved) return true;
+    if (headerDataUrl && headerDataUrl !== user.header_image_url) return true;
     const filteredLinks = links.filter((l) => l.trim());
     const currentLinks = user.links || [];
     if (JSON.stringify(filteredLinks) !== JSON.stringify(currentLinks)) return true;
@@ -253,6 +320,9 @@ const ProfilePage: React.FC = () => {
       setAvatarPreview(user.avatar_url || null);
       setAvatarDataUrl(user.avatar_url || null);
       setAvatarRemoved(false);
+      setHeaderPreview(user.header_image_url || null);
+      setHeaderDataUrl(user.header_image_url || null);
+      setHeaderRemoved(false);
       setLinks(user.links || []);
       setProfileErrors({});
       setProfileSuccess(null);
@@ -392,6 +462,63 @@ const ProfilePage: React.FC = () => {
               />
             </div>
             {profileErrors.avatar && <span className="form-error">{profileErrors.avatar}</span>}
+
+            {/* Header Image */}
+            <div className="profile-header-image-section">
+              <label className="form-label">Profile Banner</label>
+              <div
+                className="profile-header-upload"
+                onClick={handleHeaderClick}
+                onKeyDown={handleHeaderKeyDown}
+                role="button"
+                tabIndex={0}
+                aria-label="Upload header image"
+              >
+                {headerPreview ? (
+                  <img
+                    src={headerPreview}
+                    alt="Header preview"
+                    className="profile-header-preview"
+                  />
+                ) : (
+                  <div className="profile-header-placeholder">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                      <path
+                        d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                      <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.5" />
+                    </svg>
+                    <span>Click to upload a banner image</span>
+                  </div>
+                )}
+              </div>
+              <div className="profile-header-actions">
+                <span className="profile-avatar-actions-label">
+                  PNG, JPEG, GIF, WebP &mdash; max 512KB. Recommended: 600&times;120 or wider.
+                </span>
+                {headerPreview && (
+                  <button
+                    type="button"
+                    className="profile-avatar-remove-btn"
+                    onClick={handleRemoveHeader}
+                  >
+                    Remove banner
+                  </button>
+                )}
+              </div>
+              <input
+                ref={headerFileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                onChange={handleHeaderChange}
+                hidden
+              />
+            </div>
+            {profileErrors.header && <span className="form-error">{profileErrors.header}</span>}
 
             {/* Username */}
             <div className="form-group">
