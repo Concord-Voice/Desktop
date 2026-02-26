@@ -160,7 +160,6 @@
   right: -3px;
 }
 
-.resize-handle:hover,
 .resize-handle:active {
   background-color: var(--accent-primary);
 }

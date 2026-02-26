@@ -44,7 +44,7 @@
   grid-area: folderbar;
   overflow: visible;
   position: relative;
-  z-index: 10;
+  z-index: 100;
 }
 
 .layout-folder-bar-resize {
@@ -273,7 +273,6 @@
   right: -3px;
 }
 
-.layout-resize-handle:hover,
 .layout-resize-handle:active {
   background-color: var(--accent-primary);
 }
@@ -296,7 +295,6 @@
   bottom: -3px;
 }
 
-.layout-resize-handle-h:hover,
 .layout-resize-handle-h:active {
   background-color: var(--accent-primary);
 }

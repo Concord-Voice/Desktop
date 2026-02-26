@@ -102,6 +102,7 @@
   margin: 0 calc(8px * var(--sp, 1));
   flex-shrink: 0;
   align-self: center;
+  transition: margin 0.2s ease-out;
 }
 
 /* ─── Scrollable Server List ────────────────────────────────────────────── */
@@ -112,6 +113,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
+  z-index: 1;
 }
 
 .server-bar-scroll {
@@ -120,7 +122,7 @@
   gap: calc(8px * var(--sp, 1));
   overflow-x: auto;
   overflow-y: hidden;
-  padding: calc(4px * var(--sp, 1)) 0;
+  padding: calc(4px * var(--sp, 1)) 4px;
   scroll-behavior: smooth;
   flex: 1;
 }
@@ -308,7 +310,7 @@
 /* ─── Drag & Drop ───────────────────────────────────────────────────────── */
 
 .server-bar-icon-wrapper[draggable='true'] {
-  cursor: grab;
+  cursor: pointer;
 }
 
 .server-bar-icon-wrapper[draggable='true']:active {
@@ -340,4 +342,27 @@
     transform: scaleX(1);
     opacity: 1;
   }
+}
+
+/* ─── Add Server Tooltip (portaled to body) ─────────────────────────────── */
+
+.server-bar-add-tooltip {
+  position: fixed;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 9999;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.server-bar-add-tooltip.visible {
+  opacity: 1;
 }

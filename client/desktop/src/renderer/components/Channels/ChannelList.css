@@ -556,7 +556,7 @@
 
 .channel-item[draggable='true'],
 .channel-group-header[draggable='true'] {
-  cursor: grab;
+  cursor: pointer;
 }
 
 .channel-item[draggable='true']:active,

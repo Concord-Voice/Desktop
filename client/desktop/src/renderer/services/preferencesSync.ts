@@ -11,7 +11,7 @@ import { apiFetch } from './apiClient';
 import { useSettingsStore, type AppearanceSettings } from '../stores/settingsStore';
 import { useLayoutStore, type MemberPanelMode, type ServerFolder } from '../stores/layoutStore';
 
-const DEBOUNCE_MS = 2000;
+const DEBOUNCE_MS = 3000;
 
 interface PreferencesBlob {
   v: 1;

@@ -47,6 +47,9 @@ const FolderBar: React.FC = () => {
   } | null>(null);
   const [draggingServerId, setDraggingServerId] = useState<string | null>(null);
   const [hoveredServer, setHoveredServer] = useState<{ server: ServerWithRole; rect: DOMRect } | null>(null);
+  const [addBtnTooltipPos, setAddBtnTooltipPos] = useState<{ top: number; left: number } | null>(null);
+  const addBtnRef = useRef<HTMLButtonElement>(null);
+  const addBtnHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
@@ -71,6 +74,31 @@ const FolderBar: React.FC = () => {
       renameInputRef.current.select();
     }
   }, [renamingFolderId]);
+
+  const showAddBtnTooltip = useCallback(() => {
+    addBtnHoverTimer.current = setTimeout(() => {
+      if (addBtnRef.current) {
+        const rect = addBtnRef.current.getBoundingClientRect();
+        const tooltipWidth = 90; // approximate width of "New Folder"
+        const padding = 8;
+        const top = rect.bottom + 6;
+        // Center below the button, but clamp to viewport
+        let left = rect.left + rect.width / 2 - tooltipWidth / 2;
+        left = Math.max(padding, Math.min(left, window.innerWidth - tooltipWidth - padding));
+        // Clamp top to viewport bottom
+        const clampedTop = Math.min(top, window.innerHeight - 30 - padding);
+        setAddBtnTooltipPos({ top: clampedTop, left });
+      }
+    }, 400);
+  }, []);
+
+  const hideAddBtnTooltip = useCallback(() => {
+    if (addBtnHoverTimer.current) {
+      clearTimeout(addBtnHoverTimer.current);
+      addBtnHoverTimer.current = null;
+    }
+    setAddBtnTooltipPos(null);
+  }, []);
 
   const handleFolderClick = (folderId: string) => {
     if (renaming?.folderId === folderId) return;
@@ -185,21 +213,38 @@ const FolderBar: React.FC = () => {
 
   if (serverFolders.length === 0) {
     return (
-      <div className="folder-bar" style={folderStyle}>
-        <div className="folder-bar-empty">
-          <button className="folder-add-btn" onClick={handleCreateFolder}>
-            <FolderPlus size={Math.round(12 * folderScale)} />
-            <span>New Folder</span>
+      <>
+        <div className="folder-bar" style={folderStyle}>
+          <div className="folder-bar-empty" />
+          <div className="folder-bar-divider" />
+          <button
+            ref={addBtnRef}
+            className="folder-add-btn"
+            onClick={handleCreateFolder}
+            onMouseEnter={showAddBtnTooltip}
+            onMouseLeave={hideAddBtnTooltip}
+          >
+            <FolderPlus size={Math.round(14 * folderScale)} />
           </button>
         </div>
-      </div>
+        {addBtnTooltipPos && createPortal(
+          <div
+            className="folder-add-btn-tooltip visible"
+            style={{ top: addBtnTooltipPos.top, left: addBtnTooltipPos.left }}
+          >
+            New Folder
+          </div>,
+          document.body
+        )}
+      </>
     );
   }
 
   return (
     <>
       <div className="folder-bar" ref={dropdownRef} style={folderStyle}>
-        {serverFolders.map((folder) => {
+        <div className="folder-bar-scroll">
+          {serverFolders.map((folder) => {
           const isOpen = openFolderId === folder.id;
           const isDragOver = dragOverFolderId === folder.id;
           const isRenaming = renaming?.folderId === folder.id;
@@ -383,12 +428,29 @@ const FolderBar: React.FC = () => {
             </div>
           );
         })}
-
-        <button className="folder-add-btn" onClick={handleCreateFolder}>
-          <FolderPlus size={12} />
-          <span>New Folder</span>
+        </div>
+        <div className="folder-bar-divider" />
+        <button
+          ref={addBtnRef}
+          className="folder-add-btn"
+          onClick={handleCreateFolder}
+          onMouseEnter={showAddBtnTooltip}
+          onMouseLeave={hideAddBtnTooltip}
+        >
+          <FolderPlus size={14} />
         </button>
       </div>
+
+      {/* "New Folder" tooltip — portaled to body to escape overflow:hidden */}
+      {addBtnTooltipPos && createPortal(
+        <div
+          className="folder-add-btn-tooltip visible"
+          style={{ top: addBtnTooltipPos.top, left: addBtnTooltipPos.left }}
+        >
+          New Folder
+        </div>,
+        document.body
+      )}
 
       {/* Context menu */}
       {contextMenu && (

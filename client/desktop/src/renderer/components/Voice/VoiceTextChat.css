@@ -98,7 +98,7 @@
   transition: background-color 0.15s ease;
 }
 
-.voice-text-chat-resize:hover {
+.voice-text-chat-resize:active {
   background-color: var(--accent-primary);
 }
 
@@ -110,7 +110,7 @@
   opacity: 0.5;
 }
 
-.voice-text-chat-resize:hover .voice-text-chat-resize__grip {
+.voice-text-chat-resize:active .voice-text-chat-resize__grip {
   background-color: #fff;
   opacity: 0.8;
 }

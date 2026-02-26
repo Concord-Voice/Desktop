@@ -66,6 +66,11 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [magScales, setMagScales] = useState<Map<string, number>>(new Map());
   const [hoveredServer, setHoveredServer] = useState<{ server: ServerWithRole; rect: DOMRect } | null>(null);
+  const [addBtnTooltipPos, setAddBtnTooltipPos] = useState<{ top: number; left: number } | null>(null);
+  const addBtnRef = useRef<HTMLButtonElement>(null);
+  const [stickyTooltip, setStickyTooltip] = useState<{ text: string; top: number; left: number } | null>(null);
+  const pmBtnRef = useRef<HTMLButtonElement>(null);
+  const activeServerBtnRef = useRef<HTMLButtonElement>(null);
 
   // Size calculations:
   // maxIconSize = the biggest an icon can get (fills the bar height minus padding)
@@ -375,6 +380,43 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
     setMagScales(new Map());
   }, []);
 
+  // Add Server button tooltip (portal-based, instant)
+  const showAddBtnTooltip = useCallback(() => {
+    if (addBtnRef.current) {
+      const rect = addBtnRef.current.getBoundingClientRect();
+      const tooltipWidth = 80;
+      const padding = 8;
+      const top = rect.bottom + 6;
+      let left = rect.left + rect.width / 2 - tooltipWidth / 2;
+      left = Math.max(padding, Math.min(left, window.innerWidth - tooltipWidth - padding));
+      const clampedTop = Math.min(top, window.innerHeight - 30 - padding);
+      setAddBtnTooltipPos({ top: clampedTop, left });
+    }
+  }, []);
+
+  const hideAddBtnTooltip = useCallback(() => {
+    setAddBtnTooltipPos(null);
+  }, []);
+
+  // Sticky icon tooltips (PM + Active Server) — portal-based, instant
+  const showStickyTooltip = useCallback((text: string, ref: React.RefObject<HTMLButtonElement | null>) => {
+    const el = ref.current;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      const padding = 8;
+      const tooltipWidth = text.length * 7 + 16; // rough estimate
+      const top = rect.bottom + 6;
+      let left = rect.left + rect.width / 2 - tooltipWidth / 2;
+      left = Math.max(padding, Math.min(left, window.innerWidth - tooltipWidth - padding));
+      const clampedTop = Math.min(top, window.innerHeight - 30 - padding);
+      setStickyTooltip({ text, top: clampedTop, left });
+    }
+  }, []);
+
+  const hideStickyTooltip = useCallback(() => {
+    setStickyTooltip(null);
+  }, []);
+
   /** Get the magnified pixel size for a server icon */
   const getMagSize = (serverId: string): number => {
     const scale = magScales.get(serverId);
@@ -387,12 +429,18 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
       {/* Sticky left: PM + Active server */}
       <div className="server-bar-sticky">
         <button
+          ref={pmBtnRef}
           className={`server-bar-pm-icon${location.pathname === '/app/dms' ? ' active' : ''}`}
-          title="Private Messages"
-          aria-label="Private Messages"
+          aria-label="Direct Messages"
           onClick={handlePMClick}
-          onMouseEnter={location.pathname === '/app/dms' ? handleActiveServerEnter : undefined}
-          onMouseLeave={location.pathname === '/app/dms' ? handleActiveServerLeave : undefined}
+          onMouseEnter={() => {
+            showStickyTooltip('Direct Messages', pmBtnRef);
+            if (location.pathname === '/app/dms') handleActiveServerEnter();
+          }}
+          onMouseLeave={() => {
+            hideStickyTooltip();
+            if (location.pathname === '/app/dms') handleActiveServerLeave();
+          }}
           style={{ width: stickyIconSize, height: stickyIconSize }}
         >
           <MessageSquare size={Math.round(stickyIconSize * 0.45)} />
@@ -400,12 +448,18 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
 
         {activeServer ? (
           <button
+            ref={activeServerBtnRef}
             className={`server-bar-active-icon${location.pathname === '/app/dms' ? ' inactive' : ''}`}
             onClick={handleActiveServerClick}
-            onMouseEnter={location.pathname !== '/app/dms' ? handleActiveServerEnter : undefined}
-            onMouseLeave={location.pathname !== '/app/dms' ? handleActiveServerLeave : undefined}
+            onMouseEnter={() => {
+              showStickyTooltip(activeServer.name, activeServerBtnRef);
+              if (location.pathname !== '/app/dms') handleActiveServerEnter();
+            }}
+            onMouseLeave={() => {
+              hideStickyTooltip();
+              if (location.pathname !== '/app/dms') handleActiveServerLeave();
+            }}
             onContextMenu={(e) => handleContextMenu(e, activeServer)}
-            title={activeServer.name}
             aria-label="Toggle channel panel"
             style={{ width: stickyIconSize, height: stickyIconSize }}
           >
@@ -420,7 +474,7 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
         ) : (
           <div
             className="server-bar-empty-server"
-            title="No active server"
+            aria-label="No active server"
             style={{ width: stickyIconSize, height: stickyIconSize }}
           />
         )}
@@ -430,8 +484,8 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
         className="server-bar-divider"
         style={{
           marginRight: barServers.length > 0 && !reduceAnimations
-            ? 6 + Math.max(0, (getMagSize(barServers[0].id) - baseIconSize) / 2)
-            : 6,
+            ? 4 + Math.max(0, (getMagSize(barServers[0].id) - baseIconSize) / 2)
+            : 4,
         }}
       />
 
@@ -494,6 +548,7 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
                   onDragOver={(e) => handleDragOver(e, server.id)}
                   onDrop={(e) => handleDrop(e, server.id)}
                   onMouseEnter={() => {
+                    if (draggingId) return; // Suppress tooltip while dragging
                     const el = iconRefs.current.get(server.id);
                     if (el) setHoveredServer({ server, rect: el.getBoundingClientRect() });
                   }}
@@ -551,17 +606,19 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
         className="server-bar-divider"
         style={{
           marginLeft: barServers.length > 0 && !reduceAnimations
-            ? 6 + Math.max(0, (getMagSize(barServers[barServers.length - 1].id) - baseIconSize) / 2)
-            : 6,
+            ? 4 + Math.max(0, (getMagSize(barServers[barServers.length - 1].id) - baseIconSize) / 2)
+            : 4,
         }}
       />
 
       <div className="server-bar-sticky">
         <button
+          ref={addBtnRef}
           className="server-bar-add"
           onClick={onOpenActionModal}
-          title="Add a Server"
-          aria-label="Add a Server"
+          aria-label="Add Server"
+          onMouseEnter={showAddBtnTooltip}
+          onMouseLeave={hideAddBtnTooltip}
           style={{ width: stickyIconSize, height: stickyIconSize }}
         >
           <Plus size={Math.round(stickyIconSize * 0.45)} />
@@ -591,6 +648,28 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
           {serverUnreadSet.has(hoveredServer.server.id) && (
             <span className="server-bar-tooltip-unread">Unread notifications</span>
           )}
+        </div>,
+        document.body
+      )}
+
+      {/* "Add Server" tooltip — portaled to body to escape overflow:hidden */}
+      {addBtnTooltipPos && createPortal(
+        <div
+          className="server-bar-add-tooltip visible"
+          style={{ top: addBtnTooltipPos.top, left: addBtnTooltipPos.left }}
+        >
+          Add Server
+        </div>,
+        document.body
+      )}
+
+      {/* Sticky icon tooltip (DM / Active Server) */}
+      {stickyTooltip && createPortal(
+        <div
+          className="server-bar-add-tooltip visible"
+          style={{ top: stickyTooltip.top, left: stickyTooltip.left }}
+        >
+          {stickyTooltip.text}
         </div>,
         document.body
       )}
