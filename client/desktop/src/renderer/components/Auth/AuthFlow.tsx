@@ -59,7 +59,7 @@ const AuthFlow: React.FC = () => {
     if (data.user) {
       useUserStore.getState().setUser(data.user);
     }
-    navigate('/app');
+    navigate('/app/dms');
   };
 
   const handleLoginSuccess = (data: {
@@ -73,7 +73,7 @@ const AuthFlow: React.FC = () => {
     if (data.user) {
       useUserStore.getState().setUser(data.user);
     }
-    navigate('/app');
+    navigate('/app/dms');
   };
 
   const handleSwitchToLogin = () => {

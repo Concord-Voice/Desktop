@@ -24,12 +24,12 @@ const ConnectionLostOverlay: React.FC = () => {
         </div>
         <h2 className="connection-lost-title">Connection Lost</h2>
         <p className="connection-lost-message">
-          It seems we&apos;ve lost connection to the server. We will check
-          periodically for connection restoration, or you can close the app
-          out and try again later.
+          We&apos;ve lost connection to the server. Reconnection attempts are
+          ongoing in the background. If connection is restored, you&apos;ll
+          start a fresh session.
         </p>
         <button className="connection-lost-exit" onClick={handleExit}>
-          Exit
+          Exit App
         </button>
       </div>
     </div>

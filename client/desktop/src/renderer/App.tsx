@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import AuthFlow from './components/Auth/AuthFlow';
 import MainView from './components/MainView/MainView';
+import DirectMessagesView from './components/DirectMessages/DirectMessagesView';
 import ProfilePage from './components/Profile/ProfilePage';
 import SettingsPage from './components/Settings/SettingsPage';
 import PipWindow from './components/Voice/PipWindow';
@@ -93,9 +94,10 @@ function App() {
       </div>
 
       <Routes>
-        <Route path="/" element={accessToken ? <Navigate to="/app" replace /> : <AuthFlow />} />
+        <Route path="/" element={accessToken ? <Navigate to="/app/dms" replace /> : <AuthFlow />} />
         <Route element={<AuthenticatedLayout />}>
           <Route path="/app" element={<MainView />} />
+          <Route path="/app/dms" element={<DirectMessagesView />} />
           <Route path="/app/profile" element={<ProfilePage />} />
           <Route path="/app/settings" element={<SettingsPage />} />
         </Route>

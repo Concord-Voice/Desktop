@@ -88,6 +88,12 @@ export function useWebSocket() {
         // Connection just dropped — start 15-second grace period
         connStore.startGracePeriod();
 
+        // Capture voice channel before cleanup so we can rejoin on grace-period reconnect
+        const voiceState = useVoiceStore.getState();
+        if (voiceState.connectionState !== 'disconnected' && voiceState.activeChannelId) {
+          connStore.setLastVoiceChannelId(voiceState.activeChannelId);
+        }
+
         // Emergency-stop voice (don't keep broadcasting while disconnected)
         getVoiceService().then(({ voiceService }) => {
           if (useVoiceStore.getState().connectionState !== 'disconnected') {
@@ -119,6 +125,15 @@ export function useWebSocket() {
           e2eeService.processPendingKeyRequests().catch(() => {
             // Non-critical — will retry on next key_needed event
           });
+        }
+
+        // Rejoin voice channel if we were in one before the disconnect
+        const lastVoiceId = useConnectionStore.getState().lastVoiceChannelId;
+        if (lastVoiceId) {
+          useConnectionStore.getState().setLastVoiceChannelId(null);
+          getVoiceService().then(({ voiceService }) => {
+            voiceService.joinChannel(lastVoiceId);
+          }).catch(() => { /* voice module not available */ });
         }
       }
     });

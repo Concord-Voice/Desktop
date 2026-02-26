@@ -44,7 +44,15 @@ export const useServerStore = create<ServerState>()(
             }
 
             const data = await response.json();
-            set({ servers: data.servers || [], isLoading: false });
+            const fetchedServers: ServerWithRole[] = data.servers || [];
+
+            // Validate persisted activeServerId still exists in fetched list
+            const currentActiveId = get().activeServerId;
+            const validActiveId = currentActiveId && fetchedServers.some((s) => s.id === currentActiveId)
+              ? currentActiveId
+              : null;
+
+            set({ servers: fetchedServers, activeServerId: validActiveId, isLoading: false });
           } catch (error) {
             set({
               error: error instanceof Error ? error.message : 'Failed to load servers',

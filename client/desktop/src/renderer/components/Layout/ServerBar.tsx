@@ -363,9 +363,10 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
       {/* Sticky left: PM + Active server */}
       <div className="server-bar-sticky">
         <button
-          className="server-bar-pm-icon"
+          className={`server-bar-pm-icon${location.pathname === '/app/dms' ? ' active' : ''}`}
           title="Private Messages"
           aria-label="Private Messages"
+          onClick={() => navigate('/app/dms')}
           style={{ width: stickyIconSize, height: stickyIconSize }}
         >
           <MessageSquare size={Math.round(stickyIconSize * 0.45)} />
@@ -373,12 +374,12 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
 
         <button
           className="server-bar-active-icon"
-          onClick={handleActiveServerClick}
-          onMouseEnter={handleActiveServerEnter}
-          onMouseLeave={handleActiveServerLeave}
+          onClick={activeServer ? handleActiveServerClick : onOpenActionModal}
+          onMouseEnter={activeServer ? handleActiveServerEnter : undefined}
+          onMouseLeave={activeServer ? handleActiveServerLeave : undefined}
           onContextMenu={(e) => { if (activeServer) handleContextMenu(e, activeServer); }}
-          title={activeServer ? activeServer.name : 'No server selected'}
-          aria-label="Toggle channel panel"
+          title={activeServer ? activeServer.name : 'Select or create a server'}
+          aria-label={activeServer ? 'Toggle channel panel' : 'Select or create a server'}
           style={{ width: stickyIconSize, height: stickyIconSize }}
         >
           {activeServer ? (
@@ -390,7 +391,7 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
               </span>
             )
           ) : (
-            <span className="server-bar-icon-initial">?</span>
+            <Plus size={Math.round(stickyIconSize * 0.45)} />
           )}
         </button>
       </div>
