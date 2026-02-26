@@ -19,6 +19,11 @@ vi.mock('@/renderer/utils/crypto', () => ({
 vi.mock('@/renderer/services/e2eeService', () => ({
   e2eeService: {
     initialize: vi.fn().mockResolvedValue(undefined),
+    getSessionKeys: vi.fn().mockReturnValue({
+      wrappingKeyBase64: 'mock-wrapping-key',
+      preferencesKeyBase64: 'mock-preferences-key',
+      wrappedPrivateKeyBase64: 'mock-wrapped-private-key',
+    }),
   },
 }));
 
@@ -141,7 +146,6 @@ describe('Register', () => {
       ok: true,
       json: async () => ({
         access_token: 'mock-access',
-        refresh_token: 'mock-refresh',
         user: { id: 'user-1', username: 'testuser', email: 'test@example.com' },
       }),
     });
@@ -160,7 +164,6 @@ describe('Register', () => {
       expect(onSuccess).toHaveBeenCalledWith(
         expect.objectContaining({
           accessToken: 'mock-access',
-          refreshToken: 'mock-refresh',
         }),
       );
     });

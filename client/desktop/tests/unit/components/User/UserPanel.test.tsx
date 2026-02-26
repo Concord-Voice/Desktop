@@ -25,7 +25,7 @@ import UserPanel from '@/renderer/components/User/UserPanel';
 describe('UserPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useAuthStore.getState().setTokens('mock-token', 'mock-refresh');
+    useAuthStore.getState().setAccessToken('mock-token');
     useUserStore.setState({ user: mockUser, isLoading: false });
     useMemberStore.setState({ selfStatus: 'online' });
   });
@@ -64,7 +64,7 @@ describe('UserPanel', () => {
 
   it('renders loading state when user not loaded', () => {
     // Clear token so useEffect doesn't call fetchUser (which would set an invalid user)
-    useAuthStore.getState().clearTokens();
+    useAuthStore.getState().clearAccessToken();
     useUserStore.setState({ user: null, isLoading: true });
     const { container } = render(<UserPanel />);
     // Should render skeleton when loading

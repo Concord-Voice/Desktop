@@ -37,8 +37,8 @@ describe('FolderBar', () => {
   });
 
   it('renders create folder button', () => {
-    render(<FolderBar />);
-    const addBtn = screen.getByText('New Folder');
+    const { container } = render(<FolderBar />);
+    const addBtn = container.querySelector('.folder-add-btn');
     expect(addBtn).toBeInTheDocument();
   });
 
@@ -108,9 +108,10 @@ describe('FolderBar', () => {
     expect(screen.queryByText('Test Server')).not.toBeInTheDocument();
   });
 
-  it('creates a new folder when New Folder is clicked', () => {
-    render(<FolderBar />);
-    fireEvent.click(screen.getByText('New Folder'));
+  it('creates a new folder when add button is clicked', () => {
+    const { container } = render(<FolderBar />);
+    const addBtn = container.querySelector('.folder-add-btn')!;
+    fireEvent.click(addBtn);
     // After clicking, a new folder with a rename input should appear
     const state = useLayoutStore.getState();
     expect(state.serverFolders.length).toBe(1);

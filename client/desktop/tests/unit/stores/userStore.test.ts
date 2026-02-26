@@ -30,7 +30,7 @@ afterEach(() => server.resetHandlers());
 describe('userStore', () => {
   beforeEach(() => {
     resetAllStores();
-    useAuthStore.getState().setTokens('mock-token', 'mock-refresh');
+    useAuthStore.getState().setAccessToken('mock-token');
   });
 
   it('starts with null user and not loading', () => {

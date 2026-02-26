@@ -25,7 +25,7 @@ import App from '@/renderer/App';
 describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useAuthStore.getState().clearTokens();
+    useAuthStore.getState().clearAccessToken();
     useUserStore.setState({ user: null });
   });
 

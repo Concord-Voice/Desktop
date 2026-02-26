@@ -21,7 +21,7 @@ describe('DeleteServerModal', () => {
   beforeEach(() => {
     resetAllStores();
     vi.clearAllMocks();
-    useAuthStore.getState().setTokens('mock-token', 'mock-refresh');
+    useAuthStore.getState().setAccessToken('mock-token');
     useServerStore.getState().addServer(mockServer);
   });
 

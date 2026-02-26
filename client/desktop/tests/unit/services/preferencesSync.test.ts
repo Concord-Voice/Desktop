@@ -39,7 +39,7 @@ describe('preferencesSyncService', () => {
       serverBarHeight: 48, folderBarHeight: 32,
       serverFolders: [], serverOrder: [],
     });
-    useAuthStore.getState().setTokens('mock-token', 'mock-refresh');
+    useAuthStore.getState().setAccessToken('mock-token');
     vi.mocked(e2eeService.encryptPreferences).mockResolvedValue('encrypted-blob');
     (e2eeService as any).isInitialized = true;
   });

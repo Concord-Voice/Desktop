@@ -19,7 +19,7 @@ describe('ServerList', () => {
   beforeEach(() => {
     resetAllStores();
     vi.clearAllMocks();
-    useAuthStore.getState().setTokens('mock-token', 'mock-refresh');
+    useAuthStore.getState().setAccessToken('mock-token');
   });
 
   it('renders add server button', () => {

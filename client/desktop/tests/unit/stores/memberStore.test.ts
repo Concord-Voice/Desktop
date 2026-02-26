@@ -21,7 +21,7 @@ describe('memberStore', () => {
       lastSeenByUser: new Map(),
       selfStatus: 'online',
     });
-    useAuthStore.getState().setTokens('mock-token', 'mock-refresh');
+    useAuthStore.getState().setAccessToken('mock-token');
   });
 
   describe('fetchMembers', () => {

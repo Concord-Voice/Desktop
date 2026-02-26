@@ -23,7 +23,7 @@ describe('LeaveServerModal', () => {
   beforeEach(() => {
     resetAllStores();
     vi.clearAllMocks();
-    useAuthStore.getState().setTokens('mock-token', 'mock-refresh');
+    useAuthStore.getState().setAccessToken('mock-token');
     useUserStore.setState({ user: mockUser });
     useServerStore.getState().addServer(memberServer);
   });

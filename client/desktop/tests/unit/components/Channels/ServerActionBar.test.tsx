@@ -13,6 +13,7 @@ Object.assign(navigator, {
 
 describe('ServerActionBar', () => {
   const mockOnOpenCreateModal = vi.fn();
+  const mockOnOpenCreateCategoryModal = vi.fn();
 
   const ownerServer: ServerWithRole = { ...mockServer, role: 'owner' };
   const adminServer: ServerWithRole = { ...mockServer, role: 'admin' };
@@ -23,41 +24,42 @@ describe('ServerActionBar', () => {
     useInviteStore.setState({ invites: {}, isLoading: false, error: null });
   });
 
-  it('renders Channel and Invite buttons for owner', () => {
-    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} />);
-    expect(screen.getByText('Channel')).toBeInTheDocument();
+  it('renders Add and Invite buttons for owner', () => {
+    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />);
+    expect(screen.getByText('Add')).toBeInTheDocument();
     expect(screen.getByText('Invite')).toBeInTheDocument();
   });
 
-  it('renders Channel and Invite buttons for admin', () => {
-    render(<ServerActionBar server={adminServer} onOpenCreateModal={mockOnOpenCreateModal} />);
-    expect(screen.getByText('Channel')).toBeInTheDocument();
+  it('renders Add and Invite buttons for admin', () => {
+    render(<ServerActionBar server={adminServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />);
+    expect(screen.getByText('Add')).toBeInTheDocument();
     expect(screen.getByText('Invite')).toBeInTheDocument();
   });
 
   it('renders spacer for regular member (no actions)', () => {
     const { container } = render(
-      <ServerActionBar server={memberServer} onOpenCreateModal={mockOnOpenCreateModal} />,
+      <ServerActionBar server={memberServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />,
     );
     expect(container.querySelector('.channel-actions-spacer')).toBeInTheDocument();
-    expect(screen.queryByText('Channel')).not.toBeInTheDocument();
+    expect(screen.queryByText('Add')).not.toBeInTheDocument();
     expect(screen.queryByText('Invite')).not.toBeInTheDocument();
   });
 
-  it('calls onOpenCreateModal when Channel button clicked', () => {
-    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} />);
+  it('calls onOpenCreateModal when Channel option clicked in Add menu', () => {
+    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />);
+    fireEvent.click(screen.getByText('Add'));
     fireEvent.click(screen.getByText('Channel'));
     expect(mockOnOpenCreateModal).toHaveBeenCalled();
   });
 
   it('shows invite popup when Invite clicked', () => {
-    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} />);
+    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />);
     fireEvent.click(screen.getByText('Invite'));
     expect(screen.getByText('Invite Code')).toBeInTheDocument();
   });
 
   it('shows Generate Code button when no active invites', () => {
-    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} />);
+    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />);
     fireEvent.click(screen.getByText('Invite'));
     expect(screen.getByText('Generate Code')).toBeInTheDocument();
   });
@@ -84,7 +86,7 @@ describe('ServerActionBar', () => {
       },
     });
 
-    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} />);
+    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />);
     fireEvent.click(screen.getByText('Invite'));
 
     expect(screen.getByText('AbCd1234')).toBeInTheDocument();
@@ -92,7 +94,7 @@ describe('ServerActionBar', () => {
   });
 
   it('toggles popup closed on second click', () => {
-    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} />);
+    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />);
     fireEvent.click(screen.getByText('Invite'));
     expect(screen.getByText('Invite Code')).toBeInTheDocument();
     fireEvent.click(screen.getByText('Invite'));
@@ -100,7 +102,7 @@ describe('ServerActionBar', () => {
   });
 
   it('shows Direct Invite section (disabled)', () => {
-    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} />);
+    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />);
     fireEvent.click(screen.getByText('Invite'));
     expect(screen.getByText('Direct Invite')).toBeInTheDocument();
     const sendBtn = screen.getByText('Send to a Friend');
@@ -129,7 +131,7 @@ describe('ServerActionBar', () => {
       },
     });
 
-    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} />);
+    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />);
     fireEvent.click(screen.getByText('Invite'));
     fireEvent.click(screen.getByText('Copy Code'));
     await vi.waitFor(() => {
@@ -159,7 +161,7 @@ describe('ServerActionBar', () => {
       },
     });
 
-    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} />);
+    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />);
     fireEvent.click(screen.getByText('Invite'));
     // Should show Generate Code since the invite is expired
     expect(screen.getByText('Generate Code')).toBeInTheDocument();
@@ -187,13 +189,13 @@ describe('ServerActionBar', () => {
       },
     });
 
-    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} />);
+    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />);
     fireEvent.click(screen.getByText('Invite'));
     expect(screen.getByText('Generate Code')).toBeInTheDocument();
   });
 
   it('shows "Coming soon" hint in Direct Invite section', () => {
-    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} />);
+    render(<ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />);
     fireEvent.click(screen.getByText('Invite'));
     expect(screen.getByText(/Coming soon/)).toBeInTheDocument();
   });
@@ -203,7 +205,7 @@ describe('ServerActionBar', () => {
     // Actually, admin has both Channel and Invite so not single
     // Let's check the strip class is present
     const { container } = render(
-      <ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} />,
+      <ServerActionBar server={ownerServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />,
     );
     expect(container.querySelector('.channel-actions-strip')).toBeInTheDocument();
   });

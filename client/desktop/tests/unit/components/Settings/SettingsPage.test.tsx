@@ -27,7 +27,7 @@ import SettingsPage from '@/renderer/components/Settings/SettingsPage';
 describe('SettingsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useAuthStore.getState().setTokens('mock-token', 'mock-refresh');
+    useAuthStore.getState().setAccessToken('mock-token');
     useUserStore.setState({ user: mockUser });
     useSettingsStore.setState({
       appearance: {
@@ -64,8 +64,8 @@ describe('SettingsPage', () => {
   it('shows "Soon" badge for disabled sections', () => {
     render(<SettingsPage />);
     const soonBadges = screen.getAllByText('Soon');
-    // Account, Notifications, Voice & Audio, Accessibility are disabled
-    expect(soonBadges.length).toBe(4);
+    // Account, Notifications, Accessibility are disabled (Voice & Audio is now enabled)
+    expect(soonBadges.length).toBe(3);
   });
 
   it('defaults to appearance section', () => {
