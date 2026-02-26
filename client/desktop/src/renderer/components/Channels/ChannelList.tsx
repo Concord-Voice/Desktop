@@ -374,6 +374,19 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
     return map;
   }, [channels]);
 
+  // Clear unread for linked text channel while voice text chat is open
+  // (handles new messages arriving while the panel is visible)
+  useEffect(() => {
+    if (!showVoiceTextChat || !voiceChannelId) return;
+    const linked = linkedTextByVoice.get(voiceChannelId);
+    if (!linked) return;
+    const count = unreadCounts.get(linked.id);
+    if (count && count > 0) {
+      clearUnread(linked.id);
+      apiFetch(`/api/v1/channels/${linked.id}/read`, { method: 'POST' }).catch(() => {});
+    }
+  }, [showVoiceTextChat, voiceChannelId, linkedTextByVoice, unreadCounts, clearUnread]);
+
   const renderChannelItem = (channel: Channel, index: number, arr: Channel[], isGrouped: boolean) => {
     const isActive = channel.id === activeChannelId;
     const unread = unreadCounts.get(channel.id) || 0;
@@ -473,10 +486,17 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
             {showLinkedText && linkedText && (
               <div
                 className={`channel-item--voice-text ${isGrouped ? 'channel-item--voice-text-grouped' : ''} ${isLinkedTextActive ? 'active' : ''} ${linkedTextUnread > 0 ? 'has-unread' : ''}`}
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   // Keep voice channel active and toggle the integrated text chat panel
                   setActiveChannel(channel.id);
-                  setShowVoiceTextChat(!showVoiceTextChat);
+                  const opening = !showVoiceTextChat;
+                  setShowVoiceTextChat(opening);
+                  // Clear unread badge for the linked text channel when opening
+                  if (opening && linkedText) {
+                    clearUnread(linkedText.id);
+                    apiFetch(`/api/v1/channels/${linkedText.id}/read`, { method: 'POST' }).catch(() => {});
+                  }
                 }}
                 title={`${channel.name} Text Chat`}
               >

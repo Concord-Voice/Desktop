@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, PictureInPicture2, LayoutGrid, Focus } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
+import { useDocumentPip, hasDocumentPipSupport } from './useDocumentPip';
+import { DocumentPipContent } from './DocumentPipContent';
 import './VoiceStage.css';
 
 /**
@@ -64,9 +66,7 @@ const VoiceStage: React.FC = () => {
   const setDominantScreenShare = useVoiceStore((s) => s.setDominantScreenShare);
   const stageLayout = useVoiceStore((s) => s.stageLayout);
   const toggleStageLayout = useVoiceStore((s) => s.toggleStageLayout);
-  const addPipWindow = useVoiceStore((s) => s.addPipWindow);
-  const pipWindows = useVoiceStore((s) => s.pipWindows);
-  const hasPipSupport = !!window.electron?.openPipWindow;
+  const docPip = useDocumentPip();
 
   const tunedInIds = Object.keys(tunedInScreenShares);
   const hasMultiple = tunedInIds.length > 1;
@@ -186,26 +186,29 @@ const VoiceStage: React.FC = () => {
       )}
 
       {/* PiP button (top-right) */}
-      {hasPipSupport && dominantScreenShareId && (
+      {hasDocumentPipSupport && dominantScreenShareId && (
         <button
           className="voice-stage__pip-btn"
-          onClick={() => {
-            const pipId = `screen-${dominantScreenShareId}`;
-            if (!pipWindows.includes(pipId)) {
-              window.electron?.openPipWindow({
-                id: pipId,
-                title: `${dominantSharerName}'s Screen`,
-                width: 400,
-                height: 300,
-              });
-              addPipWindow(pipId);
+          onClick={async () => {
+            if (docPip.isOpen) {
+              docPip.close();
+            } else {
+              await docPip.open({ width: 400, height: 300 });
             }
           }}
-          title="Pop out to PiP window"
-          disabled={pipWindows.includes(`screen-${dominantScreenShareId}`)}
+          title={docPip.isOpen ? 'Close PiP' : 'Pop out to PiP window'}
         >
           <PictureInPicture2 size={16} />
         </button>
+      )}
+
+      {/* Document PiP portal for screen share */}
+      {docPip.isOpen && docPip.pipWindow && (
+        <DocumentPipContent
+          pipWindow={docPip.pipWindow}
+          mode="screen"
+          producerId={dominantScreenShareId || ''}
+        />
       )}
 
       {/* Cycle buttons (only when multiple shares in focus mode) */}

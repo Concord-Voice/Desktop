@@ -1,0 +1,62 @@
+.connection-lost-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: modalOverlayFadeIn 0.3s ease-out;
+  pointer-events: all;
+}
+
+.connection-lost-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  padding: 40px;
+  max-width: 440px;
+  text-align: center;
+  animation: modalSlideIn 0.3s ease-out;
+}
+
+.connection-lost-icon {
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+
+.connection-lost-title {
+  font-size: calc(22px * var(--font-scale, 1));
+  font-weight: 700;
+  font-family: 'BaronNeue', sans-serif;
+  color: var(--text-primary);
+  letter-spacing: 0.3px;
+  margin: 0 0 12px;
+}
+
+.connection-lost-message {
+  font-size: calc(14px * var(--font-scale, 1));
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin: 0 0 24px;
+}
+
+.connection-lost-exit {
+  background: var(--danger-color, #e74c3c);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 24px;
+  font-size: calc(14px * var(--font-scale, 1));
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.connection-lost-exit:hover {
+  background: var(--danger-hover, #c0392b);
+}

@@ -24,8 +24,15 @@ import {
 } from '../services/websocketService';
 import { e2eeService } from '../services/e2eeService';
 import { preferencesSyncService } from '../services/preferencesSync';
+import { apiFetch } from '../services/apiClient';
+import { getVoiceService } from '../services/voiceLazy';
 import { useVoiceStore } from '../stores/voiceStore';
+import { useConnectionStore } from '../stores/connectionStore';
 import { speak as ttsSpeak } from '../services/ttsService';
+
+// Debounce timers for re-fetching voice participants after join/leave events.
+// Coalesces rapid bursts (e.g. 10 users joining) into a single API call.
+const voiceRefetchTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 export function useWebSocket() {
   const accessToken = useAuthStore((state) => state.accessToken);
@@ -74,11 +81,45 @@ export function useWebSocket() {
 
       console.debug(`[WebSocket] state → ${state}`, connectionInfo);
 
-      // Process any pending key requests on connect/reconnect
-      if (state === ConnectionState.CONNECTED && e2eeService.isInitialized) {
-        e2eeService.processPendingKeyRequests().catch(() => {
-          // Non-critical — will retry on next key_needed event
-        });
+      // ── Connection loss detection ──────────────────────────────────
+      const connStore = useConnectionStore.getState();
+
+      if (state === ConnectionState.RECONNECTING && !connStore.inGracePeriod && !connStore.showOverlay) {
+        // Connection just dropped — start 15-second grace period
+        connStore.startGracePeriod();
+
+        // Emergency-stop voice (don't keep broadcasting while disconnected)
+        getVoiceService().then(({ voiceService }) => {
+          if (useVoiceStore.getState().connectionState !== 'disconnected') {
+            voiceService.emergencyCleanup();
+          }
+        }).catch(() => { /* voice module never loaded */ });
+
+        // After 15s, show overlay if still not connected
+        setTimeout(() => {
+          if (wsService.getState() !== ConnectionState.CONNECTED) {
+            useConnectionStore.getState().showConnectionLost();
+          }
+        }, 15_000);
+      }
+
+      if (state === ConnectionState.CONNECTED) {
+        const wasShowingOverlay = connStore.showOverlay;
+        connStore.reset();
+
+        if (wasShowingOverlay) {
+          // Reconnected after overlay was shown — fresh session
+          // (auth tokens persist in localStorage via zustand/persist)
+          window.location.reload();
+          return;
+        }
+
+        // Normal reconnect (within grace period) or initial connect
+        if (e2eeService.isInitialized) {
+          e2eeService.processPendingKeyRequests().catch(() => {
+            // Non-critical — will retry on next key_needed event
+          });
+        }
       }
     });
 
@@ -482,7 +523,7 @@ export function useWebSocket() {
       const action = data.action as string | undefined;
       const userId = data.user_id as string | undefined;
       const serverId = data.server_id as string | undefined;
-      if (!channelId || !action || !userId) return;
+      if (!channelId || !action) return;
 
       const voiceStore = useVoiceStore.getState();
 
@@ -509,6 +550,30 @@ export function useWebSocket() {
           // Safety net: server confirmed the room is empty — clear all members
           voiceStore.setChannelVoiceMembers(channelId, []);
           break;
+      }
+
+      // Re-fetch authoritative voice members to correct any drift
+      if (action === 'joined' || action === 'left') {
+        const existing = voiceRefetchTimers.get(channelId);
+        if (existing) clearTimeout(existing);
+        voiceRefetchTimers.set(channelId, setTimeout(async () => {
+          voiceRefetchTimers.delete(channelId);
+          try {
+            const res = await apiFetch(`/api/v1/channels/${channelId}/voice/participants`);
+            if (!res.ok) return;
+            const json = await res.json();
+            const members = (json.participants || []).map(
+              (p: { user_id: string; username: string; display_name?: string; avatar_url?: string; is_muted?: boolean }) => ({
+                userId: p.user_id,
+                username: p.username,
+                displayName: p.display_name,
+                avatarUrl: p.avatar_url,
+                isMuted: p.is_muted || false,
+              })
+            );
+            voiceStore.setChannelVoiceMembers(channelId, members);
+          } catch { /* non-critical */ }
+        }, 2000));
       }
 
       // Update detailed participants only for the channel we're connected to

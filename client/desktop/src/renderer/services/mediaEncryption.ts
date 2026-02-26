@@ -132,6 +132,30 @@ export class MediaEncryption {
     });
   }
 
+  /**
+   * Add a decryption key for a remote sender, pre-ratcheted to a target epoch.
+   * Avoids the expensive per-frame self-healing ratchet when a decrypt key is
+   * added mid-session (e.g., during tuneIn or late new-producer events).
+   */
+  async addDecryptKeyAtEpoch(
+    channelCSK: CryptoKey,
+    senderUserId: string,
+    targetEpoch: number
+  ): Promise<void> {
+    if (targetEpoch > 100) {
+      // Fallback to base key — self-healing ratchet will catch up
+      return this.addDecryptKey(channelCSK, senderUserId);
+    }
+    let key = await deriveFrameKey(channelCSK, senderUserId);
+    for (let i = 0; i < targetEpoch; i++) {
+      key = await ratchetKey(key);
+    }
+    this.decryptKeys.set(`${senderUserId}:${targetEpoch}`, {
+      key,
+      expires: Date.now() + 3600_000,
+    });
+  }
+
   /** Rotate keys (new epoch) — ratchet forward, keep old keys for overlap */
   async rotateKeys(): Promise<void> {
     if (!this.encryptKey) return;

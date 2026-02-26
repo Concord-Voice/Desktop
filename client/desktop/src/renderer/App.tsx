@@ -5,6 +5,7 @@ import MainView from './components/MainView/MainView';
 import ProfilePage from './components/Profile/ProfilePage';
 import SettingsPage from './components/Settings/SettingsPage';
 import PipWindow from './components/Voice/PipWindow';
+import ConnectionLostOverlay from './components/ui/ConnectionLostOverlay';
 import { useAuthStore } from './stores/authStore';
 import { useUserStore } from './stores/userStore';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -27,7 +28,12 @@ function AuthenticatedLayout() {
   if (!accessToken) {
     return <Navigate to="/" replace />;
   }
-  return <Outlet />;
+  return (
+    <>
+      <Outlet />
+      <ConnectionLostOverlay />
+    </>
+  );
 }
 
 function App() {

@@ -165,6 +165,11 @@ ipcMain.handle('app:relaunch', () => {
   app.quit();
 });
 
+// Clean app exit (preserves persisted auth/remember-me state)
+ipcMain.handle('app:quit', () => {
+  app.quit();
+});
+
 // ─── PiP (Picture-in-Picture) Window Management ──────────────────────
 const pipWindows = new Map<string, BrowserWindow>();
 

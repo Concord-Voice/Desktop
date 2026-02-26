@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Mic,
   MicOff,
@@ -13,11 +13,15 @@ import {
   MessageSquare,
   MessageSquareOff,
   PictureInPicture2,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useChannelStore } from '../../stores/channelStore';
 import { getVoiceService } from '../../services/voiceLazy';
 import ScreenSharePicker from './ScreenSharePicker';
+import { useDocumentPip, hasDocumentPipSupport } from './useDocumentPip';
+import { DocumentPipContent } from './DocumentPipContent';
 import './VoiceControls.css';
 
 interface VoiceControlsProps {
@@ -41,8 +45,8 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
     videoSlotError,
     setVideoSlotError,
     tunedInScreenShares,
-    pipWindows,
-    addPipWindow,
+    keepActiveWhileUnfocused,
+    setKeepActiveWhileUnfocused,
   } = useVoiceStore();
 
   const getLinkedTextChannel = useChannelStore((s) => s.getLinkedTextChannel);
@@ -51,7 +55,11 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
   const [showScreenPicker, setShowScreenPicker] = useState(false);
   const [showPipMenu, setShowPipMenu] = useState(false);
   const participantCount = Object.keys(participants).length;
-  const hasPipSupport = !!window.electron?.openPipWindow;
+
+  // Document PiP state
+  const docPip = useDocumentPip();
+  const [pipMode, setPipMode] = useState<'frames' | 'screen'>('frames');
+  const [pipProducerId, setPipProducerId] = useState('');
 
   const handleToggleMute = async () => {
     const { voiceService } = await getVoiceService();
@@ -111,11 +119,18 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
     return () => clearTimeout(timer);
   }, [videoSlotError, setVideoSlotError]);
 
-  const handleOpenPip = (id: string, title: string, width?: number, height?: number) => {
-    window.electron?.openPipWindow({ id, title, width, height });
-    addPipWindow(id);
+  const handleOpenPip = useCallback(async (mode: 'frames' | 'screen', producerId?: string) => {
+    if (docPip.isOpen) {
+      docPip.close();
+    }
+    setPipMode(mode);
+    setPipProducerId(producerId || '');
+    await docPip.open({
+      width: mode === 'frames' ? 320 : 400,
+      height: mode === 'frames' ? 240 : 300,
+    });
     setShowPipMenu(false);
-  };
+  }, [docPip]);
 
   const tunedInIds = Object.keys(tunedInScreenShares);
 
@@ -215,23 +230,39 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
             </button>
           )}
 
-          {hasPipSupport && (
+          {isScreenSharing && (
+            <button
+              className={`voice-controls__btn ${keepActiveWhileUnfocused ? 'voice-controls__btn--active' : ''}`}
+              onClick={() => setKeepActiveWhileUnfocused(!keepActiveWhileUnfocused)}
+              title={keepActiveWhileUnfocused ? 'Stream stays active when unfocused' : 'Stream pauses when unfocused'}
+            >
+              {keepActiveWhileUnfocused ? <Eye size={18} /> : <EyeOff size={18} />}
+              <span className="voice-controls__btn-label">{keepActiveWhileUnfocused ? 'Always On' : 'Auto Pause'}</span>
+            </button>
+          )}
+
+          {hasDocumentPipSupport && (
             <div className="voice-controls__pip-wrap">
               <button
-                className="voice-controls__btn"
-                onClick={() => setShowPipMenu((v) => !v)}
+                className={`voice-controls__btn ${docPip.isOpen ? 'voice-controls__btn--active' : ''}`}
+                onClick={() => {
+                  if (docPip.isOpen) {
+                    docPip.close();
+                  } else {
+                    setShowPipMenu((v) => !v);
+                  }
+                }}
                 title="Picture-in-Picture"
               >
                 <PictureInPicture2 size={18} />
                 <span className="voice-controls__btn-label">PiP</span>
               </button>
 
-              {showPipMenu && (
+              {showPipMenu && !docPip.isOpen && (
                 <div className="voice-controls__pip-menu">
                   <button
                     className="voice-controls__pip-menu-item"
-                    onClick={() => handleOpenPip('frames-main', 'User Frames', 320, 240)}
-                    disabled={pipWindows.includes('frames-main')}
+                    onClick={() => handleOpenPip('frames')}
                   >
                     Pop Out User Frames
                   </button>
@@ -240,13 +271,11 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
                       (p) => p.isScreenSharing
                     );
                     const name = sharer?.displayName || sharer?.username || 'User';
-                    const pipId = `screen-${producerId}`;
                     return (
                       <button
                         key={producerId}
                         className="voice-controls__pip-menu-item"
-                        onClick={() => handleOpenPip(pipId, `${name}'s Screen`, 400, 300)}
-                        disabled={pipWindows.includes(pipId)}
+                        onClick={() => handleOpenPip('screen', producerId)}
                       >
                         Pop Out {name}&apos;s Screen
                       </button>
@@ -272,6 +301,15 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
         <ScreenSharePicker
           onSelect={handleScreenSourceSelected}
           onCancel={() => setShowScreenPicker(false)}
+        />
+      )}
+
+      {/* Render Document PiP content via React Portal */}
+      {docPip.isOpen && docPip.pipWindow && (
+        <DocumentPipContent
+          pipWindow={docPip.pipWindow}
+          mode={pipMode}
+          producerId={pipProducerId}
         />
       )}
     </>

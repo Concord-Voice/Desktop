@@ -424,21 +424,19 @@ export class WebSocketService {
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('Max reconnect attempts reached');
-      this.setState(ConnectionState.ERROR);
-      return;
-    }
-
     this.clearReconnectTimer();
 
-    const delay = Math.min(
-      this.reconnectDelay * Math.pow(2, this.reconnectAttempts),
-      this.maxReconnectDelay
-    );
+    // Exponential backoff for first 10 attempts, then fixed 30s intervals
+    // (keeps retrying indefinitely — the UI layer handles the timeout UX)
+    const delay = this.reconnectAttempts < this.maxReconnectAttempts
+      ? Math.min(
+          this.reconnectDelay * Math.pow(2, this.reconnectAttempts),
+          this.maxReconnectDelay
+        )
+      : 30_000;
 
     console.debug(
-      `[WebSocket] reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`
+      `[WebSocket] reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1})`
     );
 
     this.reconnectTimer = setTimeout(() => {

@@ -225,6 +225,9 @@ interface VoiceState {
   // PiP state
   pipWindows: string[];
 
+  // Stream focus behavior
+  keepActiveWhileUnfocused: boolean;
+
   // Actions
   setConnectionState: (state: VoiceConnectionState) => void;
   setActiveChannel: (channelId: string | null, channelName?: string, serverId?: string) => void;
@@ -289,6 +292,9 @@ interface VoiceState {
   addPipWindow: (id: string) => void;
   removePipWindow: (id: string) => void;
 
+  // Stream focus behavior
+  setKeepActiveWhileUnfocused: (keep: boolean) => void;
+
   // Full reset (on disconnect)
   reset: () => void;
 }
@@ -331,6 +337,9 @@ const initialState = {
   streamBarHeight: 120,
   stageLayout: 'focus' as 'equal' | 'focus',
   pipWindows: [] as string[],
+  keepActiveWhileUnfocused: (() => {
+    try { return localStorage.getItem('concord:keep-active-unfocused') === 'true'; } catch { return false; }
+  })(),
 };
 
 export const useVoiceStore = create<VoiceState>()((set) => ({
@@ -526,6 +535,12 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
       pipWindows: state.pipWindows.filter((w) => w !== id),
     })),
 
+  // Stream focus behavior
+  setKeepActiveWhileUnfocused: (keep) => {
+    set({ keepActiveWhileUnfocused: keep });
+    try { localStorage.setItem('concord:keep-active-unfocused', String(keep)); } catch { /* ignore */ }
+  },
+
   reset: () =>
     set((state) => ({
       ...initialState,
@@ -544,5 +559,7 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
       userFrameBarHeight: state.userFrameBarHeight,
       streamBarHeight: state.streamBarHeight,
       stageLayout: state.stageLayout,
+      // Preserve stream focus preference
+      keepActiveWhileUnfocused: state.keepActiveWhileUnfocused,
     })),
 }));

@@ -588,6 +588,66 @@ class VoiceService {
     store.reset();
   }
 
+  /**
+   * Emergency cleanup: synchronously stop all local media tracks and tear
+   * down transports without awaiting any server-side acknowledgment.
+   * Used for forced logout, token revocation, connection loss, and app close
+   * where we can't wait for network round-trips.
+   * All operations are idempotent — safe to call multiple times.
+   */
+  emergencyCleanup(): void {
+    // 1. Stop all local media tracks immediately
+    for (const stream of [this.localMicStream, this.localCameraStream, this.localScreenStream]) {
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+    }
+    this.localMicStream = null;
+    this.localCameraStream = null;
+    this.localScreenStream = null;
+
+    // 2. Close all producers (sync)
+    for (const [, producer] of this.producers) {
+      try { producer.close(); } catch { /* ignore */ }
+    }
+    this.producers.clear();
+
+    // 3. Close all consumers
+    for (const [, consumer] of this.consumers) {
+      try { consumer.close(); } catch { /* ignore */ }
+    }
+    this.consumers.clear();
+
+    // 4. Close transports (sync)
+    try { this.sendTransport?.close(); } catch { /* ignore */ }
+    try { this.recvTransport?.close(); } catch { /* ignore */ }
+    this.sendTransport = null;
+    this.recvTransport = null;
+
+    // 5. Stop timers
+    this.stopLocalVAD();
+    this.stopPacketLossMonitor();
+    if (this.decoderProfilingTimer) {
+      clearInterval(this.decoderProfilingTimer);
+      this.decoderProfilingTimer = null;
+    }
+
+    // 6. Destroy E2EE
+    this.mediaEncryption?.destroy();
+    this.mediaEncryption = null;
+    this.isEncrypted = false;
+
+    // 7. Disconnect socket (fire-and-forget)
+    try { this.socket?.disconnect(); } catch { /* ignore */ }
+    this.socket = null;
+
+    // 8. Reset device and consume queue
+    this.device = null;
+    this.consumeQueue = Promise.resolve();
+
+    // 9. Reset store
+    useVoiceStore.getState().clearAvailableScreenShares();
+    useVoiceStore.getState().reset();
+  }
+
   // ─── Audio Producer ────────────────────────────────────────────────
 
   async produceAudio(deviceId?: string): Promise<void> {
@@ -820,6 +880,12 @@ class VoiceService {
         });
       }
 
+      // Auto-stage: tune in to own screen share and set as dominant
+      store.tuneIn(producer.id, 'local-screen');
+      if (!store.dominantScreenShareId) {
+        store.setDominantScreenShare(producer.id);
+      }
+
       if (this.isEncrypted && this.mediaEncryption) {
         this.applyEncryptTransform(producer);
       }
@@ -912,6 +978,22 @@ class VoiceService {
     } else {
       await this.produceScreen(sourceId);
     }
+  }
+
+  /** Pause a local producer by source name (e.g. 'screen', 'camera', 'mic') */
+  pauseLocalProducer(source: string): void {
+    const producer = this.producers.get(source);
+    if (!producer || producer.paused) return;
+    producer.pause();
+    this.socket?.emit('pause-producer', { producerId: producer.id });
+  }
+
+  /** Resume a local producer by source name */
+  resumeLocalProducer(source: string): void {
+    const producer = this.producers.get(source);
+    if (!producer || !producer.paused) return;
+    producer.resume();
+    this.socket?.emit('resume-producer', { producerId: producer.id });
   }
 
   /** Opt-in to consume a remote screen share ("Tune In" model) — up to 5 concurrent */
@@ -1363,7 +1445,8 @@ class VoiceService {
     this.socket.on('disconnect', (reason) => {
       console.warn('Media plane disconnected:', reason);
       if (reason === 'io server disconnect') {
-        useVoiceStore.getState().setConnectionState('disconnected');
+        // Server forcibly disconnected us — full cleanup
+        this.emergencyCleanup();
       } else {
         useVoiceStore.getState().setConnectionState('reconnecting');
       }
@@ -1373,6 +1456,11 @@ class VoiceService {
       if (useVoiceStore.getState().connectionState === 'reconnecting') {
         useVoiceStore.getState().setConnectionState('connected');
       }
+    });
+
+    // Socket.IO exhausted all reconnection attempts
+    this.socket.io.on('reconnect_failed', () => {
+      this.emergencyCleanup();
     });
 
     this.socket.on('error', ({ message }) => {
@@ -1545,12 +1633,17 @@ class VoiceService {
     }
   }
 
-  /** Add a decryption key for a remote user */
+  /** Add a decryption key for a remote user, pre-ratcheted to current epoch */
   private async addDecryptKeyForUser(channelId: string, userId: string): Promise<void> {
     if (!this.mediaEncryption) return;
     try {
       const channelCSK = await e2eeService.getChannelKey(channelId);
-      await this.mediaEncryption.addDecryptKey(channelCSK, userId);
+      const currentEpoch = this.mediaEncryption.getCurrentKeyId();
+      if (currentEpoch > 0) {
+        await this.mediaEncryption.addDecryptKeyAtEpoch(channelCSK, userId, currentEpoch);
+      } else {
+        await this.mediaEncryption.addDecryptKey(channelCSK, userId);
+      }
     } catch (err) {
       console.error('Failed to add decrypt key for user:', userId, err);
     }
@@ -1762,3 +1855,20 @@ class VoiceService {
 
 // Export singleton
 export const voiceService = new VoiceService();
+
+// Auto-cleanup voice when auth tokens are cleared (logout, token revocation,
+// refresh failure). This fires BEFORE the React tree re-renders, ensuring
+// media stops immediately regardless of which code path called clearTokens().
+useAuthStore.subscribe((state, prevState) => {
+  if (prevState.accessToken && !state.accessToken) {
+    voiceService.emergencyCleanup();
+  }
+});
+
+// Stop all media when the window is closing (app quit, reload, crash).
+// Ensures the OS releases mic/camera even on unclean shutdown.
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    voiceService.emergencyCleanup();
+  });
+}

@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('electron', {
   getHardwareAcceleration: () => ipcRenderer.invoke('app:getHardwareAcceleration') as Promise<boolean>,
   setHardwareAcceleration: (enabled: boolean) => ipcRenderer.invoke('app:setHardwareAcceleration', enabled),
   relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
+  quitApp: () => ipcRenderer.invoke('app:quit'),
 
   // PiP (Picture-in-Picture) windows
   openPipWindow: (opts: { id: string; width?: number; height?: number; title?: string }) =>
@@ -51,6 +52,7 @@ export interface ElectronAPI {
   getHardwareAcceleration: () => Promise<boolean>;
   setHardwareAcceleration: (enabled: boolean) => Promise<void>;
   relaunchApp: () => Promise<void>;
+  quitApp: () => Promise<void>;
   openPipWindow: (opts: { id: string; width?: number; height?: number; title?: string }) => Promise<void>;
   closePipWindow: (id: string) => Promise<void>;
   setPipAlwaysOnTop: (id: string, flag: boolean) => Promise<void>;

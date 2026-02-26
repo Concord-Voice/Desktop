@@ -44,7 +44,8 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     toggleUserFrameBar,
     toggleStreamBar,
     stageLayout,
-    removePipWindow,
+    isScreenSharing,
+    keepActiveWhileUnfocused,
   } = useVoiceStore();
 
   const getLinkedTextChannel = useChannelStore((s) => s.getLinkedTextChannel);
@@ -75,61 +76,30 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     hasJoinedRef.current = isConnected;
   }, [channelId, isConnected]);
 
-  // Broadcast participant state to PiP windows via BroadcastChannel.
-  // MediaStream objects can't be cloned for postMessage — strip them.
-  const pipChannelRef = useRef<BroadcastChannel | null>(null);
-
-  const serializeParticipants = useCallback(
-    (p: typeof participants) => {
-      const safe: Record<string, unknown> = {};
-      for (const [id, part] of Object.entries(p)) {
-        const { audioStream, videoStream, screenStream, ...rest } = part;
-        safe[id] = {
-          ...rest,
-          hasAudio: !!audioStream,
-          hasVideo: !!videoStream,
-          hasScreen: !!screenStream,
-        };
-      }
-      return safe;
-    },
-    []
-  );
+  // Pause local screen share when window loses focus (unless keepActiveWhileUnfocused)
+  const screenPausedByFocusRef = useRef(false);
 
   useEffect(() => {
-    if (!isConnected) return;
-    const bc = new BroadcastChannel('concord-pip');
-    pipChannelRef.current = bc;
+    if (!isConnected || !isScreenSharing) {
+      screenPausedByFocusRef.current = false;
+      return;
+    }
 
-    // Listen for state requests from PiP windows
-    bc.onmessage = (event: MessageEvent) => {
-      if (event.data?.type === 'pip-request-state') {
-        bc.postMessage({ type: 'pip-state', participants: serializeParticipants(participants) });
+    const handleVisibility = async () => {
+      if (keepActiveWhileUnfocused) return;
+      const { voiceService } = await getVoiceService();
+      if (document.hidden) {
+        voiceService.pauseLocalProducer('screen');
+        screenPausedByFocusRef.current = true;
+      } else if (screenPausedByFocusRef.current) {
+        voiceService.resumeLocalProducer('screen');
+        screenPausedByFocusRef.current = false;
       }
     };
 
-    return () => {
-      bc.close();
-      pipChannelRef.current = null;
-    };
-  }, [isConnected]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Push participant updates to PiP windows
-  useEffect(() => {
-    pipChannelRef.current?.postMessage({
-      type: 'pip-state',
-      participants: serializeParticipants(participants),
-    });
-  }, [participants, serializeParticipants]);
-
-  // Listen for PiP window closed events from main process
-  useEffect(() => {
-    if (!window.electron?.onPipClosed) return;
-    const unsub = window.electron.onPipClosed((id: string) => {
-      removePipWindow(id);
-    });
-    return unsub;
-  }, [removePipWindow]);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [isConnected, isScreenSharing, keepActiveWhileUnfocused]);
 
   // Text chat resize
   const handleChatResizeStart = useCallback(
