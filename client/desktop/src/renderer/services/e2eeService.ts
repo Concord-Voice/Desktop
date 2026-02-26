@@ -13,8 +13,8 @@
  */
 
 import {
-  deriveKeyFromPassword,
-  derivePreferencesKey,
+  deriveKeyFromPasswordExportable,
+  derivePreferencesKeyExportable,
   encryptBlob,
   decryptBlob,
   unwrapPrivateKey,
@@ -25,6 +25,7 @@ import {
   generateChannelKey,
   exportChannelKey,
   importPublicKey,
+  arrayBufferToBase64,
   base64ToArrayBuffer,
 } from '../utils/crypto';
 import { apiFetch } from './apiClient';
@@ -36,6 +37,13 @@ interface CachedWrappedKey {
   lastUsed: number;
 }
 
+/** Exported key material for safeStorage persistence */
+export interface E2EESessionKeys {
+  wrappingKeyBase64: string;
+  preferencesKeyBase64: string;
+  wrappedPrivateKeyBase64: string;
+}
+
 class E2EEService {
   private wrappingKey: CryptoKey | null = null;
   private preferencesKey: CryptoKey | null = null;
@@ -44,9 +52,13 @@ class E2EEService {
   private pendingKeyFetches: Map<string, Promise<CryptoKey>> = new Map();
   private cacheCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
+  /** Cached exported keys for safeStorage persistence (set during initialize) */
+  private sessionKeys: E2EESessionKeys | null = null;
+
   /**
-   * Initialize the E2EE service after login.
-   * Derives the PBKDF2 wrapping key once per session.
+   * Initialize the E2EE service after login/registration.
+   * Derives PBKDF2 keys as extractable, exports raw bytes for safeStorage,
+   * then re-imports as non-extractable for runtime security.
    */
   async initialize(
     password: string,
@@ -54,12 +66,66 @@ class E2EEService {
     saltBase64: string
   ): Promise<void> {
     const saltBytes = new Uint8Array(base64ToArrayBuffer(saltBase64));
-    this.wrappingKey = await deriveKeyFromPassword(password, saltBytes);
-    this.preferencesKey = await derivePreferencesKey(password, saltBytes);
+
+    // Derive extractable keys (single PBKDF2 pass each)
+    const exportableWrapping = await deriveKeyFromPasswordExportable(password, saltBytes);
+    const exportablePrefs = await derivePreferencesKeyExportable(password, saltBytes);
+
+    // Export raw bytes for safeStorage persistence
+    const wrappingRaw = await crypto.subtle.exportKey('raw', exportableWrapping);
+    const prefsRaw = await crypto.subtle.exportKey('raw', exportablePrefs);
+
+    // Re-import as non-extractable for runtime use (XSS protection)
+    this.wrappingKey = await crypto.subtle.importKey(
+      'raw', wrappingRaw, { name: 'AES-GCM', length: 256 }, false, ['wrapKey', 'unwrapKey']
+    );
+    this.preferencesKey = await crypto.subtle.importKey(
+      'raw', prefsRaw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+    );
+
     this.wrappedPrivateKey = wrappedPrivateKeyBase64;
 
+    // Cache exported keys for safeStorage (base64 for JSON serialization)
+    this.sessionKeys = {
+      wrappingKeyBase64: arrayBufferToBase64(wrappingRaw),
+      preferencesKeyBase64: arrayBufferToBase64(prefsRaw),
+      wrappedPrivateKeyBase64,
+    };
+
     // Start cache cleanup
+    if (this.cacheCleanupInterval) clearInterval(this.cacheCleanupInterval);
     this.cacheCleanupInterval = setInterval(() => this.cleanupCache(), 60_000);
+  }
+
+  /**
+   * Initialize from stored session keys (restored from safeStorage).
+   * Imports raw key bytes as non-extractable CryptoKey objects.
+   */
+  async initializeFromStoredKeys(keys: E2EESessionKeys): Promise<void> {
+    const wrappingRaw = base64ToArrayBuffer(keys.wrappingKeyBase64);
+    const prefsRaw = base64ToArrayBuffer(keys.preferencesKeyBase64);
+
+    this.wrappingKey = await crypto.subtle.importKey(
+      'raw', wrappingRaw, { name: 'AES-GCM', length: 256 }, false, ['wrapKey', 'unwrapKey']
+    );
+    this.preferencesKey = await crypto.subtle.importKey(
+      'raw', prefsRaw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+    );
+
+    this.wrappedPrivateKey = keys.wrappedPrivateKeyBase64;
+    this.sessionKeys = keys;
+
+    // Start cache cleanup
+    if (this.cacheCleanupInterval) clearInterval(this.cacheCleanupInterval);
+    this.cacheCleanupInterval = setInterval(() => this.cleanupCache(), 60_000);
+  }
+
+  /**
+   * Get the exported session keys for safeStorage persistence.
+   * Only available after initialize() has been called.
+   */
+  getSessionKeys(): E2EESessionKeys | null {
+    return this.sessionKeys;
   }
 
   /**
@@ -270,6 +336,7 @@ class E2EEService {
     this.wrappingKey = null;
     this.preferencesKey = null;
     this.wrappedPrivateKey = '';
+    this.sessionKeys = null;
     this.channelKeyCache.clear();
     this.pendingKeyFetches.clear();
     if (this.cacheCleanupInterval) {

@@ -77,7 +77,7 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
         throw new Error(data.error || 'Failed to create category');
       }
 
-      addChannelGroup(data.group || data);
+      addChannelGroup(data.channel_group || data.group || data);
       setSuccessMessage('Category created!');
 
       if (onSuccess) {

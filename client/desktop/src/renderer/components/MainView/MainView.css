@@ -164,11 +164,3 @@
 .resize-handle:active {
   background-color: var(--accent-primary);
 }
-
-/* ─── Member List Container (resizable wrapper) ─────────────────────────── */
-
-.member-list-container {
-  flex-shrink: 0;
-  display: flex;
-  overflow: hidden;
-}

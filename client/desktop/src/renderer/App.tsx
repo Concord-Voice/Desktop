@@ -10,6 +10,8 @@ import ConnectionLostOverlay from './components/ui/ConnectionLostOverlay';
 import { useAuthStore } from './stores/authStore';
 import { useUserStore } from './stores/userStore';
 import { useWebSocket } from './hooks/useWebSocket';
+import { e2eeService } from './services/e2eeService';
+import { preferencesSyncService } from './services/preferencesSync';
 
 function AuthenticatedLayout() {
   const accessToken = useAuthStore((state) => state.accessToken);
@@ -56,6 +58,18 @@ function App() {
       const result = await window.electron.restoreSession();
       if (result.status === 'restored' && result.accessToken) {
         useAuthStore.getState().setAccessToken(result.accessToken);
+
+        // Restore E2EE service from safeStorage-persisted key material
+        if (result.e2eeKeys) {
+          try {
+            await e2eeService.initializeFromStoredKeys(result.e2eeKeys);
+            preferencesSyncService.startWatching();
+            await preferencesSyncService.fetchAndApply();
+            console.debug('E2EE service restored from stored session keys');
+          } catch (err) {
+            console.warn('Failed to restore E2EE keys — E2EE features will require re-login:', err);
+          }
+        }
       } else if (result.status === 'tampered') {
         console.error('Secure token tamper detected — forcing re-login');
       }

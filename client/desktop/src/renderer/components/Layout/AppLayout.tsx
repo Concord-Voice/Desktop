@@ -10,6 +10,8 @@ interface AppLayoutProps {
   memberSpace: React.ReactNode;
   /** Force the channel panel column to be visible regardless of pin state */
   forceChannelPin?: boolean;
+  /** Force the member panel column to expanded mode regardless of layoutStore state */
+  forceMemberExpanded?: boolean;
 }
 
 const AppLayout: React.FC<AppLayoutProps> = ({
@@ -19,6 +21,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({
   chatArea,
   memberSpace,
   forceChannelPin = false,
+  forceMemberExpanded = false,
 }) => {
   const channelPanelPinned = useLayoutStore((s) => s.channelPanelPinned);
   const memberPanelMode = useLayoutStore((s) => s.memberPanelMode);
@@ -59,7 +62,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({
     <div
       className="app-layout"
       data-channel-pinned={String(channelPanelPinned || forceChannelPin)}
-      data-member-mode={memberPanelMode}
+      data-member-mode={forceMemberExpanded ? 'expanded' : memberPanelMode}
     >
       <div className="layout-server-bar" style={{ height: serverBarHeight }}>
         {serverBar}

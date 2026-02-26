@@ -658,7 +658,7 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
                   <span className="channel-group-header__chevron">
                     {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                   </span>
-                  <span>{group.name.toUpperCase()}</span>
+                  <span>{(group.name ?? '').toUpperCase()}</span>
                   {isCollapsed && groupVoiceUsers.length > 0 && (
                     <div className="channel-group-header__voice-users">
                       {groupVoiceUsers.slice(0, 3).map((user) => (

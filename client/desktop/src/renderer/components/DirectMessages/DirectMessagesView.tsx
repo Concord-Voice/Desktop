@@ -5,7 +5,7 @@ import FolderBar from '../Layout/FolderBar';
 import ChannelPanel from '../Layout/ChannelPanel';
 import ConversationList from './ConversationList';
 import DMChatArea from './DMChatArea';
-import FriendsList from './FriendsList';
+import FriendsFlexSpace from './FriendsFlexSpace';
 import ServerActionModal from '../Servers/ServerActionModal';
 import CreateServerModal from '../Servers/CreateServerModal';
 import JoinServerModal from '../Servers/JoinServerModal';
@@ -53,7 +53,7 @@ const DirectMessagesView: React.FC = () => {
   );
 
   return (
-    <div className="view-container">
+    <div className="view-container main-view">
       <AppLayout
         serverBar={
           <ServerBar
@@ -76,7 +76,8 @@ const DirectMessagesView: React.FC = () => {
             threadName={selectedThreadId ? THREAD_NAMES[selectedThreadId] : undefined}
           />
         }
-        memberSpace={<FriendsList />}
+        memberSpace={<FriendsFlexSpace />}
+        forceMemberExpanded
       />
 
       {/* Server management modals */}

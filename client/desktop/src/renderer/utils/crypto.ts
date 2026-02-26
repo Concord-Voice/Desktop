@@ -253,6 +253,84 @@ export async function unwrapLoginKeys(
 }
 
 // ========================================
+// Exportable key derivation (for session persistence via safeStorage)
+// ========================================
+
+/**
+ * Derive an EXTRACTABLE wrapping key from password.
+ * Used once during login/registration to export raw bytes for safeStorage.
+ * The exported bytes are then re-imported as non-extractable for runtime use.
+ */
+export async function deriveKeyFromPasswordExportable(
+  password: string,
+  salt: Uint8Array
+): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const passwordKey = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt,
+      iterations: PBKDF2_ITERATIONS,
+      hash: 'SHA-256',
+    },
+    passwordKey,
+    {
+      name: 'AES-GCM',
+      length: DERIVED_KEY_LENGTH * 8,
+    },
+    true, // extractable — for one-time export only
+    ['wrapKey', 'unwrapKey']
+  );
+}
+
+/**
+ * Derive an EXTRACTABLE preferences key from password.
+ * Same domain-separation as derivePreferencesKey, but extractable for storage.
+ */
+export async function derivePreferencesKeyExportable(
+  password: string,
+  salt: Uint8Array
+): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const separator = encoder.encode(PREFERENCES_DOMAIN_SEPARATOR);
+  const domainSalt = new Uint8Array(salt.length + separator.length);
+  domainSalt.set(salt, 0);
+  domainSalt.set(separator, salt.length);
+
+  const passwordKey = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: domainSalt,
+      iterations: PBKDF2_ITERATIONS,
+      hash: 'SHA-256',
+    },
+    passwordKey,
+    {
+      name: 'AES-GCM',
+      length: DERIVED_KEY_LENGTH * 8,
+    },
+    true, // extractable — for one-time export only
+    ['encrypt', 'decrypt']
+  );
+}
+
+// ========================================
 // Channel Symmetric Key (CSK) operations
 // ========================================
 

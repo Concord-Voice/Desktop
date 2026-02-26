@@ -25,6 +25,7 @@ let refreshPromise: Promise<{ status: string; accessToken?: string }> | null = n
 
 const TOKEN_FILE = path.join(app.getPath('userData'), 'secure-token.dat');
 const META_FILE = path.join(app.getPath('userData'), 'token-meta.json');
+const E2EE_FILE = path.join(app.getPath('userData'), 'secure-e2ee.dat');
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
@@ -52,6 +53,7 @@ function readMeta(): { apiBase: string; rememberMe: boolean } | null {
 function deleteFiles(): void {
   try { fs.unlinkSync(TOKEN_FILE); } catch { /* no-op */ }
   try { fs.unlinkSync(META_FILE); } catch { /* no-op */ }
+  try { fs.unlinkSync(E2EE_FILE); } catch { /* no-op */ }
 }
 
 // ─── Public API ──────────────────────────────────────────────────────
@@ -215,6 +217,50 @@ export function clearTokens(): void {
   inMemoryRememberMe = true;
   inMemoryApiBase = '';
   deleteFiles();
+}
+
+// ─── E2EE Key Persistence (safeStorage) ──────────────────────────────
+
+/**
+ * Store E2EE session keys encrypted via safeStorage.
+ * Called after login/registration when E2EE service has been initialized.
+ */
+export function storeE2EEKeys(data: {
+  wrappingKeyBase64: string;
+  preferencesKeyBase64: string;
+  wrappedPrivateKeyBase64: string;
+}): void {
+  if (!canPersist() || !inMemoryRememberMe) {
+    return; // Only persist if safeStorage available and rememberMe is on
+  }
+
+  try {
+    const json = JSON.stringify(data);
+    const encrypted = safeStorage.encryptString(json);
+    fs.writeFileSync(E2EE_FILE, encrypted);
+  } catch (err) {
+    console.error('[TokenManager] Failed to encrypt/write E2EE keys:', err);
+  }
+}
+
+/**
+ * Restore E2EE session keys from safeStorage.
+ * Returns the key material or null if unavailable.
+ */
+export function restoreE2EEKeys(): {
+  wrappingKeyBase64: string;
+  preferencesKeyBase64: string;
+  wrappedPrivateKeyBase64: string;
+} | null {
+  if (!canPersist()) return null;
+
+  try {
+    const encrypted = fs.readFileSync(E2EE_FILE);
+    const json = safeStorage.decryptString(encrypted);
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
 }
 
 /**

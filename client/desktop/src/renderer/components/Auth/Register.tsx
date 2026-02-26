@@ -153,6 +153,12 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
       }
       useAuthStore.getState().setAccessToken(data.access_token);
 
+      // Persist E2EE session keys in safeStorage for session restore
+      const sessionKeys = e2eeService.getSessionKeys();
+      if (sessionKeys && window.electron?.storeE2EEKeys) {
+        await window.electron.storeE2EEKeys(sessionKeys);
+      }
+
       onSuccess({
         accessToken: data.access_token,
         user: data.user,

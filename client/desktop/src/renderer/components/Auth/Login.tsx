@@ -160,6 +160,12 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
       }
       useAuthStore.getState().setAccessToken(data.access_token);
 
+      // Persist E2EE session keys in safeStorage for session restore
+      const sessionKeys = e2eeService.getSessionKeys();
+      if (sessionKeys && window.electron?.storeE2EEKeys) {
+        await window.electron.storeE2EEKeys(sessionKeys);
+      }
+
       // Start watching for local preference changes and fetch remote preferences
       preferencesSyncService.startWatching();
       await preferencesSyncService.fetchAndApply();

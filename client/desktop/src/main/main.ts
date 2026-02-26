@@ -8,6 +8,8 @@ import {
   performLogout,
   clearTokens,
   getCapabilities,
+  storeE2EEKeys,
+  restoreE2EEKeys,
 } from './tokenManager';
 
 // Hardware acceleration preference — must be checked before app.whenReady()
@@ -196,9 +198,19 @@ ipcMain.handle('auth:restoreSession', async () => {
   // Token restored from disk — refresh it to get a fresh access token
   const refreshResult = await performRefresh();
   if (refreshResult.status === 'ok' && refreshResult.accessToken) {
-    return { status: 'restored', accessToken: refreshResult.accessToken };
+    // Also restore E2EE keys if available
+    const e2eeKeys = restoreE2EEKeys();
+    return { status: 'restored', accessToken: refreshResult.accessToken, e2eeKeys };
   }
   return { status: 'refresh_failed' };
+});
+
+ipcMain.handle('auth:storeE2EEKeys', (_event, data: {
+  wrappingKeyBase64: string;
+  preferencesKeyBase64: string;
+  wrappedPrivateKeyBase64: string;
+}) => {
+  storeE2EEKeys(data);
 });
 
 ipcMain.handle('auth:refreshToken', async () => {

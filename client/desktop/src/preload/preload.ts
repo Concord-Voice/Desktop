@@ -45,7 +45,11 @@ contextBridge.exposeInMainWorld('electron', {
   storeRefreshToken: (data: { refreshToken: string; rememberMe: boolean; apiBase: string }) =>
     ipcRenderer.invoke('auth:storeRefreshToken', data),
   restoreSession: () =>
-    ipcRenderer.invoke('auth:restoreSession') as Promise<{ status: string; accessToken?: string }>,
+    ipcRenderer.invoke('auth:restoreSession') as Promise<{
+      status: string;
+      accessToken?: string;
+      e2eeKeys?: { wrappingKeyBase64: string; preferencesKeyBase64: string; wrappedPrivateKeyBase64: string } | null;
+    }>,
   refreshToken: () =>
     ipcRenderer.invoke('auth:refreshToken') as Promise<{ status: string; accessToken?: string }>,
   clearTokens: () =>
@@ -54,6 +58,10 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.invoke('auth:logout', data),
   getAuthCapabilities: () =>
     ipcRenderer.invoke('auth:getCapabilities') as Promise<{ persistAvailable: boolean }>,
+
+  // E2EE key persistence (safeStorage via main process)
+  storeE2EEKeys: (data: { wrappingKeyBase64: string; preferencesKeyBase64: string; wrappedPrivateKeyBase64: string }) =>
+    ipcRenderer.invoke('auth:storeE2EEKeys', data),
 });
 
 // Type definitions for the exposed API
@@ -74,11 +82,18 @@ export interface ElectronAPI {
 
   // Secure auth token management
   storeRefreshToken: (data: { refreshToken: string; rememberMe: boolean; apiBase: string }) => Promise<void>;
-  restoreSession: () => Promise<{ status: string; accessToken?: string }>;
+  restoreSession: () => Promise<{
+    status: string;
+    accessToken?: string;
+    e2eeKeys?: { wrappingKeyBase64: string; preferencesKeyBase64: string; wrappedPrivateKeyBase64: string } | null;
+  }>;
   refreshToken: () => Promise<{ status: string; accessToken?: string }>;
   clearTokens: () => Promise<void>;
   logout: (data?: { accessToken?: string }) => Promise<void>;
   getAuthCapabilities: () => Promise<{ persistAvailable: boolean }>;
+
+  // E2EE key persistence
+  storeE2EEKeys: (data: { wrappingKeyBase64: string; preferencesKeyBase64: string; wrappedPrivateKeyBase64: string }) => Promise<void>;
 }
 
 declare global {

@@ -136,10 +136,34 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
     scrollRef.current?.scrollBy({ left: delta, behavior: 'smooth' });
   };
 
-  // Click active server icon → toggle pin (only when pinned)
+  // Click active server icon → navigate to server view (from DM), toggle pin, or instant-show unpinned panel
   const handleActiveServerClick = () => {
+    if (location.pathname !== '/app') {
+      navigate('/app');
+      return;
+    }
     if (channelPanelPinned) {
       toggleChannelPin();
+    } else {
+      // Unpinned — instant show (cancel any pending hover timers)
+      if (hoverShowRef.current) { clearTimeout(hoverShowRef.current); hoverShowRef.current = null; }
+      if (hoverHideRef.current) { clearTimeout(hoverHideRef.current); hoverHideRef.current = null; }
+      showChannelPanelHover();
+    }
+  };
+
+  // Click PM icon — navigate to DMs, or instant-show unpinned panel if already there
+  const handlePMClick = () => {
+    if (location.pathname !== '/app/dms') {
+      navigate('/app/dms');
+      return;
+    }
+    if (channelPanelPinned) {
+      toggleChannelPin();
+    } else {
+      if (hoverShowRef.current) { clearTimeout(hoverShowRef.current); hoverShowRef.current = null; }
+      if (hoverHideRef.current) { clearTimeout(hoverHideRef.current); hoverHideRef.current = null; }
+      showChannelPanelHover();
     }
   };
 
@@ -366,34 +390,40 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
           className={`server-bar-pm-icon${location.pathname === '/app/dms' ? ' active' : ''}`}
           title="Private Messages"
           aria-label="Private Messages"
-          onClick={() => navigate('/app/dms')}
+          onClick={handlePMClick}
+          onMouseEnter={location.pathname === '/app/dms' ? handleActiveServerEnter : undefined}
+          onMouseLeave={location.pathname === '/app/dms' ? handleActiveServerLeave : undefined}
           style={{ width: stickyIconSize, height: stickyIconSize }}
         >
           <MessageSquare size={Math.round(stickyIconSize * 0.45)} />
         </button>
 
-        <button
-          className="server-bar-active-icon"
-          onClick={activeServer ? handleActiveServerClick : onOpenActionModal}
-          onMouseEnter={activeServer ? handleActiveServerEnter : undefined}
-          onMouseLeave={activeServer ? handleActiveServerLeave : undefined}
-          onContextMenu={(e) => { if (activeServer) handleContextMenu(e, activeServer); }}
-          title={activeServer ? activeServer.name : 'Select or create a server'}
-          aria-label={activeServer ? 'Toggle channel panel' : 'Select or create a server'}
-          style={{ width: stickyIconSize, height: stickyIconSize }}
-        >
-          {activeServer ? (
-            activeServer.icon_url ? (
+        {activeServer ? (
+          <button
+            className={`server-bar-active-icon${location.pathname === '/app/dms' ? ' inactive' : ''}`}
+            onClick={handleActiveServerClick}
+            onMouseEnter={location.pathname !== '/app/dms' ? handleActiveServerEnter : undefined}
+            onMouseLeave={location.pathname !== '/app/dms' ? handleActiveServerLeave : undefined}
+            onContextMenu={(e) => handleContextMenu(e, activeServer)}
+            title={activeServer.name}
+            aria-label="Toggle channel panel"
+            style={{ width: stickyIconSize, height: stickyIconSize }}
+          >
+            {activeServer.icon_url ? (
               <img src={activeServer.icon_url} alt={activeServer.name} />
             ) : (
               <span className="server-bar-icon-initial">
                 {activeServer.name.charAt(0).toUpperCase()}
               </span>
-            )
-          ) : (
-            <Plus size={Math.round(stickyIconSize * 0.45)} />
-          )}
-        </button>
+            )}
+          </button>
+        ) : (
+          <div
+            className="server-bar-empty-server"
+            title="No active server"
+            style={{ width: stickyIconSize, height: stickyIconSize }}
+          />
+        )}
       </div>
 
       <div
