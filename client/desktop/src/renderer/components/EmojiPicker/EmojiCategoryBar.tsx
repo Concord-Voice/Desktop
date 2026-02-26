@@ -18,6 +18,7 @@ const EmojiCategoryBar: React.FC<EmojiCategoryBarProps> = ({
     <div className="emoji-picker-categories">
       {hasRecent && (
         <button
+          type="button"
           className={`emoji-picker-category-tab ${activeCategory === 'recent' ? 'emoji-picker-category-tab--active' : ''}`}
           onClick={() => onSelect('recent')}
           title="Frequently Used"
@@ -28,6 +29,7 @@ const EmojiCategoryBar: React.FC<EmojiCategoryBarProps> = ({
       )}
       {categories.map((cat) => (
         <button
+          type="button"
           key={cat.id}
           className={`emoji-picker-category-tab ${activeCategory === cat.id ? 'emoji-picker-category-tab--active' : ''}`}
           onClick={() => onSelect(cat.id)}
