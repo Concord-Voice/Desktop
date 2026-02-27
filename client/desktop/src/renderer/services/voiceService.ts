@@ -22,7 +22,9 @@ import { useUserStore } from '../stores/userStore';
 import { useVoiceStore, AUDIO_QUALITY_TIERS } from '../stores/voiceStore';
 import type { AudioQualityTier, VoiceParticipant } from '../stores/voiceStore';
 import { useAudioSettingsStore } from '../stores/audioSettingsStore';
+import type { AudioPriority } from '../stores/audioSettingsStore';
 import { useVideoSettingsStore, VIDEO_QUALITY_PRESETS } from '../stores/videoSettingsStore';
+import type { VideoPriority } from '../stores/videoSettingsStore';
 import { API_BASE, apiFetch } from './apiClient';
 import { MediaEncryption } from './mediaEncryption';
 import { e2eeService } from './e2eeService';
@@ -112,6 +114,19 @@ class VoiceService {
   private vadSource: MediaStreamAudioSourceNode | null = null;
   private vadTimer: ReturnType<typeof setInterval> | null = null;
   private vadSpeaking = false;
+
+  // Noise gate (Web Audio API)
+  private noiseGateCtx: AudioContext | null = null;
+  private noiseGateTimer: ReturnType<typeof setInterval> | null = null;
+
+  // Input volume (Web Audio API GainNode)
+  private inputVolumeCtx: AudioContext | null = null;
+  private inputVolumeGain: GainNode | null = null;
+  private inputVolumeUnsub: (() => void) | null = null;
+
+  // Live settings subscriptions (apply changes during active calls)
+  private liveAudioUnsub: (() => void) | null = null;
+  private liveVideoUnsub: (() => void) | null = null;
 
   // Packet loss monitor
   private packetLossTimer: ReturnType<typeof setInterval> | null = null;
@@ -208,6 +223,109 @@ class VoiceService {
     }
   }
 
+  // ─── Noise Gate ──────────────────────────────────────────────────
+
+  /**
+   * Apply a noise gate to the mic stream using Web Audio API.
+   * Returns a new MediaStreamTrack from a MediaStreamDestination node.
+   * Audio below the threshold (dBFS) is silenced via a GainNode.
+   */
+  private applyNoiseGate(micStream: MediaStream, thresholdDbfs: number): MediaStreamTrack {
+    this.stopNoiseGate();
+
+    const ctx = new AudioContext({ sampleRate: 48000 });
+    this.noiseGateCtx = ctx;
+
+    const source = ctx.createMediaStreamSource(micStream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 256;
+    const gain = ctx.createGain();
+    const destination = ctx.createMediaStreamDestination();
+
+    source.connect(analyser);
+    analyser.connect(gain);
+    gain.connect(destination);
+
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    // Convert dBFS threshold to a 0–255 byte level (AnalyserNode getByteTimeDomainData range)
+    // dBFS -80 → ~0, -20 → ~200. Formula: 128 * 10^(dBFS/20) maps to amplitude offset from 128.
+    const thresholdAmplitude = 128 * Math.pow(10, thresholdDbfs / 20);
+
+    this.noiseGateTimer = setInterval(() => {
+      analyser.getByteTimeDomainData(dataArray);
+      // Peak amplitude offset from silence (128)
+      let peak = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const offset = Math.abs(dataArray[i] - 128);
+        if (offset > peak) peak = offset;
+      }
+
+      const isOpen = peak >= thresholdAmplitude;
+      const target = isOpen ? 1 : 0;
+      gain.gain.setTargetAtTime(target, ctx.currentTime, 0.015);
+    }, 20); // 50 Hz poll for responsive gating
+
+    return destination.stream.getAudioTracks()[0];
+  }
+
+  /** Stop noise gate and clean up audio nodes */
+  private stopNoiseGate(): void {
+    if (this.noiseGateTimer) {
+      clearInterval(this.noiseGateTimer);
+      this.noiseGateTimer = null;
+    }
+    if (this.noiseGateCtx && this.noiseGateCtx.state !== 'closed') {
+      this.noiseGateCtx.close().catch(() => {});
+    }
+    this.noiseGateCtx = null;
+  }
+
+  // ─── Input Volume ───────────────────────────────────────────────
+
+  /**
+   * Apply input volume via a GainNode. Returns a processed MediaStreamTrack.
+   * Stores references so the gain can be updated in real-time from the settings store.
+   */
+  private applyInputVolume(track: MediaStreamTrack, volumePercent: number): MediaStreamTrack {
+    this.stopInputVolume();
+
+    const ctx = new AudioContext({ sampleRate: 48000 });
+    this.inputVolumeCtx = ctx;
+
+    const source = ctx.createMediaStreamSource(new MediaStream([track]));
+    const gain = ctx.createGain();
+    const destination = ctx.createMediaStreamDestination();
+
+    gain.gain.value = volumePercent / 100;
+    source.connect(gain);
+    gain.connect(destination);
+
+    this.inputVolumeGain = gain;
+
+    // Subscribe to real-time volume changes from the settings store
+    this.inputVolumeUnsub = useAudioSettingsStore.subscribe((state, prevState) => {
+      if (state.inputVolume !== prevState.inputVolume &&
+          this.inputVolumeGain && this.inputVolumeCtx && this.inputVolumeCtx.state !== 'closed') {
+        this.inputVolumeGain.gain.setTargetAtTime(state.inputVolume / 100, this.inputVolumeCtx.currentTime, 0.01);
+      }
+    });
+
+    return destination.stream.getAudioTracks()[0];
+  }
+
+  /** Stop input volume processing and clean up */
+  private stopInputVolume(): void {
+    if (this.inputVolumeUnsub) {
+      this.inputVolumeUnsub();
+      this.inputVolumeUnsub = null;
+    }
+    if (this.inputVolumeCtx && this.inputVolumeCtx.state !== 'closed') {
+      this.inputVolumeCtx.close().catch(() => {});
+    }
+    this.inputVolumeCtx = null;
+    this.inputVolumeGain = null;
+  }
+
   // ─── Packet loss monitor ─────────────────────────────────────────
 
   /**
@@ -301,109 +419,634 @@ class VoiceService {
   }
 
   /**
+   * Check if a codec is compatible with the current room codec floor.
+   * Returns true if no floor is set (null = no restriction) or if the codec is in the floor.
+   */
+  private isInCodecFloor(mimeType: string): boolean {
+    const floor = useVoiceStore.getState().codecFloor;
+    if (!floor) return true;
+    return floor.includes(mimeType.toLowerCase());
+  }
+
+  /**
+   * Check if a codec mimeType has hardware-accelerated encoding available.
+   */
+  private isHwAccelerated(mimeType: string): boolean {
+    const caps = useVideoSettingsStore.getState().codecCapabilities;
+    return caps.some(
+      (c) => c.mimeType.toLowerCase() === mimeType.toLowerCase() && c.powerEfficient
+    );
+  }
+
+  /**
+   * Calculate recommended bitrate based on resolution, FPS, and codec.
+   */
+  private calculateRecommendedBitrate(vs: ReturnType<typeof useVideoSettingsStore.getState>): number {
+    const resMap: Record<string, { w: number; h: number }> = {
+      '720p': { w: 1280, h: 720 },
+      '1080p': { w: 1920, h: 1080 },
+      '1440p': { w: 2560, h: 1440 },
+      '4K': { w: 3840, h: 2160 },
+      'source': { w: 1920, h: 1080 },
+    };
+    const parsed = vs.screenResolution.match(/^(\d+)x(\d+)$/);
+    const res = parsed
+      ? { w: Number(parsed[1]), h: Number(parsed[2]) }
+      : (resMap[vs.screenResolution] || resMap['1080p']);
+    const effectiveFps = vs.screenFrameRate === 0 ? 60 : vs.screenFrameRate;
+    const codec = vs.preferredScreenCodec;
+    const isEfficient = codec?.includes('AV1') || codec?.includes('H265') || codec?.includes('HEVC') || codec?.includes('VP9');
+    const bpp = isEfficient ? 0.04 : 0.07;
+    const bps = res.w * res.h * effectiveFps * bpp;
+    return Math.max(1_500_000, Math.min(30_000_000, Math.round(bps / 100_000) * 100_000));
+  }
+
+  /**
    * Pick the best codec for camera video.
-   * User preference → VP9 (SVC L3T3) → H264 (simulcast) → VP8 (simulcast)
+   * User preference → AV1 (SVC) → HEVC (SVC) → VP9 (SVC) → H264 (simulcast) → VP8 (simulcast)
    */
   private pickCameraCodec(): {
     codec?: mediasoupTypes.RtpCodecCapability;
     encodings: mediasoupTypes.RtpEncodingParameters[];
   } {
-    const preset = VIDEO_QUALITY_PRESETS[useVideoSettingsStore.getState().cameraPreset]
-      || VIDEO_QUALITY_PRESETS['720p30'];
+    const vs = useVideoSettingsStore.getState();
+    const preset = VIDEO_QUALITY_PRESETS[vs.cameraPreset] || VIDEO_QUALITY_PRESETS['720p30'];
+    const prio = vs.cameraPriority;
+    const svcMode = vs.scalabilityMode === 'auto' ? 'L3T3' : vs.scalabilityMode;
 
-    // Check user's preferred codec first
-    const preferred = useVideoSettingsStore.getState().preferredVideoCodec;
-    if (preferred) {
+    // Base encoding params: priority for DSCP marking (skip when 'off')
+    const base: Partial<mediasoupTypes.RtpEncodingParameters> = prio === 'off' ? {} : {
+      priority: prio,
+      networkPriority: prio,
+    };
+
+    const isSvcCodec = (mime: string) =>
+      mime.includes('AV1') || mime.includes('H265') || mime.includes('HEVC') || mime.includes('VP9');
+
+    const makeSvc = (codec: mediasoupTypes.RtpCodecCapability) => ({
+      codec,
+      encodings: [{ ...base, scalabilityMode: svcMode, maxBitrate: preset.maxBitrate }],
+    });
+    const makeSimulcast = (codec?: mediasoupTypes.RtpCodecCapability) => ({
+      codec,
+      encodings: [
+        { ...base, maxBitrate: Math.round(preset.maxBitrate * 0.1), scaleResolutionDownBy: 4 },
+        { ...base, maxBitrate: Math.round(preset.maxBitrate * 0.33), scaleResolutionDownBy: 2 },
+        { ...base, maxBitrate: preset.maxBitrate },
+      ],
+    });
+
+    // Check user's preferred codec first — only if floor-compatible
+    const preferred = vs.preferredVideoCodec;
+    if (preferred && this.isInCodecFloor(preferred)) {
       const codec = this.findSendCodec(preferred);
       if (codec) {
-        // SVC-capable codecs get L3T3, others get simulcast
-        const isSvc = preferred.includes('VP9') || preferred.includes('AV1');
-        return isSvc
-          ? { codec, encodings: [{ scalabilityMode: 'L3T3', maxBitrate: preset.maxBitrate }] }
-          : { codec, encodings: [
-              { maxBitrate: Math.round(preset.maxBitrate * 0.1), scaleResolutionDownBy: 4 },
-              { maxBitrate: Math.round(preset.maxBitrate * 0.33), scaleResolutionDownBy: 2 },
-              { maxBitrate: preset.maxBitrate },
-            ] };
+        return isSvcCodec(preferred) ? makeSvc(codec) : makeSimulcast(codec);
       }
     }
 
-    // Auto selection: VP9 with SVC — single stream, 3 spatial + 3 temporal layers
-    const vp9 = this.findSendCodec('video/VP9');
-    if (vp9) {
-      return {
-        codec: vp9,
-        encodings: [{ scalabilityMode: 'L3T3', maxBitrate: preset.maxBitrate }],
-      };
+    // Priority cascade: AV1 → HEVC → VP9 → H264 → VP8
+    // When HW accel is on, first pass tries only HW-accelerated codecs.
+    // If no HW codec is floor-compatible, second pass tries all codecs (SW fallback).
+    const hwAccel = vs.hardwareAcceleration;
+    const codecCascade: { mime: string; alt?: string; svc: boolean }[] = [
+      { mime: 'video/AV1', svc: true },
+      { mime: 'video/H265', alt: 'video/HEVC', svc: true },
+      { mime: 'video/VP9', svc: true },
+      { mime: 'video/H264', svc: false },
+    ];
+
+    // Pass 1: HW-only (when HW accel enabled)
+    if (hwAccel) {
+      for (const { mime, alt, svc } of codecCascade) {
+        if ((this.isHwAccelerated(mime) || (alt && this.isHwAccelerated(alt))) &&
+            (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt)))) {
+          const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
+          if (codec) return svc ? makeSvc(codec) : makeSimulcast(codec);
+        }
+      }
     }
 
-    // H264 with simulcast — 3 layers at different resolutions
-    const h264 = this.findSendCodec('video/H264');
-    if (h264) {
-      return {
-        codec: h264,
-        encodings: [
-          { maxBitrate: Math.round(preset.maxBitrate * 0.1), scaleResolutionDownBy: 4 },
-          { maxBitrate: Math.round(preset.maxBitrate * 0.33), scaleResolutionDownBy: 2 },
-          { maxBitrate: preset.maxBitrate },
-        ],
-      };
+    // Pass 2: All codecs (SW fallback, or when HW accel disabled)
+    for (const { mime, alt, svc } of codecCascade) {
+      if (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt))) {
+        const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
+        if (codec) return svc ? makeSvc(codec) : makeSimulcast(codec);
+      }
     }
 
-    // VP8 fallback with simulcast
-    return {
-      codec: this.findSendCodec('video/VP8'),
-      encodings: [
-        { maxBitrate: Math.round(preset.maxBitrate * 0.1), scaleResolutionDownBy: 4 },
-        { maxBitrate: Math.round(preset.maxBitrate * 0.33), scaleResolutionDownBy: 2 },
-        { maxBitrate: preset.maxBitrate },
-      ],
-    };
+    // VP8 last resort — universal support, bypasses floor
+    return makeSimulcast(this.findSendCodec('video/VP8'));
   }
 
   /**
    * Pick the best codec for screen sharing.
-   * User preference → AV1 (SVC, best compression) → VP9 (SVC) → H264
+   * User preference → AV1 (SVC) → HEVC (SVC) → VP9 (SVC) → H264 → VP8
    */
   private pickScreenCodec(): {
     codec?: mediasoupTypes.RtpCodecCapability;
     encodings: mediasoupTypes.RtpEncodingParameters[];
   } {
-    // Check user's preferred screen share codec
-    const preferred = useVideoSettingsStore.getState().preferredScreenCodec;
-    if (preferred) {
+    const vs = useVideoSettingsStore.getState();
+    const preferred = vs.preferredScreenCodec;
+    const prio = vs.screenSharePriority;
+    const svcMode = vs.scalabilityMode === 'auto' ? 'L3T3' : vs.scalabilityMode;
+    const userBitrate = vs.screenShareBitrate; // 0 = auto
+
+    // Base encoding params: priority for DSCP marking (skip when 'off')
+    const base: Partial<mediasoupTypes.RtpEncodingParameters> = prio === 'off' ? {} : {
+      priority: prio,
+      networkPriority: prio,
+    };
+
+    const isSvcCodec = (mime: string) =>
+      mime.includes('AV1') || mime.includes('H265') || mime.includes('HEVC') || mime.includes('VP9');
+
+    // Dynamic auto-bitrate: calculate based on resolution, FPS, and codec
+    const autoBitrate = this.calculateRecommendedBitrate(vs);
+    const bitrate = userBitrate || autoBitrate;
+
+    // User preference — only if floor-compatible
+    if (preferred && this.isInCodecFloor(preferred)) {
       const codec = this.findSendCodec(preferred);
       if (codec) {
-        const isSvc = preferred.includes('VP9') || preferred.includes('AV1');
-        return isSvc
-          ? { codec, encodings: [{ scalabilityMode: 'L3T3', maxBitrate: 8_000_000 }] }
-          : { codec, encodings: [{ maxBitrate: 5_000_000 }] };
+        return isSvcCodec(preferred)
+          ? { codec, encodings: [{ ...base, scalabilityMode: svcMode, maxBitrate: bitrate }] }
+          : { codec, encodings: [{ ...base, maxBitrate: bitrate }] };
       }
     }
 
-    // AV1 with SVC — ideal for screen share (huge compression gains on static content)
-    const av1 = this.findSendCodec('video/AV1');
-    if (av1) {
-      return {
-        codec: av1,
-        encodings: [{ scalabilityMode: 'L3T3', maxBitrate: 8_000_000 }],
-      };
+    // Priority cascade: AV1 → HEVC → VP9 → H264 → VP8
+    // When HW accel is on, first pass tries only HW-accelerated codecs.
+    // If no HW codec is floor-compatible, second pass tries all codecs (SW fallback).
+    const hwAccel = vs.hardwareAcceleration;
+    const codecCascade: { mime: string; alt?: string; svc: boolean }[] = [
+      { mime: 'video/AV1', svc: true },
+      { mime: 'video/H265', alt: 'video/HEVC', svc: true },
+      { mime: 'video/VP9', svc: true },
+      { mime: 'video/H264', svc: false },
+    ];
+
+    const makeEncodings = (svc: boolean) => svc
+      ? [{ ...base, scalabilityMode: svcMode, maxBitrate: bitrate }]
+      : [{ ...base, maxBitrate: bitrate }];
+
+    // Pass 1: HW-only (when HW accel enabled)
+    if (hwAccel) {
+      for (const { mime, alt, svc } of codecCascade) {
+        if ((this.isHwAccelerated(mime) || (alt && this.isHwAccelerated(alt))) &&
+            (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt)))) {
+          const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
+          if (codec) return { codec, encodings: makeEncodings(svc) };
+        }
+      }
     }
 
-    // VP9 with SVC fallback
-    const vp9 = this.findSendCodec('video/VP9');
-    if (vp9) {
-      return {
-        codec: vp9,
-        encodings: [{ scalabilityMode: 'L3T3', maxBitrate: 5_000_000 }],
-      };
+    // Pass 2: All codecs (SW fallback, or when HW accel disabled)
+    for (const { mime, alt, svc } of codecCascade) {
+      if (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt))) {
+        const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
+        if (codec) return { codec, encodings: makeEncodings(svc) };
+      }
     }
 
-    // H264 fallback — no SVC, generous bitrate
+    // VP8 last resort — universal support, bypasses floor
     return {
-      codec: this.findSendCodec('video/H264'),
-      encodings: [{ maxBitrate: 5_000_000 }],
+      codec: this.findSendCodec('video/VP8'),
+      encodings: [{ ...base, maxBitrate: bitrate }],
     };
+  }
+
+  /**
+   * Apply degradation preference to a video producer's RTP sender.
+   * Controls whether the encoder drops framerate or resolution under congestion.
+   */
+  private applyDegradationPreference(producer: mediasoupTypes.Producer): void {
+    const pref = useVideoSettingsStore.getState().degradationPreference;
+    if (pref === 'balanced') return; // Browser default — no override needed
+
+    try {
+      const sender = producer.rtpSender;
+      if (!sender) return;
+      const params = sender.getParameters();
+      params.degradationPreference = pref;
+      sender.setParameters(params).catch((err: unknown) => {
+        console.warn('Failed to set degradationPreference:', err);
+      });
+    } catch {
+      // Ignore — rtpSender may not be available in all environments
+    }
+  }
+
+  // ─── Live Settings Application ─────────────────────────────────────
+  // Subscribe to audio/video settings stores and apply changes mid-call.
+
+  private setupLiveSubscriptions(): void {
+    this.teardownLiveSubscriptions();
+
+    // Audio settings subscription
+    this.liveAudioUnsub = useAudioSettingsStore.subscribe((state, prev) => {
+      if (!this.producers.get('mic') || !this.sendTransport) return;
+
+      // --- Instant: setParameters (DSCP priority) ---
+      if (state.audioPriority !== prev.audioPriority) {
+        this.liveUpdateAudioPriority(state.audioPriority);
+      }
+
+      // --- replaceTrack: re-acquire mic with new constraints ---
+      const constraintChanged =
+        state.noiseCancellation !== prev.noiseCancellation ||
+        state.echoCancellation !== prev.echoCancellation ||
+        state.autoGainControl !== prev.autoGainControl ||
+        state.noiseGateMode !== prev.noiseGateMode ||
+        state.noiseGateLevel !== prev.noiseGateLevel;
+
+      if (constraintChanged) {
+        this.liveReplaceAudioTrack();
+        return; // replaceTrack handles everything
+      }
+
+      // --- Re-produce: codec options changed ---
+      const codecOptionChanged =
+        state.musicMode !== prev.musicMode ||
+        state.frameSize !== prev.frameSize ||
+        state.silenceDetection !== prev.silenceDetection ||
+        state.fecMode !== prev.fecMode ||
+        state.fecManualPercent !== prev.fecManualPercent ||
+        state.opusNack !== prev.opusNack ||
+        state.adaptivePtime !== prev.adaptivePtime;
+
+      if (codecOptionChanged) {
+        this.liveReproduceAudio();
+      }
+    });
+
+    // Video settings subscription
+    this.liveVideoUnsub = useVideoSettingsStore.subscribe((state, prev) => {
+      // --- Camera: instant parameter updates ---
+      const cameraProducer = this.producers.get('camera');
+      if (cameraProducer) {
+        if (state.degradationPreference !== prev.degradationPreference) {
+          this.applyDegradationPreference(cameraProducer);
+        }
+        if (state.cameraPriority !== prev.cameraPriority) {
+          this.liveUpdateVideoPriority(cameraProducer, state.cameraPriority);
+        }
+        // Camera preset change → replaceTrack with new constraints
+        if (state.cameraPreset !== prev.cameraPreset) {
+          this.liveReplaceCameraTrack();
+        }
+        // Codec change → re-produce
+        if (state.preferredVideoCodec !== prev.preferredVideoCodec) {
+          this.liveReproduceCamera();
+        }
+      }
+
+      // --- Screen share: instant parameter updates ---
+      const screenProducer = this.producers.get('screen');
+      if (screenProducer) {
+        if (state.screenSharePriority !== prev.screenSharePriority) {
+          this.liveUpdateVideoPriority(screenProducer, state.screenSharePriority);
+        }
+        if (state.screenShareBitrate !== prev.screenShareBitrate) {
+          this.liveUpdateScreenBitrate(screenProducer, state.screenShareBitrate);
+        }
+        // Note: screen resolution/FPS/contentType changes cannot use replaceTrack
+        // because getDisplayMedia requires a user gesture. Apply on next session.
+      }
+    });
+  }
+
+  private teardownLiveSubscriptions(): void {
+    this.liveAudioUnsub?.();
+    this.liveAudioUnsub = null;
+    this.liveVideoUnsub?.();
+    this.liveVideoUnsub = null;
+  }
+
+  // --- Instant update helpers (setParameters, no track change) ---
+
+  private liveUpdateAudioPriority(priority: AudioPriority): void {
+    const producer = this.producers.get('mic');
+    if (!producer?.rtpSender) return;
+    try {
+      const params = producer.rtpSender.getParameters();
+      if (params.encodings?.[0]) {
+        if (priority === 'off') {
+          // Reset to default (low = DF / best effort)
+          params.encodings[0].priority = 'low';
+          (params.encodings[0] as any).networkPriority = 'low';
+        } else {
+          params.encodings[0].priority = priority;
+          (params.encodings[0] as any).networkPriority = priority;
+        }
+        producer.rtpSender.setParameters(params).catch(() => {});
+      }
+    } catch { /* rtpSender may not be available */ }
+  }
+
+  private liveUpdateVideoPriority(producer: mediasoupTypes.Producer, priority: VideoPriority): void {
+    if (!producer?.rtpSender) return;
+    try {
+      const params = producer.rtpSender.getParameters();
+      const effectivePriority = priority === 'off' ? 'low' : priority;
+      for (const enc of params.encodings) {
+        enc.priority = effectivePriority;
+        (enc as any).networkPriority = effectivePriority;
+      }
+      producer.rtpSender.setParameters(params).catch(() => {});
+    } catch { /* rtpSender may not be available */ }
+  }
+
+  private liveUpdateScreenBitrate(producer: mediasoupTypes.Producer, bitrate: number): void {
+    if (!producer?.rtpSender) return;
+    try {
+      const params = producer.rtpSender.getParameters();
+      if (bitrate > 0 && params.encodings?.[0]) {
+        params.encodings[0].maxBitrate = bitrate;
+        producer.rtpSender.setParameters(params).catch(() => {});
+      }
+    } catch { /* rtpSender may not be available */ }
+  }
+
+  // --- replaceTrack: re-acquire media with new constraints, swap on existing producer ---
+
+  private async liveReplaceAudioTrack(): Promise<void> {
+    const producer = this.producers.get('mic');
+    if (!producer) return;
+
+    const adv = useAudioSettingsStore.getState();
+    const useProcessing = !adv.musicMode;
+
+    // Briefly mute to hide transition
+    producer.pause();
+
+    try {
+      // Stop old processing chain
+      this.stopNoiseGate();
+      this.stopInputVolume();
+      if (this.localMicStream) {
+        this.localMicStream.getTracks().forEach((t) => t.stop());
+      }
+
+      // Re-acquire mic with new constraints
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: useProcessing && adv.echoCancellation,
+          noiseSuppression: useProcessing && adv.noiseCancellation,
+          autoGainControl: useProcessing && adv.autoGainControl,
+          sampleRate: 48000,
+          channelCount: 2,
+        },
+      });
+      this.localMicStream = stream;
+      let track = stream.getAudioTracks()[0];
+
+      // Re-apply processing chain
+      if (adv.noiseGateMode === 'manual') {
+        track = this.applyNoiseGate(stream, adv.noiseGateLevel);
+      }
+      track = this.applyInputVolume(track, adv.inputVolume);
+
+      // Swap track on existing producer (no SDP renegotiation)
+      await producer.replaceTrack({ track });
+    } catch (err) {
+      console.warn('liveReplaceAudioTrack failed:', err);
+    }
+
+    producer.resume();
+  }
+
+  private async liveReplaceCameraTrack(): Promise<void> {
+    const producer = this.producers.get('camera');
+    if (!producer) return;
+
+    const vs = useVideoSettingsStore.getState();
+    const preset = VIDEO_QUALITY_PRESETS[vs.cameraPreset] || VIDEO_QUALITY_PRESETS['system'];
+    const isSystemDefault = vs.cameraPreset === 'system' || preset.width === 0;
+
+    producer.pause();
+
+    try {
+      if (this.localCameraStream) {
+        this.localCameraStream.getTracks().forEach((t) => t.stop());
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          ...(isSystemDefault ? {} : {
+            width: { ideal: preset.width },
+            height: { ideal: preset.height },
+            frameRate: { ideal: preset.frameRate },
+          }),
+        },
+      });
+      this.localCameraStream = stream;
+      const track = stream.getVideoTracks()[0];
+
+      await producer.replaceTrack({ track });
+
+      // Update participant store with new stream
+      const localUserId = useUserStore.getState().user?.id;
+      if (localUserId) {
+        useVoiceStore.getState().updateParticipant(localUserId, { videoStream: stream });
+      }
+    } catch (err) {
+      console.warn('liveReplaceCameraTrack failed:', err);
+    }
+
+    producer.resume();
+  }
+
+  // --- Re-produce: close + re-create producer with new codec options ---
+
+  private async liveReproduceAudio(): Promise<void> {
+    if (!this.producers.get('mic') || !this.sendTransport) return;
+    await this.closeProducer('mic');
+    await this.produceAudio();
+  }
+
+  private async liveReproduceCamera(): Promise<void> {
+    if (!this.producers.get('camera') || !this.sendTransport) return;
+    if (this.localCameraStream) {
+      this.localCameraStream.getTracks().forEach((t) => t.stop());
+      this.localCameraStream = null;
+    }
+    await this.closeProducer('camera');
+    await this.produceVideo();
+  }
+
+  // --- Codec floor: fast re-produce (reuses existing track, no media re-acquisition) ---
+
+  /**
+   * Get the mimeType of the codec currently used by a producer.
+   */
+  private getProducerCodecMimeType(source: string): string | null {
+    const producer = this.producers.get(source);
+    if (!producer?.rtpSender) return null;
+    const params = producer.rtpSender.getParameters();
+    return params.codecs?.[0]?.mimeType?.toLowerCase() ?? null;
+  }
+
+  /**
+   * Fast re-produce camera: close producer and re-produce with best floor-compatible
+   * codec, reusing the existing video track for a subsecond switch.
+   */
+  private async fastReproduceCamera(): Promise<void> {
+    const producer = this.producers.get('camera');
+    if (!producer || !this.sendTransport || !this.localCameraStream) return;
+
+    const track = this.localCameraStream.getVideoTracks()[0];
+    if (!track || track.readyState !== 'live') {
+      await this.liveReproduceCamera();
+      return;
+    }
+
+    // Close old producer (does NOT stop the track)
+    producer.close();
+    this.producers.delete('camera');
+    this.socket?.emit('close-producer', { producerId: producer.id });
+
+    // Pick new codec respecting the floor
+    const { codec, encodings } = this.pickCameraCodec();
+
+    const newProducer = await this.sendTransport.produce({
+      track,
+      encodings,
+      codec,
+      codecOptions: { videoGoogleStartBitrate: 300 },
+      appData: { source: 'camera' },
+    });
+
+    this.applyDegradationPreference(newProducer);
+    this.producers.set('camera', newProducer);
+
+    if (this.isEncrypted && this.mediaEncryption) {
+      this.applyEncryptTransform(newProducer);
+    }
+
+    newProducer.on('transportclose', () => {
+      this.producers.delete('camera');
+      if (this.localCameraStream) {
+        this.localCameraStream.getTracks().forEach((t) => t.stop());
+        this.localCameraStream = null;
+      }
+      const s = useVoiceStore.getState();
+      s.setVideoOn(false);
+      const uid = useUserStore.getState().user?.id;
+      if (uid) s.updateParticipant(uid, { videoStream: undefined, isVideoOn: false });
+    });
+
+    const hwTag = codec && this.isHwAccelerated(codec.mimeType) ? 'HW' : 'SW';
+    console.debug(`[codec-floor] Fast re-produced camera with ${codec?.mimeType ?? 'default'} (${hwTag})`);
+  }
+
+  /**
+   * Fast re-produce screen: close producer and re-produce with best floor-compatible
+   * codec, reusing the existing screen track.
+   */
+  private async fastReproduceScreen(): Promise<void> {
+    const oldProducer = this.producers.get('screen');
+    if (!oldProducer || !this.sendTransport || !this.localScreenStream) return;
+
+    const track = this.localScreenStream.getVideoTracks()[0];
+    if (!track || track.readyState !== 'live') {
+      console.warn('[codec-floor] Screen track is dead, cannot re-acquire without user gesture');
+      return;
+    }
+
+    const oldProducerId = oldProducer.id;
+
+    // Close old producer (does NOT stop the track)
+    oldProducer.close();
+    this.producers.delete('screen');
+    this.socket?.emit('close-producer', { producerId: oldProducerId });
+
+    // Pick new codec respecting the floor
+    const { codec, encodings } = this.pickScreenCodec();
+
+    const newProducer = await this.sendTransport.produce({
+      track,
+      encodings,
+      codec,
+      codecOptions: { videoGoogleStartBitrate: 1000 },
+      appData: { source: 'screen' },
+    });
+
+    this.applyDegradationPreference(newProducer);
+    this.producers.set('screen', newProducer);
+
+    if (this.isEncrypted && this.mediaEncryption) {
+      this.applyEncryptTransform(newProducer);
+    }
+
+    // Re-wire track ended handler
+    track.onended = () => {
+      this.closeProducer('screen');
+    };
+
+    // Update tuned-in mapping since producer ID changed
+    const store = useVoiceStore.getState();
+    if (store.tunedInScreenShares[oldProducerId]) {
+      store.tuneOut(oldProducerId);
+      store.tuneIn(newProducer.id, 'local-screen');
+    }
+    if (store.dominantScreenShareId === oldProducerId) {
+      store.setDominantScreenShare(newProducer.id);
+    }
+
+    newProducer.on('transportclose', () => {
+      this.producers.delete('screen');
+      if (this.localScreenStream) {
+        this.localScreenStream.getTracks().forEach((t) => t.stop());
+        this.localScreenStream = null;
+      }
+      const s = useVoiceStore.getState();
+      s.setScreenSharing(false);
+      const uid = useUserStore.getState().user?.id;
+      if (uid) s.updateParticipant(uid, { screenStream: undefined, isScreenSharing: false });
+    });
+
+    const hwTag = codec && this.isHwAccelerated(codec.mimeType) ? 'HW' : 'SW';
+    console.debug(`[codec-floor] Fast re-produced screen with ${codec?.mimeType ?? 'default'} (${hwTag})`);
+  }
+
+  /**
+   * Handle a codec floor update. Check each active video producer and
+   * re-produce if a better floor-compatible codec is available or the
+   * current codec is no longer in the floor.
+   */
+  private async handleCodecFloorChange(
+    _previousFloor: string[] | null,
+    _newFloor: string[] | null
+  ): Promise<void> {
+    for (const source of ['camera', 'screen'] as const) {
+      const producer = this.producers.get(source);
+      if (!producer) continue;
+
+      const currentMime = this.getProducerCodecMimeType(source);
+      if (!currentMime) continue;
+
+      // Determine what codec the selection logic would pick now
+      const bestPick = source === 'camera' ? this.pickCameraCodec() : this.pickScreenCodec();
+      const bestMime = bestPick.codec?.mimeType?.toLowerCase() ?? null;
+
+      if (bestMime && bestMime !== currentMime) {
+        // Never switch to a HW codec if hardware acceleration is disabled
+        const hwAccel = useVideoSettingsStore.getState().hardwareAcceleration;
+        if (!hwAccel && this.isHwAccelerated(bestMime) && !this.isHwAccelerated(currentMime)) {
+          console.debug(`[codec-floor] Skipping ${source} switch to ${bestMime} (HW) — hardware accel is off`);
+          continue;
+        }
+        const hwLabel = this.isHwAccelerated(bestMime) ? 'HW' : 'SW';
+        console.info(`[codec-floor] Re-producing ${source}: ${currentMime} → ${bestMime} (${hwLabel})`);
+        if (source === 'camera') {
+          await this.fastReproduceCamera();
+        } else {
+          await this.fastReproduceScreen();
+        }
+      }
+    }
   }
 
   // Decoder budget profiling
@@ -538,6 +1181,9 @@ class VoiceService {
       // Step 8: Produce audio
       await this.produceAudio();
 
+      // Step 8b: Set up live settings subscriptions for mid-call changes
+      this.setupLiveSubscriptions();
+
       // Step 9: Consume existing producers (participants already in store,
       // so updateParticipant will attach streams correctly).
       // Screen shares use opt-in ("Tune In") model — add to available list instead.
@@ -622,9 +1268,10 @@ class VoiceService {
     this.sendTransport = null;
     this.recvTransport = null;
 
-    // 5. Stop timers
+    // 5. Stop timers and subscriptions
     this.stopLocalVAD();
     this.stopPacketLossMonitor();
+    this.teardownLiveSubscriptions();
     if (this.decoderProfilingTimer) {
       clearInterval(this.decoderProfilingTimer);
       this.decoderProfilingTimer = null;
@@ -656,35 +1303,73 @@ class VoiceService {
     // Read advanced audio settings
     const adv = useAudioSettingsStore.getState();
 
+    // Music mode disables all audio processing to preserve tonal fidelity
+    const useProcessing = !adv.musicMode;
+
     const constraints: MediaStreamConstraints = {
       audio: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
-        echoCancellation: adv.echoCancellation,
-        noiseSuppression: adv.noiseCancellation,
-        autoGainControl: adv.autoGainControl,
+        echoCancellation: useProcessing && adv.echoCancellation,
+        noiseSuppression: useProcessing && adv.noiseCancellation,
+        autoGainControl: useProcessing && adv.autoGainControl,
         sampleRate: 48000,
         channelCount: 2,
       },
     };
 
     this.localMicStream = await navigator.mediaDevices.getUserMedia(constraints);
-    const track = this.localMicStream.getAudioTracks()[0];
+    let track = this.localMicStream.getAudioTracks()[0];
+
+    // Apply noise gate in manual mode
+    if (adv.noiseGateMode === 'manual') {
+      track = this.applyNoiseGate(this.localMicStream, adv.noiseGateLevel);
+    }
+
+    // Apply input volume control (GainNode)
+    track = this.applyInputVolume(track, adv.inputVolume);
 
     const tier = useVoiceStore.getState().effectiveQualityTier;
     const tierConfig = AUDIO_QUALITY_TIERS[tier];
 
     // Resolve effective Opus settings: advanced overrides tier defaults
     const effectiveDtx = adv.silenceDetection || tierConfig.opusDtx;
-    const effectiveFec = adv.fecMode === 'manual' ? adv.fecManualPercent > 0 : tierConfig.opusFec;
-    const effectiveFrameSize = adv.frameSize !== 20 ? adv.frameSize : tierConfig.frameSize;
+    // FEC is only active on tiers that support it (voice, standard).
+    // High-bitrate tiers (high/hifi/studio) disable FEC — bandwidth is better
+    // spent on audio fidelity than redundancy at those rates.
+    const effectiveFec = tierConfig.opusFec
+      ? (adv.fecMode === 'manual' ? adv.fecManualPercent > 0 : true)
+      : false;
+    // Frame size resolution:
+    //   0 (Default) → use tier's optimal (10ms for hifi/studio, 20ms for others)
+    //   Explicit value → respect user's choice (all frame sizes available for all tiers)
+    // When adaptivePtime is on, always use tier default as the starting target.
+    let effectiveFrameSize: number;
+    if (adv.adaptivePtime) {
+      effectiveFrameSize = tierConfig.frameSize;
+    } else if (adv.frameSize === 0) {
+      effectiveFrameSize = tierConfig.frameSize; // Default: use tier's optimal
+    } else {
+      effectiveFrameSize = adv.frameSize;
+    }
 
+    const audioPrioParams = adv.audioPriority === 'off' ? {} : {
+      priority: adv.audioPriority,
+      networkPriority: adv.audioPriority,
+    };
     const producer = await this.sendTransport.produce({
       track,
+      encodings: [{
+        maxBitrate: tierConfig.maxBitrate,
+        adaptivePtime: adv.adaptivePtime || undefined,
+        ...audioPrioParams,
+      }],
       codecOptions: {
         opusStereo: tierConfig.opusStereo,
         opusDtx: effectiveDtx,
         opusFec: effectiveFec,
+        opusNack: adv.opusNack,
         opusMaxAverageBitrate: tierConfig.maxBitrate,
+        opusMaxPlaybackRate: 48000,
         opusPtime: effectiveFrameSize,
       },
       appData: { source: 'mic' },
@@ -706,6 +1391,8 @@ class VoiceService {
     producer.on('transportclose', () => {
       this.producers.delete('mic');
       this.stopLocalVAD();
+      this.stopNoiseGate();
+      this.stopInputVolume();
       if (this.localMicStream) {
         this.localMicStream.getTracks().forEach((t) => t.stop());
         this.localMicStream = null;
@@ -730,14 +1417,18 @@ class VoiceService {
 
     // Read video settings for camera preset
     const videoSettings = useVideoSettingsStore.getState();
-    const preset = VIDEO_QUALITY_PRESETS[videoSettings.cameraPreset] || VIDEO_QUALITY_PRESETS['720p30'];
+    const preset = VIDEO_QUALITY_PRESETS[videoSettings.cameraPreset] || VIDEO_QUALITY_PRESETS['system'];
+    const isSystemDefault = videoSettings.cameraPreset === 'system' || preset.width === 0;
 
     const constraints: MediaStreamConstraints = {
       video: {
         deviceId: deviceId ? { exact: deviceId } : undefined,
-        width: { ideal: preset.width },
-        height: { ideal: preset.height },
-        frameRate: { ideal: preset.frameRate },
+        // System default: let the camera/driver decide resolution and framerate
+        ...(isSystemDefault ? {} : {
+          width: { ideal: preset.width },
+          height: { ideal: preset.height },
+          frameRate: { ideal: preset.frameRate },
+        }),
       },
     };
 
@@ -755,6 +1446,9 @@ class VoiceService {
       },
       appData: { source: 'camera' },
     });
+
+    // Apply degradation preference on the RTP sender
+    this.applyDegradationPreference(producer);
 
     this.producers.set('camera', producer);
 
@@ -795,7 +1489,7 @@ class VoiceService {
 
     // Read screen share quality settings
     const screenSettings = useVideoSettingsStore.getState();
-    const screenFps = screenSettings.screenFrameRate;
+    const screenFps = screenSettings.screenFrameRate === 0 ? 60 : screenSettings.screenFrameRate; // 0 = Native, use 60 as capture max
     const resMap: Record<string, { w: number; h: number }> = {
       'source': { w: 3840, h: 2160 },
       '720p': { w: 1280, h: 720 },
@@ -803,7 +1497,11 @@ class VoiceService {
       '1440p': { w: 2560, h: 1440 },
       '4K': { w: 3840, h: 2160 },
     };
-    const screenRes = resMap[screenSettings.screenResolution] || resMap['source'];
+    // Parse custom WxH display resolutions
+    const customParsed = screenSettings.screenResolution.match(/^(\d+)x(\d+)$/);
+    const screenRes = customParsed
+      ? { w: Number(customParsed[1]), h: Number(customParsed[2]) }
+      : (resMap[screenSettings.screenResolution] || resMap['source']);
 
     // Use Electron desktopCapturer if available
     let stream: MediaStream;
@@ -865,6 +1563,9 @@ class VoiceService {
         },
         appData: { source: 'screen' },
       });
+
+      // Apply degradation preference on the RTP sender
+      this.applyDegradationPreference(producer);
 
       this.localScreenStream = stream;
       this.producers.set('screen', producer);
@@ -1107,6 +1808,8 @@ class VoiceService {
     const localUserId = useUserStore.getState().user?.id;
     if (source === 'mic') {
       this.stopLocalVAD();
+      this.stopNoiseGate();
+      this.stopInputVolume();
       if (this.localMicStream) {
         this.localMicStream.getTracks().forEach((t) => t.stop());
         this.localMicStream = null;
@@ -1432,6 +2135,13 @@ class VoiceService {
         // Silence — no one is speaking
         store.setActiveSpeaker(null);
       }
+    });
+
+    this.socket.on('room-codec-floor', ({ codecFloor }: { codecFloor: string[] | null }) => {
+      const store = useVoiceStore.getState();
+      const previousFloor = store.codecFloor;
+      store.setCodecFloor(codecFloor);
+      this.handleCodecFloorChange(previousFloor, codecFloor);
     });
 
     this.socket.on('consumer-closed', ({ consumerId }) => {
@@ -1820,8 +2530,11 @@ class VoiceService {
     this.sendTransport = null;
     this.recvTransport = null;
 
-    // Stop local VAD
+    // Stop local VAD, noise gate, input volume, and live subscriptions
     this.stopLocalVAD();
+    this.stopNoiseGate();
+    this.stopInputVolume();
+    this.teardownLiveSubscriptions();
 
     // Stop packet loss monitor
     this.stopPacketLossMonitor();

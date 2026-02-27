@@ -60,7 +60,6 @@ export interface AudioQualityTierConfig {
   opusDtx: boolean;
   opusFec: boolean;
   opusStereo: boolean;
-  opusApplication: 'voip' | 'audio' | 'lowdelay';
   frameSize: number; // ms: 10, 20, 40, 60
   premium: boolean;
 }
@@ -73,7 +72,6 @@ export const AUDIO_QUALITY_TIERS: Record<AudioQualityTier, AudioQualityTierConfi
     opusDtx: true,
     opusFec: true,
     opusStereo: false,
-    opusApplication: 'voip',
     frameSize: 20,
     premium: false,
   },
@@ -84,7 +82,6 @@ export const AUDIO_QUALITY_TIERS: Record<AudioQualityTier, AudioQualityTierConfi
     opusDtx: false,
     opusFec: true,
     opusStereo: true,
-    opusApplication: 'audio',
     frameSize: 20,
     premium: false,
   },
@@ -95,7 +92,6 @@ export const AUDIO_QUALITY_TIERS: Record<AudioQualityTier, AudioQualityTierConfi
     opusDtx: false,
     opusFec: false,
     opusStereo: true,
-    opusApplication: 'audio',
     frameSize: 20,
     premium: true,
   },
@@ -106,7 +102,6 @@ export const AUDIO_QUALITY_TIERS: Record<AudioQualityTier, AudioQualityTierConfi
     opusDtx: false,
     opusFec: false,
     opusStereo: true,
-    opusApplication: 'audio',
     frameSize: 10,
     premium: true,
   },
@@ -117,7 +112,6 @@ export const AUDIO_QUALITY_TIERS: Record<AudioQualityTier, AudioQualityTierConfi
     opusDtx: false,
     opusFec: false,
     opusStereo: true,
-    opusApplication: 'audio',
     frameSize: 10,
     premium: true,
   },
@@ -230,6 +224,10 @@ interface VoiceState {
   // Stream focus behavior
   keepActiveWhileUnfocused: boolean;
 
+  // Room codec floor — universally-supported video codecs (lowercase mimeTypes)
+  // null = no restriction (<2 participants with capabilities)
+  codecFloor: string[] | null;
+
   // Actions
   setConnectionState: (state: VoiceConnectionState) => void;
   setActiveChannel: (channelId: string | null, channelName?: string, serverId?: string) => void;
@@ -300,6 +298,9 @@ interface VoiceState {
   // Stream focus behavior
   setKeepActiveWhileUnfocused: (keep: boolean) => void;
 
+  // Codec floor
+  setCodecFloor: (floor: string[] | null) => void;
+
   // Full reset (on disconnect)
   reset: () => void;
 }
@@ -365,6 +366,7 @@ const initialState = {
   keepActiveWhileUnfocused: (() => {
     try { return localStorage.getItem('concord:keep-active-unfocused') === 'true'; } catch { return false; }
   })(),
+  codecFloor: null as string[] | null,
 };
 
 export const useVoiceStore = create<VoiceState>()((set) => ({
@@ -579,6 +581,8 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
     set({ keepActiveWhileUnfocused: keep });
     try { localStorage.setItem('concord:keep-active-unfocused', String(keep)); } catch { /* ignore */ }
   },
+
+  setCodecFloor: (codecFloor) => set({ codecFloor }),
 
   reset: () =>
     set((state) => ({

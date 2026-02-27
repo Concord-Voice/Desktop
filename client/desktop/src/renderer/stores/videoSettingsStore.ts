@@ -15,6 +15,7 @@ export interface VideoQualityPreset {
 }
 
 export const VIDEO_QUALITY_PRESETS: Record<string, VideoQualityPreset> = {
+  'system': { label: 'System Default', width: 0, height: 0, frameRate: 0, maxBitrate: 2_500_000 },
   '360p30': { label: '360p 30fps', width: 640, height: 360, frameRate: 30, maxBitrate: 400_000 },
   '480p30': { label: '480p 30fps', width: 854, height: 480, frameRate: 30, maxBitrate: 700_000 },
   '720p30': { label: '720p 30fps', width: 1280, height: 720, frameRate: 30, maxBitrate: 1_500_000 },
@@ -28,22 +29,35 @@ export const VIDEO_QUALITY_PRESETS: Record<string, VideoQualityPreset> = {
 };
 
 // ---------------------------------------------------------------------------
-// Store
+// Types
 // ---------------------------------------------------------------------------
 
-export type ScreenResolution = 'source' | '720p' | '1080p' | '1440p' | '4K';
+export type ScreenResolution = string; // 'source' | '720p' | '1080p' | '1440p' | '4K' | 'WxH' (custom display resolution)
 export type ScreenContentType = 'auto' | 'motion' | 'detail';
+export type DegradationPreference = 'balanced' | 'maintain-framerate' | 'maintain-resolution';
+export type VideoPriority = 'off' | 'low' | 'medium' | 'high';
+
+// ---------------------------------------------------------------------------
+// Store
+// ---------------------------------------------------------------------------
 
 interface VideoSettings {
   // Camera
   cameraPreset: string; // Key into VIDEO_QUALITY_PRESETS
   preferredVideoCodec: string | null; // mimeType e.g. "video/VP9"
+  cameraPriority: VideoPriority; // DSCP priority for camera traffic
 
   // Screen share
   screenResolution: ScreenResolution;
-  screenFrameRate: 5 | 15 | 30 | 60;
+  screenFrameRate: number; // 0 = Native (display refresh rate), or specific FPS value
   screenContentType: ScreenContentType;
   preferredScreenCodec: string | null;
+  screenSharePriority: VideoPriority; // DSCP priority for screen share traffic
+  screenShareBitrate: number; // bps, 0 = auto (codec-dependent)
+
+  // Encoding behavior
+  degradationPreference: DegradationPreference; // How to handle congestion: drop fps or resolution
+  scalabilityMode: 'auto' | 'L1T3' | 'L2T3' | 'L3T3'; // SVC spatial×temporal layers
 
   // Hardware
   hardwareAcceleration: boolean;
@@ -56,22 +70,32 @@ interface VideoSettings {
 interface VideoSettingsState extends VideoSettings {
   setCameraPreset: (preset: string) => void;
   setPreferredVideoCodec: (codec: string | null) => void;
+  setCameraPriority: (priority: VideoPriority) => void;
   setScreenResolution: (res: ScreenResolution) => void;
-  setScreenFrameRate: (fps: 5 | 15 | 30 | 60) => void;
+  setScreenFrameRate: (fps: number) => void;
   setScreenContentType: (type: ScreenContentType) => void;
   setPreferredScreenCodec: (codec: string | null) => void;
+  setScreenSharePriority: (priority: VideoPriority) => void;
+  setScreenShareBitrate: (bitrate: number) => void;
+  setDegradationPreference: (pref: DegradationPreference) => void;
+  setScalabilityMode: (mode: 'auto' | 'L1T3' | 'L2T3' | 'L3T3') => void;
   setHardwareAcceleration: (enabled: boolean) => void;
   setCodecCapabilities: (caps: CodecCapability[]) => void;
   setGpuInfo: (info: { vendor: string; device: string } | null) => void;
 }
 
 const defaults: VideoSettings = {
-  cameraPreset: '720p30',
+  cameraPreset: 'system',
   preferredVideoCodec: null,
+  cameraPriority: 'medium',
   screenResolution: 'source',
   screenFrameRate: 30,
   screenContentType: 'auto',
   preferredScreenCodec: null,
+  screenSharePriority: 'medium',
+  screenShareBitrate: 0, // Auto
+  degradationPreference: 'balanced',
+  scalabilityMode: 'auto', // Auto = L3T3 for SVC codecs
   hardwareAcceleration: true,
   codecCapabilities: [],
   gpuInfo: null,
@@ -84,10 +108,15 @@ export const useVideoSettingsStore = create<VideoSettingsState>()(
 
       setCameraPreset: (cameraPreset) => set({ cameraPreset }),
       setPreferredVideoCodec: (preferredVideoCodec) => set({ preferredVideoCodec }),
+      setCameraPriority: (cameraPriority) => set({ cameraPriority }),
       setScreenResolution: (screenResolution) => set({ screenResolution }),
       setScreenFrameRate: (screenFrameRate) => set({ screenFrameRate }),
       setScreenContentType: (screenContentType) => set({ screenContentType }),
       setPreferredScreenCodec: (preferredScreenCodec) => set({ preferredScreenCodec }),
+      setScreenSharePriority: (screenSharePriority) => set({ screenSharePriority }),
+      setScreenShareBitrate: (screenShareBitrate) => set({ screenShareBitrate }),
+      setDegradationPreference: (degradationPreference) => set({ degradationPreference }),
+      setScalabilityMode: (scalabilityMode) => set({ scalabilityMode }),
       setHardwareAcceleration: (hardwareAcceleration) => set({ hardwareAcceleration }),
       setCodecCapabilities: (codecCapabilities) => set({ codecCapabilities }),
       setGpuInfo: (gpuInfo) => set({ gpuInfo }),

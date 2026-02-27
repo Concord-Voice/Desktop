@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, desktopCapturer, ipcMain, session, shell } from 'electron';
+import { app, BrowserWindow, clipboard, desktopCapturer, ipcMain, screen, session, shell } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import {
@@ -145,21 +145,40 @@ ipcMain.handle('clipboard:writeText', (_event, text: string) => {
 });
 
 // GPU info
+const GPU_VENDORS: Record<number, string> = {
+  0x106b: 'Apple', 0x8086: 'Intel', 0x10de: 'NVIDIA', 0x1002: 'AMD',
+  0x1022: 'AMD', 0x5143: 'Qualcomm', 0x13b5: 'ARM',
+};
+
 ipcMain.handle('gpu:getInfo', async () => {
   try {
     const info = await app.getGPUInfo('basic');
-    const gpu = (info as { gpuDevice?: Array<{ vendorId: number; deviceId: number; driverVendor?: string }> })
+    const gpu = (info as { gpuDevice?: Array<{ vendorId: number; deviceId: number; driverVendor?: string; driverDescription?: string }> })
       .gpuDevice?.[0];
     if (gpu) {
-      return {
-        vendor: gpu.driverVendor || `0x${gpu.vendorId.toString(16)}`,
-        device: `0x${gpu.deviceId.toString(16)}`,
-      };
+      // driverVendor on macOS often contains the hex vendorId as a string — skip it
+      const driverName = gpu.driverVendor && !/^0x[0-9a-f]+$/i.test(gpu.driverVendor) ? gpu.driverVendor : '';
+      const vendor = driverName || GPU_VENDORS[gpu.vendorId] || `Unknown (0x${gpu.vendorId.toString(16)})`;
+      const device = gpu.driverDescription || (gpu.deviceId ? `Device 0x${gpu.deviceId.toString(16)}` : '');
+      return { vendor, device };
     }
     return null;
   } catch {
     return null;
   }
+});
+
+// Display info for resolution/refresh rate awareness
+ipcMain.handle('screen:getDisplayInfo', () => {
+  const displays = screen.getAllDisplays();
+  const primary = screen.getPrimaryDisplay();
+  return displays.map((d) => ({
+    width: d.size.width * d.scaleFactor,
+    height: d.size.height * d.scaleFactor,
+    refreshRate: d.displayFrequency,
+    scaleFactor: d.scaleFactor,
+    isPrimary: d.id === primary.id,
+  }));
 });
 
 // Hardware acceleration preference

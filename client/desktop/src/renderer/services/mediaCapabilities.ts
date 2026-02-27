@@ -110,38 +110,40 @@ export async function detectCodecCapabilities(): Promise<CodecCapability[]> {
     return true;
   });
 
-  for (const codec of uniqueCodecs) {
-    let powerEfficient = false;
+  // Probe all codecs in parallel for faster detection
+  const results = await Promise.all(
+    uniqueCodecs.map(async (codec) => {
+      let powerEfficient = false;
 
-    // Probe hardware acceleration via MediaCapabilities API
-    if ('mediaCapabilities' in navigator) {
-      try {
-        const info = await navigator.mediaCapabilities.encodingInfo({
-          type: 'webrtc',
-          video: {
-            contentType: codec.mimeType,
-            width: 1280,
-            height: 720,
-            bitrate: 2_000_000,
-            framerate: 30,
-          },
-        } as MediaEncodingConfiguration);
-        powerEfficient = info.powerEfficient ?? false;
-      } catch {
-        // MediaCapabilities may not support WebRTC type on all browsers
+      if ('mediaCapabilities' in navigator) {
+        try {
+          const info = await navigator.mediaCapabilities.encodingInfo({
+            type: 'webrtc',
+            video: {
+              contentType: codec.mimeType,
+              width: 1280,
+              height: 720,
+              bitrate: 2_000_000,
+              framerate: 30,
+            },
+          } as MediaEncodingConfiguration);
+          powerEfficient = info.powerEfficient ?? false;
+        } catch {
+          // MediaCapabilities may not support WebRTC type on all browsers
+        }
       }
-    }
 
-    capabilities.push({
-      mimeType: codec.mimeType,
-      sdpFmtpLine: codec.sdpFmtpLine,
-      powerEfficient,
-      supported: true,
-    });
-  }
+      return {
+        mimeType: codec.mimeType,
+        sdpFmtpLine: codec.sdpFmtpLine,
+        powerEfficient,
+        supported: true,
+      } as CodecCapability;
+    })
+  );
 
-  cachedCodecCaps = capabilities;
-  return capabilities;
+  cachedCodecCaps = results;
+  return results;
 }
 
 /** Clear cached capabilities (e.g. on device change) */

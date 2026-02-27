@@ -56,7 +56,8 @@
   width: 200px;
   flex-shrink: 0;
   position: sticky;
-  top: 0;
+  top: 32px;
+  align-self: flex-start;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -119,6 +120,12 @@
 .settings-content {
   flex: 1;
   min-width: 0;
+  transition: opacity 0.15s ease;
+}
+
+.settings-content-loading {
+  opacity: 0.6;
+  pointer-events: none;
 }
 
 /* Section cards */
@@ -146,11 +153,38 @@
   line-height: 1.5;
 }
 
+.settings-subsection-title {
+  font-size: calc(14px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-top: 24px;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.settings-subsection-title:first-of-type {
+  margin-top: 0;
+}
+
+.settings-advanced-subheader {
+  font-size: calc(12px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 20px;
+  margin-bottom: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
 /* Setting row */
 .settings-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 24px;
   padding: 12px 0;
 }
 
@@ -162,6 +196,8 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1;
+  min-width: 0; /* allow text to shrink/wrap */
 }
 
 .settings-row-label {
@@ -763,6 +799,151 @@
   color: var(--text-muted);
 }
 
+/* ─── Disabled row (Music Mode) ────────────────────────────────────── */
+
+.settings-row-disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+/* Disabled toggle styling */
+.settings-toggle input:disabled + .settings-toggle-track {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ─── Audio Quality Tier Slider ────────────────────────────────────── */
+
+.settings-tier-slider-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+/*
+ * Labels — 5 equal-width flex items.
+ * Centers sit at 10%, 30%, 50%, 70%, 90% of the container.
+ */
+.settings-tier-labels {
+  display: flex;
+}
+
+.settings-tier-label {
+  flex: 1;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 0;
+  transition: all 0.15s ease;
+  text-align: center;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.settings-tier-label:hover {
+  color: var(--text-primary);
+}
+
+.settings-tier-label.active {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+/*
+ * Track wrapper — holds the slider + ticks.
+ * The slider is inset so the thumb's center range (10%–90% of full width)
+ * aligns with the 5 equal-width label centers above.
+ *
+ * Math: for N=5 columns, each column is 20% wide, centers at 10/30/50/70/90%.
+ * The slider thumb travels from 10% to 90% of the full container width,
+ * which is achieved by adding 10% padding on each side, then the native
+ * range input maps min→left-edge to max→right-edge of the 80%-wide track.
+ * Thumb half-width (10px) provides the last few px of centering.
+ */
+.settings-tier-track {
+  position: relative;
+  height: 20px;
+  padding: 0 calc(10% - 10px); /* 10% inset minus half-thumb-width */
+}
+
+/* Tick marks — evenly spaced across the inset track */
+.settings-tier-ticks {
+  position: absolute;
+  top: 0;
+  /* Inset by 10% of parent, then add half-thumb (10px) for thumb center */
+  left: 10%;
+  right: 10%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  display: flex;
+  justify-content: space-between;
+}
+
+.settings-tier-tick {
+  width: 2px;
+  height: 14px;
+  margin-top: 3px; /* vertically center within 20px track */
+  background: var(--border-color);
+  border-radius: 1px;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.settings-tier-tick.active {
+  background: var(--accent-primary);
+}
+
+.settings-tier-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 6px;
+  margin: 7px 0; /* center the 6px track within the 20px wrapper */
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  outline: none;
+}
+
+.settings-tier-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  cursor: pointer;
+  border: 3px solid var(--bg-primary);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.settings-tier-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+
+.settings-tier-description {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  font-size: calc(13px * var(--font-scale, 1));
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.settings-tier-description span:first-child {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: calc(12px * var(--font-scale, 1));
+  letter-spacing: 0.03em;
+}
+
 /* ─── Audio Settings Controls ──────────────────────────────────────── */
 
 .settings-slider {
@@ -785,6 +966,57 @@
   background: var(--accent-primary);
   cursor: pointer;
   border: 2px solid var(--bg-primary);
+}
+
+/* Volume slider — wider track, bigger thumb */
+.settings-volume-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+  outline: none;
+}
+
+.settings-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  cursor: pointer;
+  border: 2px solid var(--bg-primary);
+}
+
+.settings-volume-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0 12px;
+}
+
+.settings-volume-label {
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  min-width: 100px;
+}
+
+.settings-volume-track {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-volume-value {
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 42px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .settings-select {
@@ -841,7 +1073,9 @@
 /* ─── Codec & Hardware Section ─────────────────────────────────────── */
 
 .settings-gpu-badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   margin-left: 8px;
   padding: 2px 8px;
   border-radius: 4px;
@@ -849,13 +1083,50 @@
   font-size: calc(11px * var(--font-scale, 1));
   color: var(--text-muted);
   font-family: monospace;
+  vertical-align: middle;
 }
 
-.settings-codec-list {
+/* Codec grid — two-column layout for HW vs SW */
+.settings-codec-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.settings-codec-column {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-primary);
+}
+
+.settings-codec-column.active {
+  border-color: rgba(80, 200, 120, 0.3);
+}
+
+.settings-codec-column-header {
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.settings-codec-column-header.active {
+  color: #50c878;
+}
+
+.settings-codec-column-items {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 12px;
 }
 
 .settings-codec-item {
@@ -866,6 +1137,16 @@
   border-radius: 6px;
   background: var(--bg-tertiary);
   font-size: calc(12px * var(--font-scale, 1));
+  cursor: default;
+}
+
+.settings-codec-item.preferred {
+  background: rgba(80, 200, 120, 0.12);
+  outline: 1px solid rgba(80, 200, 120, 0.3);
+}
+
+.settings-codec-item.unsupported {
+  background: transparent;
 }
 
 .settings-codec-name {
@@ -873,23 +1154,58 @@
   font-weight: 500;
 }
 
-.settings-codec-badge {
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: calc(10px * var(--font-scale, 1));
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.settings-codec-badge.hw {
-  background: rgba(80, 200, 120, 0.15);
-  color: #50c878;
-}
-
-.settings-codec-badge.sw {
-  background: rgba(180, 180, 180, 0.15);
+.settings-codec-name.strikethrough {
+  text-decoration: line-through;
   color: var(--text-muted);
+}
+
+.settings-codec-empty {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.settings-hw-fallback-notice {
+  padding: 8px 12px;
+  margin-top: 4px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: rgba(255, 170, 0, 0.08);
+  border: 1px solid rgba(255, 170, 0, 0.25);
+  color: var(--text-secondary);
+  font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.5;
+}
+
+/* Codec tooltips (delayed, CSS-only) */
+[data-tooltip] {
+  position: relative;
+}
+
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  transition-delay: 0s;
+  z-index: 10;
+}
+
+[data-tooltip]:hover::after {
+  opacity: 1;
+  transition-delay: 0.5s;
 }
 
 .settings-restart-prompt {
@@ -919,4 +1235,80 @@
 
 .settings-restart-btn:hover {
   filter: brightness(1.1);
+}
+
+/* ─── Tree Navigation ─────────────────────────────────────────────────────── */
+
+.settings-nav-group {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Tree container under active nav item */
+.settings-nav-tree {
+  display: flex;
+  flex-direction: column;
+  padding-left: 18px;
+  position: relative;
+}
+
+/* Each tree item wrapper — holds the vertical trunk line */
+.settings-nav-tree-item-wrapper {
+  position: relative;
+}
+
+/* Vertical trunk line */
+.settings-nav-tree-item-wrapper::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-left: 1.5px solid var(--border-color);
+  pointer-events: none;
+}
+
+/* Last item: trunk stops at midpoint */
+.settings-nav-tree-item-wrapper--last::before {
+  bottom: auto;
+  height: 50%;
+}
+
+/* Tree item button */
+.settings-nav-tree-item {
+  display: block;
+  width: 100%;
+  padding: 6px 8px 6px 20px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: calc(12px * var(--font-scale, 1));
+  font-family: 'SourceSans', sans-serif;
+  cursor: pointer;
+  text-align: left;
+  transition: color 0.15s ease;
+  position: relative;
+}
+
+/* L-connector from trunk to item */
+.settings-nav-tree-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 50%;
+  width: 12px;
+  border-left: 1.5px solid var(--border-color);
+  border-bottom: 1.5px solid var(--border-color);
+  border-bottom-left-radius: 6px;
+  pointer-events: none;
+}
+
+.settings-nav-tree-item:hover {
+  color: var(--text-secondary);
+}
+
+.settings-nav-tree-item.active {
+  color: var(--accent-primary);
+  font-weight: 600;
 }
