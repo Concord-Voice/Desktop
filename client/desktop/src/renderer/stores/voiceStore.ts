@@ -228,6 +228,10 @@ interface VoiceState {
   // null = no restriction (<2 participants with capabilities)
   codecFloor: string[] | null;
 
+  // Currently active video codecs (lowercase mimeTypes, null when not producing)
+  activeCameraCodec: string | null;
+  activeScreenCodec: string | null;
+
   // Actions
   setConnectionState: (state: VoiceConnectionState) => void;
   setActiveChannel: (channelId: string | null, channelName?: string, serverId?: string) => void;
@@ -298,8 +302,10 @@ interface VoiceState {
   // Stream focus behavior
   setKeepActiveWhileUnfocused: (keep: boolean) => void;
 
-  // Codec floor
+  // Codec floor & active codecs
   setCodecFloor: (floor: string[] | null) => void;
+  setActiveCameraCodec: (codec: string | null) => void;
+  setActiveScreenCodec: (codec: string | null) => void;
 
   // Full reset (on disconnect)
   reset: () => void;
@@ -367,6 +373,8 @@ const initialState = {
     try { return localStorage.getItem('concord:keep-active-unfocused') === 'true'; } catch { return false; }
   })(),
   codecFloor: null as string[] | null,
+  activeCameraCodec: null as string | null,
+  activeScreenCodec: null as string | null,
 };
 
 export const useVoiceStore = create<VoiceState>()((set) => ({
@@ -583,6 +591,8 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
   },
 
   setCodecFloor: (codecFloor) => set({ codecFloor }),
+  setActiveCameraCodec: (activeCameraCodec) => set({ activeCameraCodec }),
+  setActiveScreenCodec: (activeScreenCodec) => set({ activeScreenCodec }),
 
   reset: () =>
     set((state) => ({

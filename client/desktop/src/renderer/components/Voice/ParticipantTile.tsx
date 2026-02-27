@@ -1,6 +1,8 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import { MicOff, Monitor } from 'lucide-react';
 import type { VoiceParticipant } from '../../stores/voiceStore';
+import { useMemberStore } from '../../stores/memberStore';
+import { resolveUserAccentColors } from '../../utils/schemeColors';
 import './ParticipantTile.css';
 
 interface ParticipantTileProps {
@@ -48,7 +50,18 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
 
   const displayName = participant.displayName || participant.username;
   const hasVideo = participant.isVideoOn && participant.videoStream;
-  const gradient = useMemo(() => bannerGradient(participant.userId), [participant.userId]);
+  const memberColorScheme = useMemberStore((state) => {
+    const member = state.members.find((m) => m.user_id === participant.userId);
+    return member?.color_scheme;
+  });
+  const userColors = useMemo(
+    () => resolveUserAccentColors(memberColorScheme),
+    [memberColorScheme]
+  );
+  const gradient = useMemo(
+    () => userColors?.gradient ?? bannerGradient(participant.userId),
+    [userColors, participant.userId]
+  );
 
   const scaleStyle =
     magnificationScale !== 1
@@ -93,7 +106,10 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
                   className="participant-tile__avatar-img"
                 />
               ) : (
-                <div className="participant-tile__avatar-fallback">
+                <div
+                  className="participant-tile__avatar-fallback"
+                  style={userColors ? { background: userColors.gradient } : undefined}
+                >
                   {displayName.charAt(0).toUpperCase()}
                 </div>
               )}

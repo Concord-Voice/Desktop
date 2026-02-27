@@ -9,9 +9,11 @@ import PipWindow from './components/Voice/PipWindow';
 import ConnectionLostOverlay from './components/ui/ConnectionLostOverlay';
 import { useAuthStore } from './stores/authStore';
 import { useUserStore } from './stores/userStore';
+import { useVideoSettingsStore } from './stores/videoSettingsStore';
 import { useWebSocket } from './hooks/useWebSocket';
 import { e2eeService } from './services/e2eeService';
 import { preferencesSyncService } from './services/preferencesSync';
+import { detectCodecCapabilities } from './services/mediaCapabilities';
 
 function AuthenticatedLayout() {
   const accessToken = useAuthStore((state) => state.accessToken);
@@ -27,6 +29,22 @@ function AuthenticatedLayout() {
       fetchUser();
     }
   }, [accessToken, user, fetchUser]);
+
+  // Pre-cache codec capabilities and GPU info so Settings page loads instantly
+  useEffect(() => {
+    Promise.all([
+      detectCodecCapabilities(),
+      window.electron?.getGPUInfo?.() ?? Promise.resolve(null),
+      window.electron?.getHardwareAcceleration?.() ?? Promise.resolve(null),
+      window.electron?.getDisplayInfo?.() ?? Promise.resolve(null),
+    ]).then(([caps, gpu, hwAccel]) => {
+      useVideoSettingsStore.setState({
+        codecCapabilities: caps,
+        gpuInfo: gpu ?? useVideoSettingsStore.getState().gpuInfo,
+        ...(hwAccel != null ? { hardwareAcceleration: hwAccel } : {}),
+      });
+    });
+  }, []);
 
   if (!accessToken) {
     return <Navigate to="/" replace />;

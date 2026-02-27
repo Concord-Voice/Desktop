@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Lock } from 'lucide-react';
 import { MessageWithStatus } from '../../types/chat';
 import { useMemberStore, ServerMember } from '../../stores/memberStore';
+import { resolveUserAccentColors } from '../../utils/schemeColors';
 import MemberProfileCard from '../Members/MemberProfileCard';
 import UserProfileModal from '../Members/UserProfileModal';
 import DeleteMessageModal from './DeleteMessageModal';
@@ -53,6 +54,8 @@ const Message: React.FC<MessageProps> = ({
   const members = useMemberStore((state) => state.members);
   const userStatuses = useMemberStore((state) => state.userStatuses);
   const lastSeenByUser = useMemberStore((state) => state.lastSeenByUser);
+  const senderMember = members.find((m) => m.user_id === message.user_id);
+  const senderColors = resolveUserAccentColors(senderMember?.color_scheme);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -147,7 +150,10 @@ const Message: React.FC<MessageProps> = ({
           {message.avatar_url ? (
             <img className="avatar-image" src={message.avatar_url} alt={message.username} />
           ) : (
-            <div className="avatar-circle">
+            <div
+              className="avatar-circle"
+              style={senderColors ? { background: senderColors.gradient } : undefined}
+            >
               {getInitials(message.display_name || message.username)}
             </div>
           )}

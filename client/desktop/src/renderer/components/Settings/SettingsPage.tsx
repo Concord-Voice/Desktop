@@ -10,12 +10,13 @@ import type { AudioPriority } from '../../stores/audioSettingsStore';
 import { useVideoSettingsStore, VIDEO_QUALITY_PRESETS } from '../../stores/videoSettingsStore';
 import type { ScreenContentType, DegradationPreference, VideoPriority } from '../../stores/videoSettingsStore';
 import { useTTSSettingsStore } from '../../stores/ttsSettingsStore';
-import { detectCodecCapabilities } from '../../services/mediaCapabilities';
 import type { CodecCapability } from '../../services/mediaCapabilities';
 import { isValidHex } from '../../utils/colorUtils';
 import { apiFetch } from '../../services/apiClient';
 import LoadingSpinner from '../Auth/LoadingSpinner';
+import Modal from '../ui/Modal';
 import DeviceSelector from '../Voice/DeviceSelector';
+import { useMicTest } from '../../hooks/useMicTest';
 import './SettingsPage.css';
 
 type SettingsSection =
@@ -367,7 +368,8 @@ const PrivacySecuritySection: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [isRevokingAll, setIsRevokingAll] = useState(false);
-  const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null); // session id or 'all'
+  const [confirmRevoke, setConfirmRevoke] = useState<string | null>(null); // session id for individual confirm
+  const [showRevokeAllModal, setShowRevokeAllModal] = useState(false);
   const [revokePassword, setRevokePassword] = useState('');
   const [revokePasswordError, setRevokePasswordError] = useState('');
 
@@ -463,24 +465,26 @@ const PrivacySecuritySection: React.FC = () => {
     }
   };
 
+  const openRevokeAllModal = () => {
+    setRevokePassword('');
+    setRevokePasswordError('');
+    setShowRevokeAllModal(true);
+  };
+
+  const closeRevokeAllModal = () => {
+    setShowRevokeAllModal(false);
+    setRevokePassword('');
+    setRevokePasswordError('');
+  };
+
   const handleRevokeAll = async () => {
     if (!accessToken) return;
 
-    // First click: show confirmation with password input
-    if (confirmRevoke !== 'all') {
-      setConfirmRevoke('all');
-      setRevokePassword('');
-      setRevokePasswordError('');
-      return;
-    }
-
-    // Require password before proceeding
     if (!revokePassword) {
       setRevokePasswordError('Password is required');
       return;
     }
 
-    setConfirmRevoke(null);
     setIsRevokingAll(true);
 
     try {
@@ -496,8 +500,6 @@ const PrivacySecuritySection: React.FC = () => {
       if (!response.ok) {
         const data = await response.json();
         if (response.status === 403) {
-          // Wrong password — re-show confirmation with error
-          setConfirmRevoke('all');
           setRevokePasswordError(data.error || 'Incorrect password');
           setIsRevokingAll(false);
           return;
@@ -506,11 +508,13 @@ const PrivacySecuritySection: React.FC = () => {
       }
 
       setRevokePassword('');
+      setShowRevokeAllModal(false);
       // All sessions revoked including current — log out
       await logout();
       navigate('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to revoke sessions');
+      setShowRevokeAllModal(false);
     } finally {
       setIsRevokingAll(false);
     }
@@ -557,6 +561,18 @@ const PrivacySecuritySection: React.FC = () => {
           </div>
         ) : (
           <>
+            {sessions.length > 0 && (
+              <div className="sessions-actions-top">
+                <button
+                  className="sessions-revoke-all-btn"
+                  onClick={openRevokeAllModal}
+                  disabled={isRevokingAll}
+                >
+                  Revoke All Sessions
+                </button>
+              </div>
+            )}
+
             <div className="sessions-list">
               {sortedSessions.map((session) => (
                 <div
@@ -631,64 +647,57 @@ const PrivacySecuritySection: React.FC = () => {
                 </div>
               ))}
             </div>
-
-            {sessions.length > 1 && (
-              <div className="sessions-actions">
-                {confirmRevoke === 'all' && (
-                  <div className="session-confirm-warning">
-                    This will revoke all sessions, including your current active session. You will
-                    be logged out and must sign back in.
-                    <div className="revoke-password-input">
-                      <label>Enter your password to confirm:</label>
-                      <input
-                        type="password"
-                        value={revokePassword}
-                        onChange={(e) => {
-                          setRevokePassword(e.target.value);
-                          setRevokePasswordError('');
-                        }}
-                        placeholder="Password"
-                        autoFocus
-                      />
-                      {revokePasswordError && (
-                        <span className="revoke-password-error">{revokePasswordError}</span>
-                      )}
-                    </div>
-                  </div>
-                )}
-                {confirmRevoke === 'all' ? (
-                  <div className="sessions-actions-buttons">
-                    <button
-                      className="sessions-revoke-all-btn"
-                      onClick={handleRevokeAll}
-                      disabled={isRevokingAll || !revokePassword}
-                    >
-                      {isRevokingAll ? 'Revoking...' : 'Confirm Revoke All'}
-                    </button>
-                    <button
-                      className="session-cancel-btn"
-                      onClick={() => {
-                        setConfirmRevoke(null);
-                        setRevokePassword('');
-                        setRevokePasswordError('');
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    className="sessions-revoke-all-btn"
-                    onClick={handleRevokeAll}
-                    disabled={isRevokingAll}
-                  >
-                    {isRevokingAll ? 'Revoking...' : `Revoke All Sessions (${sessions.length})`}
-                  </button>
-                )}
-              </div>
-            )}
           </>
         )}
+
+        <Modal
+          isOpen={showRevokeAllModal}
+          onClose={closeRevokeAllModal}
+          title="Revoke All Sessions"
+          width="small"
+        >
+          <div className="revoke-all-modal-content">
+            <p className="revoke-all-modal-description">
+              You&apos;re about to revoke all of your active session tokens, which will log you out
+              of all sessions, including this one. In order to continue, please input your password.
+            </p>
+            <div className="revoke-password-input">
+              <label htmlFor="revoke-all-password">Password</label>
+              <input
+                id="revoke-all-password"
+                type="password"
+                value={revokePassword}
+                onChange={(e) => {
+                  setRevokePassword(e.target.value);
+                  setRevokePasswordError('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && revokePassword) handleRevokeAll();
+                }}
+                placeholder="Enter your password"
+                autoFocus
+              />
+              {revokePasswordError && (
+                <span className="revoke-password-error">{revokePasswordError}</span>
+              )}
+            </div>
+            <div className="revoke-all-modal-actions">
+              <button
+                className="revoke-all-modal-cancel-btn"
+                onClick={closeRevokeAllModal}
+              >
+                No, Cancel
+              </button>
+              <button
+                className="revoke-all-modal-confirm-btn"
+                onClick={handleRevokeAll}
+                disabled={isRevokingAll || !revokePassword}
+              >
+                {isRevokingAll ? 'Revoking...' : 'Yes, Revoke All Sessions'}
+              </button>
+            </div>
+          </div>
+        </Modal>
       </div>
 
       {pastSessions.length > 0 && (
@@ -803,6 +812,14 @@ const TIER_DESCRIPTIONS: Record<AudioQualityTier, string> = {
 const VoiceAudioSection: React.FC = () => {
   const qualityTier = useVoiceStore((s) => s.qualityTier);
   const setQualityTier = useVoiceStore((s) => s.setQualityTier);
+  const activeCameraCodec = useVoiceStore((s) => s.activeCameraCodec);
+  const activeScreenCodec = useVoiceStore((s) => s.activeScreenCodec);
+  const isInVoiceCall = useVoiceStore((s) =>
+    s.connectionState === 'connected' ||
+    s.connectionState === 'connecting' ||
+    s.connectionState === 'reconnecting'
+  );
+  const { isTesting, dbfsLevel, error: micTestError, startTest, stopTest } = useMicTest();
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Audio processing settings
@@ -822,7 +839,6 @@ const VoiceAudioSection: React.FC = () => {
   const screenFrameRate = useVideoSettingsStore((s) => s.screenFrameRate);
   const screenContentType = useVideoSettingsStore((s) => s.screenContentType);
   const preferredVideoCodec = useVideoSettingsStore((s) => s.preferredVideoCodec);
-  const preferredScreenCodec = useVideoSettingsStore((s) => s.preferredScreenCodec);
   const screenSharePriority = useVideoSettingsStore((s) => s.screenSharePriority);
   const screenShareBitrate = useVideoSettingsStore((s) => s.screenShareBitrate);
   const cameraPriority = useVideoSettingsStore((s) => s.cameraPriority);
@@ -836,26 +852,15 @@ const VoiceAudioSection: React.FC = () => {
   const [showVideoAdvanced, setShowVideoAdvanced] = useState(false);
   const [displayInfo, setDisplayInfo] = useState<{ width: number; height: number; refreshRate: number; scaleFactor: number; isPrimary: boolean }[]>([]);
 
-  // Load codec capabilities + GPU info + display info on mount.
-  // Deferred via requestAnimationFrame so React paints the UI first.
+  // Codec capabilities and GPU info are pre-cached in AuthenticatedLayout (App.tsx).
+  // Only fetch display info and sync HW accel initial state on mount.
   useEffect(() => {
-    const raf = requestAnimationFrame(() => {
-      Promise.all([
-        detectCodecCapabilities(),
-        window.electron?.getGPUInfo?.() ?? Promise.resolve(null),
-        window.electron?.getHardwareAcceleration?.() ?? Promise.resolve(null),
-        window.electron?.getDisplayInfo?.() ?? Promise.resolve(null),
-      ]).then(([caps, gpu, hwAccel, displays]) => {
-        useVideoSettingsStore.setState({
-          codecCapabilities: caps,
-          gpuInfo: gpu ?? useVideoSettingsStore.getState().gpuInfo,
-          ...(hwAccel != null ? { hardwareAcceleration: hwAccel } : {}),
-        });
-        if (hwAccel != null) setInitialHwAccel(hwAccel);
-        if (displays) setDisplayInfo(displays);
-      });
+    const hwAccel = useVideoSettingsStore.getState().hardwareAcceleration;
+    setInitialHwAccel(hwAccel);
+
+    window.electron?.getDisplayInfo?.().then((displays) => {
+      if (displays) setDisplayInfo(displays);
     });
-    return () => cancelAnimationFrame(raf);
   }, []);
 
   const restartNeeded = initialHwAccel !== null && hardwareAcceleration !== initialHwAccel;
@@ -899,11 +904,18 @@ const VoiceAudioSection: React.FC = () => {
       ? { w: Number(parsed[1]), h: Number(parsed[2]) }
       : (resMap[screenResolution] || resMap['1080p']);
     const effectiveFps = screenFrameRate === 0 ? maxRefreshRate : screenFrameRate;
-    const isEfficient = preferredScreenCodec?.includes('AV1') || preferredScreenCodec?.includes('H265') || preferredScreenCodec?.includes('HEVC') || preferredScreenCodec?.includes('VP9');
+    // Determine effective codec for efficiency: active (in-use) > preferred > auto-pick
+    // Auto cascade picks AV1 → HEVC → VP9 first, so if any efficient codec is available, auto uses it
+    const effectiveCodec = activeScreenCodec ?? preferredVideoCodec;
+    const isEfficient = effectiveCodec
+      ? (effectiveCodec.includes('AV1') || effectiveCodec.includes('H265') || effectiveCodec.includes('HEVC') || effectiveCodec.includes('VP9'))
+      : codecCapabilities.some((c) =>
+          c.mimeType.includes('AV1') || c.mimeType.includes('H265') || c.mimeType.includes('HEVC') || c.mimeType.includes('VP9')
+        );
     const bpp = isEfficient ? 0.04 : 0.07;
     const bps = res.w * res.h * effectiveFps * bpp;
     return Math.round(bps / 100_000) * 100_000;
-  }, [screenResolution, screenFrameRate, preferredScreenCodec, bestDisplay, maxRefreshRate]);
+  }, [screenResolution, screenFrameRate, preferredVideoCodec, activeScreenCodec, codecCapabilities, bestDisplay, maxRefreshRate]);
 
   const clampedRecommended = Math.max(1_500_000, Math.min(30_000_000, recommendedBitrate));
 
@@ -953,6 +965,36 @@ const VoiceAudioSection: React.FC = () => {
           </div>
           <span className="settings-volume-value">{inputVolume}%</span>
         </div>
+
+        <div className="settings-mic-test-row">
+          <button
+            className={`settings-mic-test-btn${isTesting ? ' testing' : ''}`}
+            onClick={isTesting ? stopTest : startTest}
+            disabled={isInVoiceCall}
+            title={isInVoiceCall ? 'Unavailable during a voice call' : undefined}
+          >
+            {isTesting ? 'Stop Testing' : 'Test'}
+          </button>
+          {micTestError && <span className="settings-mic-test-error">{micTestError}</span>}
+        </div>
+
+        {isTesting && (
+          <div className="settings-mic-meter-container">
+            <div className="settings-mic-meter-track">
+              <div
+                className="settings-mic-meter-fill"
+                style={{ width: `${Math.max(0, ((dbfsLevel + 80) / 80) * 100)}%` }}
+              />
+            </div>
+            <div className="settings-mic-meter-ticks">
+              <span>-80</span>
+              <span>-60</span>
+              <span>-40</span>
+              <span>-20</span>
+              <span>0 dBFS</span>
+            </div>
+          </div>
+        )}
 
         <h3 className="settings-subsection-title">Output</h3>
         <div className="settings-device-row">
@@ -1480,22 +1522,39 @@ const VoiceAudioSection: React.FC = () => {
               const hwCodecs = codecCapabilities.filter((c) => c.powerEfficient).sort(sortByPriority);
               const swCodecs = [...codecCapabilities].sort(sortByPriority);
 
-              // Which column is active: prefer HW if enabled AND has router-supported codecs
+              // Which column is active
               const hwHasSupported = hwCodecs.some((c) => isSupported(c));
-              const hwActive = hardwareAcceleration && hwHasSupported;
+              const hwActive = preferredVideoCodec
+                // User picked a specific codec → active column is whichever contains it
+                ? hardwareAcceleration && hwCodecs.some((c) => c.mimeType === preferredVideoCodec && isSupported(c))
+                : hardwareAcceleration && hwHasSupported;
 
-              // Determine preferred codec: first supported codec in priority order within the active column
-              const activeCodecs = hwActive ? hwCodecs : swCodecs;
-              const preferredMime = activeCodecs.find((c) => isSupported(c))?.mimeType ?? null;
+              // Determine preferred codec for green highlight
+              // User preference → auto-pick (first supported in active column)
+              const activeColumnCodecs = hwActive ? hwCodecs : swCodecs;
+              const preferredMime = preferredVideoCodec && routerSupported.has(preferredVideoCodec.toLowerCase())
+                ? preferredVideoCodec
+                : activeColumnCodecs.find((c) => isSupported(c))?.mimeType ?? null;
+
+              // Active codecs currently in use (from voice producers)
+              const inUseMimes = new Set<string>(
+                [activeCameraCodec, activeScreenCodec].filter(Boolean) as string[]
+              );
 
               const renderCodecItem = (c: CodecCapability, columnKey: string, isActiveColumn: boolean) => {
                 const supported = isSupported(c);
                 const isPreferred = isActiveColumn && supported && c.mimeType === preferredMime;
-                const tooltip = !supported ? 'Not supported' : isPreferred ? 'Preferred' : 'Available';
+                const isInUse = supported && inUseMimes.has(c.mimeType.toLowerCase());
+                const tooltip = !supported
+                  ? 'Not supported'
+                  : isPreferred && isInUse ? 'Preferred · In Use'
+                  : isInUse ? 'In Use'
+                  : isPreferred ? 'Preferred'
+                  : 'Available';
                 return (
                   <div
                     key={`${columnKey}-${c.mimeType}`}
-                    className={`settings-codec-item${isPreferred ? ' preferred' : ''}${!supported ? ' unsupported' : ''}`}
+                    className={`settings-codec-item${isPreferred ? ' preferred' : ''}${isInUse ? ' in-use' : ''}${!supported ? ' unsupported' : ''}`}
                     data-tooltip={tooltip}
                   >
                     <span className={`settings-codec-name${!supported ? ' strikethrough' : ''}`}>{displayName(c)}</span>
@@ -1542,8 +1601,8 @@ const VoiceAudioSection: React.FC = () => {
 
             <div className="settings-row">
               <div className="settings-row-info">
-                <span className="settings-row-label">Camera Codec</span>
-                <span className="settings-row-hint">Auto uses the best available codec</span>
+                <span className="settings-row-label">Video Codec</span>
+                <span className="settings-row-hint">Applies to both camera and screen share</span>
               </div>
               <select
                 className="settings-select"
@@ -1559,24 +1618,11 @@ const VoiceAudioSection: React.FC = () => {
               </select>
             </div>
 
-            <div className="settings-row">
-              <div className="settings-row-info">
-                <span className="settings-row-label">Screen Share Codec</span>
-                <span className="settings-row-hint">Auto uses the best available codec</span>
+            {preferredVideoCodec && (
+              <div className="settings-codec-preference-notice">
+                Your client will prefer this codec, but will fall back to the next best option if another participant can't decode it. Active codecs are shown above with a <span className="settings-codec-item in-use" style={{ display: 'inline-flex', padding: '1px 6px', margin: '0 3px', fontSize: 'inherit', verticalAlign: 'baseline' }}>highlight</span>.
               </div>
-              <select
-                className="settings-select"
-                value={preferredScreenCodec ?? ''}
-                onChange={(e) => useVideoSettingsStore.getState().setPreferredScreenCodec(e.target.value || null)}
-              >
-                <option value="">Auto</option>
-                {codecCapabilities.map((c) => (
-                  <option key={c.mimeType} value={c.mimeType}>
-                    {c.mimeType.replace('video/', '')}{c.powerEfficient ? ' (HW)' : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
+            )}
 
             <div className="settings-row">
               <div className="settings-row-info">
@@ -1687,13 +1733,12 @@ const VoiceAudioSection: React.FC = () => {
               </div>
               <select
                 className="settings-select"
-                value={scalabilityMode}
-                onChange={(e) => useVideoSettingsStore.getState().setScalabilityMode(e.target.value as 'auto' | 'L1T3' | 'L2T3' | 'L3T3')}
+                value={scalabilityMode === 'auto' ? 'L3T3' : scalabilityMode}
+                onChange={(e) => useVideoSettingsStore.getState().setScalabilityMode(e.target.value as 'L1T3' | 'L2T3' | 'L3T3')}
               >
-                <option value="auto">Auto (3 Layers)</option>
-                <option value="L1T3">Single Quality (No Adaptation)</option>
+                <option value="L3T3">3 Layers (Default)</option>
                 <option value="L2T3">2 Layers</option>
-                <option value="L3T3">3 Layers (Best Adaptation)</option>
+                <option value="L1T3">Single Quality</option>
               </select>
             </div>
           </div>

@@ -454,8 +454,14 @@ class VoiceService {
       ? { w: Number(parsed[1]), h: Number(parsed[2]) }
       : (resMap[vs.screenResolution] || resMap['1080p']);
     const effectiveFps = vs.screenFrameRate === 0 ? 60 : vs.screenFrameRate;
-    const codec = vs.preferredScreenCodec;
-    const isEfficient = codec?.includes('AV1') || codec?.includes('H265') || codec?.includes('HEVC') || codec?.includes('VP9');
+    // Effective codec: active (in-use) > preferred > auto-pick (check if any efficient codec is available)
+    const activeCodec = useVoiceStore.getState().activeScreenCodec;
+    const effectiveCodec = activeCodec ?? vs.preferredVideoCodec;
+    const isEfficient = effectiveCodec
+      ? (effectiveCodec.includes('AV1') || effectiveCodec.includes('H265') || effectiveCodec.includes('HEVC') || effectiveCodec.includes('VP9'))
+      : vs.codecCapabilities.some((c) =>
+          c.mimeType.includes('AV1') || c.mimeType.includes('H265') || c.mimeType.includes('HEVC') || c.mimeType.includes('VP9')
+        );
     const bpp = isEfficient ? 0.04 : 0.07;
     const bps = res.w * res.h * effectiveFps * bpp;
     return Math.max(1_500_000, Math.min(30_000_000, Math.round(bps / 100_000) * 100_000));
@@ -548,7 +554,7 @@ class VoiceService {
     encodings: mediasoupTypes.RtpEncodingParameters[];
   } {
     const vs = useVideoSettingsStore.getState();
-    const preferred = vs.preferredScreenCodec;
+    const preferred = vs.preferredVideoCodec;
     const prio = vs.screenSharePriority;
     const svcMode = vs.scalabilityMode === 'auto' ? 'L3T3' : vs.scalabilityMode;
     const userBitrate = vs.screenShareBitrate; // 0 = auto
@@ -696,9 +702,12 @@ class VoiceService {
         if (state.cameraPreset !== prev.cameraPreset) {
           this.liveReplaceCameraTrack();
         }
-        // Codec change → re-produce
+        // Codec change → re-produce camera (and screen if active)
         if (state.preferredVideoCodec !== prev.preferredVideoCodec) {
           this.liveReproduceCamera();
+          if (this.producers.get('screen')) {
+            this.fastReproduceScreen();
+          }
         }
       }
 
@@ -937,6 +946,7 @@ class VoiceService {
       if (uid) s.updateParticipant(uid, { videoStream: undefined, isVideoOn: false });
     });
 
+    useVoiceStore.getState().setActiveCameraCodec(codec?.mimeType?.toLowerCase() ?? null);
     const hwTag = codec && this.isHwAccelerated(codec.mimeType) ? 'HW' : 'SW';
     console.debug(`[codec-floor] Fast re-produced camera with ${codec?.mimeType ?? 'default'} (${hwTag})`);
   }
@@ -1007,6 +1017,7 @@ class VoiceService {
       if (uid) s.updateParticipant(uid, { screenStream: undefined, isScreenSharing: false });
     });
 
+    useVoiceStore.getState().setActiveScreenCodec(codec?.mimeType?.toLowerCase() ?? null);
     const hwTag = codec && this.isHwAccelerated(codec.mimeType) ? 'HW' : 'SW';
     console.debug(`[codec-floor] Fast re-produced screen with ${codec?.mimeType ?? 'default'} (${hwTag})`);
   }
@@ -1452,6 +1463,9 @@ class VoiceService {
 
     this.producers.set('camera', producer);
 
+    // Track active codec for settings UI
+    useVoiceStore.getState().setActiveCameraCodec(codec?.mimeType?.toLowerCase() ?? null);
+
     // Update store: both global flag and local participant's video stream
     const store = useVoiceStore.getState();
     store.setVideoOn(true);
@@ -1569,6 +1583,9 @@ class VoiceService {
 
       this.localScreenStream = stream;
       this.producers.set('screen', producer);
+
+      // Track active codec for settings UI
+      useVoiceStore.getState().setActiveScreenCodec(codec?.mimeType?.toLowerCase() ?? null);
 
       // Update store: both global flag and local participant's screen stream
       const store = useVoiceStore.getState();
@@ -1820,6 +1837,7 @@ class VoiceService {
         this.localCameraStream = null;
       }
       useVoiceStore.getState().setVideoOn(false);
+      useVoiceStore.getState().setActiveCameraCodec(null);
       if (localUserId) {
         useVoiceStore.getState().updateParticipant(localUserId, { videoStream: undefined, isVideoOn: false });
       }
@@ -1829,6 +1847,7 @@ class VoiceService {
         this.localScreenStream = null;
       }
       useVoiceStore.getState().setScreenSharing(false);
+      useVoiceStore.getState().setActiveScreenCodec(null);
       if (localUserId) {
         useVoiceStore.getState().updateParticipant(localUserId, { screenStream: undefined, isScreenSharing: false });
       }

@@ -300,7 +300,44 @@ export function useWebSocket() {
         display_name: data.display_name || undefined,
         avatar_url: data.avatar_url || undefined,
         header_image_url: data.header_image_url || undefined,
+        color_scheme: data.color_scheme || undefined,
       });
+
+      // Update voice participant (active call tiles)
+      const voiceState = useVoiceStore.getState();
+      if (voiceState.participants[userId]) {
+        voiceState.updateParticipant(userId, {
+          username: data.username,
+          displayName: data.display_name || undefined,
+          avatarUrl: data.avatar_url || undefined,
+        });
+      }
+
+      // Update channel voice members (sidebar)
+      for (const [channelId, members] of Object.entries(voiceState.channelVoiceMembers)) {
+        const idx = members.findIndex((m) => m.userId === userId);
+        if (idx !== -1) {
+          const updated = [...members];
+          updated[idx] = {
+            ...updated[idx],
+            username: data.username,
+            displayName: data.display_name || undefined,
+            avatarUrl: data.avatar_url || undefined,
+          };
+          voiceState.setChannelVoiceMembers(channelId, updated);
+        }
+      }
+
+      // Update available screen shares
+      if (voiceState.availableScreenShares.some((s) => s.userId === userId)) {
+        useVoiceStore.setState({
+          availableScreenShares: voiceState.availableScreenShares.map((s) =>
+            s.userId === userId
+              ? { ...s, username: data.username, displayName: data.display_name || undefined }
+              : s,
+          ),
+        });
+      }
     });
 
     // Server updated handler — updates server list for all members

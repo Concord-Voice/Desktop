@@ -3,6 +3,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useUserStore } from '../../stores/userStore';
 import { useMemberStore, ServerMember, PresenceStatus } from '../../stores/memberStore';
+import { resolveUserAccentColors } from '../../utils/schemeColors';
 import MemberProfileCard from './MemberProfileCard';
 import MemberContextMenu from './MemberContextMenu';
 import UserProfileModal from './UserProfileModal';
@@ -95,6 +96,7 @@ const MemberList: React.FC = () => {
 
   const renderMemberItem = (member: ServerMember) => {
     const status = getMemberStatus(member.user_id);
+    const memberColors = resolveUserAccentColors(member.color_scheme);
     return (
       <div
         key={member.user_id}
@@ -107,7 +109,12 @@ const MemberList: React.FC = () => {
           {member.avatar_url ? (
             <img src={member.avatar_url} alt={member.username} className="member-avatar-img" />
           ) : (
-            <span className="member-avatar-initial">{member.username.charAt(0).toUpperCase()}</span>
+            <span
+              className="member-avatar-initial"
+              style={memberColors ? { background: memberColors.gradient, color: '#fff' } : undefined}
+            >
+              {member.username.charAt(0).toUpperCase()}
+            </span>
           )}
           <span className={`member-status-dot ${status}`} />
         </div>

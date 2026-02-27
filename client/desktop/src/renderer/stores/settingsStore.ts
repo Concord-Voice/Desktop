@@ -6,6 +6,7 @@ import {
   applyCustomThemeVariables,
   clearCustomThemeVariables,
 } from '../utils/colorUtils';
+import { useUserStore } from './userStore';
 
 export interface AppearanceSettings {
   theme: 'dark' | 'light' | 'system';
@@ -108,6 +109,14 @@ export const useSettingsStore = create<SettingsState>()(
     })),
     {
       name: 'concord-settings',
+      merge: (persisted, current) => {
+        const p = persisted as Partial<SettingsState> | undefined;
+        return {
+          ...current,
+          ...p,
+          appearance: { ...defaultAppearance, ...p?.appearance },
+        };
+      },
     }
   )
 );
@@ -189,6 +198,49 @@ useSettingsStore.subscribe(
     equalityFn: (a, b) =>
       a.colorScheme === b.colorScheme &&
       a.theme === b.theme &&
+      JSON.stringify(a.customColors) === JSON.stringify(b.customColors),
+    fireImmediately: true,
+  }
+);
+
+// Sync color scheme changes to server profile (debounced, skips initial hydration)
+let colorSyncTimer: ReturnType<typeof setTimeout> | null = null;
+let colorSyncInitial = true;
+
+useSettingsStore.subscribe(
+  (state) => ({
+    colorScheme: state.appearance.colorScheme,
+    customColors: state.appearance.customColors,
+  }),
+  ({ colorScheme, customColors }) => {
+    // Skip the initial hydration from localStorage
+    if (colorSyncInitial) {
+      colorSyncInitial = false;
+      return;
+    }
+
+    if (colorSyncTimer) clearTimeout(colorSyncTimer);
+
+    colorSyncTimer = setTimeout(() => {
+      let payload: string;
+      if (colorScheme === 'custom' && customColors) {
+        payload = JSON.stringify({
+          scheme: 'custom',
+          accentPrimary: customColors.accentPrimary,
+          accentSecondary: customColors.accentSecondary,
+        });
+      } else {
+        payload = JSON.stringify({ scheme: colorScheme });
+      }
+
+      useUserStore.getState().updateProfile({ color_scheme: payload }).catch(() => {
+        // Fire-and-forget — local settings still work if server sync fails
+      });
+    }, 500);
+  },
+  {
+    equalityFn: (a, b) =>
+      a.colorScheme === b.colorScheme &&
       JSON.stringify(a.customColors) === JSON.stringify(b.customColors),
     fireImmediately: true,
   }

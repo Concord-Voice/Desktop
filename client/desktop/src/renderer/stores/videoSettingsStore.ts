@@ -51,7 +51,6 @@ interface VideoSettings {
   screenResolution: ScreenResolution;
   screenFrameRate: number; // 0 = Native (display refresh rate), or specific FPS value
   screenContentType: ScreenContentType;
-  preferredScreenCodec: string | null;
   screenSharePriority: VideoPriority; // DSCP priority for screen share traffic
   screenShareBitrate: number; // bps, 0 = auto (codec-dependent)
 
@@ -74,7 +73,6 @@ interface VideoSettingsState extends VideoSettings {
   setScreenResolution: (res: ScreenResolution) => void;
   setScreenFrameRate: (fps: number) => void;
   setScreenContentType: (type: ScreenContentType) => void;
-  setPreferredScreenCodec: (codec: string | null) => void;
   setScreenSharePriority: (priority: VideoPriority) => void;
   setScreenShareBitrate: (bitrate: number) => void;
   setDegradationPreference: (pref: DegradationPreference) => void;
@@ -91,7 +89,6 @@ const defaults: VideoSettings = {
   screenResolution: 'source',
   screenFrameRate: 30,
   screenContentType: 'auto',
-  preferredScreenCodec: null,
   screenSharePriority: 'medium',
   screenShareBitrate: 0, // Auto
   degradationPreference: 'balanced',
@@ -112,7 +109,6 @@ export const useVideoSettingsStore = create<VideoSettingsState>()(
       setScreenResolution: (screenResolution) => set({ screenResolution }),
       setScreenFrameRate: (screenFrameRate) => set({ screenFrameRate }),
       setScreenContentType: (screenContentType) => set({ screenContentType }),
-      setPreferredScreenCodec: (preferredScreenCodec) => set({ preferredScreenCodec }),
       setScreenSharePriority: (screenSharePriority) => set({ screenSharePriority }),
       setScreenShareBitrate: (screenShareBitrate) => set({ screenShareBitrate }),
       setDegradationPreference: (degradationPreference) => set({ degradationPreference }),

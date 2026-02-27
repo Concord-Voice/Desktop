@@ -34,6 +34,7 @@ export interface UpdateProfileData {
   bio?: string | null;
   avatar_url?: string | null;
   header_image_url?: string | null;
+  color_scheme?: string | null;
   links?: string[];
 }
 

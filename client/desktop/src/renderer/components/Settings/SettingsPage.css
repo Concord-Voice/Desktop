@@ -636,21 +636,10 @@
   line-height: 1.4;
 }
 
-.sessions-actions {
+.sessions-actions-top {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 12px;
-  margin-top: 16px;
-}
-
-.sessions-actions .session-confirm-warning {
-  width: 100%;
-}
-
-.sessions-actions-buttons {
-  display: flex;
-  gap: 8px;
+  justify-content: flex-end;
+  margin-bottom: 12px;
 }
 
 .revoke-password-input {
@@ -683,6 +672,65 @@
 .revoke-password-error {
   color: var(--danger);
   font-size: calc(12px * var(--font-scale, 1));
+}
+
+.revoke-all-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.revoke-all-modal-description {
+  color: var(--text-secondary);
+  font-size: calc(14px * var(--font-scale, 1));
+  line-height: 1.5;
+  margin: 0;
+}
+
+.revoke-all-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.revoke-all-modal-cancel-btn {
+  padding: 8px 16px;
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-family: 'SourceSans', sans-serif;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.revoke-all-modal-cancel-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.revoke-all-modal-confirm-btn {
+  padding: 8px 16px;
+  background: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  color: #fff;
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 600;
+  font-family: 'SourceSans', sans-serif;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.revoke-all-modal-confirm-btn:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.revoke-all-modal-confirm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .sessions-revoke-all-btn {
@@ -1145,6 +1193,10 @@
   outline: 1px solid rgba(80, 200, 120, 0.3);
 }
 
+.settings-codec-item.in-use {
+  outline: 1.5px solid var(--accent-primary);
+}
+
 .settings-codec-item.unsupported {
   background: transparent;
 }
@@ -1175,6 +1227,18 @@
   color: var(--text-secondary);
   font-size: calc(12px * var(--font-scale, 1));
   line-height: 1.5;
+}
+
+.settings-codec-preference-notice {
+  padding: 8px 12px;
+  margin-top: 4px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: rgba(88, 166, 255, 0.08);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+  color: var(--text-secondary);
+  font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.4;
 }
 
 /* Codec tooltips (delayed, CSS-only) */
@@ -1237,6 +1301,92 @@
   filter: brightness(1.1);
 }
 
+/* ─── Mic Test ─────────────────────────────────────────────────────────────── */
+
+.settings-mic-test-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0 8px;
+}
+
+.settings-mic-test-btn {
+  padding: 6px 18px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.settings-mic-test-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.settings-mic-test-btn.testing {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.5);
+  color: #ef4444;
+}
+
+.settings-mic-test-btn.testing:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.settings-mic-test-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.settings-mic-test-error {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: #ef4444;
+}
+
+.settings-mic-meter-container {
+  padding: 0 0 12px;
+}
+
+.settings-mic-meter-track {
+  position: relative;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.settings-mic-meter-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg,
+    #22c55e 0%,
+    #22c55e 75%,
+    #eab308 75%,
+    #eab308 92.5%,
+    #ef4444 92.5%,
+    #ef4444 100%
+  );
+  transition: width 0.05s linear;
+  will-change: width;
+}
+
+.settings-mic-meter-ticks {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 4px;
+  font-size: calc(10px * var(--font-scale, 1));
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ─── Tree Navigation ─────────────────────────────────────────────────────── */
 
 .settings-nav-group {
@@ -1268,10 +1418,10 @@
   pointer-events: none;
 }
 
-/* Last item: trunk stops at midpoint */
+/* Last item: trunk stops where the L-connector curves */
 .settings-nav-tree-item-wrapper--last::before {
   bottom: auto;
-  height: 50%;
+  height: calc(50% - 5px);
 }
 
 /* Tree item button */

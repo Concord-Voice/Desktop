@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ServerMember, PresenceStatus } from '../../stores/memberStore';
 import { apiFetch } from '../../services/apiClient';
+import { resolveUserAccentColors } from '../../utils/schemeColors';
 import './UserProfileModal.css';
 
 interface UserProfileModalProps {
@@ -60,6 +61,7 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
   const displayName = member.display_name || member.username;
   const roleLabel = member.role.charAt(0).toUpperCase() + member.role.slice(1);
+  const userColors = resolveUserAccentColors(member.color_scheme);
 
   // Close on Escape
   useEffect(() => {
@@ -127,7 +129,10 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
     <div className="user-profile-overlay" ref={overlayRef} onClick={handleOverlayClick}>
       <div className="user-profile-container">
         {/* Banner + Close Button */}
-        <div className={`user-profile-modal-banner ${profile?.header_image_url ? 'has-image' : ''}`}>
+        <div
+          className={`user-profile-modal-banner ${profile?.header_image_url ? 'has-image' : ''}`}
+          style={!profile?.header_image_url && userColors ? { background: userColors.gradient, opacity: 0.6 } : undefined}
+        >
           {profile?.header_image_url && (
             <img
               src={profile.header_image_url}
@@ -159,7 +164,10 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
                   className="user-profile-modal-avatar-img"
                 />
               ) : (
-                <span className="user-profile-modal-avatar-initial">
+                <span
+                  className="user-profile-modal-avatar-initial"
+                  style={userColors ? { background: userColors.gradient, color: '#fff' } : undefined}
+                >
                   {member.username.charAt(0).toUpperCase()}
                 </span>
               )}
