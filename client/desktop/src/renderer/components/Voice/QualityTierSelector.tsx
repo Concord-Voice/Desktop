@@ -5,7 +5,7 @@ import type { AudioQualityTier } from '../../stores/voiceStore';
 import { getVoiceService } from '../../services/voiceLazy';
 import './QualityTierSelector.css';
 
-const TIER_ORDER: AudioQualityTier[] = ['voice', 'standard', 'high', 'hifi', 'studio'];
+const TIER_ORDER: AudioQualityTier[] = ['minimum', 'low', 'moderate', 'standard', 'high', 'hifi', 'studio'];
 
 const QualityTierSelector: React.FC = () => {
   const qualityTier = useVoiceStore((s) => s.qualityTier);

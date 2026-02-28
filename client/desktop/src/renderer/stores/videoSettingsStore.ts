@@ -41,7 +41,10 @@ export type VideoPriority = 'off' | 'low' | 'medium' | 'high';
 // Store
 // ---------------------------------------------------------------------------
 
-interface VideoSettings {
+export interface VideoSettings {
+  // UI mode
+  videoAdvancedMode: boolean;
+
   // Camera
   cameraPreset: string; // Key into VIDEO_QUALITY_PRESETS
   preferredVideoCodec: string | null; // mimeType e.g. "video/VP9"
@@ -78,11 +81,13 @@ interface VideoSettingsState extends VideoSettings {
   setDegradationPreference: (pref: DegradationPreference) => void;
   setScalabilityMode: (mode: 'auto' | 'L1T3' | 'L2T3' | 'L3T3') => void;
   setHardwareAcceleration: (enabled: boolean) => void;
+  setVideoAdvancedMode: (enabled: boolean) => void;
   setCodecCapabilities: (caps: CodecCapability[]) => void;
   setGpuInfo: (info: { vendor: string; device: string } | null) => void;
 }
 
 const defaults: VideoSettings = {
+  videoAdvancedMode: false,
   cameraPreset: 'system',
   preferredVideoCodec: null,
   cameraPriority: 'medium',
@@ -103,6 +108,7 @@ export const useVideoSettingsStore = create<VideoSettingsState>()(
     (set) => ({
       ...defaults,
 
+      setVideoAdvancedMode: (videoAdvancedMode) => set({ videoAdvancedMode }),
       setCameraPreset: (cameraPreset) => set({ cameraPreset }),
       setPreferredVideoCodec: (preferredVideoCodec) => set({ preferredVideoCodec }),
       setCameraPriority: (cameraPriority) => set({ cameraPriority }),

@@ -1,13 +1,15 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
-interface TTSSettingsState {
+export interface TTSSettings {
   ttsEnabled: boolean;
   ttsSendEnabled: boolean;
   ttsVoice: string | null;
   ttsRate: number;
   ttsVolume: number;
+}
 
+interface TTSSettingsState extends TTSSettings {
   setTtsEnabled: (enabled: boolean) => void;
   setTtsSendEnabled: (enabled: boolean) => void;
   setTtsVoice: (voice: string | null) => void;

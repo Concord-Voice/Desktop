@@ -64,8 +64,8 @@ describe('SettingsPage', () => {
   it('shows "Soon" badge for disabled sections', () => {
     render(<SettingsPage />);
     const soonBadges = screen.getAllByText('Soon');
-    // Account, Notifications, Accessibility are disabled (Voice & Audio is now enabled)
-    expect(soonBadges.length).toBe(3);
+    // Account and Notifications are disabled (Voice & Audio and Accessibility are enabled)
+    expect(soonBadges.length).toBe(2);
   });
 
   it('defaults to appearance section', () => {

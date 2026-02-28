@@ -2,14 +2,10 @@ import React, { useState, useEffect, useCallback, useMemo, useRef, useTransition
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import { useUserStore } from '../../stores/userStore';
-import { useSettingsStore, AppearanceSettings } from '../../stores/settingsStore';
-import { useVoiceStore, AUDIO_QUALITY_TIERS } from '../../stores/voiceStore';
-import type { AudioQualityTier } from '../../stores/voiceStore';
-import { useAudioSettingsStore } from '../../stores/audioSettingsStore';
-import type { AudioPriority } from '../../stores/audioSettingsStore';
-import { useVideoSettingsStore, VIDEO_QUALITY_PRESETS } from '../../stores/videoSettingsStore';
-import type { ScreenContentType, DegradationPreference, VideoPriority } from '../../stores/videoSettingsStore';
-import { useTTSSettingsStore } from '../../stores/ttsSettingsStore';
+import type { AppearanceSettings, CustomColors } from '../../stores/settingsStore';
+import { useVoiceStore, AUDIO_QUALITY_TIERS, type AudioQualityTier } from '../../stores/voiceStore';
+import { useAudioSettingsStore, type AudioPriority } from '../../stores/audioSettingsStore';
+import { useVideoSettingsStore, VIDEO_QUALITY_PRESETS, type ScreenContentType, type DegradationPreference, type VideoPriority } from '../../stores/videoSettingsStore';
 import type { CodecCapability } from '../../services/mediaCapabilities';
 import { isValidHex } from '../../utils/colorUtils';
 import { apiFetch } from '../../services/apiClient';
@@ -17,6 +13,20 @@ import LoadingSpinner from '../Auth/LoadingSpinner';
 import Modal from '../ui/Modal';
 import DeviceSelector from '../Voice/DeviceSelector';
 import { useMicTest } from '../../hooks/useMicTest';
+import {
+  useDraftAudioSetting,
+  useDraftVideoSetting,
+  useDraftTtsSetting,
+  useDraftAppearance,
+  setDraftAudioSetting,
+  setDraftVideoSetting,
+  setDraftTtsSetting,
+  setDraftAppearanceSetting,
+  batchSetAudioDrafts,
+  useDraftSettingsLifecycle,
+  useDraftActions,
+  useStashAndSwapAudioMode,
+} from '../../hooks/useDraftSettings';
 import './SettingsPage.css';
 
 type SettingsSection =
@@ -70,13 +80,7 @@ const ToggleSwitch: React.FC<{
 // ─── Appearance Section ─────────────────────────────────────────────────────
 
 const AppearanceSection: React.FC = () => {
-  const appearance = useSettingsStore((s) => s.appearance);
-  const setTheme = useSettingsStore((s) => s.setTheme);
-  const setColorScheme = useSettingsStore((s) => s.setColorScheme);
-  const setCustomColors = useSettingsStore((s) => s.setCustomColors);
-  const setFontSize = useSettingsStore((s) => s.setFontSize);
-  const setCompactMode = useSettingsStore((s) => s.setCompactMode);
-  const setReduceAnimations = useSettingsStore((s) => s.setReduceAnimations);
+  const appearance = useDraftAppearance();
 
   const colorSchemes: {
     value: AppearanceSettings['colorScheme'];
@@ -210,7 +214,7 @@ const AppearanceSection: React.FC = () => {
               key={cs.value}
               className={`color-scheme-circle ${appearance.colorScheme === cs.value ? 'selected' : ''}`}
               style={{ background: cs.gradient }}
-              onClick={() => setColorScheme(cs.value)}
+              onClick={() => setDraftAppearanceSetting('colorScheme', cs.value)}
               title={cs.label}
             />
           ))}
@@ -226,13 +230,16 @@ const AppearanceSection: React.FC = () => {
             }
             onClick={() => {
               if (appearance.customColors) {
-                setCustomColors(appearance.customColors);
+                setDraftAppearanceSetting('customColors', appearance.customColors);
+                setDraftAppearanceSetting('colorScheme', 'custom');
               } else {
-                setCustomColors({
+                const defaults: CustomColors = {
                   background: '#0d0821',
                   accentPrimary: '#fa709a',
                   accentSecondary: '#ffe13f',
-                });
+                };
+                setDraftAppearanceSetting('customColors', defaults);
+                setDraftAppearanceSetting('colorScheme', 'custom');
               }
             }}
             title="Custom"
@@ -265,7 +272,7 @@ const AppearanceSection: React.FC = () => {
                     type="color"
                     value={appearance.customColors![key]}
                     onChange={(e) =>
-                      setCustomColors({
+                      setDraftAppearanceSetting('customColors', {
                         ...appearance.customColors!,
                         [key]: e.target.value,
                       })
@@ -278,7 +285,7 @@ const AppearanceSection: React.FC = () => {
                     onChange={(e) => {
                       const val = e.target.value;
                       if (isValidHex(val)) {
-                        setCustomColors({
+                        setDraftAppearanceSetting('customColors', {
                           ...appearance.customColors!,
                           [key]: val,
                         });
@@ -305,7 +312,7 @@ const AppearanceSection: React.FC = () => {
             <button
               key={t.value}
               className={`theme-option ${appearance.theme === t.value ? 'selected' : ''}`}
-              onClick={() => setTheme(t.value)}
+              onClick={() => setDraftAppearanceSetting('theme', t.value)}
             >
               <div className="theme-option-icon">{t.icon}</div>
               <span className="theme-option-label">{t.label}</span>
@@ -324,7 +331,7 @@ const AppearanceSection: React.FC = () => {
               <button
                 key={fs.value}
                 className={`font-size-option ${fs.value} ${appearance.fontSize === fs.value ? 'selected' : ''}`}
-                onClick={() => setFontSize(fs.value)}
+                onClick={() => setDraftAppearanceSetting('fontSize', fs.value)}
               >
                 {fs.label}
               </button>
@@ -336,20 +343,24 @@ const AppearanceSection: React.FC = () => {
           <div className="settings-row-info">
             <span className="settings-row-label">Compact Mode</span>
             <span className="settings-row-hint">
-              Reduce padding and spacing for a denser layout
+              {appearance.compactMode
+                ? 'Enabled. Padding and spacing are reduced throughout the interface, fitting more content on screen.'
+                : 'Disabled. Standard padding and spacing for a comfortable, spacious layout.'}
             </span>
           </div>
-          <ToggleSwitch checked={appearance.compactMode} onChange={setCompactMode} />
+          <ToggleSwitch checked={appearance.compactMode} onChange={(v) => setDraftAppearanceSetting('compactMode', v)} />
         </div>
 
         <div className="settings-row">
           <div className="settings-row-info">
             <span className="settings-row-label">Reduce Animations</span>
             <span className="settings-row-hint">
-              Minimize motion and transitions for a snappier experience
+              {appearance.reduceAnimations
+                ? 'Enabled. Motion and transitions are minimized throughout the interface for a snappier experience.'
+                : 'Disabled. Standard animations and transitions are used for a fluid interface.'}
             </span>
           </div>
-          <ToggleSwitch checked={appearance.reduceAnimations} onChange={setReduceAnimations} />
+          <ToggleSwitch checked={appearance.reduceAnimations} onChange={(v) => setDraftAppearanceSetting('reduceAnimations', v)} />
         </div>
       </div>
     </>
@@ -799,14 +810,26 @@ const GpuVendorIcon: React.FC<{ vendor: string }> = ({ vendor }) => {
 
 // ─── Voice & Audio Section ──────────────────────────────────────────────────
 
-const TIER_ORDER: AudioQualityTier[] = ['voice', 'standard', 'high', 'hifi', 'studio'];
+const TIER_ORDER: AudioQualityTier[] = ['minimum', 'low', 'moderate', 'standard', 'high', 'hifi', 'studio'];
 
-const TIER_DESCRIPTIONS: Record<AudioQualityTier, string> = {
-  voice: '24 kbps · Mono · FEC · DTX\nOptimized for speech. Minimal bandwidth with silence detection and error correction.',
-  standard: '64 kbps · Stereo · FEC\nClear voice for general use. Good balance of quality and bandwidth.',
-  high: '128 kbps · Stereo\nStreaming quality. Music-friendly with wide stereo field.',
-  hifi: '320 kbps · Stereo · 10ms frames\nNear-lossless audio. Low latency with perceptually transparent encoding.',
-  studio: '510 kbps · Stereo · 10ms frames\nMaximum Opus quality. 48 kHz full-bandwidth stereo at Opus ceiling.',
+const TIER_DESCRIPTIONS_BASIC: Record<AudioQualityTier, string> = {
+  minimum: '16 kbps · Mono | FEC On | DTX | AFS (60ms Preferred)\nOptimized for pure survival over quality. Uses silence detection and aggressive error correction to keep you connected when the digital world is ending. Use if:\n\u2022 Bandwidth is an absolute luxury.\n\u2022 Your system is basically a Commodore 64.\n\u2022 Your internet just filed for divorce and took the router.',
+  low: '32 kbps · Mono | FEC On | DTX | AFS (40ms Preferred)\nPrioritizes keeping you in the conversation without chewing through your data cap. You won\'t sound like a podcast host, but we will understand you. Use if:\n\u2022 You are on a strict data diet.\n\u2022 Your microphone was found at the bottom of a cereal box.\n\u2022 Your Wi-Fi is acting suspiciously spotty.',
+  moderate: '64 kbps · Mono | FEC On | AFS (20ms Preferred)\nThe ol\' reliable. The industry standard sweet spot that perfectly balances crisp voice audio with reasonable bandwidth demands. Use if:\n\u2022 You just want it to work without overthinking it.\n\u2022 You are using standard consumer-grade headsets.\n\u2022 Your internet connection actually pays rent.',
+  standard: '96 kbps · Mono | FEC On | AFS (20ms Preferred)\nThe Concord default. Optimized for maximum clarity in voice chats, making you sound exactly like your actual self (for better or worse). Use if:\n\u2022 You want the intended, nearly-transparent Concord Voice experience.\n\u2022 You refuse to mess with settings menus.',
+  high: '192 kbps · Mono | FEC On | AFS (10ms Preferred)\nCranking the dial to "virtually transparent." Delivers exceptional clarity and frequency response without crossing into absolute overkill territory. Use if:\n\u2022 You are an enthusiast who appreciates the finer frequencies.\n\u2022 You invested in a seriously good microphone.\n\u2022 Your internet speeds are something you brag about at parties.',
+  hifi: '256 kbps · Stereo | FEC Off | AFS (10ms Preferred)\nMaximum fidelity for power users. This is unfiltered, transparent audio that squeezes the full factor of quality with quantity out of the Opus codec. Use if:\n\u2022 You demand maximum bang-for-the-buck quality.\n\u2022 You have enthusiast-grade, borderline-unreasonable audio gear.\n\u2022 Your internet is hardwired and unflinching.',
+  studio: '510 kbps · Stereo | FEC Off | AFS (10ms Preferred)\nThe absolute ceiling. Massive, glorious, overkill bandwidth for acoustically transparent 48kHz/16-bit audio. It\'s dangerous to go alone, so take these 510,000 bits per second... Every second. Use if:\n\u2022 You are running studio-level audio production over the web.\n\u2022 You own audiophile equipment that costs more than a used car.\n\u2022 You have a rock-solid, direct-to-the-vein fiber optic connection.',
+};
+
+const TIER_DESCRIPTIONS_ADVANCED: Record<AudioQualityTier, string> = {
+  minimum: '16 kbps\nOptimized for pure survival over quality. Uses silence detection and aggressive error correction to keep you connected when the digital world is ending. Use if:\n\u2022 Bandwidth is an absolute luxury.\n\u2022 Your system is basically a Commodore 64.\n\u2022 Your internet just filed for divorce and took the router.',
+  low: '32 kbps\nPrioritizes keeping you in the conversation without chewing through your data cap. You won\'t sound like a podcast host, but we will understand you. Use if:\n\u2022 You are on a strict data diet.\n\u2022 Your microphone was found at the bottom of a cereal box.\n\u2022 Your Wi-Fi is acting suspiciously spotty.',
+  moderate: '64 kbps\nThe ol\' reliable. The industry standard sweet spot that perfectly balances crisp voice audio with reasonable bandwidth demands. Use if:\n\u2022 You just want it to work without overthinking it.\n\u2022 You are using standard consumer-grade headsets.\n\u2022 Your internet connection actually pays rent.',
+  standard: '96 kbps\nThe Concord default. Optimized for maximum clarity in voice chats, making you sound exactly like your actual self (for better or worse). Use if:\n\u2022 You want the intended, nearly-transparent Concord Voice experience.\n\u2022 You refuse to mess with settings menus.',
+  high: '192 kbps\nCranking the dial to "virtually transparent." Delivers exceptional clarity and frequency response without crossing into absolute overkill territory. Use if:\n\u2022 You are an enthusiast who appreciates the finer frequencies.\n\u2022 You invested in a seriously good microphone.\n\u2022 Your internet speeds are something you brag about at parties.',
+  hifi: '256 kbps\nMaximum fidelity for power users. This is unfiltered, transparent audio that squeezes the full factor of quality with quantity out of the Opus codec. Use if:\n\u2022 You demand maximum bang-for-the-buck quality.\n\u2022 You have enthusiast-grade, borderline-unreasonable audio gear.\n\u2022 Your internet is hardwired and unflinching.',
+  studio: '510 kbps\nThe absolute ceiling. Massive, glorious, overkill bandwidth for acoustically transparent 48kHz/16-bit audio. It\'s dangerous to go alone, so take these 510,000 bits per second... Every second. Use if:\n\u2022 You are running studio-level audio production over the web.\n\u2022 You own audiophile equipment that costs more than a used car.\n\u2022 You have a rock-solid, direct-to-the-vein fiber optic connection.',
 };
 
 const VoiceAudioSection: React.FC = () => {
@@ -820,50 +843,50 @@ const VoiceAudioSection: React.FC = () => {
     s.connectionState === 'reconnecting'
   );
   const { isTesting, dbfsLevel, error: micTestError, startTest, stopTest } = useMicTest();
-  const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Audio processing settings
-  const noiseCancellation = useAudioSettingsStore((s) => s.noiseCancellation);
-  const echoCancellation = useAudioSettingsStore((s) => s.echoCancellation);
-  const autoGainControl = useAudioSettingsStore((s) => s.autoGainControl);
-  const noiseGateMode = useAudioSettingsStore((s) => s.noiseGateMode);
-  const noiseGateLevel = useAudioSettingsStore((s) => s.noiseGateLevel);
-  const inputVolume = useAudioSettingsStore((s) => s.inputVolume);
-  const outputVolume = useAudioSettingsStore((s) => s.outputVolume);
-  const quietBoost = useAudioSettingsStore((s) => s.quietBoost);
-  const quietBoostThreshold = useAudioSettingsStore((s) => s.quietBoostThreshold);
+  // Audio mode (excluded from drafts — immediate)
+  const advancedMode = useAudioSettingsStore((s) => s.advancedMode);
 
-  // Video settings
-  const cameraPreset = useVideoSettingsStore((s) => s.cameraPreset);
-  const screenResolution = useVideoSettingsStore((s) => s.screenResolution);
-  const screenFrameRate = useVideoSettingsStore((s) => s.screenFrameRate);
-  const screenContentType = useVideoSettingsStore((s) => s.screenContentType);
-  const preferredVideoCodec = useVideoSettingsStore((s) => s.preferredVideoCodec);
-  const screenSharePriority = useVideoSettingsStore((s) => s.screenSharePriority);
-  const screenShareBitrate = useVideoSettingsStore((s) => s.screenShareBitrate);
-  const cameraPriority = useVideoSettingsStore((s) => s.cameraPriority);
-  const degradationPreference = useVideoSettingsStore((s) => s.degradationPreference);
-  const scalabilityMode = useVideoSettingsStore((s) => s.scalabilityMode);
-  const hardwareAcceleration = useVideoSettingsStore((s) => s.hardwareAcceleration);
+  // Audio processing settings (drafted)
+  const stereoOverride = useDraftAudioSetting('stereoOverride');
+  const noiseCancellation = useDraftAudioSetting('noiseCancellation');
+  const echoCancellation = useDraftAudioSetting('echoCancellation');
+  const autoGainControl = useDraftAudioSetting('autoGainControl');
+  const noiseGateMode = useDraftAudioSetting('noiseGateMode');
+  const noiseGateLevel = useDraftAudioSetting('noiseGateLevel');
+  const inputVolume = useDraftAudioSetting('inputVolume');
+  const outputVolume = useDraftAudioSetting('outputVolume');
+  const quietBoost = useDraftAudioSetting('quietBoost');
+  const quietBoostThreshold = useDraftAudioSetting('quietBoostThreshold');
+
+  // Video settings (drafted)
+  const cameraPreset = useDraftVideoSetting('cameraPreset');
+  const screenResolution = useDraftVideoSetting('screenResolution');
+  const screenFrameRate = useDraftVideoSetting('screenFrameRate');
+  const screenContentType = useDraftVideoSetting('screenContentType');
+  const preferredVideoCodec = useDraftVideoSetting('preferredVideoCodec');
+  const screenSharePriority = useDraftVideoSetting('screenSharePriority');
+  const screenShareBitrate = useDraftVideoSetting('screenShareBitrate');
+  const cameraPriority = useDraftVideoSetting('cameraPriority');
+  const degradationPreference = useDraftVideoSetting('degradationPreference');
+  const scalabilityMode = useDraftVideoSetting('scalabilityMode');
+  const hardwareAcceleration = useDraftVideoSetting('hardwareAcceleration');
+
+  // Video settings (excluded from drafts — system-detected / UI-only)
   const codecCapabilities = useVideoSettingsStore((s) => s.codecCapabilities);
   const gpuInfo = useVideoSettingsStore((s) => s.gpuInfo);
+  const videoAdvancedMode = useVideoSettingsStore((s) => s.videoAdvancedMode);
 
-  const [initialHwAccel, setInitialHwAccel] = useState<boolean | null>(null);
-  const [showVideoAdvanced, setShowVideoAdvanced] = useState(false);
   const [displayInfo, setDisplayInfo] = useState<{ width: number; height: number; refreshRate: number; scaleFactor: number; isPrimary: boolean }[]>([]);
 
-  // Codec capabilities and GPU info are pre-cached in AuthenticatedLayout (App.tsx).
-  // Only fetch display info and sync HW accel initial state on mount.
   useEffect(() => {
-    const hwAccel = useVideoSettingsStore.getState().hardwareAcceleration;
-    setInitialHwAccel(hwAccel);
-
     window.electron?.getDisplayInfo?.().then((displays) => {
       if (displays) setDisplayInfo(displays);
     });
   }, []);
 
-  const restartNeeded = initialHwAccel !== null && hardwareAcceleration !== initialHwAccel;
+  // Mode stashing
+  const stashAndSwapAudioMode = useStashAndSwapAudioMode();
 
   // Display-derived values for screen share options
   const bestDisplay = useMemo(() => {
@@ -919,27 +942,43 @@ const VoiceAudioSection: React.FC = () => {
 
   const clampedRecommended = Math.max(1_500_000, Math.min(30_000_000, recommendedBitrate));
 
-  // Advanced audio settings
-  const musicMode = useAudioSettingsStore((s) => s.musicMode);
-  const frameSize = useAudioSettingsStore((s) => s.frameSize);
-  const silenceDetection = useAudioSettingsStore((s) => s.silenceDetection);
-  const fecMode = useAudioSettingsStore((s) => s.fecMode);
-  const fecManualPercent = useAudioSettingsStore((s) => s.fecManualPercent);
-  const opusNack = useAudioSettingsStore((s) => s.opusNack);
-  const adaptivePtime = useAudioSettingsStore((s) => s.adaptivePtime);
-  const audioPriority = useAudioSettingsStore((s) => s.audioPriority);
+  // Advanced audio settings (drafted)
+  const musicMode = useDraftAudioSetting('musicMode');
+  const frameSize = useDraftAudioSetting('frameSize');
+  const silenceDetection = useDraftAudioSetting('silenceDetection');
+  const inlineFec = useDraftAudioSetting('inlineFec');
+  const fecHeadroom = useDraftAudioSetting('fecHeadroom');
+  const opusNack = useDraftAudioSetting('opusNack');
+  const adaptivePtime = useDraftAudioSetting('adaptivePtime');
+  const audioPriority = useDraftAudioSetting('audioPriority');
 
   // Derived tier capabilities
   const tierConfig = AUDIO_QUALITY_TIERS[qualityTier];
-  const tierAllows10ms = qualityTier === 'hifi' || qualityTier === 'studio';
-  const tierSupportsFec = tierConfig.opusFec;
-
   // Tier slider index
   const tierIndex = TIER_ORDER.indexOf(qualityTier);
   const handleTierSlider = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const idx = Number(e.target.value);
-    if (idx >= 0 && idx < TIER_ORDER.length) setQualityTier(TIER_ORDER[idx]);
+    if (idx >= 0 && idx < TIER_ORDER.length) {
+      const tier = TIER_ORDER[idx];
+      setQualityTier(tier); // voiceStore — immediate, not drafted
+      if (!useAudioSettingsStore.getState().advancedMode) {
+        // Basic mode: batch-draft tier defaults
+        const tc = AUDIO_QUALITY_TIERS[tier];
+        batchSetAudioDrafts({
+          silenceDetection: tc.opusDtx,
+          inlineFec: tc.opusFec,
+          fecHeadroom: tc.opusFec,
+          frameSize: 0 as 0 | 10 | 20 | 40 | 60,
+          stereoOverride: null,
+        });
+      }
+    }
   }, [setQualityTier]);
+
+  const handleAdvancedToggle = useCallback((enabled: boolean) => {
+    useAudioSettingsStore.getState().setAdvancedMode(enabled); // immediate — UI toggle
+    stashAndSwapAudioMode(enabled, qualityTier);
+  }, [qualityTier, stashAndSwapAudioMode]);
 
   return (
     <>
@@ -952,18 +991,21 @@ const VoiceAudioSection: React.FC = () => {
           <DeviceSelector kind="audioinput" />
         </div>
         <div className="settings-volume-row">
-          <span className="settings-volume-label">Input Volume</span>
-          <div className="settings-volume-track">
+          <div className="settings-row-info">
+            <span className="settings-volume-label">Input Volume</span>
+            <span className="settings-row-hint">Scales your microphone level from muted (left) to 2x boost (right). Values above 100% may introduce clipping.</span>
+          </div>
+          <div className="settings-slider-wrapper">
+            <span className="settings-slider-value">{inputVolume}%</span>
             <input
               type="range"
               className="settings-volume-slider"
               min={0}
               max={200}
               value={inputVolume}
-              onChange={(e) => useAudioSettingsStore.getState().setInputVolume(Number(e.target.value))}
+              onChange={(e) => setDraftAudioSetting('inputVolume', Number(e.target.value))}
             />
           </div>
-          <span className="settings-volume-value">{inputVolume}%</span>
         </div>
 
         <div className="settings-mic-test-row">
@@ -1001,18 +1043,21 @@ const VoiceAudioSection: React.FC = () => {
           <DeviceSelector kind="audiooutput" />
         </div>
         <div className="settings-volume-row">
-          <span className="settings-volume-label">Output Volume</span>
-          <div className="settings-volume-track">
+          <div className="settings-row-info">
+            <span className="settings-volume-label">Output Volume</span>
+            <span className="settings-row-hint">Scales all incoming audio from muted (left) to 2x boost (right). Values above 100% may introduce clipping.</span>
+          </div>
+          <div className="settings-slider-wrapper">
+            <span className="settings-slider-value">{outputVolume}%</span>
             <input
               type="range"
               className="settings-volume-slider"
               min={0}
               max={200}
               value={outputVolume}
-              onChange={(e) => useAudioSettingsStore.getState().setOutputVolume(Number(e.target.value))}
+              onChange={(e) => setDraftAudioSetting('outputVolume', Number(e.target.value))}
             />
           </div>
-          <span className="settings-volume-value">{outputVolume}%</span>
         </div>
 
         <h3 className="settings-subsection-title">Camera</h3>
@@ -1024,6 +1069,29 @@ const VoiceAudioSection: React.FC = () => {
       {/* ═══ Audio Configuration ═══ */}
       <div className="settings-section" id="section-audio-config">
         <h2 className="settings-section-title">Audio Configuration</h2>
+
+        {/* ── Mode Toggle ── */}
+        <div className="settings-mode-toggle">
+          <span
+            className={`settings-mode-pill ${!advancedMode ? 'active' : ''}`}
+            onClick={() => handleAdvancedToggle(false)}
+          >
+            Basic Settings
+          </span>
+          <span
+            className={`settings-mode-pill ${advancedMode ? 'active' : ''}`}
+            onClick={() => handleAdvancedToggle(true)}
+          >
+            Advanced Settings
+          </span>
+        </div>
+
+        {advancedMode && (
+          <p className="settings-mode-notice">
+            These settings override the quality tier presets. Switching back to Basic will save your
+            advanced configuration but apply your last Basic settings instead.
+          </p>
+        )}
 
         {/* ── Quality ── */}
         <h3 className="settings-subsection-title">Quality</h3>
@@ -1039,7 +1107,19 @@ const VoiceAudioSection: React.FC = () => {
                 <span
                   key={tier}
                   className={`settings-tier-label ${tierIndex === i ? 'active' : ''}`}
-                  onClick={() => setQualityTier(tier)}
+                  onClick={() => {
+                    setQualityTier(tier);
+                    if (!useAudioSettingsStore.getState().advancedMode) {
+                      const tc = AUDIO_QUALITY_TIERS[tier];
+                      batchSetAudioDrafts({
+                        silenceDetection: tc.opusDtx,
+                        inlineFec: tc.opusFec,
+                        fecHeadroom: tc.opusFec,
+                        frameSize: 0 as 0 | 10 | 20 | 40 | 60,
+                        stereoOverride: null,
+                      });
+                    }
+                  }}
                 >
                   {config.label}
                 </span>
@@ -1066,7 +1146,7 @@ const VoiceAudioSection: React.FC = () => {
             />
           </div>
           <div className="settings-tier-description">
-            {TIER_DESCRIPTIONS[qualityTier].split('\n').map((line, i) => (
+            {(advancedMode ? TIER_DESCRIPTIONS_ADVANCED : TIER_DESCRIPTIONS_BASIC)[qualityTier].split('\n').map((line, i) => (
               <span key={i}>{line}</span>
             ))}
             {AUDIO_QUALITY_TIERS[qualityTier].premium && (
@@ -1081,11 +1161,17 @@ const VoiceAudioSection: React.FC = () => {
         <div className={`settings-row ${musicMode ? 'settings-row-disabled' : ''}`}>
           <div className="settings-row-info">
             <span className="settings-row-label">Noise Cancellation</span>
-            <span className="settings-row-hint">Reduces background noise from your microphone{musicMode ? ' (disabled by Music Mode)' : ''}</span>
+            <span className="settings-row-hint">
+              {musicMode
+                ? 'Locked by Music Mode. Noise cancellation is forced off to preserve full-bandwidth audio fidelity.'
+                : noiseCancellation
+                  ? 'Enabled. Background noise from your microphone is actively filtered out by the system\'s noise suppression. May slightly reduce audio fidelity in noisy environments.'
+                  : 'Disabled. No noise filtering is applied \u2014 all ambient sound passes through unprocessed.'}
+            </span>
           </div>
           <ToggleSwitch
             checked={!musicMode && noiseCancellation}
-            onChange={(v) => { if (!musicMode) useAudioSettingsStore.getState().setNoiseCancellation(v); }}
+            onChange={(v) => { if (!musicMode) setDraftAudioSetting('noiseCancellation', v); }}
             disabled={musicMode}
           />
         </div>
@@ -1093,11 +1179,17 @@ const VoiceAudioSection: React.FC = () => {
         <div className={`settings-row ${musicMode ? 'settings-row-disabled' : ''}`}>
           <div className="settings-row-info">
             <span className="settings-row-label">Echo Cancellation</span>
-            <span className="settings-row-hint">Prevents speakers from feeding back into your mic{musicMode ? ' (disabled by Music Mode)' : ''}</span>
+            <span className="settings-row-hint">
+              {musicMode
+                ? 'Locked by Music Mode. Echo cancellation is forced off to preserve unprocessed audio fidelity.'
+                : echoCancellation
+                  ? 'Enabled. Acoustic echo cancellation prevents your speakers from feeding back into your microphone, allowing speaker use without headphones.'
+                  : 'Disabled. No echo cancellation is applied. Use headphones to prevent feedback loops.'}
+            </span>
           </div>
           <ToggleSwitch
             checked={!musicMode && echoCancellation}
-            onChange={(v) => { if (!musicMode) useAudioSettingsStore.getState().setEchoCancellation(v); }}
+            onChange={(v) => { if (!musicMode) setDraftAudioSetting('echoCancellation', v); }}
             disabled={musicMode}
           />
         </div>
@@ -1105,27 +1197,33 @@ const VoiceAudioSection: React.FC = () => {
         <div className={`settings-row ${musicMode ? 'settings-row-disabled' : ''}`}>
           <div className="settings-row-info">
             <span className="settings-row-label">Auto Gain Control</span>
-            <span className="settings-row-hint">Automatically adjusts microphone volume{musicMode ? ' (disabled by Music Mode)' : ''}</span>
+            <span className="settings-row-hint">
+              {musicMode
+                ? 'Locked by Music Mode. Automatic gain control is forced off to prevent dynamic compression of your audio signal.'
+                : autoGainControl
+                  ? 'Enabled. Automatically normalizes your microphone volume \u2014 making quiet speech louder and loud speech softer.'
+                  : 'Disabled. Your microphone level is not automatically adjusted. Manual volume control via the input slider is recommended.'}
+            </span>
           </div>
           <ToggleSwitch
             checked={!musicMode && autoGainControl}
-            onChange={(v) => { if (!musicMode) useAudioSettingsStore.getState().setAutoGainControl(v); }}
+            onChange={(v) => { if (!musicMode) setDraftAudioSetting('autoGainControl', v); }}
             disabled={musicMode}
           />
         </div>
 
         <div className="settings-row">
           <div className="settings-row-info">
-            <span className="settings-row-label">Noise Gate</span>
+            <span className="settings-row-label">Input Noise Gate</span>
             <span className="settings-row-hint">
               {noiseGateMode === 'manual'
-                ? `Hard cutoff — mutes input below ${noiseGateLevel} dBFS.`
-                : 'Off — no hard cutoff applied. Relies on noise cancellation and AGC if enabled.'}
+                ? `Enabled. Input below ${noiseGateLevel} dBFS is muted with a hard cutoff. Sounds above this threshold pass through unaffected.`
+                : 'Disabled. No hard cutoff is applied to your input. Relies on noise cancellation and auto gain control if those are enabled.'}
             </span>
           </div>
           <ToggleSwitch
             checked={noiseGateMode === 'manual'}
-            onChange={(v) => useAudioSettingsStore.getState().setNoiseGateMode(v ? 'manual' : 'auto')}
+            onChange={(v) => setDraftAudioSetting('noiseGateMode', v ? 'manual' : 'auto')}
           />
         </div>
 
@@ -1133,34 +1231,34 @@ const VoiceAudioSection: React.FC = () => {
           <div className="settings-row">
             <div className="settings-row-info">
               <span className="settings-row-label">Gate Threshold</span>
-              <span className="settings-row-hint">{noiseGateLevel} dBFS — audio below this level is muted</span>
+              <span className="settings-row-hint">Sets the cutoff level. Left (\u221280 dBFS) gates only near-silence. Right (\u221220 dBFS) gates everything below loud, close-mic speech.</span>
             </div>
-            <input
-              type="range"
-              className="settings-slider"
-              min={-80}
-              max={-20}
-              value={noiseGateLevel}
-              onChange={(e) => useAudioSettingsStore.getState().setNoiseGateLevel(Number(e.target.value))}
-            />
+            <div className="settings-slider-wrapper">
+              <span className="settings-slider-value">{noiseGateLevel} dBFS</span>
+              <input
+                type="range"
+                className="settings-slider"
+                min={-80}
+                max={-20}
+                value={noiseGateLevel}
+                onChange={(e) => setDraftAudioSetting('noiseGateLevel', Number(e.target.value))}
+              />
+            </div>
           </div>
         )}
-
-        {/* ── Output Enhancement ── */}
-        <h3 className="settings-subsection-title">Output Enhancement</h3>
 
         <div className="settings-row">
           <div className="settings-row-info">
             <span className="settings-row-label">Boost Quiet Users</span>
             <span className="settings-row-hint">
               {quietBoost
-                ? 'Dynamically amplifies participants whose audio falls below the threshold. Normal-volume users are unaffected.'
-                : 'Off — all participants play at their natural volume level.'}
+                ? 'Enabled. Participants whose audio falls below the threshold are dynamically amplified to a comfortable level. Normal-volume users are unaffected.'
+                : 'Disabled. All participants play at their natural volume level with no receiver-side amplification.'}
             </span>
           </div>
           <ToggleSwitch
             checked={quietBoost}
-            onChange={(v) => useAudioSettingsStore.getState().setQuietBoost(v)}
+            onChange={(v) => setDraftAudioSetting('quietBoost', v)}
           />
         </div>
 
@@ -1169,142 +1267,155 @@ const VoiceAudioSection: React.FC = () => {
             <div className="settings-row-info">
               <span className="settings-row-label">Boost Threshold</span>
               <span className="settings-row-hint">
-                {quietBoostThreshold} dBFS —{' '}
+                Sets the level below which participants are boosted. Left (\u221250 dBFS) boosts only barely-audible users. Right (\u221220 dBFS) boosts anyone below normal speaking volume. Currently {quietBoostThreshold} dBFS —{' '}
                 {quietBoostThreshold >= -27
-                  ? 'Boosts anyone below normal speaking volume (aggressive)'
+                  ? 'aggressive'
                   : quietBoostThreshold >= -35
-                    ? 'Boosts soft-spoken users up to normal level'
+                    ? 'moderate'
                     : quietBoostThreshold >= -44
-                      ? 'Boosts whispers and very soft speakers'
-                      : 'Only boosts barely-audible users (conservative)'}
+                      ? 'gentle'
+                      : 'conservative'}
               </span>
             </div>
-            <input
-              type="range"
-              className="settings-slider"
-              min={-50}
-              max={-20}
-              value={quietBoostThreshold}
-              onChange={(e) => useAudioSettingsStore.getState().setQuietBoostThreshold(Number(e.target.value))}
-            />
+            <div className="settings-slider-wrapper">
+              <span className="settings-slider-value">{quietBoostThreshold} dBFS</span>
+              <input
+                type="range"
+                className="settings-slider"
+                min={-50}
+                max={-20}
+                value={quietBoostThreshold}
+                onChange={(e) => setDraftAudioSetting('quietBoostThreshold', Number(e.target.value))}
+              />
+            </div>
           </div>
         )}
 
-        {/* ── Advanced Settings ── */}
-        <button
-          className="settings-advanced-toggle"
-          onClick={() => setShowAdvanced(!showAdvanced)}
-        >
-          <span>Advanced Settings</span>
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 12 12"
-            fill="none"
-            style={{ transform: showAdvanced ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
-          >
-            <path d="M3 4.5L6 7.5L9 4.5" stroke="var(--text-secondary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-
-        {showAdvanced && (
-          <div className="settings-advanced-panel">
-            <div className="settings-advanced-warning">
-              These settings affect audio encoding at a low level. Incorrect values may degrade voice quality.
-            </div>
-
-            <h4 className="settings-advanced-subheader">Opus Codec</h4>
+        {/* ── Advanced-only: Opus Codec ── */}
+        {advancedMode && (
+          <>
+            <h3 className="settings-subsection-title">Opus Codec</h3>
 
             <div className="settings-row">
               <div className="settings-row-info">
                 <span className="settings-row-label">Music Mode</span>
                 <span className="settings-row-hint">
-                  Disables noise suppression, echo cancellation, and AGC. Signals the encoder to use full 48 kHz bandwidth for music fidelity.
+                  {musicMode
+                    ? 'Enabled. Noise suppression, echo cancellation, and auto gain control are bypassed. The Opus codec uses full 48 kHz bandwidth optimized for music fidelity.'
+                    : 'Disabled. Standard voice processing is active with voice-optimized encoding.'}
                 </span>
               </div>
-              <ToggleSwitch checked={musicMode} onChange={(v) => useAudioSettingsStore.getState().setMusicMode(v)} />
+              <ToggleSwitch checked={musicMode} onChange={(v) => setDraftAudioSetting('musicMode', v)} />
             </div>
 
             <div className="settings-row">
               <div className="settings-row-info">
                 <span className="settings-row-label">Adaptive Frame Size</span>
                 <span className="settings-row-hint">
-                  Lets Concord dynamically scale ptime during congestion (e.g. 20ms → 60ms), trading latency for reliability. Overrides manual Frame Size when enabled.
+                  {adaptivePtime
+                    ? 'Enabled. Concord dynamically adjusts packet duration during congestion, trading latency for reliability. Manual Frame Size is overridden.'
+                    : 'Disabled. Packet duration is fixed at the configured Frame Size value below.'}
                 </span>
               </div>
-              <ToggleSwitch checked={adaptivePtime} onChange={(v) => useAudioSettingsStore.getState().setAdaptivePtime(v)} />
+              <ToggleSwitch checked={adaptivePtime} onChange={(v) => setDraftAudioSetting('adaptivePtime', v)} />
             </div>
 
-            {!adaptivePtime && (
-              <div className="settings-row">
-                <div className="settings-row-info">
-                  <span className="settings-row-label">Frame Size (ptime)</span>
-                  <span className="settings-row-hint">
-                    Default uses the lowest latency the tier supports ({tierAllows10ms ? '10' : '20'}ms).
-                    Explicit values are respected regardless of tier.
-                  </span>
-                </div>
-                <select
-                  className="settings-select"
-                  value={frameSize}
-                  onChange={(e) => useAudioSettingsStore.getState().setFrameSize(Number(e.target.value) as 0 | 10 | 20 | 40 | 60)}
-                >
-                  <option value={0}>Default ({tierAllows10ms ? '10' : '20'} ms)</option>
-                  <option value={10}>10 ms (lowest latency)</option>
-                  <option value={20}>20 ms</option>
-                  <option value={40}>40 ms (efficient)</option>
-                  <option value={60}>60 ms (most efficient)</option>
-                </select>
+            <div className={`settings-row ${adaptivePtime ? 'settings-row-disabled' : ''}`}>
+              <div className="settings-row-info">
+                <span className="settings-row-label">Frame Size (ptime)</span>
+                <span className="settings-row-hint">
+                  {adaptivePtime
+                    ? 'Locked by Adaptive Frame Size. Manual frame size is overridden while adaptive sizing is active.'
+                    : frameSize === 0
+                      ? `Packet duration sent to other participants. Currently using the tier's preferred size (${tierConfig.preferredFrameSize}ms).`
+                      : frameSize === 10
+                        ? 'Packet duration sent to other participants. Currently 10ms \u2014 lowest latency, highest overhead.'
+                        : frameSize === 20
+                          ? 'Packet duration sent to other participants. Currently 20ms \u2014 standard balance of latency and efficiency.'
+                          : frameSize === 40
+                            ? 'Packet duration sent to other participants. Currently 40ms \u2014 reduced overhead, moderately increased latency.'
+                            : 'Packet duration sent to other participants. Currently 60ms \u2014 maximum efficiency, highest latency.'}
+                </span>
               </div>
-            )}
+              <select
+                className="settings-select"
+                value={adaptivePtime ? 0 : frameSize}
+                onChange={(e) => setDraftAudioSetting('frameSize', Number(e.target.value) as 0 | 10 | 20 | 40 | 60)}
+                disabled={adaptivePtime}
+              >
+                <option value={0}>Default ({tierConfig.preferredFrameSize} ms)</option>
+                <option value={10}>10 ms (lowest latency)</option>
+                <option value={20}>20 ms</option>
+                <option value={40}>40 ms (efficient)</option>
+                <option value={60}>60 ms (most efficient)</option>
+              </select>
+            </div>
 
             <div className="settings-row">
               <div className="settings-row-info">
                 <span className="settings-row-label">Silence Detection (DTX)</span>
                 <span className="settings-row-hint">
-                  Discontinuous transmission — sends fewer packets during silence to save bandwidth.
+                  {silenceDetection
+                    ? 'Enabled. The Opus codec uses discontinuous transmission to send fewer packets during silence, reducing bandwidth usage.'
+                    : 'Disabled. Packets are sent continuously regardless of input activity. Uses more bandwidth but avoids transition artifacts.'}
                 </span>
               </div>
-              <ToggleSwitch checked={silenceDetection} onChange={(v) => useAudioSettingsStore.getState().setSilenceDetection(v)} />
+              <ToggleSwitch checked={silenceDetection} onChange={(v) => setDraftAudioSetting('silenceDetection', v)} />
             </div>
 
-            <h4 className="settings-advanced-subheader">Error Correction & Reliability</h4>
-
-            <div className={`settings-row ${!tierSupportsFec ? 'settings-row-disabled' : ''}`}>
+            <div className="settings-row">
               <div className="settings-row-info">
-                <span className="settings-row-label">Forward Error Correction</span>
+                <span className="settings-row-label">Stereo / Mono</span>
                 <span className="settings-row-hint">
-                  {!tierSupportsFec
-                    ? 'Disabled — current quality tier does not use FEC. High bitrate tiers rely on audio fidelity over redundancy.'
-                    : fecMode === 'auto'
-                      ? 'Automatically adjusts FEC overhead based on detected packet loss.'
-                      : `Manual: ${fecManualPercent}% redundancy overhead.`}
+                  {(stereoOverride ?? tierConfig.opusStereo)
+                    ? 'Controls the channel format of the audio stream. Currently Stereo \u2014 two-channel audio for spatial separation, doubling bandwidth.'
+                    : 'Controls the channel format of the audio stream. Currently Mono \u2014 single-channel audio with lower bandwidth.'}
                 </span>
               </div>
               <select
                 className="settings-select"
-                value={fecMode}
-                onChange={(e) => useAudioSettingsStore.getState().setFecMode(e.target.value as 'auto' | 'manual')}
-                disabled={!tierSupportsFec}
+                value={(stereoOverride ?? tierConfig.opusStereo) ? 'stereo' : 'mono'}
+                onChange={(e) => {
+                  const v = e.target.value === 'stereo';
+                  setDraftAudioSetting('stereoOverride', v);
+                }}
               >
-                <option value="auto">Auto</option>
-                <option value="manual">Manual</option>
+                <option value="stereo">Stereo</option>
+                <option value="mono">Mono</option>
               </select>
             </div>
 
-            {fecMode === 'manual' && tierSupportsFec && (
+            {/* ── Error Correction & Reliability ── */}
+            <h3 className="settings-subsection-title">Error Correction & Reliability</h3>
+
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <span className="settings-row-label">In-Line Forward Error Correction (FEC)</span>
+                <span className="settings-row-hint">
+                  {inlineFec
+                    ? 'Enabled. Every packet includes a low-quality copy of the previous frame as a safety net. The receiver uses it to fill gaps when a packet goes missing. VBR keeps the overhead minimal on easy frames.'
+                    : 'Disabled. Packets carry only primary audio with no redundancy. Maximizes quality per-packet, but the receiver has nothing to fall back on during packet loss.'}
+                </span>
+              </div>
+              <ToggleSwitch
+                checked={inlineFec}
+                onChange={(v) => setDraftAudioSetting('inlineFec', v)}
+              />
+            </div>
+
+            {inlineFec && (
               <div className="settings-row">
                 <div className="settings-row-info">
-                  <span className="settings-row-label">FEC Redundancy</span>
-                  <span className="settings-row-hint">{fecManualPercent}%</span>
+                  <span className="settings-row-label">Grant FEC Headroom</span>
+                  <span className="settings-row-hint">
+                    {fecHeadroom
+                      ? 'Enabled. When packet loss is detected, the bitrate ceiling is raised so the always-present FEC payload does not eat into primary audio quality.'
+                      : 'Disabled. The bitrate ceiling stays fixed at the tier\'s base rate. Since FEC is always encoded, it competes with primary audio for the same budget on complex frames.'}
+                  </span>
                 </div>
-                <input
-                  type="range"
-                  className="settings-slider"
-                  min={0}
-                  max={100}
-                  value={fecManualPercent}
-                  onChange={(e) => useAudioSettingsStore.getState().setFecManualPercent(Number(e.target.value))}
+                <ToggleSwitch
+                  checked={fecHeadroom}
+                  onChange={(v) => setDraftAudioSetting('fecHeadroom', v)}
                 />
               </div>
             )}
@@ -1313,25 +1424,34 @@ const VoiceAudioSection: React.FC = () => {
               <div className="settings-row-info">
                 <span className="settings-row-label">NACK (Retransmission)</span>
                 <span className="settings-row-hint">
-                  Request retransmission of lost audio packets. Adds latency but improves reliability on lossy networks.
+                  {opusNack
+                    ? 'Enabled. Concord requests retransmission of lost audio packets from the server. Improves reliability on lossy networks at the cost of added latency.'
+                    : 'Disabled. Lost packets are not retransmitted. Relies on FEC or interpolation to handle gaps.'}
                 </span>
               </div>
-              <ToggleSwitch checked={opusNack} onChange={(v) => useAudioSettingsStore.getState().setOpusNack(v)} />
+              <ToggleSwitch checked={opusNack} onChange={(v) => setDraftAudioSetting('opusNack', v)} />
             </div>
 
-            <h4 className="settings-advanced-subheader">Transport</h4>
+            {/* ── Transport ── */}
+            <h3 className="settings-subsection-title">Transport</h3>
 
             <div className="settings-row">
               <div className="settings-row-info">
                 <span className="settings-row-label">Quality of Service for Audio</span>
                 <span className="settings-row-hint">
-                  Flags traffic using DSCP marking so your network can prioritize it. May not work on all networks.
+                  {audioPriority === 'off'
+                    ? 'Marks audio traffic with DSCP tags so your network can prioritize it. Currently off \u2014 no tagging applied.'
+                    : audioPriority === 'low'
+                      ? 'Marks audio traffic with DSCP tags so your network can prioritize it. Currently Low (DF) \u2014 minimal differentiation.'
+                      : audioPriority === 'medium'
+                        ? 'Marks audio traffic with DSCP tags so your network can prioritize it. Currently Default (AF41) \u2014 recommended for most networks.'
+                        : 'Marks audio traffic with DSCP tags so your network can prioritize it. Currently High (EF) \u2014 highest priority, requires network support.'}
                 </span>
               </div>
               <select
                 className="settings-select"
                 value={audioPriority}
-                onChange={(e) => useAudioSettingsStore.getState().setAudioPriority(e.target.value as AudioPriority)}
+                onChange={(e) => setDraftAudioSetting('audioPriority', e.target.value as AudioPriority)}
               >
                 <option value="off">Off (No Tagging)</option>
                 <option value="low">Low (DF)</option>
@@ -1339,13 +1459,28 @@ const VoiceAudioSection: React.FC = () => {
                 <option value="high">High (EF)</option>
               </select>
             </div>
-          </div>
+          </>
         )}
       </div>
 
-      {/* ═══ Video & Screen Share ═══ */}
+      {/* ═══ Video Configuration ═══ */}
       <div className="settings-section" id="section-video-screen">
-        <h2 className="settings-section-title">Video & Screen Share</h2>
+        <h2 className="settings-section-title">Video Configuration</h2>
+
+        <div className="settings-mode-toggle">
+          <span
+            className={`settings-mode-pill ${!videoAdvancedMode ? 'active' : ''}`}
+            onClick={() => useVideoSettingsStore.getState().setVideoAdvancedMode(false)}
+          >
+            Basic Settings
+          </span>
+          <span
+            className={`settings-mode-pill ${videoAdvancedMode ? 'active' : ''}`}
+            onClick={() => useVideoSettingsStore.getState().setVideoAdvancedMode(true)}
+          >
+            Advanced Settings
+          </span>
+        </div>
 
         {/* ── Camera ── */}
         <h3 className="settings-subsection-title">Camera</h3>
@@ -1353,38 +1488,20 @@ const VoiceAudioSection: React.FC = () => {
         <div className="settings-row">
           <div className="settings-row-info">
             <span className="settings-row-label">Camera Preset</span>
-            <span className="settings-row-hint">System Default lets the camera/driver decide. Other presets request a specific resolution.</span>
-          </div>
-          <select
-            className="settings-select"
-            value={cameraPreset}
-            onChange={(e) => useVideoSettingsStore.getState().setCameraPreset(e.target.value)}
-          >
-            {Object.entries(VIDEO_QUALITY_PRESETS).map(([key, preset]) => (
-              <option key={key} value={key}>{preset.label}</option>
-            ))}
-          </select>
-        </div>
-
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Congestion Priority</span>
             <span className="settings-row-hint">
-              {degradationPreference === 'balanced'
-                ? 'Concord decides whether to reduce resolution or framerate during congestion.'
-                : degradationPreference === 'maintain-framerate'
-                  ? 'Keeps framerate smooth by reducing resolution when bandwidth is limited.'
-                  : 'Keeps resolution crisp by reducing framerate when bandwidth is limited.'}
+              {cameraPreset === 'system'
+                ? 'Constrains the camera\'s capture resolution and frame rate. Currently System Default \u2014 the camera and driver decide automatically.'
+                : `Constrains the camera's capture resolution and frame rate. Currently requesting ${VIDEO_QUALITY_PRESETS[cameraPreset]?.label ?? cameraPreset}.`}
             </span>
           </div>
           <select
             className="settings-select"
-            value={degradationPreference}
-            onChange={(e) => useVideoSettingsStore.getState().setDegradationPreference(e.target.value as DegradationPreference)}
+            value={cameraPreset}
+            onChange={(e) => setDraftVideoSetting('cameraPreset', e.target.value)}
           >
-            <option value="balanced">Balanced</option>
-            <option value="maintain-framerate">Prefer Smooth Video</option>
-            <option value="maintain-resolution">Prefer Sharp Details</option>
+            {Object.entries(VIDEO_QUALITY_PRESETS).map(([key, preset]) => (
+              <option key={key} value={key}>{preset.label}</option>
+            ))}
           </select>
         </div>
 
@@ -1397,11 +1514,16 @@ const VoiceAudioSection: React.FC = () => {
         <div className="settings-row">
           <div className="settings-row-info">
             <span className="settings-row-label">Resolution</span>
+            <span className="settings-row-hint">
+              {screenResolution === 'source'
+                ? 'Default capture resolution for screen sharing. Currently Native \u2014 captures at your display\'s full resolution.'
+                : `Default capture resolution for screen sharing. Currently ${screenResolution}.`}
+            </span>
           </div>
           <select
             className="settings-select"
             value={screenResolution}
-            onChange={(e) => useVideoSettingsStore.getState().setScreenResolution(e.target.value)}
+            onChange={(e) => setDraftVideoSetting('screenResolution', e.target.value)}
           >
             <optgroup label="Common Resolutions">
               <option value="source">Native</option>
@@ -1425,11 +1547,16 @@ const VoiceAudioSection: React.FC = () => {
         <div className="settings-row">
           <div className="settings-row-info">
             <span className="settings-row-label">Frame Rate</span>
+            <span className="settings-row-hint">
+              {screenFrameRate === 0
+                ? `Default capture frame rate for screen sharing. Currently Native (${maxRefreshRate} Hz).`
+                : `Default capture frame rate for screen sharing. Currently ${screenFrameRate} FPS.`}
+            </span>
           </div>
           <select
             className="settings-select"
             value={screenFrameRate}
-            onChange={(e) => useVideoSettingsStore.getState().setScreenFrameRate(Number(e.target.value))}
+            onChange={(e) => setDraftVideoSetting('screenFrameRate', Number(e.target.value))}
           >
             <optgroup label="Common">
               <option value={0}>Native ({maxRefreshRate} Hz)</option>
@@ -1453,16 +1580,16 @@ const VoiceAudioSection: React.FC = () => {
             <span className="settings-row-label">Content Type</span>
             <span className="settings-row-hint">
               {screenContentType === 'auto'
-                ? 'Auto \u2014 Concord detects whether your screen has fast motion or static content and optimizes accordingly.'
+                ? 'Optimizes encoding for the type of content being shared. Currently Auto \u2014 Concord detects motion vs. static content and adjusts accordingly.'
                 : screenContentType === 'motion'
-                  ? 'Motion \u2014 Prioritizes smooth frame rate for video playback, games, and animations. Uses more bandwidth.'
-                  : 'Detail \u2014 Prioritizes sharp text and edges for code editors, documents, and design tools. Lower frame rate, crisper image.'}
+                  ? 'Optimizes encoding for the type of content being shared. Currently Motion \u2014 prioritizes smooth frame rate for video and animations.'
+                  : 'Optimizes encoding for the type of content being shared. Currently Detail \u2014 prioritizes sharp text and edges for code and documents.'}
             </span>
           </div>
           <select
             className="settings-select"
             value={screenContentType}
-            onChange={(e) => useVideoSettingsStore.getState().setScreenContentType(e.target.value as ScreenContentType)}
+            onChange={(e) => setDraftVideoSetting('screenContentType', e.target.value as ScreenContentType)}
           >
             <option value="auto">Auto</option>
             <option value="motion">Motion (Video & Animation)</option>
@@ -1470,30 +1597,32 @@ const VoiceAudioSection: React.FC = () => {
           </select>
         </div>
 
-        {/* ── Advanced Settings ── */}
-        <button
-          className="settings-advanced-toggle"
-          onClick={() => setShowVideoAdvanced(!showVideoAdvanced)}
-        >
-          <span>Advanced Settings</span>
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 12 12"
-            fill="none"
-            style={{ transform: showVideoAdvanced ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}
-          >
-            <path d="M3 4.5L6 7.5L9 4.5" stroke="var(--text-secondary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-
-        {showVideoAdvanced && (
-          <div className="settings-advanced-panel">
-            <div className="settings-advanced-warning">
-              These settings affect video encoding at a low level. Incorrect values may degrade video quality.
+        {/* ── Advanced Video Settings ── */}
+        {videoAdvancedMode && (
+          <>
+            <div className="settings-row">
+              <div className="settings-row-info">
+                <span className="settings-row-label">Congestion Priority</span>
+                <span className="settings-row-hint">
+                  {degradationPreference === 'balanced'
+                    ? 'How Concord adapts your camera during network congestion. Currently Balanced \u2014 Concord decides whether to reduce resolution or framerate.'
+                    : degradationPreference === 'maintain-framerate'
+                      ? 'How Concord adapts your camera during network congestion. Currently Prefer Smooth Video \u2014 keeps framerate by reducing resolution.'
+                      : 'How Concord adapts your camera during network congestion. Currently Prefer Sharp Details \u2014 keeps resolution by reducing framerate.'}
+                </span>
+              </div>
+              <select
+                className="settings-select"
+                value={degradationPreference}
+                onChange={(e) => setDraftVideoSetting('degradationPreference', e.target.value as DegradationPreference)}
+              >
+                <option value="balanced">Balanced</option>
+                <option value="maintain-framerate">Prefer Smooth Video</option>
+                <option value="maintain-resolution">Prefer Sharp Details</option>
+              </select>
             </div>
 
-            <h4 className="settings-advanced-subheader">Codec & Hardware</h4>
+            <h3 className="settings-subsection-title">Codec & Hardware</h3>
 
             {gpuInfo && (
               <p className="settings-section-description" style={{ marginTop: 0, marginBottom: 6 }}>
@@ -1602,12 +1731,16 @@ const VoiceAudioSection: React.FC = () => {
             <div className="settings-row">
               <div className="settings-row-info">
                 <span className="settings-row-label">Video Codec</span>
-                <span className="settings-row-hint">Applies to both camera and screen share</span>
+                <span className="settings-row-hint">
+                  {preferredVideoCodec
+                    ? `Preferred codec for camera and screen share encoding. Currently ${preferredVideoCodec.replace('video/', '')}. Concord falls back automatically if a peer cannot decode it.`
+                    : 'Preferred codec for camera and screen share encoding. Currently Auto \u2014 Concord selects the best available based on hardware and peer support.'}
+                </span>
               </div>
               <select
                 className="settings-select"
                 value={preferredVideoCodec ?? ''}
-                onChange={(e) => useVideoSettingsStore.getState().setPreferredVideoCodec(e.target.value || null)}
+                onChange={(e) => setDraftVideoSetting('preferredVideoCodec', e.target.value || null)}
               >
                 <option value="">Auto</option>
                 {codecCapabilities.map((c) => (
@@ -1627,76 +1760,77 @@ const VoiceAudioSection: React.FC = () => {
             <div className="settings-row">
               <div className="settings-row-info">
                 <span className="settings-row-label">Hardware Acceleration</span>
-                <span className="settings-row-hint">Uses your GPU for video encoding & decoding. If a codec isn't supported by your GPU, Concord will automatically fall back to software encoding on your CPU. Requires restart to apply.</span>
+                <span className="settings-row-hint">
+                  {hardwareAcceleration
+                    ? 'Enabled. Your GPU handles video encoding and decoding. Concord falls back to software encoding for unsupported codecs.'
+                    : 'Disabled. All video encoding and decoding runs on your CPU. Avoids GPU-specific limitations but increases CPU usage. Requires restart.'}
+                </span>
               </div>
               <ToggleSwitch
                 checked={hardwareAcceleration}
-                onChange={async (enabled) => {
-                  await window.electron?.setHardwareAcceleration?.(enabled);
-                  useVideoSettingsStore.getState().setHardwareAcceleration(enabled);
-                }}
+                onChange={(enabled) => setDraftVideoSetting('hardwareAcceleration', enabled)}
               />
             </div>
 
-            {restartNeeded && (
-              <div className="settings-restart-prompt">
-                <span>Hardware acceleration change requires a restart.</span>
-                <button
-                  className="settings-restart-btn"
-                  onClick={() => window.electron?.relaunchApp?.()}
-                >
-                  Restart Now
-                </button>
-              </div>
-            )}
-
-            <h4 className="settings-advanced-subheader">Bandwidth</h4>
+            <h3 className="settings-subsection-title">Bandwidth</h3>
 
             <div className="settings-row">
               <div className="settings-row-info">
                 <span className="settings-row-label">Automatic Bitrate</span>
                 <span className="settings-row-hint">
                   {screenShareBitrate === 0
-                    ? `Concord adjusts based on your resolution, frame rate, and codec. Estimated: ~${(clampedRecommended / 1_000_000).toFixed(1)} Mbps for current settings.`
-                    : `Manual: ${(screenShareBitrate / 1_000_000).toFixed(1)} Mbps. Recommended: ~${(clampedRecommended / 1_000_000).toFixed(1)} Mbps for current settings.`}
+                    ? `Enabled. Concord adjusts bitrate based on your resolution, frame rate, and codec. Estimated ~${(clampedRecommended / 1_000_000).toFixed(1)} Mbps for current settings.`
+                    : `Disabled. Using a fixed ${(screenShareBitrate / 1_000_000).toFixed(1)} Mbps cap. Recommended ~${(clampedRecommended / 1_000_000).toFixed(1)} Mbps for current settings.`}
                 </span>
               </div>
               <ToggleSwitch
                 checked={screenShareBitrate === 0}
-                onChange={(v) => useVideoSettingsStore.getState().setScreenShareBitrate(v ? 0 : clampedRecommended)}
+                onChange={(v) => setDraftVideoSetting('screenShareBitrate', v ? 0 : clampedRecommended)}
               />
             </div>
-            {screenShareBitrate > 0 && (
-              <div className="settings-volume-row">
+            <div className={`settings-volume-row ${screenShareBitrate === 0 ? 'settings-row-disabled' : ''}`}>
+              <div className="settings-row-info">
                 <span className="settings-volume-label">Cap</span>
-                <div className="settings-volume-track">
-                  <input
-                    type="range"
-                    className="settings-volume-slider"
-                    min={1.5}
-                    max={30}
-                    step={0.5}
-                    value={screenShareBitrate / 1_000_000}
-                    onChange={(e) => useVideoSettingsStore.getState().setScreenShareBitrate(Math.round(Number(e.target.value) * 1_000_000))}
-                  />
-                </div>
-                <span className="settings-volume-value">{(screenShareBitrate / 1_000_000).toFixed(1)} Mbps</span>
+                <span className="settings-row-hint">
+                  {screenShareBitrate === 0
+                    ? 'Locked by Automatic Bitrate. Manual control is unavailable while automatic adjustment is active.'
+                    : 'Sets the maximum bitrate cap for screen sharing. Left (1.5 Mbps) for simple content. Right (30 Mbps) for high-motion content.'}
+                </span>
               </div>
-            )}
+              <div className="settings-slider-wrapper">
+                <span className="settings-slider-value">{screenShareBitrate === 0 ? `~${(clampedRecommended / 1_000_000).toFixed(1)}` : (screenShareBitrate / 1_000_000).toFixed(1)} Mbps</span>
+                <input
+                  type="range"
+                  className="settings-volume-slider"
+                  min={1.5}
+                  max={30}
+                  step={0.5}
+                  value={screenShareBitrate === 0 ? clampedRecommended / 1_000_000 : screenShareBitrate / 1_000_000}
+                  onChange={(e) => setDraftVideoSetting('screenShareBitrate', Math.round(Number(e.target.value) * 1_000_000))}
+                  disabled={screenShareBitrate === 0}
+                />
+              </div>
+            </div>
 
-            <h4 className="settings-advanced-subheader">Transport</h4>
+            <h3 className="settings-subsection-title">Transport</h3>
 
             <div className="settings-row">
               <div className="settings-row-info">
                 <span className="settings-row-label">Quality of Service for Camera</span>
                 <span className="settings-row-hint">
-                  Flags traffic using DSCP marking so your network can prioritize it. May not work on all networks.
+                  {cameraPriority === 'off'
+                    ? 'Marks camera traffic with DSCP tags so your network can prioritize it. Currently off \u2014 no tagging applied.'
+                    : cameraPriority === 'low'
+                      ? 'Marks camera traffic with DSCP tags so your network can prioritize it. Currently Low (DF) \u2014 minimal differentiation.'
+                      : cameraPriority === 'medium'
+                        ? 'Marks camera traffic with DSCP tags so your network can prioritize it. Currently Default (AF43) \u2014 recommended for most networks.'
+                        : 'Marks camera traffic with DSCP tags so your network can prioritize it. Currently High (EF) \u2014 highest priority, requires network support.'}
                 </span>
               </div>
               <select
                 className="settings-select"
                 value={cameraPriority}
-                onChange={(e) => useVideoSettingsStore.getState().setCameraPriority(e.target.value as VideoPriority)}
+                onChange={(e) => setDraftVideoSetting('cameraPriority', e.target.value as VideoPriority)}
               >
                 <option value="off">Off (No Tagging)</option>
                 <option value="low">Low (DF)</option>
@@ -1709,13 +1843,19 @@ const VoiceAudioSection: React.FC = () => {
               <div className="settings-row-info">
                 <span className="settings-row-label">Quality of Service for Screen Share</span>
                 <span className="settings-row-hint">
-                  Flags traffic using DSCP marking so your network can prioritize it. May not work on all networks.
+                  {screenSharePriority === 'off'
+                    ? 'Marks screen share traffic with DSCP tags so your network can prioritize it. Currently off \u2014 no tagging applied.'
+                    : screenSharePriority === 'low'
+                      ? 'Marks screen share traffic with DSCP tags so your network can prioritize it. Currently Low (DF) \u2014 minimal differentiation.'
+                      : screenSharePriority === 'medium'
+                        ? 'Marks screen share traffic with DSCP tags so your network can prioritize it. Currently Default (AF42) \u2014 recommended for most networks.'
+                        : 'Marks screen share traffic with DSCP tags so your network can prioritize it. Currently High (EF) \u2014 highest priority, requires network support.'}
                 </span>
               </div>
               <select
                 className="settings-select"
                 value={screenSharePriority}
-                onChange={(e) => useVideoSettingsStore.getState().setScreenSharePriority(e.target.value as VideoPriority)}
+                onChange={(e) => setDraftVideoSetting('screenSharePriority', e.target.value as VideoPriority)}
               >
                 <option value="off">Off (No Tagging)</option>
                 <option value="low">Low (DF)</option>
@@ -1728,24 +1868,27 @@ const VoiceAudioSection: React.FC = () => {
               <div className="settings-row-info">
                 <span className="settings-row-label">Video Quality Layers</span>
                 <span className="settings-row-hint">
-                  Sends your video at multiple quality levels simultaneously. Viewers with slower connections automatically receive a lower quality version, while those with fast connections get full quality. More layers adapt better but use more CPU.
+                  {(scalabilityMode === 'auto' || scalabilityMode === 'L3T3')
+                    ? 'Sends video at multiple quality levels so viewers on slower connections get a lower-quality stream. Currently 3 Layers \u2014 best adaptability, highest CPU usage.'
+                    : scalabilityMode === 'L2T3'
+                      ? 'Sends video at multiple quality levels so viewers on slower connections get a lower-quality stream. Currently 2 Layers \u2014 moderate adaptability.'
+                      : 'Sends video at multiple quality levels so viewers on slower connections get a lower-quality stream. Currently Single Quality \u2014 no adaptation, lowest CPU usage.'}
                 </span>
               </div>
               <select
                 className="settings-select"
                 value={scalabilityMode === 'auto' ? 'L3T3' : scalabilityMode}
-                onChange={(e) => useVideoSettingsStore.getState().setScalabilityMode(e.target.value as 'L1T3' | 'L2T3' | 'L3T3')}
+                onChange={(e) => setDraftVideoSetting('scalabilityMode', e.target.value as 'L1T3' | 'L2T3' | 'L3T3')}
               >
                 <option value="L3T3">3 Layers (Default)</option>
                 <option value="L2T3">2 Layers</option>
                 <option value="L1T3">Single Quality</option>
               </select>
             </div>
-          </div>
+          </>
         )}
       </div>
 
-      <TTSSection />
     </>
   );
 };
@@ -1753,10 +1896,10 @@ const VoiceAudioSection: React.FC = () => {
 // ─── Text-to-Speech Section ─────────────────────────────────────────────────
 
 const TTSSection: React.FC = () => {
-  const ttsEnabled = useTTSSettingsStore((s) => s.ttsEnabled);
-  const ttsVoice = useTTSSettingsStore((s) => s.ttsVoice);
-  const ttsRate = useTTSSettingsStore((s) => s.ttsRate);
-  const ttsVolume = useTTSSettingsStore((s) => s.ttsVolume);
+  const ttsEnabled = useDraftTtsSetting('ttsEnabled');
+  const ttsVoice = useDraftTtsSetting('ttsVoice');
+  const ttsRate = useDraftTtsSetting('ttsRate');
+  const ttsVolume = useDraftTtsSetting('ttsVolume');
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   useEffect(() => {
@@ -1792,23 +1935,29 @@ const TTSSection: React.FC = () => {
       <div className="settings-row">
         <div className="settings-row-info">
           <span className="settings-row-label">Enable TTS Playback</span>
-          <span className="settings-row-hint">Incoming voice text chat messages will be spoken aloud</span>
+          <span className="settings-row-hint">
+            {ttsEnabled
+              ? 'Enabled. Incoming voice text chat messages are read aloud while you are in a voice channel.'
+              : 'Disabled. Voice text chat messages are displayed as text only.'}
+          </span>
         </div>
         <ToggleSwitch
           checked={ttsEnabled}
-          onChange={(v) => useTTSSettingsStore.getState().setTtsEnabled(v)}
+          onChange={(v) => setDraftTtsSetting('ttsEnabled', v)}
         />
       </div>
 
       <div className="settings-row">
         <div className="settings-row-info">
           <span className="settings-row-label">Voice</span>
-          <span className="settings-row-hint">Select the TTS voice to use</span>
+          <span className="settings-row-hint">
+            {`Select which text-to-speech voice reads messages aloud. Currently using ${ttsVoice ? (voices.find((v) => v.voiceURI === ttsVoice)?.name ?? ttsVoice) : 'System Default'}.`}
+          </span>
         </div>
         <select
           className="settings-select"
           value={ttsVoice ?? ''}
-          onChange={(e) => useTTSSettingsStore.getState().setTtsVoice(e.target.value || null)}
+          onChange={(e) => setDraftTtsSetting('ttsVoice', e.target.value || null)}
         >
           <option value="">System Default</option>
           {voices.map((v) => (
@@ -1822,33 +1971,39 @@ const TTSSection: React.FC = () => {
       <div className="settings-row">
         <div className="settings-row-info">
           <span className="settings-row-label">Speed</span>
-          <span className="settings-row-hint">{ttsRate.toFixed(1)}x</span>
+          <span className="settings-row-hint">Playback speed for text-to-speech. Left (0.5x) for slow speech. Right (2.0x) for rapid-fire reading.</span>
         </div>
-        <input
-          type="range"
-          className="settings-slider"
-          min={0.5}
-          max={2.0}
-          step={0.1}
-          value={ttsRate}
-          onChange={(e) => useTTSSettingsStore.getState().setTtsRate(Number(e.target.value))}
-        />
+        <div className="settings-slider-wrapper">
+          <span className="settings-slider-value">{ttsRate.toFixed(1)}x</span>
+          <input
+            type="range"
+            className="settings-slider"
+            min={0.5}
+            max={2.0}
+            step={0.1}
+            value={ttsRate}
+            onChange={(e) => setDraftTtsSetting('ttsRate', Number(e.target.value))}
+          />
+        </div>
       </div>
 
       <div className="settings-row">
         <div className="settings-row-info">
           <span className="settings-row-label">Volume</span>
-          <span className="settings-row-hint">{Math.round(ttsVolume * 100)}%</span>
+          <span className="settings-row-hint">Volume level for text-to-speech playback. Left is muted. Right is full volume.</span>
         </div>
-        <input
-          type="range"
-          className="settings-slider"
-          min={0}
-          max={1}
-          step={0.05}
-          value={ttsVolume}
-          onChange={(e) => useTTSSettingsStore.getState().setTtsVolume(Number(e.target.value))}
-        />
+        <div className="settings-slider-wrapper">
+          <span className="settings-slider-value">{Math.round(ttsVolume * 100)}%</span>
+          <input
+            type="range"
+            className="settings-slider"
+            min={0}
+            max={1}
+            step={0.05}
+            value={ttsVolume}
+            onChange={(e) => setDraftTtsSetting('ttsVolume', Number(e.target.value))}
+          />
+        </div>
       </div>
 
       <div className="settings-row">
@@ -1859,6 +2014,10 @@ const TTSSection: React.FC = () => {
     </div>
   );
 };
+
+// ─── Accessibility Section ──────────────────────────────────────────────────
+
+const AccessibilitySection: React.FC = () => <TTSSection />;
 
 // ─── Nav Items ──────────────────────────────────────────────────────────────
 
@@ -1959,7 +2118,7 @@ const navItems: NavItem[] = [
   {
     id: 'accessibility',
     label: 'Accessibility',
-    enabled: false,
+    enabled: true,
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
         <circle cx="9" cy="4" r="2" stroke="currentColor" strokeWidth="1.5" />
@@ -1988,7 +2147,9 @@ const NAV_SUBSECTIONS: Record<string, { id: string; label: string }[]> = {
   voice: [
     { id: 'device-config', label: 'Device Configuration' },
     { id: 'audio-config', label: 'Audio Configuration' },
-    { id: 'video-screen', label: 'Video & Screen Share' },
+    { id: 'video-screen', label: 'Video Configuration' },
+  ],
+  accessibility: [
     { id: 'tts', label: 'Text-to-Speech' },
   ],
 };
@@ -2001,6 +2162,14 @@ const SettingsPage: React.FC = () => {
   const [isPending, startTransition] = useTransition();
   const [activeSubsection, setActiveSubsection] = useState<string | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // Draft settings lifecycle
+  useDraftSettingsLifecycle();
+  const { apply, revert, hasPendingChanges, hwAccelChanged } = useDraftActions();
+
+  // Blob animation state
+  const [blobBouncing, setBlobBouncing] = useState(false);
+  const [blobFading, setBlobFading] = useState(false);
 
   // IntersectionObserver: track which section is in view and highlight tree nav
   useEffect(() => {
@@ -2052,6 +2221,8 @@ const SettingsPage: React.FC = () => {
         return <PrivacySecuritySection />;
       case 'voice':
         return <VoiceAudioSection />;
+      case 'accessibility':
+        return <AccessibilitySection />;
       default:
         return null;
     }
@@ -2061,8 +2232,23 @@ const SettingsPage: React.FC = () => {
     <div className="view-container settings-fullpage">
       <div className="settings-page-content">
         <div className="settings-page-inner">
-          {/* Back button */}
-          <button className="settings-back-btn" onClick={() => navigate('/app')}>
+          {/* Back button — blocked when changes are pending */}
+          <button
+            className={`settings-back-btn${hasPendingChanges ? ' settings-back-btn--blocked' : ''}`}
+            onClick={() => { if (!hasPendingChanges) navigate('/app'); }}
+            onMouseEnter={() => {
+              if (hasPendingChanges) {
+                setBlobBouncing(true);
+              }
+            }}
+            onMouseLeave={() => {
+              if (hasPendingChanges) {
+                setBlobBouncing(false);
+                setBlobFading(true);
+                setTimeout(() => setBlobFading(false), 3000);
+              }
+            }}
+          >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
               <path
                 d="M10 12L6 8l4-4"
@@ -2116,6 +2302,29 @@ const SettingsPage: React.FC = () => {
                   </div>
                 );
               })}
+
+              {/* Pending changes blob */}
+              {hasPendingChanges && (
+                <div
+                  className={`settings-pending-blob${
+                    blobBouncing ? ' settings-pending-blob--bouncing' : ''
+                  }${blobFading ? ' settings-pending-blob--fading' : ''}`}
+                >
+                  <p className="settings-pending-blob-text">
+                    {hwAccelChanged
+                      ? 'Settings have changed! Applying will restart the app.'
+                      : 'Settings have changed! Would you like to apply?'}
+                  </p>
+                  <div className="settings-pending-blob-actions">
+                    <button className="settings-pending-blob-apply" onClick={apply}>
+                      {hwAccelChanged ? 'Apply & Restart' : 'Apply'}
+                    </button>
+                    <button className="settings-pending-blob-revert" onClick={revert}>
+                      Revert
+                    </button>
+                  </div>
+                </div>
+              )}
             </nav>
 
             {/* Right content */}

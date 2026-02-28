@@ -7,6 +7,7 @@ import {
   clearCustomThemeVariables,
 } from '../utils/colorUtils';
 import { useUserStore } from './userStore';
+import { draftModeActive } from './draftSettingsStore';
 
 export interface AppearanceSettings {
   theme: 'dark' | 'light' | 'system';
@@ -218,6 +219,9 @@ useSettingsStore.subscribe(
       colorSyncInitial = false;
       return;
     }
+
+    // Suppress server sync during draft mode — sync happens on Apply
+    if (draftModeActive) return;
 
     if (colorSyncTimer) clearTimeout(colorSyncTimer);
 

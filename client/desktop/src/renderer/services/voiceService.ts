@@ -330,8 +330,9 @@ class VoiceService {
 
   /**
    * Poll outbound-rtp + remote-inbound-rtp stats every 5s to measure packet loss.
-   * When fecMode='auto', dynamically adjusts FEC parameters on the mic producer.
-   * Baseline FEC: WiFi=20%, Wired=5%. Loss > threshold → packetLossWarning in store.
+   * When FEC headroom is enabled, reactively inflates maxBitrate so Opus has room
+   * for in-band FEC without sacrificing primary audio quality.
+   * Loss > threshold → packetLossWarning in store.
    */
   private startPacketLossMonitor(): void {
     this.stopPacketLossMonitor();
@@ -369,25 +370,29 @@ class VoiceService {
         const adv = useAudioSettingsStore.getState();
         useVoiceStore.getState().setPacketLoss(lossPercent, adv.packetLossWarningThreshold);
 
-        // Dynamic FEC adjustment (auto mode only)
-        if (adv.fecMode === 'auto' && micProducer.rtpSender) {
+        // FEC headroom — reactively inflate bitrate when loss detected
+        if (micProducer.rtpSender) {
+          const tier = useVoiceStore.getState().effectiveQualityTier;
+          const tierConfig = AUDIO_QUALITY_TIERS[tier];
+          const effectiveHeadroom = adv.advancedMode
+            ? (adv.inlineFec && adv.fecHeadroom)
+            : tierConfig.opusFec; // basic mode: headroom on when FEC is on
+
           const params = micProducer.rtpSender.getParameters();
           if (params.encodings?.[0]) {
-            // Detect network type for baseline
-            const conn = (navigator as { connection?: { type?: string } }).connection;
-            const networkType = adv.networkType === 'auto'
-              ? (conn?.type === 'ethernet' ? 'wired' : 'wifi')
-              : adv.networkType;
-            const baselineFec = networkType === 'wired' ? 5 : 20;
-
-            // Scale FEC proportionally to loss, capped at 100%
-            const targetFecPercent = Math.min(100, baselineFec + lossPercent * 3);
-
-            // Apply via maxBitrate adjustment (increase bitrate budget for FEC overhead)
-            const tier = useVoiceStore.getState().effectiveQualityTier;
-            const tierConfig = AUDIO_QUALITY_TIERS[tier];
-            const fecOverhead = 1 + targetFecPercent / 100;
-            params.encodings[0].maxBitrate = Math.round(tierConfig.maxBitrate * fecOverhead);
+            if (effectiveHeadroom && lossPercent > 0) {
+              // Tier-derived multiplier: low bitrate tiers need proportionally more
+              // headroom since FEC eats a larger share of a small budget
+              const K = tierConfig.maxBitrate < 64_000 ? 4
+                      : tierConfig.maxBitrate < 128_000 ? 2.5
+                      : 1.5;
+              const headroomPercent = Math.min(50, lossPercent * K);
+              params.encodings[0].maxBitrate = Math.round(
+                tierConfig.maxBitrate * (1 + headroomPercent / 100)
+              );
+            } else {
+              params.encodings[0].maxBitrate = tierConfig.maxBitrate;
+            }
             micProducer.rtpSender.setParameters(params).catch(() => {});
           }
         }
@@ -677,8 +682,8 @@ class VoiceService {
         state.musicMode !== prev.musicMode ||
         state.frameSize !== prev.frameSize ||
         state.silenceDetection !== prev.silenceDetection ||
-        state.fecMode !== prev.fecMode ||
-        state.fecManualPercent !== prev.fecManualPercent ||
+        state.inlineFec !== prev.inlineFec ||
+        state.fecHeadroom !== prev.fecHeadroom ||
         state.opusNack !== prev.opusNack ||
         state.adaptivePtime !== prev.adaptivePtime;
 
@@ -1096,7 +1101,7 @@ class VoiceService {
 
       // Resolve effective quality tier: channel override takes priority over personal setting
       const channelTier = channel.audio_quality_tier;
-      const validTiers = ['voice', 'standard', 'high', 'hifi', 'studio'];
+      const validTiers = ['minimum', 'low', 'moderate', 'standard', 'high', 'hifi', 'studio'];
       if (channelTier && validTiers.includes(channelTier)) {
         store.setEffectiveQualityTier(channelTier as AudioQualityTier);
       } else {
@@ -1342,23 +1347,28 @@ class VoiceService {
     const tier = useVoiceStore.getState().effectiveQualityTier;
     const tierConfig = AUDIO_QUALITY_TIERS[tier];
 
-    // Resolve effective Opus settings: advanced overrides tier defaults
-    const effectiveDtx = adv.silenceDetection || tierConfig.opusDtx;
-    // FEC is only active on tiers that support it (voice, standard).
-    // High-bitrate tiers (high/hifi/studio) disable FEC — bandwidth is better
-    // spent on audio fidelity than redundancy at those rates.
-    const effectiveFec = tierConfig.opusFec
-      ? (adv.fecMode === 'manual' ? adv.fecManualPercent > 0 : true)
-      : false;
+    // Resolve effective Opus settings based on basic/advanced mode
+    const effectiveFec = adv.advancedMode ? adv.inlineFec : tierConfig.opusFec;
+
+    // DTX: in basic mode, tier controls; in advanced mode, user overrides
+    const effectiveDtx = adv.advancedMode
+      ? (adv.silenceDetection || tierConfig.opusDtx)
+      : tierConfig.opusDtx;
+
+    // Stereo: in basic mode, tier controls; in advanced mode, user can override
+    const effectiveStereo = adv.advancedMode && adv.stereoOverride !== null
+      ? adv.stereoOverride
+      : tierConfig.opusStereo;
+
     // Frame size resolution:
-    //   0 (Default) → use tier's optimal (10ms for hifi/studio, 20ms for others)
-    //   Explicit value → respect user's choice (all frame sizes available for all tiers)
-    // When adaptivePtime is on, always use tier default as the starting target.
+    //   0 (Default) → use tier's preferredFrameSize
+    //   Explicit value → respect user's choice (advanced mode only)
+    //   adaptivePtime → use tier default as starting target
     let effectiveFrameSize: number;
     if (adv.adaptivePtime) {
-      effectiveFrameSize = tierConfig.frameSize;
-    } else if (adv.frameSize === 0) {
-      effectiveFrameSize = tierConfig.frameSize; // Default: use tier's optimal
+      effectiveFrameSize = tierConfig.preferredFrameSize;
+    } else if (!adv.advancedMode || adv.frameSize === 0) {
+      effectiveFrameSize = tierConfig.preferredFrameSize;
     } else {
       effectiveFrameSize = adv.frameSize;
     }
@@ -1375,7 +1385,7 @@ class VoiceService {
         ...audioPrioParams,
       }],
       codecOptions: {
-        opusStereo: tierConfig.opusStereo,
+        opusStereo: effectiveStereo,
         opusDtx: effectiveDtx,
         opusFec: effectiveFec,
         opusNack: adv.opusNack,

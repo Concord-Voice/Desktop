@@ -9,6 +9,9 @@ import { persist } from 'zustand/middleware';
 export type AudioPriority = 'off' | 'low' | 'medium' | 'high';
 
 export interface AudioSettings {
+  // Basic/Advanced mode toggle
+  advancedMode: boolean;
+
   // Audio processing (getUserMedia constraints)
   noiseCancellation: boolean;
   echoCancellation: boolean;
@@ -18,12 +21,13 @@ export interface AudioSettings {
 
   // Opus advanced
   musicMode: boolean; // Disables audio processing (echo cancel, noise suppression, AGC) for music fidelity
-  frameSize: 0 | 10 | 20 | 40 | 60; // ms (ptime) — 0 = "Default" (use tier's optimal: 10ms for hifi/studio, 20ms otherwise)
+  frameSize: 0 | 10 | 20 | 40 | 60; // ms (ptime) — 0 = "Default" (use tier's preferredFrameSize)
   silenceDetection: boolean; // DTX override
+  stereoOverride: boolean | null; // null = follow tier default, true/false = force
 
   // FEC & reliability
-  fecMode: 'auto' | 'manual';
-  fecManualPercent: number; // 0–100
+  inlineFec: boolean; // Allow Opus to embed in-band FEC redundancy
+  fecHeadroom: boolean; // Reactively inflate bitrate ceiling when loss detected, giving Opus room for FEC
   opusNack: boolean; // Request retransmission of lost audio packets
 
   // Transport
@@ -44,6 +48,7 @@ export interface AudioSettings {
 }
 
 interface AudioSettingsState extends AudioSettings {
+  setAdvancedMode: (enabled: boolean) => void;
   setNoiseCancellation: (enabled: boolean) => void;
   setEchoCancellation: (enabled: boolean) => void;
   setAutoGainControl: (enabled: boolean) => void;
@@ -52,8 +57,9 @@ interface AudioSettingsState extends AudioSettings {
   setMusicMode: (enabled: boolean) => void;
   setFrameSize: (size: 0 | 10 | 20 | 40 | 60) => void;
   setSilenceDetection: (enabled: boolean) => void;
-  setFecMode: (mode: 'auto' | 'manual') => void;
-  setFecManualPercent: (percent: number) => void;
+  setStereoOverride: (override: boolean | null) => void;
+  setInlineFec: (enabled: boolean) => void;
+  setFecHeadroom: (enabled: boolean) => void;
   setOpusNack: (enabled: boolean) => void;
   setAdaptivePtime: (enabled: boolean) => void;
   setAudioPriority: (priority: AudioPriority) => void;
@@ -66,16 +72,18 @@ interface AudioSettingsState extends AudioSettings {
 }
 
 const defaults: AudioSettings = {
+  advancedMode: false,
   noiseCancellation: true,
   echoCancellation: true,
   autoGainControl: true,
   noiseGateMode: 'auto',
   noiseGateLevel: -50,
   musicMode: false,
-  frameSize: 0, // Default — resolved at runtime to tier's optimal (10ms or 20ms)
+  frameSize: 0, // Default — resolved at runtime to tier's preferredFrameSize
   silenceDetection: false,
-  fecMode: 'auto',
-  fecManualPercent: 20,
+  stereoOverride: null, // null = follow tier default
+  inlineFec: true,
+  fecHeadroom: true,
   opusNack: false,
   adaptivePtime: false,
   audioPriority: 'medium',
@@ -92,6 +100,7 @@ export const useAudioSettingsStore = create<AudioSettingsState>()(
     (set) => ({
       ...defaults,
 
+      setAdvancedMode: (advancedMode) => set({ advancedMode }),
       setNoiseCancellation: (noiseCancellation) => set({ noiseCancellation }),
       setEchoCancellation: (echoCancellation) => set({ echoCancellation }),
       setAutoGainControl: (autoGainControl) => set({ autoGainControl }),
@@ -100,8 +109,9 @@ export const useAudioSettingsStore = create<AudioSettingsState>()(
       setMusicMode: (musicMode) => set({ musicMode }),
       setFrameSize: (frameSize) => set({ frameSize }),
       setSilenceDetection: (silenceDetection) => set({ silenceDetection }),
-      setFecMode: (fecMode) => set({ fecMode }),
-      setFecManualPercent: (fecManualPercent) => set({ fecManualPercent: Math.max(0, Math.min(100, fecManualPercent)) }),
+      setStereoOverride: (stereoOverride) => set({ stereoOverride }),
+      setInlineFec: (inlineFec) => set({ inlineFec }),
+      setFecHeadroom: (fecHeadroom) => set({ fecHeadroom }),
       setOpusNack: (opusNack) => set({ opusNack }),
       setAdaptivePtime: (adaptivePtime) => set({ adaptivePtime }),
       setAudioPriority: (audioPriority) => set({ audioPriority }),
@@ -114,6 +124,31 @@ export const useAudioSettingsStore = create<AudioSettingsState>()(
     }),
     {
       name: 'concord:audio-advanced',
+      version: 2,
+      migrate: (persistedState: unknown, version: number) => {
+        const state = persistedState as Record<string, unknown>;
+        if (version === 0) {
+          // v0→v1: Rename fecMode → autoFecMode, add advancedMode + stereoOverride
+          if (state.fecMode) {
+            state.autoFecMode = state.fecMode === 'auto' ? 'default' : 'manual';
+            delete state.fecMode;
+          }
+          if (typeof state.fecManualPercent === 'number' && state.fecManualPercent > 40) {
+            state.fecManualPercent = 40;
+          }
+          if (state.advancedMode === undefined) state.advancedMode = false;
+          if (state.stereoOverride === undefined) state.stereoOverride = null;
+        }
+        if (version <= 1) {
+          // v1→v2: autoFecMode + fecManualPercent → inlineFec + fecHeadroom
+          const mode = state.autoFecMode as string | undefined;
+          state.inlineFec = mode !== 'off';
+          state.fecHeadroom = mode !== 'off' && mode !== 'manual';
+          delete state.autoFecMode;
+          delete state.fecManualPercent;
+        }
+        return state as AudioSettingsState;
+      },
     }
   )
 );
