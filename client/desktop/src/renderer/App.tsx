@@ -108,7 +108,7 @@ function App() {
     return (
       <div className="app" onContextMenu={(e) => e.preventDefault()}>
         <div className="title-bar">
-          <div className="title-bar-text">Concord</div>
+          <div className="title-bar-text">Concord Voice</div>
         </div>
       </div>
     );
@@ -117,7 +117,7 @@ function App() {
   return (
     <div className="app" onContextMenu={(e) => e.preventDefault()}>
       <div className="title-bar">
-        <div className="title-bar-text">Concord</div>
+        <div className="title-bar-text">Concord Voice</div>
         {version && (
           <div className="title-bar-info">
             v{version} • {platform}

@@ -266,7 +266,7 @@ ipcMain.handle('pip:open', (_event, opts: { id: string; width?: number; height?:
     alwaysOnTop: true,
     skipTaskbar: true,
     resizable: true,
-    title: opts.title || 'Concord PiP',
+    title: opts.title || 'Concord Voice PiP',
     webPreferences: {
       preload: path.join(__dirname, '../preload/preload.js'),
       nodeIntegration: false,

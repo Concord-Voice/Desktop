@@ -31,7 +31,7 @@ describe('App', () => {
 
   it('renders title bar', () => {
     render(<App />);
-    expect(screen.getByText('Concord')).toBeInTheDocument();
+    expect(screen.getByText('Concord Voice')).toBeInTheDocument();
   });
 
   it('renders auth flow on root path', () => {

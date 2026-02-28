@@ -85,7 +85,7 @@ const AppearanceSection: React.FC = () => {
   }[] = [
     {
       value: 'concord',
-      label: 'Concord',
+      label: 'Concord Voice',
       gradient: 'linear-gradient(135deg, #0d0821, #fa709a, #ffe13f)',
     },
     {
@@ -298,7 +298,7 @@ const AppearanceSection: React.FC = () => {
       <div className="settings-section" id="section-theme">
         <h2 className="settings-section-title">Theme</h2>
         <p className="settings-section-description">
-          Choose how Concord looks to you. Select a theme or match your system settings.
+          Choose how Concord Voice looks to you. Select a theme or match your system settings.
         </p>
         <div className="theme-selector">
           {themes.map((t) => (
@@ -537,7 +537,7 @@ const PrivacySecuritySection: React.FC = () => {
 
   const parseUserAgent = (ua: string): string => {
     if (!ua) return 'Unknown Device';
-    if (ua.includes('Electron')) return 'Concord Desktop';
+    if (ua.includes('Electron')) return 'Concord Voice Desktop';
     if (ua.includes('Chrome')) return 'Chrome Browser';
     if (ua.includes('Firefox')) return 'Firefox Browser';
     if (ua.includes('Safari')) return 'Safari Browser';
@@ -1229,7 +1229,7 @@ const VoiceAudioSection: React.FC = () => {
               <div className="settings-row-info">
                 <span className="settings-row-label">Adaptive Frame Size</span>
                 <span className="settings-row-hint">
-                  Lets Concord dynamically scale ptime during congestion (e.g. 20ms → 60ms), trading latency for reliability. Overrides manual Frame Size when enabled.
+                  Lets Concord Voice dynamically scale ptime during congestion (e.g. 20ms → 60ms), trading latency for reliability. Overrides manual Frame Size when enabled.
                 </span>
               </div>
               <ToggleSwitch checked={adaptivePtime} onChange={(v) => useAudioSettingsStore.getState().setAdaptivePtime(v)} />
@@ -1371,7 +1371,7 @@ const VoiceAudioSection: React.FC = () => {
             <span className="settings-row-label">Congestion Priority</span>
             <span className="settings-row-hint">
               {degradationPreference === 'balanced'
-                ? 'Concord decides whether to reduce resolution or framerate during congestion.'
+                ? 'Concord Voice decides whether to reduce resolution or framerate during congestion.'
                 : degradationPreference === 'maintain-framerate'
                   ? 'Keeps framerate smooth by reducing resolution when bandwidth is limited.'
                   : 'Keeps resolution crisp by reducing framerate when bandwidth is limited.'}
@@ -1453,7 +1453,7 @@ const VoiceAudioSection: React.FC = () => {
             <span className="settings-row-label">Content Type</span>
             <span className="settings-row-hint">
               {screenContentType === 'auto'
-                ? 'Auto \u2014 Concord detects whether your screen has fast motion or static content and optimizes accordingly.'
+                ? 'Auto \u2014 Concord Voice detects whether your screen has fast motion or static content and optimizes accordingly.'
                 : screenContentType === 'motion'
                   ? 'Motion \u2014 Prioritizes smooth frame rate for video playback, games, and animations. Uses more bandwidth.'
                   : 'Detail \u2014 Prioritizes sharp text and edges for code editors, documents, and design tools. Lower frame rate, crisper image.'}
@@ -1592,7 +1592,7 @@ const VoiceAudioSection: React.FC = () => {
                   </div>
                   {hardwareAcceleration && !hwHasSupported && (
                     <div className="settings-hw-fallback-notice">
-                      Hardware acceleration is enabled, but none of your GPU's codecs are currently supported. Concord has automatically failed over to software encoding.
+                      Hardware acceleration is enabled, but none of your GPU's codecs are currently supported. Concord Voice has automatically failed over to software encoding.
                     </div>
                   )}
                 </>
@@ -1627,7 +1627,7 @@ const VoiceAudioSection: React.FC = () => {
             <div className="settings-row">
               <div className="settings-row-info">
                 <span className="settings-row-label">Hardware Acceleration</span>
-                <span className="settings-row-hint">Uses your GPU for video encoding & decoding. If a codec isn't supported by your GPU, Concord will automatically fall back to software encoding on your CPU. Requires restart to apply.</span>
+                <span className="settings-row-hint">Uses your GPU for video encoding & decoding. If a codec isn't supported by your GPU, Concord Voice will automatically fall back to software encoding on your CPU. Requires restart to apply.</span>
               </div>
               <ToggleSwitch
                 checked={hardwareAcceleration}
@@ -1657,7 +1657,7 @@ const VoiceAudioSection: React.FC = () => {
                 <span className="settings-row-label">Automatic Bitrate</span>
                 <span className="settings-row-hint">
                   {screenShareBitrate === 0
-                    ? `Concord adjusts based on your resolution, frame rate, and codec. Estimated: ~${(clampedRecommended / 1_000_000).toFixed(1)} Mbps for current settings.`
+                    ? `Concord Voice adjusts based on your resolution, frame rate, and codec. Estimated: ~${(clampedRecommended / 1_000_000).toFixed(1)} Mbps for current settings.`
                     : `Manual: ${(screenShareBitrate / 1_000_000).toFixed(1)} Mbps. Recommended: ~${(clampedRecommended / 1_000_000).toFixed(1)} Mbps for current settings.`}
                 </span>
               </div>
@@ -1772,7 +1772,7 @@ const TTSSection: React.FC = () => {
   const handlePreview = () => {
     if (!window.speechSynthesis) return;
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance('This is a preview of text-to-speech in Concord.');
+    const utterance = new SpeechSynthesisUtterance('This is a preview of text-to-speech in Concord Voice.');
     utterance.rate = ttsRate;
     utterance.volume = ttsVolume;
     if (ttsVoice) {

@@ -26,7 +26,7 @@ const ConnectionSelector: React.FC<ConnectionSelectorProps> = ({ onSelect }) => 
         <div className="connection-header">
           <img
             src="./branding/logos/main-logo-transparent-vector.svg"
-            alt="Concord"
+            alt="Concord Voice"
             className="connection-logo"
           />
         </div>
@@ -45,7 +45,7 @@ const ConnectionSelector: React.FC<ConnectionSelectorProps> = ({ onSelect }) => 
             <div className="option-content">
               <div className="option-title">Sign In to Existing Account</div>
               <div className="option-description">
-                <div className="option-feature">• Already have a Concord account</div>
+                <div className="option-feature">• Already have a Concord Voice account</div>
                 <div className="option-feature">• Access your servers and communities</div>
                 <div className="option-feature">• Secure E2EE authentication</div>
               </div>
@@ -64,7 +64,7 @@ const ConnectionSelector: React.FC<ConnectionSelectorProps> = ({ onSelect }) => 
             <div className="option-content">
               <div className="option-title">Create New Account</div>
               <div className="option-description">
-                <div className="option-feature">• New to Concord? Start here</div>
+                <div className="option-feature">• New to Concord Voice? Start here</div>
                 <div className="option-feature">• Access public servers and communities</div>
                 <div className="option-feature">• Add self-hosted servers later</div>
               </div>

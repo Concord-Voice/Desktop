@@ -47,7 +47,7 @@ describe('Login', () => {
   it('renders login form', () => {
     render(<Login onBack={onBack} onSuccess={onSuccess} onSwitchToRegister={onSwitchToRegister} />);
     expect(screen.getByText('Welcome Back')).toBeInTheDocument();
-    expect(screen.getByText('Sign in to your Concord account')).toBeInTheDocument();
+    expect(screen.getByText('Sign in to your Concord Voice account')).toBeInTheDocument();
   });
 
   it('renders email and password inputs', () => {

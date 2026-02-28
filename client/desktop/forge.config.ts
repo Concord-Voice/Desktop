@@ -7,22 +7,22 @@ import { MakerRpm } from '@electron-forge/maker-rpm';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
-    name: 'Concord',
-    executableName: 'concord',
+    name: 'Concord Voice',
+    executableName: 'concord-voice',
     icon: './build/icon',
-    appBundleId: 'com.concord.desktop',
+    appBundleId: 'com.concordvoice.desktop',
   },
   makers: [
     new MakerSquirrel({
-      name: 'Concord',
+      name: 'ConcordVoice',
       setupIcon: './build/icon.ico',
     }),
     new MakerZIP({}, ['darwin']),
     new MakerDeb({
       options: {
-        name: 'concord',
-        bin: 'concord',
-        productName: 'Concord',
+        name: 'concord-voice',
+        bin: 'concord-voice',
+        productName: 'Concord Voice',
         genericName: 'Voice Communication',
         categories: ['Network', 'Chat'],
         icon: './build/icon.png',
@@ -30,9 +30,9 @@ const config: ForgeConfig = {
     }),
     new MakerRpm({
       options: {
-        name: 'concord',
-        bin: 'concord',
-        productName: 'Concord',
+        name: 'concord-voice',
+        bin: 'concord-voice',
+        productName: 'Concord Voice',
         genericName: 'Voice Communication',
         categories: ['Network', 'Chat'],
         icon: './build/icon.png',

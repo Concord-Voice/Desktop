@@ -1,9 +1,9 @@
 {
-  "name": "@concord/desktop",
+  "name": "@concordvoice/desktop",
   "version": "0.1.0",
-  "description": "Concord Desktop Client - Privacy-first voice communication",
+  "description": "Concord Voice Desktop Client - Privacy-first voice communication",
   "main": "dist/main/main.js",
-  "author": "Concord Team",
+  "author": "Concord Voice Team",
   "license": "UNLICENSED",
   "private": true,
   "scripts": {

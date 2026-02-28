@@ -24,7 +24,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId, threadName })
         <div className="dm-chat-empty-icon">
           <MessageSquare size={48} />
         </div>
-        <h3>Welcome to Concord</h3>
+        <h3>Welcome to Concord Voice</h3>
         <p>Select a message thread or server to get started</p>
       </div>
     );
