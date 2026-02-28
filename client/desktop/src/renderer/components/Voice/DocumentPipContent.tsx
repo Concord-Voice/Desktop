@@ -3,11 +3,12 @@ import { createPortal } from 'react-dom';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useUserStore } from '../../stores/userStore';
 import ParticipantTile from './ParticipantTile';
+import VoiceControls from './VoiceControls';
 import { useVoiceMagnification } from './useVoiceMagnification';
 
 interface DocumentPipContentProps {
   pipWindow: Window;
-  mode: 'frames' | 'screen';
+  mode: 'frames' | 'screen' | 'controls';
   /** For screen mode: the producerId of the screen share to display */
   producerId?: string;
 }
@@ -24,10 +25,26 @@ export const DocumentPipContent: React.FC<DocumentPipContentProps> = ({
   mode,
   producerId,
 }) => {
+  if (mode === 'controls') {
+    return <ControlsPipPortal pipWindow={pipWindow} />;
+  }
   if (mode === 'frames') {
     return <FramesPipPortal pipWindow={pipWindow} />;
   }
   return <ScreenPipPortal pipWindow={pipWindow} producerId={producerId || ''} />;
+};
+
+/**
+ * Controls PiP — voice controls in a floating window.
+ * Uses context="voiceView" to avoid recursive pin/pop-out buttons.
+ */
+const ControlsPipPortal: React.FC<{ pipWindow: Window }> = ({ pipWindow }) => {
+  return createPortal(
+    <div className="pip-window pip-window--controls">
+      <VoiceControls />
+    </div>,
+    pipWindow.document.body
+  );
 };
 
 /**

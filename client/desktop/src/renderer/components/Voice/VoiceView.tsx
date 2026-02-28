@@ -305,18 +305,18 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
           {availableScreenShares.length > 0 && <TuneInOverlay />}
         </div>
 
-        {/* Text chat panel (when toggled on) */}
-        {showChat && (
+        {/* Text chat panel — vertical (side-by-side) layout only */}
+        {showChat && isVerticalLayout && (
           <>
             <div
-              className={`voice-text-chat-resize ${isVerticalLayout ? 'voice-text-chat-resize--vertical' : ''}`}
+              className="voice-text-chat-resize voice-text-chat-resize--vertical"
               onMouseDown={handleChatResizeStart}
             >
               <div className="voice-text-chat-resize__grip" />
             </div>
             <div
-              className={`voice-view__text-chat ${isVerticalLayout ? 'voice-view__text-chat--vertical' : ''}`}
-              style={isVerticalLayout ? { width: voiceTextChatWidth } : { height: voiceTextChatHeight }}
+              className="voice-view__text-chat voice-view__text-chat--vertical"
+              style={{ width: voiceTextChatWidth }}
             >
               <VoiceTextChat />
             </div>
@@ -324,8 +324,26 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
         )}
       </div>
 
-      {/* Controls bar */}
-      <VoiceControls variant="full" />
+      {/* Controls bar — attached to voice area, above horizontal text chat */}
+      <VoiceControls />
+
+      {/* Text chat panel — horizontal (bottom) layout only */}
+      {showChat && !isVerticalLayout && (
+        <>
+          <div
+            className="voice-text-chat-resize"
+            onMouseDown={handleChatResizeStart}
+          >
+            <div className="voice-text-chat-resize__grip" />
+          </div>
+          <div
+            className="voice-view__text-chat"
+            style={{ height: voiceTextChatHeight }}
+          >
+            <VoiceTextChat />
+          </div>
+        </>
+      )}
     </div>
   );
 };

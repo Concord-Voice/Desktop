@@ -22,9 +22,11 @@ import DeleteCategoryModal from '../Channels/DeleteCategoryModal';
 import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
 import { ChatView } from '../Chat';
 import VoiceView from '../Voice/VoiceView';
-import VoiceControls from '../Voice/VoiceControls';
+import PersistentVoiceBar from '../Voice/PersistentVoiceBar';
+import UserPanel from '../User/UserPanel';
 import { Lock, LockOpen } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
+import { useLayoutStore } from '../../stores/layoutStore';
 
 // New layout components
 import AppLayout from '../Layout/AppLayout';
@@ -102,6 +104,10 @@ const MainView: React.FC = () => {
   const activeChannel = channels.find((c) => c.id === activeChannelId);
   const voiceActiveChannelId = useVoiceStore((s) => s.activeChannelId);
   const voiceConnectionState = useVoiceStore((s) => s.connectionState);
+  const voiceShowTextChat = useVoiceStore((s) => s.showVoiceTextChat);
+  const voiceControlsPinned = useVoiceStore((s) => s.voiceControlsPinned);
+  const channelPanelPinned = useLayoutStore((s) => s.channelPanelPinned);
+  const getLinkedTextChannel = useChannelStore((s) => s.getLinkedTextChannel);
 
   const handleCreateServerSuccess = (server: ServerWithRole) => {
     setActiveServer(server.id);
@@ -168,8 +174,23 @@ const MainView: React.FC = () => {
     </div>
   );
 
-  // ─── Channel panel body content ───
+  // ─── Voice & layout detection ───
   const isInVoice = voiceActiveChannelId && voiceConnectionState === 'connected';
+  const isViewingOwnVoiceChannel =
+    activeChannel?.type === 'voice' && activeChannel.id === voiceActiveChannelId;
+  const showPersistentBar = !!(isInVoice && !isViewingOwnVoiceChannel);
+
+  // Determine if any MessageInput (which renders compact UserPanel) is on screen.
+  // VoiceTextChat contains a MessageInput that shows compact UserPanel when channel panel is unpinned.
+  const voiceLinkedTextExists = !!(voiceActiveChannelId && getLinkedTextChannel(voiceActiveChannelId));
+  const voiceTextChatVisible = isInVoice && voiceShowTextChat && voiceLinkedTextExists && (
+    isViewingOwnVoiceChannel || (showPersistentBar && voiceControlsPinned)
+  );
+  const hasVisibleMessageInput =
+    (activeChannel?.type === 'text' && !!activeChannelId) || voiceTextChatVisible;
+  const showFloatingAvatar = !channelPanelPinned && !hasVisibleMessageInput;
+
+  // ─── Channel panel body content ───
   const channelBody = (
     <>
       {activeServer && (
@@ -184,13 +205,12 @@ const MainView: React.FC = () => {
         onEmptyContextMenu={(pos) => setEmptyContextMenu({ position: pos })}
         onCategoryContextMenu={handleCategoryContextMenu}
       />
-      {isInVoice && <VoiceControls variant="compact" />}
     </>
   );
 
   // ─── Chat area content ───
   const chatContent = (
-    <div className="main-content">
+    <div className="main-content" data-has-persistent-bar={showPersistentBar || undefined}>
       {activeServer && channels.length === 0 ? (
         <div className="main-content-placeholder">
           <div className="empty-server-graphic">
@@ -229,6 +249,16 @@ const MainView: React.FC = () => {
               <p>Privacy-first, self-hostable voice communication.</p>
             </>
           )}
+        </div>
+      )}
+
+      {/* Persistent voice controls bar — shown when in voice but viewing another channel */}
+      {showPersistentBar && <PersistentVoiceBar />}
+
+      {/* Floating user avatar — shown when channel panel is unpinned and no message input visible */}
+      {showFloatingAvatar && (
+        <div className="floating-user-avatar">
+          <UserPanel compact />
         </div>
       )}
     </div>

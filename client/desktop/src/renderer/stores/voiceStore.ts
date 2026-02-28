@@ -92,7 +92,7 @@ export const AUDIO_QUALITY_TIERS: Record<AudioQualityTier, AudioQualityTierConfi
     label: 'Moderate',
     description: 'The industry standard sweet spot',
     maxBitrate: 64_000,
-    opusDtx: false,
+    opusDtx: true,
     opusFec: true,
     opusStereo: false,
     preferredFrameSize: 20,
@@ -102,7 +102,7 @@ export const AUDIO_QUALITY_TIERS: Record<AudioQualityTier, AudioQualityTierConfi
     label: 'Standard',
     description: 'The Concord default, maximum clarity',
     maxBitrate: 96_000,
-    opusDtx: false,
+    opusDtx: true,
     opusFec: true,
     opusStereo: false,
     preferredFrameSize: 20,
@@ -247,6 +247,11 @@ interface VoiceState {
   // Stream focus behavior
   keepActiveWhileUnfocused: boolean;
 
+  // Persistent voice controls (when navigated away from voice channel)
+  voiceControlsPinned: boolean;
+  voiceControlsPoppedOut: boolean;
+  persistentTextChatHeight: number;
+
   // Room codec floor — universally-supported video codecs (lowercase mimeTypes)
   // null = no restriction (<2 participants with capabilities)
   codecFloor: string[] | null;
@@ -325,6 +330,12 @@ interface VoiceState {
   // Stream focus behavior
   setKeepActiveWhileUnfocused: (keep: boolean) => void;
 
+  // Persistent voice controls
+  setVoiceControlsPinned: (pinned: boolean) => void;
+  toggleVoiceControlsPinned: () => void;
+  setVoiceControlsPoppedOut: (poppedOut: boolean) => void;
+  setPersistentTextChatHeight: (height: number) => void;
+
   // Codec floor & active codecs
   setCodecFloor: (floor: string[] | null) => void;
   setActiveCameraCodec: (codec: string | null) => void;
@@ -395,6 +406,9 @@ const initialState = {
   keepActiveWhileUnfocused: (() => {
     try { return localStorage.getItem('concord:keep-active-unfocused') === 'true'; } catch { return false; }
   })(),
+  voiceControlsPinned: true,
+  voiceControlsPoppedOut: false,
+  persistentTextChatHeight: 250,
   codecFloor: null as string[] | null,
   activeCameraCodec: null as string | null,
   activeScreenCodec: null as string | null,
@@ -613,6 +627,11 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
     try { localStorage.setItem('concord:keep-active-unfocused', String(keep)); } catch { /* ignore */ }
   },
 
+  setVoiceControlsPinned: (voiceControlsPinned) => set({ voiceControlsPinned }),
+  toggleVoiceControlsPinned: () => set((state) => ({ voiceControlsPinned: !state.voiceControlsPinned })),
+  setVoiceControlsPoppedOut: (voiceControlsPoppedOut) => set({ voiceControlsPoppedOut }),
+  setPersistentTextChatHeight: (persistentTextChatHeight) => set({ persistentTextChatHeight }),
+
   setCodecFloor: (codecFloor) => set({ codecFloor }),
   setActiveCameraCodec: (activeCameraCodec) => set({ activeCameraCodec }),
   setActiveScreenCodec: (activeScreenCodec) => set({ activeScreenCodec }),
@@ -639,5 +658,7 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
       stageLayout: state.stageLayout,
       // Preserve stream focus preference
       keepActiveWhileUnfocused: state.keepActiveWhileUnfocused,
+      // Preserve persistent bar text chat height
+      persistentTextChatHeight: state.persistentTextChatHeight,
     })),
 }));

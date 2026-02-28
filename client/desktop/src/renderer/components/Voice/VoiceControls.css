@@ -112,57 +112,35 @@
   white-space: nowrap;
 }
 
-/* ─── Compact variant (sidebar mini-bar) ──────────────────────── */
+/* ─── Persistent context (pin/unpin actions) ─────────────────── */
 
-.voice-controls--compact {
-  padding: calc(8px * var(--sp, 1));
-  background-color: var(--bg-tertiary);
-  border-top: 1px solid var(--border-color);
-}
-
-.voice-controls__info {
+.voice-controls__persistent-actions {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-  padding: 0 4px;
 }
 
-.voice-controls__status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background-color: var(--success);
-  flex-shrink: 0;
-}
-
-.voice-controls__channel-name {
-  font-size: calc(12px * var(--font-scale, 1));
-  font-weight: 600;
-  color: var(--success);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-
-.voice-controls__lock {
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.voice-controls__count {
-  font-size: calc(11px * var(--font-scale, 1));
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
-
-.voice-controls--compact .voice-controls__buttons {
+.voice-controls__pin-btn {
+  display: flex;
+  align-items: center;
   justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
 }
 
-.voice-controls--compact .voice-controls__btn {
-  padding: 6px;
+.voice-controls__pin-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
 }
 
 /* ─── PiP Menu ─────────────────────────────────────────────────── */

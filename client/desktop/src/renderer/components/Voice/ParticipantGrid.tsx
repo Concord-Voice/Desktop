@@ -13,7 +13,7 @@ const MAX_BOOST_LINEAR = Math.pow(10, 18 / 20); // ~7.94
  * Hidden audio element that plays a remote participant's audio stream.
  * Routes through a Web Audio GainNode chain for output volume + quiet user boost.
  *
- * Chain: source → analyser → boostGain → volumeGain → destination → <audio>
+ * Chain: source → analyser → volumeGain → boostGain → destination → <audio>
  */
 export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: string }> = ({
   stream,
@@ -49,9 +49,9 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
     const destination = ctx.createMediaStreamDestination();
 
     source.connect(analyser);
-    analyser.connect(boostGain);
-    boostGain.connect(volumeGain);
-    volumeGain.connect(destination);
+    analyser.connect(volumeGain);
+    volumeGain.connect(boostGain);
+    boostGain.connect(destination);
 
     analyserRef.current = analyser;
     boostGainRef.current = boostGain;

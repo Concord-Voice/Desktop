@@ -6,10 +6,14 @@ import ChannelPanel from '../Layout/ChannelPanel';
 import ConversationList from './ConversationList';
 import DMChatArea from './DMChatArea';
 import FriendsFlexSpace from './FriendsFlexSpace';
+import UserPanel from '../User/UserPanel';
+import PersistentVoiceBar from '../Voice/PersistentVoiceBar';
 import ServerActionModal from '../Servers/ServerActionModal';
 import CreateServerModal from '../Servers/CreateServerModal';
 import JoinServerModal from '../Servers/JoinServerModal';
 import ServerContextMenu from '../Servers/ServerContextMenu';
+import { useLayoutStore } from '../../stores/layoutStore';
+import { useVoiceStore } from '../../stores/voiceStore';
 import { ServerWithRole } from '../../types/server';
 
 /** Mock thread names — keyed by conversation ID for header display */
@@ -22,6 +26,16 @@ const THREAD_NAMES: Record<string, string> = {
 
 const DirectMessagesView: React.FC = () => {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+
+  const channelPanelPinned = useLayoutStore((s) => s.channelPanelPinned);
+  const voiceActiveChannelId = useVoiceStore((s) => s.activeChannelId);
+  const voiceConnectionState = useVoiceStore((s) => s.connectionState);
+  const isInVoice = !!(voiceActiveChannelId && voiceConnectionState === 'connected');
+
+  // DM page currently has no real MessageInput, so floating avatar always shows
+  // when channel panel is unpinned. When DM messaging is implemented with MessageInput,
+  // this condition should also check for that.
+  const showFloatingAvatar = !channelPanelPinned;
 
   // Server modals (triggered by ServerBar add button or stale server placeholder)
   const [isServerActionModalOpen, setIsServerActionModalOpen] = useState(false);
@@ -71,10 +85,18 @@ const DirectMessagesView: React.FC = () => {
           </ChannelPanel>
         }
         chatArea={
-          <DMChatArea
-            selectedThreadId={selectedThreadId}
-            threadName={selectedThreadId ? THREAD_NAMES[selectedThreadId] : undefined}
-          />
+          <div className="main-content" data-has-persistent-bar={isInVoice || undefined}>
+            <DMChatArea
+              selectedThreadId={selectedThreadId}
+              threadName={selectedThreadId ? THREAD_NAMES[selectedThreadId] : undefined}
+            />
+            {isInVoice && <PersistentVoiceBar />}
+            {showFloatingAvatar && (
+              <div className="floating-user-avatar">
+                <UserPanel compact />
+              </div>
+            )}
+          </div>
         }
         memberSpace={<FriendsFlexSpace />}
         forceMemberExpanded

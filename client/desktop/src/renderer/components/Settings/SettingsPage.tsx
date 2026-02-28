@@ -384,6 +384,20 @@ const PrivacySecuritySection: React.FC = () => {
   const [revokePassword, setRevokePassword] = useState('');
   const [revokePasswordError, setRevokePasswordError] = useState('');
 
+  // Revocation mode (Simple / Secure toggle)
+  const [revocationMode, setRevocationMode] = useState<'simple' | 'secure'>('secure');
+  const [showModeChangeModal, setShowModeChangeModal] = useState(false);
+  const [pendingMode, setPendingMode] = useState<'simple' | 'secure' | null>(null);
+  const [modeChangePassword, setModeChangePassword] = useState('');
+  const [modeChangeError, setModeChangeError] = useState('');
+  const [isChangingMode, setIsChangingMode] = useState(false);
+
+  // Individual session revoke password modal
+  const [showSessionPasswordModal, setShowSessionPasswordModal] = useState(false);
+  const [sessionPasswordTarget, setSessionPasswordTarget] = useState<string | null>(null);
+  const [sessionPassword, setSessionPassword] = useState('');
+  const [sessionPasswordError, setSessionPasswordError] = useState('');
+
   const fetchSessions = useCallback(async () => {
     if (!accessToken) return;
     setIsLoading(true);
@@ -400,6 +414,7 @@ const PrivacySecuritySection: React.FC = () => {
       const data = await response.json();
       setSessions(data.sessions || []);
       setPastSessions(data.past_sessions || []);
+      if (data.revocation_mode) setRevocationMode(data.revocation_mode);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch sessions');
     } finally {
@@ -420,7 +435,7 @@ const PrivacySecuritySection: React.FC = () => {
     });
   }, [sessions]);
 
-  const handleRevoke = async (sessionId: string) => {
+  const handleRevoke = async (sessionId: string, password?: string) => {
     if (!accessToken) return;
 
     // Check if this is the current session — requires confirmation
@@ -434,14 +449,42 @@ const PrivacySecuritySection: React.FC = () => {
     setRevokingId(sessionId);
 
     try {
-      const response = await apiFetch(`/api/v1/sessions/${sessionId}`, {
-        method: 'DELETE',
-      });
+      const fetchOpts: RequestInit = { method: 'DELETE' };
+      if (password) {
+        fetchOpts.headers = { 'Content-Type': 'application/json' };
+        fetchOpts.body = JSON.stringify({ password });
+      }
+
+      const response = await apiFetch(`/api/v1/sessions/${sessionId}`, fetchOpts);
 
       if (!response.ok) {
         const data = await response.json();
+
+        if (response.status === 403 && data.error === 'password_required') {
+          // Server says password needed — open password modal
+          setSessionPasswordTarget(sessionId);
+          setSessionPassword('');
+          setSessionPasswordError('');
+          setShowSessionPasswordModal(true);
+          setRevokingId(null);
+          return;
+        }
+
+        if (response.status === 403 && data.error === 'Incorrect password') {
+          // Wrong password — show error in modal
+          setSessionPasswordError('Incorrect password');
+          setRevokingId(null);
+          return;
+        }
+
         throw new Error(data.error || 'Failed to revoke session');
       }
+
+      // Success — close password modal if open
+      setShowSessionPasswordModal(false);
+      setSessionPasswordTarget(null);
+      setSessionPassword('');
+      setSessionPasswordError('');
 
       // If we revoked the current session, log out
       if (session?.is_current) {
@@ -450,7 +493,7 @@ const PrivacySecuritySection: React.FC = () => {
         return;
       }
 
-      // Move to past sessions
+      // Move to past sessions and re-fetch for updated state
       setSessions((prev) => {
         const revoked = prev.find((s) => s.id === sessionId);
         if (revoked) {
@@ -469,6 +512,9 @@ const PrivacySecuritySection: React.FC = () => {
         }
         return prev.filter((s) => s.id !== sessionId);
       });
+
+      // Re-fetch to get updated server state
+      fetchSessions();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to revoke session');
     } finally {
@@ -486,6 +532,62 @@ const PrivacySecuritySection: React.FC = () => {
     setShowRevokeAllModal(false);
     setRevokePassword('');
     setRevokePasswordError('');
+  };
+
+  const openModeChangeModal = (mode: 'simple' | 'secure') => {
+    setPendingMode(mode);
+    setModeChangePassword('');
+    setModeChangeError('');
+    setShowModeChangeModal(true);
+  };
+
+  const closeModeChangeModal = () => {
+    setShowModeChangeModal(false);
+    setPendingMode(null);
+    setModeChangePassword('');
+    setModeChangeError('');
+  };
+
+  const handleModeChange = async () => {
+    if (!accessToken || !pendingMode || !modeChangePassword) return;
+
+    setIsChangingMode(true);
+
+    try {
+      const response = await apiFetch('/api/v1/sessions/revocation-mode', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: pendingMode,
+          password: modeChangePassword,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        if (response.status === 403) {
+          setModeChangeError(data.error === 'Incorrect password' ? 'Incorrect password' : data.error || 'Authentication failed');
+          setIsChangingMode(false);
+          return;
+        }
+        throw new Error(data.error || 'Failed to change revocation mode');
+      }
+
+      const data = await response.json();
+      setRevocationMode(data.revocation_mode);
+      closeModeChangeModal();
+    } catch (err) {
+      setModeChangeError(err instanceof Error ? err.message : 'Failed to change revocation mode');
+    } finally {
+      setIsChangingMode(false);
+    }
+  };
+
+  const closeSessionPasswordModal = () => {
+    setShowSessionPasswordModal(false);
+    setSessionPasswordTarget(null);
+    setSessionPassword('');
+    setSessionPasswordError('');
   };
 
   const handleRevokeAll = async () => {
@@ -563,6 +665,33 @@ const PrivacySecuritySection: React.FC = () => {
           These are the devices currently logged into your account. Revoke any session you
           don&apos;t recognize.
         </p>
+
+        {!isLoading && (
+          <div className="session-revocation-mode">
+            <div className="session-revocation-mode-info">
+              <span className="session-revocation-mode-label">Session Revocation</span>
+              <span className="session-revocation-mode-description">
+                {revocationMode === 'secure'
+                  ? 'Authentication via Password or MFA is required to revoke sessions under certain circumstances.'
+                  : 'Authenticate once to freely manage sessions for a short period.'}
+              </span>
+            </div>
+            <div className="session-revocation-mode-toggle">
+              <button
+                className={`revocation-mode-btn ${revocationMode === 'secure' ? 'active' : ''}`}
+                onClick={() => { if (revocationMode !== 'secure') openModeChangeModal('secure'); }}
+              >
+                Secure
+              </button>
+              <button
+                className={`revocation-mode-btn ${revocationMode === 'simple' ? 'active' : ''}`}
+                onClick={() => { if (revocationMode !== 'simple') openModeChangeModal('simple'); }}
+              >
+                Simple
+              </button>
+            </div>
+          </div>
+        )}
 
         {error && <div className="settings-error">{error}</div>}
 
@@ -709,6 +838,110 @@ const PrivacySecuritySection: React.FC = () => {
             </div>
           </div>
         </Modal>
+
+        {/* Individual session revoke password modal */}
+        <Modal
+          isOpen={showSessionPasswordModal}
+          onClose={closeSessionPasswordModal}
+          title="Verify Your Identity"
+          width="small"
+        >
+          <div className="revoke-all-modal-content">
+            <p className="revoke-all-modal-description">
+              For your security, please enter your password to revoke this session.
+            </p>
+            <div className="revoke-password-input">
+              <label htmlFor="session-revoke-password">Password</label>
+              <input
+                id="session-revoke-password"
+                type="password"
+                value={sessionPassword}
+                onChange={(e) => {
+                  setSessionPassword(e.target.value);
+                  setSessionPasswordError('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && sessionPassword && sessionPasswordTarget) {
+                    handleRevoke(sessionPasswordTarget, sessionPassword);
+                  }
+                }}
+                placeholder="Enter your password"
+                autoFocus
+              />
+              {sessionPasswordError && (
+                <span className="revoke-password-error">{sessionPasswordError}</span>
+              )}
+            </div>
+            {/* TODO: Add MFA input field here when MFA is implemented */}
+            <div className="revoke-all-modal-actions">
+              <button
+                className="revoke-all-modal-cancel-btn"
+                onClick={closeSessionPasswordModal}
+              >
+                Cancel
+              </button>
+              <button
+                className="revoke-all-modal-confirm-btn"
+                onClick={() => sessionPasswordTarget && handleRevoke(sessionPasswordTarget, sessionPassword)}
+                disabled={!sessionPassword || revokingId === sessionPasswordTarget}
+              >
+                {revokingId === sessionPasswordTarget ? 'Revoking...' : 'Confirm & Revoke'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+
+        {/* Revocation mode change modal */}
+        <Modal
+          isOpen={showModeChangeModal}
+          onClose={closeModeChangeModal}
+          title="Change Revocation Mode"
+          width="small"
+        >
+          <div className="revoke-all-modal-content">
+            <p className="revoke-all-modal-description">
+              {pendingMode === 'simple'
+                ? 'Switching to Simple Revocation. You will be able to authenticate once and freely manage sessions for a short period.'
+                : 'Switching to Secure Revocation. Authentication will be required to revoke sessions under certain circumstances.'}
+            </p>
+            <div className="revoke-password-input">
+              <label htmlFor="mode-change-password">Password</label>
+              <input
+                id="mode-change-password"
+                type="password"
+                value={modeChangePassword}
+                onChange={(e) => {
+                  setModeChangePassword(e.target.value);
+                  setModeChangeError('');
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && modeChangePassword) handleModeChange();
+                }}
+                placeholder="Enter your password"
+                autoFocus
+              />
+              {modeChangeError && (
+                <span className="revoke-password-error">{modeChangeError}</span>
+              )}
+            </div>
+            {/* TODO: Add MFA input field here when MFA is implemented */}
+            <div className="revoke-all-modal-actions">
+              <button
+                className="revoke-all-modal-cancel-btn"
+                onClick={closeModeChangeModal}
+              >
+                Cancel
+              </button>
+              <button
+                className="revoke-all-modal-confirm-btn"
+                onClick={handleModeChange}
+                disabled={isChangingMode || !modeChangePassword}
+              >
+                {isChangingMode ? 'Changing...' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </Modal>
       </div>
 
       {pastSessions.length > 0 && (
@@ -815,8 +1048,8 @@ const TIER_ORDER: AudioQualityTier[] = ['minimum', 'low', 'moderate', 'standard'
 const TIER_DESCRIPTIONS_BASIC: Record<AudioQualityTier, string> = {
   minimum: '16 kbps · Mono | FEC On | DTX | AFS (60ms Preferred)\nOptimized for pure survival over quality. Uses silence detection and aggressive error correction to keep you connected when the digital world is ending. Use if:\n\u2022 Bandwidth is an absolute luxury.\n\u2022 Your system is basically a Commodore 64.\n\u2022 Your internet just filed for divorce and took the router.',
   low: '32 kbps · Mono | FEC On | DTX | AFS (40ms Preferred)\nPrioritizes keeping you in the conversation without chewing through your data cap. You won\'t sound like a podcast host, but we will understand you. Use if:\n\u2022 You are on a strict data diet.\n\u2022 Your microphone was found at the bottom of a cereal box.\n\u2022 Your Wi-Fi is acting suspiciously spotty.',
-  moderate: '64 kbps · Mono | FEC On | AFS (20ms Preferred)\nThe ol\' reliable. The industry standard sweet spot that perfectly balances crisp voice audio with reasonable bandwidth demands. Use if:\n\u2022 You just want it to work without overthinking it.\n\u2022 You are using standard consumer-grade headsets.\n\u2022 Your internet connection actually pays rent.',
-  standard: '96 kbps · Mono | FEC On | AFS (20ms Preferred)\nThe Concord default. Optimized for maximum clarity in voice chats, making you sound exactly like your actual self (for better or worse). Use if:\n\u2022 You want the intended, nearly-transparent Concord Voice experience.\n\u2022 You refuse to mess with settings menus.',
+  moderate: '64 kbps · Mono | FEC On | DTX | AFS (20ms Preferred)\nThe ol\' reliable. The industry standard sweet spot that perfectly balances crisp voice audio with reasonable bandwidth demands. Use if:\n\u2022 You just want it to work without overthinking it.\n\u2022 You are using standard consumer-grade headsets.\n\u2022 Your internet connection actually pays rent.',
+  standard: '96 kbps · Mono | FEC On | DTX | AFS (20ms Preferred)\nThe Concord default. Optimized for maximum clarity in voice chats, making you sound exactly like your actual self (for better or worse). Use if:\n\u2022 You want the intended, nearly-transparent Concord Voice experience.\n\u2022 You refuse to mess with settings menus.',
   high: '192 kbps · Mono | FEC On | AFS (10ms Preferred)\nCranking the dial to "virtually transparent." Delivers exceptional clarity and frequency response without crossing into absolute overkill territory. Use if:\n\u2022 You are an enthusiast who appreciates the finer frequencies.\n\u2022 You invested in a seriously good microphone.\n\u2022 Your internet speeds are something you brag about at parties.',
   hifi: '256 kbps · Stereo | FEC Off | AFS (10ms Preferred)\nMaximum fidelity for power users. This is unfiltered, transparent audio that squeezes the full factor of quality with quantity out of the Opus codec. Use if:\n\u2022 You demand maximum bang-for-the-buck quality.\n\u2022 You have enthusiast-grade, borderline-unreasonable audio gear.\n\u2022 Your internet is hardwired and unflinching.',
   studio: '510 kbps · Stereo | FEC Off | AFS (10ms Preferred)\nThe absolute ceiling. Massive, glorious, overkill bandwidth for acoustically transparent 48kHz/16-bit audio. It\'s dangerous to go alone, so take these 510,000 bits per second... Every second. Use if:\n\u2022 You are running studio-level audio production over the web.\n\u2022 You own audiophile equipment that costs more than a used car.\n\u2022 You have a rock-solid, direct-to-the-vein fiber optic connection.',
@@ -896,7 +1129,7 @@ const VoiceAudioSection: React.FC = () => {
 
   const maxRefreshRate = useMemo(() => {
     if (displayInfo.length === 0) return 60;
-    return Math.max(...displayInfo.map((d) => d.refreshRate || 60));
+    return Math.round(Math.max(...displayInfo.map((d) => d.refreshRate || 60)));
   }, [displayInfo]);
 
   // Unique display resolutions for the "Your Displays" optgroup
@@ -1145,14 +1378,26 @@ const VoiceAudioSection: React.FC = () => {
               onChange={handleTierSlider}
             />
           </div>
-          <div className="settings-tier-description">
-            {(advancedMode ? TIER_DESCRIPTIONS_ADVANCED : TIER_DESCRIPTIONS_BASIC)[qualityTier].split('\n').map((line, i) => (
-              <span key={i}>{line}</span>
-            ))}
-            {AUDIO_QUALITY_TIERS[qualityTier].premium && (
-              <span className="settings-quality-premium-badge">Premium</span>
-            )}
+          <div className="settings-tier-kbps-container">
+            <span
+              className="settings-tier-kbps-label"
+              style={{
+                left: `calc(${(100 / 14) + (tierIndex / (TIER_ORDER.length - 1)) * (100 - 200 / 14)}%)`,
+              }}
+            >
+              {Math.round(AUDIO_QUALITY_TIERS[qualityTier].maxBitrate / 1000)} kbps
+            </span>
           </div>
+          {!advancedMode && (
+            <div className="settings-tier-description">
+              {TIER_DESCRIPTIONS_BASIC[qualityTier].split('\n').map((line, i) => (
+                <span key={i}>{line}</span>
+              ))}
+              {AUDIO_QUALITY_TIERS[qualityTier].premium && (
+                <span className="settings-quality-premium-badge">Premium</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ── Processing ── */}
@@ -1228,10 +1473,20 @@ const VoiceAudioSection: React.FC = () => {
         </div>
 
         {noiseGateMode === 'manual' && (
-          <div className="settings-row">
+          <div className="settings-row settings-row-child">
             <div className="settings-row-info">
               <span className="settings-row-label">Gate Threshold</span>
-              <span className="settings-row-hint">Sets the cutoff level. Left (\u221280 dBFS) gates only near-silence. Right (\u221220 dBFS) gates everything below loud, close-mic speech.</span>
+              <span className="settings-row-hint">
+                {noiseGateLevel >= -25
+                  ? `${noiseGateLevel} dBFS \u2014 Gates everything except loud, close-mic speech. Only passes through someone talking directly into a microphone.`
+                  : noiseGateLevel >= -35
+                    ? `${noiseGateLevel} dBFS \u2014 Gates background noise and quiet sounds. Passes through normal conversational speaking volume.`
+                    : noiseGateLevel >= -50
+                      ? `${noiseGateLevel} dBFS \u2014 Gates ambient room noise. Passes through most intentional speech, including softer voices.`
+                      : noiseGateLevel >= -65
+                        ? `${noiseGateLevel} dBFS \u2014 Gates only faint background hum. Most sounds above a quiet whisper will pass through.`
+                        : `${noiseGateLevel} dBFS \u2014 Gates only near-total silence. Virtually everything audible passes through unaffected.`}
+              </span>
             </div>
             <div className="settings-slider-wrapper">
               <span className="settings-slider-value">{noiseGateLevel} dBFS</span>
@@ -1263,18 +1518,19 @@ const VoiceAudioSection: React.FC = () => {
         </div>
 
         {quietBoost && (
-          <div className="settings-row">
+          <div className="settings-row settings-row-child">
             <div className="settings-row-info">
               <span className="settings-row-label">Boost Threshold</span>
               <span className="settings-row-hint">
-                Sets the level below which participants are boosted. Left (\u221250 dBFS) boosts only barely-audible users. Right (\u221220 dBFS) boosts anyone below normal speaking volume. Currently {quietBoostThreshold} dBFS —{' '}
-                {quietBoostThreshold >= -27
-                  ? 'aggressive'
-                  : quietBoostThreshold >= -35
-                    ? 'moderate'
-                    : quietBoostThreshold >= -44
-                      ? 'gentle'
-                      : 'conservative'}
+                {quietBoostThreshold >= -24
+                  ? `${quietBoostThreshold} dBFS \u2014 Boosts anyone not talking directly at their mic. Like someone speaking to you from across the room.`
+                  : quietBoostThreshold >= -30
+                    ? `${quietBoostThreshold} dBFS \u2014 Boosts participants who sound turned away from their mic. Like someone talking but facing the other direction.`
+                    : quietBoostThreshold >= -38
+                      ? `${quietBoostThreshold} dBFS \u2014 Boosts noticeably quiet participants. Like someone whispering nearby or speaking softly from a distance.`
+                      : quietBoostThreshold >= -45
+                        ? `${quietBoostThreshold} dBFS \u2014 Boosts only very quiet participants. Like someone whispering close to their mic.`
+                        : `${quietBoostThreshold} dBFS \u2014 Boosts only barely-audible participants. Like catching a faint whisper from across a quiet room.`}
               </span>
             </div>
             <div className="settings-slider-wrapper">
@@ -1310,7 +1566,7 @@ const VoiceAudioSection: React.FC = () => {
 
             <div className="settings-row">
               <div className="settings-row-info">
-                <span className="settings-row-label">Adaptive Frame Size</span>
+                <span className="settings-row-label">Adaptive Frame Size (AFS)</span>
                 <span className="settings-row-hint">
                   {adaptivePtime
                     ? 'Enabled. Concord Voice dynamically adjusts packet duration during congestion, trading latency for reliability. Manual Frame Size is overridden.'
@@ -1365,11 +1621,11 @@ const VoiceAudioSection: React.FC = () => {
 
             <div className="settings-row">
               <div className="settings-row-info">
-                <span className="settings-row-label">Stereo / Mono</span>
+                <span className="settings-row-label">Mic Channel Mode</span>
                 <span className="settings-row-hint">
                   {(stereoOverride ?? tierConfig.opusStereo)
-                    ? 'Controls the channel format of the audio stream. Currently Stereo \u2014 two-channel audio for spatial separation, doubling bandwidth.'
-                    : 'Controls the channel format of the audio stream. Currently Mono \u2014 single-channel audio with lower bandwidth.'}
+                    ? 'Currently Stereo — Opus encodes two channels using mid-side (M/S) joint stereo, splitting audio into a summed Mid channel and a difference Side channel. When channels are similar, the Side channel compresses to near-nothing, so stereo does not double bandwidth. Recommended for multi-microphone setups, Hi-Fi, or studio-grade configurations.'
+                    : 'Currently Mono — a single audio channel is encoded and delivered. Recommended for most users, especially with standard single-microphone headsets and desk mics.'}
                 </span>
               </div>
               <select
@@ -1439,13 +1695,14 @@ const VoiceAudioSection: React.FC = () => {
               <div className="settings-row-info">
                 <span className="settings-row-label">Quality of Service for Audio</span>
                 <span className="settings-row-hint">
+                  {'Marks audio traffic with DSCP tags so your network can prioritize it. Not all networks honor DSCP tags; some may ignore or strip them, so this setting may have no effect depending on you or your ISP\u2019s network configurations. '}
                   {audioPriority === 'off'
-                    ? 'Marks audio traffic with DSCP tags so your network can prioritize it. Currently off \u2014 no tagging applied.'
+                    ? 'Currently off \u2014 no tagging applied.'
                     : audioPriority === 'low'
-                      ? 'Marks audio traffic with DSCP tags so your network can prioritize it. Currently Low (DF) \u2014 minimal differentiation.'
+                      ? 'Currently Low (DF) \u2014 minimal differentiation. (RFC 2474)'
                       : audioPriority === 'medium'
-                        ? 'Marks audio traffic with DSCP tags so your network can prioritize it. Currently Default (AF41) \u2014 recommended for most networks.'
-                        : 'Marks audio traffic with DSCP tags so your network can prioritize it. Currently High (EF) \u2014 highest priority, requires network support.'}
+                        ? 'Currently Default (AF41) \u2014 recommended for most networks. (RFC 2597)'
+                        : 'Currently High (EF) \u2014 highest priority. (RFC 5127)'}
                 </span>
               </div>
               <select
@@ -1818,13 +2075,14 @@ const VoiceAudioSection: React.FC = () => {
               <div className="settings-row-info">
                 <span className="settings-row-label">Quality of Service for Camera</span>
                 <span className="settings-row-hint">
+                  {'Marks camera traffic with DSCP tags so your network can prioritize it. Not all networks honor DSCP tags; some may ignore or strip them, so this setting may have no effect depending on you or your ISP\u2019s network configurations. '}
                   {cameraPriority === 'off'
-                    ? 'Marks camera traffic with DSCP tags so your network can prioritize it. Currently off \u2014 no tagging applied.'
+                    ? 'Currently off \u2014 no tagging applied.'
                     : cameraPriority === 'low'
-                      ? 'Marks camera traffic with DSCP tags so your network can prioritize it. Currently Low (DF) \u2014 minimal differentiation.'
+                      ? 'Currently Low (DF) \u2014 minimal differentiation. (RFC 2474)'
                       : cameraPriority === 'medium'
-                        ? 'Marks camera traffic with DSCP tags so your network can prioritize it. Currently Default (AF43) \u2014 recommended for most networks.'
-                        : 'Marks camera traffic with DSCP tags so your network can prioritize it. Currently High (EF) \u2014 highest priority, requires network support.'}
+                        ? 'Currently Default (AF43) \u2014 recommended for most networks. (RFC 2597)'
+                        : 'Currently High (EF) \u2014 highest priority. (RFC 5127)'}
                 </span>
               </div>
               <select
@@ -1843,13 +2101,14 @@ const VoiceAudioSection: React.FC = () => {
               <div className="settings-row-info">
                 <span className="settings-row-label">Quality of Service for Screen Share</span>
                 <span className="settings-row-hint">
+                  {'Marks screen share traffic with DSCP tags so your network can prioritize it. Not all networks honor DSCP tags; some may ignore or strip them, so this setting may have no effect depending on you or your ISP\u2019s network configurations. '}
                   {screenSharePriority === 'off'
-                    ? 'Marks screen share traffic with DSCP tags so your network can prioritize it. Currently off \u2014 no tagging applied.'
+                    ? 'Currently off \u2014 no tagging applied.'
                     : screenSharePriority === 'low'
-                      ? 'Marks screen share traffic with DSCP tags so your network can prioritize it. Currently Low (DF) \u2014 minimal differentiation.'
+                      ? 'Currently Low (DF) \u2014 minimal differentiation. (RFC 2474)'
                       : screenSharePriority === 'medium'
-                        ? 'Marks screen share traffic with DSCP tags so your network can prioritize it. Currently Default (AF42) \u2014 recommended for most networks.'
-                        : 'Marks screen share traffic with DSCP tags so your network can prioritize it. Currently High (EF) \u2014 highest priority, requires network support.'}
+                        ? 'Currently Default (AF42) \u2014 recommended for most networks. (RFC 2597)'
+                        : 'Currently High (EF) \u2014 highest priority. (RFC 5127)'}
                 </span>
               </div>
               <select

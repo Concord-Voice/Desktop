@@ -1,4 +1,5 @@
 import { useEffect, useCallback } from 'react';
+import { useStoreWithEqualityFn } from 'zustand/traditional';
 import { shallow } from 'zustand/shallow';
 import {
   useDraftSettingsStore,
@@ -62,7 +63,8 @@ export function useDraftTtsSetting<K extends keyof DraftableTTSSettings>(
 }
 
 export function useDraftAppearance(): AppearanceSettings {
-  return useDraftSettingsStore(
+  return useStoreWithEqualityFn(
+    useDraftSettingsStore,
     (s) => {
       if (!s.snapshot) return useSettingsStore.getState().appearance;
       if (Object.keys(s.drafts.appearance).length === 0) return s.snapshot.appearance;

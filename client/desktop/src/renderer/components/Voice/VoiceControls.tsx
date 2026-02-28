@@ -9,12 +9,14 @@ import {
   Monitor,
   MonitorOff,
   PhoneOff,
-  Lock,
   MessageSquare,
   MessageSquareOff,
   PictureInPicture2,
   Eye,
   EyeOff,
+  Pin,
+  PinOff,
+  ExternalLink,
 } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useChannelStore } from '../../stores/channelStore';
@@ -25,16 +27,16 @@ import { DocumentPipContent } from './DocumentPipContent';
 import './VoiceControls.css';
 
 interface VoiceControlsProps {
-  /** Show full controls bar (in VoiceView) vs compact mini-bar (in sidebar) */
-  variant?: 'full' | 'compact';
+  /** 'voiceView' = inside VoiceView, 'persistent' = navigated-away bar */
+  context?: 'voiceView' | 'persistent';
+  /** Callback to pop out the controls bar (managed by parent PersistentVoiceBar) */
+  onPopOut?: () => void;
 }
 
-const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
+const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', onPopOut }) => {
   const {
     activeChannelId,
-    activeChannelName,
     connectionState,
-    isEncrypted,
     isMuted,
     isDeafened,
     isVideoOn,
@@ -47,6 +49,8 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
     tunedInScreenShares,
     keepActiveWhileUnfocused,
     setKeepActiveWhileUnfocused,
+    voiceControlsPinned,
+    toggleVoiceControlsPinned,
   } = useVoiceStore();
 
   const getLinkedTextChannel = useChannelStore((s) => s.getLinkedTextChannel);
@@ -54,9 +58,8 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
 
   const [showScreenPicker, setShowScreenPicker] = useState(false);
   const [showPipMenu, setShowPipMenu] = useState(false);
-  const participantCount = Object.keys(participants).length;
 
-  // Document PiP state
+  // Document PiP state (for frames/screen pop-out, not controls pop-out)
   const docPip = useDocumentPip();
   const [pipMode, setPipMode] = useState<'frames' | 'screen'>('frames');
   const [pipProducerId, setPipProducerId] = useState('');
@@ -79,15 +82,12 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
   const handleToggleScreen = async () => {
     try {
       if (isScreenSharing) {
-        // Stop sharing — no picker needed
         const { voiceService } = await getVoiceService();
         await voiceService.toggleScreenShare();
       } else {
-        // Start sharing — show picker if Electron API is available
         if (window.electron?.getDesktopSources) {
           setShowScreenPicker(true);
         } else {
-          // Fallback: browser getDisplayMedia shows its own native picker
           const { voiceService } = await getVoiceService();
           await voiceService.toggleScreenShare();
         }
@@ -136,44 +136,6 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
 
   if (connectionState === 'disconnected') return null;
 
-  if (variant === 'compact') {
-    return (
-      <div className="voice-controls voice-controls--compact">
-        <div className="voice-controls__info">
-          <span className="voice-controls__status-dot" />
-          <span className="voice-controls__channel-name">
-            {activeChannelName || 'Voice Connected'}
-          </span>
-          {isEncrypted && <Lock size={12} className="voice-controls__lock" />}
-          <span className="voice-controls__count">{participantCount}</span>
-        </div>
-        <div className="voice-controls__buttons">
-          <button
-            className={`voice-controls__btn ${isMuted ? 'voice-controls__btn--active' : ''}`}
-            onClick={handleToggleMute}
-            title={isMuted ? 'Unmute' : 'Mute'}
-          >
-            {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
-          </button>
-          <button
-            className={`voice-controls__btn ${isDeafened ? 'voice-controls__btn--active' : ''}`}
-            onClick={handleToggleDeafen}
-            title={isDeafened ? 'Undeafen' : 'Deafen'}
-          >
-            {isDeafened ? <HeadphoneOff size={16} /> : <Headphones size={16} />}
-          </button>
-          <button
-            className="voice-controls__btn voice-controls__btn--danger"
-            onClick={handleLeave}
-            title="Leave Voice"
-          >
-            <PhoneOff size={16} />
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <>
       <div className="voice-controls voice-controls--full">
@@ -182,6 +144,20 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
             {videoSlotError}
           </div>
         )}
+
+        {/* Pin/Unpin button — persistent context only */}
+        {context === 'persistent' && (
+          <div className="voice-controls__persistent-actions">
+            <button
+              className="voice-controls__pin-btn"
+              onClick={toggleVoiceControlsPinned}
+              title={voiceControlsPinned ? 'Unpin controls' : 'Pin controls'}
+            >
+              {voiceControlsPinned ? <PinOff size={14} /> : <Pin size={14} />}
+            </button>
+          </div>
+        )}
+
         <div className="voice-controls__buttons">
           <button
             className={`voice-controls__btn ${isMuted ? 'voice-controls__btn--active' : ''}`}
@@ -284,6 +260,18 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ variant = 'full' }) => {
                 </div>
               )}
             </div>
+          )}
+
+          {/* Pop-Out controls button — persistent context only */}
+          {context === 'persistent' && hasDocumentPipSupport && onPopOut && (
+            <button
+              className="voice-controls__btn"
+              onClick={onPopOut}
+              title="Pop out controls"
+            >
+              <ExternalLink size={18} />
+              <span className="voice-controls__btn-label">Pop Out</span>
+            </button>
           )}
 
           <button

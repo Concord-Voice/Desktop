@@ -180,6 +180,11 @@
   border-top: 1px solid var(--border-color);
 }
 
+/* Child settings spawned by a parent toggle — no separator line */
+.settings-row-child {
+  border-top: none !important;
+}
+
 .settings-row-info {
   display: flex;
   flex-direction: column;
@@ -624,6 +629,70 @@
   line-height: 1.4;
 }
 
+/* Revocation mode toggle (Simple / Secure) */
+.session-revocation-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.session-revocation-mode-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.session-revocation-mode-label {
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.session-revocation-mode-description {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.session-revocation-mode-toggle {
+  display: flex;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.revocation-mode-btn {
+  padding: 6px 14px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-size: calc(12px * var(--font-scale, 1));
+  font-family: 'SourceSans', sans-serif;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.revocation-mode-btn:hover:not(.active) {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.revocation-mode-btn.active {
+  background: var(--accent-primary);
+  color: #fff;
+  cursor: default;
+}
+
 .sessions-actions-top {
   display: flex;
   justify-content: flex-end;
@@ -959,6 +1028,33 @@
 
 .settings-tier-slider::-webkit-slider-thumb:hover {
   transform: scale(1.1);
+}
+
+/* Floating kbps badge below the slider — styled like the active codec highlight */
+.settings-tier-kbps-container {
+  position: relative;
+  height: 28px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
+.settings-tier-kbps-label {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  outline: 1.5px solid var(--accent-primary);
+  font-size: calc(12px * var(--font-scale, 1));
+  font-weight: 700;
+  color: var(--accent-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: left 0.15s ease;
 }
 
 .settings-tier-description {
@@ -1459,15 +1555,15 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 2px;
+  gap: 8px;
   min-width: 140px;
   flex-shrink: 0;
 }
 
 .settings-slider-value {
-  font-size: calc(11px * var(--font-scale, 1));
+  font-size: calc(13px * var(--font-scale, 1));
   font-weight: 700;
-  color: var(--text-primary);
+  color: var(--accent-primary);
   text-align: center;
   font-variant-numeric: tabular-nums;
   line-height: 1;
