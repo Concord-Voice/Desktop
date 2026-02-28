@@ -46,7 +46,7 @@ describe('Register', () => {
   it('renders registration form', () => {
     render(<Register onBack={onBack} onSuccess={onSuccess} onSwitchToLogin={onSwitchToLogin} />);
     expect(screen.getByText('Create Your Account')).toBeInTheDocument();
-    expect(screen.getByText(/Join the Concord network/)).toBeInTheDocument();
+    expect(screen.getByText(/Join the Concord Voice network/)).toBeInTheDocument();
   });
 
   it('renders all form fields', () => {

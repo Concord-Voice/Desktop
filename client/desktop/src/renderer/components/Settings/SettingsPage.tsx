@@ -89,7 +89,7 @@ const AppearanceSection: React.FC = () => {
   }[] = [
     {
       value: 'concord',
-      label: 'Concord',
+      label: 'Concord Voice',
       gradient: 'linear-gradient(135deg, #0d0821, #fa709a, #ffe13f)',
     },
     {
@@ -305,7 +305,7 @@ const AppearanceSection: React.FC = () => {
       <div className="settings-section" id="section-theme">
         <h2 className="settings-section-title">Theme</h2>
         <p className="settings-section-description">
-          Choose how Concord looks to you. Select a theme or match your system settings.
+          Choose how Concord Voice looks to you. Select a theme or match your system settings.
         </p>
         <div className="theme-selector">
           {themes.map((t) => (
@@ -548,7 +548,7 @@ const PrivacySecuritySection: React.FC = () => {
 
   const parseUserAgent = (ua: string): string => {
     if (!ua) return 'Unknown Device';
-    if (ua.includes('Electron')) return 'Concord Desktop';
+    if (ua.includes('Electron')) return 'Concord Voice Desktop';
     if (ua.includes('Chrome')) return 'Chrome Browser';
     if (ua.includes('Firefox')) return 'Firefox Browser';
     if (ua.includes('Safari')) return 'Safari Browser';
@@ -1313,7 +1313,7 @@ const VoiceAudioSection: React.FC = () => {
                 <span className="settings-row-label">Adaptive Frame Size</span>
                 <span className="settings-row-hint">
                   {adaptivePtime
-                    ? 'Enabled. Concord dynamically adjusts packet duration during congestion, trading latency for reliability. Manual Frame Size is overridden.'
+                    ? 'Enabled. Concord Voice dynamically adjusts packet duration during congestion, trading latency for reliability. Manual Frame Size is overridden.'
                     : 'Disabled. Packet duration is fixed at the configured Frame Size value below.'}
                 </span>
               </div>
@@ -1580,7 +1580,7 @@ const VoiceAudioSection: React.FC = () => {
             <span className="settings-row-label">Content Type</span>
             <span className="settings-row-hint">
               {screenContentType === 'auto'
-                ? 'Optimizes encoding for the type of content being shared. Currently Auto \u2014 Concord detects motion vs. static content and adjusts accordingly.'
+                ? 'Optimizes encoding for the type of content being shared. Currently Auto \u2014 Concord Voice detects motion vs. static content and adjusts accordingly.'
                 : screenContentType === 'motion'
                   ? 'Optimizes encoding for the type of content being shared. Currently Motion \u2014 prioritizes smooth frame rate for video and animations.'
                   : 'Optimizes encoding for the type of content being shared. Currently Detail \u2014 prioritizes sharp text and edges for code and documents.'}
@@ -1721,7 +1721,7 @@ const VoiceAudioSection: React.FC = () => {
                   </div>
                   {hardwareAcceleration && !hwHasSupported && (
                     <div className="settings-hw-fallback-notice">
-                      Hardware acceleration is enabled, but none of your GPU's codecs are currently supported. Concord has automatically failed over to software encoding.
+                      Hardware acceleration is enabled, but none of your GPU's codecs are currently supported. Concord Voice has automatically failed over to software encoding.
                     </div>
                   )}
                 </>
@@ -1762,7 +1762,7 @@ const VoiceAudioSection: React.FC = () => {
                 <span className="settings-row-label">Hardware Acceleration</span>
                 <span className="settings-row-hint">
                   {hardwareAcceleration
-                    ? 'Enabled. Your GPU handles video encoding and decoding. Concord falls back to software encoding for unsupported codecs.'
+                    ? 'Enabled. Your GPU handles video encoding and decoding. Concord Voice falls back to software encoding for unsupported codecs.'
                     : 'Disabled. All video encoding and decoding runs on your CPU. Avoids GPU-specific limitations but increases CPU usage. Requires restart.'}
                 </span>
               </div>
@@ -1779,7 +1779,7 @@ const VoiceAudioSection: React.FC = () => {
                 <span className="settings-row-label">Automatic Bitrate</span>
                 <span className="settings-row-hint">
                   {screenShareBitrate === 0
-                    ? `Enabled. Concord adjusts bitrate based on your resolution, frame rate, and codec. Estimated ~${(clampedRecommended / 1_000_000).toFixed(1)} Mbps for current settings.`
+                    ? `Enabled. Concord Voice adjusts bitrate based on your resolution, frame rate, and codec. Estimated ~${(clampedRecommended / 1_000_000).toFixed(1)} Mbps for current settings.`
                     : `Disabled. Using a fixed ${(screenShareBitrate / 1_000_000).toFixed(1)} Mbps cap. Recommended ~${(clampedRecommended / 1_000_000).toFixed(1)} Mbps for current settings.`}
                 </span>
               </div>
@@ -1915,7 +1915,7 @@ const TTSSection: React.FC = () => {
   const handlePreview = () => {
     if (!window.speechSynthesis) return;
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance('This is a preview of text-to-speech in Concord.');
+    const utterance = new SpeechSynthesisUtterance('This is a preview of text-to-speech in Concord Voice.');
     utterance.rate = ttsRate;
     utterance.volume = ttsVolume;
     if (ttsVoice) {

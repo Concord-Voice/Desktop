@@ -202,10 +202,10 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
           <img
             src="./branding/logos/main-logo-transparent-vector.svg"
             className="login-logo"
-            alt="Concord"
+            alt="Concord Voice"
           />
           <h2 className="login-title">Welcome Back</h2>
-          <p className="login-subtitle">Sign in to your Concord account</p>
+          <p className="login-subtitle">Sign in to your Concord Voice account</p>
         </div>
 
         <form className="login-form" onSubmit={handleSubmit}>

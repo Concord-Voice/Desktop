@@ -225,7 +225,7 @@ const MainView: React.FC = () => {
             </>
           ) : (
             <>
-              <h2>Welcome to Concord</h2>
+              <h2>Welcome to Concord Voice</h2>
               <p>Privacy-first, self-hostable voice communication.</p>
             </>
           )}

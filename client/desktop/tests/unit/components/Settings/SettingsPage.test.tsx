@@ -125,7 +125,7 @@ describe('SettingsPage', () => {
   it('renders color scheme options', () => {
     render(<SettingsPage />);
     // The active color scheme label should be shown
-    expect(screen.getByText('Concord')).toBeInTheDocument();
+    expect(screen.getByText('Concord Voice')).toBeInTheDocument();
   });
 
   it('toggles compact mode', () => {
@@ -202,7 +202,7 @@ describe('SettingsPage', () => {
     await vi.waitFor(() => {
       expect(screen.getByText('This Device')).toBeInTheDocument();
     });
-    expect(screen.getByText('Concord Desktop')).toBeInTheDocument();
+    expect(screen.getByText('Concord Voice Desktop')).toBeInTheDocument();
   });
 
   it('does not switch to disabled nav items', () => {
@@ -310,7 +310,7 @@ describe('SettingsPage', () => {
       },
     });
     render(<SettingsPage />);
-    // Click the first built-in circle (Concord)
+    // Click the first built-in circle (Concord Voice)
     const circles = document.querySelectorAll('.color-scheme-circle:not(.custom-add)');
     fireEvent.click(circles[0]);
     expect(useSettingsStore.getState().appearance.colorScheme).toBe('concord');

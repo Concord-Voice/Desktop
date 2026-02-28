@@ -126,7 +126,7 @@ describe('MainView', () => {
     useServerStore.setState({ servers: [], activeServerId: null });
     useChannelStore.setState({ channels: [], activeChannelId: null });
     render(<MainView />);
-    expect(screen.getByText('Welcome to Concord')).toBeInTheDocument();
+    expect(screen.getByText('Welcome to Concord Voice')).toBeInTheDocument();
   });
 
   it('shows channel selection prompt when server active but no channel', () => {
