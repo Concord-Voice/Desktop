@@ -252,6 +252,14 @@ interface VoiceState {
   voiceControlsPoppedOut: boolean;
   persistentTextChatHeight: number;
 
+  // DM voice call state
+  isDMCall: boolean;
+  dmConversationId: string | null;
+
+  // Solo bandwidth saving (applies to both DM calls and server voice)
+  isSoloBandwidthSaving: boolean;
+  soloBandwidthNotification: boolean;
+
   // Room codec floor — universally-supported video codecs (lowercase mimeTypes)
   // null = no restriction (<2 participants with capabilities)
   codecFloor: string[] | null;
@@ -336,6 +344,13 @@ interface VoiceState {
   setVoiceControlsPoppedOut: (poppedOut: boolean) => void;
   setPersistentTextChatHeight: (height: number) => void;
 
+  // DM voice call
+  setDMCall: (isDM: boolean, conversationId?: string | null) => void;
+
+  // Solo bandwidth saving
+  setSoloBandwidthSaving: (saving: boolean) => void;
+  setSoloBandwidthNotification: (show: boolean) => void;
+
   // Codec floor & active codecs
   setCodecFloor: (floor: string[] | null) => void;
   setActiveCameraCodec: (codec: string | null) => void;
@@ -409,6 +424,10 @@ const initialState = {
   voiceControlsPinned: true,
   voiceControlsPoppedOut: false,
   persistentTextChatHeight: 250,
+  isDMCall: false,
+  dmConversationId: null as string | null,
+  isSoloBandwidthSaving: false,
+  soloBandwidthNotification: false,
   codecFloor: null as string[] | null,
   activeCameraCodec: null as string | null,
   activeScreenCodec: null as string | null,
@@ -631,6 +650,15 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
   toggleVoiceControlsPinned: () => set((state) => ({ voiceControlsPinned: !state.voiceControlsPinned })),
   setVoiceControlsPoppedOut: (voiceControlsPoppedOut) => set({ voiceControlsPoppedOut }),
   setPersistentTextChatHeight: (persistentTextChatHeight) => set({ persistentTextChatHeight }),
+
+  setDMCall: (isDMCall, conversationId) =>
+    set({
+      isDMCall,
+      dmConversationId: isDMCall ? (conversationId ?? null) : null,
+    }),
+
+  setSoloBandwidthSaving: (isSoloBandwidthSaving) => set({ isSoloBandwidthSaving }),
+  setSoloBandwidthNotification: (soloBandwidthNotification) => set({ soloBandwidthNotification }),
 
   setCodecFloor: (codecFloor) => set({ codecFloor }),
   setActiveCameraCodec: (activeCameraCodec) => set({ activeCameraCodec }),

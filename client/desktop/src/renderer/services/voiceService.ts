@@ -133,6 +133,9 @@ class VoiceService {
   private lastPacketsLost = 0;
   private lastPacketsSent = 0;
 
+  // Solo bandwidth saving
+  private soloNotificationTimer: ReturnType<typeof setTimeout> | null = null;
+
   // ─── Client-side Voice Activity Detection (VAD) ──────────────────
 
   /**
@@ -1082,7 +1085,7 @@ class VoiceService {
   // ─── Join / Leave ──────────────────────────────────────────────────
 
   /** Authorize and join a voice channel */
-  async joinChannel(channelId: string): Promise<void> {
+  async joinChannel(channelId: string, joinType: 'channel' | 'dm' = 'channel'): Promise<void> {
     const store = useVoiceStore.getState();
     if (store.activeChannelId) {
       await this.leaveChannel();
@@ -1092,7 +1095,10 @@ class VoiceService {
 
     try {
       // Step 1: Authorize via control plane (uses apiFetch for automatic token refresh)
-      const res = await apiFetch(`/api/v1/channels/${channelId}/voice/join`, {
+      const endpoint = joinType === 'dm'
+        ? `/api/v1/dm/conversations/${channelId}/voice/join`
+        : `/api/v1/channels/${channelId}/voice/join`;
+      const res = await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -1109,6 +1115,11 @@ class VoiceService {
 
       store.setActiveChannel(channel.id, channel.name, channel.server_id);
       store.setEncrypted(channel.is_encrypted);
+
+      // Track DM call state
+      if (joinType === 'dm') {
+        store.setDMCall(true, channelId);
+      }
 
       // Resolve effective quality tier: channel override takes priority over personal setting
       const channelTier = channel.audio_quality_tier;
@@ -1783,6 +1794,66 @@ class VoiceService {
     this.socket?.emit('resume-producer', { producerId: producer.id });
   }
 
+  // ─── Solo Bandwidth Saving ──────────────────────────────────────────
+
+  /**
+   * Check participant count and enter/exit solo bandwidth saving mode.
+   * When alone in a call, pauses all producers to save bandwidth.
+   * Resumes automatically when someone joins.
+   */
+  private checkSoloBandwidthSaving(): void {
+    const store = useVoiceStore.getState();
+    const participantCount = Object.keys(store.participants).length;
+    const wasSolo = store.isSoloBandwidthSaving;
+
+    if (participantCount <= 1 && !wasSolo) {
+      this.enterSoloBandwidthSaving();
+    } else if (participantCount > 1 && wasSolo) {
+      this.exitSoloBandwidthSaving();
+    }
+  }
+
+  private enterSoloBandwidthSaving(): void {
+    const store = useVoiceStore.getState();
+    store.setSoloBandwidthSaving(true);
+
+    // Pause all producers (stops sending data to server)
+    // But do NOT stop local MediaStream tracks (keeps local preview/VAD)
+    for (const [, producer] of this.producers) {
+      if (!producer.paused) {
+        producer.pause();
+        this.socket?.emit('pause-producer', { producerId: producer.id });
+      }
+    }
+
+    // Start 60-second timer for user notification
+    this.soloNotificationTimer = setTimeout(() => {
+      useVoiceStore.getState().setSoloBandwidthNotification(true);
+    }, 60_000);
+  }
+
+  private exitSoloBandwidthSaving(): void {
+    const store = useVoiceStore.getState();
+    store.setSoloBandwidthSaving(false);
+    store.setSoloBandwidthNotification(false);
+
+    // Clear notification timer
+    if (this.soloNotificationTimer) {
+      clearTimeout(this.soloNotificationTimer);
+      this.soloNotificationTimer = null;
+    }
+
+    // Resume all producers (start sending again)
+    // Respect current mute state — don't resume mic if user is muted
+    for (const [source, producer] of this.producers) {
+      if (source === 'mic' && store.isMuted) continue; // stay paused if intentionally muted
+      if (producer.paused) {
+        producer.resume();
+        this.socket?.emit('resume-producer', { producerId: producer.id });
+      }
+    }
+  }
+
   /** Opt-in to consume a remote screen share ("Tune In" model) — up to 5 concurrent */
   async tuneInToScreenShare(producerId: string, userId: string): Promise<void> {
     const store = useVoiceStore.getState();
@@ -2192,6 +2263,9 @@ class VoiceService {
           this.mediaEncryption.debouncedRotateKeys();
         }
       }
+
+      // Solo bandwidth saving: exit solo mode when someone joins
+      this.checkSoloBandwidthSaving();
     });
 
     this.socket.on('user-left', async ({ userId }) => {
@@ -2201,6 +2275,9 @@ class VoiceService {
       if (this.isEncrypted && this.mediaEncryption) {
         this.mediaEncryption.debouncedRotateKeys();
       }
+
+      // Solo bandwidth saving: enter solo mode when everyone else leaves
+      this.checkSoloBandwidthSaving();
     });
 
     // E2EE: periodic epoch sync — recover from missed join/leave events
@@ -2599,6 +2676,12 @@ class VoiceService {
   }
 
   private async cleanup(): Promise<void> {
+    // Clear solo bandwidth saving state
+    if (this.soloNotificationTimer) {
+      clearTimeout(this.soloNotificationTimer);
+      this.soloNotificationTimer = null;
+    }
+
     // Close all producers — snapshot keys first because closeProducer()
     // mutates the Map (deletes entries), which breaks for..of iteration
     // and causes producers to be skipped (camera stays alive).

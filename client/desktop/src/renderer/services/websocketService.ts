@@ -57,9 +57,10 @@ export class WebSocketService {
   // Connection info
   private connectionInfo: ConnectionInfo | null = null;
 
-  // Subscribed channels and servers (tracked for resubscription on reconnect)
+  // Subscribed channels, servers, and DM conversations (tracked for resubscription on reconnect)
   private subscribedChannels = new Set<string>();
   private subscribedServers = new Set<string>();
+  private subscribedDMs = new Set<string>();
 
   constructor(baseUrl: string = WS_BASE) {
     this.url = `${baseUrl}/api/v1/ws`;
@@ -244,6 +245,69 @@ export class WebSocketService {
       type: 'typing',
       data: {
         channel_id: channelId,
+        is_typing: isTyping,
+      },
+    });
+  }
+
+  /**
+   * Subscribe to a DM conversation
+   */
+  subscribeDM(conversationId: string): void {
+    this.subscribedDMs.add(conversationId);
+    this.send({
+      type: 'subscribe_dm',
+      data: { channel_id: conversationId },
+    });
+  }
+
+  /**
+   * Unsubscribe from a DM conversation
+   */
+  unsubscribeDM(conversationId: string): void {
+    this.subscribedDMs.delete(conversationId);
+    this.send({
+      type: 'unsubscribe_dm',
+      data: { channel_id: conversationId },
+    });
+  }
+
+  /**
+   * Check if a DM conversation is subscribed
+   */
+  isDMSubscribed(conversationId: string): boolean {
+    return this.subscribedDMs.has(conversationId);
+  }
+
+  /**
+   * Send a DM message
+   */
+  sendDMMessage(
+    conversationId: string,
+    content: string,
+    nonce?: string,
+    isEncrypted: boolean = false
+  ): void {
+    this.send({
+      type: 'dm_message',
+      data: {
+        channel_id: conversationId,
+        content,
+        is_encrypted: isEncrypted,
+        nonce,
+        timestamp: Date.now(),
+      },
+    });
+  }
+
+  /**
+   * Send DM typing indicator
+   */
+  sendDMTypingIndicator(conversationId: string, isTyping: boolean): void {
+    this.send({
+      type: 'dm_typing',
+      data: {
+        channel_id: conversationId,
         is_typing: isTyping,
       },
     });
@@ -478,6 +542,10 @@ export class WebSocketService {
     // Resubscribe to all servers after reconnect
     this.subscribedServers.forEach((serverId) => {
       this.subscribeServer(serverId);
+    });
+    // Resubscribe to all DM conversations after reconnect
+    this.subscribedDMs.forEach((convId) => {
+      this.subscribeDM(convId);
     });
   }
 

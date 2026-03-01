@@ -1,23 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ChevronDown, ChevronRight, UserPlus } from 'lucide-react';
+import { useFriendStore } from '../../stores/friendStore';
 import './DirectMessages.css';
 
-/** Placeholder friend data — will be replaced by friendStore + API */
-const MOCK_FRIENDS = [
-  { id: 'f1', username: 'alice_chen', displayName: 'Alice Chen', status: 'online' as const },
-  { id: 'f2', username: 'bob_smith', displayName: 'Bob Smith', status: 'online' as const },
-  { id: 'f3', username: 'jordan_r', displayName: 'Jordan Rivera', status: 'dnd' as const },
-  { id: 'f4', username: 'sam_patel', displayName: 'Sam Patel', status: 'offline' as const },
-  { id: 'f5', username: 'morgan_lee', displayName: 'Morgan Lee', status: 'offline' as const },
-  { id: 'f6', username: 'taylor_w', displayName: 'Taylor Wong', status: 'online' as const },
-];
-
 interface FriendsListProps {
-  onFriendClick?: (friendId: string) => void;
+  onFriendClick?: (userId: string) => void;
 }
 
 const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+  const friends = useFriendStore((s) => s.friends);
+  const fetchFriends = useFriendStore((s) => s.fetchFriends);
+
+  useEffect(() => {
+    fetchFriends();
+  }, [fetchFriends]);
 
   const toggleCategory = (category: string) => {
     setCollapsedCategories((prev) => {
@@ -31,8 +28,8 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
     });
   };
 
-  const onlineFriends = MOCK_FRIENDS.filter((f) => f.status !== 'offline');
-  const offlineFriends = MOCK_FRIENDS.filter((f) => f.status === 'offline');
+  const onlineFriends = friends.filter((f) => f.status !== 'offline');
+  const offlineFriends = friends.filter((f) => f.status === 'offline');
 
   const categories = [
     { id: 'online', label: 'Online', friends: onlineFriends },
@@ -45,7 +42,7 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
         <h3>Friends</h3>
       </div>
 
-      {MOCK_FRIENDS.length === 0 ? (
+      {friends.length === 0 ? (
         <div className="friends-list-empty">
           <UserPlus size={28} style={{ marginBottom: 8, opacity: 0.4 }} />
           <p>Add friends to see them here</p>
@@ -69,15 +66,15 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
                   <div
                     key={friend.id}
                     className={`friend-item ${friend.status === 'offline' ? 'offline' : ''}`}
-                    onClick={() => onFriendClick?.(friend.id)}
+                    onClick={() => onFriendClick?.(friend.userId)}
                   >
                     <div className="member-avatar">
                       <span className="member-avatar-initial">
-                        {friend.displayName.charAt(0).toUpperCase()}
+                        {(friend.displayName || friend.username).charAt(0).toUpperCase()}
                       </span>
                       <span className={`member-status-dot ${friend.status}`} />
                     </div>
-                    <span className="member-username">{friend.displayName}</span>
+                    <span className="member-username">{friend.displayName || friend.username}</span>
                   </div>
                 ))}
             </div>

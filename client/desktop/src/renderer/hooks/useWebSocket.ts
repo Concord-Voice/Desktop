@@ -654,6 +654,216 @@ export function useWebSocket() {
       }
     });
 
+    // ── DM event handlers ──────────────────────────────────────────────
+
+    // DM message handler (mirrors 'message' handler for server channels)
+    const unsubDMMessage = wsService.on('dm_message', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const conversationId = data.conversation_id || data.channel_id;
+
+      if (!conversationId) {
+        console.error('DM message missing conversation_id:', msg);
+        return;
+      }
+
+      const isEncrypted = data.is_encrypted || false;
+      const baseMessage = {
+        id: data.id || crypto.randomUUID(),
+        channel_id: conversationId,
+        user_id: data.user_id,
+        username: data.username || 'Unknown',
+        display_name: data.display_name || undefined,
+        avatar_url: data.avatar_url || undefined,
+        is_encrypted: isEncrypted,
+        created_at: data.created_at || new Date().toISOString(),
+        updated_at: data.updated_at || new Date().toISOString(),
+      };
+
+      if (isEncrypted && e2eeService.isInitialized) {
+        e2eeService
+          .decryptForChannel(conversationId, data.content)
+          .then((plaintext) => {
+            addMessage(conversationId, { ...baseMessage, content: plaintext });
+          })
+          .catch((err) => {
+            const isPending = err instanceof Error && err.message === 'PENDING_KEY';
+            addMessage(conversationId, {
+              ...baseMessage,
+              content: '',
+              decryptFailed: !isPending,
+              pendingKeys: isPending,
+            });
+          });
+      } else if (isEncrypted) {
+        addMessage(conversationId, { ...baseMessage, content: '', decryptFailed: true });
+      } else {
+        addMessage(conversationId, { ...baseMessage, content: data.content });
+      }
+    });
+
+    // DM message ack handler
+    const unsubDMAck = wsService.on('dm_message_ack', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const nonce = data.nonce;
+      const serverId = data.id;
+      const conversationId = data.conversation_id || data.channel_id;
+
+      if (nonce && serverId && conversationId) {
+        updateMessageStatus(conversationId, nonce, 'delivered', serverId);
+      }
+    });
+
+    // DM message update handler
+    const unsubDMUpdate = wsService.on('dm_message_update', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const conversationId = data.conversation_id || data.channel_id;
+      const messageId = data.id;
+
+      if (conversationId && messageId) {
+        updateMessage(conversationId, messageId, {
+          content: data.content,
+          edited_at: data.edited_at,
+          updated_at: data.updated_at || new Date().toISOString(),
+        });
+      }
+    });
+
+    // DM message delete handler
+    const unsubDMDelete = wsService.on('dm_message_delete', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const conversationId = data.conversation_id || data.channel_id;
+      const messageId = data.id;
+
+      if (conversationId && messageId) {
+        deleteMessage(conversationId, messageId);
+      }
+    });
+
+    // DM typing indicator handler
+    const unsubDMTyping = wsService.on('dm_typing', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const conversationId = data.conversation_id || data.channel_id;
+      const userId = data.user_id;
+      const isTyping = data.is_typing;
+      const username = data.username;
+
+      if (conversationId && userId) {
+        setTyping(conversationId, userId, isTyping, username);
+      }
+    });
+
+    // DM unread notification (for conversations the user is NOT subscribed to)
+    const unsubDMUnread = wsService.on('dm_unread_notify', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const conversationId = data.conversation_id;
+
+      if (conversationId) {
+        const { useDMStore } = require('../stores/dmStore');
+        useDMStore.getState().incrementUnread(conversationId);
+        // Also update last message preview if provided
+        if (data.last_message) {
+          useDMStore.getState().updateLastMessage(conversationId, {
+            content: data.last_message.content || '',
+            userId: data.last_message.user_id || data.user_id,
+            username: data.last_message.username || '',
+            createdAt: data.last_message.created_at || new Date().toISOString(),
+            isEncrypted: data.last_message.is_encrypted || false,
+          });
+        }
+      }
+    });
+
+    // DM conversation created (when another user opens a DM with us)
+    const unsubDMConvCreated = wsService.on('dm_conversation_created', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      if (data.conversation) {
+        const { useDMStore } = require('../stores/dmStore');
+        useDMStore.getState().addConversation({
+          id: data.conversation.id,
+          isGroup: data.conversation.is_group,
+          name: data.conversation.name || null,
+          isEncrypted: data.conversation.is_encrypted,
+          participants: (data.conversation.participants || []).map((p: Record<string, unknown>) => ({
+            userId: p.user_id as string,
+            username: p.username as string,
+            displayName: p.display_name as string | undefined,
+            avatarUrl: p.avatar_url as string | undefined,
+          })),
+          lastMessage: null,
+          unreadCount: 0,
+          createdAt: data.conversation.created_at,
+        });
+      }
+    });
+
+    // DM subscribed confirmation
+    const unsubDMSubscribed = wsService.on('dm_subscribed', (msg: WebSocketMessage) => {
+      console.debug('[WebSocket] Subscribed to DM:', msg.data.conversation_id || msg.data.channel_id);
+    });
+
+    // ── Friend event handlers ────────────────────────────────────────────
+
+    const unsubFriendRequestReceived = wsService.on('friend_request_received', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const { useFriendStore } = require('../stores/friendStore');
+      useFriendStore.getState().addRequest({
+        id: data.id,
+        fromUserId: data.from_user_id,
+        fromUsername: data.from_username,
+        fromDisplayName: data.from_display_name,
+        fromAvatarUrl: data.from_avatar_url,
+        toUserId: data.to_user_id,
+        toUsername: data.to_username,
+        toDisplayName: data.to_display_name,
+        toAvatarUrl: data.to_avatar_url,
+        direction: 'received',
+        createdAt: data.created_at,
+      });
+    });
+
+    const unsubFriendRequestAccepted = wsService.on('friend_request_accepted', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const { useFriendStore } = require('../stores/friendStore');
+      const store = useFriendStore.getState();
+      // Remove the pending request
+      if (data.request_id) {
+        store.removeRequest(data.request_id);
+      }
+      // Add the new friend
+      if (data.friend) {
+        store.addFriend({
+          id: data.friend.id,
+          userId: data.friend.user_id,
+          username: data.friend.username,
+          displayName: data.friend.display_name,
+          avatarUrl: data.friend.avatar_url,
+          status: data.friend.status || 'offline',
+        });
+      }
+    });
+
+    const unsubFriendRemoved = wsService.on('friend_removed', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      if (data.user_id) {
+        const { useFriendStore } = require('../stores/friendStore');
+        useFriendStore.getState().removeFriendByUserId(data.user_id);
+      }
+    });
+
+    // ── DM voice state update handler ────────────────────────────────────
+
+    const unsubDMVoiceState = wsService.on('dm_voice_state_update', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const conversationId = data.conversation_id;
+      const action = data.action; // 'joined' | 'left' | 'room_empty'
+
+      if (!conversationId) return;
+
+      console.debug('[WebSocket] DM voice state update:', action, conversationId, data.user_id);
+      // DM voice state is handled by voiceStore when the user is in the call
+      // and by dmStore for showing call indicators in the conversation list
+    });
+
     // Subscribed confirmation handler
     const unsubSubscribed = wsService.on('subscribed', (msg: WebSocketMessage) => {
       console.debug('[WebSocket] Subscribed to channel:', msg.data.channel_id);
@@ -692,6 +902,18 @@ export function useWebSocket() {
       unsubPresence();
       unsubServerOnlineCounts();
       unsubVoiceState();
+      unsubDMMessage();
+      unsubDMAck();
+      unsubDMUpdate();
+      unsubDMDelete();
+      unsubDMTyping();
+      unsubDMUnread();
+      unsubDMConvCreated();
+      unsubDMSubscribed();
+      unsubFriendRequestReceived();
+      unsubFriendRequestAccepted();
+      unsubFriendRemoved();
+      unsubDMVoiceState();
       unsubSubscribed();
       unsubError();
     };

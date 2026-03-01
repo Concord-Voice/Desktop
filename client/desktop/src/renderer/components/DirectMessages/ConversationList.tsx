@@ -1,54 +1,47 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { MessageSquare, PhoneMissed, Users } from 'lucide-react';
+import { useDMStore, type DMConversation } from '../../stores/dmStore';
+import { useUserStore } from '../../stores/userStore';
 import './DirectMessages.css';
-
-/** Placeholder conversation data — will be replaced by dmStore + API */
-const MOCK_CONVERSATIONS = [
-  {
-    id: 'conv-1',
-    name: 'Alice Chen',
-    isGroup: false,
-    status: 'online' as const,
-    lastMessage: 'Hey, are you free for a call later?',
-    timestamp: '2m ago',
-    unread: 3,
-    missedCall: false,
-  },
-  {
-    id: 'conv-2',
-    name: 'Project Alpha',
-    isGroup: true,
-    status: 'online' as const,
-    lastMessage: 'Bob: Pushed the fix to staging',
-    timestamp: '15m ago',
-    unread: 0,
-    missedCall: false,
-  },
-  {
-    id: 'conv-3',
-    name: 'Jordan Rivera',
-    isGroup: false,
-    status: 'dnd' as const,
-    lastMessage: 'Missed voice call',
-    timestamp: '1h ago',
-    unread: 1,
-    missedCall: true,
-  },
-  {
-    id: 'conv-4',
-    name: 'Sam Patel',
-    isGroup: false,
-    status: 'offline' as const,
-    lastMessage: 'Thanks for the help!',
-    timestamp: 'Yesterday',
-    unread: 0,
-    missedCall: false,
-  },
-];
 
 interface ConversationListProps {
   selectedThreadId: string | null;
   onSelectThread: (id: string) => void;
+}
+
+/** Get display name for a conversation (other user's name for 1:1, group name for group) */
+function getConversationName(conv: DMConversation, currentUserId: string): string {
+  if (conv.isGroup) {
+    return conv.name || conv.participants.map((p) => p.displayName || p.username).join(', ');
+  }
+  // 1:1 — show the other participant's name
+  const other = conv.participants.find((p) => p.userId !== currentUserId);
+  return other?.displayName || other?.username || 'Unknown';
+}
+
+/** Get the initial letter for the avatar */
+function getInitial(conv: DMConversation, currentUserId: string): string {
+  return getConversationName(conv, currentUserId).charAt(0).toUpperCase();
+}
+
+/** Get relative timestamp string */
+function getRelativeTime(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+
+  const diffHrs = Math.floor(diffMin / 60);
+  if (diffHrs < 24) return `${diffHrs}h ago`;
+
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays === 1) return 'Yesterday';
+  if (diffDays < 7) return `${diffDays}d ago`;
+
+  return date.toLocaleDateString();
 }
 
 const ConversationList: React.FC<ConversationListProps> = ({
@@ -56,10 +49,18 @@ const ConversationList: React.FC<ConversationListProps> = ({
   onSelectThread,
 }) => {
   const [search, setSearch] = useState('');
+  const conversations = useDMStore((s) => s.conversations);
+  const fetchConversations = useDMStore((s) => s.fetchConversations);
+  const currentUserId = useUserStore((s) => s.user?.id) || '';
 
-  const filtered = MOCK_CONVERSATIONS.filter((c) =>
-    c.name.toLowerCase().includes(search.toLowerCase())
-  );
+  useEffect(() => {
+    fetchConversations();
+  }, [fetchConversations]);
+
+  const filtered = conversations.filter((c) => {
+    const name = getConversationName(c, currentUserId);
+    return name.toLowerCase().includes(search.toLowerCase());
+  });
 
   return (
     <div className="conversation-list">
@@ -78,48 +79,55 @@ const ConversationList: React.FC<ConversationListProps> = ({
           <p>No conversations yet</p>
         </div>
       ) : (
-        filtered.map((conv) => (
-          <div
-            key={conv.id}
-            className={`conversation-item${selectedThreadId === conv.id ? ' active' : ''}${conv.unread > 0 ? ' unread' : ''}`}
-            onClick={() => onSelectThread(conv.id)}
-          >
-            <div className={`conversation-avatar${conv.isGroup ? ' group' : ''}`}>
-              {conv.isGroup ? (
-                <Users size={18} />
-              ) : (
-                <span className="conversation-avatar-initial">
-                  {conv.name.charAt(0).toUpperCase()}
-                </span>
-              )}
-              {!conv.isGroup && (
-                <span className={`member-status-dot ${conv.status}`} />
-              )}
-            </div>
+        filtered.map((conv) => {
+          const name = getConversationName(conv, currentUserId);
+          const other = conv.isGroup ? null : conv.participants.find((p) => p.userId !== currentUserId);
+          const status = other?.status || 'offline';
+          const lastTime = conv.lastMessage?.createdAt || conv.createdAt;
+          const preview = conv.lastMessage
+            ? conv.lastMessage.isEncrypted && !conv.lastMessage.content
+              ? '[Encrypted message]'
+              : conv.lastMessage.content
+            : '';
 
-            <div className="conversation-content">
-              <div className="conversation-top-row">
-                <span className="conversation-name">{conv.name}</span>
-                <span className="conversation-time">{conv.timestamp}</span>
+          return (
+            <div
+              key={conv.id}
+              className={`conversation-item${selectedThreadId === conv.id ? ' active' : ''}${conv.unreadCount > 0 ? ' unread' : ''}`}
+              onClick={() => onSelectThread(conv.id)}
+            >
+              <div className={`conversation-avatar${conv.isGroup ? ' group' : ''}`}>
+                {conv.isGroup ? (
+                  <Users size={18} />
+                ) : (
+                  <span className="conversation-avatar-initial">
+                    {getInitial(conv, currentUserId)}
+                  </span>
+                )}
+                {!conv.isGroup && (
+                  <span className={`member-status-dot ${status}`} />
+                )}
               </div>
-              <div className="conversation-bottom-row">
-                <span className="conversation-preview">{conv.lastMessage}</span>
-                <div className="conversation-badges">
-                  {conv.missedCall && (
-                    <span className="conversation-missed-call">
-                      <PhoneMissed size={14} />
-                    </span>
-                  )}
-                  {conv.unread > 0 && (
-                    <span className="conversation-unread-badge">
-                      {conv.unread > 99 ? '99+' : conv.unread}
-                    </span>
-                  )}
+
+              <div className="conversation-content">
+                <div className="conversation-top-row">
+                  <span className="conversation-name">{name}</span>
+                  <span className="conversation-time">{getRelativeTime(lastTime)}</span>
+                </div>
+                <div className="conversation-bottom-row">
+                  <span className="conversation-preview">{preview}</span>
+                  <div className="conversation-badges">
+                    {conv.unreadCount > 0 && (
+                      <span className="conversation-unread-badge">
+                        {conv.unreadCount > 99 ? '99+' : conv.unreadCount}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        ))
+          );
+        })
       )}
     </div>
   );

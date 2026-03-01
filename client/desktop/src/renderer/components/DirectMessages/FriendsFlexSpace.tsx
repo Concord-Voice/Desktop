@@ -2,7 +2,11 @@ import React from 'react';
 import { useResizablePanel } from '../../hooks/useResizablePanel';
 import FriendsList from './FriendsList';
 
-const FriendsFlexSpace: React.FC = () => {
+interface FriendsFlexSpaceProps {
+  onFriendClick?: (userId: string) => void;
+}
+
+const FriendsFlexSpace: React.FC<FriendsFlexSpaceProps> = ({ onFriendClick }) => {
   const panel = useResizablePanel({
     defaultWidth: 260,
     minWidth: 160,
@@ -18,7 +22,7 @@ const FriendsFlexSpace: React.FC = () => {
         className="member-list-container"
         style={{ width: panel.width, display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%' }}
       >
-        <FriendsList />
+        <FriendsList onFriendClick={onFriendClick} />
       </div>
     </>
   );

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import AppLayout from '../Layout/AppLayout';
 import ServerBar from '../Layout/ServerBar';
 import FolderBar from '../Layout/FolderBar';
@@ -14,28 +14,21 @@ import JoinServerModal from '../Servers/JoinServerModal';
 import ServerContextMenu from '../Servers/ServerContextMenu';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { useVoiceStore } from '../../stores/voiceStore';
+import { useDMStore } from '../../stores/dmStore';
 import { ServerWithRole } from '../../types/server';
 
-/** Mock thread names — keyed by conversation ID for header display */
-const THREAD_NAMES: Record<string, string> = {
-  'conv-1': 'Alice Chen',
-  'conv-2': 'Project Alpha',
-  'conv-3': 'Jordan Rivera',
-  'conv-4': 'Sam Patel',
-};
-
 const DirectMessagesView: React.FC = () => {
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const activeConversationId = useDMStore((s) => s.activeConversationId);
+  const setActiveConversation = useDMStore((s) => s.setActiveConversation);
 
   const channelPanelPinned = useLayoutStore((s) => s.channelPanelPinned);
   const voiceActiveChannelId = useVoiceStore((s) => s.activeChannelId);
   const voiceConnectionState = useVoiceStore((s) => s.connectionState);
   const isInVoice = !!(voiceActiveChannelId && voiceConnectionState === 'connected');
 
-  // DM page currently has no real MessageInput, so floating avatar always shows
-  // when channel panel is unpinned. When DM messaging is implemented with MessageInput,
-  // this condition should also check for that.
-  const showFloatingAvatar = !channelPanelPinned;
+  // Show floating avatar when channel panel is unpinned and no conversation is active
+  // (when a conversation IS active, MessageInput provides the UserPanel)
+  const showFloatingAvatar = !channelPanelPinned && !activeConversationId;
 
   // Server modals (triggered by ServerBar add button or stale server placeholder)
   const [isServerActionModalOpen, setIsServerActionModalOpen] = useState(false);
@@ -60,6 +53,18 @@ const DirectMessagesView: React.FC = () => {
     setIsJoinServerModalOpen(false);
   };
 
+  const handleFriendClick = useCallback(
+    async (userId: string) => {
+      try {
+        const conv = await useDMStore.getState().openDM(userId);
+        setActiveConversation(conv.id);
+      } catch (err) {
+        console.error('Failed to open DM:', err);
+      }
+    },
+    [setActiveConversation]
+  );
+
   const channelHeader = (
     <span style={{ fontWeight: 600, fontSize: 'calc(14px * var(--font-scale, 1))' }}>
       Direct Messages
@@ -79,17 +84,14 @@ const DirectMessagesView: React.FC = () => {
         channelPanel={
           <ChannelPanel header={channelHeader}>
             <ConversationList
-              selectedThreadId={selectedThreadId}
-              onSelectThread={setSelectedThreadId}
+              selectedThreadId={activeConversationId}
+              onSelectThread={setActiveConversation}
             />
           </ChannelPanel>
         }
         chatArea={
           <div className="main-content" data-has-persistent-bar={isInVoice || undefined}>
-            <DMChatArea
-              selectedThreadId={selectedThreadId}
-              threadName={selectedThreadId ? THREAD_NAMES[selectedThreadId] : undefined}
-            />
+            <DMChatArea selectedThreadId={activeConversationId} />
             {isInVoice && <PersistentVoiceBar />}
             {showFloatingAvatar && (
               <div className="floating-user-avatar">
@@ -98,7 +100,7 @@ const DirectMessagesView: React.FC = () => {
             )}
           </div>
         }
-        memberSpace={<FriendsFlexSpace />}
+        memberSpace={<FriendsFlexSpace onFriendClick={handleFriendClick} />}
         forceMemberExpanded
       />
 

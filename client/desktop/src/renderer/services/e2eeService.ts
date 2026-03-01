@@ -181,7 +181,7 @@ class E2EEService {
    * Internal: fetch wrapped key from server, cache it, and unwrap.
    */
   private async fetchAndUnwrapChannelKey(channelId: string): Promise<CryptoKey> {
-    const res = await apiFetch(`/api/v1/channels/${channelId}/keys`);
+    const res = await apiFetch(`/api/v1/e2ee/keys/${channelId}`);
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       if (data.pending) {
@@ -292,7 +292,7 @@ class E2EEService {
           const wrappedKey = await this.wrapKeyForMember(req.channel_id, pkData.public_key);
 
           // Upload the wrapped key
-          const uploadRes = await apiFetch(`/api/v1/channels/${req.channel_id}/keys`, {
+          const uploadRes = await apiFetch(`/api/v1/e2ee/keys/${req.channel_id}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
