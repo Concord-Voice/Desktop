@@ -14,6 +14,7 @@
  */
 
 import { WS_BASE } from '../config';
+import { useAuthStore } from '../stores/authStore';
 
 export enum ConnectionState {
   DISCONNECTED = 'disconnected',
@@ -257,7 +258,7 @@ export class WebSocketService {
     this.subscribedDMs.add(conversationId);
     this.send({
       type: 'subscribe_dm',
-      data: { channel_id: conversationId },
+      data: { conversation_id: conversationId },
     });
   }
 
@@ -268,7 +269,7 @@ export class WebSocketService {
     this.subscribedDMs.delete(conversationId);
     this.send({
       type: 'unsubscribe_dm',
-      data: { channel_id: conversationId },
+      data: { conversation_id: conversationId },
     });
   }
 
@@ -291,7 +292,7 @@ export class WebSocketService {
     this.send({
       type: 'dm_message',
       data: {
-        channel_id: conversationId,
+        conversation_id: conversationId,
         content,
         is_encrypted: isEncrypted,
         nonce,
@@ -307,7 +308,7 @@ export class WebSocketService {
     this.send({
       type: 'dm_typing',
       data: {
-        channel_id: conversationId,
+        conversation_id: conversationId,
         is_typing: isTyping,
       },
     });
@@ -389,17 +390,20 @@ export class WebSocketService {
 
     try {
       // Prefer ticket-based auth (short-lived, single-use — doesn't expose JWT in URLs)
-      let wsUrl: string;
       const httpBase = this.url.replace(/^ws/, 'http');
+      const ticketHeaders: Record<string, string> = { Authorization: `Bearer ${this.token}` };
+      const sessionId = useAuthStore.getState().sessionId;
+      if (sessionId) ticketHeaders['X-Session-ID'] = sessionId;
+
       const ticketRes = await fetch(httpBase.replace('/ws', '/auth/ws-ticket'), {
         method: 'POST',
-        headers: { Authorization: `Bearer ${this.token}` },
+        headers: ticketHeaders,
       });
       if (!ticketRes.ok) {
         throw new Error(`WebSocket ticket request failed: ${ticketRes.status}`);
       }
       const { ticket } = await ticketRes.json();
-      wsUrl = `${this.url}?ticket=${encodeURIComponent(ticket)}`;
+      const wsUrl = `${this.url}?ticket=${encodeURIComponent(ticket)}`;
 
       this.ws = new WebSocket(wsUrl);
 

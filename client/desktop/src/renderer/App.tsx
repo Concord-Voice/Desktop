@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import AuthFlow from './components/Auth/AuthFlow';
 import MainView from './components/MainView/MainView';
@@ -14,6 +14,37 @@ import { useWebSocket } from './hooks/useWebSocket';
 import { e2eeService } from './services/e2eeService';
 import { preferencesSyncService } from './services/preferencesSync';
 import { detectCodecCapabilities } from './services/mediaCapabilities';
+import { nuclearReset } from './services/resetService';
+
+// ─── Error Boundary ────────────────────────────────────────────────────
+// Catches unhandled rendering errors and resets to a clean login screen.
+// This prevents ghost state from leaking through after a crash.
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+}
+
+class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[AppErrorBoundary] Unhandled error — nuclear reset:', error, info.componentStack);
+    nuclearReset();
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return <AuthFlow />;
+    }
+    return this.props.children;
+  }
+}
+
+// ─── Authenticated Layout ──────────────────────────────────────────────
 
 function AuthenticatedLayout() {
   const accessToken = useAuthStore((state) => state.accessToken);
@@ -57,6 +88,8 @@ function AuthenticatedLayout() {
   );
 }
 
+// ─── App Root ──────────────────────────────────────────────────────────
+
 function App() {
   const [version, setVersion] = useState<string>('');
   const [platform, setPlatform] = useState<string>('');
@@ -76,6 +109,7 @@ function App() {
       const result = await window.electron.restoreSession();
       if (result.status === 'restored' && result.accessToken) {
         useAuthStore.getState().setAccessToken(result.accessToken);
+        if (result.sessionId) useAuthStore.getState().setSessionId(result.sessionId);
 
         // Restore E2EE service from safeStorage-persisted key material
         if (result.e2eeKeys) {
@@ -88,8 +122,9 @@ function App() {
             console.warn('Failed to restore E2EE keys — E2EE features will require re-login:', err);
           }
         }
-      } else if (result.status === 'tampered') {
-        console.error('Secure token tamper detected — forcing re-login');
+      } else {
+        // Session cannot be restored — nuclear reset to ensure clean login screen
+        nuclearReset();
       }
       setIsRestoring(false);
     };
@@ -115,28 +150,30 @@ function App() {
   }
 
   return (
-    <div className="app" onContextMenu={(e) => e.preventDefault()}>
-      <div className="title-bar">
-        <div className="title-bar-text">Concord Voice</div>
-        {version && (
-          <div className="title-bar-info">
-            v{version} • {platform}
-          </div>
-        )}
-      </div>
+    <AppErrorBoundary>
+      <div className="app" onContextMenu={(e) => e.preventDefault()}>
+        <div className="title-bar">
+          <div className="title-bar-text">Concord Voice</div>
+          {version && (
+            <div className="title-bar-info">
+              v{version} • {platform}
+            </div>
+          )}
+        </div>
 
-      <Routes>
-        <Route path="/" element={accessToken ? <Navigate to="/app/dms" replace /> : <AuthFlow />} />
-        <Route element={<AuthenticatedLayout />}>
-          <Route path="/app" element={<MainView />} />
-          <Route path="/app/dms" element={<DirectMessagesView />} />
-          <Route path="/app/profile" element={<ProfilePage />} />
-          <Route path="/app/settings" element={<SettingsPage />} />
-        </Route>
-        {/* PiP windows — separate Electron BrowserWindows, state synced via BroadcastChannel */}
-        <Route path="/pip/:pipId" element={<PipWindow />} />
-      </Routes>
-    </div>
+        <Routes>
+          <Route path="/" element={accessToken ? <Navigate to="/app/dms" replace /> : <AuthFlow />} />
+          <Route element={<AuthenticatedLayout />}>
+            <Route path="/app" element={<MainView />} />
+            <Route path="/app/dms" element={<DirectMessagesView />} />
+            <Route path="/app/profile" element={<ProfilePage />} />
+            <Route path="/app/settings" element={<SettingsPage />} />
+          </Route>
+          {/* PiP windows — separate Electron BrowserWindows, state synced via BroadcastChannel */}
+          <Route path="/pip/:pipId" element={<PipWindow />} />
+        </Routes>
+      </div>
+    </AppErrorBoundary>
   );
 }
 

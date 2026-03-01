@@ -3,8 +3,7 @@ import { useSettingsStore, type AppearanceSettings, type CustomColors } from './
 import { useAudioSettingsStore, type AudioSettings } from './audioSettingsStore';
 import { useVideoSettingsStore, type VideoSettings } from './videoSettingsStore';
 import { useTTSSettingsStore, type TTSSettings } from './ttsSettingsStore';
-import type { AudioQualityTier } from './voiceStore';
-import { AUDIO_QUALITY_TIERS } from './voiceStore';
+import { AUDIO_QUALITY_TIERS, type AudioQualityTier } from './voiceStore';
 
 // ---------------------------------------------------------------------------
 // Draftable types — exclude UI-only toggles and system-detected fields

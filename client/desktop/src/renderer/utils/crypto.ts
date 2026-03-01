@@ -45,7 +45,7 @@ export async function deriveKeyFromPassword(
   return crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: salt,
+      salt: salt as BufferSource,
       iterations: PBKDF2_ITERATIONS,
       hash: 'SHA-256',
     },
@@ -102,7 +102,7 @@ export async function wrapPrivateKey(
   result.set(iv, 0);
   result.set(new Uint8Array(wrappedKey), iv.length);
 
-  return result.buffer;
+  return result.buffer as ArrayBuffer;
 }
 
 /**
@@ -191,7 +191,7 @@ export function base64ToArrayBuffer(base64: string): ArrayBuffer {
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i);
   }
-  return bytes.buffer;
+  return bytes.buffer as ArrayBuffer;
 }
 
 /**
@@ -224,7 +224,7 @@ export async function generateRegistrationKeys(password: string): Promise<Regist
     publicKey: keyPair.publicKey,
     privateKey: keyPair.privateKey,
     wrappedPrivateKey: arrayBufferToBase64(wrappedKey),
-    keyDerivationSalt: arrayBufferToBase64(salt.buffer),
+    keyDerivationSalt: arrayBufferToBase64(salt.buffer as ArrayBuffer),
   };
 }
 
@@ -277,7 +277,7 @@ export async function deriveKeyFromPasswordExportable(
   return crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: salt,
+      salt: salt as BufferSource,
       iterations: PBKDF2_ITERATIONS,
       hash: 'SHA-256',
     },
@@ -403,7 +403,7 @@ export async function encryptMessage(plaintext: string, channelKey: CryptoKey): 
   result.set(iv, 0);
   result.set(new Uint8Array(ciphertext), iv.length);
 
-  return arrayBufferToBase64(result.buffer);
+  return arrayBufferToBase64(result.buffer as ArrayBuffer);
 }
 
 /**
@@ -485,7 +485,7 @@ export async function encryptBlob<T>(data: T, key: CryptoKey): Promise<string> {
   result.set(iv, 0);
   result.set(new Uint8Array(ciphertext), iv.length);
 
-  return arrayBufferToBase64(result.buffer);
+  return arrayBufferToBase64(result.buffer as ArrayBuffer);
 }
 
 /**

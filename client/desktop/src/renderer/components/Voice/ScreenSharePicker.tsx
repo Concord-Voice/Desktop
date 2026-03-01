@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Monitor, X } from 'lucide-react';
-import { useVideoSettingsStore } from '../../stores/videoSettingsStore';
-import type { ScreenResolution, ScreenContentType } from '../../stores/videoSettingsStore';
+import { useVideoSettingsStore, type ScreenResolution, type ScreenContentType } from '../../stores/videoSettingsStore';
 import './ScreenSharePicker.css';
 
 interface DesktopSource {

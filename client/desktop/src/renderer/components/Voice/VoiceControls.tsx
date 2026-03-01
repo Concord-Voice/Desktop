@@ -90,7 +90,7 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
         const { voiceService } = await getVoiceService();
         await voiceService.toggleScreenShare();
       } else {
-        if (window.electron?.getDesktopSources) {
+        if (typeof window.electron?.getDesktopSources === 'function') {
           setShowScreenPicker(true);
         } else {
           const { voiceService } = await getVoiceService();

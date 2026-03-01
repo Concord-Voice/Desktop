@@ -396,10 +396,10 @@ const initialState = {
   voiceTextChatLayout: (() => {
     try {
       const s = localStorage.getItem('concord:voice-text-chat-layout');
-      if (s === 'horizontal' || s === 'vertical') return s;
+      if (s === 'horizontal' || s === 'vertical') return s as 'horizontal' | 'vertical';
     } catch { /* ignore */ }
     return 'horizontal' as const;
-  })(),
+  })() as 'horizontal' | 'vertical',
   voiceTextChatWidth: (() => {
     try {
       const s = localStorage.getItem('concord:voice-text-chat-width');

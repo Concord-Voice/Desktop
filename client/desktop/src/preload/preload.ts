@@ -49,10 +49,11 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.invoke('auth:restoreSession') as Promise<{
       status: string;
       accessToken?: string;
+      sessionId?: string;
       e2eeKeys?: { wrappingKeyBase64: string; preferencesKeyBase64: string; wrappedPrivateKeyBase64: string } | null;
     }>,
   refreshToken: () =>
-    ipcRenderer.invoke('auth:refreshToken') as Promise<{ status: string; accessToken?: string }>,
+    ipcRenderer.invoke('auth:refreshToken') as Promise<{ status: string; accessToken?: string; sessionId?: string }>,
   clearTokens: () =>
     ipcRenderer.invoke('auth:clearTokens'),
   logout: (data?: { accessToken?: string }) =>
@@ -87,9 +88,10 @@ export interface ElectronAPI {
   restoreSession: () => Promise<{
     status: string;
     accessToken?: string;
+    sessionId?: string;
     e2eeKeys?: { wrappingKeyBase64: string; preferencesKeyBase64: string; wrappedPrivateKeyBase64: string } | null;
   }>;
-  refreshToken: () => Promise<{ status: string; accessToken?: string }>;
+  refreshToken: () => Promise<{ status: string; accessToken?: string; sessionId?: string }>;
   clearTokens: () => Promise<void>;
   logout: (data?: { accessToken?: string }) => Promise<void>;
   getAuthCapabilities: () => Promise<{ persistAvailable: boolean }>;

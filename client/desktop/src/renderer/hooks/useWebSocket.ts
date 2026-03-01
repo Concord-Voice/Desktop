@@ -25,6 +25,7 @@ import {
 import { e2eeService } from '../services/e2eeService';
 import { preferencesSyncService } from '../services/preferencesSync';
 import { apiFetch } from '../services/apiClient';
+import { gracefulReset, nuclearReset } from '../services/resetService';
 import { getVoiceService } from '../services/voiceLazy';
 import { useVoiceStore } from '../stores/voiceStore';
 import { useConnectionStore } from '../stores/connectionStore';
@@ -630,7 +631,7 @@ export function useWebSocket() {
       }
 
       // Update detailed participants only for the channel we're connected to
-      if (voiceStore.activeChannelId === channelId) {
+      if (voiceStore.activeChannelId === channelId && userId) {
         switch (action) {
           case 'muted':
             voiceStore.updateParticipant(userId, { isMuted: true });
@@ -753,12 +754,12 @@ export function useWebSocket() {
     });
 
     // DM unread notification (for conversations the user is NOT subscribed to)
-    const unsubDMUnread = wsService.on('dm_unread_notify', (msg: WebSocketMessage) => {
+    const unsubDMUnread = wsService.on('dm_unread_notify', async (msg: WebSocketMessage) => {
       const { data } = msg;
       const conversationId = data.conversation_id;
 
       if (conversationId) {
-        const { useDMStore } = require('../stores/dmStore');
+        const { useDMStore } = await import('../stores/dmStore');
         useDMStore.getState().incrementUnread(conversationId);
         // Also update last message preview if provided
         if (data.last_message) {
@@ -774,13 +775,14 @@ export function useWebSocket() {
     });
 
     // DM conversation created (when another user opens a DM with us)
-    const unsubDMConvCreated = wsService.on('dm_conversation_created', (msg: WebSocketMessage) => {
+    const unsubDMConvCreated = wsService.on('dm_conversation_created', async (msg: WebSocketMessage) => {
       const { data } = msg;
       if (data.conversation) {
-        const { useDMStore } = require('../stores/dmStore');
+        const { useDMStore } = await import('../stores/dmStore');
         useDMStore.getState().addConversation({
           id: data.conversation.id,
           isGroup: data.conversation.is_group,
+          isPersonal: data.conversation.is_personal ?? false,
           name: data.conversation.name || null,
           isEncrypted: data.conversation.is_encrypted,
           participants: (data.conversation.participants || []).map((p: Record<string, unknown>) => ({
@@ -803,9 +805,9 @@ export function useWebSocket() {
 
     // ── Friend event handlers ────────────────────────────────────────────
 
-    const unsubFriendRequestReceived = wsService.on('friend_request_received', (msg: WebSocketMessage) => {
+    const unsubFriendRequestReceived = wsService.on('friend_request_received', async (msg: WebSocketMessage) => {
       const { data } = msg;
-      const { useFriendStore } = require('../stores/friendStore');
+      const { useFriendStore } = await import('../stores/friendStore');
       useFriendStore.getState().addRequest({
         id: data.id,
         fromUserId: data.from_user_id,
@@ -821,9 +823,9 @@ export function useWebSocket() {
       });
     });
 
-    const unsubFriendRequestAccepted = wsService.on('friend_request_accepted', (msg: WebSocketMessage) => {
+    const unsubFriendRequestAccepted = wsService.on('friend_request_accepted', async (msg: WebSocketMessage) => {
       const { data } = msg;
-      const { useFriendStore } = require('../stores/friendStore');
+      const { useFriendStore } = await import('../stores/friendStore');
       const store = useFriendStore.getState();
       // Remove the pending request
       if (data.request_id) {
@@ -842,17 +844,17 @@ export function useWebSocket() {
       }
     });
 
-    const unsubFriendRemoved = wsService.on('friend_removed', (msg: WebSocketMessage) => {
+    const unsubFriendRemoved = wsService.on('friend_removed', async (msg: WebSocketMessage) => {
       const { data } = msg;
       if (data.user_id) {
-        const { useFriendStore } = require('../stores/friendStore');
+        const { useFriendStore } = await import('../stores/friendStore');
         useFriendStore.getState().removeFriendByUserId(data.user_id);
       }
     });
 
-    const unsubFriendCodeClaimed = wsService.on('friend_code_claimed', (msg: WebSocketMessage) => {
+    const unsubFriendCodeClaimed = wsService.on('friend_code_claimed', async (msg: WebSocketMessage) => {
       const { data } = msg;
-      const { useFriendStore } = require('../stores/friendStore');
+      const { useFriendStore } = await import('../stores/friendStore');
       const store = useFriendStore.getState();
 
       if (data.status === 'accepted' && data.friend) {
@@ -910,6 +912,19 @@ export function useWebSocket() {
       console.error('WebSocket error:', msg.data);
     });
 
+    // Session revoked handler — server forcefully terminated our session.
+    // This is a courtesy notification; the TCP connection is being killed regardless.
+    const unsubSessionRevoked = wsService.on('session_revoked', () => {
+      console.warn('[WebSocket] Session revoked by server');
+      wsService.disconnect();
+      if (useAuthStore.getState().rememberMe) {
+        gracefulReset();
+      } else {
+        nuclearReset();
+      }
+      useAuthStore.getState().clearAccessToken();
+    });
+
     // Cleanup handlers
     return () => {
       unsubConnection();
@@ -953,6 +968,7 @@ export function useWebSocket() {
       unsubDMVoiceState();
       unsubSubscribed();
       unsubError();
+      unsubSessionRevoked();
     };
   }, [
     wsService,

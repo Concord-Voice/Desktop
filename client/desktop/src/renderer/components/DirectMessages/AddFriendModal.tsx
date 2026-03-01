@@ -2,6 +2,7 @@ import React, { useState, useRef, useCallback } from 'react';
 import { Copy, Check, UserPlus, Search, Trash2 } from 'lucide-react';
 import { useFriendStore, type FriendCodePreview, type SearchResult } from '../../stores/friendStore';
 import { usePrivacyStore } from '../../stores/privacyStore';
+import { apiFetch } from '../../services/apiClient';
 import Modal from '../ui/Modal';
 import './DirectMessages.css';
 
@@ -80,7 +81,17 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
         setCodePreview(preview);
         if (!preview.valid) setCodeError('This code is expired or has been used');
       } catch (err) {
-        setCodeError(err instanceof Error ? err.message : 'Invalid code');
+        // Check if this might be a server invite code instead
+        try {
+          const invRes = await apiFetch(`/api/v1/invites/${trimmed}`);
+          if (invRes.ok) {
+            setCodeError('This looks like a server invite code, not a friend code. Use the Join Server button to use it.');
+          } else {
+            setCodeError(err instanceof Error ? err.message : 'Invalid code');
+          }
+        } catch {
+          setCodeError(err instanceof Error ? err.message : 'Invalid code');
+        }
       }
     }
   }, [previewFriendCode]);
@@ -155,10 +166,23 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
     }
   }, [isGenerating, generateFriendCode, maxUses, expiresIn, autoAccept]);
 
-  // Copy code
-  const handleCopy = useCallback(() => {
-    if (!generatedCode) return;
-    navigator.clipboard.writeText(generatedCode);
+  // Copy code (with fallback for restricted clipboard access)
+  const handleCopy = useCallback(async (code?: string) => {
+    const text = code || generatedCode;
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // Fallback: use a temporary textarea for clipboard write
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }, [generatedCode]);
@@ -273,11 +297,15 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
             </div>
             <div className="add-friend-option-group">
               <label>Auto-accept</label>
-              <input
-                type="checkbox"
-                checked={autoAccept}
-                onChange={(e) => setAutoAccept(e.target.checked)}
-              />
+              <label className="add-friend-toggle">
+                <input
+                  type="checkbox"
+                  checked={autoAccept}
+                  onChange={(e) => setAutoAccept(e.target.checked)}
+                />
+                <span className="add-friend-toggle-track" />
+                <span className="add-friend-toggle-thumb" />
+              </label>
             </div>
           </div>
 
@@ -285,7 +313,7 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
             {generatedCode ? (
               <>
                 <span className="invite-code-value">{generatedCode}</span>
-                <button className="invite-code-copy-btn" onClick={handleCopy}>
+                <button className="invite-code-copy-btn" onClick={() => handleCopy()}>
                   {copied ? <Check size={14} /> : <Copy size={14} />}
                   {copied ? 'Copied!' : 'Copy'}
                 </button>

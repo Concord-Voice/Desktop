@@ -152,7 +152,7 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
     };
   }, [quietBoost, quietBoostThreshold]);
 
-  return <audio ref={audioRef} autoPlay playsInline />;
+  return <audio ref={audioRef} autoPlay />;
 };
 
 /**

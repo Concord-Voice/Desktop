@@ -11,11 +11,11 @@ const EmojiSearch: React.FC<EmojiSearchProps> = ({ onSearch, autoFocus = true })
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    if (autoFocus && inputRef.current) {
-      // Small delay to ensure the picker is fully rendered
-      const timer = setTimeout(() => inputRef.current?.focus(), 50);
-      return () => clearTimeout(timer);
-    }
+    if (!autoFocus || !inputRef.current) return;
+
+    // Small delay to ensure the picker is fully rendered
+    const timer = setTimeout(() => inputRef.current?.focus(), 50);
+    return () => clearTimeout(timer);
   }, [autoFocus]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -688,7 +688,7 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
       {/* Dynamic Channel Groups */}
       {(channels.length > 0 || channelGroups.length > 0) && (
         <>
-          {groupedChannels.map(({ group, channels: groupChannels, slotIndex }, groupIdx) => {
+          {groupedChannels.map(({ group, channels: groupChannels, slotIndex }, _groupIdx) => {
             const groupId = group?.id ?? `__uncategorized-${slotIndex ?? 'legacy'}`;
             const isCollapsed = group ? collapsedGroups.includes(group.id) : false;
 

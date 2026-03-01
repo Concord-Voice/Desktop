@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useAuthStore } from '../../stores/authStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useUserStore } from '../../stores/userStore';
 import { useMemberStore, ServerMember, PresenceStatus } from '../../stores/memberStore';
@@ -10,7 +9,6 @@ import UserProfileModal from './UserProfileModal';
 import './MemberList.css';
 
 const MemberList: React.FC = () => {
-  const accessToken = useAuthStore((state) => state.accessToken);
   const activeServerId = useServerStore((state) => state.activeServerId);
   const servers = useServerStore((state) => state.servers);
   const activeServer = servers.find((s) => s.id === activeServerId) || null;

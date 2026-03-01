@@ -19,13 +19,10 @@ import { Device, types as mediasoupTypes } from 'mediasoup-client';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../stores/authStore';
 import { useUserStore } from '../stores/userStore';
-import { useVoiceStore, AUDIO_QUALITY_TIERS } from '../stores/voiceStore';
-import type { AudioQualityTier, VoiceParticipant } from '../stores/voiceStore';
-import { useAudioSettingsStore } from '../stores/audioSettingsStore';
-import type { AudioPriority } from '../stores/audioSettingsStore';
-import { useVideoSettingsStore, VIDEO_QUALITY_PRESETS } from '../stores/videoSettingsStore';
-import type { VideoPriority } from '../stores/videoSettingsStore';
-import { API_BASE, apiFetch } from './apiClient';
+import { useVoiceStore, AUDIO_QUALITY_TIERS, type AudioQualityTier, type VoiceParticipant } from '../stores/voiceStore';
+import { useAudioSettingsStore, type AudioPriority } from '../stores/audioSettingsStore';
+import { useVideoSettingsStore, VIDEO_QUALITY_PRESETS, type VideoPriority } from '../stores/videoSettingsStore';
+import { apiFetch } from './apiClient';
 import { MediaEncryption } from './mediaEncryption';
 import { e2eeService } from './e2eeService';
 
@@ -2018,7 +2015,7 @@ class VoiceService {
       iceCandidates: options.iceCandidates,
       dtlsParameters: options.dtlsParameters,
       ...(this.isEncrypted && {
-        additionalSettings: { encodedInsertableStreams: true },
+        additionalSettings: { encodedInsertableStreams: true } as unknown as Partial<RTCConfiguration>,
       }),
     });
 
@@ -2057,7 +2054,7 @@ class VoiceService {
       iceCandidates: options.iceCandidates,
       dtlsParameters: options.dtlsParameters,
       ...(this.isEncrypted && {
-        additionalSettings: { encodedInsertableStreams: true },
+        additionalSettings: { encodedInsertableStreams: true } as unknown as Partial<RTCConfiguration>,
       }),
     });
 
@@ -2177,7 +2174,7 @@ class VoiceService {
   private setupSocketListeners(): void {
     if (!this.socket) return;
 
-    this.socket.on('new-producer', async ({ producerId, userId, kind, source, requiresOptIn }) => {
+    this.socket.on('new-producer', async ({ producerId, userId, kind: _kind, source, requiresOptIn }) => {
       const store = useVoiceStore.getState();
 
       // Screen shares use opt-in ("Tune In") model — announce but don't auto-consume
@@ -2218,11 +2215,11 @@ class VoiceService {
       if (source === 'screen') store.updateParticipant(userId, { isScreenSharing: true });
     });
 
-    this.socket.on('producer-paused', ({ producerId, userId }) => {
+    this.socket.on('producer-paused', ({ producerId: _producerId, userId }) => {
       useVoiceStore.getState().updateParticipant(userId, { isMuted: true });
     });
 
-    this.socket.on('producer-resumed', ({ producerId, userId }) => {
+    this.socket.on('producer-resumed', ({ producerId: _producerId, userId }) => {
       useVoiceStore.getState().updateParticipant(userId, { isMuted: false });
     });
 
@@ -2371,7 +2368,6 @@ class VoiceService {
 
     this.decoderProfilingTimer = setInterval(async () => {
       probeCount++;
-      const interval = probeCount > maxInitialProbes ? 30_000 : 5_000;
 
       // Switch to slower interval after initial profiling
       if (probeCount === maxInitialProbes + 1 && this.decoderProfilingTimer) {
@@ -2429,13 +2425,17 @@ class VoiceService {
           // Load ratio (rho)
           const rho = (p95DecodeMs * currentFps) / 1000;
 
-          const currentLayers = consumer.currentLayers;
+          // currentLayers / setPreferredLayers are SFU-side extensions not
+          // present in the mediasoup-client type definitions, so cast to any.
+          const consumerAny = consumer as any;
+          const currentLayers: { spatialLayer: number; temporalLayer: number } | undefined =
+            consumerAny.currentLayers;
 
           if (rho >= 0.925) {
             // RED zone — critical decoder load
             worstZone = 'red';
             if (currentLayers && currentLayers.spatialLayer > 0) {
-              consumer.setPreferredLayers({
+              consumerAny.setPreferredLayers({
                 spatialLayer: currentLayers.spatialLayer - 1,
                 temporalLayer: currentLayers.temporalLayer,
               });
@@ -2444,7 +2444,7 @@ class VoiceService {
                 `(rho=${rho.toFixed(2)}, decode p95=${p95DecodeMs.toFixed(1)}ms, fps=${currentFps})`,
               );
             } else if (currentLayers && currentLayers.temporalLayer > 0) {
-              consumer.setPreferredLayers({
+              consumerAny.setPreferredLayers({
                 spatialLayer: currentLayers.spatialLayer,
                 temporalLayer: currentLayers.temporalLayer - 1,
               });
@@ -2481,7 +2481,7 @@ class VoiceService {
             // YELLOW zone — approaching limit
             if (worstZone !== 'red') worstZone = 'yellow';
             if (currentLayers && currentLayers.temporalLayer > 0) {
-              consumer.setPreferredLayers({
+              consumerAny.setPreferredLayers({
                 spatialLayer: currentLayers.spatialLayer,
                 temporalLayer: currentLayers.temporalLayer - 1,
               });

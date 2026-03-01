@@ -9,6 +9,36 @@ import DeleteMessageModal from './DeleteMessageModal';
 import MessageContextMenu from './MessageContextMenu';
 import './Message.css';
 
+/**
+ * Detect emoji-only messages and return the count.
+ * Returns 0 if the message contains any non-emoji text.
+ * Uses Unicode emoji properties to match all standard emoji sequences.
+ */
+function getEmojiOnlyCount(text: string): number {
+  if (!text || text.length === 0) return 0;
+  // Match emoji sequences: emoji with optional skin tones, ZWJ sequences, keycap sequences, flags
+  const emojiRegex = /\p{Emoji_Presentation}(\u{FE0F}?\u{20E3}|\u{200D}\p{Emoji_Presentation})*/gu;
+  const stripped = text.replace(emojiRegex, '').replace(/[\s\u{FE0F}\u{200D}]/gu, '');
+  if (stripped.length > 0) return 0;
+  const matches = text.match(emojiRegex);
+  return matches ? matches.length : 0;
+}
+
+/**
+ * Returns a CSS class for emoji-only messages based on emoji count.
+ * 1 emoji = largest, linearly scales down to normal at 7+.
+ */
+function getEmojiSizeClass(count: number): string {
+  if (count <= 0) return '';
+  if (count === 1) return 'emoji-jumbo-1';
+  if (count === 2) return 'emoji-jumbo-2';
+  if (count === 3) return 'emoji-jumbo-3';
+  if (count === 4) return 'emoji-jumbo-4';
+  if (count === 5) return 'emoji-jumbo-5';
+  if (count === 6) return 'emoji-jumbo-6';
+  return '';
+}
+
 export interface MessageProps {
   message: MessageWithStatus;
   currentUserId: string;
@@ -72,16 +102,16 @@ const Message: React.FC<MessageProps> = ({
   );
 
   useEffect(() => {
+    if (!showOptions) return;
+
     const handleClickOutside = (event: MouseEvent) => {
       if (optionsRef.current && !optionsRef.current.contains(event.target as Node)) {
         setShowOptions(false);
       }
     };
 
-    if (showOptions) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showOptions]);
 
   const handleEditSubmit = () => {
@@ -196,29 +226,37 @@ const Message: React.FC<MessageProps> = ({
             </div>
           </div>
         ) : (
-          <div className="message-text">
-            {message.is_encrypted && (
-              <span className="encrypted-indicator" title="End-to-end encrypted">
-                <Lock size={12} />
-              </span>
-            )}
-            {message.pendingKeys ? (
-              <span className="decrypt-failed pending-keys">
-                <Lock size={14} />
-                Waiting for encryption keys...
-              </span>
-            ) : message.decryptFailed ? (
-              <span className="decrypt-failed">
-                <Lock size={14} />
-                Unable to decrypt this message
-              </span>
-            ) : (
-              message.content
-            )}
-            {!showAvatar && message.edited_at && (
-              <span className="message-edited-inline">(edited)</span>
-            )}
-          </div>
+          (() => {
+            const emojiCount = (!message.pendingKeys && !message.decryptFailed)
+              ? getEmojiOnlyCount(message.content)
+              : 0;
+            const emojiClass = getEmojiSizeClass(emojiCount);
+            return (
+              <div className={`message-text${emojiClass ? ` ${emojiClass}` : ''}`}>
+                {message.is_encrypted && (
+                  <span className="encrypted-indicator" title="End-to-end encrypted">
+                    <Lock size={12} />
+                  </span>
+                )}
+                {message.pendingKeys ? (
+                  <span className="decrypt-failed pending-keys">
+                    <Lock size={14} />
+                    Waiting for encryption keys...
+                  </span>
+                ) : message.decryptFailed ? (
+                  <span className="decrypt-failed">
+                    <Lock size={14} />
+                    Unable to decrypt this message
+                  </span>
+                ) : (
+                  message.content
+                )}
+                {!showAvatar && message.edited_at && (
+                  <span className="message-edited-inline">(edited)</span>
+                )}
+              </div>
+            );
+          })()
         )}
 
         {canModify && !isEditing && (

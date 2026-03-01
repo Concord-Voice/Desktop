@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, devtools } from 'zustand/middleware';
 import { apiFetch } from '../services/apiClient';
+import { e2eeService } from '../services/e2eeService';
 
 export interface DMParticipant {
   userId: string;
@@ -171,6 +172,31 @@ export const useDMStore = create<DMState>()(
 
           const data = await response.json();
           const conv = mapConversation(data.conversation);
+          const isNewlyCreated = response.status === 201;
+
+          // For newly created personal threads, generate and distribute E2EE key
+          if (isNewlyCreated && conv.isEncrypted && e2eeService.isInitialized) {
+            try {
+              const userStore = await import('../stores/userStore');
+              const userId = userStore.useUserStore.getState().user?.id;
+              if (userId) {
+                const pkRes = await apiFetch(`/api/v1/users/${userId}/public-key`);
+                if (pkRes.ok) {
+                  const pkData = await pkRes.json();
+                  const memberKeys = new Map<string, string>();
+                  memberKeys.set(userId, pkData.public_key);
+                  const wrappedKeys = await e2eeService.createChannelKeys(memberKeys);
+                  await apiFetch(`/api/v1/e2ee/keys/${conv.id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ wrapped_keys: Object.fromEntries(wrappedKeys) }),
+                  });
+                }
+              }
+            } catch (err) {
+              console.error('Failed to distribute E2EE key for personal thread:', err);
+            }
+          }
 
           set((state) => {
             const exists = state.conversations.some((c) => c.id === conv.id);

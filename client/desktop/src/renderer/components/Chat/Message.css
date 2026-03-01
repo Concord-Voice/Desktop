@@ -111,6 +111,14 @@
   white-space: pre-wrap;
 }
 
+/* Emoji-only messages: scale up based on count, linear from 48px (1) to normal (7+) */
+.message-text.emoji-jumbo-1 { font-size: calc(48px * var(--font-scale, 1)); line-height: 1.2; }
+.message-text.emoji-jumbo-2 { font-size: calc(42px * var(--font-scale, 1)); line-height: 1.2; }
+.message-text.emoji-jumbo-3 { font-size: calc(36px * var(--font-scale, 1)); line-height: 1.25; }
+.message-text.emoji-jumbo-4 { font-size: calc(30px * var(--font-scale, 1)); line-height: 1.3; }
+.message-text.emoji-jumbo-5 { font-size: calc(24px * var(--font-scale, 1)); line-height: 1.35; }
+.message-text.emoji-jumbo-6 { font-size: calc(20px * var(--font-scale, 1)); line-height: 1.4; }
+
 .encrypted-indicator {
   font-size: calc(12px * var(--font-scale, 1));
   margin-right: 4px;

@@ -41,7 +41,7 @@ const PROBE_FRAMERATES = [60, 30, 15];
 // Cache
 // ---------------------------------------------------------------------------
 
-let cachedWebcamCaps: Map<string, WebcamCapability[]> = new Map();
+const cachedWebcamCaps: Map<string, WebcamCapability[]> = new Map();
 let cachedCodecCaps: CodecCapability[] | null = null;
 
 /**

@@ -1,7 +1,6 @@
 import React from 'react';
 import { Gauge, Crown } from 'lucide-react';
-import { useVoiceStore, AUDIO_QUALITY_TIERS } from '../../stores/voiceStore';
-import type { AudioQualityTier } from '../../stores/voiceStore';
+import { useVoiceStore, AUDIO_QUALITY_TIERS, type AudioQualityTier } from '../../stores/voiceStore';
 import { getVoiceService } from '../../services/voiceLazy';
 import './QualityTierSelector.css';
 

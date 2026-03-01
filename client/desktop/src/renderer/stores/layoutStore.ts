@@ -44,6 +44,9 @@ interface LayoutState {
   setServerBarHeight: (height: number) => void;
   setFolderBarHeight: (height: number) => void;
 
+  // Actions — reset user-specific content (preserves UI preferences like panel widths)
+  clearUserContent: () => void;
+
   // Actions — server organization
   reorderServers: (serverIds: string[]) => void;
   createFolder: (name: string, serverIds?: string[]) => void;
@@ -98,6 +101,8 @@ export const useLayoutStore = create<LayoutState>()(
 
         setFolderBarHeight: (height: number) =>
           set({ folderBarHeight: Math.max(24, Math.min(48, height)) }),
+
+        clearUserContent: () => set({ serverFolders: [], serverOrder: [] }),
 
         reorderServers: (serverIds: string[]) => set({ serverOrder: serverIds }),
 

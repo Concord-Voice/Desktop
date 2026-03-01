@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { useAuthStore } from './authStore';
-import { useServerStore } from './serverStore';
 import { apiFetch } from '../services/apiClient';
 import { getWebSocketService } from '../services/websocketService';
 import { e2eeService } from '../services/e2eeService';
@@ -118,10 +117,9 @@ export const useUserStore = create<UserState>()(
           console.error('Logout API error:', error);
         }
 
-        // Clear all stores
-        set({ user: null, isLoading: false, error: null });
-        useAuthStore.getState().clearAccessToken();
-        useServerStore.getState().clearServers();
+        // Nuclear reset: login screen will appear, so wipe everything
+        const { nuclearReset } = await import('../services/resetService');
+        nuclearReset();
       },
 
       updateProfile: async (updates: UpdateProfileData) => {
@@ -190,7 +188,7 @@ export const useUserStore = create<UserState>()(
               current_password: currentPassword,
               new_password: newPassword,
               wrapped_private_key: arrayBufferToBase64(newWrappedKey),
-              key_derivation_salt: arrayBufferToBase64(newSalt.buffer),
+              key_derivation_salt: arrayBufferToBase64(newSalt.buffer as ArrayBuffer),
             }),
           });
 
@@ -215,7 +213,7 @@ export const useUserStore = create<UserState>()(
           await e2eeService.initialize(
             newPassword,
             arrayBufferToBase64(newWrappedKey),
-            arrayBufferToBase64(newSalt.buffer)
+            arrayBufferToBase64(newSalt.buffer as ArrayBuffer)
           );
 
           // Re-encrypt and push preferences with the new key

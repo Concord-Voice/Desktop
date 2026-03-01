@@ -124,9 +124,7 @@ const ScreenPipContent: React.FC<{
   pinned: boolean;
   onTogglePin: () => void;
   onClose: () => void;
-}> = ({ pipId, pinned, onTogglePin, onClose }) => {
-  const producerId = pipId.replace('screen-', '');
-
+}> = ({ pipId: _pipId, pinned, onTogglePin, onClose }) => {
   return (
     <div className="pip-window pip-window--screen">
       <PipHeader pinned={pinned} onTogglePin={onTogglePin} onClose={onClose} />

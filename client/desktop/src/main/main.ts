@@ -219,7 +219,7 @@ ipcMain.handle('auth:restoreSession', async () => {
   if (refreshResult.status === 'ok' && refreshResult.accessToken) {
     // Also restore E2EE keys if available
     const e2eeKeys = restoreE2EEKeys();
-    return { status: 'restored', accessToken: refreshResult.accessToken, e2eeKeys };
+    return { status: 'restored', accessToken: refreshResult.accessToken, sessionId: refreshResult.sessionId, e2eeKeys };
   }
   return { status: 'refresh_failed' };
 });

@@ -128,6 +128,10 @@ const DirectMessagesView: React.FC = () => {
           server={contextMenu.server}
           position={contextMenu.position}
           onClose={() => setContextMenu(null)}
+          onEditServer={() => setContextMenu(null)}
+          onDeleteServer={() => setContextMenu(null)}
+          onLeaveServer={() => setContextMenu(null)}
+          onInvite={() => setContextMenu(null)}
         />
       )}
     </div>

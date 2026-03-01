@@ -37,7 +37,7 @@ const TRAILER_SIZE = 15;
 
 // Number of unencrypted header bytes per codec
 // VP8: 1 byte, VP9: 1 byte, H264: varies, Opus: 1 byte (TOC)
-const UNENCRYPTED_BYTES: Record<string, number> = {
+export const UNENCRYPTED_BYTES: Record<string, number> = {
   opus: 1,
   vp8: 1,
   vp9: 1,
@@ -262,7 +262,7 @@ export class MediaEncryption {
 
     // Generate IV: 12 bytes = 4-byte counter + 8-byte random
     const iv = new Uint8Array(12);
-    const counterView = new DataView(iv.buffer);
+    const counterView = new DataView(iv.buffer as ArrayBuffer);
     counterView.setUint32(0, this.frameCounter++);
     crypto.getRandomValues(iv.subarray(4));
 
@@ -287,7 +287,7 @@ export class MediaEncryption {
     result[offset] = MAGIC_0;
     result[offset + 1] = MAGIC_1;
 
-    frame.data = result.buffer;
+    frame.data = result.buffer as ArrayBuffer;
   }
 
   /**
@@ -380,7 +380,7 @@ export class MediaEncryption {
     const result = new Uint8Array(header.length + plaintext.byteLength);
     result.set(header);
     result.set(new Uint8Array(plaintext), header.length);
-    frame.data = result.buffer;
+    frame.data = result.buffer as ArrayBuffer;
   }
 
   /** Clean up */

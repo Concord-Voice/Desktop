@@ -13,7 +13,7 @@ const StreamThumbnail: React.FC<{
   sharerName: string;
   onSelect: () => void;
   onTuneOut: () => void;
-}> = ({ producerId, stream, sharerName, onSelect, onTuneOut }) => {
+}> = ({ producerId: _producerId, stream, sharerName, onSelect, onTuneOut }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {

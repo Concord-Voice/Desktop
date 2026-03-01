@@ -76,8 +76,10 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
 
   const handleStatusChange = (status: PresenceStatus) => {
     setSelfStatus(status);
-    const ws = getWebSocketService();
-    ws.sendSetStatus(status);
+    if (status !== 'offline') {
+      const ws = getWebSocketService();
+      ws.sendSetStatus(status);
+    }
   };
 
   return (

@@ -611,9 +611,52 @@
   border-color: var(--accent-primary);
 }
 
-.add-friend-option-group input[type="checkbox"] {
-  accent-color: var(--accent-primary);
+/* Toggle switch for auto-accept */
+.add-friend-toggle {
+  position: relative;
+  width: 38px;
+  height: 20px;
+  flex-shrink: 0;
   cursor: pointer;
+}
+
+.add-friend-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.add-friend-toggle-track {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  transition: all 0.2s ease;
+}
+
+.add-friend-toggle input:checked + .add-friend-toggle-track {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.add-friend-toggle-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 14px;
+  height: 14px;
+  background: var(--text-primary);
+  border-radius: 50%;
+  transition: transform 0.2s ease;
+  pointer-events: none;
+}
+
+.add-friend-toggle input:checked ~ .add-friend-toggle-thumb {
+  transform: translateX(18px);
 }
 
 /* Generated code display */

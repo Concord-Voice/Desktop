@@ -28,10 +28,14 @@ const TypingIndicator: React.FC<TypingIndicatorProps> = ({ channelId }) => {
     }, 2000);
 
     // Subscribe to typing map changes only (not all store changes)
-    const unsub = useChatStore.subscribe(
-      (state) => state.typingByChannel.get(channelId),
-      () => updateTyping()
-    );
+    let prev = useChatStore.getState().typingByChannel.get(channelId);
+    const unsub = useChatStore.subscribe((state) => {
+      const next = state.typingByChannel.get(channelId);
+      if (next !== prev) {
+        prev = next;
+        updateTyping();
+      }
+    });
 
     return () => {
       clearInterval(interval);

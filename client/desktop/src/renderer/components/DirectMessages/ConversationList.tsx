@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MessageSquare, PhoneMissed, Users, BookOpen } from 'lucide-react';
+import { MessageSquare, Users, BookOpen } from 'lucide-react';
 import { useDMStore, type DMConversation } from '../../stores/dmStore';
 import { useUserStore } from '../../stores/userStore';
 import './DirectMessages.css';
@@ -53,7 +53,6 @@ const ConversationList: React.FC<ConversationListProps> = ({
   const fetchConversations = useDMStore((s) => s.fetchConversations);
   const openPersonalThread = useDMStore((s) => s.openPersonalThread);
   const currentUserId = useUserStore((s) => s.user?.id) || '';
-  const currentUsername = useUserStore((s) => s.user?.username) || '';
 
   useEffect(() => {
     fetchConversations();

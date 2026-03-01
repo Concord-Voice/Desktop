@@ -26,6 +26,7 @@ export async function refreshAccessToken(): Promise<string | null> {
   const result = await window.electron.refreshToken();
   if (result.status === 'ok' && result.accessToken) {
     useAuthStore.getState().setAccessToken(result.accessToken);
+    if (result.sessionId) useAuthStore.getState().setSessionId(result.sessionId);
     return result.accessToken;
   }
   return null;
@@ -62,7 +63,13 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   // Attempt token refresh via main process
   const newToken = await refreshAccessToken();
   if (!newToken) {
-    // Refresh failed — clear auth (triggers logout)
+    // Refresh failed — reset state before clearing auth
+    const { gracefulReset, nuclearReset } = await import('./resetService');
+    if (useAuthStore.getState().rememberMe) {
+      gracefulReset();
+    } else {
+      nuclearReset();
+    }
     useAuthStore.getState().clearAccessToken();
     window.electron?.clearTokens?.();
     return response; // Return the original 401

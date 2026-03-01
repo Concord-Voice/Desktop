@@ -127,7 +127,7 @@ export function restoreRefreshToken(): { status: 'ok'; token: string; apiBase: s
  * Perform a token refresh via the main process.
  * Deduplicates concurrent calls. Returns only the access token.
  */
-export function performRefresh(): Promise<{ status: string; accessToken?: string }> {
+export function performRefresh(): Promise<{ status: string; accessToken?: string; sessionId?: string }> {
   if (refreshPromise) {
     return refreshPromise;
   }
@@ -149,9 +149,10 @@ export function performRefresh(): Promise<{ status: string; accessToken?: string
         return { status: 'refresh_failed' };
       }
 
-      const data = (await response.json()) as { access_token?: string; refresh_token?: string };
+      const data = (await response.json()) as { access_token?: string; refresh_token?: string; session_id?: string };
       const newAccessToken = data.access_token;
       const newRefreshToken = data.refresh_token;
+      const newSessionId = data.session_id;
 
       if (!newAccessToken) {
         return { status: 'refresh_failed' };
@@ -171,7 +172,7 @@ export function performRefresh(): Promise<{ status: string; accessToken?: string
         }
       }
 
-      return { status: 'ok', accessToken: newAccessToken };
+      return { status: 'ok', accessToken: newAccessToken, sessionId: newSessionId };
     } catch (err) {
       console.error('[TokenManager] Refresh request failed:', err);
       return { status: 'refresh_failed' };

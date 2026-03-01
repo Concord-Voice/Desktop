@@ -147,7 +147,7 @@ export const useAudioSettingsStore = create<AudioSettingsState>()(
           delete state.autoFecMode;
           delete state.fecManualPercent;
         }
-        return state as AudioSettingsState;
+        return state as unknown as AudioSettingsState;
       },
     }
   )

@@ -152,6 +152,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
         });
       }
       useAuthStore.getState().setAccessToken(data.access_token);
+      if (data.session_id) useAuthStore.getState().setSessionId(data.session_id);
 
       // Persist E2EE session keys in safeStorage for session restore
       const sessionKeys = e2eeService.getSessionKeys();
@@ -177,7 +178,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     setFormData((prev) => ({ ...prev, [field]: value }));
     // Clear error for this field when user starts typing
-    if (errors[field]) {
+    if (field in errors && errors[field as keyof FormErrors]) {
       setErrors((prev) => ({ ...prev, [field]: undefined }));
     }
   };
