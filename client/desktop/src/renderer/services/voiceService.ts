@@ -846,15 +846,26 @@ class VoiceService {
         this.localCameraStream.getTracks().forEach((t) => t.stop());
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          ...(isSystemDefault ? {} : {
-            width: { ideal: preset.width },
-            height: { ideal: preset.height },
-            frameRate: { ideal: preset.frameRate },
-          }),
-        },
-      });
+      // Try preferred constraints, fall back to bare minimum on OverconstrainedError
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            ...(isSystemDefault ? {} : {
+              width: { ideal: preset.width },
+              height: { ideal: preset.height },
+              frameRate: { ideal: preset.frameRate },
+            }),
+          },
+        });
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'OverconstrainedError' && !isSystemDefault) {
+          console.warn('Camera overconstrained during track replace, falling back:', err);
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        } else {
+          throw err;
+        }
+      }
       this.localCameraStream = stream;
       const track = stream.getVideoTracks()[0];
 
@@ -1436,72 +1447,120 @@ class VoiceService {
       return;
     }
 
-    // Read video settings for camera preset
-    const videoSettings = useVideoSettingsStore.getState();
-    const preset = VIDEO_QUALITY_PRESETS[videoSettings.cameraPreset] || VIDEO_QUALITY_PRESETS['system'];
-    const isSystemDefault = videoSettings.cameraPreset === 'system' || preset.width === 0;
+    try {
+      // Read video settings for camera preset
+      const videoSettings = useVideoSettingsStore.getState();
+      const preset = VIDEO_QUALITY_PRESETS[videoSettings.cameraPreset] || VIDEO_QUALITY_PRESETS['system'];
+      const isSystemDefault = videoSettings.cameraPreset === 'system' || preset.width === 0;
 
-    const constraints: MediaStreamConstraints = {
-      video: {
-        deviceId: deviceId ? { exact: deviceId } : undefined,
-        // System default: let the camera/driver decide resolution and framerate
-        ...(isSystemDefault ? {} : {
-          width: { ideal: preset.width },
-          height: { ideal: preset.height },
-          frameRate: { ideal: preset.frameRate },
-        }),
-      },
-    };
+      // Try getUserMedia with progressive constraint relaxation on OverconstrainedError:
+      // 1. Full constraints (deviceId exact + resolution/frameRate ideal)
+      // 2. Drop resolution/frameRate, keep deviceId
+      // 3. Drop deviceId, keep resolution/frameRate
+      // 4. Bare minimum (no constraints at all)
+      const fallbackChain: MediaStreamConstraints[] = [
+        {
+          video: {
+            deviceId: deviceId ? { exact: deviceId } : undefined,
+            ...(isSystemDefault ? {} : {
+              width: { ideal: preset.width },
+              height: { ideal: preset.height },
+              frameRate: { ideal: preset.frameRate },
+            }),
+          },
+        },
+        ...(deviceId && !isSystemDefault ? [{
+          video: { deviceId: { exact: deviceId } },
+        }] : []),
+        ...(!isSystemDefault ? [{
+          video: {
+            width: { ideal: preset.width },
+            height: { ideal: preset.height },
+            frameRate: { ideal: preset.frameRate },
+          },
+        }] : []),
+        { video: true },
+      ];
 
-    this.localCameraStream = await navigator.mediaDevices.getUserMedia(constraints);
-    const track = this.localCameraStream.getVideoTracks()[0];
+      for (const constraints of fallbackChain) {
+        try {
+          this.localCameraStream = await navigator.mediaDevices.getUserMedia(constraints);
+          break;
+        } catch (err) {
+          if (err instanceof DOMException && err.name === 'OverconstrainedError' && constraints !== fallbackChain[fallbackChain.length - 1]) {
+            console.warn('Camera overconstrained, relaxing constraints:', err);
+            continue;
+          }
+          throw err;
+        }
+      }
 
-    const { codec, encodings } = this.pickCameraCodec();
+      if (!this.localCameraStream) {
+        voiceState.setVideoSlotError('Could not access camera. Check that your camera is connected and not in use by another application.');
+        return;
+      }
+      const track = this.localCameraStream.getVideoTracks()[0];
 
-    const producer = await this.sendTransport.produce({
-      track,
-      encodings,
-      codec,
-      codecOptions: {
-        videoGoogleStartBitrate: 300,
-      },
-      appData: { source: 'camera' },
-    });
+      const { codec, encodings } = this.pickCameraCodec();
 
-    // Apply degradation preference on the RTP sender
-    this.applyDegradationPreference(producer);
-
-    this.producers.set('camera', producer);
-
-    // Track active codec for settings UI
-    useVoiceStore.getState().setActiveCameraCodec(codec?.mimeType?.toLowerCase() ?? null);
-
-    // Update store: both global flag and local participant's video stream
-    const store = useVoiceStore.getState();
-    store.setVideoOn(true);
-    const localUserId = useUserStore.getState().user?.id;
-    if (localUserId) {
-      store.updateParticipant(localUserId, {
-        videoStream: this.localCameraStream!,
-        isVideoOn: true,
+      const producer = await this.sendTransport.produce({
+        track,
+        encodings,
+        codec,
+        codecOptions: {
+          videoGoogleStartBitrate: 300,
+        },
+        appData: { source: 'camera' },
       });
-    }
 
-    if (this.isEncrypted && this.mediaEncryption) {
-      this.applyEncryptTransform(producer);
-    }
+      // Apply degradation preference on the RTP sender
+      this.applyDegradationPreference(producer);
 
-    producer.on('transportclose', () => {
-      this.producers.delete('camera');
+      this.producers.set('camera', producer);
+
+      // Track active codec for settings UI
+      useVoiceStore.getState().setActiveCameraCodec(codec?.mimeType?.toLowerCase() ?? null);
+
+      // Update store: both global flag and local participant's video stream
+      const store = useVoiceStore.getState();
+      store.setVideoOn(true);
+      const localUserId = useUserStore.getState().user?.id;
+      if (localUserId) {
+        store.updateParticipant(localUserId, {
+          videoStream: this.localCameraStream!,
+          isVideoOn: true,
+        });
+      }
+
+      if (this.isEncrypted && this.mediaEncryption) {
+        this.applyEncryptTransform(producer);
+      }
+
+      producer.on('transportclose', () => {
+        this.producers.delete('camera');
+        if (this.localCameraStream) {
+          this.localCameraStream.getTracks().forEach((t) => t.stop());
+          this.localCameraStream = null;
+        }
+        const s = useVoiceStore.getState();
+        s.setVideoOn(false);
+        const uid = useUserStore.getState().user?.id;
+        if (uid) s.updateParticipant(uid, { videoStream: undefined, isVideoOn: false });
+      });
+    } catch (err) {
+      console.error('Failed to start camera:', err);
+      // Clean up any partial stream
       if (this.localCameraStream) {
         this.localCameraStream.getTracks().forEach((t) => t.stop());
         this.localCameraStream = null;
       }
-      const s = useVoiceStore.getState();
-      s.setVideoOn(false);
-      const uid = useUserStore.getState().user?.id;
-      if (uid) s.updateParticipant(uid, { videoStream: undefined, isVideoOn: false });
-    });
+      const errMsg = err instanceof DOMException && err.name === 'NotAllowedError'
+        ? 'Camera access denied. Check your browser or system permissions.'
+        : err instanceof DOMException && err.name === 'NotFoundError'
+          ? 'No camera found. Check that your camera is connected.'
+          : 'Could not start camera. Try a different camera or video preset in Settings.';
+      voiceState.setVideoSlotError(errMsg);
+    }
   }
 
   /** Produce screen share — AV1 SVC preferred (best compression for static content), VP9 fallback */
@@ -2110,8 +2169,11 @@ class VoiceService {
       if (source === 'camera') store.updateParticipant(userId, { isVideoOn: false, videoStream: undefined });
       else if (source === 'screen') {
         store.updateParticipant(userId, { isScreenSharing: false, screenStream: undefined });
-        // Also remove from available screen shares (opt-in list)
         store.removeAvailableScreenShare(producerId);
+        // Clean up tunedInScreenShares so UI collapses back to user frame grid
+        if (producerId in store.tunedInScreenShares) {
+          store.tuneOut(producerId);
+        }
       }
     });
 
@@ -2176,6 +2238,13 @@ class VoiceService {
     this.socket.on('consumer-closed', ({ consumerId }) => {
       const consumer = this.consumers.get(consumerId);
       if (consumer) {
+        // If this was a screen share consumer, clean up tunedInScreenShares
+        const store = useVoiceStore.getState();
+        const producerId = consumer.producerId;
+        if (producerId && producerId in store.tunedInScreenShares) {
+          store.tuneOut(producerId);
+        }
+
         consumer.close();
         this.consumers.delete(consumerId);
       }

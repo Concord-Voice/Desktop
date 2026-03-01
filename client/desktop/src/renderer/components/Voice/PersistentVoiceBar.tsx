@@ -1,7 +1,7 @@
 import React, { useRef, useCallback } from 'react';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useChannelStore } from '../../stores/channelStore';
-import { useDocumentPip, hasDocumentPipSupport } from './useDocumentPip';
+import { useDocumentPip } from './useDocumentPip';
 import { DocumentPipContent } from './DocumentPipContent';
 import VoiceControls from './VoiceControls';
 import VoiceTextChat from './VoiceTextChat';
@@ -39,7 +39,7 @@ const PersistentVoiceBar: React.FC = () => {
   const docPip = useDocumentPip();
 
   const handlePopOut = useCallback(async () => {
-    if (!hasDocumentPipSupport) return;
+    if (!docPip.isSupported) return;
 
     const win = await docPip.open({ width: 480, height: 64 });
     if (win) {
@@ -117,7 +117,7 @@ const PersistentVoiceBar: React.FC = () => {
       )}
 
       {/* Full controls bar */}
-      <VoiceControls context="persistent" onPopOut={handlePopOut} />
+      <VoiceControls context="persistent" onPopOut={docPip.isSupported ? handlePopOut : undefined} />
     </div>
   );
 };

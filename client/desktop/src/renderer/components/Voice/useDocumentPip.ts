@@ -22,6 +22,8 @@ export function useDocumentPip() {
   const [isOpen, setIsOpen] = useState(false);
   // Track the pipWindow in state so consumers re-render when it changes
   const [pipWindow, setPipWindow] = useState<Window | null>(null);
+  // Track whether the API actually works (may exist but fail in Electron)
+  const [isSupported, setIsSupported] = useState(hasDocumentPipSupport);
 
   const open = useCallback(async (opts?: DocumentPipOptions): Promise<Window | null> => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -76,6 +78,11 @@ export function useDocumentPip() {
       return win;
     } catch (err) {
       console.error('Failed to open Document PiP:', err);
+      // If the API exists but doesn't actually work (e.g. Electron),
+      // disable the feature so buttons hide on next render
+      if (err instanceof DOMException) {
+        setIsSupported(false);
+      }
       return null;
     }
   }, []);
@@ -94,7 +101,7 @@ export function useDocumentPip() {
     };
   }, []);
 
-  return { open, close, isOpen, pipWindow };
+  return { open, close, isOpen, pipWindow, isSupported };
 }
 
 /** Check if the Document PiP API is available in this environment */

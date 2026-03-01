@@ -2036,38 +2036,42 @@ const VoiceAudioSection: React.FC = () => {
                 <span className="settings-row-label">Automatic Bitrate</span>
                 <span className="settings-row-hint">
                   {screenShareBitrate === 0
-                    ? `Enabled. Concord Voice adjusts bitrate based on your resolution, frame rate, and codec. Estimated ~${(clampedRecommended / 1_000_000).toFixed(1)} Mbps for current settings.`
+                    ? 'Enabled. Concord Voice adjusts bitrate based on your resolution, frame rate, and codec.'
                     : `Disabled. Using a fixed ${(screenShareBitrate / 1_000_000).toFixed(1)} Mbps cap. Recommended ~${(clampedRecommended / 1_000_000).toFixed(1)} Mbps for current settings.`}
                 </span>
+                {screenShareBitrate === 0 && (
+                  <span className="settings-estimated-bitrate">
+                    Estimated Bitrate: ~{(clampedRecommended / 1_000_000).toFixed(1)} Mbps
+                  </span>
+                )}
               </div>
               <ToggleSwitch
                 checked={screenShareBitrate === 0}
                 onChange={(v) => setDraftVideoSetting('screenShareBitrate', v ? 0 : clampedRecommended)}
               />
             </div>
-            <div className={`settings-volume-row ${screenShareBitrate === 0 ? 'settings-row-disabled' : ''}`}>
-              <div className="settings-row-info">
-                <span className="settings-volume-label">Cap</span>
-                <span className="settings-row-hint">
-                  {screenShareBitrate === 0
-                    ? 'Locked by Automatic Bitrate. Manual control is unavailable while automatic adjustment is active.'
-                    : 'Sets the maximum bitrate cap for screen sharing. Left (1.5 Mbps) for simple content. Right (30 Mbps) for high-motion content.'}
-                </span>
+            {screenShareBitrate !== 0 && (
+              <div className="settings-volume-row">
+                <div className="settings-row-info">
+                  <span className="settings-volume-label">Cap</span>
+                  <span className="settings-row-hint">
+                    Sets the maximum bitrate cap for screen sharing. Left (1.5 Mbps) for simple content. Right (30 Mbps) for high-motion content.
+                  </span>
+                </div>
+                <div className="settings-slider-wrapper">
+                  <span className="settings-slider-value">{(screenShareBitrate / 1_000_000).toFixed(1)} Mbps</span>
+                  <input
+                    type="range"
+                    className="settings-volume-slider"
+                    min={1.5}
+                    max={30}
+                    step={0.5}
+                    value={screenShareBitrate / 1_000_000}
+                    onChange={(e) => setDraftVideoSetting('screenShareBitrate', Math.round(Number(e.target.value) * 1_000_000))}
+                  />
+                </div>
               </div>
-              <div className="settings-slider-wrapper">
-                <span className="settings-slider-value">{screenShareBitrate === 0 ? `~${(clampedRecommended / 1_000_000).toFixed(1)}` : (screenShareBitrate / 1_000_000).toFixed(1)} Mbps</span>
-                <input
-                  type="range"
-                  className="settings-volume-slider"
-                  min={1.5}
-                  max={30}
-                  step={0.5}
-                  value={screenShareBitrate === 0 ? clampedRecommended / 1_000_000 : screenShareBitrate / 1_000_000}
-                  onChange={(e) => setDraftVideoSetting('screenShareBitrate', Math.round(Number(e.target.value) * 1_000_000))}
-                  disabled={screenShareBitrate === 0}
-                />
-              </div>
-            </div>
+            )}
 
             <h3 className="settings-subsection-title">Transport</h3>
 

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Mic,
   MicOff,
@@ -22,7 +23,7 @@ import { useVoiceStore } from '../../stores/voiceStore';
 import { useChannelStore } from '../../stores/channelStore';
 import { getVoiceService } from '../../services/voiceLazy';
 import ScreenSharePicker from './ScreenSharePicker';
-import { useDocumentPip, hasDocumentPipSupport } from './useDocumentPip';
+import { useDocumentPip } from './useDocumentPip';
 import { DocumentPipContent } from './DocumentPipContent';
 import './VoiceControls.css';
 
@@ -58,6 +59,10 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
 
   const [showScreenPicker, setShowScreenPicker] = useState(false);
   const [showPipMenu, setShowPipMenu] = useState(false);
+
+  const controlsRef = useRef<HTMLDivElement>(null);
+  const pipWrapRef = useRef<HTMLDivElement>(null);
+  const pipMenuRef = useRef<HTMLDivElement>(null);
 
   // Document PiP state (for frames/screen pop-out, not controls pop-out)
   const docPip = useDocumentPip();
@@ -119,6 +124,39 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
     return () => clearTimeout(timer);
   }, [videoSlotError, setVideoSlotError]);
 
+  // Close PiP menu on click outside or Escape
+  useEffect(() => {
+    if (!showPipMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (pipWrapRef.current?.contains(target)) return;
+      if (pipMenuRef.current?.contains(target)) return;
+      setShowPipMenu(false);
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setShowPipMenu(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [showPipMenu]);
+
+  /** Compute position:fixed style to render a portal element above an anchor */
+  const getPortalStyle = (ref: React.RefObject<HTMLElement | null>): React.CSSProperties => {
+    const rect = ref.current?.getBoundingClientRect();
+    if (!rect) return { position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', zIndex: 99999 };
+    return {
+      position: 'fixed',
+      bottom: window.innerHeight - rect.top,
+      left: rect.left + rect.width / 2,
+      transform: 'translateX(-50%)',
+      zIndex: 99999,
+    };
+  };
+
   const handleOpenPip = useCallback(async (mode: 'frames' | 'screen', producerId?: string) => {
     if (docPip.isOpen) {
       docPip.close();
@@ -138,13 +176,7 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
 
   return (
     <>
-      <div className="voice-controls voice-controls--full">
-        {videoSlotError && (
-          <div className="voice-controls__slot-error">
-            {videoSlotError}
-          </div>
-        )}
-
+      <div ref={controlsRef} className="voice-controls voice-controls--full">
         {/* Pin/Unpin button — persistent context only */}
         {context === 'persistent' && (
           <div className="voice-controls__persistent-actions">
@@ -217,8 +249,8 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
             </button>
           )}
 
-          {hasDocumentPipSupport && (
-            <div className="voice-controls__pip-wrap">
+          {docPip.isSupported && (
+            <div ref={pipWrapRef} className="voice-controls__pip-wrap">
               <button
                 className={`voice-controls__btn ${docPip.isOpen ? 'voice-controls__btn--active' : ''}`}
                 onClick={() => {
@@ -233,37 +265,11 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
                 <PictureInPicture2 size={18} />
                 <span className="voice-controls__btn-label">PiP</span>
               </button>
-
-              {showPipMenu && !docPip.isOpen && (
-                <div className="voice-controls__pip-menu">
-                  <button
-                    className="voice-controls__pip-menu-item"
-                    onClick={() => handleOpenPip('frames')}
-                  >
-                    Pop Out User Frames
-                  </button>
-                  {tunedInIds.map((producerId) => {
-                    const sharer = Object.values(participants).find(
-                      (p) => p.isScreenSharing
-                    );
-                    const name = sharer?.displayName || sharer?.username || 'User';
-                    return (
-                      <button
-                        key={producerId}
-                        className="voice-controls__pip-menu-item"
-                        onClick={() => handleOpenPip('screen', producerId)}
-                      >
-                        Pop Out {name}&apos;s Screen
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           )}
 
           {/* Pop-Out controls button — persistent context only */}
-          {context === 'persistent' && hasDocumentPipSupport && onPopOut && (
+          {context === 'persistent' && onPopOut && (
             <button
               className="voice-controls__btn"
               onClick={onPopOut}
@@ -284,6 +290,42 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
           </button>
         </div>
       </div>
+
+      {/* Portaled slot error — escapes overflow:hidden ancestors */}
+      {videoSlotError && createPortal(
+        <div className="voice-controls__slot-error" style={getPortalStyle(controlsRef)}>
+          {videoSlotError}
+        </div>,
+        document.body
+      )}
+
+      {/* Portaled PiP menu — escapes overflow:hidden ancestors */}
+      {showPipMenu && !docPip.isOpen && createPortal(
+        <div ref={pipMenuRef} className="voice-controls__pip-menu" style={getPortalStyle(pipWrapRef)}>
+          <button
+            className="voice-controls__pip-menu-item"
+            onClick={() => handleOpenPip('frames')}
+          >
+            Pop Out User Frames
+          </button>
+          {tunedInIds.map((producerId) => {
+            const sharer = Object.values(participants).find(
+              (p) => p.isScreenSharing
+            );
+            const name = sharer?.displayName || sharer?.username || 'User';
+            return (
+              <button
+                key={producerId}
+                className="voice-controls__pip-menu-item"
+                onClick={() => handleOpenPip('screen', producerId)}
+              >
+                Pop Out {name}&apos;s Screen
+              </button>
+            );
+          })}
+        </div>,
+        document.body
+      )}
 
       {showScreenPicker && (
         <ScreenSharePicker
