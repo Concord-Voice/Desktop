@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MessageSquare, PhoneMissed, Users } from 'lucide-react';
+import { MessageSquare, PhoneMissed, Users, BookOpen } from 'lucide-react';
 import { useDMStore, type DMConversation } from '../../stores/dmStore';
 import { useUserStore } from '../../stores/userStore';
 import './DirectMessages.css';
@@ -51,16 +51,32 @@ const ConversationList: React.FC<ConversationListProps> = ({
   const [search, setSearch] = useState('');
   const conversations = useDMStore((s) => s.conversations);
   const fetchConversations = useDMStore((s) => s.fetchConversations);
+  const openPersonalThread = useDMStore((s) => s.openPersonalThread);
   const currentUserId = useUserStore((s) => s.user?.id) || '';
+  const currentUsername = useUserStore((s) => s.user?.username) || '';
 
   useEffect(() => {
     fetchConversations();
   }, [fetchConversations]);
 
-  const filtered = conversations.filter((c) => {
-    const name = getConversationName(c, currentUserId);
-    return name.toLowerCase().includes(search.toLowerCase());
-  });
+  // Separate personal thread from regular conversations
+  const personalThread = conversations.find((c) => c.isPersonal);
+
+  const filtered = conversations
+    .filter((c) => !c.isPersonal)
+    .filter((c) => {
+      const name = getConversationName(c, currentUserId);
+      return name.toLowerCase().includes(search.toLowerCase());
+    });
+
+  const handleOpenPersonalThread = async () => {
+    try {
+      const conv = await openPersonalThread();
+      onSelectThread(conv.id);
+    } catch (err) {
+      console.error('Failed to open personal thread:', err);
+    }
+  };
 
   return (
     <div className="conversation-list">
@@ -72,6 +88,20 @@ const ConversationList: React.FC<ConversationListProps> = ({
           onChange={(e) => setSearch(e.target.value)}
         />
       </div>
+
+      {/* Pinned Personal Thread */}
+      <div
+        className={`conversation-item personal-thread${
+          personalThread && selectedThreadId === personalThread.id ? ' active' : ''
+        }`}
+        onClick={handleOpenPersonalThread}
+      >
+        <div className="conversation-avatar personal-thread-avatar">
+          <BookOpen size={14} />
+        </div>
+        <span className="conversation-name personal-thread-name">Personal Thread</span>
+      </div>
+      <div className="personal-thread-divider" />
 
       {filtered.length === 0 ? (
         <div className="conversation-list-empty">

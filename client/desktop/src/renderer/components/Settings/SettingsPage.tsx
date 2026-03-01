@@ -27,6 +27,7 @@ import {
   useDraftActions,
   useStashAndSwapAudioMode,
 } from '../../hooks/useDraftSettings';
+import { usePrivacyStore } from '../../stores/privacyStore';
 import './SettingsPage.css';
 
 type SettingsSection =
@@ -373,6 +374,9 @@ const PrivacySecuritySection: React.FC = () => {
   const accessToken = useAuthStore((s) => s.accessToken);
   const logout = useUserStore((s) => s.logout);
   const navigate = useNavigate();
+  const privacySettings = usePrivacyStore((s) => s.settings);
+  const fetchPrivacy = usePrivacyStore((s) => s.fetchPrivacy);
+  const updatePrivacy = usePrivacyStore((s) => s.updatePrivacy);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [pastSessions, setPastSessions] = useState<PastSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -424,7 +428,8 @@ const PrivacySecuritySection: React.FC = () => {
 
   useEffect(() => {
     fetchSessions();
-  }, [fetchSessions]);
+    fetchPrivacy();
+  }, [fetchSessions, fetchPrivacy]);
 
   // Sort sessions: current session always first, then by last_used descending
   const sortedSessions = useMemo(() => {
@@ -659,6 +664,81 @@ const PrivacySecuritySection: React.FC = () => {
 
   return (
     <>
+      <div className="settings-section" id="section-privacy-settings">
+        <h2 className="settings-section-title">Privacy</h2>
+        <p className="settings-section-description">
+          Control who can message you and how others can find you.
+        </p>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Messages from Friends Only</span>
+            <span className="settings-row-hint">Only friends can send you direct messages</span>
+          </div>
+          <ToggleSwitch
+            checked={privacySettings.messagesFriendsOnly}
+            onChange={(v) => updatePrivacy({ messagesFriendsOnly: v })}
+          />
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Messages from Server Members</span>
+            <span className="settings-row-hint">Allow DMs from people who share a server with you</span>
+          </div>
+          <ToggleSwitch
+            checked={privacySettings.messagesServerMembers}
+            onChange={(v) => updatePrivacy({ messagesServerMembers: v })}
+          />
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Auto-Accept Friend Codes</span>
+            <span className="settings-row-hint">Automatically accept when someone uses your friend code</span>
+          </div>
+          <ToggleSwitch
+            checked={privacySettings.autoAcceptFriendCodes}
+            onChange={(v) => updatePrivacy({ autoAcceptFriendCodes: v })}
+          />
+        </div>
+
+        <h3 className="settings-subsection-title" style={{ marginTop: 20 }}>Search Visibility</h3>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Searchable by Username</span>
+            <span className="settings-row-hint">Allow others to find you by searching your username</span>
+          </div>
+          <ToggleSwitch
+            checked={privacySettings.searchableByUsername}
+            onChange={(v) => updatePrivacy({ searchableByUsername: v })}
+          />
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Searchable by Email</span>
+            <span className="settings-row-hint">Allow others to find you by email address</span>
+          </div>
+          <ToggleSwitch
+            checked={privacySettings.searchableByEmail}
+            onChange={(v) => updatePrivacy({ searchableByEmail: v })}
+          />
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Searchable by Phone Number</span>
+            <span className="settings-row-hint">Allow others to find you by phone number</span>
+          </div>
+          <ToggleSwitch
+            checked={privacySettings.searchableByPhone}
+            onChange={(v) => updatePrivacy({ searchableByPhone: v })}
+          />
+        </div>
+      </div>
+
       <div className="settings-section" id="section-active-sessions">
         <h2 className="settings-section-title">Active Sessions</h2>
         <p className="settings-section-description">

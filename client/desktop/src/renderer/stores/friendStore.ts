@@ -12,6 +12,32 @@ export interface Friend {
   status: PresenceStatus;
 }
 
+export interface FriendCode {
+  id: string;
+  code: string;
+  maxUses: number | null;
+  useCount: number;
+  expiresAt: string | null;
+  isRevoked: boolean;
+  autoAccept: boolean;
+  createdAt: string;
+}
+
+export interface FriendCodePreview {
+  userId: string;
+  username: string;
+  displayName?: string;
+  avatarUrl?: string;
+  valid: boolean;
+}
+
+export interface SearchResult {
+  id: string;
+  username: string;
+  displayName?: string;
+  avatarUrl?: string;
+}
+
 export interface FriendRequest {
   id: string;
   fromUserId: string;
@@ -30,6 +56,7 @@ interface FriendState {
   friends: Friend[];
   pendingRequests: FriendRequest[];
   blockedUserIds: string[];
+  friendCodes: FriendCode[];
   isLoading: boolean;
   error: string | null;
 
@@ -41,12 +68,21 @@ interface FriendState {
   removeFriend: (userId: string) => Promise<void>;
   blockUser: (userId: string) => Promise<void>;
 
+  // Friend codes
+  fetchFriendCodes: () => Promise<void>;
+  generateFriendCode: (opts?: { maxUses?: number; expiresIn?: number; autoAccept?: boolean }) => Promise<FriendCode>;
+  revokeFriendCode: (id: string) => Promise<void>;
+  previewFriendCode: (code: string) => Promise<FriendCodePreview>;
+  claimFriendCode: (code: string) => Promise<{ status: string; friendshipId: string; user: SearchResult }>;
+  searchUsers: (query: string) => Promise<SearchResult[]>;
+
   // Real-time updates (called from WebSocket handlers)
   addFriend: (friend: Friend) => void;
   removeFriendByUserId: (userId: string) => void;
   addRequest: (request: FriendRequest) => void;
   removeRequest: (requestId: string) => void;
   updateFriendPresence: (userId: string, status: PresenceStatus) => void;
+  refreshFriendCodeUseCounts: () => void;
   clearFriends: () => void;
 }
 
@@ -56,6 +92,7 @@ export const useFriendStore = create<FriendState>()(
       friends: [],
       pendingRequests: [],
       blockedUserIds: [],
+      friendCodes: [],
       isLoading: false,
       error: null,
 
@@ -201,6 +238,120 @@ export const useFriendStore = create<FriendState>()(
         }));
       },
 
+      // Friend code methods
+      fetchFriendCodes: async () => {
+        try {
+          const response = await apiFetch('/api/v1/friends/codes');
+          if (!response.ok) return;
+          const data = await response.json();
+          const codes: FriendCode[] = (data.friend_codes || []).map((fc: Record<string, unknown>) => ({
+            id: fc.id as string,
+            code: fc.code as string,
+            maxUses: fc.max_uses as number | null,
+            useCount: fc.use_count as number,
+            expiresAt: fc.expires_at as string | null,
+            isRevoked: fc.is_revoked as boolean,
+            autoAccept: fc.auto_accept as boolean,
+            createdAt: fc.created_at as string,
+          }));
+          set({ friendCodes: codes });
+        } catch (error) {
+          console.error('Failed to fetch friend codes:', error);
+        }
+      },
+
+      generateFriendCode: async (opts) => {
+        const body: Record<string, unknown> = {};
+        if (opts?.maxUses !== undefined) body.max_uses = opts.maxUses;
+        if (opts?.expiresIn !== undefined) body.expires_in = opts.expiresIn;
+        if (opts?.autoAccept !== undefined) body.auto_accept = opts.autoAccept;
+
+        const response = await apiFetch('/api/v1/friends/codes', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || 'Failed to generate friend code');
+        }
+
+        const data = await response.json();
+        const fc = data.friend_code;
+        const code: FriendCode = {
+          id: fc.id,
+          code: fc.code,
+          maxUses: fc.max_uses,
+          useCount: fc.use_count,
+          expiresAt: fc.expires_at,
+          isRevoked: fc.is_revoked,
+          autoAccept: fc.auto_accept,
+          createdAt: fc.created_at,
+        };
+
+        set((state) => ({ friendCodes: [code, ...state.friendCodes] }));
+        return code;
+      },
+
+      revokeFriendCode: async (id: string) => {
+        const response = await apiFetch(`/api/v1/friends/codes/${id}`, { method: 'DELETE' });
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || 'Failed to revoke friend code');
+        }
+        set((state) => ({
+          friendCodes: state.friendCodes.filter((fc) => fc.id !== id),
+        }));
+      },
+
+      previewFriendCode: async (code: string) => {
+        const response = await apiFetch(`/api/v1/friends/codes/${code}`);
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || 'Invalid friend code');
+        }
+        const data = await response.json();
+        return {
+          userId: data.user_id,
+          username: data.username,
+          displayName: data.display_name,
+          avatarUrl: data.avatar_url,
+          valid: data.valid,
+        } as FriendCodePreview;
+      },
+
+      claimFriendCode: async (code: string) => {
+        const response = await apiFetch(`/api/v1/friends/codes/${code}/claim`, { method: 'POST' });
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || 'Failed to claim friend code');
+        }
+        const data = await response.json();
+        return {
+          status: data.status as string,
+          friendshipId: data.friendship_id as string,
+          user: {
+            id: data.user.user_id,
+            username: data.user.username,
+            displayName: data.user.display_name,
+            avatarUrl: data.user.avatar_url,
+          } as SearchResult,
+        };
+      },
+
+      searchUsers: async (query: string) => {
+        const response = await apiFetch(`/api/v1/users/search?q=${encodeURIComponent(query)}`);
+        if (!response.ok) return [];
+        const data = await response.json();
+        return (data.users || []).map((u: Record<string, unknown>) => ({
+          id: u.id as string,
+          username: u.username as string,
+          displayName: u.display_name as string | undefined,
+          avatarUrl: u.avatar_url as string | undefined,
+        })) as SearchResult[];
+      },
+
       // Real-time WebSocket updates
       addFriend: (friend: Friend) =>
         set((state) => {
@@ -231,8 +382,13 @@ export const useFriendStore = create<FriendState>()(
           ),
         })),
 
+      refreshFriendCodeUseCounts: () => {
+        // Re-fetch friend codes to get updated use_count
+        get().fetchFriendCodes();
+      },
+
       clearFriends: () =>
-        set({ friends: [], pendingRequests: [], blockedUserIds: [] }),
+        set({ friends: [], pendingRequests: [], blockedUserIds: [], friendCodes: [] }),
     }),
     { name: 'FriendStore' }
   )

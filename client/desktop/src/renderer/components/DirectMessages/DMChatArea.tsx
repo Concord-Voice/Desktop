@@ -30,6 +30,7 @@ interface DMChatAreaProps {
 /** Get display name for the header */
 function getThreadName(conv: DMConversation | undefined, currentUserId: string): string {
   if (!conv) return 'Conversation';
+  if (conv.isPersonal) return 'Personal Thread';
   if (conv.isGroup) {
     return conv.name || conv.participants.map((p) => p.displayName || p.username).join(', ');
   }
@@ -277,9 +278,11 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
         <div>
           <div className="dm-chat-header-name">{threadName}</div>
           <div className="dm-chat-header-status">
-            {activeConv && !activeConv.isGroup
-              ? (activeConv.participants.find((p) => p.userId !== currentUserId)?.status || 'offline')
-              : `${activeConv?.participants.length || 0} members`}
+            {activeConv?.isPersonal
+              ? 'Your personal notes'
+              : activeConv && !activeConv.isGroup
+                ? (activeConv.participants.find((p) => p.userId !== currentUserId)?.status || 'offline')
+                : `${activeConv?.participants.length || 0} members`}
           </div>
         </div>
       </div>

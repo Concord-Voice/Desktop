@@ -21,6 +21,7 @@ export interface DMLastMessage {
 export interface DMConversation {
   id: string;
   isGroup: boolean;
+  isPersonal: boolean;
   name: string | null;
   isEncrypted: boolean;
   participants: DMParticipant[];
@@ -43,6 +44,7 @@ interface DMState {
   fetchConversations: () => Promise<void>;
   openDM: (userId: string) => Promise<DMConversation>;
   createGroupDM: (userIds: string[], name?: string) => Promise<DMConversation>;
+  openPersonalThread: () => Promise<DMConversation>;
   setActiveConversation: (id: string | null) => void;
 
   // Real-time updates (called from WebSocket handlers)
@@ -157,6 +159,32 @@ export const useDMStore = create<DMState>()(
           return conv;
         },
 
+        openPersonalThread: async () => {
+          const response = await apiFetch('/api/v1/dm/conversations/personal', {
+            method: 'POST',
+          });
+
+          if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || 'Failed to open personal thread');
+          }
+
+          const data = await response.json();
+          const conv = mapConversation(data.conversation);
+
+          set((state) => {
+            const exists = state.conversations.some((c) => c.id === conv.id);
+            return {
+              conversations: exists
+                ? state.conversations
+                : [conv, ...state.conversations],
+              activeConversationId: conv.id,
+            };
+          });
+
+          return conv;
+        },
+
         setActiveConversation: (id: string | null) =>
           set({ activeConversationId: id }),
 
@@ -249,6 +277,7 @@ function mapConversation(c: Record<string, unknown>): DMConversation {
   return {
     id: c.id as string,
     isGroup: c.is_group as boolean,
+    isPersonal: (c.is_personal as boolean) || false,
     name: (c.name as string) || null,
     isEncrypted: c.is_encrypted as boolean,
     participants,

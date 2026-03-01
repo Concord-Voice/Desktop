@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { ChevronDown, ChevronRight, UserPlus } from 'lucide-react';
+import { ChevronDown, ChevronRight, UserPlus, Plus } from 'lucide-react';
 import { useFriendStore } from '../../stores/friendStore';
+import AddFriendModal from './AddFriendModal';
 import './DirectMessages.css';
 
 interface FriendsListProps {
@@ -9,6 +10,7 @@ interface FriendsListProps {
 
 const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+  const [showAddFriendModal, setShowAddFriendModal] = useState(false);
   const friends = useFriendStore((s) => s.friends);
   const fetchFriends = useFriendStore((s) => s.fetchFriends);
 
@@ -40,6 +42,9 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
     <div className="friends-list">
       <div className="friends-list-header">
         <h3>Friends</h3>
+        <button className="friends-add-btn" onClick={() => setShowAddFriendModal(true)} title="Add Friend">
+          <Plus size={16} />
+        </button>
       </div>
 
       {friends.length === 0 ? (
@@ -81,6 +86,8 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
           );
         })
       )}
+
+      <AddFriendModal isOpen={showAddFriendModal} onClose={() => setShowAddFriendModal(false)} />
     </div>
   );
 };

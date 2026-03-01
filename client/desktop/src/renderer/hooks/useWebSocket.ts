@@ -850,6 +850,42 @@ export function useWebSocket() {
       }
     });
 
+    const unsubFriendCodeClaimed = wsService.on('friend_code_claimed', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const { useFriendStore } = require('../stores/friendStore');
+      const store = useFriendStore.getState();
+
+      if (data.status === 'accepted' && data.friend) {
+        // Auto-accepted: add directly to friends list
+        store.addFriend({
+          id: data.friend.id,
+          userId: data.friend.user_id,
+          username: data.friend.username,
+          displayName: data.friend.display_name,
+          avatarUrl: data.friend.avatar_url,
+          status: data.friend.status || 'offline',
+        });
+      } else if (data.status === 'pending' && data.request) {
+        // Pending: add to incoming requests
+        store.addRequest({
+          id: data.request.id,
+          fromUserId: data.request.from_user_id,
+          fromUsername: data.request.from_username,
+          fromDisplayName: data.request.from_display_name,
+          fromAvatarUrl: data.request.from_avatar_url,
+          toUserId: data.request.to_user_id,
+          toUsername: data.request.to_username,
+          toDisplayName: data.request.to_display_name,
+          toAvatarUrl: data.request.to_avatar_url,
+          direction: 'received',
+          createdAt: data.request.created_at,
+        });
+      }
+
+      // Refresh friend code use counts
+      store.refreshFriendCodeUseCounts();
+    });
+
     // ── DM voice state update handler ────────────────────────────────────
 
     const unsubDMVoiceState = wsService.on('dm_voice_state_update', (msg: WebSocketMessage) => {
@@ -913,6 +949,7 @@ export function useWebSocket() {
       unsubFriendRequestReceived();
       unsubFriendRequestAccepted();
       unsubFriendRemoved();
+      unsubFriendCodeClaimed();
       unsubDMVoiceState();
       unsubSubscribed();
       unsubError();
