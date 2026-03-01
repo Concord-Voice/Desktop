@@ -61,19 +61,31 @@ function AuthenticatedLayout() {
     }
   }, [accessToken, user, fetchUser]);
 
-  // Pre-cache codec capabilities and GPU info so Settings page loads instantly
+  // Pre-cache codec capabilities, GPU info, and detect system HDR
   useEffect(() => {
     Promise.all([
       detectCodecCapabilities(),
       window.electron?.getGPUInfo?.() ?? Promise.resolve(null),
       window.electron?.getHardwareAcceleration?.() ?? Promise.resolve(null),
       window.electron?.getDisplayInfo?.() ?? Promise.resolve(null),
-    ]).then(([caps, gpu, hwAccel]) => {
+    ]).then(([caps, gpu, hwAccel, displays]) => {
+      // Detect HDR: any display with colorDepth > 24 or wide gamut color space
+      const systemHdr = (displays as { colorDepth?: number; colorSpace?: string }[] | null)?.some(
+        (d) => (d.colorDepth ?? 0) > 24 || (d.colorSpace && d.colorSpace !== 'srgb')
+      ) ?? false;
+
+      const current = useVideoSettingsStore.getState();
       useVideoSettingsStore.setState({
         codecCapabilities: caps,
-        gpuInfo: gpu ?? useVideoSettingsStore.getState().gpuInfo,
+        gpuInfo: gpu ?? current.gpuInfo,
+        systemHdr,
         ...(hwAccel != null ? { hardwareAcceleration: hwAccel } : {}),
       });
+
+      // Auto-enable HDR encoding on first detection if user hasn't explicitly toggled it
+      if (systemHdr && !current.hdrEncoding) {
+        useVideoSettingsStore.getState().setHdrEncoding(true);
+      }
     });
   }, []);
 

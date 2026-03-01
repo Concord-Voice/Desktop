@@ -16,17 +16,15 @@ import './Message.css';
  */
 function getEmojiOnlyCount(text: string): number {
   if (!text || text.length === 0) return 0;
-  // Match emoji sequences: emoji with optional skin tones, ZWJ sequences, keycap sequences, flags
-  const emojiRegex = /\p{Emoji_Presentation}(\u{FE0F}?\u{20E3}|\u{200D}\p{Emoji_Presentation})*/gu;
-  const stripped = text.replace(emojiRegex, '').replace(/[\s\u{FE0F}\u{200D}]/gu, '');
+  const stripped = text.replace(EMOJI_REGEX, '').replace(/[\s\u{FE0F}\u{200D}]/gu, '');
   if (stripped.length > 0) return 0;
-  const matches = text.match(emojiRegex);
+  const matches = text.match(EMOJI_REGEX);
   return matches ? matches.length : 0;
 }
 
 /**
  * Returns a CSS class for emoji-only messages based on emoji count.
- * 1 emoji = largest, linearly scales down to normal at 7+.
+ * 1 emoji = largest (48px), linearly scales down to base (24px) at 5+.
  */
 function getEmojiSizeClass(count: number): string {
   if (count <= 0) return '';
@@ -35,8 +33,32 @@ function getEmojiSizeClass(count: number): string {
   if (count === 3) return 'emoji-jumbo-3';
   if (count === 4) return 'emoji-jumbo-4';
   if (count === 5) return 'emoji-jumbo-5';
-  if (count === 6) return 'emoji-jumbo-6';
   return '';
+}
+
+const EMOJI_REGEX = /\p{Emoji_Presentation}(\u{FE0F}?\u{20E3}|\u{200D}\p{Emoji_Presentation})*/gu;
+
+/**
+ * Renders message text with emoji characters wrapped in <span class="emoji">
+ * so they can be styled at a larger font size than surrounding text.
+ */
+function renderContent(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  EMOJI_REGEX.lastIndex = 0;
+  while ((match = EMOJI_REGEX.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(<span key={match.index} className="emoji">{match[0]}</span>);
+    lastIndex = EMOJI_REGEX.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts;
 }
 
 export interface MessageProps {
@@ -249,7 +271,7 @@ const Message: React.FC<MessageProps> = ({
                     Unable to decrypt this message
                   </span>
                 ) : (
-                  message.content
+                  renderContent(message.content)
                 )}
                 {!showAvatar && message.edited_at && (
                   <span className="message-edited-inline">(edited)</span>

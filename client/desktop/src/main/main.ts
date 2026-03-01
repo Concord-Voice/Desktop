@@ -178,6 +178,8 @@ ipcMain.handle('screen:getDisplayInfo', () => {
     refreshRate: d.displayFrequency,
     scaleFactor: d.scaleFactor,
     isPrimary: d.id === primary.id,
+    colorDepth: d.colorDepth,       // 24 = SDR, 30/48 = HDR
+    colorSpace: d.colorSpace,       // "srgb" = SDR, "p3"/"rec2020" = wide gamut
   }));
 });
 

@@ -414,32 +414,58 @@ class VoiceService {
 
   /**
    * Find a video codec from the loaded device's send capabilities.
-   * Returns the RtpCodecCapability matching the given mimeType, or undefined.
+   * Accepts a codec key like "video/H264:640034" or plain mimeType "video/VP9".
+   * When a profile is specified, matches exactly. When mimeType-only, returns
+   * the last match (highest quality — router lists profiles in ascending order).
    */
-  private findSendCodec(mimeType: string): mediasoupTypes.RtpCodecCapability | undefined {
+  private findSendCodec(key: string): mediasoupTypes.RtpCodecCapability | undefined {
     if (!this.device?.rtpCapabilities?.codecs) return undefined;
-    return this.device.rtpCapabilities.codecs.find(
-      (c) => c.mimeType.toLowerCase() === mimeType.toLowerCase() && c.kind === 'video'
+    const [mime, profileId] = key.split(':');
+    const mimeLower = mime.toLowerCase();
+
+    const matches = this.device.rtpCapabilities.codecs.filter(
+      (c) => c.mimeType.toLowerCase() === mimeLower && c.kind === 'video'
     );
+    if (matches.length === 0) return undefined;
+
+    if (profileId) {
+      return matches.find((c) => {
+        const params = c.parameters ?? {};
+        if (mimeLower === 'video/h264') {
+          return String(params['profile-level-id'] ?? '').toLowerCase()
+            .startsWith(profileId.toLowerCase().substring(0, 4));
+        }
+        if (mimeLower === 'video/vp9') {
+          return String(params['profile-id'] ?? '0') === profileId;
+        }
+        return true;
+      });
+    }
+
+    // No profile specified — return best (last = highest quality in router order)
+    return matches[matches.length - 1];
   }
 
   /**
    * Check if a codec is compatible with the current room codec floor.
-   * Returns true if no floor is set (null = no restriction) or if the codec is in the floor.
+   * Extracts mimeType from codec key — floor operates at mimeType level.
    */
-  private isInCodecFloor(mimeType: string): boolean {
+  private isInCodecFloor(key: string): boolean {
     const floor = useVoiceStore.getState().codecFloor;
     if (!floor) return true;
-    return floor.includes(mimeType.toLowerCase());
+    const mime = key.split(':')[0].toLowerCase();
+    return floor.includes(mime);
   }
 
   /**
-   * Check if a codec mimeType has hardware-accelerated encoding available.
+   * Check if a codec has hardware-accelerated encoding available.
+   * Extracts mimeType from codec key — HW detection is mimeType-level.
    */
-  private isHwAccelerated(mimeType: string): boolean {
+  private isHwAccelerated(key: string): boolean {
     const caps = useVideoSettingsStore.getState().codecCapabilities;
+    const mime = key.split(':')[0].toLowerCase();
     return caps.some(
-      (c) => c.mimeType.toLowerCase() === mimeType.toLowerCase() && c.powerEfficient
+      (c) => c.mimeType.toLowerCase() === mime && c.powerEfficient
     );
   }
 
@@ -516,13 +542,15 @@ class VoiceService {
       }
     }
 
-    // Priority cascade: AV1 → HEVC → VP9 → H264 → VP8
+    // Priority cascade: AV1 → HEVC → VP9 (HDR if enabled) → VP9 → H264 → VP8
     // When HW accel is on, first pass tries only HW-accelerated codecs.
     // If no HW codec is floor-compatible, second pass tries all codecs (SW fallback).
     const hwAccel = vs.hardwareAcceleration;
+    const hdrEncoding = vs.hdrEncoding;
     const codecCascade: { mime: string; alt?: string; svc: boolean }[] = [
       { mime: 'video/AV1', svc: true },
       { mime: 'video/H265', alt: 'video/HEVC', svc: true },
+      ...(hdrEncoding ? [{ mime: 'video/VP9:2', svc: true }] : []),
       { mime: 'video/VP9', svc: true },
       { mime: 'video/H264', svc: false },
     ];
@@ -587,13 +615,15 @@ class VoiceService {
       }
     }
 
-    // Priority cascade: AV1 → HEVC → VP9 → H264 → VP8
+    // Priority cascade: AV1 → HEVC → VP9 (HDR if enabled) → VP9 → H264 → VP8
     // When HW accel is on, first pass tries only HW-accelerated codecs.
     // If no HW codec is floor-compatible, second pass tries all codecs (SW fallback).
     const hwAccel = vs.hardwareAcceleration;
+    const hdrEncoding = vs.hdrEncoding;
     const codecCascade: { mime: string; alt?: string; svc: boolean }[] = [
       { mime: 'video/AV1', svc: true },
       { mime: 'video/H265', alt: 'video/HEVC', svc: true },
+      ...(hdrEncoding ? [{ mime: 'video/VP9:2', svc: true }] : []),
       { mime: 'video/VP9', svc: true },
       { mime: 'video/H264', svc: false },
     ];
@@ -904,13 +934,27 @@ class VoiceService {
   // --- Codec floor: fast re-produce (reuses existing track, no media re-acquisition) ---
 
   /**
-   * Get the mimeType of the codec currently used by a producer.
+   * Get the codec key of the codec currently used by a producer.
+   * Returns profile-aware keys like "video/h264:640034" or "video/vp9:2".
    */
   private getProducerCodecMimeType(source: string): string | null {
     const producer = this.producers.get(source);
     if (!producer?.rtpSender) return null;
     const params = producer.rtpSender.getParameters();
-    return params.codecs?.[0]?.mimeType?.toLowerCase() ?? null;
+    const codec = params.codecs?.[0];
+    if (!codec) return null;
+    const mime = codec.mimeType.toLowerCase();
+    if (codec.sdpFmtpLine) {
+      if (mime === 'video/h264') {
+        const m = codec.sdpFmtpLine.match(/profile-level-id=([0-9a-fA-F]{6})/i);
+        if (m) return `${mime}:${m[1].toLowerCase()}`;
+      }
+      if (mime === 'video/vp9') {
+        const m = codec.sdpFmtpLine.match(/profile-id=(\d+)/);
+        if (m && m[1] !== '0') return `${mime}:${m[1]}`;
+      }
+    }
+    return mime;
   }
 
   /**

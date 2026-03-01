@@ -23,7 +23,7 @@ contextBridge.exposeInMainWorld('electron', {
 
   // GPU, display info & hardware acceleration
   getGPUInfo: () => ipcRenderer.invoke('gpu:getInfo') as Promise<{ vendor: string; device: string } | null>,
-  getDisplayInfo: () => ipcRenderer.invoke('screen:getDisplayInfo') as Promise<{ width: number; height: number; refreshRate: number; scaleFactor: number; isPrimary: boolean }[]>,
+  getDisplayInfo: () => ipcRenderer.invoke('screen:getDisplayInfo') as Promise<{ width: number; height: number; refreshRate: number; scaleFactor: number; isPrimary: boolean; colorDepth: number; colorSpace: string }[]>,
   getHardwareAcceleration: () => ipcRenderer.invoke('app:getHardwareAcceleration') as Promise<boolean>,
   setHardwareAcceleration: (enabled: boolean) => ipcRenderer.invoke('app:setHardwareAcceleration', enabled),
   relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
@@ -73,7 +73,7 @@ export interface ElectronAPI {
   getDesktopSources: () => Promise<DesktopSource[]>;
   writeClipboard: (text: string) => Promise<void>;
   getGPUInfo: () => Promise<{ vendor: string; device: string } | null>;
-  getDisplayInfo: () => Promise<{ width: number; height: number; refreshRate: number; scaleFactor: number; isPrimary: boolean }[]>;
+  getDisplayInfo: () => Promise<{ width: number; height: number; refreshRate: number; scaleFactor: number; isPrimary: boolean; colorDepth: number; colorSpace: string }[]>;
   getHardwareAcceleration: () => Promise<boolean>;
   setHardwareAcceleration: (enabled: boolean) => Promise<void>;
   relaunchApp: () => Promise<void>;

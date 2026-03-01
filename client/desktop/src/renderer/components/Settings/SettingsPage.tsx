@@ -6,7 +6,7 @@ import type { AppearanceSettings, CustomColors } from '../../stores/settingsStor
 import { useVoiceStore, AUDIO_QUALITY_TIERS, type AudioQualityTier } from '../../stores/voiceStore';
 import { useAudioSettingsStore, type AudioPriority } from '../../stores/audioSettingsStore';
 import { useVideoSettingsStore, VIDEO_QUALITY_PRESETS, type ScreenContentType, type DegradationPreference, type VideoPriority } from '../../stores/videoSettingsStore';
-import type { CodecCapability } from '../../services/mediaCapabilities';
+import { codecKey, codecKeyMime, getCodecInfo, type CodecCapability } from '../../services/mediaCapabilities';
 import { isValidHex } from '../../utils/colorUtils';
 import { apiFetch } from '../../services/apiClient';
 import LoadingSpinner from '../Auth/LoadingSpinner';
@@ -1174,11 +1174,13 @@ const VoiceAudioSection: React.FC = () => {
   const degradationPreference = useDraftVideoSetting('degradationPreference');
   const scalabilityMode = useDraftVideoSetting('scalabilityMode');
   const hardwareAcceleration = useDraftVideoSetting('hardwareAcceleration');
+  const hdrEncoding = useDraftVideoSetting('hdrEncoding');
 
   // Video settings (excluded from drafts — system-detected / UI-only)
   const codecCapabilities = useVideoSettingsStore((s) => s.codecCapabilities);
   const gpuInfo = useVideoSettingsStore((s) => s.gpuInfo);
   const videoAdvancedMode = useVideoSettingsStore((s) => s.videoAdvancedMode);
+  const systemHdr = useVideoSettingsStore((s) => s.systemHdr);
 
   const [displayInfo, setDisplayInfo] = useState<{ width: number; height: number; refreshRate: number; scaleFactor: number; isPrimary: boolean }[]>([]);
 
@@ -1969,7 +1971,9 @@ const VoiceAudioSection: React.FC = () => {
                 (codecPriority[a.mimeType.replace('video/', '')] ?? 99) - (codecPriority[b.mimeType.replace('video/', '')] ?? 99);
               const displayName = (c: CodecCapability) => {
                 const raw = c.mimeType.replace('video/', '');
-                return codecDisplayName[raw] ?? raw;
+                const base = codecDisplayName[raw] ?? raw;
+                const profile = c.profileLabel ? ` (${c.profileLabel})` : '';
+                return `${base}${profile}`;
               };
               const isSupported = (c: CodecCapability) => routerSupported.has(c.mimeType.toLowerCase());
 
@@ -1980,27 +1984,28 @@ const VoiceAudioSection: React.FC = () => {
 
               // Which column is active
               const hwHasSupported = hwCodecs.some((c) => isSupported(c));
-              const hwActive = preferredVideoCodec
-                // User picked a specific codec → active column is whichever contains it
-                ? hardwareAcceleration && hwCodecs.some((c) => c.mimeType === preferredVideoCodec && isSupported(c))
+              const preferredMime = preferredVideoCodec ? codecKeyMime(preferredVideoCodec) : null;
+              const hwActive = preferredMime
+                // User picked a specific codec → active column is whichever contains its mimeType
+                ? hardwareAcceleration && hwCodecs.some((c) => c.mimeType.toLowerCase() === preferredMime.toLowerCase() && isSupported(c))
                 : hardwareAcceleration && hwHasSupported;
 
-              // Determine preferred codec for green highlight
-              // User preference → auto-pick (first supported in active column)
+              // Determine preferred codec key for green highlight
               const activeColumnCodecs = hwActive ? hwCodecs : swCodecs;
-              const preferredMime = preferredVideoCodec && routerSupported.has(preferredVideoCodec.toLowerCase())
+              const preferredKey = preferredVideoCodec && routerSupported.has(codecKeyMime(preferredVideoCodec).toLowerCase())
                 ? preferredVideoCodec
-                : activeColumnCodecs.find((c) => isSupported(c))?.mimeType ?? null;
+                : (() => { const first = activeColumnCodecs.find((c) => isSupported(c)); return first ? codecKey(first) : null; })();
 
-              // Active codecs currently in use (from voice producers)
-              const inUseMimes = new Set<string>(
-                [activeCameraCodec, activeScreenCodec].filter(Boolean) as string[]
+              // Active codecs currently in use (from voice producers — now profile-aware keys)
+              const inUseKeys = new Set<string>(
+                [activeCameraCodec, activeScreenCodec].filter(Boolean).map((k) => (k as string).toLowerCase())
               );
 
               const renderCodecItem = (c: CodecCapability, columnKey: string, isActiveColumn: boolean) => {
                 const supported = isSupported(c);
-                const isPreferred = isActiveColumn && supported && c.mimeType === preferredMime;
-                const isInUse = supported && inUseMimes.has(c.mimeType.toLowerCase());
+                const cKey = codecKey(c);
+                const isPreferred = isActiveColumn && supported && cKey === preferredKey;
+                const isInUse = supported && (inUseKeys.has(cKey.toLowerCase()) || inUseKeys.has(c.mimeType.toLowerCase()));
                 const tooltip = !supported
                   ? 'Not supported'
                   : isPreferred && isInUse ? 'Preferred · In Use'
@@ -2009,7 +2014,7 @@ const VoiceAudioSection: React.FC = () => {
                   : 'Available';
                 return (
                   <div
-                    key={`${columnKey}-${c.mimeType}`}
+                    key={`${columnKey}-${cKey}`}
                     className={`settings-codec-item${isPreferred ? ' preferred' : ''}${isInUse ? ' in-use' : ''}${!supported ? ' unsupported' : ''}`}
                     data-tooltip={tooltip}
                   >
@@ -2057,32 +2062,91 @@ const VoiceAudioSection: React.FC = () => {
 
             <div className="settings-row">
               <div className="settings-row-info">
-                <span className="settings-row-label">Video Codec</span>
+                <span className="settings-row-label">Enable HDR Encoding</span>
                 <span className="settings-row-hint">
-                  {preferredVideoCodec
-                    ? `Preferred codec for camera and screen share encoding. Currently ${preferredVideoCodec.replace('video/', '')}. Concord falls back automatically if a peer cannot decode it.`
-                    : 'Preferred codec for camera and screen share encoding. Currently Auto \u2014 Concord selects the best available based on hardware and peer support.'}
+                  {!systemHdr
+                    ? 'No HDR display detected. Connect an HDR-capable display to enable.'
+                    : hdrEncoding
+                      ? 'Enabled. VP9 HDR (10-bit) will be prioritized when available.'
+                      : 'Disabled. HDR codec profiles are available but not preferred.'}
                 </span>
               </div>
-              <select
-                className="settings-select"
-                value={preferredVideoCodec ?? ''}
-                onChange={(e) => setDraftVideoSetting('preferredVideoCodec', e.target.value || null)}
-              >
-                <option value="">Auto</option>
-                {codecCapabilities.map((c) => (
-                  <option key={c.mimeType} value={c.mimeType}>
-                    {c.mimeType.replace('video/', '')}{c.powerEfficient ? ' (HW)' : ''}
-                  </option>
-                ))}
-              </select>
+              <ToggleSwitch
+                checked={hdrEncoding}
+                onChange={(v) => setDraftVideoSetting('hdrEncoding', v)}
+                disabled={!systemHdr}
+              />
             </div>
 
-            {preferredVideoCodec && (
-              <div className="settings-codec-preference-notice">
-                Your client will prefer this codec, but will fall back to the next best option if another participant can't decode it. Active codecs are shown above with a <span className="settings-codec-item in-use" style={{ display: 'inline-flex', padding: '1px 6px', margin: '0 3px', fontSize: 'inherit', verticalAlign: 'baseline' }}>highlight</span>.
-              </div>
-            )}
+            {(() => {
+              const routerSupported = new Set(['video/vp8', 'video/vp9', 'video/h264', 'video/av1']);
+              const codecPriority: Record<string, number> = { AV1: 0, H265: 1, HEVC: 1, VP9: 2, H264: 3, VP8: 4 };
+              const sortByPriority = (a: CodecCapability, b: CodecCapability) =>
+                (codecPriority[a.mimeType.replace('video/', '')] ?? 99) - (codecPriority[b.mimeType.replace('video/', '')] ?? 99);
+              const supported = codecCapabilities.filter((c) => routerSupported.has(c.mimeType.toLowerCase()));
+              const sdrCodecs = supported.filter((c) => !c.isHdr).sort(sortByPriority);
+              const hdrCodecs = supported.filter((c) => c.isHdr).sort(sortByPriority);
+
+              // Resolve effective codec key for info badge
+              const firstSupported = sdrCodecs[0] || supported[0];
+              const effectiveKey = preferredVideoCodec || (firstSupported ? codecKey(firstSupported) : null);
+              const info = effectiveKey ? getCodecInfo(effectiveKey) : null;
+
+              return (
+                <>
+                  <div className="settings-row">
+                    <div className="settings-row-info">
+                      <span className="settings-row-label">Video Codec</span>
+                      <span className="settings-row-hint">
+                        {preferredVideoCodec
+                          ? `Preferred codec for camera and screen share encoding. Currently ${getCodecInfo(preferredVideoCodec).name}. Concord falls back automatically if a peer cannot decode it.`
+                          : 'Preferred codec for camera and screen share encoding. Currently Auto \u2014 Concord selects the best available based on hardware and peer support.'}
+                      </span>
+                    </div>
+                    <select
+                      className="settings-select"
+                      value={preferredVideoCodec ?? ''}
+                      onChange={(e) => setDraftVideoSetting('preferredVideoCodec', e.target.value || null)}
+                    >
+                      <option value="">Auto</option>
+                      {sdrCodecs.map((c) => {
+                        const key = codecKey(c);
+                        const name = c.mimeType.replace('video/', '');
+                        const profile = c.profileLabel ? ` (${c.profileLabel})` : '';
+                        return <option key={key} value={key}>{name}{profile}</option>;
+                      })}
+                      {hdrCodecs.length > 0 && (
+                        <optgroup label={hdrEncoding ? 'HDR' : 'Requires HDR'}>
+                          {hdrCodecs.map((c) => {
+                            const key = codecKey(c);
+                            const name = c.mimeType.replace('video/', '');
+                            const profile = c.profileLabel ? ` (${c.profileLabel})` : '';
+                            return (
+                              <option key={key} value={key} disabled={!hdrEncoding}>
+                                {name}{profile}
+                              </option>
+                            );
+                          })}
+                        </optgroup>
+                      )}
+                    </select>
+                  </div>
+
+                  {info && (
+                    <span className="settings-codec-info-badge">
+                      {info.name} — {info.quality} quality · {info.efficiency} efficiency ({info.compressionRatio})
+                      {info.hdr ? ' · HDR' : ''}{info.notes ? ` · ${info.notes}` : ''}
+                    </span>
+                  )}
+
+                  {preferredVideoCodec && (
+                    <div className="settings-codec-preference-notice">
+                      Your client will prefer this codec, but will fall back to the next best option if another participant can't decode it. Active codecs are shown above with a <span className="settings-codec-item in-use" style={{ display: 'inline-flex', padding: '1px 6px', margin: '0 3px', fontSize: 'inherit', verticalAlign: 'baseline' }}>highlight</span>.
+                    </div>
+                  )}
+                </>
+              );
+            })()}
 
             <div className="settings-row">
               <div className="settings-row-info">

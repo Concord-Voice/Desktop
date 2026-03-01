@@ -64,6 +64,10 @@ export interface VideoSettings {
   // Hardware
   hardwareAcceleration: boolean;
 
+  // HDR
+  hdrEncoding: boolean;  // Enable HDR encoding (VP9 P2). Auto-detected from display.
+  systemHdr: boolean;    // Whether any connected display supports HDR (non-persisted, runtime)
+
   // Cached capabilities (non-persisted in practice, but ok to persist for fast initial render)
   codecCapabilities: CodecCapability[];
   gpuInfo: { vendor: string; device: string } | null;
@@ -81,6 +85,7 @@ interface VideoSettingsState extends VideoSettings {
   setDegradationPreference: (pref: DegradationPreference) => void;
   setScalabilityMode: (mode: 'auto' | 'L1T3' | 'L2T3' | 'L3T3') => void;
   setHardwareAcceleration: (enabled: boolean) => void;
+  setHdrEncoding: (enabled: boolean) => void;
   setVideoAdvancedMode: (enabled: boolean) => void;
   setCodecCapabilities: (caps: CodecCapability[]) => void;
   setGpuInfo: (info: { vendor: string; device: string } | null) => void;
@@ -99,6 +104,8 @@ const defaults: VideoSettings = {
   degradationPreference: 'balanced',
   scalabilityMode: 'auto', // Auto = L3T3 for SVC codecs
   hardwareAcceleration: true,
+  hdrEncoding: false,
+  systemHdr: false,
   codecCapabilities: [],
   gpuInfo: null,
 };
@@ -120,11 +127,17 @@ export const useVideoSettingsStore = create<VideoSettingsState>()(
       setDegradationPreference: (degradationPreference) => set({ degradationPreference }),
       setScalabilityMode: (scalabilityMode) => set({ scalabilityMode }),
       setHardwareAcceleration: (hardwareAcceleration) => set({ hardwareAcceleration }),
+      setHdrEncoding: (hdrEncoding) => set({ hdrEncoding }),
       setCodecCapabilities: (codecCapabilities) => set({ codecCapabilities }),
       setGpuInfo: (gpuInfo) => set({ gpuInfo }),
     }),
     {
       name: 'concord:video-settings',
+      partialize: (state) => {
+        // Exclude runtime-only fields from persistence
+        const { systemHdr: _, ...rest } = state;
+        return rest;
+      },
     }
   )
 );
