@@ -13,7 +13,7 @@ import { useVideoSettingsStore } from './stores/videoSettingsStore';
 import { useWebSocket } from './hooks/useWebSocket';
 import { e2eeService } from './services/e2eeService';
 import { preferencesSyncService } from './services/preferencesSync';
-import { detectCodecCapabilities } from './services/mediaCapabilities';
+import { detectCodecCapabilities, prewarmWebRTC } from './services/mediaCapabilities';
 import { nuclearReset } from './services/resetService';
 
 // ─── Error Boundary ────────────────────────────────────────────────────
@@ -62,6 +62,11 @@ function AuthenticatedLayout() {
       fetchUser();
     }
   }, [accessToken, user, fetchUser]);
+
+  // Pre-warm WebRTC engine + voice chunk so first voice join is fast (~200ms vs ~2s)
+  useEffect(() => {
+    prewarmWebRTC();
+  }, []);
 
   // Pre-cache codec capabilities, GPU info, and detect system HDR
   useEffect(() => {
