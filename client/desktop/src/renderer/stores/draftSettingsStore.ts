@@ -10,7 +10,7 @@ import { AUDIO_QUALITY_TIERS, type AudioQualityTier } from './voiceStore';
 // ---------------------------------------------------------------------------
 
 export type DraftableAudioSettings = Omit<AudioSettings, 'advancedMode'>;
-export type DraftableVideoSettings = Omit<VideoSettings, 'videoAdvancedMode' | 'codecCapabilities' | 'gpuInfo'>;
+export type DraftableVideoSettings = Omit<VideoSettings, 'videoAdvancedMode' | 'codecCapabilities' | 'gpuInfo' | 'systemHdr'>;
 export type DraftableTTSSettings = TTSSettings;
 export type DraftableAppearanceSettings = AppearanceSettings;
 
@@ -31,7 +31,7 @@ const VIDEO_DRAFTABLE_KEYS: (keyof DraftableVideoSettings)[] = [
   'cameraPreset', 'preferredVideoCodec', 'cameraPriority',
   'screenResolution', 'screenFrameRate', 'screenContentType',
   'screenSharePriority', 'screenShareBitrate', 'degradationPreference',
-  'scalabilityMode', 'hardwareAcceleration',
+  'scalabilityMode', 'hardwareAcceleration', 'hdrEncoding',
 ];
 
 const TTS_DRAFTABLE_KEYS: (keyof DraftableTTSSettings)[] = [
