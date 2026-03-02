@@ -1,7 +1,9 @@
 /**
  * Reset Service — Centralized state cleanup for auth lifecycle events
  *
- * Two tiers:
+ * Three tiers:
+ * - softRestart: Page reload preserving auth tokens. Used by Recovery B when
+ *   the client has issues but the session is valid.
  * - gracefulReset: Clears content stores, preserves device settings (theme, audio, etc.)
  *   Used when the user is being "remembered" but needs a fresh content slate.
  * - nuclearReset: Wipes everything. Used when the login screen appears — no ghost profiles.
@@ -49,6 +51,17 @@ export function gracefulReset(): void {
   localStorage.removeItem('concord:dm-store');
   localStorage.removeItem('concord-servers');
   localStorage.removeItem('concord-channels');
+}
+
+/**
+ * Soft restart — reloads the page while preserving auth tokens.
+ * Used by Recovery B when the client has issues but the session is valid.
+ * Auth tokens persist in zustand/persist localStorage, and disk tokens
+ * remain untouched for Remember Me users.
+ */
+export function softRestart(): void {
+  gracefulReset();
+  window.location.reload();
 }
 
 /**

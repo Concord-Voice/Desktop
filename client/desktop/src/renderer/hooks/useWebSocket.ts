@@ -25,7 +25,7 @@ import {
 import { e2eeService } from '../services/e2eeService';
 import { preferencesSyncService } from '../services/preferencesSync';
 import { apiFetch } from '../services/apiClient';
-import { gracefulReset, nuclearReset } from '../services/resetService';
+import { gracefulReset } from '../services/resetService';
 import { getVoiceService } from '../services/voiceLazy';
 import { useVoiceStore } from '../stores/voiceStore';
 import { useConnectionStore } from '../stores/connectionStore';
@@ -82,12 +82,13 @@ export function useWebSocket() {
 
       console.debug(`[WebSocket] state → ${state}`, connectionInfo);
 
-      // ── Connection loss detection ──────────────────────────────────
+      // ── Connection loss detection & phased recovery ──────────────
       const connStore = useConnectionStore.getState();
 
-      if (state === ConnectionState.RECONNECTING && !connStore.inGracePeriod && !connStore.showOverlay) {
-        // Connection just dropped — start 15-second grace period
+      if (state === ConnectionState.RECONNECTING && connStore.phase === 'stable') {
+        // Connection just dropped — start 15-second aggressive grace period
         connStore.startGracePeriod();
+        wsService.setAggressiveReconnect(true);
 
         // Capture voice channel before cleanup so we can rejoin on grace-period reconnect
         const voiceState = useVoiceStore.getState();
@@ -102,39 +103,90 @@ export function useWebSocket() {
           }
         }).catch(() => { /* voice module never loaded */ });
 
-        // After 15s, show overlay if still not connected
-        setTimeout(() => {
-          if (wsService.getState() !== ConnectionState.CONNECTED) {
-            useConnectionStore.getState().showConnectionLost();
+        // After 15s grace period, run preflight diagnostics
+        setTimeout(async () => {
+          // Reconnected in time — nothing to do
+          if (wsService.getState() === ConnectionState.CONNECTED) return;
+
+          wsService.setAggressiveReconnect(false);
+          const store = useConnectionStore.getState();
+          if (store.phase !== 'grace_period') return; // Already transitioned (e.g. session_revoked)
+
+          store.enterPreflight();
+
+          const { runPreflight } = await import('../services/recoveryService');
+          const diag = await runPreflight();
+          store.setDiagnostics(diag);
+
+          if (diag.sessionRevoked) {
+            store.enterFatal();
+            return;
           }
+
+          if (!diag.internet || (diag.internet && !diag.serverReachable)) {
+            // Option A: No internet or server unreachable — wait for reconnect
+            store.enterRecoveryA();
+            return;
+          }
+
+          if (diag.serverReachable && diag.tokenValid && !diag.rendererStable) {
+            // Option B: Server fine, client had issues — soft restart
+            store.enterRecoveryB();
+            const { softRestart } = await import('../services/resetService');
+            softRestart();
+            return;
+          }
+
+          if (diag.serverReachable && diag.tokenValid) {
+            // Server reachable, token valid, renderer stable — WS glitch, wait for reconnect
+            store.enterRecoveryA();
+            return;
+          }
+
+          // Fallback: try soft restart
+          store.enterRecoveryB();
+          const { softRestart } = await import('../services/resetService');
+          softRestart();
         }, 15_000);
       }
 
       if (state === ConnectionState.CONNECTED) {
-        const wasShowingOverlay = connStore.showOverlay;
-        connStore.reset();
+        const phase = connStore.phase;
+        wsService.setAggressiveReconnect(false);
 
-        if (wasShowingOverlay) {
-          // Reconnected after overlay was shown — fresh session
-          // (auth tokens persist in localStorage via zustand/persist)
-          window.location.reload();
+        if (phase === 'recovery_a' || phase === 'preflight') {
+          // Reconnected during recovery — do graceful content refresh
+          gracefulReset();
+          useConnectionStore.getState().reset();
+          useUserStore.getState().fetchUser();
+          import('../services/recoveryService').then((m) => m.clearCrashFlag());
           return;
         }
 
-        // Normal reconnect (within grace period) or initial connect
-        if (e2eeService.isInitialized) {
-          e2eeService.processPendingKeyRequests().catch(() => {
-            // Non-critical — will retry on next key_needed event
-          });
+        if (phase === 'grace_period') {
+          // Reconnected within grace period — seamless recovery
+          useConnectionStore.getState().reset();
+
+          if (e2eeService.isInitialized) {
+            e2eeService.processPendingKeyRequests().catch(() => {
+              // Non-critical — will retry on next key_needed event
+            });
+          }
+
+          // Rejoin voice channel if we were in one before the disconnect
+          const lastVoiceId = useConnectionStore.getState().lastVoiceChannelId;
+          if (lastVoiceId) {
+            useConnectionStore.getState().setLastVoiceChannelId(null);
+            getVoiceService().then(({ voiceService }) => {
+              voiceService.joinChannel(lastVoiceId);
+            }).catch(() => { /* voice module not available */ });
+          }
+          return;
         }
 
-        // Rejoin voice channel if we were in one before the disconnect
-        const lastVoiceId = useConnectionStore.getState().lastVoiceChannelId;
-        if (lastVoiceId) {
-          useConnectionStore.getState().setLastVoiceChannelId(null);
-          getVoiceService().then(({ voiceService }) => {
-            voiceService.joinChannel(lastVoiceId);
-          }).catch(() => { /* voice module not available */ });
+        // Any other phase (stable = initial connect, or unexpected): just reset
+        if (phase !== 'stable') {
+          useConnectionStore.getState().reset();
         }
       }
     });
@@ -913,16 +965,20 @@ export function useWebSocket() {
     });
 
     // Session revoked handler — server forcefully terminated our session.
-    // This is a courtesy notification; the TCP connection is being killed regardless.
+    // Routes through the recovery system instead of immediately resetting,
+    // so the user sees diagnostic info and can restart cleanly.
     const unsubSessionRevoked = wsService.on('session_revoked', () => {
       console.warn('[WebSocket] Session revoked by server');
       wsService.disconnect();
-      if (useAuthStore.getState().rememberMe) {
-        gracefulReset();
-      } else {
-        nuclearReset();
-      }
-      useAuthStore.getState().clearAccessToken();
+      const store = useConnectionStore.getState();
+      store.setDiagnostics({
+        internet: true,
+        serverReachable: true,
+        tokenValid: false,
+        sessionRevoked: true,
+        rendererStable: true,
+      });
+      store.enterFatal();
     });
 
     // Cleanup handlers

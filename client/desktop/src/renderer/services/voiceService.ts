@@ -1175,6 +1175,11 @@ class VoiceService {
         store.setEffectiveQualityTier(store.qualityTier);
       }
 
+      // Pre-acquire mic stream in parallel with socket connection + room join.
+      // getUserMedia can take 500ms+ (device enumeration, permission prompt).
+      // Starting it now overlaps that latency with the network handshake below.
+      const micPromise = this.acquireMicStream();
+
       // Step 2: Connect Socket.IO to media plane
       // Get the (possibly refreshed) access token for Socket.IO auth
       const token = useAuthStore.getState().accessToken;
@@ -1212,10 +1217,9 @@ class VoiceService {
         rtpCapabilities: this.device.rtpCapabilities,
       });
 
-      // Step 5: Create transports (with encodedInsertableStreams for E2EE)
+      // Step 5: Create transports in parallel (no dependency between send/recv)
       this.isEncrypted = channel.is_encrypted;
-      await this.createSendTransport();
-      await this.createRecvTransport();
+      await Promise.all([this.createSendTransport(), this.createRecvTransport()]);
 
       // Step 6: Initialize E2EE if channel is encrypted
       if (this.isEncrypted) {
@@ -1261,8 +1265,9 @@ class VoiceService {
       });
       store.setParticipants(participants);
 
-      // Step 8: Produce audio
-      await this.produceAudio();
+      // Step 8: Produce audio (using pre-acquired mic stream from step 1b)
+      const preAcquiredStream = await micPromise;
+      await this.produceAudio(undefined, preAcquiredStream);
 
       // Step 8b: Set up live settings subscriptions for mid-call changes
       this.setupLiveSubscriptions();
@@ -1380,7 +1385,30 @@ class VoiceService {
 
   // ─── Audio Producer ────────────────────────────────────────────────
 
-  async produceAudio(deviceId?: string): Promise<void> {
+  /**
+   * Pre-acquire the mic stream so getUserMedia latency overlaps with
+   * socket connection, room join, and transport creation.
+   */
+  private async acquireMicStream(): Promise<MediaStream | null> {
+    try {
+      const adv = useAudioSettingsStore.getState();
+      const useProcessing = !adv.musicMode;
+      return await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: useProcessing && adv.echoCancellation,
+          noiseSuppression: useProcessing && adv.noiseCancellation,
+          autoGainControl: useProcessing && adv.autoGainControl,
+          sampleRate: 48000,
+          channelCount: 2,
+        },
+      });
+    } catch (err) {
+      console.warn('[VoiceService] Pre-acquire mic failed, will retry in produceAudio:', err);
+      return null;
+    }
+  }
+
+  async produceAudio(deviceId?: string, preAcquiredStream?: MediaStream | null): Promise<void> {
     if (!this.sendTransport || !this.device) return;
 
     // Read advanced audio settings
@@ -1389,18 +1417,29 @@ class VoiceService {
     // Music mode disables all audio processing to preserve tonal fidelity
     const useProcessing = !adv.musicMode;
 
-    const constraints: MediaStreamConstraints = {
-      audio: {
-        deviceId: deviceId ? { exact: deviceId } : undefined,
-        echoCancellation: useProcessing && adv.echoCancellation,
-        noiseSuppression: useProcessing && adv.noiseCancellation,
-        autoGainControl: useProcessing && adv.autoGainControl,
-        sampleRate: 48000,
-        channelCount: 2,
-      },
-    };
+    // Use pre-acquired stream if provided (from parallel mic acquisition during join),
+    // otherwise acquire fresh (device switch, live reproduce, etc.)
+    if (preAcquiredStream && !deviceId) {
+      this.localMicStream = preAcquiredStream;
+    } else {
+      // Stop any pre-acquired stream we're not using (device changed)
+      if (preAcquiredStream) {
+        preAcquiredStream.getTracks().forEach((t) => t.stop());
+      }
 
-    this.localMicStream = await navigator.mediaDevices.getUserMedia(constraints);
+      const constraints: MediaStreamConstraints = {
+        audio: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+          echoCancellation: useProcessing && adv.echoCancellation,
+          noiseSuppression: useProcessing && adv.noiseCancellation,
+          autoGainControl: useProcessing && adv.autoGainControl,
+          sampleRate: 48000,
+          channelCount: 2,
+        },
+      };
+
+      this.localMicStream = await navigator.mediaDevices.getUserMedia(constraints);
+    }
     let track = this.localMicStream.getAudioTracks()[0];
 
     // Apply noise gate in manual mode

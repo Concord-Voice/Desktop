@@ -50,6 +50,7 @@ export class WebSocketService {
   private maxReconnectDelay = 30000; // Max 30 seconds
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pingInterval: NodeJS.Timeout | null = null;
+  private aggressiveReconnect = false;
 
   // Message handlers
   private messageHandlers = new Map<string, Set<MessageHandler>>();
@@ -124,6 +125,21 @@ export class WebSocketService {
    */
   getConnectionInfo(): ConnectionInfo | null {
     return this.connectionInfo;
+  }
+
+  /**
+   * Toggle aggressive reconnection mode.
+   * When enabled, reconnect attempts use rapid intervals (500ms → 2s)
+   * instead of the normal exponential backoff (1s → 30s).
+   * Used during the 15-second grace period after connection loss.
+   */
+  setAggressiveReconnect(enabled: boolean): void {
+    this.aggressiveReconnect = enabled;
+    // If switching to aggressive while a slow reconnect is pending, re-schedule faster
+    if (enabled && this.reconnectTimer) {
+      this.clearReconnectTimer();
+      this.scheduleReconnect();
+    }
   }
 
   /**
@@ -494,17 +510,23 @@ export class WebSocketService {
   private scheduleReconnect(): void {
     this.clearReconnectTimer();
 
-    // Exponential backoff for first 10 attempts, then fixed 30s intervals
-    // (keeps retrying indefinitely — the UI layer handles the timeout UX)
-    const delay = this.reconnectAttempts < this.maxReconnectAttempts
-      ? Math.min(
-          this.reconnectDelay * Math.pow(2, this.reconnectAttempts),
-          this.maxReconnectDelay
-        )
-      : 30_000;
+    let delay: number;
+    if (this.aggressiveReconnect) {
+      // Aggressive: 500ms → 1s → 2s → 2s... (used during 15s grace period)
+      delay = Math.min(500 * Math.pow(2, Math.min(this.reconnectAttempts, 2)), 2000);
+    } else {
+      // Normal: exponential backoff for first 10 attempts, then fixed 30s intervals
+      // (keeps retrying indefinitely — the UI layer handles the timeout UX)
+      delay = this.reconnectAttempts < this.maxReconnectAttempts
+        ? Math.min(
+            this.reconnectDelay * Math.pow(2, this.reconnectAttempts),
+            this.maxReconnectDelay
+          )
+        : 30_000;
+    }
 
     console.debug(
-      `[WebSocket] reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1})`
+      `[WebSocket] reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}${this.aggressiveReconnect ? ', aggressive' : ''})`
     );
 
     this.reconnectTimer = setTimeout(() => {

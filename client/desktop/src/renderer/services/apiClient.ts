@@ -98,14 +98,22 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
     // Refresh failed — but only trigger logout once. Another concurrent caller
     // may have already cleared auth while we were awaiting the shared promise.
     if (useAuthStore.getState().accessToken) {
+      // If recovery system is already handling this disconnect, don't double-reset
+      const { useConnectionStore } = await import('../stores/connectionStore');
+      const phase = useConnectionStore.getState().phase;
+      if (phase !== 'stable') {
+        useAuthStore.getState().clearAccessToken();
+        return response;
+      }
+
       const { gracefulReset, nuclearReset } = await import('./resetService');
       if (useAuthStore.getState().rememberMe) {
         gracefulReset();
+        // DO NOT clear disk tokens — session can be restored on next launch
       } else {
-        nuclearReset();
+        nuclearReset(); // already calls clearTokens() internally
       }
       useAuthStore.getState().clearAccessToken();
-      window.electron?.clearTokens?.();
     }
     return response; // Return the original 401
   }

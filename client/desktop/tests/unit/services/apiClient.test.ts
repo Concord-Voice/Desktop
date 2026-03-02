@@ -79,8 +79,9 @@ describe('apiClient', () => {
     expect(useAuthStore.getState().accessToken).toBe('new-token');
   });
 
-  it('clears tokens when IPC refresh fails', async () => {
+  it('clears disk tokens when IPC refresh fails and rememberMe is off', async () => {
     useAuthStore.getState().setAccessToken('old-token');
+    useAuthStore.getState().setRememberMe(false);
 
     // Mock the electron IPC refresh — returns failure
     const mockClearTokens = vi.fn();
@@ -96,8 +97,32 @@ describe('apiClient', () => {
 
     expect(response.status).toBe(401);
     expect(useAuthStore.getState().accessToken).toBeNull();
+    // nuclearReset calls clearTokens internally
     expect(mockClearTokens).toHaveBeenCalledTimes(1);
     // Should not retry — only the original fetch
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves disk tokens when IPC refresh fails and rememberMe is on', async () => {
+    useAuthStore.getState().setAccessToken('old-token');
+    useAuthStore.getState().setRememberMe(true);
+
+    // Mock the electron IPC refresh — returns failure
+    const mockClearTokens = vi.fn();
+    window.electron = {
+      refreshToken: vi.fn().mockResolvedValue({ status: 'error' }),
+      clearTokens: mockClearTokens,
+    } as any;
+
+    // First call: 401
+    mockFetch.mockResolvedValueOnce(new Response('unauthorized', { status: 401 }));
+
+    const response = await apiFetch('/api/v1/test');
+
+    expect(response.status).toBe(401);
+    expect(useAuthStore.getState().accessToken).toBeNull();
+    // gracefulReset preserves disk tokens for Remember Me session restore
+    expect(mockClearTokens).not.toHaveBeenCalled();
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 

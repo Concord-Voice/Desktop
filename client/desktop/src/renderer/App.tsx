@@ -17,8 +17,9 @@ import { detectCodecCapabilities } from './services/mediaCapabilities';
 import { nuclearReset } from './services/resetService';
 
 // ─── Error Boundary ────────────────────────────────────────────────────
-// Catches unhandled rendering errors and resets to a clean login screen.
-// This prevents ghost state from leaking through after a crash.
+// Catches unhandled rendering errors. Instead of going nuclear (which wipes
+// auth tokens and shows login), marks the renderer as crashed and performs a
+// soft restart — preserving the session for automatic recovery.
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -32,8 +33,9 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('[AppErrorBoundary] Unhandled error — nuclear reset:', error, info.componentStack);
-    nuclearReset();
+    console.error('[AppErrorBoundary] Unhandled error — soft restart:', error, info.componentStack);
+    import('./services/recoveryService').then((m) => m.markRendererCrashed());
+    import('./services/resetService').then((m) => m.softRestart());
   }
 
   render() {
