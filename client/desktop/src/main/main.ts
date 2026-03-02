@@ -35,6 +35,11 @@ if (!readHwAccelPref()) {
 // 'document-user-activation-required' policy can silently block these elements.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
+// Explicitly enable Document Picture-in-Picture API for floating user frames.
+// While this is default-on in Chromium 116+, Electron may not include it.
+// (--enable-features is additive — won't override the HW accel flags above.)
+app.commandLine.appendSwitch('enable-features', 'DocumentPictureInPictureAPI');
+
 // Handle creating/removing shortcuts on Windows when installing/uninstalling
 if (require('electron-squirrel-startup')) {
   app.quit();
@@ -63,7 +68,9 @@ const createWindow = (): void => {
   // Load the app
   if (process.env.NODE_ENV === 'development') {
     mainWindow.loadURL('http://localhost:3001');
-    mainWindow.webContents.openDevTools();
+    if (process.env.DEVTOOLS !== '0') {
+      mainWindow.webContents.openDevTools();
+    }
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
@@ -93,9 +100,10 @@ const createWindow = (): void => {
 
 // App lifecycle handlers
 app.whenReady().then(() => {
-  // Media permission handler (#44): only allow media and display-capture
+  // Permission handler: allow media, display-capture, and window-management
+  // (window-management is needed for Document Picture-in-Picture API)
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    const allowed = ['media', 'display-capture'].includes(permission);
+    const allowed = ['media', 'display-capture', 'window-management'].includes(permission);
     callback(allowed);
   });
 

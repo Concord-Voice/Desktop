@@ -973,6 +973,8 @@ class VoiceService {
 
     // Close old producer (does NOT stop the track)
     producer.close();
+    // Drain transport queue so stopSending SDP renegotiation finishes before produce()
+    await this.drainSendTransportQueue();
     this.producers.delete('camera');
     this.socket?.emit('close-producer', { producerId: producer.id });
 
@@ -1029,6 +1031,8 @@ class VoiceService {
 
     // Close old producer (does NOT stop the track)
     oldProducer.close();
+    // Drain transport queue so stopSending SDP renegotiation finishes before produce()
+    await this.drainSendTransportQueue();
     this.producers.delete('screen');
     this.socket?.emit('close-producer', { producerId: oldProducerId });
 
@@ -1991,12 +1995,39 @@ class VoiceService {
     }
   }
 
+  /**
+   * Wait for the send transport's internal AwaitQueue to drain.
+   *
+   * producer.close() enqueues a stopSending() SDP renegotiation as fire-and-forget
+   * on the transport's _awaitQueue. If we call sendTransport.produce() before that
+   * completes, the new m= section's codec PT can collide with the recycled section
+   * from the closing producer (Chromium BUNDLE PT 45 collision).
+   *
+   * This pushes a no-op onto the same queue and awaits it, guaranteeing all prior
+   * queued operations (including stopSending) have finished before we proceed.
+   */
+  private async drainSendTransportQueue(): Promise<void> {
+    if (!this.sendTransport || this.sendTransport.closed) return;
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (this.sendTransport as any)._awaitQueue.push(
+        async () => { /* no-op — just wait for our turn */ },
+        'drainSendTransportQueue'
+      );
+    } catch {
+      // Transport may have closed while waiting — safe to ignore
+    }
+  }
+
   /** Close a specific producer by source */
   async closeProducer(source: string): Promise<void> {
     const producer = this.producers.get(source);
 
     if (producer) {
       producer.close();
+      // Drain the transport's internal queue so the stopSending SDP renegotiation
+      // completes before any subsequent produce() call (prevents PT collision).
+      await this.drainSendTransportQueue();
       this.producers.delete(source);
       this.socket?.emit('close-producer', { producerId: producer.id });
     }

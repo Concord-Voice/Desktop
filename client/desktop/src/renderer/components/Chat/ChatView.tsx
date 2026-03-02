@@ -138,7 +138,17 @@ const ChatView: React.FC = () => {
         );
         if (aborted) return;
 
-        setMessages(activeChannelId, msgs);
+        // Merge with any optimistic messages the user sent while the fetch
+        // was in flight (e.g. during React StrictMode double-mount or reconnect).
+        const existing = useChatStore.getState().messagesByChannel.get(activeChannelId) || [];
+        const optimistic = existing.filter(
+          (m) => m.clientMessageId && (m.status === 'pending' || m.status === 'sent')
+        );
+        const fetchedIds = new Set(msgs.map((m) => m.id));
+        const kept = optimistic.filter(
+          (m) => !fetchedIds.has(m.id) && !fetchedIds.has(m.clientMessageId!)
+        );
+        setMessages(activeChannelId, kept.length > 0 ? [...msgs, ...kept] : msgs);
         setHasMore(msgs.length === MESSAGES_LIMIT);
       } catch (err) {
         if (!aborted) {

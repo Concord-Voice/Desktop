@@ -36,7 +36,20 @@ function getEmojiSizeClass(count: number): string {
   return '';
 }
 
-const EMOJI_REGEX = /\p{Emoji_Presentation}(\u{FE0F}?\u{20E3}|\u{200D}\p{Emoji_Presentation})*/gu;
+/**
+ * Matches complete emoji sequences including:
+ * - Regional indicator pairs (country flags: 🇺🇸)
+ * - Tag sequences (subdivision flags: 🏴󠁧󠁢󠁥󠁮󠁧󠁿)
+ * - ZWJ sequences with text-default emoji (🏴‍☠️, ❤️‍🔥, 👁️‍🗨️)
+ * - Skin tone modifiers (👋🏽)
+ * - Keycap sequences (1️⃣)
+ *
+ * Key fix: after ZWJ, match \p{Emoji}\uFE0F (text-default + variation selector)
+ * in addition to \p{Emoji_Presentation}. Characters like ☠ (U+2620) are \p{Emoji}
+ * but NOT \p{Emoji_Presentation} — without this, ZWJ sequences containing them
+ * (e.g. 🏴‍☠️) get split into their component emoji.
+ */
+const EMOJI_REGEX = /(?:\p{Regional_Indicator}{2}|\p{Emoji_Presentation}[\u{E0020}-\u{E007E}]+\u{E007F}|(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F)(?:\u{200D}(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F)|\p{Emoji_Modifier}|\uFE0F?\u{20E3})*)/gu;
 
 /**
  * Renders message text with emoji characters wrapped in <span class="emoji">

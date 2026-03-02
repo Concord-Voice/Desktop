@@ -49,7 +49,14 @@ export function useMessaging() {
           if (!wsService.isSubscribed(msg.channelId)) {
             return; // Skip — will retry on next cycle once subscribed
           }
-          wsService.sendMessage(msg.channelId, msg.content, msg.id);
+          // Encrypt if the channel is E2EE (fail-closed: skip if encryption fails)
+          const channel = useChannelStore.getState().channels.find((c) => c.id === msg.channelId);
+          const isEncrypted = channel?.is_encrypted ?? false;
+          let content = msg.content;
+          if (isEncrypted && e2eeService.isInitialized) {
+            content = await e2eeService.encryptForChannel(msg.channelId, msg.content);
+          }
+          wsService.sendMessage(msg.channelId, content, msg.id, isEncrypted);
         });
       } else {
         // Stop processing when disconnected

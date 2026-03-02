@@ -17,19 +17,45 @@ import { API_BASE } from '../config';
 export { API_BASE };
 
 /**
+ * Renderer-level refresh deduplication.
+ *
+ * When multiple apiFetch calls get 401 simultaneously (e.g. channel read +
+ * StrictMode double-mount message fetches), they all try to refresh. Without
+ * dedup, even though the main process deduplicates the actual HTTP call, the
+ * "refresh failed → logout" path can fire multiple times or a second call can
+ * race with the first's token rotation.
+ *
+ * This promise is shared: concurrent callers await the same in-flight refresh.
+ */
+let rendererRefreshPromise: Promise<string | null> | null = null;
+
+/**
  * Attempt to refresh the access token via the main process IPC.
  * The main process holds the refresh token securely and makes the HTTP call.
+ * Concurrent calls from the renderer are deduplicated.
  */
 export async function refreshAccessToken(): Promise<string | null> {
-  if (!window.electron?.refreshToken) return null;
-
-  const result = await window.electron.refreshToken();
-  if (result.status === 'ok' && result.accessToken) {
-    useAuthStore.getState().setAccessToken(result.accessToken);
-    if (result.sessionId) useAuthStore.getState().setSessionId(result.sessionId);
-    return result.accessToken;
+  if (rendererRefreshPromise) {
+    return rendererRefreshPromise;
   }
-  return null;
+
+  rendererRefreshPromise = (async () => {
+    if (!window.electron?.refreshToken) return null;
+
+    const result = await window.electron.refreshToken();
+    if (result.status === 'ok' && result.accessToken) {
+      useAuthStore.getState().setAccessToken(result.accessToken);
+      if (result.sessionId) useAuthStore.getState().setSessionId(result.sessionId);
+      return result.accessToken;
+    }
+    return null;
+  })();
+
+  try {
+    return await rendererRefreshPromise;
+  } finally {
+    rendererRefreshPromise = null;
+  }
 }
 
 /**
@@ -60,18 +86,27 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
     return response;
   }
 
-  // Attempt token refresh via main process
+  // If auth has already been cleared (e.g. a concurrent 401 handler already
+  // triggered logout), don't attempt another refresh — just return the 401.
+  if (!useAuthStore.getState().accessToken) {
+    return response;
+  }
+
+  // Attempt token refresh via main process (deduplicated at renderer level)
   const newToken = await refreshAccessToken();
   if (!newToken) {
-    // Refresh failed — reset state before clearing auth
-    const { gracefulReset, nuclearReset } = await import('./resetService');
-    if (useAuthStore.getState().rememberMe) {
-      gracefulReset();
-    } else {
-      nuclearReset();
+    // Refresh failed — but only trigger logout once. Another concurrent caller
+    // may have already cleared auth while we were awaiting the shared promise.
+    if (useAuthStore.getState().accessToken) {
+      const { gracefulReset, nuclearReset } = await import('./resetService');
+      if (useAuthStore.getState().rememberMe) {
+        gracefulReset();
+      } else {
+        nuclearReset();
+      }
+      useAuthStore.getState().clearAccessToken();
+      window.electron?.clearTokens?.();
     }
-    useAuthStore.getState().clearAccessToken();
-    window.electron?.clearTokens?.();
     return response; // Return the original 401
   }
 
