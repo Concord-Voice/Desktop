@@ -84,11 +84,13 @@ describe('useServerChannelSubscriptions', () => {
     expect(mockApiFetch).not.toHaveBeenCalledWith(expect.stringMatching(/\/servers\/server-\d+\/unread/));
   });
 
-  it('unsubscribes from servers on unmount', () => {
+  it('does not unsubscribe on unmount (subscriptions are long-lived)', () => {
     useChatStore.setState({ isConnected: true });
     useServerStore.setState({ servers: [mockServer] });
     const { unmount } = renderHook(() => useServerChannelSubscriptions());
     unmount();
-    expect(mockUnsubscribeServer).toHaveBeenCalledWith('server-1');
+    // Server subscriptions persist — WS disconnect/reconnect handles lifecycle.
+    // Removing cleanup prevents StrictMode double-mount thrashing.
+    expect(mockUnsubscribeServer).not.toHaveBeenCalled();
   });
 });

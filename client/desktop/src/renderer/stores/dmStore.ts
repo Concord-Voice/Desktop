@@ -172,29 +172,40 @@ export const useDMStore = create<DMState>()(
 
           const data = await response.json();
           const conv = mapConversation(data.conversation);
-          const isNewlyCreated = response.status === 201;
 
-          // For newly created personal threads, generate and distribute E2EE key
-          if (isNewlyCreated && conv.isEncrypted && e2eeService.isInitialized) {
+          // Ensure E2EE channel key exists for encrypted personal threads.
+          // Not gated on isNewlyCreated — covers key distribution failures,
+          // post-reset recovery, and first-open when E2EE wasn't ready at creation.
+          if (conv.isEncrypted && e2eeService.isInitialized) {
+            let keyExists = false;
             try {
-              const userStore = await import('../stores/userStore');
-              const userId = userStore.useUserStore.getState().user?.id;
-              if (userId) {
-                const pkRes = await apiFetch(`/api/v1/users/${userId}/public-key`);
-                if (pkRes.ok) {
-                  const pkData = await pkRes.json();
-                  const memberKeys = new Map<string, string>();
-                  memberKeys.set(userId, pkData.public_key);
-                  const wrappedKeys = await e2eeService.createChannelKeys(memberKeys);
-                  await apiFetch(`/api/v1/e2ee/keys/${conv.id}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ wrapped_keys: Object.fromEntries(wrappedKeys) }),
-                  });
+              await e2eeService.getChannelKey(conv.id);
+              keyExists = true;
+            } catch {
+              // Key not available — need to create one
+            }
+
+            if (!keyExists) {
+              try {
+                const userStore = await import('../stores/userStore');
+                const userId = userStore.useUserStore.getState().user?.id;
+                if (userId) {
+                  const pkRes = await apiFetch(`/api/v1/users/${userId}/public-key`);
+                  if (pkRes.ok) {
+                    const pkData = await pkRes.json();
+                    const memberKeys = new Map<string, string>();
+                    memberKeys.set(userId, pkData.public_key);
+                    const wrappedKeys = await e2eeService.createChannelKeys(memberKeys);
+                    await apiFetch(`/api/v1/e2ee/keys/${conv.id}`, {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ wrapped_keys: Object.fromEntries(wrappedKeys) }),
+                    });
+                  }
                 }
+              } catch (err) {
+                console.error('Failed to distribute E2EE key for personal thread:', err);
               }
-            } catch (err) {
-              console.error('Failed to distribute E2EE key for personal thread:', err);
             }
           }
 

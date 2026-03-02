@@ -56,13 +56,24 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
   const activeServer = servers.find((s) => s.id === activeServerId);
   const canReorder = activeServer?.role === 'owner' || activeServer?.role === 'admin';
 
-  // Fetch channels when active server changes
+  // Fetch channels when active server changes.
+  // Guard prevents StrictMode double-mount from firing duplicate HTTP requests.
+  const channelFetchRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (activeServerId) {
-      fetchChannels(activeServerId);
+      if (channelFetchRef.current !== activeServerId) {
+        channelFetchRef.current = activeServerId;
+        fetchChannels(activeServerId);
+      }
     } else {
+      channelFetchRef.current = null;
       clearChannels();
     }
+    return () => {
+      // Allow refetch if effect re-runs with a different serverId
+      // (but NOT on StrictMode unmount — ref persists across remounts)
+    };
   }, [activeServerId, fetchChannels, clearChannels]);
 
   // Fetch voice participants for all voice channels when channel list loads

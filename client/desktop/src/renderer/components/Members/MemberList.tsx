@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useServerStore } from '../../stores/serverStore';
 import { useUserStore } from '../../stores/userStore';
 import { useMemberStore, ServerMember, PresenceStatus } from '../../stores/memberStore';
@@ -35,11 +35,18 @@ const MemberList: React.FC = () => {
 
   const [fullProfileMember, setFullProfileMember] = useState<ServerMember | null>(null);
 
-  // Fetch members when active server changes
+  // Fetch members when active server changes.
+  // Guard prevents StrictMode double-mount from firing duplicate HTTP requests.
+  const memberFetchRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (activeServerId) {
-      fetchMembers(activeServerId);
+      if (memberFetchRef.current !== activeServerId) {
+        memberFetchRef.current = activeServerId;
+        fetchMembers(activeServerId);
+      }
     } else {
+      memberFetchRef.current = null;
       clearMembers();
     }
   }, [activeServerId, fetchMembers, clearMembers]);
