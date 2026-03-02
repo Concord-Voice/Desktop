@@ -60,7 +60,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "@vitest/coverage-v8": "^4.0.18",
     "concurrently": "^8.2.2",
-    "electron": "^40.4.1",
+    "electron": "^40.6.1",
     "eslint": "^8.56.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react": "^7.33.2",

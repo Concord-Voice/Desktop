@@ -14,9 +14,9 @@
   margin: 6px;
 }
 
-/* Video active — switch to native video aspect ratio */
+/* Video active — use 16:9 aspect ratio for video content */
 .participant-tile--video {
-  aspect-ratio: auto;
+  aspect-ratio: 16 / 9;
 }
 
 /* Compact mode for horizontal bars */

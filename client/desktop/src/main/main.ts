@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, desktopCapturer, ipcMain, screen, session, shell } from 'electron';
+import { app, BrowserWindow, clipboard, desktopCapturer, ipcMain, screen, session, shell, systemPreferences } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import {
@@ -66,14 +66,37 @@ const createWindow = (): void => {
     show: false, // Don't show until ready
   });
 
-  // Load the app
-  if (process.env.NODE_ENV === 'development') {
-    mainWindow.loadURL('http://localhost:3001');
+  // Load the app: try Vite dev server first, fall back to built files
+  const devServerUrl = 'http://localhost:3001';
+  const isDev = process.env.NODE_ENV === 'development';
+
+  const tryLoadDev = async () => {
+    try {
+      const http = await import('http');
+      await new Promise<void>((resolve, reject) => {
+        const req = http.default.get(devServerUrl, { timeout: 500 }, (res) => {
+          res.resume();
+          resolve();
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+      });
+      mainWindow!.loadURL(devServerUrl);
+      if (process.env.DEVTOOLS !== '0') {
+        mainWindow!.webContents.openDevTools();
+      }
+    } catch {
+      mainWindow!.loadFile(path.join(__dirname, '../renderer/index.html'));
+    }
+  };
+
+  if (isDev) {
+    mainWindow.loadURL(devServerUrl);
     if (process.env.DEVTOOLS !== '0') {
       mainWindow.webContents.openDevTools();
     }
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    tryLoadDev();
   }
 
   // Show window when ready to prevent visual flash
@@ -107,6 +130,26 @@ app.whenReady().then(() => {
     const allowed = ['media', 'display-capture', 'window-management'].includes(permission);
     callback(allowed);
   });
+
+  // Permission check handler: Chromium queries this to verify permissions are granted
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+    return ['media', 'display-capture'].includes(permission);
+  });
+
+  // Device permission handler: allow camera, microphone, and speaker enumeration
+  session.defaultSession.setDevicePermissionHandler((details) => {
+    return ['camera', 'microphone', 'speaker'].includes(details.deviceType ?? '');
+  });
+
+  // Request macOS media permissions on startup (camera + microphone)
+  if (process.platform === 'darwin') {
+    if (systemPreferences.getMediaAccessStatus('camera') !== 'granted') {
+      systemPreferences.askForMediaAccess('camera');
+    }
+    if (systemPreferences.getMediaAccessStatus('microphone') !== 'granted') {
+      systemPreferences.askForMediaAccess('microphone');
+    }
+  }
 
   createWindow();
 
