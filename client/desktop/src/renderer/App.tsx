@@ -112,13 +112,18 @@ function AuthenticatedLayout() {
 function App() {
   const [version, setVersion] = useState<string>('');
   const [platform, setPlatform] = useState<string>('');
-  const [isRestoring, setIsRestoring] = useState(true);
+  // PiP windows don't need auth — they communicate via BroadcastChannel.
+  // Skip session restore entirely to avoid unnecessary token rotations.
+  const isPipWindow = window.location.hash.startsWith('#/pip/');
+  const [isRestoring, setIsRestoring] = useState(!isPipWindow);
   const accessToken = useAuthStore((state) => state.accessToken);
 
   // Restore session on startup: ask main process to decrypt the
   // safeStorage-encrypted refresh token and exchange it for a fresh
   // access token, so users with "Remember Me" don't see a login flash
   useEffect(() => {
+    if (isPipWindow) return; // PiP windows skip session restore
+
     const restore = async () => {
       if (!window.electron?.restoreSession) {
         setIsRestoring(false);
@@ -152,7 +157,7 @@ function App() {
       setIsRestoring(false);
     };
     restore();
-  }, []);
+  }, [isPipWindow]);
 
   useEffect(() => {
     // Get app info from Electron main process
