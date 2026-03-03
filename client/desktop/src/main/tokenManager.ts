@@ -139,6 +139,9 @@ export function performRefresh(): Promise<{ status: string; accessToken?: string
     }
 
     try {
+      const tokenSuffix = inMemoryRefreshToken.slice(-8);
+      console.log(`[TokenManager] Refreshing token (…${tokenSuffix})`);
+
       const response = await net.fetch(`${inMemoryApiBase}/api/v1/auth/refresh`, {
         method: 'POST',
         headers: {
@@ -148,6 +151,7 @@ export function performRefresh(): Promise<{ status: string; accessToken?: string
       });
 
       if (!response.ok) {
+        console.warn(`[TokenManager] Refresh failed: HTTP ${response.status} (token …${tokenSuffix})`);
         return { status: 'refresh_failed' };
       }
 
@@ -162,6 +166,7 @@ export function performRefresh(): Promise<{ status: string; accessToken?: string
 
       // Rotate: update in-memory refresh token and re-encrypt to disk
       if (newRefreshToken) {
+        console.log(`[TokenManager] Token rotated: …${tokenSuffix} → …${newRefreshToken.slice(-8)}`);
         inMemoryRefreshToken = newRefreshToken;
 
         if (inMemoryRememberMe && canPersist()) {

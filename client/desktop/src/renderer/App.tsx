@@ -109,6 +109,11 @@ function AuthenticatedLayout() {
 
 // ─── App Root ──────────────────────────────────────────────────────────
 
+// Module-level guard: React Strict Mode (dev) double-mounts the component,
+// firing useEffect twice. Without this flag, two restoreSession IPC calls
+// can trigger two sequential token rotations.
+let restoreSessionCalled = false;
+
 function App() {
   const [version, setVersion] = useState<string>('');
   const [platform, setPlatform] = useState<string>('');
@@ -120,9 +125,16 @@ function App() {
 
   // Restore session on startup: ask main process to decrypt the
   // safeStorage-encrypted refresh token and exchange it for a fresh
-  // access token, so users with "Remember Me" don't see a login flash
+  // access token, so users with "Remember Me" don't see a login flash.
+  // Note: the IPC handler is also deduplicated in main.ts, but we guard
+  // here as well to avoid even making a redundant IPC call.
   useEffect(() => {
     if (isPipWindow) return; // PiP windows skip session restore
+    if (restoreSessionCalled) {
+      setIsRestoring(false);
+      return;
+    }
+    restoreSessionCalled = true;
 
     const restore = async () => {
       if (!window.electron?.restoreSession) {

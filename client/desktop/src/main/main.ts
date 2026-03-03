@@ -258,19 +258,31 @@ ipcMain.handle('auth:storeRefreshToken', (_event, data: {
   storeRefreshToken(data);
 });
 
-ipcMain.handle('auth:restoreSession', async () => {
-  const restored = restoreRefreshToken();
-  if (restored.status !== 'ok') {
-    return { status: restored.status };
-  }
-  // Token restored from disk — refresh it to get a fresh access token
-  const refreshResult = await performRefresh();
-  if (refreshResult.status === 'ok' && refreshResult.accessToken) {
-    // Also restore E2EE keys if available
-    const e2eeKeys = restoreE2EEKeys();
-    return { status: 'restored', accessToken: refreshResult.accessToken, sessionId: refreshResult.sessionId, e2eeKeys };
-  }
-  return { status: 'refresh_failed' };
+// Deduplicate restoreSession: React Strict Mode can fire the renderer's
+// useEffect twice, causing two IPC calls.  Without dedup each call would
+// trigger a separate token rotation, wasting rotations and widening the
+// window for race conditions.
+let restoreSessionPromise: Promise<{ status: string; accessToken?: string; sessionId?: string; e2eeKeys?: unknown }> | null = null;
+
+ipcMain.handle('auth:restoreSession', () => {
+  if (restoreSessionPromise) return restoreSessionPromise;
+
+  restoreSessionPromise = (async () => {
+    const restored = restoreRefreshToken();
+    if (restored.status !== 'ok') {
+      return { status: restored.status };
+    }
+    // Token restored from disk — refresh it to get a fresh access token
+    const refreshResult = await performRefresh();
+    if (refreshResult.status === 'ok' && refreshResult.accessToken) {
+      // Also restore E2EE keys if available
+      const e2eeKeys = restoreE2EEKeys();
+      return { status: 'restored', accessToken: refreshResult.accessToken, sessionId: refreshResult.sessionId, e2eeKeys };
+    }
+    return { status: 'refresh_failed' };
+  })();
+
+  return restoreSessionPromise;
 });
 
 ipcMain.handle('auth:storeE2EEKeys', (_event, data: {
