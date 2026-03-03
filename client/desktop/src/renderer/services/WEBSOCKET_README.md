@@ -15,7 +15,7 @@ This directory contains the complete WebSocket client implementation for Concord
 - Typing indicators
 - Presence updates
 - Auto-reconnection with exponential backoff
-- JWT authentication
+- Ticket-based authentication (POST /auth/ws-ticket → single-use 30s ticket)
 
 ---
 

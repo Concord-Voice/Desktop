@@ -100,41 +100,50 @@ npm run make
 
 This will create platform-specific installers in the `out/` directory.
 
-## Current Features (Phase 1A) ✅
+## Features
 
-- **Authentication**:
-  - User registration with E2EE key generation (RSA-OAEP 2048-bit)
-  - Login with automatic key unwrapping (PBKDF2 600k iterations)
-  - Token management (access + refresh tokens)
-  - Session management
+### Phase 1A: Authentication & E2EE ✅
+- User registration with E2EE key generation (RSA-OAEP **4096-bit**)
+- Login with automatic key unwrapping (PBKDF2 600k iterations)
+- Token management (access + refresh tokens)
+- Session management with device tracking
+- Password strength meter (5-tier system)
+- Username validation with profanity filtering
+- Secure key storage (private keys never sent to server)
+- Connection selector (hosted vs self-hosted)
 
-- **Security**:
-  - Client-side E2EE (AES-GCM, RSA-OAEP)
-  - Password strength meter (5-tier system)
-  - Username validation with profanity filtering
-  - Secure key storage (private keys never sent to server)
+### Phase 1B: Channels & Text Chat ✅
+- Server creation/management with icons and header images
+- Channel list with E2EE indicators
+- Real-time messaging via WebSocket (ticket-based auth)
+- Message editing, deletion, date dividers
+- Presence indicators (online/offline/typing)
+- Server invites with code sharing
+- Channel read states and unread badges
+- Custom themes (11 theme blocks, 5 color schemes x dark/light)
+- Compact mode, resizable panels, font scaling
 
-- **UI/UX**:
-  - Connection selector (hosted vs self-hosted)
-  - InfoTooltip component for user education
-  - Responsive forms with validation
-  - Branding: concordvoice.chat
+### Phase 1C: Voice & Media ✅
+- WebRTC voice channels via mediasoup SFU
+- Video and screen sharing UI
+- DM system with conversations and voice calls
+- Friend codes and privacy controls
+- Emoji picker (1800+ emoji, search, skin tones, recently used)
+- Channel groups with drag-and-drop ordering
+- Custom context menus
+- Profile popovers
+- **19 Zustand stores** for state management
 
-## In Progress (Phase 1B) 🚧
+### Security ✅
+- Electron hardening: safeStorage, ASAR, sandbox, context isolation
+- Secure IPC via preload scripts (no @electron/remote)
+- CSP configured
+- E2EE: AES-256-GCM message encryption, RSA-OAEP 4096-bit key wrapping
 
-- Server/channel list UI
-- Real-time messaging (WebSocket)
-- Chat UI components
-- Presence indicators
-
-## Future Enhancements (Phase 1C+) 📋
-
-- [ ] WebRTC voice connections
-- [ ] Native audio processing
+### Phase 2+ 📋
+- [ ] GIF integration, file uploads, @mention tagging
 - [ ] Push-to-talk with global shortcuts
 - [ ] System tray integration
 - [ ] Auto-updates
-- [ ] Crash reporting
 - [ ] Native notifications
-- [ ] Screen sharing
-- [ ] Voice activity detection (VAD)
+- [ ] Lazy loading and code splitting

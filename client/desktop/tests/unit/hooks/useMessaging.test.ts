@@ -55,10 +55,13 @@ vi.mock('@/renderer/services/messageQueue', () => ({
 
 // Mock e2eeService
 const mockEncryptForChannel = vi.fn();
+const mockGetCurrentKeyVersion = vi.fn(() => undefined);
 
 vi.mock('@/renderer/services/e2eeService', () => ({
   e2eeService: {
     encryptForChannel: (...args: unknown[]) => mockEncryptForChannel(...args),
+    getCurrentKeyVersion: (...args: unknown[]) => mockGetCurrentKeyVersion(...args),
+    isInitialized: true,
   },
 }));
 
@@ -119,12 +122,13 @@ describe('useMessaging', () => {
 
     // Wait for async doSend
     await vi.waitFor(() => {
-      expect(mockSendMessage).toHaveBeenCalledWith('channel-1', 'Hello world', 'client-msg-1', false);
+      expect(mockSendMessage).toHaveBeenCalledWith('channel-1', 'Hello world', 'client-msg-1', false, undefined);
     });
   });
 
   it('sendMessage encrypts for E2EE channels', async () => {
     mockEncryptForChannel.mockResolvedValue('encrypted-base64-content-that-is-long-enough-for-validation');
+    mockGetCurrentKeyVersion.mockReturnValue(3);
 
     const { result } = renderHook(() => useMessaging());
 
@@ -139,6 +143,7 @@ describe('useMessaging', () => {
         'encrypted-base64-content-that-is-long-enough-for-validation',
         'client-msg-1',
         true,
+        3,
       );
     });
   });
