@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import { MicOff, Monitor } from 'lucide-react';
 import type { VoiceParticipant } from '../../stores/voiceStore';
+import { useVoiceStore } from '../../stores/voiceStore';
 import { useMemberStore } from '../../stores/memberStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 import './ParticipantTile.css';
@@ -48,8 +49,10 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
     };
   }, [participant.videoStream]);
 
+  const localStreamPaused = useVoiceStore((s) => s.localStreamPaused);
   const displayName = participant.displayName || participant.username;
-  const hasVideo = participant.isVideoOn && participant.videoStream;
+  // When auto-pause is active, hide local user's video to save decode resources
+  const hasVideo = participant.isVideoOn && participant.videoStream && !(isLocal && localStreamPaused);
   const memberColorScheme = useMemberStore((state) => {
     const member = state.members.find((m) => m.user_id === participant.userId);
     return member?.color_scheme;

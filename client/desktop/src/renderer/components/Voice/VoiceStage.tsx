@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, PictureInPicture2, LayoutGrid, Focus } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
+import { useUserStore } from '../../stores/userStore';
 import { useDocumentPip, hasDocumentPipSupport } from './useDocumentPip';
 import { DocumentPipContent } from './DocumentPipContent';
 import './VoiceStage.css';
@@ -66,6 +67,8 @@ const VoiceStage: React.FC = () => {
   const setDominantScreenShare = useVoiceStore((s) => s.setDominantScreenShare);
   const stageLayout = useVoiceStore((s) => s.stageLayout);
   const toggleStageLayout = useVoiceStore((s) => s.toggleStageLayout);
+  const localStreamPaused = useVoiceStore((s) => s.localStreamPaused);
+  const localUserId = useUserStore((s) => s.user?.id);
   const docPip = useDocumentPip();
 
   const tunedInIds = Object.keys(tunedInScreenShares);
@@ -140,10 +143,11 @@ const VoiceStage: React.FC = () => {
           {tunedInIds.map((producerId) => {
             const sharer = findSharer(producerId);
             const name = sharer?.displayName || sharer?.username || 'Unknown';
+            const isLocalSharer = sharer?.userId === localUserId;
             return (
               <StageVideo
                 key={producerId}
-                stream={sharer?.screenStream}
+                stream={isLocalSharer && localStreamPaused ? undefined : sharer?.screenStream}
                 sharerName={name}
               />
             );
@@ -154,10 +158,11 @@ const VoiceStage: React.FC = () => {
   }
 
   // ── Focus mode: single dominant stream ──────────────────────────────
+  const isDominantLocal = dominantSharer?.userId === localUserId;
   return (
     <div className="voice-stage">
       <StageVideo
-        stream={dominantSharer?.screenStream}
+        stream={isDominantLocal && localStreamPaused ? undefined : dominantSharer?.screenStream}
         sharerName={dominantSharerName}
         showOverlay={false}
       />

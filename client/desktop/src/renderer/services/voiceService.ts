@@ -92,6 +92,8 @@ class VoiceService {
   private producers: Map<string, mediasoupTypes.Producer> = new Map();
   // Remote consumers: consumerId → Consumer
   private consumers: Map<string, mediasoupTypes.Consumer> = new Map();
+  // Consumer metadata for ownership transfer (parallel to consumers Map)
+  private consumerMeta: Map<string, { source: string; producerUserId: string }> = new Map();
   // Local media streams
   private localMicStream: MediaStream | null = null;
   private localCameraStream: MediaStream | null = null;
@@ -1349,6 +1351,7 @@ class VoiceService {
       try { consumer.close(); } catch { /* ignore */ }
     }
     this.consumers.clear();
+    this.consumerMeta.clear();
 
     // 4. Close transports (sync)
     try { this.sendTransport?.close(); } catch { /* ignore */ }
@@ -1989,6 +1992,7 @@ class VoiceService {
       if (consumer) {
         consumer.close();
         this.consumers.delete(consumerId);
+        this.consumerMeta.delete(consumerId);
       }
     }
 
@@ -2018,20 +2022,43 @@ class VoiceService {
     store.tuneOut(producerId);
   }
 
-  /** Pause a consumer (for soft-pause when section is hidden) */
+  /** Pause a consumer locally and signal the server to stop forwarding RTP */
   pauseConsumer(consumerId: string): void {
     const consumer = this.consumers.get(consumerId);
     if (consumer && !consumer.paused) {
       consumer.pause();
+      this.socket?.emit('pause-consumer', { consumerId });
     }
   }
 
-  /** Resume a consumer (for soft-resume when section is shown) */
+  /** Resume a consumer locally and signal the server to resume forwarding RTP */
   resumeConsumer(consumerId: string): void {
     const consumer = this.consumers.get(consumerId);
     if (consumer && consumer.paused) {
       consumer.resume();
+      this.socket?.emit('resume-consumer', { consumerId });
     }
+  }
+
+  /** Get consumer IDs filtered by source (e.g. 'audio', 'camera', 'screen'). No filter returns all. */
+  getConsumerIdsBySource(source?: string): string[] {
+    if (!source) return Array.from(this.consumers.keys());
+    const ids: string[] = [];
+    for (const [id, meta] of this.consumerMeta) {
+      if (meta.source === source) ids.push(id);
+    }
+    return ids;
+  }
+
+  /** Get the router's RTP capabilities (needed for PiP voice client Device.load()) */
+  getRouterRtpCapabilities(): unknown {
+    return this.device?.rtpCapabilities ?? null;
+  }
+
+  /** Proxy a signaling event to the media plane (used by PiP signaling proxy) */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  forwardToServer<T = any>(event: string, data?: unknown): Promise<T> {
+    return this.emitAsync<T>(event, data);
   }
 
   /**
@@ -2226,6 +2253,7 @@ class VoiceService {
       });
 
       this.consumers.set(consumer.id, consumer);
+      this.consumerMeta.set(consumer.id, { source: result.source, producerUserId: result.producerUserId });
 
       console.debug('[consume] consumer created', {
         consumerId: consumer.id,
@@ -2273,6 +2301,7 @@ class VoiceService {
       consumer.on('transportclose', () => {
         console.debug('[consume] transport closed for consumer', consumer.id);
         this.consumers.delete(consumer.id);
+        this.consumerMeta.delete(consumer.id);
       });
 
       // Resume the consumer (was created paused on server)
@@ -2343,6 +2372,7 @@ class VoiceService {
         if (consumer.producerId === producerId) {
           consumer.close();
           this.consumers.delete(consumerId);
+          this.consumerMeta.delete(consumerId);
           break;
         }
       }
@@ -2435,6 +2465,7 @@ class VoiceService {
 
         consumer.close();
         this.consumers.delete(consumerId);
+        this.consumerMeta.delete(consumerId);
       }
     });
 
@@ -2818,6 +2849,7 @@ class VoiceService {
       consumer.close();
     }
     this.consumers.clear();
+    this.consumerMeta.clear();
 
     // Close transports
     this.sendTransport?.close();

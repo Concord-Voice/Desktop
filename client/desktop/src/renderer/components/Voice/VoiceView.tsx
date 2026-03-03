@@ -81,29 +81,33 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     hasJoinedRef.current = isConnected;
   }, [channelId, isConnected]);
 
-  // Pause local screen share when window loses focus (unless keepActiveWhileUnfocused)
-  const screenPausedByFocusRef = useRef(false);
-
+  // Auto-pause: hide local stream previews when window loses focus to save
+  // GPU/decode resources. The producer keeps running — other participants
+  // still see the stream. Only the local rendering is paused.
   useEffect(() => {
     if (!isConnected || !isScreenSharing) {
-      screenPausedByFocusRef.current = false;
+      useVoiceStore.getState().setLocalStreamPaused(false);
       return;
     }
 
-    const handleVisibility = async () => {
+    const handleBlur = () => {
       if (keepActiveWhileUnfocused) return;
-      const { voiceService } = await getVoiceService();
-      if (document.hidden) {
-        voiceService.pauseLocalProducer('screen');
-        screenPausedByFocusRef.current = true;
-      } else if (screenPausedByFocusRef.current) {
-        voiceService.resumeLocalProducer('screen');
-        screenPausedByFocusRef.current = false;
-      }
+      useVoiceStore.getState().setLocalStreamPaused(true);
     };
 
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
+    const handleFocus = () => {
+      if (!useVoiceStore.getState().localStreamPaused) return;
+      useVoiceStore.getState().setLocalStreamPaused(false);
+    };
+
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+      // Ensure we unpause if this effect cleans up (e.g. screen share stops)
+      useVoiceStore.getState().setLocalStreamPaused(false);
+    };
   }, [isConnected, isScreenSharing, keepActiveWhileUnfocused]);
 
   // Text chat resize (layout-aware: vertical uses X axis, horizontal uses Y axis)

@@ -246,6 +246,8 @@ interface VoiceState {
 
   // Stream focus behavior
   keepActiveWhileUnfocused: boolean;
+  // When true, the local user's own stream previews are hidden to save GPU/decode resources
+  localStreamPaused: boolean;
 
   // Persistent voice controls (when navigated away from voice channel)
   voiceControlsPinned: boolean;
@@ -337,6 +339,7 @@ interface VoiceState {
 
   // Stream focus behavior
   setKeepActiveWhileUnfocused: (keep: boolean) => void;
+  setLocalStreamPaused: (paused: boolean) => void;
 
   // Persistent voice controls
   setVoiceControlsPinned: (pinned: boolean) => void;
@@ -421,6 +424,7 @@ const initialState = {
   keepActiveWhileUnfocused: (() => {
     try { return localStorage.getItem('concord:keep-active-unfocused') === 'true'; } catch { return false; }
   })(),
+  localStreamPaused: false,
   voiceControlsPinned: true,
   voiceControlsPoppedOut: false,
   persistentTextChatHeight: 250,
@@ -645,6 +649,7 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
     set({ keepActiveWhileUnfocused: keep });
     try { localStorage.setItem('concord:keep-active-unfocused', String(keep)); } catch { /* ignore */ }
   },
+  setLocalStreamPaused: (localStreamPaused) => set({ localStreamPaused }),
 
   setVoiceControlsPinned: (voiceControlsPinned) => set({ voiceControlsPinned }),
   toggleVoiceControlsPinned: () => set((state) => ({ voiceControlsPinned: !state.voiceControlsPinned })),

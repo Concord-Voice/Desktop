@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
+import { useUserStore } from '../../stores/userStore';
 import './StreamBar.css';
 
 /**
@@ -66,6 +67,8 @@ const StreamBar: React.FC<{ height: number }> = ({ height }) => {
   const dominantScreenShareId = useVoiceStore((s) => s.dominantScreenShareId);
   const participants = useVoiceStore((s) => s.participants);
   const setDominantScreenShare = useVoiceStore((s) => s.setDominantScreenShare);
+  const localStreamPaused = useVoiceStore((s) => s.localStreamPaused);
+  const localUserId = useUserStore((s) => s.user?.id);
 
   // Get non-dominant tuned-in shares
   const nonDominantIds = Object.keys(tunedInScreenShares).filter(
@@ -84,11 +87,12 @@ const StreamBar: React.FC<{ height: number }> = ({ height }) => {
           );
           const sharerName = sharer?.displayName || sharer?.username || 'Unknown';
 
+          const isLocalSharer = sharer?.userId === localUserId;
           return (
             <StreamThumbnail
               key={producerId}
               producerId={producerId}
-              stream={sharer?.screenStream}
+              stream={isLocalSharer && localStreamPaused ? undefined : sharer?.screenStream}
               sharerName={sharerName}
               onSelect={() => setDominantScreenShare(producerId)}
               onTuneOut={() => {
