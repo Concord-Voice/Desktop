@@ -53,10 +53,12 @@ export function useMessaging() {
           const channel = useChannelStore.getState().channels.find((c) => c.id === msg.channelId);
           const isEncrypted = channel?.is_encrypted ?? false;
           let content = msg.content;
+          let keyVersion: number | undefined;
           if (isEncrypted && e2eeService.isInitialized) {
             content = await e2eeService.encryptForChannel(msg.channelId, msg.content);
+            keyVersion = e2eeService.getCurrentKeyVersion(msg.channelId);
           }
-          wsService.sendMessage(msg.channelId, content, msg.id, isEncrypted);
+          wsService.sendMessage(msg.channelId, content, msg.id, isEncrypted, keyVersion);
         });
       } else {
         // Stop processing when disconnected
@@ -113,16 +115,18 @@ export function useMessaging() {
         const doSend = async () => {
           try {
             let sendContent = content;
+            let keyVersion: number | undefined;
             if (isEncrypted) {
               // Fail-closed: if encryption fails, do NOT send
               sendContent = await e2eeService.encryptForChannel(channelId, content);
+              keyVersion = e2eeService.getCurrentKeyVersion(channelId);
               // Validate encrypted output: must be non-empty base64 with minimum size
               // (12-byte IV + 16-byte auth tag = 28 bytes minimum decoded)
               if (!sendContent || sendContent.length < 40) {
                 throw new Error('Encryption produced invalid output');
               }
             }
-            wsService.sendMessage(channelId, sendContent, clientMessageId, isEncrypted);
+            wsService.sendMessage(channelId, sendContent, clientMessageId, isEncrypted, keyVersion);
             messageQueue.markAsSent(clientMessageId);
             messageQueue.remove(clientMessageId);
             updateMessageStatus(channelId, clientMessageId, 'sent');

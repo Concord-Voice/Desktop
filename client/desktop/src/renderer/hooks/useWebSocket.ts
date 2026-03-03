@@ -49,6 +49,99 @@ export function useWebSocket() {
     setTyping,
   } = useChatStore();
 
+  /**
+   * Validate key epochs on reconnect — pull-based catch-up for missed key_revocation events.
+   * Sends current cached epochs to the server and processes any revocations.
+   */
+  const validateEpochsOnReconnect = useCallback(async () => {
+    // Build epochs map from cached channel keys
+    const epochs: Record<string, number> = {};
+    // Only validate channels we're subscribed to (active channels)
+    const channels = useChannelStore.getState().channels.filter((c) => c.is_encrypted);
+    for (const ch of channels) {
+      const version = e2eeService.getCurrentKeyVersion(ch.id);
+      if (version > 0) {
+        epochs[ch.id] = version;
+      }
+    }
+
+    if (Object.keys(epochs).length === 0) return;
+
+    const res = await apiFetch('/api/v1/e2ee/validate-epochs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ epochs }),
+    });
+
+    if (!res.ok) return;
+    const data = await res.json();
+    const revocations = data.revocations || [];
+
+    for (const rev of revocations) {
+      console.debug('[WebSocket] Stale epoch detected:', rev.channel_id, 'revoked:', rev.revoked_epoch, '→', rev.successor_epoch);
+      e2eeService.invalidateChannelKey(rev.channel_id);
+
+      // Trigger rotation coordinator
+      window.dispatchEvent(
+        new CustomEvent('e2ee-key-rotation', {
+          detail: {
+            channelId: rev.channel_id,
+            newEpoch: rev.successor_epoch,
+            reason: rev.reason,
+          },
+        })
+      );
+    }
+  }, []);
+
+  // Rotation coordinator — listens for key rotation events and distributes new keys
+  useEffect(() => {
+    const handleKeyRotation = async (event: Event) => {
+      const { channelId, newEpoch } = (event as CustomEvent).detail;
+      if (!channelId || !newEpoch || !e2eeService.isInitialized) return;
+
+      try {
+        // Fetch remaining server members and their public keys
+        // Find which server this channel belongs to
+        const channel = useChannelStore.getState().channels.find((c) => c.id === channelId);
+        if (!channel) return;
+
+        const membersRes = await apiFetch(`/api/v1/servers/${channel.server_id}/members`);
+        if (!membersRes.ok) return;
+        const membersData = await membersRes.json();
+        const members = membersData.members || [];
+
+        // Fetch public keys for all members
+        const memberPublicKeys = new Map<string, string>();
+        for (const member of members) {
+          try {
+            const pkRes = await apiFetch(`/api/v1/users/${member.user_id}/public-key`);
+            if (pkRes.ok) {
+              const pkData = await pkRes.json();
+              if (pkData.public_key) {
+                memberPublicKeys.set(member.user_id, pkData.public_key);
+              }
+            }
+          } catch {
+            // Skip members whose keys we can't fetch
+          }
+        }
+
+        if (memberPublicKeys.size === 0) return;
+
+        // Rotate: generate new key, wrap for all members, distribute
+        await e2eeService.rotateChannelKey(channelId, newEpoch, memberPublicKeys);
+        console.debug('[E2EE] Key rotation completed for', channelId, 'epoch', newEpoch);
+      } catch (err) {
+        // Non-fatal: another client may handle the rotation (first-response-wins)
+        console.debug('[E2EE] Key rotation failed (another client may handle it):', err);
+      }
+    };
+
+    window.addEventListener('e2ee-key-rotation', handleKeyRotation);
+    return () => window.removeEventListener('e2ee-key-rotation', handleKeyRotation);
+  }, []);
+
   // Connect when token is available
   useEffect(() => {
     if (!accessToken) {
@@ -160,6 +253,11 @@ export function useWebSocket() {
           useConnectionStore.getState().reset();
           useUserStore.getState().fetchUser();
           import('../services/recoveryService').then((m) => m.clearCrashFlag());
+
+          // Validate key epochs after extended disconnection
+          if (e2eeService.isInitialized) {
+            validateEpochsOnReconnect().catch(() => {});
+          }
           return;
         }
 
@@ -170,6 +268,11 @@ export function useWebSocket() {
           if (e2eeService.isInitialized) {
             e2eeService.processPendingKeyRequests().catch(() => {
               // Non-critical — will retry on next key_needed event
+            });
+
+            // Validate key epochs on reconnect (catch up on missed key_revocation events)
+            validateEpochsOnReconnect().catch((err) => {
+              console.debug('[WebSocket] validate_epochs failed:', err);
             });
           }
 
@@ -202,6 +305,7 @@ export function useWebSocket() {
       }
 
       const isEncrypted = data.is_encrypted || false;
+      const keyVersion = data.key_version as number | undefined;
       const baseMessage = {
         id: data.id || crypto.randomUUID(),
         channel_id: channelId,
@@ -210,6 +314,7 @@ export function useWebSocket() {
         display_name: data.display_name || undefined,
         avatar_url: data.avatar_url || undefined,
         is_encrypted: isEncrypted,
+        key_version: keyVersion,
         created_at: data.created_at || new Date().toISOString(),
         updated_at: data.updated_at || new Date().toISOString(),
       };
@@ -226,9 +331,12 @@ export function useWebSocket() {
       };
 
       if (isEncrypted && e2eeService.isInitialized) {
-        // Decrypt asynchronously, then add to store
-        e2eeService
-          .decryptForChannel(channelId, data.content)
+        // Decrypt asynchronously with version-aware decryption
+        const decryptPromise = keyVersion && keyVersion > 1
+          ? e2eeService.decryptForChannelWithVersion(channelId, data.content, keyVersion)
+          : e2eeService.decryptForChannel(channelId, data.content);
+
+        decryptPromise
           .then((plaintext) => {
             addMessage(channelId, { ...baseMessage, content: plaintext });
             maybeSpeakTTS(plaintext);
@@ -557,6 +665,27 @@ export function useWebSocket() {
       }
     });
 
+    // Key revocation handler — a channel's key epoch was revoked (member removal or theft)
+    const unsubKeyRevocation = wsService.on('key_revocation', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const channelId = data.channel_id;
+      const newEpoch = data.new_epoch;
+      const removedUserId = data.removed_user_id;
+
+      if (!channelId) return;
+      console.debug('[WebSocket] key_revocation:', channelId, 'new_epoch:', newEpoch, 'reason:', data.reason);
+
+      // Invalidate cached key for this channel
+      e2eeService.invalidateChannelKey(channelId);
+
+      // Dispatch event for rotation coordinator
+      window.dispatchEvent(
+        new CustomEvent('e2ee-key-rotation', {
+          detail: { channelId, newEpoch, removedUserId, reason: data.reason },
+        })
+      );
+    });
+
     // Key delivered handler — a channel key was distributed to the current user
     const unsubKeyDelivered = wsService.on('key_delivered', (msg: WebSocketMessage) => {
       const { data } = msg;
@@ -720,6 +849,7 @@ export function useWebSocket() {
       }
 
       const isEncrypted = data.is_encrypted || false;
+      const dmKeyVersion = data.key_version as number | undefined;
       const baseMessage = {
         id: data.id || crypto.randomUUID(),
         channel_id: conversationId,
@@ -728,13 +858,17 @@ export function useWebSocket() {
         display_name: data.display_name || undefined,
         avatar_url: data.avatar_url || undefined,
         is_encrypted: isEncrypted,
+        key_version: dmKeyVersion,
         created_at: data.created_at || new Date().toISOString(),
         updated_at: data.updated_at || new Date().toISOString(),
       };
 
       if (isEncrypted && e2eeService.isInitialized) {
-        e2eeService
-          .decryptForChannel(conversationId, data.content)
+        const decryptPromise = dmKeyVersion && dmKeyVersion > 1
+          ? e2eeService.decryptForChannelWithVersion(conversationId, data.content, dmKeyVersion)
+          : e2eeService.decryptForChannel(conversationId, data.content);
+
+        decryptPromise
           .then((plaintext) => {
             addMessage(conversationId, { ...baseMessage, content: plaintext });
           })
@@ -1003,6 +1137,7 @@ export function useWebSocket() {
       unsubMemberRemoved();
       unsubUnreadNotify();
       unsubKeyNeeded();
+      unsubKeyRevocation();
       unsubKeyDelivered();
       unsubPreferencesUpdated();
       unsubPresenceSnapshot();

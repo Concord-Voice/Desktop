@@ -64,6 +64,9 @@ contextBridge.exposeInMainWorld('electron', {
   // E2EE key persistence (safeStorage via main process)
   storeE2EEKeys: (data: { wrappingKeyBase64: string; preferencesKeyBase64: string; wrappedPrivateKeyBase64: string }) =>
     ipcRenderer.invoke('auth:storeE2EEKeys', data),
+
+  // Machine ID for token theft detection (#89)
+  getMachineId: () => ipcRenderer.invoke('auth:getMachineId') as Promise<string>,
 });
 
 // Type definitions for the exposed API
@@ -98,6 +101,9 @@ export interface ElectronAPI {
 
   // E2EE key persistence
   storeE2EEKeys: (data: { wrappingKeyBase64: string; preferencesKeyBase64: string; wrappedPrivateKeyBase64: string }) => Promise<void>;
+
+  // Machine ID for token theft detection
+  getMachineId: () => Promise<string>;
 }
 
 declare global {

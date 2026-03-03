@@ -34,6 +34,7 @@ const CHANNEL_KEY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 interface CachedWrappedKey {
   wrappedKey: string;
+  keyVersion: number;
   lastUsed: number;
 }
 
@@ -49,6 +50,7 @@ class E2EEService {
   private preferencesKey: CryptoKey | null = null;
   private wrappedPrivateKey: string = '';
   private channelKeyCache: Map<string, CachedWrappedKey> = new Map();
+  private versionedKeyCache: Map<string, Map<number, CachedWrappedKey>> = new Map();
   private pendingKeyFetches: Map<string, Promise<CryptoKey>> = new Map();
   private cacheCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -191,10 +193,12 @@ class E2EEService {
     }
     const data = await res.json();
     const wrappedKey: string = data.key.wrapped_key;
+    const keyVersion: number = data.key.key_version || 1;
 
     // Cache the wrapped key
     this.channelKeyCache.set(channelId, {
       wrappedKey,
+      keyVersion,
       lastUsed: Date.now(),
     });
 
@@ -330,6 +334,125 @@ class E2EEService {
   }
 
   /**
+   * Get the current (latest) key version for a channel from cache.
+   * Returns 1 if no key is cached yet.
+   */
+  getCurrentKeyVersion(channelId: string): number {
+    const cached = this.channelKeyCache.get(channelId);
+    return cached?.keyVersion ?? 1;
+  }
+
+  /**
+   * Fetch and unwrap a specific key version for a channel (for decrypting old messages).
+   * Results are cached in the versioned key cache.
+   */
+  async getChannelKeyByVersion(channelId: string, version: number): Promise<CryptoKey> {
+    // Check if this is the current version — use main cache
+    const mainCached = this.channelKeyCache.get(channelId);
+    if (mainCached && mainCached.keyVersion === version) {
+      mainCached.lastUsed = Date.now();
+      const privateKey = await this.derivePrivateKey();
+      return unwrapChannelKey(mainCached.wrappedKey, privateKey);
+    }
+
+    // Check versioned cache
+    const versionMap = this.versionedKeyCache.get(channelId);
+    const versionCached = versionMap?.get(version);
+    if (versionCached && Date.now() - versionCached.lastUsed < CHANNEL_KEY_CACHE_TTL) {
+      versionCached.lastUsed = Date.now();
+      const privateKey = await this.derivePrivateKey();
+      return unwrapChannelKey(versionCached.wrappedKey, privateKey);
+    }
+
+    // Fetch specific version from server
+    const res = await apiFetch(`/api/v1/e2ee/keys/${channelId}?version=${version}`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch channel key version ${version}`);
+    }
+    const data = await res.json();
+    const wrappedKey: string = data.key.wrapped_key;
+
+    // Cache in versioned cache
+    if (!this.versionedKeyCache.has(channelId)) {
+      this.versionedKeyCache.set(channelId, new Map());
+    }
+    this.versionedKeyCache.get(channelId)!.set(version, {
+      wrappedKey,
+      keyVersion: version,
+      lastUsed: Date.now(),
+    });
+
+    const privateKey = await this.derivePrivateKey();
+    return unwrapChannelKey(wrappedKey, privateKey);
+  }
+
+  /**
+   * Decrypt a message using a specific key version.
+   * Falls back to current key if version is 0 or 1 (legacy).
+   */
+  async decryptForChannelWithVersion(
+    channelId: string,
+    ciphertext: string,
+    version: number
+  ): Promise<string> {
+    // Version 0 or 1 = use current key (legacy/default)
+    if (!version || version <= 1) {
+      return this.decryptForChannel(channelId, ciphertext);
+    }
+
+    // Check if the requested version matches current cached version
+    const currentVersion = this.getCurrentKeyVersion(channelId);
+    if (version === currentVersion) {
+      return this.decryptForChannel(channelId, ciphertext);
+    }
+
+    // Fetch specific version
+    const channelKey = await this.getChannelKeyByVersion(channelId, version);
+    return decryptMessage(ciphertext, channelKey);
+  }
+
+  /**
+   * Rotate the channel key: generate a new CSK, wrap for all members, and distribute.
+   * Used after member removal or theft detection.
+   *
+   * @param channelId - The channel to rotate keys for
+   * @param newKeyVersion - The new epoch/version number
+   * @param memberPublicKeys - Map of user_id → base64 public key for remaining members
+   */
+  async rotateChannelKey(
+    channelId: string,
+    newKeyVersion: number,
+    memberPublicKeys: Map<string, string>
+  ): Promise<void> {
+    const channelKey = await generateChannelKey();
+    const wrappedKeys: Record<string, string> = {};
+
+    for (const [userId, publicKeyBase64] of memberPublicKeys) {
+      const publicKey = await importPublicKey(publicKeyBase64);
+      const wrapped = await wrapChannelKey(channelKey, publicKey);
+      wrappedKeys[userId] = wrapped;
+    }
+
+    const res = await apiFetch(`/api/v1/e2ee/keys/${channelId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        wrapped_keys: wrappedKeys,
+        key_version: newKeyVersion,
+      }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      console.debug('[E2EE] Key rotation distribution failed:', res.status, data);
+      // Non-fatal: another client may have already distributed (first-response-wins)
+    }
+
+    // Invalidate current cache so next encrypt/decrypt fetches the new key
+    this.invalidateChannelKey(channelId);
+  }
+
+  /**
    * Clear all keys on logout.
    */
   clearKeys(): void {
@@ -338,6 +461,7 @@ class E2EEService {
     this.wrappedPrivateKey = '';
     this.sessionKeys = null;
     this.channelKeyCache.clear();
+    this.versionedKeyCache.clear();
     this.pendingKeyFetches.clear();
     if (this.cacheCleanupInterval) {
       clearInterval(this.cacheCleanupInterval);

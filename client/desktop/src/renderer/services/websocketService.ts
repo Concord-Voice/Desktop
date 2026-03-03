@@ -220,7 +220,8 @@ export class WebSocketService {
     channelId: string,
     content: string,
     nonce?: string,
-    isEncrypted: boolean = false
+    isEncrypted: boolean = false,
+    keyVersion?: number
   ): void {
     this.send({
       type: 'message',
@@ -228,6 +229,7 @@ export class WebSocketService {
         channel_id: channelId,
         content,
         is_encrypted: isEncrypted,
+        key_version: keyVersion,
         nonce,
         timestamp: Date.now(),
       },
@@ -303,7 +305,8 @@ export class WebSocketService {
     conversationId: string,
     content: string,
     nonce?: string,
-    isEncrypted: boolean = false
+    isEncrypted: boolean = false,
+    keyVersion?: number
   ): void {
     this.send({
       type: 'dm_message',
@@ -311,6 +314,7 @@ export class WebSocketService {
         conversation_id: conversationId,
         content,
         is_encrypted: isEncrypted,
+        key_version: keyVersion,
         nonce,
         timestamp: Date.now(),
       },

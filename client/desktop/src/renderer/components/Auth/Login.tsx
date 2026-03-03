@@ -3,7 +3,7 @@ import { unwrapLoginKeys, generateRegistrationKeys } from '../../utils/crypto';
 import { e2eeService } from '../../services/e2eeService';
 import { preferencesSyncService } from '../../services/preferencesSync';
 import { useAuthStore } from '../../stores/authStore';
-import { API_BASE, apiFetch } from '../../services/apiClient';
+import { API_BASE, apiFetch, ensureMachineId } from '../../services/apiClient';
 import { UserProfile } from '../../stores/userStore';
 import LoadingSpinner from './LoadingSpinner';
 import './Login.css';
@@ -73,11 +73,14 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
     try {
       console.debug('Logging in...');
 
+      const machineId = await ensureMachineId();
+
       // Login with backend
       const response = await fetch(`${API_BASE}/api/v1/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(machineId ? { 'X-Machine-Id': machineId } : {}),
         },
         credentials: 'include', // Include cookies for refresh token
         body: JSON.stringify({

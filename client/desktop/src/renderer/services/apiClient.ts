@@ -16,6 +16,22 @@ import { API_BASE } from '../config';
 
 export { API_BASE };
 
+// ─── Machine ID cache (for X-Machine-Id header, #89) ─────────────────
+let cachedMachineId: string | null = null;
+
+export async function ensureMachineId(): Promise<string> {
+  if (cachedMachineId) return cachedMachineId;
+  if (window.electron?.getMachineId) {
+    cachedMachineId = await window.electron.getMachineId();
+  }
+  return cachedMachineId ?? '';
+}
+
+/** Synchronous accessor — returns '' until ensureMachineId() resolves */
+export function getMachineIdSync(): string {
+  return cachedMachineId ?? '';
+}
+
 /**
  * Renderer-level refresh deduplication.
  *
@@ -74,6 +90,10 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
+  const mid = getMachineIdSync();
+  if (mid) {
+    headers.set('X-Machine-Id', mid);
+  }
 
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -121,6 +141,9 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   // Retry with new token
   const retryHeaders = new Headers(init?.headers);
   retryHeaders.set('Authorization', `Bearer ${newToken}`);
+  if (mid) {
+    retryHeaders.set('X-Machine-Id', mid);
+  }
 
   return fetch(`${API_BASE}${path}`, {
     ...init,

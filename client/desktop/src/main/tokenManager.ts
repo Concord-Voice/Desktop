@@ -15,6 +15,7 @@
 import { app, safeStorage, net } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import { getMachineId } from './machineId';
 
 // ─── Module State (never leaves this process) ────────────────────────
 
@@ -142,6 +143,7 @@ export function performRefresh(): Promise<{ status: string; accessToken?: string
         method: 'POST',
         headers: {
           'X-Refresh-Token': inMemoryRefreshToken,
+          'X-Machine-Id': getMachineId(),
         },
       });
 

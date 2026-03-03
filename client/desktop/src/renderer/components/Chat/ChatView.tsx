@@ -126,7 +126,9 @@ const ChatView: React.FC = () => {
           rawMsgs.map(async (m) => {
             if (m.is_encrypted && activeChannelId && e2eeService.isInitialized) {
               try {
-                const plaintext = await e2eeService.decryptForChannel(activeChannelId, m.content);
+                const plaintext = m.key_version && m.key_version > 1
+                  ? await e2eeService.decryptForChannelWithVersion(activeChannelId, m.content, m.key_version)
+                  : await e2eeService.decryptForChannel(activeChannelId, m.content);
                 return { ...m, content: plaintext };
               } catch (err) {
                 const isPending = err instanceof Error && err.message === 'PENDING_KEY';
@@ -199,7 +201,9 @@ const ChatView: React.FC = () => {
         rawMsgs.map(async (m) => {
           if (m.is_encrypted && activeChannelId && e2eeService.isInitialized) {
             try {
-              const plaintext = await e2eeService.decryptForChannel(activeChannelId, m.content);
+              const plaintext = m.key_version && m.key_version > 1
+                ? await e2eeService.decryptForChannelWithVersion(activeChannelId, m.content, m.key_version)
+                : await e2eeService.decryptForChannel(activeChannelId, m.content);
               return { ...m, content: plaintext };
             } catch (err) {
               const isPending = err instanceof Error && err.message === 'PENDING_KEY';

@@ -6,7 +6,7 @@ import { generateRegistrationKeys, exportPublicKey } from '../../utils/crypto';
 import { e2eeService } from '../../services/e2eeService';
 import { preferencesSyncService } from '../../services/preferencesSync';
 import { useAuthStore } from '../../stores/authStore';
-import { API_BASE } from '../../services/apiClient';
+import { API_BASE, ensureMachineId } from '../../services/apiClient';
 import { UserProfile } from '../../stores/userStore';
 import './Register.css';
 
@@ -108,11 +108,14 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
 
       console.debug('Keys generated, registering with server...');
 
+      const machineId = await ensureMachineId();
+
       // Register with backend
       const response = await fetch(`${API_BASE}/api/v1/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(machineId ? { 'X-Machine-Id': machineId } : {}),
         },
         credentials: 'include', // Include cookies for refresh token
         body: JSON.stringify({

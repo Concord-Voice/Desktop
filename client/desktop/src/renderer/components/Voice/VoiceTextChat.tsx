@@ -89,7 +89,9 @@ const VoiceTextChat: React.FC = () => {
           rawMsgs.map(async (m) => {
             if (m.is_encrypted && channelId && e2eeService.isInitialized) {
               try {
-                const plaintext = await e2eeService.decryptForChannel(channelId, m.content);
+                const plaintext = m.key_version && m.key_version > 1
+                  ? await e2eeService.decryptForChannelWithVersion(channelId, m.content, m.key_version)
+                  : await e2eeService.decryptForChannel(channelId, m.content);
                 return { ...m, content: plaintext };
               } catch (err) {
                 const isPending = err instanceof Error && err.message === 'PENDING_KEY';
@@ -157,7 +159,9 @@ const VoiceTextChat: React.FC = () => {
         rawMsgs.map(async (m) => {
           if (m.is_encrypted && channelId && e2eeService.isInitialized) {
             try {
-              const plaintext = await e2eeService.decryptForChannel(channelId, m.content);
+              const plaintext = m.key_version && m.key_version > 1
+                ? await e2eeService.decryptForChannelWithVersion(channelId, m.content, m.key_version)
+                : await e2eeService.decryptForChannel(channelId, m.content);
               return { ...m, content: plaintext };
             } catch (err) {
               const isPending = err instanceof Error && err.message === 'PENDING_KEY';

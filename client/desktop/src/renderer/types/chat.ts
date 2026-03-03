@@ -4,6 +4,7 @@ export interface Message {
   user_id: string;
   content: string;
   is_encrypted: boolean;
+  key_version?: number;
   edited_at?: string;
   created_at: string;
   updated_at: string;

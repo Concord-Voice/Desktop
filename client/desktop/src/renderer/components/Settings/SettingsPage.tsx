@@ -43,6 +43,7 @@ interface Session {
   device_name: string;
   ip_address: string;
   user_agent: string;
+  machine_id?: string;
   expires_at: string;
   created_at: string;
   last_used: string;

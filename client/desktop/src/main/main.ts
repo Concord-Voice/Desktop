@@ -11,6 +11,7 @@ import {
   storeE2EEKeys,
   restoreE2EEKeys,
 } from './tokenManager';
+import { getMachineId } from './machineId';
 
 // Hardware acceleration preference — must be checked before app.whenReady()
 const hwAccelPrefPath = path.join(app.getPath('userData'), 'hw-accel.json');
@@ -256,6 +257,10 @@ ipcMain.handle('auth:clearTokens', () => {
 
 ipcMain.handle('auth:getCapabilities', () => {
   return getCapabilities();
+});
+
+ipcMain.handle('auth:getMachineId', () => {
+  return getMachineId();
 });
 
 // ─── PiP (Picture-in-Picture) Window Management ──────────────────────
