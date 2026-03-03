@@ -18,15 +18,15 @@
  */
 
 import { Device, types as mediasoupTypes } from 'mediasoup-client';
-import type {
-  PipChannelMessage,
-  PipRpcResponse,
-  AnyPipBroadcast,
-  VoiceStateResult,
-  CreateRecvTransportResult,
-  ConsumeResult,
+import {
+  generateRequestId,
+  type PipChannelMessage,
+  type PipRpcResponse,
+  type AnyPipBroadcast,
+  type VoiceStateResult,
+  type CreateRecvTransportResult,
+  type ConsumeResult,
 } from './pipSignalingTypes';
-import { generateRequestId } from './pipSignalingTypes';
 import type { RtpCapabilities } from 'mediasoup-client/lib/types';
 
 const RPC_TIMEOUT = 10_000;

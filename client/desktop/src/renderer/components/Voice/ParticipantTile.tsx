@@ -1,7 +1,6 @@
 import React, { useRef, useEffect, useMemo } from 'react';
 import { MicOff, Monitor } from 'lucide-react';
 import type { VoiceParticipant } from '../../stores/voiceStore';
-import { useVoiceStore } from '../../stores/voiceStore';
 import { useMemberStore } from '../../stores/memberStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 import './ParticipantTile.css';
@@ -49,12 +48,9 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
     };
   }, [participant.videoStream]);
 
-  const localStreamPaused = useVoiceStore((s) => s.localStreamPaused);
   const displayName = participant.displayName || participant.username;
-  // When auto-pause is active, hide local user's video to save decode resources
-  const hasVideo = participant.isVideoOn && participant.videoStream && !(isLocal && localStreamPaused);
-  // Detect "video is on but locally paused" to show informational message
-  const isLocallyPaused = isLocal && localStreamPaused && participant.isVideoOn && !!participant.videoStream;
+  // Auto-pause only applies to screen shares (VoiceStage/StreamBar), not camera video
+  const hasVideo = participant.isVideoOn && !!participant.videoStream;
   const memberColorScheme = useMemberStore((state) => {
     const member = state.members.find((m) => m.user_id === participant.userId);
     return member?.color_scheme;
@@ -92,22 +88,6 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
             <span className="participant-tile__video-name-text">
               {displayName}
               {isLocal && ' (You)'}
-            </span>
-          </div>
-        </>
-      ) : isLocallyPaused ? (
-        /* Local stream is still producing but rendering is paused */
-        <>
-          <div
-            className="participant-tile__banner"
-            style={{ background: gradient }}
-          />
-          <div className="participant-tile__body participant-tile__body--paused">
-            <span className="participant-tile__paused-title">
-              Your Video Is Still Streaming
-            </span>
-            <span className="participant-tile__paused-hint">
-              If you want it to stay on even when Concord Voice is in the background, use the Auto-Pause button in the Controls Panel below.
             </span>
           </div>
         </>

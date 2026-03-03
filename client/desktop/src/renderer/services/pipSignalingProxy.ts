@@ -325,11 +325,19 @@ export class PipSignalingProxy {
     participants: Record<string, unknown>,
     tunedInScreenShares: Record<string, boolean>
   ): void {
+    // Strip MediaStream objects before posting — BroadcastChannel uses
+    // the structured clone algorithm which cannot serialize MediaStreams.
+    const sanitized: Record<string, unknown> = {};
+    for (const [key, p] of Object.entries(participants)) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { videoStream, screenStream, ...rest } = p as Record<string, unknown>;
+      sanitized[key] = rest;
+    }
     this.broadcast({
       kind: 'broadcast',
       type: 'state-update',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      participants: participants as any,
+      participants: sanitized as any,
       tunedInScreenShares,
     } satisfies StateUpdateBroadcast);
   }
