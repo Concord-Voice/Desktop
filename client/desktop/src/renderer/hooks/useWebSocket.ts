@@ -100,6 +100,10 @@ export function useWebSocket() {
       const { channelId, newEpoch } = (event as CustomEvent).detail;
       if (!channelId || !newEpoch || !e2eeService.isInitialized) return;
 
+      // Random jitter (0–2s) so multiple online clients don't all race to rotate.
+      // Server uses first-response-wins dedup, but staggering avoids wasted work.
+      await new Promise((r) => setTimeout(r, Math.random() * 2000));
+
       try {
         // Fetch remaining server members and their public keys
         // Find which server this channel belongs to
@@ -1093,9 +1097,25 @@ export function useWebSocket() {
       console.debug('[WebSocket] Subscribed to channel:', msg.data.channel_id);
     });
 
-    // Error handler
+    // Error handler — includes epoch_revoked enforcement
     const unsubError = wsService.on('error', (msg: WebSocketMessage) => {
-      console.error('WebSocket error:', msg.data);
+      const { data } = msg;
+      if (data.code === 'epoch_revoked' && data.channel_id) {
+        console.warn('[WebSocket] Epoch revoked for channel', data.channel_id, '→ re-fetching key');
+        e2eeService.invalidateChannelKey(data.channel_id as string);
+        // Trigger rotation coordinator to distribute new key if needed
+        window.dispatchEvent(
+          new CustomEvent('e2ee-key-rotation', {
+            detail: {
+              channelId: data.channel_id,
+              newEpoch: data.current_epoch,
+              reason: 'epoch_revoked',
+            },
+          })
+        );
+      } else {
+        console.error('WebSocket error:', data);
+      }
     });
 
     // Session revoked handler — server forcefully terminated our session.
