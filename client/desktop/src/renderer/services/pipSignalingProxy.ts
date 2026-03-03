@@ -178,8 +178,17 @@ export class PipSignalingProxy {
       }
     }
 
+    // Strip MediaStream objects — BroadcastChannel uses structured clone
+    // which cannot serialize MediaStream instances.
+    const sanitizedParticipants: Record<string, unknown> = {};
+    for (const [key, p] of Object.entries(store.participants)) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { videoStream, screenStream, ...rest } = p as Record<string, unknown>;
+      sanitizedParticipants[key] = rest;
+    }
+
     const result: VoiceStateResult = {
-      participants: store.participants,
+      participants: sanitizedParticipants as VoiceStateResult['participants'],
       tunedInScreenShares: store.tunedInScreenShares,
       routerRtpCapabilities: rtpCaps,
       activeProducers,
