@@ -51,6 +51,7 @@ export class WebSocketService {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pingInterval: NodeJS.Timeout | null = null;
   private aggressiveReconnect = false;
+  private connectAbort: AbortController | null = null;
 
   // Message handlers
   private messageHandlers = new Map<string, Set<MessageHandler>>();
@@ -80,14 +81,18 @@ export class WebSocketService {
     }
 
     this.token = token;
+    this.connectAbort?.abort();
+    this.connectAbort = new AbortController();
     this.setState(ConnectionState.CONNECTING);
-    this.createConnection();
+    this.createConnection(this.connectAbort.signal);
   }
 
   /**
    * Disconnect from WebSocket server
    */
   disconnect(): void {
+    this.connectAbort?.abort();
+    this.connectAbort = null;
     this.clearReconnectTimer();
     this.clearPingInterval();
     this.reconnectAttempts = 0;
@@ -401,7 +406,7 @@ export class WebSocketService {
 
   // Private methods
 
-  private async createConnection(): Promise<void> {
+  private async createConnection(signal?: AbortSignal): Promise<void> {
     if (!this.token) {
       console.error('Cannot connect: No JWT token provided');
       this.setState(ConnectionState.ERROR);
@@ -418,11 +423,16 @@ export class WebSocketService {
       const ticketRes = await fetch(httpBase.replace('/ws', '/auth/ws-ticket'), {
         method: 'POST',
         headers: ticketHeaders,
+        signal,
       });
       if (!ticketRes.ok) {
         throw new Error(`WebSocket ticket request failed: ${ticketRes.status}`);
       }
       const { ticket } = await ticketRes.json();
+
+      // If disconnect() was called while we awaited the ticket, abandon this connection
+      if (signal?.aborted) return;
+
       const wsUrl = `${this.url}?ticket=${encodeURIComponent(ticket)}`;
 
       this.ws = new WebSocket(wsUrl);
@@ -432,6 +442,8 @@ export class WebSocketService {
       this.ws.onerror = this.handleError.bind(this);
       this.ws.onclose = this.handleClose.bind(this);
     } catch (error) {
+      // AbortError is expected when disconnect() cancels an in-flight ticket fetch
+      if (error instanceof DOMException && error.name === 'AbortError') return;
       console.error('Failed to create WebSocket connection:', error);
       this.setState(ConnectionState.ERROR);
       this.scheduleReconnect();
@@ -535,7 +547,9 @@ export class WebSocketService {
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectAttempts++;
-      this.createConnection();
+      this.connectAbort?.abort();
+      this.connectAbort = new AbortController();
+      this.createConnection(this.connectAbort.signal);
     }, delay);
   }
 
