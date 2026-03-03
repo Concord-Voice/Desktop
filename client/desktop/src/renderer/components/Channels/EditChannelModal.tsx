@@ -4,6 +4,7 @@ import EmojiPicker from '../EmojiPicker/EmojiPicker';
 import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useChannelStore } from '../../stores/channelStore';
+import { AUDIO_QUALITY_TIERS, type AudioQualityTier } from '../../stores/voiceStore';
 import { apiFetch } from '../../services/apiClient';
 import { Channel } from '../../types/chat';
 import './CreateChannelModal.css';
@@ -17,7 +18,6 @@ interface EditChannelModalProps {
 
 interface FormErrors {
   name?: string;
-  type?: string;
   general?: string;
 }
 
@@ -32,13 +32,15 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
 }) => {
   const [name, setName] = useState(channel.name);
   const [emoji, setEmoji] = useState(channel.emoji || '');
-  const [type, setType] = useState<'text' | 'voice' | 'bulletin'>(channel.type);
+  const [groupId, setGroupId] = useState<string>(channel.group_id || '');
+  const [audioQualityTier, setAudioQualityTier] = useState<string | null>(channel.audio_quality_tier ?? null);
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const updateChannel = useChannelStore((state) => state.updateChannel);
+  const channelGroups = useChannelStore((state) => state.channelGroups);
 
   const emojiPickerRef = useRef<HTMLDivElement>(null);
 
@@ -46,7 +48,8 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
   useEffect(() => {
     setName(channel.name);
     setEmoji(channel.emoji || '');
-    setType(channel.type);
+    setGroupId(channel.group_id || '');
+    setAudioQualityTier(channel.audio_quality_tier ?? null);
     setErrors({});
     setSuccessMessage(null);
     setShowEmojiPicker(false);
@@ -73,10 +76,6 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
       newErrors.name = `Channel name must be at most ${NAME_MAX} characters`;
     }
 
-    if (!type) {
-      newErrors.type = 'Channel type is required';
-    }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -85,7 +84,8 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
     return (
       name.trim() !== channel.name ||
       (emoji.trim() || '') !== (channel.emoji || '') ||
-      type !== channel.type
+      groupId !== (channel.group_id || '') ||
+      audioQualityTier !== (channel.audio_quality_tier ?? null)
     );
   };
 
@@ -110,8 +110,10 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: name.trim(),
-          type,
+          type: channel.type,
           emoji: emoji.trim() || null,
+          group_id: groupId || null,
+          audio_quality_tier: audioQualityTier || null,
         }),
       });
 
@@ -239,53 +241,92 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
           <span className="channel-form-hint">Click to pick a channel emoji</span>
         </div>
 
-        {/* Channel Type */}
+        {/* Channel Type (read-only) */}
         <div className="channel-form-group">
-          <label className="channel-form-label">
-            Channel Type <span className="required">*</span>
-          </label>
+          <label className="channel-form-label">Channel Type</label>
           <div className="channel-type-selector">
-            <button
-              type="button"
-              className={`channel-type-option ${type === 'text' ? 'selected' : ''}`}
-              onClick={() => setType('text')}
-              disabled={isSubmitting}
-            >
-              <span className="channel-type-icon">{getChannelTypeIcon('text')}</span>
+            <div className="channel-type-option selected" style={{ cursor: 'default' }}>
+              <span className="channel-type-icon">{getChannelTypeIcon(channel.type)}</span>
               <div className="channel-type-info">
-                <span className="channel-type-name">Text</span>
-                <span className="channel-type-desc">Send messages, images, and files</span>
+                <span className="channel-type-name">
+                  {channel.type === 'text' ? 'Text' : channel.type === 'voice' ? 'Voice' : 'Bulletin'}
+                </span>
+                <span className="channel-type-desc">
+                  {channel.type === 'text'
+                    ? 'Send messages, images, and files'
+                    : channel.type === 'voice'
+                    ? 'Voice and video conversations'
+                    : 'Important announcements only'}
+                </span>
               </div>
-            </button>
-
-            <button
-              type="button"
-              className={`channel-type-option ${type === 'voice' ? 'selected' : ''}`}
-              onClick={() => setType('voice')}
-              disabled={isSubmitting}
-            >
-              <span className="channel-type-icon">{getChannelTypeIcon('voice')}</span>
-              <div className="channel-type-info">
-                <span className="channel-type-name">Voice</span>
-                <span className="channel-type-desc">Voice and video conversations</span>
-              </div>
-            </button>
-
-            <button
-              type="button"
-              className={`channel-type-option ${type === 'bulletin' ? 'selected' : ''}`}
-              onClick={() => setType('bulletin')}
-              disabled={isSubmitting}
-            >
-              <span className="channel-type-icon">{getChannelTypeIcon('bulletin')}</span>
-              <div className="channel-type-info">
-                <span className="channel-type-name">Bulletin</span>
-                <span className="channel-type-desc">Important announcements only</span>
-              </div>
-            </button>
+            </div>
           </div>
-          {errors.type && <span className="channel-form-error">{errors.type}</span>}
+          <span className="channel-form-hint">Channel type cannot be changed after creation</span>
         </div>
+
+        {/* Channel Group */}
+        {channelGroups.length > 0 && (
+          <div className="channel-form-group">
+            <label htmlFor="edit-channel-group" className="channel-form-label">
+              Channel Group
+            </label>
+            <select
+              id="edit-channel-group"
+              className="channel-form-input"
+              value={groupId}
+              onChange={(e) => setGroupId(e.target.value)}
+              disabled={isSubmitting}
+            >
+              <option value="">Uncategorized</option>
+              {channelGroups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+            <span className="channel-form-hint">Move this channel to a different group</span>
+          </div>
+        )}
+
+        {/* Audio Quality Tier (voice channels only) */}
+        {channel.type === 'voice' && (
+          <div className="channel-form-group">
+            <label className="channel-form-label">Audio Quality</label>
+            <span className="channel-form-hint" style={{ marginBottom: 8 }}>
+              Override personal quality settings for all users in this channel.
+            </span>
+            <div className="channel-type-selector">
+              <button
+                type="button"
+                className={`channel-type-option ${audioQualityTier === null ? 'selected' : ''}`}
+                onClick={() => setAudioQualityTier(null)}
+                disabled={isSubmitting}
+              >
+                <div className="channel-type-info">
+                  <span className="channel-type-name">Personal</span>
+                  <span className="channel-type-desc">Each user uses their own quality setting</span>
+                </div>
+              </button>
+              {(Object.keys(AUDIO_QUALITY_TIERS) as AudioQualityTier[]).map((tier) => {
+                const config = AUDIO_QUALITY_TIERS[tier];
+                return (
+                  <button
+                    key={tier}
+                    type="button"
+                    className={`channel-type-option ${audioQualityTier === tier ? 'selected' : ''}`}
+                    onClick={() => setAudioQualityTier(tier)}
+                    disabled={isSubmitting}
+                  >
+                    <div className="channel-type-info">
+                      <span className="channel-type-name">{config.label}</span>
+                      <span className="channel-type-desc">{config.description}</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Submit Button */}
         <div className="form-actions">

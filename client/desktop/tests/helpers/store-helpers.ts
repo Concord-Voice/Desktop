@@ -13,7 +13,8 @@ import { useInviteStore } from '../../src/renderer/stores/inviteStore';
  */
 export function resetAllStores(): void {
   // Stores with explicit clear/reset methods
-  useAuthStore.getState().clearTokens();
+  useAuthStore.getState().clearAccessToken();
+  useAuthStore.getState().setRememberMe(true); // Reset to default
   useUserStore.getState().clearUser();
   useServerStore.getState().clearServers();
   useChannelStore.getState().clearChannels();

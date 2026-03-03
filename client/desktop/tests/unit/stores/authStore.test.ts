@@ -6,32 +6,22 @@ describe('authStore', () => {
     resetAllStores();
   });
 
-  it('starts with null tokens', () => {
+  it('starts with null accessToken', () => {
     const state = useAuthStore.getState();
     expect(state.accessToken).toBeNull();
-    expect(state.refreshToken).toBeNull();
   });
 
-  it('setTokens stores both tokens', () => {
-    useAuthStore.getState().setTokens('access-123', 'refresh-456');
+  it('setAccessToken stores the token', () => {
+    useAuthStore.getState().setAccessToken('access-123');
     const state = useAuthStore.getState();
     expect(state.accessToken).toBe('access-123');
-    expect(state.refreshToken).toBe('refresh-456');
   });
 
-  it('setTokens with undefined refreshToken keeps it null', () => {
-    useAuthStore.getState().setTokens('access-123', undefined);
-    const state = useAuthStore.getState();
-    expect(state.accessToken).toBe('access-123');
-    expect(state.refreshToken).toBeNull();
-  });
-
-  it('clearTokens removes both tokens', () => {
-    useAuthStore.getState().setTokens('access', 'refresh');
-    useAuthStore.getState().clearTokens();
+  it('clearAccessToken removes the token', () => {
+    useAuthStore.getState().setAccessToken('access-123');
+    useAuthStore.getState().clearAccessToken();
     const state = useAuthStore.getState();
     expect(state.accessToken).toBeNull();
-    expect(state.refreshToken).toBeNull();
   });
 
   it('setRememberMe updates the flag', () => {
@@ -40,16 +30,7 @@ describe('authStore', () => {
     expect(useAuthStore.getState().rememberMe).toBe(false);
   });
 
-  it('persists tokens to localStorage', () => {
-    useAuthStore.getState().setTokens('access', 'refresh');
-    const stored = JSON.parse(localStorage.getItem('concord-auth') || '{}');
-    expect(stored.state?.accessToken).toBe('access');
-  });
-
-  it('clearTokens clears persisted state', () => {
-    useAuthStore.getState().setTokens('access', 'refresh');
-    useAuthStore.getState().clearTokens();
-    const stored = JSON.parse(localStorage.getItem('concord-auth') || '{}');
-    expect(stored.state?.accessToken).toBeNull();
+  it('starts with rememberMe as true', () => {
+    expect(useAuthStore.getState().rememberMe).toBe(true);
   });
 });

@@ -7,14 +7,18 @@ import './ServerActionBar.css';
 interface ServerActionBarProps {
   server: ServerWithRole;
   onOpenCreateModal: () => void;
+  onOpenCreateCategoryModal: () => void;
 }
 
-const ServerActionBar: React.FC<ServerActionBarProps> = ({ server, onOpenCreateModal }) => {
+const ServerActionBar: React.FC<ServerActionBarProps> = ({ server, onOpenCreateModal, onOpenCreateCategoryModal }) => {
   const [showPopup, setShowPopup] = useState(false);
+  const [showAddMenu, setShowAddMenu] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
   const btnRef = useRef<HTMLButtonElement>(null);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+  const addBtnRef = useRef<HTMLButtonElement>(null);
 
   const invites = useInviteStore((state) => state.invites[server.id] || []);
   const fetchInvites = useInviteStore((state) => state.fetchInvites);
@@ -50,6 +54,24 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({ server, onOpenCreateM
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showPopup]);
 
+  // Close add menu on click outside
+  useEffect(() => {
+    if (!showAddMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        addMenuRef.current &&
+        !addMenuRef.current.contains(target) &&
+        addBtnRef.current &&
+        !addBtnRef.current.contains(target)
+      ) {
+        setShowAddMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showAddMenu]);
+
   const handleTogglePopup = async () => {
     if (showPopup) {
       setShowPopup(false);
@@ -63,9 +85,17 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({ server, onOpenCreateM
     }
   };
 
+  const writeClipboard = async (text: string) => {
+    if (window.electron?.writeClipboard) {
+      await window.electron.writeClipboard(text);
+    } else {
+      await navigator.clipboard.writeText(text);
+    }
+  };
+
   const handleCopyCode = async () => {
     if (activeInvite) {
-      await navigator.clipboard.writeText(activeInvite.code);
+      await writeClipboard(activeInvite.code);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -76,7 +106,7 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({ server, onOpenCreateM
     const invite = await createInvite(server.id);
     setIsGenerating(false);
     if (invite) {
-      await navigator.clipboard.writeText(invite.code);
+      await writeClipboard(invite.code);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -91,13 +121,33 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({ server, onOpenCreateM
     <div className={`channel-actions-strip ${buttonCount === 1 ? 'single' : ''}`}>
       {canCreateChannel && (
         <button
-          className="channel-action-item"
-          onClick={onOpenCreateModal}
-          title="Create a new channel"
+          ref={addBtnRef}
+          className={`channel-action-item ${showAddMenu ? 'active' : ''}`}
+          onClick={() => setShowAddMenu(!showAddMenu)}
+          title="Create a channel or category"
         >
           <Plus size={16} />
-          <span>Channel</span>
+          <span>Add</span>
         </button>
+      )}
+
+      {showAddMenu && (
+        <div className="add-menu-popup" ref={addMenuRef}>
+          <button
+            className="add-menu-item"
+            onClick={() => { setShowAddMenu(false); onOpenCreateModal(); }}
+          >
+            <Plus size={14} />
+            <span>Channel</span>
+          </button>
+          <button
+            className="add-menu-item"
+            onClick={() => { setShowAddMenu(false); onOpenCreateCategoryModal(); }}
+          >
+            <Plus size={14} />
+            <span>Category</span>
+          </button>
+        </div>
       )}
 
       {canCreateChannel && canInvite && <div className="channel-action-divider" />}

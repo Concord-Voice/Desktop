@@ -49,7 +49,7 @@ describe('userStore - changePassword', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useUserStore.setState({ user: mockUser as any, isLoading: false, error: null });
-    useAuthStore.getState().setTokens('mock-access', 'mock-refresh');
+    useAuthStore.getState().setAccessToken('mock-access');
   });
 
   it('successfully changes password with re-wrapped keys', async () => {

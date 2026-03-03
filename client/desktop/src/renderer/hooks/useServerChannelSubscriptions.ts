@@ -26,7 +26,14 @@ export function useServerChannelSubscriptions() {
   const clearServerUnread = useUnreadStore((s) => s.clearServerUnread);
   const subscribedServersRef = useRef<Set<string>>(new Set());
 
-  // Subscribe to ALL servers for unread notifications + fetch server-level unread status
+  // Subscribe to ALL servers for unread notifications + fetch server-level unread status.
+  // Server subscriptions are long-lived (persist until WS disconnect or server leave).
+  // The ref-based diffing handles additions/removals without full unsubscribe cycles.
+  // No cleanup unsubscribe — WS reconnect resubscribes via resubscribeChannels(),
+  // and logout disconnects the WS entirely. Removing cleanup prevents StrictMode
+  // double-mount from causing 3x subscribe/unsubscribe thrashing (~60 events → ~17).
+  const unreadsFetchedRef = useRef(false);
+
   useEffect(() => {
     if (!isConnected || servers.length === 0) return;
 
@@ -49,36 +56,43 @@ export function useServerChannelSubscriptions() {
       }
     }
 
-    // Fetch server-level unread status
-    const fetchServerUnreads = async () => {
-      try {
-        const res = await apiFetch('/api/v1/servers/unread-status');
-        if (res.ok) {
-          const data = await res.json();
-          setInitialServerUnreads(data.server_ids || []);
+    // Fetch server-level unread status once per connection (not on every re-render)
+    if (!unreadsFetchedRef.current) {
+      unreadsFetchedRef.current = true;
+      (async () => {
+        try {
+          const res = await apiFetch('/api/v1/servers/unread-status');
+          if (res.ok) {
+            const data = await res.json();
+            setInitialServerUnreads(data.server_ids || []);
+          }
+        } catch (err) {
+          console.error('Failed to fetch server unread status:', err);
         }
-      } catch (err) {
-        console.error('Failed to fetch server unread status:', err);
-      }
-    };
-    fetchServerUnreads();
-
-    return () => {
-      const wsService = getWebSocketService();
-      const currentSubscriptions = subscribedServersRef.current;
-      for (const serverId of currentSubscriptions) {
-        wsService.unsubscribeServer(serverId);
-      }
-      currentSubscriptions.clear();
-    };
+      })();
+    }
   }, [isConnected, servers, setInitialServerUnreads]);
 
-  // Fetch per-channel unreads for the active server
+  // Reset the unread fetch flag when WS disconnects so it refetches on reconnect
+  useEffect(() => {
+    if (!isConnected) {
+      unreadsFetchedRef.current = false;
+    }
+  }, [isConnected]);
+
+  // Fetch per-channel unreads for the active server.
+  // Ref guard prevents StrictMode double-mount from firing duplicate HTTP requests.
+  const unreadFetchServerRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (!isConnected || !activeServerId) return;
 
     // NOTE: Do NOT eagerly clearServerUnread here. The server dot should
     // only clear when all channels are actually read (handled in ChannelList).
+
+    // StrictMode dedup: skip if we already fetched for this server
+    if (unreadFetchServerRef.current === activeServerId) return;
+    unreadFetchServerRef.current = activeServerId;
 
     // Guard against stale responses from rapid server switches or WS reconnects.
     let aborted = false;

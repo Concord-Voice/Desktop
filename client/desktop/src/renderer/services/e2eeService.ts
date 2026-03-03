@@ -13,8 +13,8 @@
  */
 
 import {
-  deriveKeyFromPassword,
-  derivePreferencesKey,
+  deriveKeyFromPasswordExportable,
+  derivePreferencesKeyExportable,
   encryptBlob,
   decryptBlob,
   unwrapPrivateKey,
@@ -25,6 +25,7 @@ import {
   generateChannelKey,
   exportChannelKey,
   importPublicKey,
+  arrayBufferToBase64,
   base64ToArrayBuffer,
 } from '../utils/crypto';
 import { apiFetch } from './apiClient';
@@ -33,7 +34,15 @@ const CHANNEL_KEY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 interface CachedWrappedKey {
   wrappedKey: string;
+  keyVersion: number;
   lastUsed: number;
+}
+
+/** Exported key material for safeStorage persistence */
+export interface E2EESessionKeys {
+  wrappingKeyBase64: string;
+  preferencesKeyBase64: string;
+  wrappedPrivateKeyBase64: string;
 }
 
 class E2EEService {
@@ -41,12 +50,17 @@ class E2EEService {
   private preferencesKey: CryptoKey | null = null;
   private wrappedPrivateKey: string = '';
   private channelKeyCache: Map<string, CachedWrappedKey> = new Map();
+  private versionedKeyCache: Map<string, Map<number, CachedWrappedKey>> = new Map();
   private pendingKeyFetches: Map<string, Promise<CryptoKey>> = new Map();
   private cacheCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
+  /** Cached exported keys for safeStorage persistence (set during initialize) */
+  private sessionKeys: E2EESessionKeys | null = null;
+
   /**
-   * Initialize the E2EE service after login.
-   * Derives the PBKDF2 wrapping key once per session.
+   * Initialize the E2EE service after login/registration.
+   * Derives PBKDF2 keys as extractable, exports raw bytes for safeStorage,
+   * then re-imports as non-extractable for runtime security.
    */
   async initialize(
     password: string,
@@ -54,12 +68,66 @@ class E2EEService {
     saltBase64: string
   ): Promise<void> {
     const saltBytes = new Uint8Array(base64ToArrayBuffer(saltBase64));
-    this.wrappingKey = await deriveKeyFromPassword(password, saltBytes);
-    this.preferencesKey = await derivePreferencesKey(password, saltBytes);
+
+    // Derive extractable keys (single PBKDF2 pass each)
+    const exportableWrapping = await deriveKeyFromPasswordExportable(password, saltBytes);
+    const exportablePrefs = await derivePreferencesKeyExportable(password, saltBytes);
+
+    // Export raw bytes for safeStorage persistence
+    const wrappingRaw = await crypto.subtle.exportKey('raw', exportableWrapping);
+    const prefsRaw = await crypto.subtle.exportKey('raw', exportablePrefs);
+
+    // Re-import as non-extractable for runtime use (XSS protection)
+    this.wrappingKey = await crypto.subtle.importKey(
+      'raw', wrappingRaw, { name: 'AES-GCM', length: 256 }, false, ['wrapKey', 'unwrapKey']
+    );
+    this.preferencesKey = await crypto.subtle.importKey(
+      'raw', prefsRaw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+    );
+
     this.wrappedPrivateKey = wrappedPrivateKeyBase64;
 
+    // Cache exported keys for safeStorage (base64 for JSON serialization)
+    this.sessionKeys = {
+      wrappingKeyBase64: arrayBufferToBase64(wrappingRaw),
+      preferencesKeyBase64: arrayBufferToBase64(prefsRaw),
+      wrappedPrivateKeyBase64,
+    };
+
     // Start cache cleanup
+    if (this.cacheCleanupInterval) clearInterval(this.cacheCleanupInterval);
     this.cacheCleanupInterval = setInterval(() => this.cleanupCache(), 60_000);
+  }
+
+  /**
+   * Initialize from stored session keys (restored from safeStorage).
+   * Imports raw key bytes as non-extractable CryptoKey objects.
+   */
+  async initializeFromStoredKeys(keys: E2EESessionKeys): Promise<void> {
+    const wrappingRaw = base64ToArrayBuffer(keys.wrappingKeyBase64);
+    const prefsRaw = base64ToArrayBuffer(keys.preferencesKeyBase64);
+
+    this.wrappingKey = await crypto.subtle.importKey(
+      'raw', wrappingRaw, { name: 'AES-GCM', length: 256 }, false, ['wrapKey', 'unwrapKey']
+    );
+    this.preferencesKey = await crypto.subtle.importKey(
+      'raw', prefsRaw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+    );
+
+    this.wrappedPrivateKey = keys.wrappedPrivateKeyBase64;
+    this.sessionKeys = keys;
+
+    // Start cache cleanup
+    if (this.cacheCleanupInterval) clearInterval(this.cacheCleanupInterval);
+    this.cacheCleanupInterval = setInterval(() => this.cleanupCache(), 60_000);
+  }
+
+  /**
+   * Get the exported session keys for safeStorage persistence.
+   * Only available after initialize() has been called.
+   */
+  getSessionKeys(): E2EESessionKeys | null {
+    return this.sessionKeys;
   }
 
   /**
@@ -115,7 +183,7 @@ class E2EEService {
    * Internal: fetch wrapped key from server, cache it, and unwrap.
    */
   private async fetchAndUnwrapChannelKey(channelId: string): Promise<CryptoKey> {
-    const res = await apiFetch(`/api/v1/channels/${channelId}/keys`);
+    const res = await apiFetch(`/api/v1/e2ee/keys/${channelId}`);
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       if (data.pending) {
@@ -125,10 +193,12 @@ class E2EEService {
     }
     const data = await res.json();
     const wrappedKey: string = data.key.wrapped_key;
+    const keyVersion: number = data.key.key_version || 1;
 
     // Cache the wrapped key
     this.channelKeyCache.set(channelId, {
       wrappedKey,
+      keyVersion,
       lastUsed: Date.now(),
     });
 
@@ -226,7 +296,7 @@ class E2EEService {
           const wrappedKey = await this.wrapKeyForMember(req.channel_id, pkData.public_key);
 
           // Upload the wrapped key
-          const uploadRes = await apiFetch(`/api/v1/channels/${req.channel_id}/keys`, {
+          const uploadRes = await apiFetch(`/api/v1/e2ee/keys/${req.channel_id}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -264,13 +334,134 @@ class E2EEService {
   }
 
   /**
+   * Get the current (latest) key version for a channel from cache.
+   * Returns 1 if no key is cached yet.
+   */
+  getCurrentKeyVersion(channelId: string): number {
+    const cached = this.channelKeyCache.get(channelId);
+    return cached?.keyVersion ?? 1;
+  }
+
+  /**
+   * Fetch and unwrap a specific key version for a channel (for decrypting old messages).
+   * Results are cached in the versioned key cache.
+   */
+  async getChannelKeyByVersion(channelId: string, version: number): Promise<CryptoKey> {
+    // Check if this is the current version — use main cache
+    const mainCached = this.channelKeyCache.get(channelId);
+    if (mainCached && mainCached.keyVersion === version) {
+      mainCached.lastUsed = Date.now();
+      const privateKey = await this.derivePrivateKey();
+      return unwrapChannelKey(mainCached.wrappedKey, privateKey);
+    }
+
+    // Check versioned cache
+    const versionMap = this.versionedKeyCache.get(channelId);
+    const versionCached = versionMap?.get(version);
+    if (versionCached && Date.now() - versionCached.lastUsed < CHANNEL_KEY_CACHE_TTL) {
+      versionCached.lastUsed = Date.now();
+      const privateKey = await this.derivePrivateKey();
+      return unwrapChannelKey(versionCached.wrappedKey, privateKey);
+    }
+
+    // Fetch specific version from server
+    const res = await apiFetch(`/api/v1/e2ee/keys/${channelId}?version=${version}`);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch channel key version ${version}`);
+    }
+    const data = await res.json();
+    const wrappedKey: string = data.key.wrapped_key;
+
+    // Cache in versioned cache
+    if (!this.versionedKeyCache.has(channelId)) {
+      this.versionedKeyCache.set(channelId, new Map());
+    }
+    this.versionedKeyCache.get(channelId)!.set(version, {
+      wrappedKey,
+      keyVersion: version,
+      lastUsed: Date.now(),
+    });
+
+    const privateKey = await this.derivePrivateKey();
+    return unwrapChannelKey(wrappedKey, privateKey);
+  }
+
+  /**
+   * Decrypt a message using a specific key version.
+   * Falls back to current key if version is 0 or 1 (legacy).
+   */
+  async decryptForChannelWithVersion(
+    channelId: string,
+    ciphertext: string,
+    version: number
+  ): Promise<string> {
+    // Version 0 or 1 = use current key (legacy/default)
+    if (!version || version <= 1) {
+      return this.decryptForChannel(channelId, ciphertext);
+    }
+
+    // Check if the requested version matches current cached version
+    const currentVersion = this.getCurrentKeyVersion(channelId);
+    if (version === currentVersion) {
+      return this.decryptForChannel(channelId, ciphertext);
+    }
+
+    // Fetch specific version
+    const channelKey = await this.getChannelKeyByVersion(channelId, version);
+    return decryptMessage(ciphertext, channelKey);
+  }
+
+  /**
+   * Rotate the channel key: generate a new CSK, wrap for all members, and distribute.
+   * Used after member removal or theft detection.
+   *
+   * @param channelId - The channel to rotate keys for
+   * @param newKeyVersion - The new epoch/version number
+   * @param memberPublicKeys - Map of user_id → base64 public key for remaining members
+   */
+  async rotateChannelKey(
+    channelId: string,
+    newKeyVersion: number,
+    memberPublicKeys: Map<string, string>
+  ): Promise<void> {
+    const channelKey = await generateChannelKey();
+    const wrappedKeys: Record<string, string> = {};
+
+    for (const [userId, publicKeyBase64] of memberPublicKeys) {
+      const publicKey = await importPublicKey(publicKeyBase64);
+      const wrapped = await wrapChannelKey(channelKey, publicKey);
+      wrappedKeys[userId] = wrapped;
+    }
+
+    const res = await apiFetch(`/api/v1/e2ee/keys/${channelId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        wrapped_keys: wrappedKeys,
+        key_version: newKeyVersion,
+      }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      console.debug('[E2EE] Key rotation distribution failed:', res.status, data);
+      // Non-fatal: another client may have already distributed (first-response-wins)
+    }
+
+    // Invalidate current cache so next encrypt/decrypt fetches the new key
+    this.invalidateChannelKey(channelId);
+  }
+
+  /**
    * Clear all keys on logout.
    */
   clearKeys(): void {
     this.wrappingKey = null;
     this.preferencesKey = null;
     this.wrappedPrivateKey = '';
+    this.sessionKeys = null;
     this.channelKeyCache.clear();
+    this.versionedKeyCache.clear();
     this.pendingKeyFetches.clear();
     if (this.cacheCleanupInterval) {
       clearInterval(this.cacheCleanupInterval);

@@ -13,7 +13,7 @@ afterEach(() => server.resetHandlers());
 describe('inviteStore', () => {
   beforeEach(() => {
     resetAllStores();
-    useAuthStore.getState().setTokens('mock-token', 'mock-refresh');
+    useAuthStore.getState().setAccessToken('mock-token');
   });
 
   it('starts with empty state', () => {

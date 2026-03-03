@@ -1,7 +1,7 @@
 /* ─── Emoji Picker Container ──────────────────────────────────────── */
 
 .emoji-picker {
-  width: 352px;
+  width: 374px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 8px;

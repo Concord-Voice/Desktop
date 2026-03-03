@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { ServerMember, PresenceStatus } from '../../stores/memberStore';
+import { resolveUserAccentColors } from '../../utils/schemeColors';
 import './MemberProfileCard.css';
 
 interface MemberProfileCardProps {
@@ -81,6 +82,7 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
   };
 
   const roleLabel = member.role.charAt(0).toUpperCase() + member.role.slice(1);
+  const userColors = resolveUserAccentColors(member.color_scheme);
 
   return (
     <div
@@ -88,7 +90,10 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
       className="member-profile-card"
       style={{ position: 'fixed', top, left, zIndex: 400 }}
     >
-      <div className={`member-profile-banner ${member.header_image_url ? 'has-image' : ''}`}>
+      <div
+        className={`member-profile-banner ${member.header_image_url ? 'has-image' : ''}`}
+        style={!member.header_image_url && userColors ? { background: userColors.gradient, opacity: 0.6 } : undefined}
+      >
         {member.header_image_url && (
           <img
             src={member.header_image_url}
@@ -107,7 +112,10 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
               className="member-profile-avatar-img"
             />
           ) : (
-            <span className="member-profile-avatar-initial">
+            <span
+              className="member-profile-avatar-initial"
+              style={userColors ? { background: userColors.gradient, color: '#fff' } : undefined}
+            >
               {member.username.charAt(0).toUpperCase()}
             </span>
           )}

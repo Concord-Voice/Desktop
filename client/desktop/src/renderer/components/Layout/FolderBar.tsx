@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown, FolderPlus, Pencil, Trash2 } from 'lucide-react';
 import { useServerStore } from '../../stores/serverStore';
 import { useUnreadStore } from '../../stores/unreadStore';
+import { useVoiceStore } from '../../stores/voiceStore';
 import { useLayoutStore, ServerFolder } from '../../stores/layoutStore';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ServerWithRole } from '../../types/server';
@@ -17,6 +18,7 @@ const FolderBar: React.FC = () => {
   const servers = useServerStore((s) => s.servers);
   const setActiveServer = useServerStore((s) => s.setActiveServer);
   const serverUnreadSet = useUnreadStore((s) => s.serverUnreadSet);
+  const serverVoiceCounts = useVoiceStore((s) => s.serverVoiceCounts);
 
   const serverFolders = useLayoutStore((s) => s.serverFolders);
   const createFolder = useLayoutStore((s) => s.createFolder);
@@ -30,6 +32,8 @@ const FolderBar: React.FC = () => {
   const folderScale = Math.max(0.75, Math.min(1.25, (folderBarHeight - 24) / (48 - 24) * 0.5 + 0.75));
 
   const [openFolderId, setOpenFolderId] = useState<string | null>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number } | null>(null);
+  const chipRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
   const dragCounterRef = useRef<Map<string, number>>(new Map());
   const [contextMenu, setContextMenu] = useState<{
@@ -45,15 +49,24 @@ const FolderBar: React.FC = () => {
   } | null>(null);
   const [draggingServerId, setDraggingServerId] = useState<string | null>(null);
   const [hoveredServer, setHoveredServer] = useState<{ server: ServerWithRole; rect: DOMRect } | null>(null);
+  const [addBtnTooltipPos, setAddBtnTooltipPos] = useState<{ top: number; left: number } | null>(null);
+  const addBtnRef = useRef<HTMLButtonElement>(null);
+  const addBtnHoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   // Close dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setOpenFolderId(null);
+      const target = e.target as Node;
+      // Don't close if clicking inside the dropdown itself
+      if (dropdownRef.current && dropdownRef.current.contains(target)) return;
+      // Don't close if clicking on a folder chip (handleFolderClick will toggle)
+      for (const chip of chipRefs.current.values()) {
+        if (chip.contains(target)) return;
       }
+      setOpenFolderId(null);
+      setDropdownPos(null);
     };
     if (openFolderId) {
       document.addEventListener('mousedown', handler);
@@ -70,9 +83,44 @@ const FolderBar: React.FC = () => {
     }
   }, [renamingFolderId]);
 
+  const showAddBtnTooltip = useCallback(() => {
+    addBtnHoverTimer.current = setTimeout(() => {
+      if (addBtnRef.current) {
+        const rect = addBtnRef.current.getBoundingClientRect();
+        const tooltipWidth = 90; // approximate width of "New Folder"
+        const padding = 8;
+        const top = rect.bottom + 6;
+        // Center below the button, but clamp to viewport
+        let left = rect.left + rect.width / 2 - tooltipWidth / 2;
+        left = Math.max(padding, Math.min(left, window.innerWidth - tooltipWidth - padding));
+        // Clamp top to viewport bottom
+        const clampedTop = Math.min(top, window.innerHeight - 30 - padding);
+        setAddBtnTooltipPos({ top: clampedTop, left });
+      }
+    }, 400);
+  }, []);
+
+  const hideAddBtnTooltip = useCallback(() => {
+    if (addBtnHoverTimer.current) {
+      clearTimeout(addBtnHoverTimer.current);
+      addBtnHoverTimer.current = null;
+    }
+    setAddBtnTooltipPos(null);
+  }, []);
+
   const handleFolderClick = (folderId: string) => {
     if (renaming?.folderId === folderId) return;
-    setOpenFolderId((prev) => (prev === folderId ? null : folderId));
+    const isClosing = openFolderId === folderId;
+    setOpenFolderId(isClosing ? null : folderId);
+    if (!isClosing) {
+      const chipEl = chipRefs.current.get(folderId);
+      if (chipEl) {
+        const rect = chipEl.getBoundingClientRect();
+        setDropdownPos({ top: rect.bottom + 6, left: rect.left });
+      }
+    } else {
+      setDropdownPos(null);
+    }
   };
 
   const handleServerClick = (serverId: string) => {
@@ -183,32 +231,47 @@ const FolderBar: React.FC = () => {
 
   if (serverFolders.length === 0) {
     return (
-      <div className="folder-bar" style={folderStyle}>
-        <div className="folder-bar-empty">
-          <button className="folder-add-btn" onClick={handleCreateFolder}>
-            <FolderPlus size={Math.round(12 * folderScale)} />
-            <span>New Folder</span>
+      <>
+        <div className="folder-bar" style={folderStyle}>
+          <div className="folder-bar-empty" />
+          <div className="folder-bar-divider" />
+          <button
+            ref={addBtnRef}
+            className="folder-add-btn"
+            onClick={handleCreateFolder}
+            onMouseEnter={showAddBtnTooltip}
+            onMouseLeave={hideAddBtnTooltip}
+          >
+            <FolderPlus size={Math.round(14 * folderScale)} />
           </button>
         </div>
-      </div>
+        {addBtnTooltipPos && createPortal(
+          <div
+            className="folder-add-btn-tooltip visible"
+            style={{ top: addBtnTooltipPos.top, left: addBtnTooltipPos.left }}
+          >
+            New Folder
+          </div>,
+          document.body
+        )}
+      </>
     );
   }
 
   return (
     <>
-      <div className="folder-bar" ref={dropdownRef} style={folderStyle}>
-        {serverFolders.map((folder) => {
+      <div className="folder-bar" style={folderStyle}>
+        <div className="folder-bar-scroll">
+          {serverFolders.map((folder) => {
           const isOpen = openFolderId === folder.id;
           const isDragOver = dragOverFolderId === folder.id;
           const isRenaming = renaming?.folderId === folder.id;
           const unreadCount = getFolderUnreadCount(folder);
-          const folderServers = folder.serverIds
-            .map((id) => servers.find((s) => s.id === id))
-            .filter(Boolean);
 
           return (
             <div
               key={folder.id}
+              ref={(el) => { if (el) chipRefs.current.set(folder.id, el); else chipRefs.current.delete(folder.id); }}
               className={`folder-chip ${isOpen ? 'open' : ''} ${isDragOver ? 'drag-over' : ''}`}
               onDragEnter={(e) => handleFolderDragEnter(e, folder.id)}
               onDragOver={handleFolderDragOver}
@@ -240,153 +303,176 @@ const FolderBar: React.FC = () => {
                   </>
                 )}
               </div>
-
-              {isOpen && (
-                <div
-                  className="folder-dropdown"
-                  onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const insertInfo = dropdownInsert;
-                    setDropdownInsert(null);
-                    setDraggingServerId(null);
-                    const sourceId = e.dataTransfer.getData('text/plain');
-                    if (!sourceId) return;
-
-                    const currentIds = folder.serverIds;
-                    const isInFolder = currentIds.includes(sourceId);
-
-                    if (isInFolder && insertInfo?.folderId === folder.id) {
-                      // Reorder within the folder
-                      const filtered = currentIds.filter((id) => id !== sourceId);
-                      const targetIdx = filtered.indexOf(insertInfo.targetId);
-                      if (targetIdx === -1) return;
-                      const insertIdx = insertInfo.side === 'after' ? targetIdx + 1 : targetIdx;
-                      filtered.splice(insertIdx, 0, sourceId);
-                      reorderFolderServers(folder.id, filtered);
-                    } else if (insertInfo?.folderId === folder.id) {
-                      // Coming from outside — insert at specific position
-                      const filtered = currentIds.filter((id) => id !== sourceId);
-                      const targetIdx = filtered.indexOf(insertInfo.targetId);
-                      const insertIdx = targetIdx === -1 ? filtered.length : (insertInfo.side === 'after' ? targetIdx + 1 : targetIdx);
-                      moveServerToFolder(sourceId, folder.id, insertIdx);
-                    } else {
-                      moveServerToFolder(sourceId, folder.id);
-                    }
-                  }}
-                  onDragLeave={(e) => {
-                    // Clear insert when leaving the dropdown entirely
-                    if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
-                      setDropdownInsert(null);
-                    }
-                  }}
-                >
-                  {folderServers.length === 0 ? (
-                    <div
-                      style={{
-                        padding: '8px 12px',
-                        color: 'var(--text-muted)',
-                        fontSize: 'calc(12px * var(--font-scale, 1))',
-                      }}
-                    >
-                      Drag servers here
-                    </div>
-                  ) : (
-                    folderServers.map((server) => {
-                      if (!server) return null;
-                      const ghostBefore = dropdownInsert?.folderId === folder.id
-                        && dropdownInsert?.targetId === server.id
-                        && dropdownInsert?.side === 'before';
-                      const ghostAfter = dropdownInsert?.folderId === folder.id
-                        && dropdownInsert?.targetId === server.id
-                        && dropdownInsert?.side === 'after';
-
-                      const ghost = (
-                        <div key={`ghost-${server.id}`} className="folder-dropdown-ghost">
-                          <div className="folder-dropdown-ghost-icon" />
-                          <span className="folder-dropdown-ghost-name">Move here</span>
-                        </div>
-                      );
-
-                      return (
-                        <React.Fragment key={server.id}>
-                          {ghostBefore && ghost}
-                          <div
-                            className={`folder-dropdown-item ${draggingServerId === server.id ? 'dragging' : ''}`}
-                            draggable
-                            onMouseEnter={(e) => {
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              setHoveredServer({ server: server as ServerWithRole, rect });
-                            }}
-                            onMouseLeave={() => setHoveredServer(null)}
-                            onDragStart={(e) => {
-                              e.dataTransfer.setData('text/plain', server.id);
-                              e.dataTransfer.setData('application/concord-server', server.id);
-                              e.dataTransfer.effectAllowed = 'move';
-                              setDraggingServerId(server.id);
-                              setHoveredServer(null);
-
-                              // Create a smaller, semi-transparent drag image
-                              const clone = e.currentTarget.cloneNode(true) as HTMLElement;
-                              Object.assign(clone.style, {
-                                width: `${e.currentTarget.offsetWidth * 0.8}px`,
-                                opacity: '0.65',
-                                position: 'fixed',
-                                top: '-9999px',
-                                left: '-9999px',
-                                pointerEvents: 'none',
-                              });
-                              document.body.appendChild(clone);
-                              e.dataTransfer.setDragImage(clone, clone.offsetWidth / 2, clone.offsetHeight / 2);
-                              requestAnimationFrame(() => document.body.removeChild(clone));
-                            }}
-                            onDragOver={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation();
-                              const rect = e.currentTarget.getBoundingClientRect();
-                              const midY = rect.top + rect.height / 2;
-                              const deadZone = rect.height * 0.25;
-                              // Keep current side when inside the dead zone for the same target
-                              if (
-                                dropdownInsert?.targetId === server.id &&
-                                Math.abs(e.clientY - midY) < deadZone
-                              ) {
-                                return;
-                              }
-                              const side: 'before' | 'after' = e.clientY < midY ? 'before' : 'after';
-                              setDropdownInsert({ folderId: folder.id, targetId: server.id, side });
-                            }}
-                            onDragEnd={() => { setDropdownInsert(null); setDraggingServerId(null); }}
-                            onClick={() => handleServerClick(server.id)}
-                          >
-                            <div className="folder-dropdown-item-icon">
-                              {server.icon_url ? (
-                                <img src={server.icon_url} alt={server.name} draggable={false} />
-                              ) : (
-                                <span className="folder-dropdown-item-initial">
-                                  {server.name.charAt(0).toUpperCase()}
-                                </span>
-                              )}
-                            </div>
-                            <span className="folder-dropdown-item-name">{server.name}</span>
-                          </div>
-                          {ghostAfter && ghost}
-                        </React.Fragment>
-                      );
-                    })
-                  )}
-                </div>
-              )}
             </div>
           );
         })}
-
-        <button className="folder-add-btn" onClick={handleCreateFolder}>
-          <FolderPlus size={12} />
-          <span>New Folder</span>
+        </div>
+        <div className="folder-bar-divider" />
+        <button
+          ref={addBtnRef}
+          className="folder-add-btn"
+          onClick={handleCreateFolder}
+          onMouseEnter={showAddBtnTooltip}
+          onMouseLeave={hideAddBtnTooltip}
+        >
+          <FolderPlus size={14} />
         </button>
       </div>
+
+      {/* Folder dropdown — portaled to body to escape stacking context */}
+      {openFolderId && dropdownPos && (() => {
+        const folder = serverFolders.find((f) => f.id === openFolderId);
+        if (!folder) return null;
+        const folderServers = folder.serverIds
+          .map((id) => servers.find((s) => s.id === id))
+          .filter(Boolean);
+        return createPortal(
+          <div
+            ref={dropdownRef}
+            className="folder-dropdown"
+            style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, zIndex: 9999 }}
+            onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const insertInfo = dropdownInsert;
+              setDropdownInsert(null);
+              setDraggingServerId(null);
+              const sourceId = e.dataTransfer.getData('text/plain');
+              if (!sourceId) return;
+
+              const currentIds = folder.serverIds;
+              const isInFolder = currentIds.includes(sourceId);
+
+              if (isInFolder && insertInfo?.folderId === folder.id) {
+                const filtered = currentIds.filter((id) => id !== sourceId);
+                const targetIdx = filtered.indexOf(insertInfo.targetId);
+                if (targetIdx === -1) return;
+                const insertIdx = insertInfo.side === 'after' ? targetIdx + 1 : targetIdx;
+                filtered.splice(insertIdx, 0, sourceId);
+                reorderFolderServers(folder.id, filtered);
+              } else if (insertInfo?.folderId === folder.id) {
+                const filtered = currentIds.filter((id) => id !== sourceId);
+                const targetIdx = filtered.indexOf(insertInfo.targetId);
+                const insertIdx = targetIdx === -1 ? filtered.length : (insertInfo.side === 'after' ? targetIdx + 1 : targetIdx);
+                moveServerToFolder(sourceId, folder.id, insertIdx);
+              } else {
+                moveServerToFolder(sourceId, folder.id);
+              }
+            }}
+            onDragLeave={(e) => {
+              if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
+                setDropdownInsert(null);
+              }
+            }}
+          >
+            {folderServers.length === 0 ? (
+              <div
+                style={{
+                  padding: '8px 12px',
+                  color: 'var(--text-muted)',
+                  fontSize: 'calc(12px * var(--font-scale, 1))',
+                }}
+              >
+                Drag servers here
+              </div>
+            ) : (
+              folderServers.map((server) => {
+                if (!server) return null;
+                const ghostBefore = dropdownInsert?.folderId === folder.id
+                  && dropdownInsert?.targetId === server.id
+                  && dropdownInsert?.side === 'before';
+                const ghostAfter = dropdownInsert?.folderId === folder.id
+                  && dropdownInsert?.targetId === server.id
+                  && dropdownInsert?.side === 'after';
+
+                const ghost = (
+                  <div key={`ghost-${server.id}`} className="folder-dropdown-ghost">
+                    <div className="folder-dropdown-ghost-icon" />
+                    <span className="folder-dropdown-ghost-name">Move here</span>
+                  </div>
+                );
+
+                return (
+                  <React.Fragment key={server.id}>
+                    {ghostBefore && ghost}
+                    <div
+                      className={`folder-dropdown-item ${draggingServerId === server.id ? 'dragging' : ''}`}
+                      draggable
+                      onMouseEnter={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setHoveredServer({ server: server as ServerWithRole, rect });
+                      }}
+                      onMouseLeave={() => setHoveredServer(null)}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData('text/plain', server.id);
+                        e.dataTransfer.setData('application/concord-server', server.id);
+                        e.dataTransfer.effectAllowed = 'move';
+                        setDraggingServerId(server.id);
+                        setHoveredServer(null);
+
+                        const clone = e.currentTarget.cloneNode(true) as HTMLElement;
+                        Object.assign(clone.style, {
+                          width: `${e.currentTarget.offsetWidth * 0.8}px`,
+                          opacity: '0.65',
+                          position: 'fixed',
+                          top: '-9999px',
+                          left: '-9999px',
+                          pointerEvents: 'none',
+                        });
+                        document.body.appendChild(clone);
+                        e.dataTransfer.setDragImage(clone, clone.offsetWidth / 2, clone.offsetHeight / 2);
+                        requestAnimationFrame(() => document.body.removeChild(clone));
+                      }}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        const midY = rect.top + rect.height / 2;
+                        const deadZone = rect.height * 0.25;
+                        if (
+                          dropdownInsert?.targetId === server.id &&
+                          Math.abs(e.clientY - midY) < deadZone
+                        ) {
+                          return;
+                        }
+                        const side: 'before' | 'after' = e.clientY < midY ? 'before' : 'after';
+                        setDropdownInsert({ folderId: folder.id, targetId: server.id, side });
+                      }}
+                      onDragEnd={() => { setDropdownInsert(null); setDraggingServerId(null); }}
+                      onClick={() => handleServerClick(server.id)}
+                    >
+                      <div className="folder-dropdown-item-icon">
+                        {server.icon_url ? (
+                          <img src={server.icon_url} alt={server.name} draggable={false} />
+                        ) : (
+                          <span className="folder-dropdown-item-initial">
+                            {server.name.charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      <span className="folder-dropdown-item-name">{server.name}</span>
+                    </div>
+                    {ghostAfter && ghost}
+                  </React.Fragment>
+                );
+              })
+            )}
+          </div>,
+          document.body
+        );
+      })()}
+
+      {/* "New Folder" tooltip — portaled to body to escape overflow:hidden */}
+      {addBtnTooltipPos && createPortal(
+        <div
+          className="folder-add-btn-tooltip visible"
+          style={{ top: addBtnTooltipPos.top, left: addBtnTooltipPos.left }}
+        >
+          New Folder
+        </div>,
+        document.body
+      )}
 
       {/* Context menu */}
       {contextMenu && (
@@ -479,7 +565,7 @@ const FolderBar: React.FC = () => {
             <span>{hoveredServer.server.online_count ?? 0} Online</span>
           </div>
           <div className="server-bar-tooltip-stats">
-            <span className="server-bar-tooltip-voice">0 In Voice</span>
+            <span className={`server-bar-tooltip-voice${(serverVoiceCounts[hoveredServer.server.id] ?? 0) > 0 ? ' server-bar-tooltip-voice--active' : ''}`}>{serverVoiceCounts[hoveredServer.server.id] ?? 0} In Voice</span>
           </div>
           {serverUnreadSet.has(hoveredServer.server.id) && (
             <span className="server-bar-tooltip-unread">Unread notifications</span>

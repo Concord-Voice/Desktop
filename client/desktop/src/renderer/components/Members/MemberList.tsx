@@ -1,15 +1,14 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { useAuthStore } from '../../stores/authStore';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useServerStore } from '../../stores/serverStore';
 import { useUserStore } from '../../stores/userStore';
 import { useMemberStore, ServerMember, PresenceStatus } from '../../stores/memberStore';
+import { resolveUserAccentColors } from '../../utils/schemeColors';
 import MemberProfileCard from './MemberProfileCard';
 import MemberContextMenu from './MemberContextMenu';
 import UserProfileModal from './UserProfileModal';
 import './MemberList.css';
 
 const MemberList: React.FC = () => {
-  const accessToken = useAuthStore((state) => state.accessToken);
   const activeServerId = useServerStore((state) => state.activeServerId);
   const servers = useServerStore((state) => state.servers);
   const activeServer = servers.find((s) => s.id === activeServerId) || null;
@@ -36,11 +35,18 @@ const MemberList: React.FC = () => {
 
   const [fullProfileMember, setFullProfileMember] = useState<ServerMember | null>(null);
 
-  // Fetch members when active server changes
+  // Fetch members when active server changes.
+  // Guard prevents StrictMode double-mount from firing duplicate HTTP requests.
+  const memberFetchRef = useRef<string | null>(null);
+
   useEffect(() => {
     if (activeServerId) {
-      fetchMembers(activeServerId);
+      if (memberFetchRef.current !== activeServerId) {
+        memberFetchRef.current = activeServerId;
+        fetchMembers(activeServerId);
+      }
     } else {
+      memberFetchRef.current = null;
       clearMembers();
     }
   }, [activeServerId, fetchMembers, clearMembers]);
@@ -95,6 +101,7 @@ const MemberList: React.FC = () => {
 
   const renderMemberItem = (member: ServerMember) => {
     const status = getMemberStatus(member.user_id);
+    const memberColors = resolveUserAccentColors(member.color_scheme);
     return (
       <div
         key={member.user_id}
@@ -107,7 +114,12 @@ const MemberList: React.FC = () => {
           {member.avatar_url ? (
             <img src={member.avatar_url} alt={member.username} className="member-avatar-img" />
           ) : (
-            <span className="member-avatar-initial">{member.username.charAt(0).toUpperCase()}</span>
+            <span
+              className="member-avatar-initial"
+              style={memberColors ? { background: memberColors.gradient, color: '#fff' } : undefined}
+            >
+              {member.username.charAt(0).toUpperCase()}
+            </span>
           )}
           <span className={`member-status-dot ${status}`} />
         </div>

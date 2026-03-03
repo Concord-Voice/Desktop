@@ -2,11 +2,77 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Lock } from 'lucide-react';
 import { MessageWithStatus } from '../../types/chat';
 import { useMemberStore, ServerMember } from '../../stores/memberStore';
+import { resolveUserAccentColors } from '../../utils/schemeColors';
 import MemberProfileCard from '../Members/MemberProfileCard';
 import UserProfileModal from '../Members/UserProfileModal';
 import DeleteMessageModal from './DeleteMessageModal';
 import MessageContextMenu from './MessageContextMenu';
 import './Message.css';
+
+/**
+ * Detect emoji-only messages and return the count.
+ * Returns 0 if the message contains any non-emoji text.
+ * Uses Unicode emoji properties to match all standard emoji sequences.
+ */
+function getEmojiOnlyCount(text: string): number {
+  if (!text || text.length === 0) return 0;
+  const stripped = text.replace(EMOJI_REGEX, '').replace(/[\s\u{FE0F}\u{200D}]/gu, '');
+  if (stripped.length > 0) return 0;
+  const matches = text.match(EMOJI_REGEX);
+  return matches ? matches.length : 0;
+}
+
+/**
+ * Returns a CSS class for emoji-only messages based on emoji count.
+ * 1 emoji = largest (48px), linearly scales down to base (24px) at 5+.
+ */
+function getEmojiSizeClass(count: number): string {
+  if (count <= 0) return '';
+  if (count === 1) return 'emoji-jumbo-1';
+  if (count === 2) return 'emoji-jumbo-2';
+  if (count === 3) return 'emoji-jumbo-3';
+  if (count === 4) return 'emoji-jumbo-4';
+  if (count === 5) return 'emoji-jumbo-5';
+  return '';
+}
+
+/**
+ * Matches complete emoji sequences including:
+ * - Regional indicator pairs (country flags: 🇺🇸)
+ * - Tag sequences (subdivision flags: 🏴󠁧󠁢󠁥󠁮󠁧󠁿)
+ * - ZWJ sequences with text-default emoji (🏴‍☠️, ❤️‍🔥, 👁️‍🗨️)
+ * - Skin tone modifiers (👋🏽)
+ * - Keycap sequences (1️⃣)
+ *
+ * Key fix: after ZWJ, match \p{Emoji}\uFE0F (text-default + variation selector)
+ * in addition to \p{Emoji_Presentation}. Characters like ☠ (U+2620) are \p{Emoji}
+ * but NOT \p{Emoji_Presentation} — without this, ZWJ sequences containing them
+ * (e.g. 🏴‍☠️) get split into their component emoji.
+ */
+const EMOJI_REGEX = /(?:\p{Regional_Indicator}{2}|\p{Emoji_Presentation}[\u{E0020}-\u{E007E}]+\u{E007F}|(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F)(?:\u{200D}(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F)|\p{Emoji_Modifier}|\uFE0F?\u{20E3})*)/gu;
+
+/**
+ * Renders message text with emoji characters wrapped in <span class="emoji">
+ * so they can be styled at a larger font size than surrounding text.
+ */
+function renderContent(text: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  EMOJI_REGEX.lastIndex = 0;
+  while ((match = EMOJI_REGEX.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    parts.push(<span key={match.index} className="emoji">{match[0]}</span>);
+    lastIndex = EMOJI_REGEX.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+  return parts;
+}
 
 export interface MessageProps {
   message: MessageWithStatus;
@@ -53,6 +119,8 @@ const Message: React.FC<MessageProps> = ({
   const members = useMemberStore((state) => state.members);
   const userStatuses = useMemberStore((state) => state.userStatuses);
   const lastSeenByUser = useMemberStore((state) => state.lastSeenByUser);
+  const senderMember = members.find((m) => m.user_id === message.user_id);
+  const senderColors = resolveUserAccentColors(senderMember?.color_scheme);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -69,16 +137,16 @@ const Message: React.FC<MessageProps> = ({
   );
 
   useEffect(() => {
+    if (!showOptions) return;
+
     const handleClickOutside = (event: MouseEvent) => {
       if (optionsRef.current && !optionsRef.current.contains(event.target as Node)) {
         setShowOptions(false);
       }
     };
 
-    if (showOptions) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => document.removeEventListener('mousedown', handleClickOutside);
-    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showOptions]);
 
   const handleEditSubmit = () => {
@@ -147,7 +215,10 @@ const Message: React.FC<MessageProps> = ({
           {message.avatar_url ? (
             <img className="avatar-image" src={message.avatar_url} alt={message.username} />
           ) : (
-            <div className="avatar-circle">
+            <div
+              className="avatar-circle"
+              style={senderColors ? { background: senderColors.gradient } : undefined}
+            >
               {getInitials(message.display_name || message.username)}
             </div>
           )}
@@ -190,29 +261,37 @@ const Message: React.FC<MessageProps> = ({
             </div>
           </div>
         ) : (
-          <div className="message-text">
-            {message.is_encrypted && (
-              <span className="encrypted-indicator" title="End-to-end encrypted">
-                <Lock size={12} />
-              </span>
-            )}
-            {message.pendingKeys ? (
-              <span className="decrypt-failed pending-keys">
-                <Lock size={14} />
-                Waiting for encryption keys...
-              </span>
-            ) : message.decryptFailed ? (
-              <span className="decrypt-failed">
-                <Lock size={14} />
-                Unable to decrypt this message
-              </span>
-            ) : (
-              message.content
-            )}
-            {!showAvatar && message.edited_at && (
-              <span className="message-edited-inline">(edited)</span>
-            )}
-          </div>
+          (() => {
+            const emojiCount = (!message.pendingKeys && !message.decryptFailed)
+              ? getEmojiOnlyCount(message.content)
+              : 0;
+            const emojiClass = getEmojiSizeClass(emojiCount);
+            return (
+              <div className={`message-text${emojiClass ? ` ${emojiClass}` : ''}`}>
+                {message.is_encrypted && (
+                  <span className="encrypted-indicator" title="End-to-end encrypted">
+                    <Lock size={12} />
+                  </span>
+                )}
+                {message.pendingKeys ? (
+                  <span className="decrypt-failed pending-keys">
+                    <Lock size={14} />
+                    Waiting for encryption keys...
+                  </span>
+                ) : message.decryptFailed ? (
+                  <span className="decrypt-failed">
+                    <Lock size={14} />
+                    Unable to decrypt this message
+                  </span>
+                ) : (
+                  renderContent(message.content)
+                )}
+                {!showAvatar && message.edited_at && (
+                  <span className="message-edited-inline">(edited)</span>
+                )}
+              </div>
+            );
+          })()
         )}
 
         {canModify && !isEditing && (

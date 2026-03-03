@@ -6,13 +6,13 @@ import { generateRegistrationKeys, exportPublicKey } from '../../utils/crypto';
 import { e2eeService } from '../../services/e2eeService';
 import { preferencesSyncService } from '../../services/preferencesSync';
 import { useAuthStore } from '../../stores/authStore';
-import { API_BASE } from '../../services/apiClient';
+import { API_BASE, ensureMachineId } from '../../services/apiClient';
 import { UserProfile } from '../../stores/userStore';
 import './Register.css';
 
 export interface RegisterProps {
   onBack: () => void;
-  onSuccess: (data: { accessToken: string; refreshToken: string; user?: UserProfile }) => void;
+  onSuccess: (data: { accessToken: string; user?: UserProfile }) => void;
   onSwitchToLogin: () => void;
 }
 
@@ -108,11 +108,14 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
 
       console.debug('Keys generated, registering with server...');
 
+      const machineId = await ensureMachineId();
+
       // Register with backend
       const response = await fetch(`${API_BASE}/api/v1/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(machineId ? { 'X-Machine-Id': machineId } : {}),
         },
         credentials: 'include', // Include cookies for refresh token
         body: JSON.stringify({
@@ -142,11 +145,26 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
         keys.keyDerivationSalt
       );
       preferencesSyncService.startWatching();
-      useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
+
+      // Store refresh token securely in main process, set access token in renderer
+      if (window.electron?.storeRefreshToken) {
+        await window.electron.storeRefreshToken({
+          refreshToken: data.refresh_token,
+          rememberMe: true, // Registration always remembers
+          apiBase: API_BASE,
+        });
+      }
+      useAuthStore.getState().setAccessToken(data.access_token);
+      if (data.session_id) useAuthStore.getState().setSessionId(data.session_id);
+
+      // Persist E2EE session keys in safeStorage for session restore
+      const sessionKeys = e2eeService.getSessionKeys();
+      if (sessionKeys && window.electron?.storeE2EEKeys) {
+        await window.electron.storeE2EEKeys(sessionKeys);
+      }
 
       onSuccess({
         accessToken: data.access_token,
-        refreshToken: data.refresh_token,
         user: data.user,
       });
     } catch (error) {
@@ -163,7 +181,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     setFormData((prev) => ({ ...prev, [field]: value }));
     // Clear error for this field when user starts typing
-    if (errors[field]) {
+    if (field in errors && errors[field as keyof FormErrors]) {
       setErrors((prev) => ({ ...prev, [field]: undefined }));
     }
   };
@@ -201,10 +219,10 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
           <img
             src="./branding/logos/main-logo-transparent-vector.svg"
             className="register-logo"
-            alt="Concord"
+            alt="Concord Voice"
           />
           <h2 className="register-title">Create Your Account</h2>
-          <p className="register-subtitle">Join the Concord network with end-to-end encryption</p>
+          <p className="register-subtitle">Join the Concord Voice network with end-to-end encryption</p>
         </div>
 
         <form className="register-form" onSubmit={handleSubmit}>
@@ -306,7 +324,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
                             <strong>Your Keys:</strong> Protected by your password - keep it safe!
                           </li>
                         </ul>
-                        <strong>Privacy First:</strong> Not even Concord can read your encrypted
+                        <strong>Privacy First:</strong> Not even Concord Voice can read your encrypted
                         messages. We can't reset your password if you forget it.
                       </div>
                     }
@@ -314,7 +332,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
                 </div>
                 <p className="info-banner-description">
                   Your account uses DEFCON-grade encryption by default. Your messages are encrypted
-                  on your device before sending — not even Concord can read them.
+                  on your device before sending — not even Concord Voice can read them.
                 </p>
               </div>
             </div>

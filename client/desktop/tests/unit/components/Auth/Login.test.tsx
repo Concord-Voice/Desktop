@@ -20,6 +20,11 @@ vi.mock('@/renderer/utils/crypto', () => ({
 vi.mock('@/renderer/services/e2eeService', () => ({
   e2eeService: {
     initialize: vi.fn().mockResolvedValue(undefined),
+    getSessionKeys: vi.fn().mockReturnValue({
+      wrappingKeyBase64: 'mock-wrapping-key',
+      preferencesKeyBase64: 'mock-preferences-key',
+      wrappedPrivateKeyBase64: 'mock-wrapped-private-key',
+    }),
   },
 }));
 
@@ -42,7 +47,7 @@ describe('Login', () => {
   it('renders login form', () => {
     render(<Login onBack={onBack} onSuccess={onSuccess} onSwitchToRegister={onSwitchToRegister} />);
     expect(screen.getByText('Welcome Back')).toBeInTheDocument();
-    expect(screen.getByText('Sign in to your Concord account')).toBeInTheDocument();
+    expect(screen.getByText('Sign in to your Concord Voice account')).toBeInTheDocument();
   });
 
   it('renders email and password inputs', () => {
@@ -121,7 +126,6 @@ describe('Login', () => {
       ok: true,
       json: async () => ({
         access_token: 'mock-access',
-        refresh_token: 'mock-refresh',
         user: { id: 'user-1', username: 'testuser', email: 'test@example.com' },
         remember_me: true,
         e2ee_keys: {
@@ -141,7 +145,6 @@ describe('Login', () => {
       expect(onSuccess).toHaveBeenCalledWith(
         expect.objectContaining({
           accessToken: 'mock-access',
-          refreshToken: 'mock-refresh',
         }),
       );
     });

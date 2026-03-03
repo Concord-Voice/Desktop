@@ -29,19 +29,19 @@ describe('ServerBar', () => {
 
   it('renders PM button', () => {
     render(<ServerBar onOpenActionModal={onOpenActionModal} onContextMenu={onContextMenu} />);
-    expect(screen.getByLabelText('Private Messages')).toBeInTheDocument();
+    expect(screen.getByLabelText('Direct Messages')).toBeInTheDocument();
   });
 
   it('renders add server button', () => {
     render(<ServerBar onOpenActionModal={onOpenActionModal} onContextMenu={onContextMenu} />);
-    expect(screen.getByLabelText('Add a Server')).toBeInTheDocument();
+    expect(screen.getByLabelText('Add Server')).toBeInTheDocument();
   });
 
   it('calls onOpenActionModal when add button clicked', async () => {
     const { userEvent } = await import('../../../test-utils');
     const user = userEvent.setup();
     render(<ServerBar onOpenActionModal={onOpenActionModal} onContextMenu={onContextMenu} />);
-    await user.click(screen.getByLabelText('Add a Server'));
+    await user.click(screen.getByLabelText('Add Server'));
     expect(onOpenActionModal).toHaveBeenCalled();
   });
 
@@ -66,10 +66,10 @@ describe('ServerBar', () => {
     expect(screen.getByLabelText('Toggle channel panel')).toBeInTheDocument();
   });
 
-  it('shows question mark when no active server', () => {
+  it('shows placeholder when no active server', () => {
     useServerStore.setState({ servers: [], isLoading: false, activeServerId: null });
     render(<ServerBar onOpenActionModal={onOpenActionModal} onContextMenu={onContextMenu} />);
-    expect(screen.getByLabelText('Toggle channel panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('No active server')).toBeInTheDocument();
   });
 
   it('shows unread badge for servers with unreads', () => {

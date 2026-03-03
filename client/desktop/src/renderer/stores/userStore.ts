@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { useAuthStore } from './authStore';
-import { useServerStore } from './serverStore';
 import { apiFetch } from '../services/apiClient';
 import { getWebSocketService } from '../services/websocketService';
 import { e2eeService } from '../services/e2eeService';
@@ -34,6 +33,7 @@ export interface UpdateProfileData {
   bio?: string | null;
   avatar_url?: string | null;
   header_image_url?: string | null;
+  color_scheme?: string | null;
   links?: string[];
 }
 
@@ -68,7 +68,8 @@ export const useUserStore = create<UserState>()(
 
           if (response.status === 401) {
             // Token expired and refresh failed — clear auth
-            useAuthStore.getState().clearTokens();
+            useAuthStore.getState().clearAccessToken();
+            window.electron?.clearTokens?.();
             set({ user: null, isLoading: false, error: null });
             return;
           }
@@ -106,18 +107,19 @@ export const useUserStore = create<UserState>()(
         getWebSocketService().disconnect();
 
         try {
-          await fetch('http://localhost:8080/api/v1/auth/logout', {
-            method: 'POST',
-            credentials: 'include',
-          });
+          // Main process handles logout API call (it holds the refresh token)
+          if (window.electron?.logout) {
+            await window.electron.logout({
+              accessToken: useAuthStore.getState().accessToken ?? undefined,
+            });
+          }
         } catch (error) {
           console.error('Logout API error:', error);
         }
 
-        // Clear all stores
-        set({ user: null, isLoading: false, error: null });
-        useAuthStore.getState().clearTokens();
-        useServerStore.getState().clearServers();
+        // Nuclear reset: login screen will appear, so wipe everything
+        const { nuclearReset } = await import('../services/resetService');
+        nuclearReset();
       },
 
       updateProfile: async (updates: UpdateProfileData) => {
@@ -128,7 +130,8 @@ export const useUserStore = create<UserState>()(
         });
 
         if (response.status === 401) {
-          useAuthStore.getState().clearTokens();
+          useAuthStore.getState().clearAccessToken();
+          window.electron?.clearTokens?.();
           set({ user: null, isLoading: false, error: null });
           throw new Error('Session expired');
         }
@@ -185,7 +188,7 @@ export const useUserStore = create<UserState>()(
               current_password: currentPassword,
               new_password: newPassword,
               wrapped_private_key: arrayBufferToBase64(newWrappedKey),
-              key_derivation_salt: arrayBufferToBase64(newSalt.buffer),
+              key_derivation_salt: arrayBufferToBase64(newSalt.buffer as ArrayBuffer),
             }),
           });
 
@@ -194,7 +197,8 @@ export const useUserStore = create<UserState>()(
             if (data.error === 'Current password is incorrect') {
               return { success: false, error: data.error };
             }
-            useAuthStore.getState().clearTokens();
+            useAuthStore.getState().clearAccessToken();
+            window.electron?.clearTokens?.();
             set({ user: null, isLoading: false, error: null });
             return { success: false, error: 'Session expired' };
           }
@@ -209,7 +213,7 @@ export const useUserStore = create<UserState>()(
           await e2eeService.initialize(
             newPassword,
             arrayBufferToBase64(newWrappedKey),
-            arrayBufferToBase64(newSalt.buffer)
+            arrayBufferToBase64(newSalt.buffer as ArrayBuffer)
           );
 
           // Re-encrypt and push preferences with the new key

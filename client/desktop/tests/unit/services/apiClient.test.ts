@@ -19,7 +19,7 @@ describe('apiClient', () => {
   });
 
   it('injects Authorization header when token exists', async () => {
-    useAuthStore.getState().setTokens('test-token', 'test-refresh');
+    useAuthStore.getState().setAccessToken('test-token');
     mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
 
     await apiFetch('/api/v1/test');
@@ -46,7 +46,7 @@ describe('apiClient', () => {
   });
 
   it('returns response as-is for non-401 status', async () => {
-    useAuthStore.getState().setTokens('test-token', 'test-refresh');
+    useAuthStore.getState().setAccessToken('test-token');
     mockFetch.mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }));
 
     const response = await apiFetch('/api/v1/test');
@@ -54,41 +54,76 @@ describe('apiClient', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
-  it('attempts token refresh on 401', async () => {
-    useAuthStore.getState().setTokens('old-token', 'test-refresh');
+  it('attempts token refresh on 401 via IPC', async () => {
+    useAuthStore.getState().setAccessToken('old-token');
+
+    // Mock the electron IPC refresh — returns a new access token
+    window.electron = {
+      refreshToken: vi.fn().mockResolvedValue({ status: 'ok', accessToken: 'new-token' }),
+    } as any;
 
     // First call: 401
     mockFetch.mockResolvedValueOnce(new Response('unauthorized', { status: 401 }));
-    // Refresh call: success
-    mockFetch.mockResolvedValueOnce(
-      new Response(JSON.stringify({ access_token: 'new-token' }), { status: 200 })
-    );
-    // Retry call: success
+    // Retry call after IPC refresh: success
     mockFetch.mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }));
 
     const response = await apiFetch('/api/v1/test');
 
     expect(response.status).toBe(200);
-    expect(mockFetch).toHaveBeenCalledTimes(3);
-    // Verify refresh endpoint was called
-    expect(mockFetch.mock.calls[1][0]).toBe(`${API_BASE}/api/v1/auth/refresh`);
+    expect(window.electron!.refreshToken).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
     // Verify retry has new token
-    const retryHeaders = mockFetch.mock.calls[2][1].headers as Headers;
+    const retryHeaders = mockFetch.mock.calls[1][1].headers as Headers;
     expect(retryHeaders.get('Authorization')).toBe('Bearer new-token');
+    // Verify new token is stored in authStore
+    expect(useAuthStore.getState().accessToken).toBe('new-token');
   });
 
-  it('clears tokens when refresh fails', async () => {
-    useAuthStore.getState().setTokens('old-token', 'test-refresh');
+  it('clears disk tokens when IPC refresh fails and rememberMe is off', async () => {
+    useAuthStore.getState().setAccessToken('old-token');
+    useAuthStore.getState().setRememberMe(false);
+
+    // Mock the electron IPC refresh — returns failure
+    const mockClearTokens = vi.fn();
+    window.electron = {
+      refreshToken: vi.fn().mockResolvedValue({ status: 'error' }),
+      clearTokens: mockClearTokens,
+    } as any;
 
     // First call: 401
     mockFetch.mockResolvedValueOnce(new Response('unauthorized', { status: 401 }));
-    // Refresh call: failure
-    mockFetch.mockResolvedValueOnce(new Response('', { status: 401 }));
 
     const response = await apiFetch('/api/v1/test');
 
     expect(response.status).toBe(401);
     expect(useAuthStore.getState().accessToken).toBeNull();
+    // nuclearReset calls clearTokens internally
+    expect(mockClearTokens).toHaveBeenCalledTimes(1);
+    // Should not retry — only the original fetch
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves disk tokens when IPC refresh fails and rememberMe is on', async () => {
+    useAuthStore.getState().setAccessToken('old-token');
+    useAuthStore.getState().setRememberMe(true);
+
+    // Mock the electron IPC refresh — returns failure
+    const mockClearTokens = vi.fn();
+    window.electron = {
+      refreshToken: vi.fn().mockResolvedValue({ status: 'error' }),
+      clearTokens: mockClearTokens,
+    } as any;
+
+    // First call: 401
+    mockFetch.mockResolvedValueOnce(new Response('unauthorized', { status: 401 }));
+
+    const response = await apiFetch('/api/v1/test');
+
+    expect(response.status).toBe(401);
+    expect(useAuthStore.getState().accessToken).toBeNull();
+    // gracefulReset preserves disk tokens for Remember Me session restore
+    expect(mockClearTokens).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('passes through request init options', async () => {

@@ -40,7 +40,12 @@ describe('ChannelList', () => {
 
   it('renders text channels', () => {
     useServerStore.setState({ activeServerId: 'server-1' });
-    useChannelStore.setState({ channels: [mockChannel], isLoading: false, error: null });
+    useChannelStore.setState({
+      channels: [{ ...mockChannel, group_id: 'group-1' }],
+      channelGroups: [{ id: 'group-1', server_id: 'server-1', name: 'Text Channels', position: 0 }],
+      isLoading: false,
+      error: null,
+    });
     render(<ChannelList onContextMenu={onContextMenu} />);
     expect(screen.getByText('general')).toBeInTheDocument();
     expect(screen.getByText('TEXT CHANNELS')).toBeInTheDocument();

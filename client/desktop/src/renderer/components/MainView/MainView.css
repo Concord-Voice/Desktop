@@ -160,15 +160,21 @@
   right: -3px;
 }
 
-.resize-handle:hover,
 .resize-handle:active {
   background-color: var(--accent-primary);
 }
 
-/* ─── Member List Container (resizable wrapper) ─────────────────────────── */
+/* ─── Floating User Avatar ─────────────────────────────────────── */
 
-.member-list-container {
-  flex-shrink: 0;
-  display: flex;
-  overflow: hidden;
+.floating-user-avatar {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 5;
+  pointer-events: auto;
+}
+
+/* Shift up to clear persistent voice bar when both are visible */
+.main-content[data-has-persistent-bar] .floating-user-avatar {
+  bottom: 68px;
 }

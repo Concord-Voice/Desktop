@@ -3,7 +3,7 @@ import { unwrapLoginKeys, generateRegistrationKeys } from '../../utils/crypto';
 import { e2eeService } from '../../services/e2eeService';
 import { preferencesSyncService } from '../../services/preferencesSync';
 import { useAuthStore } from '../../stores/authStore';
-import { API_BASE, apiFetch } from '../../services/apiClient';
+import { API_BASE, apiFetch, ensureMachineId } from '../../services/apiClient';
 import { UserProfile } from '../../stores/userStore';
 import LoadingSpinner from './LoadingSpinner';
 import './Login.css';
@@ -12,7 +12,6 @@ export interface LoginProps {
   onBack: () => void;
   onSuccess: (data: {
     accessToken: string;
-    refreshToken: string;
     user?: UserProfile;
     rememberMe: boolean;
   }) => void;
@@ -74,11 +73,14 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
     try {
       console.debug('Logging in...');
 
+      const machineId = await ensureMachineId();
+
       // Login with backend
       const response = await fetch(`${API_BASE}/api/v1/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...(machineId ? { 'X-Machine-Id': machineId } : {}),
         },
         credentials: 'include', // Include cookies for refresh token
         body: JSON.stringify({
@@ -117,8 +119,16 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
 
         const newKeys = await generateRegistrationKeys(formData.password);
 
-        // Set tokens first so apiFetch can use them for auth
-        useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
+        // Store refresh token securely in main process, set access token for apiFetch
+        if (window.electron?.storeRefreshToken) {
+          await window.electron.storeRefreshToken({
+            refreshToken: data.refresh_token,
+            rememberMe: formData.rememberMe,
+            apiBase: API_BASE,
+          });
+        }
+        useAuthStore.getState().setAccessToken(data.access_token);
+        if (data.session_id) useAuthStore.getState().setSessionId(data.session_id);
 
         const replaceRes = await apiFetch('/api/v1/users/me/keys', {
           method: 'PUT',
@@ -144,9 +154,22 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
         console.debug('E2EE keys regenerated and service initialized!');
       }
 
-      // Set token early so apiFetch can authenticate the preferences request.
-      // onSuccess will call setTokens again (idempotent) and navigate to /app.
-      useAuthStore.getState().setTokens(data.access_token, data.refresh_token);
+      // Store refresh token securely in main process, set access token for apiFetch
+      if (window.electron?.storeRefreshToken) {
+        await window.electron.storeRefreshToken({
+          refreshToken: data.refresh_token,
+          rememberMe: data.remember_me ?? formData.rememberMe,
+          apiBase: API_BASE,
+        });
+      }
+      useAuthStore.getState().setAccessToken(data.access_token);
+      if (data.session_id) useAuthStore.getState().setSessionId(data.session_id);
+
+      // Persist E2EE session keys in safeStorage for session restore
+      const sessionKeys = e2eeService.getSessionKeys();
+      if (sessionKeys && window.electron?.storeE2EEKeys) {
+        await window.electron.storeE2EEKeys(sessionKeys);
+      }
 
       // Start watching for local preference changes and fetch remote preferences
       preferencesSyncService.startWatching();
@@ -155,7 +178,6 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
       // Pass tokens and user data up
       onSuccess({
         accessToken: data.access_token,
-        refreshToken: data.refresh_token,
         user: data.user,
         rememberMe: data.remember_me ?? formData.rememberMe,
       });
@@ -173,7 +195,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
     const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
     setFormData((prev) => ({ ...prev, [field]: value }));
     // Clear error for this field when user starts typing
-    if (errors[field]) {
+    if (field in errors && errors[field as keyof FormErrors]) {
       setErrors((prev) => ({ ...prev, [field]: undefined }));
     }
   };
@@ -185,10 +207,10 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
           <img
             src="./branding/logos/main-logo-transparent-vector.svg"
             className="login-logo"
-            alt="Concord"
+            alt="Concord Voice"
           />
           <h2 className="login-title">Welcome Back</h2>
-          <p className="login-subtitle">Sign in to your Concord account</p>
+          <p className="login-subtitle">Sign in to your Concord Voice account</p>
         </div>
 
         <form className="login-form" onSubmit={handleSubmit}>

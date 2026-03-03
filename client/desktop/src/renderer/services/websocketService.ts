@@ -13,6 +13,9 @@
  * @see services/control-plane/internal/websocket for backend implementation
  */
 
+import { WS_BASE } from '../config';
+import { useAuthStore } from '../stores/authStore';
+
 export enum ConnectionState {
   DISCONNECTED = 'disconnected',
   CONNECTING = 'connecting',
@@ -47,6 +50,7 @@ export class WebSocketService {
   private maxReconnectDelay = 30000; // Max 30 seconds
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pingInterval: NodeJS.Timeout | null = null;
+  private aggressiveReconnect = false;
 
   // Message handlers
   private messageHandlers = new Map<string, Set<MessageHandler>>();
@@ -55,10 +59,12 @@ export class WebSocketService {
   // Connection info
   private connectionInfo: ConnectionInfo | null = null;
 
-  // Subscribed channels
+  // Subscribed channels, servers, and DM conversations (tracked for resubscription on reconnect)
   private subscribedChannels = new Set<string>();
+  private subscribedServers = new Set<string>();
+  private subscribedDMs = new Set<string>();
 
-  constructor(baseUrl: string = 'ws://localhost:8080') {
+  constructor(baseUrl: string = WS_BASE) {
     this.url = `${baseUrl}/api/v1/ws`;
   }
 
@@ -67,8 +73,8 @@ export class WebSocketService {
    */
   connect(token: string): void {
     if (
-      this.ws &&
-      (this.state === ConnectionState.CONNECTED || this.state === ConnectionState.CONNECTING)
+      this.state === ConnectionState.CONNECTED ||
+      this.state === ConnectionState.CONNECTING
     ) {
       return;
     }
@@ -122,11 +128,30 @@ export class WebSocketService {
   }
 
   /**
+   * Toggle aggressive reconnection mode.
+   * When enabled, reconnect attempts use rapid intervals (500ms → 2s)
+   * instead of the normal exponential backoff (1s → 30s).
+   * Used during the 15-second grace period after connection loss.
+   */
+  setAggressiveReconnect(enabled: boolean): void {
+    this.aggressiveReconnect = enabled;
+    // If switching to aggressive while a slow reconnect is pending, re-schedule faster
+    if (enabled && this.reconnectTimer) {
+      this.clearReconnectTimer();
+      this.scheduleReconnect();
+    }
+  }
+
+  /**
    * Send a message to the WebSocket server
    */
   send(message: WebSocketMessage): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.warn('Cannot send message: WebSocket not open');
+      // Subscription lifecycle messages are expected when WS isn't open (startup, teardown)
+      const subTypes = ['subscribe', 'subscribe_server', 'unsubscribe', 'unsubscribe_server'];
+      if (!subTypes.includes(message.type)) {
+        console.warn('Cannot send message: WebSocket not open', message.type);
+      }
       return;
     }
 
@@ -170,6 +195,7 @@ export class WebSocketService {
    * Subscribe to server-level notifications (lightweight unread pings)
    */
   subscribeServer(serverId: string): void {
+    this.subscribedServers.add(serverId);
     this.send({
       type: 'subscribe_server',
       data: { server_id: serverId },
@@ -180,6 +206,7 @@ export class WebSocketService {
    * Unsubscribe from server-level notifications
    */
   unsubscribeServer(serverId: string): void {
+    this.subscribedServers.delete(serverId);
     this.send({
       type: 'unsubscribe_server',
       data: { server_id: serverId },
@@ -193,7 +220,8 @@ export class WebSocketService {
     channelId: string,
     content: string,
     nonce?: string,
-    isEncrypted: boolean = false
+    isEncrypted: boolean = false,
+    keyVersion?: number
   ): void {
     this.send({
       type: 'message',
@@ -201,6 +229,7 @@ export class WebSocketService {
         channel_id: channelId,
         content,
         is_encrypted: isEncrypted,
+        key_version: keyVersion,
         nonce,
         timestamp: Date.now(),
       },
@@ -235,6 +264,71 @@ export class WebSocketService {
       type: 'typing',
       data: {
         channel_id: channelId,
+        is_typing: isTyping,
+      },
+    });
+  }
+
+  /**
+   * Subscribe to a DM conversation
+   */
+  subscribeDM(conversationId: string): void {
+    this.subscribedDMs.add(conversationId);
+    this.send({
+      type: 'subscribe_dm',
+      data: { conversation_id: conversationId },
+    });
+  }
+
+  /**
+   * Unsubscribe from a DM conversation
+   */
+  unsubscribeDM(conversationId: string): void {
+    this.subscribedDMs.delete(conversationId);
+    this.send({
+      type: 'unsubscribe_dm',
+      data: { conversation_id: conversationId },
+    });
+  }
+
+  /**
+   * Check if a DM conversation is subscribed
+   */
+  isDMSubscribed(conversationId: string): boolean {
+    return this.subscribedDMs.has(conversationId);
+  }
+
+  /**
+   * Send a DM message
+   */
+  sendDMMessage(
+    conversationId: string,
+    content: string,
+    nonce?: string,
+    isEncrypted: boolean = false,
+    keyVersion?: number
+  ): void {
+    this.send({
+      type: 'dm_message',
+      data: {
+        conversation_id: conversationId,
+        content,
+        is_encrypted: isEncrypted,
+        key_version: keyVersion,
+        nonce,
+        timestamp: Date.now(),
+      },
+    });
+  }
+
+  /**
+   * Send DM typing indicator
+   */
+  sendDMTypingIndicator(conversationId: string, isTyping: boolean): void {
+    this.send({
+      type: 'dm_typing',
+      data: {
+        conversation_id: conversationId,
         is_typing: isTyping,
       },
     });
@@ -316,17 +410,20 @@ export class WebSocketService {
 
     try {
       // Prefer ticket-based auth (short-lived, single-use — doesn't expose JWT in URLs)
-      let wsUrl: string;
       const httpBase = this.url.replace(/^ws/, 'http');
+      const ticketHeaders: Record<string, string> = { Authorization: `Bearer ${this.token}` };
+      const sessionId = useAuthStore.getState().sessionId;
+      if (sessionId) ticketHeaders['X-Session-ID'] = sessionId;
+
       const ticketRes = await fetch(httpBase.replace('/ws', '/auth/ws-ticket'), {
         method: 'POST',
-        headers: { Authorization: `Bearer ${this.token}` },
+        headers: ticketHeaders,
       });
       if (!ticketRes.ok) {
         throw new Error(`WebSocket ticket request failed: ${ticketRes.status}`);
       }
       const { ticket } = await ticketRes.json();
-      wsUrl = `${this.url}?ticket=${encodeURIComponent(ticket)}`;
+      const wsUrl = `${this.url}?ticket=${encodeURIComponent(ticket)}`;
 
       this.ws = new WebSocket(wsUrl);
 
@@ -415,21 +512,25 @@ export class WebSocketService {
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('Max reconnect attempts reached');
-      this.setState(ConnectionState.ERROR);
-      return;
-    }
-
     this.clearReconnectTimer();
 
-    const delay = Math.min(
-      this.reconnectDelay * Math.pow(2, this.reconnectAttempts),
-      this.maxReconnectDelay
-    );
+    let delay: number;
+    if (this.aggressiveReconnect) {
+      // Aggressive: 500ms → 1s → 2s → 2s... (used during 15s grace period)
+      delay = Math.min(500 * Math.pow(2, Math.min(this.reconnectAttempts, 2)), 2000);
+    } else {
+      // Normal: exponential backoff for first 10 attempts, then fixed 30s intervals
+      // (keeps retrying indefinitely — the UI layer handles the timeout UX)
+      delay = this.reconnectAttempts < this.maxReconnectAttempts
+        ? Math.min(
+            this.reconnectDelay * Math.pow(2, this.reconnectAttempts),
+            this.maxReconnectDelay
+          )
+        : 30_000;
+    }
 
     console.debug(
-      `[WebSocket] reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`
+      `[WebSocket] reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}${this.aggressiveReconnect ? ', aggressive' : ''})`
     );
 
     this.reconnectTimer = setTimeout(() => {
@@ -467,6 +568,14 @@ export class WebSocketService {
     // Resubscribe to all channels after reconnect
     this.subscribedChannels.forEach((channelId) => {
       this.subscribe(channelId);
+    });
+    // Resubscribe to all servers after reconnect
+    this.subscribedServers.forEach((serverId) => {
+      this.subscribeServer(serverId);
+    });
+    // Resubscribe to all DM conversations after reconnect
+    this.subscribedDMs.forEach((convId) => {
+      this.subscribeDM(convId);
     });
   }
 

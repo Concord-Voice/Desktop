@@ -1,0 +1,106 @@
+import { create } from 'zustand';
+
+export type RecoveryPhase =
+  | 'stable'          // Normal operation
+  | 'grace_period'    // First 15s — aggressive reconnect, no UI overlay
+  | 'preflight'       // Running diagnostics
+  | 'recovery_a'      // Server issue — graceful reset + wait for server
+  | 'recovery_b'      // Client issue — soft restart attempt
+  | 'fatal';          // Unrecoverable — show full overlay
+
+export interface DiagnosticResults {
+  internet: boolean;
+  serverReachable: boolean;
+  tokenValid: boolean;
+  sessionRevoked: boolean;
+  rendererStable: boolean;
+}
+
+interface ConnectionState {
+  /** Current recovery phase */
+  phase: RecoveryPhase;
+
+  /** Results from preflight diagnostics */
+  diagnostics: DiagnosticResults | null;
+
+  /** Timestamp when connection was lost */
+  lostAt: number | null;
+
+  /** Voice channel the user was in when connection dropped (for grace-period rejoin) */
+  lastVoiceChannelId: string | null;
+
+  /** Number of recovery attempts in this disconnection episode */
+  recoveryAttempts: number;
+
+  /** Start the grace period (called when WS transitions to RECONNECTING) */
+  startGracePeriod: () => void;
+
+  /** Transition to preflight diagnostics phase */
+  enterPreflight: () => void;
+
+  /** Store diagnostic results */
+  setDiagnostics: (d: DiagnosticResults) => void;
+
+  /** Transition to recovery A (server issue — wait for reconnect) */
+  enterRecoveryA: () => void;
+
+  /** Transition to recovery B (client issue — soft restart) */
+  enterRecoveryB: () => void;
+
+  /** Transition to fatal (unrecoverable — user action required) */
+  enterFatal: () => void;
+
+  /** Store the voice channel ID before emergency cleanup */
+  setLastVoiceChannelId: (id: string | null) => void;
+
+  /** Increment recovery attempt counter */
+  incrementRecoveryAttempts: () => void;
+
+  /** Reset everything (called when connection is restored or session resets) */
+  reset: () => void;
+}
+
+export const useConnectionStore = create<ConnectionState>()((set) => ({
+  phase: 'stable',
+  diagnostics: null,
+  lostAt: null,
+  lastVoiceChannelId: null,
+  recoveryAttempts: 0,
+
+  startGracePeriod: () => set({
+    phase: 'grace_period',
+    lostAt: Date.now(),
+  }),
+
+  enterPreflight: () => set({
+    phase: 'preflight',
+  }),
+
+  setDiagnostics: (d) => set({ diagnostics: d }),
+
+  enterRecoveryA: () => set({
+    phase: 'recovery_a',
+  }),
+
+  enterRecoveryB: () => set({
+    phase: 'recovery_b',
+  }),
+
+  enterFatal: () => set({
+    phase: 'fatal',
+  }),
+
+  setLastVoiceChannelId: (id) => set({ lastVoiceChannelId: id }),
+
+  incrementRecoveryAttempts: () => set((s) => ({
+    recoveryAttempts: s.recoveryAttempts + 1,
+  })),
+
+  reset: () => set({
+    phase: 'stable',
+    diagnostics: null,
+    lostAt: null,
+    lastVoiceChannelId: null,
+    recoveryAttempts: 0,
+  }),
+}));

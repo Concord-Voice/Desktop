@@ -131,7 +131,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     }
   }, [showEmojiPicker, getPickerPosition]);
 
-  const adjustTextareaHeight = () => {
+  const adjustTextareaHeight = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
 
@@ -147,18 +147,18 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
     textarea.style.height = 'auto';
     textarea.style.height = Math.min(textarea.scrollHeight, maxH) + 'px';
-  };
+  }, [content]);
 
   useEffect(() => {
     adjustTextareaHeight();
-  }, [content]);
+  }, [adjustTextareaHeight]);
 
   // Re-adjust on window resize so the textarea doesn't retain a stale height
   useEffect(() => {
     const onResize = () => adjustTextareaHeight();
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [content]);
+  }, [adjustTextareaHeight]);
 
   // Cleanup typing state on unmount
   useEffect(() => {

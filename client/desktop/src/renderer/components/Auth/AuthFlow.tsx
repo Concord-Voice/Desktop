@@ -51,31 +51,29 @@ const AuthFlow: React.FC = () => {
 
   const handleRegistrationSuccess = (data: {
     accessToken: string;
-    refreshToken: string;
     user?: UserProfile;
   }) => {
-    console.debug('Registration successful, tokens received');
-    useAuthStore.getState().setTokens(data.accessToken, data.refreshToken);
+    console.debug('Registration successful, access token received');
+    useAuthStore.getState().setAccessToken(data.accessToken);
     useAuthStore.getState().setRememberMe(true); // Registration always remembers
     if (data.user) {
       useUserStore.getState().setUser(data.user);
     }
-    navigate('/app');
+    navigate('/app/dms');
   };
 
   const handleLoginSuccess = (data: {
     accessToken: string;
-    refreshToken: string;
     user?: UserProfile;
     rememberMe: boolean;
   }) => {
-    console.debug('Login successful, tokens received');
-    useAuthStore.getState().setTokens(data.accessToken, data.refreshToken);
+    console.debug('Login successful, access token received');
+    useAuthStore.getState().setAccessToken(data.accessToken);
     useAuthStore.getState().setRememberMe(data.rememberMe);
     if (data.user) {
       useUserStore.getState().setUser(data.user);
     }
-    navigate('/app');
+    navigate('/app/dms');
   };
 
   const handleSwitchToLogin = () => {

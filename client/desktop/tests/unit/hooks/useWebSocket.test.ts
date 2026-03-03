@@ -79,7 +79,7 @@ describe('useWebSocket', () => {
 
   describe('connection management', () => {
     it('connects when access token is available', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       renderHook(() => useWebSocket());
       expect(mockWsService.connect).toHaveBeenCalledWith('test-token');
     });
@@ -90,7 +90,7 @@ describe('useWebSocket', () => {
     });
 
     it('disconnects on unmount', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       const { unmount } = renderHook(() => useWebSocket());
       mockWsService.disconnect.mockClear();
       unmount();
@@ -100,7 +100,7 @@ describe('useWebSocket', () => {
 
   describe('handler registration', () => {
     it('registers message handlers', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       renderHook(() => useWebSocket());
 
       // Should register handlers for all expected message types
@@ -128,7 +128,7 @@ describe('useWebSocket', () => {
 
   describe('message handler', () => {
     it('adds plaintext messages to chat store', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       renderHook(() => useWebSocket());
 
       const handler = registeredHandlers.get('message')!;
@@ -153,7 +153,7 @@ describe('useWebSocket', () => {
     });
 
     it('ignores messages without channel_id', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       renderHook(() => useWebSocket());
 
       const handler = registeredHandlers.get('message')!;
@@ -166,7 +166,7 @@ describe('useWebSocket', () => {
 
   describe('message_update handler', () => {
     it('updates existing messages', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       renderHook(() => useWebSocket());
 
       // Add a message first
@@ -196,7 +196,7 @@ describe('useWebSocket', () => {
 
   describe('message_delete handler', () => {
     it('deletes messages from chat store', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       renderHook(() => useWebSocket());
 
       useChatStore.getState().addMessage('ch-1', {
@@ -222,7 +222,7 @@ describe('useWebSocket', () => {
 
   describe('typing handler', () => {
     it('sets typing status in chat store', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       renderHook(() => useWebSocket());
 
       const handler = registeredHandlers.get('typing')!;
@@ -240,7 +240,7 @@ describe('useWebSocket', () => {
 
   describe('message_ack handler', () => {
     it('updates message status from pending to delivered', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       renderHook(() => useWebSocket());
 
       useChatStore.getState().addMessage('ch-1', {
@@ -271,7 +271,7 @@ describe('useWebSocket', () => {
 
   describe('member_joined handler', () => {
     it('adds member to store when event is for active server', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       useServerStore.getState().setActiveServer('server-1');
       renderHook(() => useWebSocket());
 
@@ -287,7 +287,7 @@ describe('useWebSocket', () => {
     });
 
     it('ignores events for non-active server', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       useServerStore.getState().setActiveServer('server-1');
       renderHook(() => useWebSocket());
 
@@ -305,7 +305,7 @@ describe('useWebSocket', () => {
 
   describe('server_updated handler', () => {
     it('updates server in store', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       useServerStore.getState().addServer({
         id: 'server-1', name: 'Old Name', owner_id: 'user-1',
         e2ee_default: false, created_at: '', updated_at: '',
@@ -327,7 +327,7 @@ describe('useWebSocket', () => {
 
   describe('channel_updated handler', () => {
     it('updates channel in store', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       useChannelStore.getState().addChannel({
         id: 'ch-1', server_id: 'server-1', name: 'old-name',
         type: 'text', is_encrypted: false, position: 0,
@@ -349,7 +349,7 @@ describe('useWebSocket', () => {
 
   describe('channel_deleted handler', () => {
     it('removes channel from store', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       useChannelStore.getState().addChannel({
         id: 'ch-1', server_id: 'server-1', name: 'doomed',
         type: 'text', is_encrypted: false, position: 0,
@@ -368,7 +368,7 @@ describe('useWebSocket', () => {
 
   describe('server_deleted handler', () => {
     it('removes server from store', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       useServerStore.getState().addServer({
         id: 'server-1', name: 'Doomed', owner_id: 'user-1',
         e2ee_default: false, created_at: '', updated_at: '',
@@ -387,7 +387,7 @@ describe('useWebSocket', () => {
 
   describe('member_removed handler', () => {
     it('removes server when self is removed', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       useUserStore.getState().setUser({
         id: 'user-1', username: 'me', e2ee_preference: false,
       });
@@ -410,7 +410,7 @@ describe('useWebSocket', () => {
     });
 
     it('removes other member from member list', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       useUserStore.getState().setUser({
         id: 'user-1', username: 'me', e2ee_preference: false,
       });
@@ -434,7 +434,7 @@ describe('useWebSocket', () => {
 
   describe('unread_notify handler', () => {
     it('marks server unread for non-active server', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       useServerStore.getState().setActiveServer('server-1');
       renderHook(() => useWebSocket());
 
@@ -450,7 +450,7 @@ describe('useWebSocket', () => {
     });
 
     it('increments unread for non-active channel in active server', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       useServerStore.getState().setActiveServer('server-1');
       useChannelStore.setState({ activeChannelId: 'ch-1' });
       renderHook(() => useWebSocket());
@@ -469,7 +469,7 @@ describe('useWebSocket', () => {
 
   describe('presence_snapshot handler', () => {
     it('sets presence from user array', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       renderHook(() => useWebSocket());
 
       const handler = registeredHandlers.get('presence_snapshot')!;
@@ -490,7 +490,7 @@ describe('useWebSocket', () => {
     });
 
     it('falls back to online_user_ids format', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       renderHook(() => useWebSocket());
 
       const handler = registeredHandlers.get('presence_snapshot')!;
@@ -507,7 +507,7 @@ describe('useWebSocket', () => {
 
   describe('presence handler', () => {
     it('updates user status', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       useUserStore.getState().setUser({
         id: 'self-user', username: 'me', e2ee_preference: false,
       });
@@ -525,7 +525,7 @@ describe('useWebSocket', () => {
     });
 
     it('skips self user presence updates', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       useUserStore.getState().setUser({
         id: 'self-user', username: 'me', e2ee_preference: false,
       });
@@ -544,7 +544,7 @@ describe('useWebSocket', () => {
     });
 
     it('records last_seen timestamp for offline transitions', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       useUserStore.getState().setUser({
         id: 'self-user', username: 'me', e2ee_preference: false,
       });
@@ -564,7 +564,7 @@ describe('useWebSocket', () => {
 
   describe('server_online_counts handler', () => {
     it('updates server online counts', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       useServerStore.getState().addServer({
         id: 'server-1', name: 'Test', owner_id: 'user-1',
         e2ee_default: false, created_at: '', updated_at: '',
@@ -586,7 +586,7 @@ describe('useWebSocket', () => {
 
   describe('returned API', () => {
     it('returns subscribe/unsubscribe/sendMessage/sendTyping/getState functions', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       const { result } = renderHook(() => useWebSocket());
 
       expect(typeof result.current.subscribe).toBe('function');
@@ -597,7 +597,7 @@ describe('useWebSocket', () => {
     });
 
     it('subscribe delegates to wsService', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       const { result } = renderHook(() => useWebSocket());
 
       result.current.subscribe('ch-1');
@@ -605,7 +605,7 @@ describe('useWebSocket', () => {
     });
 
     it('sendMessage delegates to wsService', () => {
-      useAuthStore.getState().setTokens('test-token', 'refresh');
+      useAuthStore.getState().setAccessToken('test-token');
       const { result } = renderHook(() => useWebSocket());
 
       result.current.sendMessage('ch-1', 'Hello');

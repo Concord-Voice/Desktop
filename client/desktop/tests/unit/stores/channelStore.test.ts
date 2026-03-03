@@ -16,7 +16,7 @@ afterEach(() => server.resetHandlers());
 describe('channelStore', () => {
   beforeEach(() => {
     resetAllStores();
-    useAuthStore.getState().setTokens('mock-token', 'mock-refresh');
+    useAuthStore.getState().setAccessToken('mock-token');
   });
 
   describe('addChannel', () => {

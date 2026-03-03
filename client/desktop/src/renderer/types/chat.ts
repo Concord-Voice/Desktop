@@ -4,6 +4,7 @@ export interface Message {
   user_id: string;
   content: string;
   is_encrypted: boolean;
+  key_version?: number;
   edited_at?: string;
   created_at: string;
   updated_at: string;
@@ -35,6 +36,18 @@ export interface Channel {
   type: 'text' | 'voice' | 'bulletin';
   emoji?: string; // Optional custom emoji set by admins
   is_encrypted: boolean;
+  audio_quality_tier?: string | null; // Admin override: voice/standard/high/hifi/studio or null (personal)
+  group_id?: string | null; // FK to channel_groups; null = uncategorized
+  linked_voice_channel_id?: string | null; // Non-null = hidden text chat attached to a voice channel
+  position: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChannelGroup {
+  id: string;
+  server_id: string;
+  name: string;
   position: number;
   created_at: string;
   updated_at: string;

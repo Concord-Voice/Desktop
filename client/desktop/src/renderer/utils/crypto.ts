@@ -45,7 +45,7 @@ export async function deriveKeyFromPassword(
   return crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
-      salt: salt,
+      salt: salt as BufferSource,
       iterations: PBKDF2_ITERATIONS,
       hash: 'SHA-256',
     },
@@ -102,7 +102,7 @@ export async function wrapPrivateKey(
   result.set(iv, 0);
   result.set(new Uint8Array(wrappedKey), iv.length);
 
-  return result.buffer;
+  return result.buffer as ArrayBuffer;
 }
 
 /**
@@ -191,7 +191,7 @@ export function base64ToArrayBuffer(base64: string): ArrayBuffer {
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i);
   }
-  return bytes.buffer;
+  return bytes.buffer as ArrayBuffer;
 }
 
 /**
@@ -224,7 +224,7 @@ export async function generateRegistrationKeys(password: string): Promise<Regist
     publicKey: keyPair.publicKey,
     privateKey: keyPair.privateKey,
     wrappedPrivateKey: arrayBufferToBase64(wrappedKey),
-    keyDerivationSalt: arrayBufferToBase64(salt.buffer),
+    keyDerivationSalt: arrayBufferToBase64(salt.buffer as ArrayBuffer),
   };
 }
 
@@ -250,6 +250,84 @@ export async function unwrapLoginKeys(
 
   // Unwrap private key
   return unwrapPrivateKey(wrappedKey, unwrappingKey);
+}
+
+// ========================================
+// Exportable key derivation (for session persistence via safeStorage)
+// ========================================
+
+/**
+ * Derive an EXTRACTABLE wrapping key from password.
+ * Used once during login/registration to export raw bytes for safeStorage.
+ * The exported bytes are then re-imported as non-extractable for runtime use.
+ */
+export async function deriveKeyFromPasswordExportable(
+  password: string,
+  salt: Uint8Array
+): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const passwordKey = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: salt as BufferSource,
+      iterations: PBKDF2_ITERATIONS,
+      hash: 'SHA-256',
+    },
+    passwordKey,
+    {
+      name: 'AES-GCM',
+      length: DERIVED_KEY_LENGTH * 8,
+    },
+    true, // extractable — for one-time export only
+    ['wrapKey', 'unwrapKey']
+  );
+}
+
+/**
+ * Derive an EXTRACTABLE preferences key from password.
+ * Same domain-separation as derivePreferencesKey, but extractable for storage.
+ */
+export async function derivePreferencesKeyExportable(
+  password: string,
+  salt: Uint8Array
+): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const separator = encoder.encode(PREFERENCES_DOMAIN_SEPARATOR);
+  const domainSalt = new Uint8Array(salt.length + separator.length);
+  domainSalt.set(salt, 0);
+  domainSalt.set(separator, salt.length);
+
+  const passwordKey = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(password),
+    'PBKDF2',
+    false,
+    ['deriveKey']
+  );
+
+  return crypto.subtle.deriveKey(
+    {
+      name: 'PBKDF2',
+      salt: domainSalt,
+      iterations: PBKDF2_ITERATIONS,
+      hash: 'SHA-256',
+    },
+    passwordKey,
+    {
+      name: 'AES-GCM',
+      length: DERIVED_KEY_LENGTH * 8,
+    },
+    true, // extractable — for one-time export only
+    ['encrypt', 'decrypt']
+  );
 }
 
 // ========================================
@@ -325,7 +403,7 @@ export async function encryptMessage(plaintext: string, channelKey: CryptoKey): 
   result.set(iv, 0);
   result.set(new Uint8Array(ciphertext), iv.length);
 
-  return arrayBufferToBase64(result.buffer);
+  return arrayBufferToBase64(result.buffer as ArrayBuffer);
 }
 
 /**
@@ -407,7 +485,7 @@ export async function encryptBlob<T>(data: T, key: CryptoKey): Promise<string> {
   result.set(iv, 0);
   result.set(new Uint8Array(ciphertext), iv.length);
 
-  return arrayBufferToBase64(result.buffer);
+  return arrayBufferToBase64(result.buffer as ArrayBuffer);
 }
 
 /**

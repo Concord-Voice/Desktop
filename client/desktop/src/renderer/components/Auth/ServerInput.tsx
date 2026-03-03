@@ -71,7 +71,7 @@ const ServerInput: React.FC<ServerInputProps> = ({ onConnect, onBack }) => {
         <div className="server-header">
           <img
             src="./branding/logos/symbol-transparent-vector.svg"
-            alt="Concord"
+            alt="Concord Voice"
             className="server-icon"
           />
           <h2 className="server-title">Connect to Self-Hosted Server</h2>

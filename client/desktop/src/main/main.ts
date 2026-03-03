@@ -1,5 +1,45 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, clipboard, desktopCapturer, ipcMain, screen, session, shell, systemPreferences } from 'electron';
 import path from 'path';
+import fs from 'fs';
+import {
+  storeRefreshToken,
+  restoreRefreshToken,
+  performRefresh,
+  performLogout,
+  clearTokens,
+  getCapabilities,
+  storeE2EEKeys,
+  restoreE2EEKeys,
+} from './tokenManager';
+import { getMachineId } from './machineId';
+
+// Hardware acceleration preference — must be checked before app.whenReady()
+const hwAccelPrefPath = path.join(app.getPath('userData'), 'hw-accel.json');
+function readHwAccelPref(): boolean {
+  try {
+    const data = JSON.parse(fs.readFileSync(hwAccelPrefPath, 'utf-8'));
+    return data.enabled !== false;
+  } catch {
+    return true; // Default: enabled
+  }
+}
+
+if (!readHwAccelPref()) {
+  app.disableHardwareAcceleration();
+} else {
+  // Hardware acceleration flags for video encode/decode (IGNIS insight: fastest preset wins)
+  app.commandLine.appendSwitch('enable-features', 'AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxGL');
+}
+
+// Allow autoplay for all media — Concord is a real-time communication app that
+// dynamically creates <audio>/<video> elements for voice/video calls.  The default
+// 'document-user-activation-required' policy can silently block these elements.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
+
+// Explicitly enable Document Picture-in-Picture API for floating user frames.
+// While this is default-on in Chromium 116+, Electron may not include it.
+// (--enable-features is additive — won't override the HW accel flags above.)
+app.commandLine.appendSwitch('enable-features', 'DocumentPictureInPictureAPI');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling
 if (require('electron-squirrel-startup')) {
@@ -26,12 +66,37 @@ const createWindow = (): void => {
     show: false, // Don't show until ready
   });
 
-  // Load the app
-  if (process.env.NODE_ENV === 'development') {
-    mainWindow.loadURL('http://localhost:3001');
-    mainWindow.webContents.openDevTools();
+  // Load the app: try Vite dev server first, fall back to built files
+  const devServerUrl = 'http://localhost:3001';
+  const isDev = process.env.NODE_ENV === 'development';
+
+  const tryLoadDev = async () => {
+    try {
+      const http = await import('http');
+      await new Promise<void>((resolve, reject) => {
+        const req = http.default.get(devServerUrl, { timeout: 500 }, (res) => {
+          res.resume();
+          resolve();
+        });
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+      });
+      mainWindow!.loadURL(devServerUrl);
+      if (process.env.DEVTOOLS !== '0') {
+        mainWindow!.webContents.openDevTools();
+      }
+    } catch {
+      mainWindow!.loadFile(path.join(__dirname, '../renderer/index.html'));
+    }
+  };
+
+  if (isDev) {
+    mainWindow.loadURL(devServerUrl);
+    if (process.env.DEVTOOLS !== '0') {
+      mainWindow.webContents.openDevTools();
+    }
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    tryLoadDev();
   }
 
   // Show window when ready to prevent visual flash
@@ -59,6 +124,33 @@ const createWindow = (): void => {
 
 // App lifecycle handlers
 app.whenReady().then(() => {
+  // Permission handler: allow media, display-capture, and window-management
+  // (window-management is needed for Document Picture-in-Picture API)
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    const allowed = ['media', 'display-capture', 'window-management'].includes(permission);
+    callback(allowed);
+  });
+
+  // Permission check handler: Chromium queries this to verify permissions are granted
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+    return ['media', 'display-capture'].includes(permission);
+  });
+
+  // Device permission handler: allow camera, microphone, and speaker enumeration
+  session.defaultSession.setDevicePermissionHandler((details) => {
+    return ['camera', 'microphone', 'speaker'].includes(details.deviceType ?? '');
+  });
+
+  // Request macOS media permissions on startup (camera + microphone)
+  if (process.platform === 'darwin') {
+    if (systemPreferences.getMediaAccessStatus('camera') !== 'granted') {
+      systemPreferences.askForMediaAccess('camera');
+    }
+    if (systemPreferences.getMediaAccessStatus('microphone') !== 'granted') {
+      systemPreferences.askForMediaAccess('microphone');
+    }
+  }
+
   createWindow();
 
   app.on('activate', () => {
@@ -85,6 +177,188 @@ ipcMain.handle('app:getPlatform', () => {
   return process.platform;
 });
 
+// Screen capture sources for voice/video screen share picker (#44)
+ipcMain.handle('media:getDesktopSources', async () => {
+  const sources = await desktopCapturer.getSources({
+    types: ['window', 'screen'],
+    thumbnailSize: { width: 320, height: 180 },
+  });
+  return sources.map((s) => ({
+    id: s.id,
+    name: s.name,
+    thumbnail: s.thumbnail.toDataURL(),
+    appIcon: s.appIcon?.toDataURL() || null,
+  }));
+});
+
+// Clipboard write (navigator.clipboard.writeText is blocked in Electron)
+ipcMain.handle('clipboard:writeText', (_event, text: string) => {
+  clipboard.writeText(text);
+});
+
+// GPU info
+const GPU_VENDORS: Record<number, string> = {
+  0x106b: 'Apple', 0x8086: 'Intel', 0x10de: 'NVIDIA', 0x1002: 'AMD',
+  0x1022: 'AMD', 0x5143: 'Qualcomm', 0x13b5: 'ARM',
+};
+
+ipcMain.handle('gpu:getInfo', async () => {
+  try {
+    const info = await app.getGPUInfo('basic');
+    const gpu = (info as { gpuDevice?: Array<{ vendorId: number; deviceId: number; driverVendor?: string; driverDescription?: string }> })
+      .gpuDevice?.[0];
+    if (gpu) {
+      // driverVendor on macOS often contains the hex vendorId as a string — skip it
+      const driverName = gpu.driverVendor && !/^0x[0-9a-f]+$/i.test(gpu.driverVendor) ? gpu.driverVendor : '';
+      const vendor = driverName || GPU_VENDORS[gpu.vendorId] || `Unknown (0x${gpu.vendorId.toString(16)})`;
+      const device = gpu.driverDescription || (gpu.deviceId ? `Device 0x${gpu.deviceId.toString(16)}` : '');
+      return { vendor, device };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+});
+
+// Display info for resolution/refresh rate awareness
+ipcMain.handle('screen:getDisplayInfo', () => {
+  const displays = screen.getAllDisplays();
+  const primary = screen.getPrimaryDisplay();
+  return displays.map((d) => ({
+    width: d.size.width * d.scaleFactor,
+    height: d.size.height * d.scaleFactor,
+    refreshRate: d.displayFrequency,
+    scaleFactor: d.scaleFactor,
+    isPrimary: d.id === primary.id,
+    colorDepth: d.colorDepth,       // 24 = SDR, 30/48 = HDR
+    colorSpace: d.colorSpace,       // "srgb" = SDR, "p3"/"rec2020" = wide gamut
+  }));
+});
+
+// Hardware acceleration preference
+ipcMain.handle('app:getHardwareAcceleration', () => readHwAccelPref());
+
+ipcMain.handle('app:setHardwareAcceleration', (_event, enabled: boolean) => {
+  fs.writeFileSync(hwAccelPrefPath, JSON.stringify({ enabled }), 'utf-8');
+});
+
+// Relaunch (for hardware acceleration toggle)
+ipcMain.handle('app:relaunch', () => {
+  app.relaunch();
+  app.quit();
+});
+
+// Clean app exit (preserves persisted auth/remember-me state)
+ipcMain.handle('app:quit', () => {
+  app.quit();
+});
+
+// ─── Secure Auth Token Management (safeStorage) ──────────────────────
+
+ipcMain.handle('auth:storeRefreshToken', (_event, data: {
+  refreshToken: string;
+  rememberMe: boolean;
+  apiBase: string;
+}) => {
+  storeRefreshToken(data);
+});
+
+ipcMain.handle('auth:restoreSession', async () => {
+  const restored = restoreRefreshToken();
+  if (restored.status !== 'ok') {
+    return { status: restored.status };
+  }
+  // Token restored from disk — refresh it to get a fresh access token
+  const refreshResult = await performRefresh();
+  if (refreshResult.status === 'ok' && refreshResult.accessToken) {
+    // Also restore E2EE keys if available
+    const e2eeKeys = restoreE2EEKeys();
+    return { status: 'restored', accessToken: refreshResult.accessToken, sessionId: refreshResult.sessionId, e2eeKeys };
+  }
+  return { status: 'refresh_failed' };
+});
+
+ipcMain.handle('auth:storeE2EEKeys', (_event, data: {
+  wrappingKeyBase64: string;
+  preferencesKeyBase64: string;
+  wrappedPrivateKeyBase64: string;
+}) => {
+  storeE2EEKeys(data);
+});
+
+ipcMain.handle('auth:refreshToken', async () => {
+  return performRefresh();
+});
+
+ipcMain.handle('auth:logout', async (_event, data?: { accessToken?: string }) => {
+  await performLogout(data?.accessToken);
+});
+
+ipcMain.handle('auth:clearTokens', () => {
+  clearTokens();
+});
+
+ipcMain.handle('auth:getCapabilities', () => {
+  return getCapabilities();
+});
+
+ipcMain.handle('auth:getMachineId', () => {
+  return getMachineId();
+});
+
+// ─── PiP (Picture-in-Picture) Window Management ──────────────────────
+const pipWindows = new Map<string, BrowserWindow>();
+
+ipcMain.handle('pip:open', (_event, opts: { id: string; width?: number; height?: number; title?: string }) => {
+  if (pipWindows.has(opts.id)) {
+    pipWindows.get(opts.id)!.focus();
+    return;
+  }
+
+  const pip = new BrowserWindow({
+    width: opts.width || 320,
+    height: opts.height || 240,
+    minWidth: 160,
+    minHeight: 120,
+    frame: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: true,
+    title: opts.title || 'Concord Voice PiP',
+    webPreferences: {
+      preload: path.join(__dirname, '../preload/preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+    },
+    backgroundColor: '#000',
+  });
+
+  // Load PiP route (hash-based routing)
+  if (process.env.NODE_ENV === 'development') {
+    pip.loadURL(`http://localhost:3001#/pip/${opts.id}`);
+  } else {
+    pip.loadFile(path.join(__dirname, '../renderer/index.html'), {
+      hash: `/pip/${opts.id}`,
+    });
+  }
+
+  pipWindows.set(opts.id, pip);
+
+  pip.on('closed', () => {
+    pipWindows.delete(opts.id);
+    mainWindow?.webContents.send('pip:closed', { id: opts.id });
+  });
+});
+
+ipcMain.handle('pip:close', (_event, opts: { id: string }) => {
+  pipWindows.get(opts.id)?.close();
+});
+
+ipcMain.handle('pip:setAlwaysOnTop', (_event, opts: { id: string; flag: boolean }) => {
+  pipWindows.get(opts.id)?.setAlwaysOnTop(opts.flag);
+});
+
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -105,12 +379,13 @@ app.on('web-contents-created', (_, contents) => {
   contents.on('will-navigate', (event, navigationUrl) => {
     const parsedUrl = new URL(navigationUrl);
 
-    // Only allow navigation to localhost in development
     if (process.env.NODE_ENV === 'development') {
-      if (parsedUrl.origin !== 'http://localhost:3001') {
+      // In dev, allow localhost navigation (any port) for HMR
+      if (parsedUrl.hostname !== 'localhost') {
         event.preventDefault();
       }
     } else {
+      // In production, block all navigation (app loads from file://)
       event.preventDefault();
     }
   });

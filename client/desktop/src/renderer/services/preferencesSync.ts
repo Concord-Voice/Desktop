@@ -11,7 +11,7 @@ import { apiFetch } from './apiClient';
 import { useSettingsStore, type AppearanceSettings } from '../stores/settingsStore';
 import { useLayoutStore, type MemberPanelMode, type ServerFolder } from '../stores/layoutStore';
 
-const DEBOUNCE_MS = 2000;
+const DEBOUNCE_MS = 3000;
 
 interface PreferencesBlob {
   v: 1;
@@ -65,59 +65,76 @@ class PreferencesSyncService {
         return;
       }
 
-      // Apply remote preferences to stores with echo guard
+      // Apply remote preferences to stores with echo guard.
+      // Batch all updates into single setState calls to avoid cascading re-renders.
       this.isApplyingRemote = true;
       try {
-        // Apply settings
-        const settings = useSettingsStore.getState();
-        if (blob.settings.theme !== settings.appearance.theme) {
-          settings.setTheme(blob.settings.theme);
+        // Batch settings — single state update
+        const currentAppearance = useSettingsStore.getState().appearance;
+        const newAppearance = { ...currentAppearance };
+        let settingsChanged = false;
+
+        if (blob.settings.theme !== currentAppearance.theme) {
+          newAppearance.theme = blob.settings.theme;
+          settingsChanged = true;
         }
-        // Handle custom colors + color scheme together to avoid flickering
         if (blob.settings.colorScheme === 'custom' && blob.settings.customColors) {
-          if (
-            JSON.stringify(blob.settings.customColors) !==
-            JSON.stringify(settings.appearance.customColors)
-          ) {
-            settings.setCustomColors(blob.settings.customColors); // also sets colorScheme to 'custom'
-          } else if (blob.settings.colorScheme !== settings.appearance.colorScheme) {
-            settings.setColorScheme(blob.settings.colorScheme);
+          if (JSON.stringify(blob.settings.customColors) !== JSON.stringify(currentAppearance.customColors)) {
+            newAppearance.customColors = blob.settings.customColors;
+            newAppearance.colorScheme = 'custom';
+            settingsChanged = true;
+          } else if (blob.settings.colorScheme !== currentAppearance.colorScheme) {
+            newAppearance.colorScheme = blob.settings.colorScheme;
+            settingsChanged = true;
           }
-        } else if (blob.settings.colorScheme !== settings.appearance.colorScheme) {
-          settings.setColorScheme(blob.settings.colorScheme);
+        } else if (blob.settings.colorScheme !== currentAppearance.colorScheme) {
+          newAppearance.colorScheme = blob.settings.colorScheme;
+          settingsChanged = true;
         }
-        if (blob.settings.fontSize !== settings.appearance.fontSize) {
-          settings.setFontSize(blob.settings.fontSize);
+        if (blob.settings.fontSize !== currentAppearance.fontSize) {
+          newAppearance.fontSize = blob.settings.fontSize;
+          settingsChanged = true;
         }
-        if (blob.settings.compactMode !== settings.appearance.compactMode) {
-          settings.setCompactMode(blob.settings.compactMode);
+        if (blob.settings.compactMode !== currentAppearance.compactMode) {
+          newAppearance.compactMode = blob.settings.compactMode;
+          settingsChanged = true;
         }
 
-        // Apply layout
-        const layout = useLayoutStore.getState();
-        if (blob.layout.channelPanelPinned !== layout.channelPanelPinned) {
-          useLayoutStore.setState({ channelPanelPinned: blob.layout.channelPanelPinned });
+        if (settingsChanged) {
+          useSettingsStore.setState({ appearance: newAppearance });
         }
-        if (blob.layout.channelPanelWidth !== layout.channelPanelWidth) {
-          layout.setChannelPanelWidth(blob.layout.channelPanelWidth);
+
+        // Batch layout — single state update
+        const currentLayout = useLayoutStore.getState();
+        const layoutPatch: Record<string, unknown> = {};
+
+        if (blob.layout.channelPanelPinned !== currentLayout.channelPanelPinned) {
+          layoutPatch.channelPanelPinned = blob.layout.channelPanelPinned;
         }
-        if (blob.layout.memberPanelMode !== layout.memberPanelMode) {
-          layout.setMemberPanelMode(blob.layout.memberPanelMode);
+        if (blob.layout.channelPanelWidth !== currentLayout.channelPanelWidth) {
+          layoutPatch.channelPanelWidth = Math.max(180, Math.min(400, blob.layout.channelPanelWidth));
         }
-        if (blob.layout.memberPanelWidth !== layout.memberPanelWidth) {
-          layout.setMemberPanelWidth(blob.layout.memberPanelWidth);
+        if (blob.layout.memberPanelMode !== currentLayout.memberPanelMode) {
+          layoutPatch.memberPanelMode = blob.layout.memberPanelMode;
         }
-        if (blob.layout.serverBarHeight !== layout.serverBarHeight) {
-          layout.setServerBarHeight(blob.layout.serverBarHeight);
+        if (blob.layout.memberPanelWidth !== currentLayout.memberPanelWidth) {
+          layoutPatch.memberPanelWidth = Math.max(160, Math.min(340, blob.layout.memberPanelWidth));
         }
-        if (blob.layout.folderBarHeight !== layout.folderBarHeight) {
-          layout.setFolderBarHeight(blob.layout.folderBarHeight);
+        if (blob.layout.serverBarHeight !== currentLayout.serverBarHeight) {
+          layoutPatch.serverBarHeight = Math.max(36, Math.min(64, blob.layout.serverBarHeight));
         }
-        if (JSON.stringify(blob.layout.serverFolders) !== JSON.stringify(layout.serverFolders)) {
-          useLayoutStore.setState({ serverFolders: blob.layout.serverFolders });
+        if (blob.layout.folderBarHeight !== currentLayout.folderBarHeight) {
+          layoutPatch.folderBarHeight = Math.max(24, Math.min(48, blob.layout.folderBarHeight));
         }
-        if (JSON.stringify(blob.layout.serverOrder) !== JSON.stringify(layout.serverOrder)) {
-          useLayoutStore.setState({ serverOrder: blob.layout.serverOrder });
+        if (JSON.stringify(blob.layout.serverFolders) !== JSON.stringify(currentLayout.serverFolders)) {
+          layoutPatch.serverFolders = blob.layout.serverFolders;
+        }
+        if (JSON.stringify(blob.layout.serverOrder) !== JSON.stringify(currentLayout.serverOrder)) {
+          layoutPatch.serverOrder = blob.layout.serverOrder;
+        }
+
+        if (Object.keys(layoutPatch).length > 0) {
+          useLayoutStore.setState(layoutPatch);
         }
       } finally {
         // Clear after microtask so synchronous subscription callbacks see the flag

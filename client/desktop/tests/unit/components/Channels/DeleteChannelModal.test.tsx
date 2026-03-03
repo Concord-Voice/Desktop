@@ -21,7 +21,7 @@ describe('DeleteChannelModal', () => {
   beforeEach(() => {
     resetAllStores();
     vi.clearAllMocks();
-    useAuthStore.getState().setTokens('mock-token', 'mock-refresh');
+    useAuthStore.getState().setAccessToken('mock-token');
     useChannelStore.getState().addChannel(mockChannel);
   });
 

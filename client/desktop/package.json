@@ -1,9 +1,9 @@
 {
-  "name": "@concord/desktop",
+  "name": "@concordvoice/desktop",
   "version": "0.1.0",
-  "description": "Concord Desktop Client - Privacy-first voice communication",
+  "description": "Concord Voice Desktop Client - Privacy-first voice communication",
   "main": "dist/main/main.js",
-  "author": "Concord Team",
+  "author": "Concord Voice Team",
   "license": "UNLICENSED",
   "private": true,
   "scripts": {
@@ -33,11 +33,12 @@
     "@electron/remote": "^2.1.2",
     "electron-squirrel-startup": "^1.0.0",
     "lucide-react": "^0.574.0",
+    "mediasoup-client": "^3.18.7",
     "opus-recorder": "^8.0.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.0",
-    "socket.io-client": "^4.6.1",
+    "socket.io-client": "^4.8.3",
     "zustand": "^4.5.0"
   },
   "devDependencies": {
@@ -59,7 +60,7 @@
     "@vitejs/plugin-react": "^4.2.1",
     "@vitest/coverage-v8": "^4.0.18",
     "concurrently": "^8.2.2",
-    "electron": "^40.4.1",
+    "electron": "^40.6.1",
     "eslint": "^8.56.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react": "^7.33.2",

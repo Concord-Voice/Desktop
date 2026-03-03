@@ -53,21 +53,9 @@ try {
   // Ignore parse errors, defaults will be used
 }
 
-// Clear auth tokens on startup if "Remember Me" was unchecked.
-// In Electron, session cookies persist across restarts (unlike browsers),
-// so we can't rely on cookie expiry alone. This is the primary mechanism
-// for enforcing "don't remember me" in the desktop client.
-try {
-  const authStored = localStorage.getItem('concord-auth');
-  if (authStored) {
-    const { state } = JSON.parse(authStored);
-    if (state?.rememberMe === false) {
-      localStorage.removeItem('concord-auth');
-    }
-  }
-} catch {
-  // Ignore parse errors, auth will be handled normally
-}
+// Migration: remove legacy plaintext auth tokens from localStorage.
+// Auth tokens are now encrypted via safeStorage in the main process.
+localStorage.removeItem('concord-auth');
 
 const container = document.getElementById('root');
 

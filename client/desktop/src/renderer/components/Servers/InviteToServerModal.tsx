@@ -99,10 +99,14 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, serve
       const invite = await createInvite(server.id, opts);
       if (invite) {
         setGeneratedCode(invite.code);
-        // Auto-copy to clipboard
-        await navigator.clipboard.writeText(invite.code);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
+        // Auto-copy to clipboard (non-fatal if clipboard access fails)
+        try {
+          await navigator.clipboard.writeText(invite.code);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        } catch {
+          // Clipboard unavailable — user can copy manually via the copy button
+        }
       } else {
         setError('Failed to create invite');
       }
@@ -114,7 +118,19 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, serve
   };
 
   const handleCopyCode = async (code: string) => {
-    await navigator.clipboard.writeText(code);
+    try {
+      await navigator.clipboard.writeText(code);
+    } catch {
+      // Fallback: use a temporary textarea for clipboard write
+      const ta = document.createElement('textarea');
+      ta.value = code;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -141,8 +157,8 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, serve
         {/* Server header */}
         <div className="invite-modal-server">
           <div className="invite-modal-server-icon">
-            {server.icon ? (
-              <img src={server.icon} alt={server.name} />
+            {server.icon_url ? (
+              <img src={server.icon_url} alt={server.name} />
             ) : (
               <span>{server.name.charAt(0).toUpperCase()}</span>
             )}

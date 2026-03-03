@@ -5,25 +5,42 @@
   align-items: center;
   background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
-  padding: 0 calc(12px * var(--sp, 1));
-  gap: calc(4px * var(--sp, 1) * var(--folder-scale, 1));
+  padding: 0 calc(8px * var(--sp, 1));
+  gap: 0;
   min-height: 32px;
   height: 100%;
-  overflow: visible;
+  overflow: hidden;
 }
 
-.folder-bar::-webkit-scrollbar {
+/* Scrollable area for folder chips */
+.folder-bar-scroll {
+  display: flex;
+  align-items: center;
+  gap: calc(4px * var(--sp, 1) * var(--folder-scale, 1));
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: calc(4px * var(--sp, 1)) 0;
+  scrollbar-width: none; /* Firefox */
+}
+
+.folder-bar-scroll::-webkit-scrollbar {
   height: 0;
 }
 
-/* Empty state */
+/* Vertical divider between folders and add button */
+.folder-bar-divider {
+  width: 1px;
+  height: 18px;
+  background: var(--border-color);
+  flex-shrink: 0;
+  margin: 0 calc(8px * var(--sp, 1));
+}
+
+/* Empty state — spacer pushes divider + button to the right */
 .folder-bar-empty {
-  display: flex;
-  align-items: center;
-  gap: calc(6px * var(--sp, 1));
-  color: var(--text-muted);
-  font-size: calc(12px * var(--font-scale, 1));
-  padding: calc(4px * var(--sp, 1)) 0;
+  flex: 1;
 }
 
 /* ─── Folder Chip ───────────────────────────────────────────────────────── */
@@ -94,10 +111,7 @@
 /* ─── Folder Dropdown ───────────────────────────────────────────────────── */
 
 .folder-dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 80;
+  /* position, top, left, z-index set inline via JS (portaled to document.body) */
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: 8px;
@@ -127,7 +141,7 @@
   gap: calc(8px * var(--sp, 1));
   padding: calc(6px * var(--sp, 1)) calc(8px * var(--sp, 1));
   border-radius: 4px;
-  cursor: grab;
+  cursor: pointer;
   transition: background-color 0.1s ease;
 }
 
@@ -219,27 +233,51 @@
   }
 }
 
-/* ─── Add Folder Button ─────────────────────────────────────────────────── */
+/* ─── Add Folder Button (square with + icon, locked to far right) ─────────── */
 
 .folder-add-btn {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: calc(4px * var(--sp, 1) * var(--folder-scale, 1));
-  padding: calc(4px * var(--sp, 1) * var(--folder-scale, 1)) calc(8px * var(--sp, 1) * var(--folder-scale, 1));
-  border-radius: 4px;
-  border: 1px dashed var(--border-color);
+  justify-content: center;
+  width: calc(24px * var(--folder-scale, 1));
+  height: calc(24px * var(--folder-scale, 1));
+  padding: 0;
+  border-radius: 6px;
+  border: 1.5px dashed var(--border-color);
   background: transparent;
   cursor: pointer;
   color: var(--text-muted);
-  font-size: calc(11px * var(--font-scale, 1) * var(--folder-scale, 1));
   transition: all 0.15s ease;
-  white-space: nowrap;
   flex-shrink: 0;
 }
 
 .folder-add-btn:hover {
   border-color: var(--accent-primary);
-  color: var(--text-secondary);
+  color: var(--accent-primary);
+  background: rgba(250, 112, 154, 0.08);
+}
+
+/* Tooltip — portaled to body, positioned via JS */
+.folder-add-btn-tooltip {
+  position: fixed;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 9999;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.folder-add-btn-tooltip.visible {
+  opacity: 1;
 }
 
 /* ─── Rename Input ─────────────────────────────────────────────────────── */

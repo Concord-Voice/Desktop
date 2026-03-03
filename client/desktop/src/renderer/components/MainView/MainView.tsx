@@ -11,12 +11,22 @@ import InviteToServerModal from '../Servers/InviteToServerModal';
 import ChannelList from '../Channels/ChannelList';
 import ServerActionBar from '../Channels/ServerActionBar';
 import ChannelContextMenu from '../Channels/ChannelContextMenu';
+import ChannelListContextMenu from '../Channels/ChannelListContextMenu';
+import CategoryContextMenu from '../Channels/CategoryContextMenu';
 import CreateChannelModal from '../Channels/CreateChannelModal';
+import CreateCategoryModal from '../Channels/CreateCategoryModal';
 import EditChannelModal from '../Channels/EditChannelModal';
+import EditCategoryModal from '../Channels/EditCategoryModal';
 import DeleteChannelModal from '../Channels/DeleteChannelModal';
+import DeleteCategoryModal from '../Channels/DeleteCategoryModal';
 import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
 import { ChatView } from '../Chat';
+import VoiceView from '../Voice/VoiceView';
+import PersistentVoiceBar from '../Voice/PersistentVoiceBar';
+import UserPanel from '../User/UserPanel';
 import { Lock, LockOpen } from 'lucide-react';
+import { useVoiceStore } from '../../stores/voiceStore';
+import { useLayoutStore } from '../../stores/layoutStore';
 
 // New layout components
 import AppLayout from '../Layout/AppLayout';
@@ -29,7 +39,7 @@ import { useServerStore } from '../../stores/serverStore';
 import { useChannelStore } from '../../stores/channelStore';
 import { useServerChannelSubscriptions } from '../../hooks/useServerChannelSubscriptions';
 import { ServerWithRole } from '../../types/server';
-import { Channel } from '../../types/chat';
+import { Channel, ChannelGroup } from '../../types/chat';
 import './MainView.css';
 
 const MainView: React.FC = () => {
@@ -40,6 +50,8 @@ const MainView: React.FC = () => {
   const [isCreateServerModalOpen, setIsCreateServerModalOpen] = useState(false);
   const [isJoinServerModalOpen, setIsJoinServerModalOpen] = useState(false);
   const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] = useState(false);
+  const [isCreateCategoryModalOpen, setIsCreateCategoryModalOpen] = useState(false);
+  const [emptyContextMenu, setEmptyContextMenu] = useState<{ position: { x: number; y: number } } | null>(null);
   const [serverContextMenu, setServerContextMenu] = useState<{
     server: ServerWithRole;
     position: { x: number; y: number };
@@ -53,6 +65,12 @@ const MainView: React.FC = () => {
   const [leavingServer, setLeavingServer] = useState<ServerWithRole | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
   const [deletingChannel, setDeletingChannel] = useState<Channel | null>(null);
+  const [categoryContextMenu, setCategoryContextMenu] = useState<{
+    group: ChannelGroup;
+    position: { x: number; y: number };
+  } | null>(null);
+  const [editingCategory, setEditingCategory] = useState<ChannelGroup | null>(null);
+  const [deletingCategory, setDeletingCategory] = useState<ChannelGroup | null>(null);
   const [invitingServer, setInvitingServer] = useState<ServerWithRole | null>(null);
   const [e2eeTooltipPos, setE2eeTooltipPos] = useState<{ top: number; left: number } | null>(null);
   const e2eeIndicatorRef = useRef<HTMLSpanElement>(null);
@@ -83,6 +101,13 @@ const MainView: React.FC = () => {
   const activeChannelId = useChannelStore((state) => state.activeChannelId);
   const channels = useChannelStore((state) => state.channels);
   const setActiveChannel = useChannelStore((state) => state.setActiveChannel);
+  const activeChannel = channels.find((c) => c.id === activeChannelId);
+  const voiceActiveChannelId = useVoiceStore((s) => s.activeChannelId);
+  const voiceConnectionState = useVoiceStore((s) => s.connectionState);
+  const voiceShowTextChat = useVoiceStore((s) => s.showVoiceTextChat);
+  const voiceControlsPinned = useVoiceStore((s) => s.voiceControlsPinned);
+  const channelPanelPinned = useLayoutStore((s) => s.channelPanelPinned);
+  const getLinkedTextChannel = useChannelStore((s) => s.getLinkedTextChannel);
 
   const handleCreateServerSuccess = (server: ServerWithRole) => {
     setActiveServer(server.id);
@@ -125,6 +150,10 @@ const MainView: React.FC = () => {
     setEditingChannel(channel);
   };
 
+  const handleCategoryContextMenu = (group: ChannelGroup, position: { x: number; y: number }) => {
+    setCategoryContextMenu({ group, position });
+  };
+
   // ─── Channel panel header content ───
   const channelHeader = (
     <div className="channel-header-info">
@@ -145,6 +174,22 @@ const MainView: React.FC = () => {
     </div>
   );
 
+  // ─── Voice & layout detection ───
+  const isInVoice = voiceActiveChannelId && voiceConnectionState === 'connected';
+  const isViewingOwnVoiceChannel =
+    activeChannel?.type === 'voice' && activeChannel.id === voiceActiveChannelId;
+  const showPersistentBar = !!(isInVoice && !isViewingOwnVoiceChannel);
+
+  // Determine if any MessageInput (which renders compact UserPanel) is on screen.
+  // VoiceTextChat contains a MessageInput that shows compact UserPanel when channel panel is unpinned.
+  const voiceLinkedTextExists = !!(voiceActiveChannelId && getLinkedTextChannel(voiceActiveChannelId));
+  const voiceTextChatVisible = isInVoice && voiceShowTextChat && voiceLinkedTextExists && (
+    isViewingOwnVoiceChannel || (showPersistentBar && voiceControlsPinned)
+  );
+  const hasVisibleMessageInput =
+    (activeChannel?.type === 'text' && !!activeChannelId) || voiceTextChatVisible;
+  const showFloatingAvatar = !channelPanelPinned && !hasVisibleMessageInput;
+
   // ─── Channel panel body content ───
   const channelBody = (
     <>
@@ -152,15 +197,20 @@ const MainView: React.FC = () => {
         <ServerActionBar
           server={activeServer}
           onOpenCreateModal={() => setIsCreateChannelModalOpen(true)}
+          onOpenCreateCategoryModal={() => setIsCreateCategoryModalOpen(true)}
         />
       )}
-      <ChannelList onContextMenu={handleChannelContextMenu} />
+      <ChannelList
+        onContextMenu={handleChannelContextMenu}
+        onEmptyContextMenu={(pos) => setEmptyContextMenu({ position: pos })}
+        onCategoryContextMenu={handleCategoryContextMenu}
+      />
     </>
   );
 
   // ─── Chat area content ───
   const chatContent = (
-    <div className="main-content">
+    <div className="main-content" data-has-persistent-bar={showPersistentBar || undefined}>
       {activeServer && channels.length === 0 ? (
         <div className="main-content-placeholder">
           <div className="empty-server-graphic">
@@ -182,6 +232,8 @@ const MainView: React.FC = () => {
           <h2>This server appears empty.</h2>
           <p className="empty-server-hint">Add some channels to start chatting!</p>
         </div>
+      ) : activeChannel?.type === 'voice' ? (
+        <VoiceView channelId={activeChannel.id} channelName={activeChannel.name} />
       ) : activeChannelId ? (
         <ChatView />
       ) : (
@@ -193,10 +245,20 @@ const MainView: React.FC = () => {
             </>
           ) : (
             <>
-              <h2>Welcome to Concord</h2>
+              <h2>Welcome to Concord Voice</h2>
               <p>Privacy-first, self-hostable voice communication.</p>
             </>
           )}
+        </div>
+      )}
+
+      {/* Persistent voice controls bar — shown when in voice but viewing another channel */}
+      {showPersistentBar && <PersistentVoiceBar />}
+
+      {/* Floating user avatar — shown when channel panel is unpinned and no message input visible */}
+      {showFloatingAvatar && (
+        <div className="floating-user-avatar">
+          <UserPanel compact />
         </div>
       )}
     </div>
@@ -252,6 +314,11 @@ const MainView: React.FC = () => {
         onSuccess={handleCreateChannelSuccess}
       />
 
+      <CreateCategoryModal
+        isOpen={isCreateCategoryModalOpen}
+        onClose={() => setIsCreateCategoryModalOpen(false)}
+      />
+
       {serverContextMenu && (
         <ServerContextMenu
           server={serverContextMenu.server}
@@ -302,11 +369,36 @@ const MainView: React.FC = () => {
         />
       )}
 
+      {emptyContextMenu && activeServer && (activeServer.role === 'owner' || activeServer.role === 'admin') && (
+        <ChannelListContextMenu
+          position={emptyContextMenu.position}
+          onClose={() => setEmptyContextMenu(null)}
+          onCreateChannel={() => { setEmptyContextMenu(null); setIsCreateChannelModalOpen(true); }}
+          onCreateCategory={() => { setEmptyContextMenu(null); setIsCreateCategoryModalOpen(true); }}
+        />
+      )}
+
       {invitingServer && (
         <InviteToServerModal
           isOpen={!!invitingServer}
           server={invitingServer}
           onClose={() => setInvitingServer(null)}
+        />
+      )}
+
+      {categoryContextMenu && activeServer && (activeServer.role === 'owner' || activeServer.role === 'admin') && (
+        <CategoryContextMenu
+          group={categoryContextMenu.group}
+          position={categoryContextMenu.position}
+          onClose={() => setCategoryContextMenu(null)}
+          onEditCategory={(group) => {
+            setCategoryContextMenu(null);
+            setEditingCategory(group);
+          }}
+          onDeleteCategory={(group) => {
+            setCategoryContextMenu(null);
+            setDeletingCategory(group);
+          }}
         />
       )}
 
@@ -323,6 +415,22 @@ const MainView: React.FC = () => {
           isOpen={!!deletingChannel}
           channel={deletingChannel}
           onClose={() => setDeletingChannel(null)}
+        />
+      )}
+
+      {editingCategory && (
+        <EditCategoryModal
+          isOpen={!!editingCategory}
+          group={editingCategory}
+          onClose={() => setEditingCategory(null)}
+        />
+      )}
+
+      {deletingCategory && (
+        <DeleteCategoryModal
+          isOpen={!!deletingCategory}
+          group={deletingCategory}
+          onClose={() => setDeletingCategory(null)}
         />
       )}
 

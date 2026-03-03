@@ -1,6 +1,6 @@
 import React from 'react';
 import { PanelRightClose, PanelRightOpen, Users } from 'lucide-react';
-import { useLayoutStore, MemberPanelMode } from '../../stores/layoutStore';
+import { useLayoutStore } from '../../stores/layoutStore';
 import { useResizablePanel } from '../../hooks/useResizablePanel';
 import { useServerStore } from '../../stores/serverStore';
 import { useMemberStore, PresenceStatus } from '../../stores/memberStore';

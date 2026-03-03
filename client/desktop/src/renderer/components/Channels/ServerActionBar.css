@@ -54,6 +54,43 @@
   margin: calc(6px * var(--sp, 1)) 0;
 }
 
+/* Add menu popup (Channel / Category) */
+.add-menu-popup {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: calc(4px * var(--sp, 1));
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  min-width: 140px;
+}
+
+.add-menu-item {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--sp, 1));
+  padding: calc(8px * var(--sp, 1)) calc(12px * var(--sp, 1));
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.add-menu-item:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
 /* Invite popup */
 .invite-popup {
   position: absolute;

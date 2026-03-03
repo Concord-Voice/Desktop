@@ -42,6 +42,23 @@
   box-shadow: 0 0 0 2px rgba(250, 112, 154, 0.2);
 }
 
+/* When DM page is focused, de-emphasise the active server icon */
+.server-bar-active-icon.inactive {
+  border-color: var(--border-color);
+}
+
+.server-bar-active-icon.inactive:hover {
+  border-color: var(--accent-primary);
+}
+
+/* Empty placeholder when no server is active — dashed circle */
+.server-bar-empty-server {
+  border-radius: 25%;
+  background: var(--bg-secondary);
+  border: 2px dashed var(--border-color);
+  flex-shrink: 0;
+}
+
 .server-bar-active-icon img {
   width: 100%;
   height: 100%;
@@ -85,6 +102,7 @@
   margin: 0 calc(8px * var(--sp, 1));
   flex-shrink: 0;
   align-self: center;
+  transition: margin 0.2s ease-out;
 }
 
 /* ─── Scrollable Server List ────────────────────────────────────────────── */
@@ -95,6 +113,7 @@
   min-width: 0;
   display: flex;
   align-items: center;
+  z-index: 1;
 }
 
 .server-bar-scroll {
@@ -103,7 +122,7 @@
   gap: calc(8px * var(--sp, 1));
   overflow-x: auto;
   overflow-y: hidden;
-  padding: calc(4px * var(--sp, 1)) 0;
+  padding: calc(4px * var(--sp, 1)) 4px;
   scroll-behavior: smooth;
   flex: 1;
 }
@@ -253,6 +272,11 @@
   color: var(--text-muted);
 }
 
+.server-bar-tooltip-voice--active {
+  color: var(--success);
+  font-weight: 600;
+}
+
 .server-bar-tooltip-unread {
   font-size: calc(11px * var(--font-scale, 1));
   color: var(--danger);
@@ -286,7 +310,7 @@
 /* ─── Drag & Drop ───────────────────────────────────────────────────────── */
 
 .server-bar-icon-wrapper[draggable='true'] {
-  cursor: grab;
+  cursor: pointer;
 }
 
 .server-bar-icon-wrapper[draggable='true']:active {
@@ -318,4 +342,27 @@
     transform: scaleX(1);
     opacity: 1;
   }
+}
+
+/* ─── Add Server Tooltip (portaled to body) ─────────────────────────────── */
+
+.server-bar-add-tooltip {
+  position: fixed;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 500;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 9999;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.server-bar-add-tooltip.visible {
+  opacity: 1;
 }

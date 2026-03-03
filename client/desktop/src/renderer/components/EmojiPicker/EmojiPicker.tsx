@@ -188,6 +188,7 @@ const EmojiPicker: React.FC<EmojiPickerProps> = ({
 
         <div className="emoji-picker-skin-tones-wrapper">
           <button
+            type="button"
             className="emoji-picker-skin-toggle"
             onClick={() => setShowSkinTones((prev) => !prev)}
             title="Skin tone"
@@ -200,6 +201,7 @@ const EmojiPicker: React.FC<EmojiPickerProps> = ({
             <div className="emoji-picker-skin-tones">
               {SKIN_TONES.map((t) => (
                 <button
+                  type="button"
                   key={t.tone || 'default'}
                   className={`emoji-picker-skin-btn ${skinTone === t.tone ? 'emoji-picker-skin-btn--active' : ''}`}
                   onClick={() => handleSkinToneChange(t.tone)}

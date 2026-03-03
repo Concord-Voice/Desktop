@@ -4,6 +4,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { MessageSquare, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useServerStore } from '../../stores/serverStore';
 import { useUnreadStore } from '../../stores/unreadStore';
+import { useVoiceStore } from '../../stores/voiceStore';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -41,6 +42,7 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
   const fetchServers = useServerStore((s) => s.fetchServers);
   const setActiveServer = useServerStore((s) => s.setActiveServer);
   const serverUnreadSet = useUnreadStore((s) => s.serverUnreadSet);
+  const serverVoiceCounts = useVoiceStore((s) => s.serverVoiceCounts);
 
   const serverFolders = useLayoutStore((s) => s.serverFolders);
   const serverOrder = useLayoutStore((s) => s.serverOrder);
@@ -64,6 +66,11 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [magScales, setMagScales] = useState<Map<string, number>>(new Map());
   const [hoveredServer, setHoveredServer] = useState<{ server: ServerWithRole; rect: DOMRect } | null>(null);
+  const [addBtnTooltipPos, setAddBtnTooltipPos] = useState<{ top: number; left: number } | null>(null);
+  const addBtnRef = useRef<HTMLButtonElement>(null);
+  const [stickyTooltip, setStickyTooltip] = useState<{ text: string; top: number; left: number } | null>(null);
+  const pmBtnRef = useRef<HTMLButtonElement>(null);
+  const activeServerBtnRef = useRef<HTMLButtonElement>(null);
 
   // Size calculations:
   // maxIconSize = the biggest an icon can get (fills the bar height minus padding)
@@ -134,10 +141,34 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
     scrollRef.current?.scrollBy({ left: delta, behavior: 'smooth' });
   };
 
-  // Click active server icon → toggle pin (only when pinned)
+  // Click active server icon → navigate to server view (from DM), toggle pin, or instant-show unpinned panel
   const handleActiveServerClick = () => {
+    if (location.pathname !== '/app') {
+      navigate('/app');
+      return;
+    }
     if (channelPanelPinned) {
       toggleChannelPin();
+    } else {
+      // Unpinned — instant show (cancel any pending hover timers)
+      if (hoverShowRef.current) { clearTimeout(hoverShowRef.current); hoverShowRef.current = null; }
+      if (hoverHideRef.current) { clearTimeout(hoverHideRef.current); hoverHideRef.current = null; }
+      showChannelPanelHover();
+    }
+  };
+
+  // Click PM icon — navigate to DMs, or instant-show unpinned panel if already there
+  const handlePMClick = () => {
+    if (location.pathname !== '/app/dms') {
+      navigate('/app/dms');
+      return;
+    }
+    if (channelPanelPinned) {
+      toggleChannelPin();
+    } else {
+      if (hoverShowRef.current) { clearTimeout(hoverShowRef.current); hoverShowRef.current = null; }
+      if (hoverHideRef.current) { clearTimeout(hoverHideRef.current); hoverHideRef.current = null; }
+      showChannelPanelHover();
     }
   };
 
@@ -349,6 +380,43 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
     setMagScales(new Map());
   }, []);
 
+  // Add Server button tooltip (portal-based, instant)
+  const showAddBtnTooltip = useCallback(() => {
+    if (addBtnRef.current) {
+      const rect = addBtnRef.current.getBoundingClientRect();
+      const tooltipWidth = 80;
+      const padding = 8;
+      const top = rect.bottom + 6;
+      let left = rect.left + rect.width / 2 - tooltipWidth / 2;
+      left = Math.max(padding, Math.min(left, window.innerWidth - tooltipWidth - padding));
+      const clampedTop = Math.min(top, window.innerHeight - 30 - padding);
+      setAddBtnTooltipPos({ top: clampedTop, left });
+    }
+  }, []);
+
+  const hideAddBtnTooltip = useCallback(() => {
+    setAddBtnTooltipPos(null);
+  }, []);
+
+  // Sticky icon tooltips (PM + Active Server) — portal-based, instant
+  const showStickyTooltip = useCallback((text: string, ref: React.RefObject<HTMLButtonElement | null>) => {
+    const el = ref.current;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      const padding = 8;
+      const tooltipWidth = text.length * 7 + 16; // rough estimate
+      const top = rect.bottom + 6;
+      let left = rect.left + rect.width / 2 - tooltipWidth / 2;
+      left = Math.max(padding, Math.min(left, window.innerWidth - tooltipWidth - padding));
+      const clampedTop = Math.min(top, window.innerHeight - 30 - padding);
+      setStickyTooltip({ text, top: clampedTop, left });
+    }
+  }, []);
+
+  const hideStickyTooltip = useCallback(() => {
+    setStickyTooltip(null);
+  }, []);
+
   /** Get the magnified pixel size for a server icon */
   const getMagSize = (serverId: string): number => {
     const scale = magScales.get(serverId);
@@ -361,44 +429,63 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
       {/* Sticky left: PM + Active server */}
       <div className="server-bar-sticky">
         <button
-          className="server-bar-pm-icon"
-          title="Private Messages"
-          aria-label="Private Messages"
+          ref={pmBtnRef}
+          className={`server-bar-pm-icon${location.pathname === '/app/dms' ? ' active' : ''}`}
+          aria-label="Direct Messages"
+          onClick={handlePMClick}
+          onMouseEnter={() => {
+            showStickyTooltip('Direct Messages', pmBtnRef);
+            if (location.pathname === '/app/dms') handleActiveServerEnter();
+          }}
+          onMouseLeave={() => {
+            hideStickyTooltip();
+            if (location.pathname === '/app/dms') handleActiveServerLeave();
+          }}
           style={{ width: stickyIconSize, height: stickyIconSize }}
         >
           <MessageSquare size={Math.round(stickyIconSize * 0.45)} />
         </button>
 
-        <button
-          className="server-bar-active-icon"
-          onClick={handleActiveServerClick}
-          onMouseEnter={handleActiveServerEnter}
-          onMouseLeave={handleActiveServerLeave}
-          onContextMenu={(e) => { if (activeServer) handleContextMenu(e, activeServer); }}
-          title={activeServer ? activeServer.name : 'No server selected'}
-          aria-label="Toggle channel panel"
-          style={{ width: stickyIconSize, height: stickyIconSize }}
-        >
-          {activeServer ? (
-            activeServer.icon_url ? (
+        {activeServer ? (
+          <button
+            ref={activeServerBtnRef}
+            className={`server-bar-active-icon${location.pathname === '/app/dms' ? ' inactive' : ''}`}
+            onClick={handleActiveServerClick}
+            onMouseEnter={() => {
+              showStickyTooltip(activeServer.name, activeServerBtnRef);
+              if (location.pathname !== '/app/dms') handleActiveServerEnter();
+            }}
+            onMouseLeave={() => {
+              hideStickyTooltip();
+              if (location.pathname !== '/app/dms') handleActiveServerLeave();
+            }}
+            onContextMenu={(e) => handleContextMenu(e, activeServer)}
+            aria-label="Toggle channel panel"
+            style={{ width: stickyIconSize, height: stickyIconSize }}
+          >
+            {activeServer.icon_url ? (
               <img src={activeServer.icon_url} alt={activeServer.name} />
             ) : (
               <span className="server-bar-icon-initial">
                 {activeServer.name.charAt(0).toUpperCase()}
               </span>
-            )
-          ) : (
-            <span className="server-bar-icon-initial">?</span>
-          )}
-        </button>
+            )}
+          </button>
+        ) : (
+          <div
+            className="server-bar-empty-server"
+            aria-label="No active server"
+            style={{ width: stickyIconSize, height: stickyIconSize }}
+          />
+        )}
       </div>
 
       <div
         className="server-bar-divider"
         style={{
           marginRight: barServers.length > 0 && !reduceAnimations
-            ? 6 + Math.max(0, (getMagSize(barServers[0].id) - baseIconSize) / 2)
-            : 6,
+            ? 4 + Math.max(0, (getMagSize(barServers[0].id) - baseIconSize) / 2)
+            : 4,
         }}
       />
 
@@ -461,6 +548,7 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
                   onDragOver={(e) => handleDragOver(e, server.id)}
                   onDrop={(e) => handleDrop(e, server.id)}
                   onMouseEnter={() => {
+                    if (draggingId) return; // Suppress tooltip while dragging
                     const el = iconRefs.current.get(server.id);
                     if (el) setHoveredServer({ server, rect: el.getBoundingClientRect() });
                   }}
@@ -518,17 +606,19 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
         className="server-bar-divider"
         style={{
           marginLeft: barServers.length > 0 && !reduceAnimations
-            ? 6 + Math.max(0, (getMagSize(barServers[barServers.length - 1].id) - baseIconSize) / 2)
-            : 6,
+            ? 4 + Math.max(0, (getMagSize(barServers[barServers.length - 1].id) - baseIconSize) / 2)
+            : 4,
         }}
       />
 
       <div className="server-bar-sticky">
         <button
+          ref={addBtnRef}
           className="server-bar-add"
           onClick={onOpenActionModal}
-          title="Add a Server"
-          aria-label="Add a Server"
+          aria-label="Add Server"
+          onMouseEnter={showAddBtnTooltip}
+          onMouseLeave={hideAddBtnTooltip}
           style={{ width: stickyIconSize, height: stickyIconSize }}
         >
           <Plus size={Math.round(stickyIconSize * 0.45)} />
@@ -553,11 +643,33 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
             <span>{hoveredServer.server.online_count ?? 0} Online</span>
           </div>
           <div className="server-bar-tooltip-stats">
-            <span className="server-bar-tooltip-voice">0 In Voice</span>
+            <span className={`server-bar-tooltip-voice${(serverVoiceCounts[hoveredServer.server.id] ?? 0) > 0 ? ' server-bar-tooltip-voice--active' : ''}`}>{serverVoiceCounts[hoveredServer.server.id] ?? 0} In Voice</span>
           </div>
           {serverUnreadSet.has(hoveredServer.server.id) && (
             <span className="server-bar-tooltip-unread">Unread notifications</span>
           )}
+        </div>,
+        document.body
+      )}
+
+      {/* "Add Server" tooltip — portaled to body to escape overflow:hidden */}
+      {addBtnTooltipPos && createPortal(
+        <div
+          className="server-bar-add-tooltip visible"
+          style={{ top: addBtnTooltipPos.top, left: addBtnTooltipPos.left }}
+        >
+          Add Server
+        </div>,
+        document.body
+      )}
+
+      {/* Sticky icon tooltip (DM / Active Server) */}
+      {stickyTooltip && createPortal(
+        <div
+          className="server-bar-add-tooltip visible"
+          style={{ top: stickyTooltip.top, left: stickyTooltip.left }}
+        >
+          {stickyTooltip.text}
         </div>,
         document.body
       )}

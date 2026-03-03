@@ -3,6 +3,7 @@ import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useInviteStore } from '../../stores/inviteStore';
 import { useServerStore } from '../../stores/serverStore';
+import { apiFetch } from '../../services/apiClient';
 import { ServerWithRole, InviteInfoResponse } from '../../types/server';
 import './JoinServerModal.css';
 
@@ -67,7 +68,17 @@ const JoinServerModal: React.FC<JoinServerModalProps> = ({ isOpen, onClose, onSu
             setPreview(info);
           }
         } else {
-          setError('Invalid invite code');
+          // Check if this might be a friend code instead
+          try {
+            const fcRes = await apiFetch(`/api/v1/friends/codes/${code}`);
+            if (fcRes.ok) {
+              setError('This looks like a friend code, not a server invite. Use the Add Friend button in Direct Messages to claim it.');
+            } else {
+              setError('Invalid invite code');
+            }
+          } catch {
+            setError('Invalid invite code');
+          }
         }
       }, 300);
     } else {
@@ -100,6 +111,8 @@ const JoinServerModal: React.FC<JoinServerModalProps> = ({ isOpen, onClose, onSu
       const serverWithRole: ServerWithRole = {
         ...result.server,
         role: result.role as ServerWithRole['role'],
+        member_count: 0,
+        online_count: 0,
       };
       useServerStore.getState().addServer(serverWithRole);
       setSuccessMessage(`Joined ${result.server.name}!`);

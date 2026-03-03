@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Playwright E2E test configuration for Concord Desktop.
+ * Playwright E2E test configuration for Concord Voice Desktop.
  *
  * Tests run against the Vite dev server (renderer only, not full Electron).
  * Requires the backend to be running separately (API + PostgreSQL + Redis).

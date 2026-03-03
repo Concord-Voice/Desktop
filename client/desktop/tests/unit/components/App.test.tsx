@@ -25,13 +25,13 @@ import App from '@/renderer/App';
 describe('App', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    useAuthStore.getState().clearTokens();
+    useAuthStore.getState().clearAccessToken();
     useUserStore.setState({ user: null });
   });
 
   it('renders title bar', () => {
     render(<App />);
-    expect(screen.getByText('Concord')).toBeInTheDocument();
+    expect(screen.getByText('Concord Voice')).toBeInTheDocument();
   });
 
   it('renders auth flow on root path', () => {

@@ -17,7 +17,7 @@ afterEach(() => server.resetHandlers());
 describe('serverStore', () => {
   beforeEach(() => {
     resetAllStores();
-    useAuthStore.getState().setTokens('mock-token', 'mock-refresh');
+    useAuthStore.getState().setAccessToken('mock-token');
   });
 
   describe('fetchServers', () => {
