@@ -14,7 +14,7 @@ import { useWebSocket } from './hooks/useWebSocket';
 import { e2eeService } from './services/e2eeService';
 import { preferencesSyncService } from './services/preferencesSync';
 import { detectCodecCapabilities, prewarmWebRTC } from './services/mediaCapabilities';
-import { nuclearReset } from './services/resetService';
+import { gracefulReset, nuclearReset } from './services/resetService';
 
 // ─── Error Boundary ────────────────────────────────────────────────────
 // Catches unhandled rendering errors. Instead of going nuclear (which wipes
@@ -142,8 +142,12 @@ function App() {
           }
         }
       } else {
-        // Session cannot be restored — nuclear reset to ensure clean login screen
-        nuclearReset();
+        // Session cannot be restored — clear content stores but keep disk tokens.
+        // The refresh may have failed due to a transient error (server not ready,
+        // network issue). Preserving disk tokens allows the next launch to retry.
+        // If the user logs in fresh, new tokens overwrite the old files anyway.
+        console.warn('[App] Session restore failed:', result.status);
+        gracefulReset();
       }
       setIsRestoring(false);
     };
