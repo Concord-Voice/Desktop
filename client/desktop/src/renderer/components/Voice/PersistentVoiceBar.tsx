@@ -16,6 +16,9 @@ const MAX_CHAT_RATIO = 0.7;
  *
  * Includes: full VoiceControls, optional text chat drawer, pin/unpin,
  * and pop-out to Document PiP.
+ *
+ * In vertical layout mode, the text chat panel is rendered by MainView
+ * as a side column instead of inside this bar.
  */
 const PersistentVoiceBar: React.FC = () => {
   const {
@@ -24,13 +27,16 @@ const PersistentVoiceBar: React.FC = () => {
     voiceControlsPoppedOut,
     setVoiceControlsPoppedOut,
     showVoiceTextChat,
+    voiceTextChatLayout,
     persistentTextChatHeight,
     setPersistentTextChatHeight,
   } = useVoiceStore();
 
   const getLinkedTextChannel = useChannelStore((s) => s.getLinkedTextChannel);
   const hasLinkedText = !!(activeChannelId && getLinkedTextChannel(activeChannelId));
-  const showChat = showVoiceTextChat && hasLinkedText;
+  const isVertical = voiceTextChatLayout === 'vertical';
+  // In vertical mode, the text chat is rendered as a side panel by MainView
+  const showChat = showVoiceTextChat && hasLinkedText && !isVertical;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const resizingRef = useRef(false);

@@ -106,4 +106,9 @@ export function useDocumentPip() {
 
 /** Check if the Document PiP API is available in this environment */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export const hasDocumentPipSupport = typeof window !== 'undefined' && !!(window as any).documentPictureInPicture;
+const hasDocumentPipApi = typeof window !== 'undefined' && !!(window as any).documentPictureInPicture;
+// The API object exists in Electron's Chromium but requestWindow() always fails,
+// so disable proactively when running in Electron.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const isElectron = typeof window !== 'undefined' && !!(window as any).electron;
+export const hasDocumentPipSupport = hasDocumentPipApi && !isElectron;
