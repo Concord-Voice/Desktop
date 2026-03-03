@@ -14,7 +14,7 @@ import { useWebSocket } from './hooks/useWebSocket';
 import { e2eeService } from './services/e2eeService';
 import { preferencesSyncService } from './services/preferencesSync';
 import { detectCodecCapabilities, prewarmWebRTC } from './services/mediaCapabilities';
-import { gracefulReset, nuclearReset } from './services/resetService';
+import { gracefulReset } from './services/resetService';
 
 // ─── Error Boundary ────────────────────────────────────────────────────
 // Catches unhandled rendering errors. Instead of going nuclear (which wipes
