@@ -164,3 +164,24 @@
 .participant-tile__status--screen {
   color: var(--accent-primary);
 }
+
+/* ─── Paused State (auto-pause active, stream still live) ────── */
+
+.participant-tile__body--paused {
+  padding-top: 30%;
+  gap: 4px;
+  text-align: center;
+}
+
+.participant-tile__paused-title {
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.participant-tile__paused-hint {
+  font-size: calc(9px * var(--font-scale, 1));
+  color: var(--text-muted);
+  line-height: 1.3;
+  padding: 0 8px;
+}

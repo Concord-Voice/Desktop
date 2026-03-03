@@ -2055,6 +2055,11 @@ class VoiceService {
     return this.device?.rtpCapabilities ?? null;
   }
 
+  /** Get all consumer metadata entries (used by PiP signaling proxy for ownership transfer) */
+  getConsumerMeta(): Map<string, { source: string; producerUserId: string }> {
+    return new Map(this.consumerMeta);
+  }
+
   /** Proxy a signaling event to the media plane (used by PiP signaling proxy) */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   forwardToServer<T = any>(event: string, data?: unknown): Promise<T> {

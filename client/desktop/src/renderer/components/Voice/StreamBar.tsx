@@ -12,9 +12,10 @@ const StreamThumbnail: React.FC<{
   producerId: string;
   stream?: MediaStream;
   sharerName: string;
+  isPaused?: boolean;
   onSelect: () => void;
   onTuneOut: () => void;
-}> = ({ producerId: _producerId, stream, sharerName, onSelect, onTuneOut }) => {
+}> = ({ producerId: _producerId, stream, sharerName, isPaused = false, onSelect, onTuneOut }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -35,13 +36,19 @@ const StreamThumbnail: React.FC<{
 
   return (
     <div className="stream-thumbnail" onClick={onSelect} title={`View ${sharerName}'s screen`}>
-      <video
-        ref={videoRef}
-        className="stream-thumbnail__video"
-        autoPlay
-        playsInline
-        muted
-      />
+      {isPaused ? (
+        <div className="stream-thumbnail__paused">
+          <span className="stream-thumbnail__paused-text">Paused</span>
+        </div>
+      ) : (
+        <video
+          ref={videoRef}
+          className="stream-thumbnail__video"
+          autoPlay
+          playsInline
+          muted
+        />
+      )}
       <div className="stream-thumbnail__label">{sharerName}</div>
       <button
         className="stream-thumbnail__close"
@@ -94,6 +101,7 @@ const StreamBar: React.FC<{ height: number }> = ({ height }) => {
               producerId={producerId}
               stream={isLocalSharer && localStreamPaused ? undefined : sharer?.screenStream}
               sharerName={sharerName}
+              isPaused={isLocalSharer && localStreamPaused}
               onSelect={() => setDominantScreenShare(producerId)}
               onTuneOut={() => {
                 // Import voiceService lazily to avoid circular dependency

@@ -36,11 +36,6 @@ if (!readHwAccelPref()) {
 // 'document-user-activation-required' policy can silently block these elements.
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
-// Explicitly enable Document Picture-in-Picture API for floating user frames.
-// While this is default-on in Chromium 116+, Electron may not include it.
-// (--enable-features is additive — won't override the HW accel flags above.)
-app.commandLine.appendSwitch('enable-features', 'DocumentPictureInPictureAPI');
-
 // Handle creating/removing shortcuts on Windows when installing/uninstalling
 if (require('electron-squirrel-startup')) {
   app.quit();

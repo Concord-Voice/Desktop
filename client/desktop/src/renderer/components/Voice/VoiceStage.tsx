@@ -2,8 +2,6 @@ import React, { useRef, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, PictureInPicture2, LayoutGrid, Focus } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useUserStore } from '../../stores/userStore';
-import { useDocumentPip, hasDocumentPipSupport } from './useDocumentPip';
-import { DocumentPipContent } from './DocumentPipContent';
 import './VoiceStage.css';
 
 /**
@@ -14,7 +12,8 @@ const StageVideo: React.FC<{
   sharerName: string;
   showOverlay?: boolean;
   label?: string;
-}> = ({ stream, sharerName, showOverlay = true, label }) => {
+  isPaused?: boolean;
+}> = ({ stream, sharerName, showOverlay = true, label, isPaused = false }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -35,13 +34,22 @@ const StageVideo: React.FC<{
 
   return (
     <div className="voice-stage__cell">
-      <video
-        ref={videoRef}
-        className="voice-stage__video"
-        autoPlay
-        playsInline
-        muted
-      />
+      {isPaused ? (
+        <div className="voice-stage__paused-placeholder">
+          <span className="voice-stage__paused-title">Your Screen Is Still Streaming</span>
+          <span className="voice-stage__paused-hint">
+            If you want it to stay on even when Concord Voice is in the background, use the Auto-Pause button in the Controls Panel below.
+          </span>
+        </div>
+      ) : (
+        <video
+          ref={videoRef}
+          className="voice-stage__video"
+          autoPlay
+          playsInline
+          muted
+        />
+      )}
       {showOverlay && (
         <div className="voice-stage__cell-overlay">
           <span className="voice-stage__sharer-name">
@@ -69,7 +77,6 @@ const VoiceStage: React.FC = () => {
   const toggleStageLayout = useVoiceStore((s) => s.toggleStageLayout);
   const localStreamPaused = useVoiceStore((s) => s.localStreamPaused);
   const localUserId = useUserStore((s) => s.user?.id);
-  const docPip = useDocumentPip();
 
   const tunedInIds = Object.keys(tunedInScreenShares);
   const hasMultiple = tunedInIds.length > 1;
@@ -149,6 +156,7 @@ const VoiceStage: React.FC = () => {
                 key={producerId}
                 stream={isLocalSharer && localStreamPaused ? undefined : sharer?.screenStream}
                 sharerName={name}
+                isPaused={isLocalSharer && localStreamPaused}
               />
             );
           })}
@@ -165,6 +173,7 @@ const VoiceStage: React.FC = () => {
         stream={isDominantLocal && localStreamPaused ? undefined : dominantSharer?.screenStream}
         sharerName={dominantSharerName}
         showOverlay={false}
+        isPaused={isDominantLocal && localStreamPaused}
       />
 
       {/* Bottom overlay */}
@@ -190,30 +199,21 @@ const VoiceStage: React.FC = () => {
         </button>
       )}
 
-      {/* PiP button (top-right) */}
-      {hasDocumentPipSupport && dominantScreenShareId && (
+      {/* PiP button (top-right) — pop out screen share to Electron PiP */}
+      {window.electron?.openPipWindow && dominantScreenShareId && (
         <button
           className="voice-stage__pip-btn"
           onClick={async () => {
-            if (docPip.isOpen) {
-              docPip.close();
-            } else {
-              await docPip.open({ width: 400, height: 300 });
-            }
+            await window.electron.openPipWindow({
+              id: `screen-${dominantScreenShareId}`,
+              width: 400,
+              height: 300,
+            });
           }}
-          title={docPip.isOpen ? 'Close PiP' : 'Pop out to PiP window'}
+          title="Pop out to PiP window"
         >
           <PictureInPicture2 size={16} />
         </button>
-      )}
-
-      {/* Document PiP portal for screen share */}
-      {docPip.isOpen && docPip.pipWindow && (
-        <DocumentPipContent
-          pipWindow={docPip.pipWindow}
-          mode="screen"
-          producerId={dominantScreenShareId || ''}
-        />
       )}
 
       {/* Cycle buttons (only when multiple shares in focus mode) */}

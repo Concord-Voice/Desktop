@@ -150,6 +150,8 @@ const ChatView: React.FC = () => {
         const kept = optimistic.filter(
           (m) => !fetchedIds.has(m.id) && !fetchedIds.has(m.clientMessageId!)
         );
+        // Server returns DESC (newest first); reverse to ASC for chronological display
+        msgs.reverse();
         setMessages(activeChannelId, kept.length > 0 ? [...msgs, ...kept] : msgs);
         setHasMore(msgs.length === MESSAGES_LIMIT);
       } catch (err) {
@@ -214,6 +216,8 @@ const ChatView: React.FC = () => {
         })
       );
 
+      // Server returns DESC; reverse to ASC so oldest-first prepends correctly
+      msgs.reverse();
       prependMessages(activeChannelId, msgs);
       setHasMore(msgs.length === MESSAGES_LIMIT);
     } catch (err) {

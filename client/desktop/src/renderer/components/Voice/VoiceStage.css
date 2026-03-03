@@ -232,3 +232,31 @@
   opacity: 0.3;
   cursor: not-allowed;
 }
+
+/* ─── Paused Placeholder (auto-pause active, stream still live) ── */
+
+.voice-stage__paused-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  height: 100%;
+  padding: 24px;
+  text-align: center;
+  background-color: var(--bg-secondary, #1a1a2e);
+}
+
+.voice-stage__paused-title {
+  font-size: calc(14px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary, #e0e0e0);
+}
+
+.voice-stage__paused-hint {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-muted, #888);
+  line-height: 1.4;
+  max-width: 340px;
+}

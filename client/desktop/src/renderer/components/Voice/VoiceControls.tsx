@@ -23,8 +23,6 @@ import { useVoiceStore } from '../../stores/voiceStore';
 import { useChannelStore } from '../../stores/channelStore';
 import { getVoiceService } from '../../services/voiceLazy';
 import ScreenSharePicker from './ScreenSharePicker';
-import { useDocumentPip } from './useDocumentPip';
-import { DocumentPipContent } from './DocumentPipContent';
 import './VoiceControls.css';
 
 interface VoiceControlsProps {
@@ -64,10 +62,8 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   const pipWrapRef = useRef<HTMLDivElement>(null);
   const pipMenuRef = useRef<HTMLDivElement>(null);
 
-  // Document PiP state (for frames/screen pop-out, not controls pop-out)
-  const docPip = useDocumentPip();
-  const [pipMode, setPipMode] = useState<'frames' | 'screen'>('frames');
-  const [pipProducerId, setPipProducerId] = useState('');
+  // Electron PiP — check if electron API is available
+  const hasElectronPip = !!window.electron?.openPipWindow;
 
   const handleToggleMute = async () => {
     const { voiceService } = await getVoiceService();
@@ -158,17 +154,15 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   };
 
   const handleOpenPip = useCallback(async (mode: 'frames' | 'screen', producerId?: string) => {
-    if (docPip.isOpen) {
-      docPip.close();
-    }
-    setPipMode(mode);
-    setPipProducerId(producerId || '');
-    await docPip.open({
+    if (!window.electron?.openPipWindow) return;
+    const id = mode === 'frames' ? 'frames-main' : `screen-${producerId || ''}`;
+    await window.electron.openPipWindow({
+      id,
       width: mode === 'frames' ? 320 : 400,
       height: mode === 'frames' ? 240 : 300,
     });
     setShowPipMenu(false);
-  }, [docPip]);
+  }, []);
 
   const tunedInIds = Object.keys(tunedInScreenShares);
 
@@ -249,17 +243,11 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
             </button>
           )}
 
-          {docPip.isSupported && (
+          {hasElectronPip && (
             <div ref={pipWrapRef} className="voice-controls__pip-wrap">
               <button
-                className={`voice-controls__btn ${docPip.isOpen ? 'voice-controls__btn--active' : ''}`}
-                onClick={() => {
-                  if (docPip.isOpen) {
-                    docPip.close();
-                  } else {
-                    setShowPipMenu((v) => !v);
-                  }
-                }}
+                className="voice-controls__btn"
+                onClick={() => setShowPipMenu((v) => !v)}
                 title="Picture-in-Picture"
               >
                 <PictureInPicture2 size={18} />
@@ -300,7 +288,7 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
       )}
 
       {/* Portaled PiP menu — escapes overflow:hidden ancestors */}
-      {showPipMenu && !docPip.isOpen && createPortal(
+      {showPipMenu && createPortal(
         <div ref={pipMenuRef} className="voice-controls__pip-menu" style={getPortalStyle(pipWrapRef)}>
           <button
             className="voice-controls__pip-menu-item"
@@ -331,15 +319,6 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
         <ScreenSharePicker
           onSelect={handleScreenSourceSelected}
           onCancel={() => setShowScreenPicker(false)}
-        />
-      )}
-
-      {/* Render Document PiP content via React Portal */}
-      {docPip.isOpen && docPip.pipWindow && (
-        <DocumentPipContent
-          pipWindow={docPip.pipWindow}
-          mode={pipMode}
-          producerId={pipProducerId}
         />
       )}
     </>

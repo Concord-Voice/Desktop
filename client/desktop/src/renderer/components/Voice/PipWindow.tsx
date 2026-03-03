@@ -1,62 +1,33 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { Pin, PinOff, X } from 'lucide-react';
+import {
+  Pin, PinOff, X,
+  Mic, MicOff,
+  Volume2, VolumeX,
+  Video, VideoOff,
+  Monitor, MonitorOff,
+  PhoneOff,
+} from 'lucide-react';
 import type { VoiceParticipant } from '../../stores/voiceStore';
+import type { AnyPipBroadcast, VoiceStateResult } from '../../services/pipSignalingTypes';
+import { PipVoiceClient } from '../../services/pipVoiceClient';
 import ParticipantTile from './ParticipantTile';
 import { useVoiceMagnification } from './useVoiceMagnification';
 import './PipWindow.css';
 
-// BroadcastChannel message types
-interface PipStateMessage {
-  type: 'pip-state';
-  participants: Record<string, VoiceParticipant>;
-}
-
-interface PipScreenMessage {
-  type: 'pip-screen';
-  producerId: string;
-  // Stream can't be sent via BroadcastChannel — screen PiP shares the same
-  // mediasoup consumer in the main renderer process. For true PiP of screen
-  // shares, the main window captures the video element to a canvas and sends
-  // frames. For now, screen PiP shows a placeholder message.
-}
-
-type PipMessage = PipStateMessage | PipScreenMessage;
-
 /**
- * PiP window content. Two modes based on pipId prefix:
- * - "frames-*": User Frames PiP — compact dynamic grid of all participants
- * - "screen-*": Screen Share PiP — single screen share (placeholder for now)
+ * PiP window content. Three modes based on pipId prefix:
+ * - "controls-*": Voice controls in a floating window
+ * - "frames-*":   User Frames PiP — compact grid with real video/audio
+ * - "screen-*":   Screen Share PiP — single screen share with real video
  */
 const PipWindow: React.FC = () => {
   const { pipId } = useParams<{ pipId: string }>();
-  const [participants, setParticipants] = useState<Record<string, VoiceParticipant>>({});
   const [pinned, setPinned] = useState(true);
-  const channelRef = useRef<BroadcastChannel | null>(null);
 
+  const isControlsPip = pipId?.startsWith('controls');
   const isFramesPip = pipId?.startsWith('frames');
   const isScreenPip = pipId?.startsWith('screen');
-
-  // Listen for state updates from main renderer
-  useEffect(() => {
-    const bc = new BroadcastChannel('concord-pip');
-    channelRef.current = bc;
-
-    bc.onmessage = (event: MessageEvent<PipMessage>) => {
-      const msg = event.data;
-      if (msg.type === 'pip-state') {
-        setParticipants(msg.participants);
-      }
-    };
-
-    // Request initial state
-    bc.postMessage({ type: 'pip-request-state' });
-
-    return () => {
-      bc.close();
-      channelRef.current = null;
-    };
-  }, []);
 
   // Toggle always-on-top
   const togglePin = useCallback(() => {
@@ -70,26 +41,245 @@ const PipWindow: React.FC = () => {
     window.electron?.closePipWindow(pipId || '');
   }, [pipId]);
 
+  if (isControlsPip) {
+    return (
+      <ControlsPipContent
+        pipId={pipId || ''}
+        pinned={pinned}
+        onTogglePin={togglePin}
+        onClose={handleClose}
+      />
+    );
+  }
+
   if (isFramesPip) {
-    return <FramesPipContent participants={participants} pinned={pinned} onTogglePin={togglePin} onClose={handleClose} />;
+    return (
+      <FramesPipContent
+        pipId={pipId || ''}
+        pinned={pinned}
+        onTogglePin={togglePin}
+        onClose={handleClose}
+      />
+    );
   }
 
   if (isScreenPip) {
-    return <ScreenPipContent pipId={pipId || ''} pinned={pinned} onTogglePin={togglePin} onClose={handleClose} />;
+    return (
+      <ScreenPipContent
+        pipId={pipId || ''}
+        pinned={pinned}
+        onTogglePin={togglePin}
+        onClose={handleClose}
+      />
+    );
   }
 
   return <div className="pip-window">Unknown PiP type</div>;
 };
 
+// ── Controls PiP ────────────────────────────────────────────────
+
 /**
- * User Frames PiP — all participants in a compact grid.
+ * Controls PiP — compact voice controls in a floating window.
+ * Actions are proxied to the main window via PipVoiceClient.
  */
-const FramesPipContent: React.FC<{
-  participants: Record<string, VoiceParticipant>;
+const ControlsPipContent: React.FC<{
+  pipId: string;
   pinned: boolean;
   onTogglePin: () => void;
   onClose: () => void;
-}> = ({ participants, pinned, onTogglePin, onClose }) => {
+}> = ({ pipId, pinned, onTogglePin, onClose }) => {
+  const clientRef = useRef<PipVoiceClient | null>(null);
+  const [state, setState] = useState<{
+    isMuted: boolean;
+    isDeafened: boolean;
+    isVideoOn: boolean;
+    isScreenSharing: boolean;
+    participantCount: number;
+  }>({
+    isMuted: false,
+    isDeafened: false,
+    isVideoOn: false,
+    isScreenSharing: false,
+    participantCount: 0,
+  });
+
+  useEffect(() => {
+    const client = new PipVoiceClient(pipId);
+    clientRef.current = client;
+
+    // Listen for state broadcasts to update button states
+    client.onStateUpdate = (msg: AnyPipBroadcast) => {
+      if (msg.type === 'state-update') {
+        const participants = Object.values(msg.participants);
+        // Infer local user state from participants (first participant is usually local,
+        // but we check all and use the one flagged as local if available)
+        const localP = participants.find((p) => (p as VoiceParticipant & { isLocal?: boolean }).isLocal);
+        if (localP) {
+          setState({
+            isMuted: localP.isMuted,
+            isDeafened: localP.isDeafened || false,
+            isVideoOn: localP.isVideoOn || false,
+            isScreenSharing: localP.isScreenSharing || false,
+            participantCount: participants.length,
+          });
+        } else {
+          setState((prev) => ({
+            ...prev,
+            participantCount: participants.length,
+          }));
+        }
+      } else if (msg.type === 'voice-ended') {
+        onClose();
+      }
+    };
+
+    // Request initial state (we don't need media, just participant info)
+    client.init().then((voiceState: VoiceStateResult) => {
+      const participants = Object.values(voiceState.participants);
+      setState((prev) => ({ ...prev, participantCount: participants.length }));
+    }).catch(console.error);
+
+    return () => {
+      client.dispose().catch(console.error);
+      clientRef.current = null;
+    };
+  }, [pipId, onClose]);
+
+  const doAction = useCallback(
+    (action: 'toggle-mute' | 'toggle-deafen' | 'leave' | 'toggle-video' | 'toggle-screen') => {
+      clientRef.current?.action(action).catch(console.error);
+    },
+    []
+  );
+
+  return (
+    <div className="pip-window pip-window--controls">
+      <PipHeader pinned={pinned} onTogglePin={onTogglePin} onClose={onClose} />
+      <div className="pip-controls-bar">
+        <button
+          className={`pip-control-btn ${state.isMuted ? 'pip-control-btn--danger' : ''}`}
+          onClick={() => doAction('toggle-mute')}
+          title={state.isMuted ? 'Unmute' : 'Mute'}
+        >
+          {state.isMuted ? <MicOff size={16} /> : <Mic size={16} />}
+        </button>
+        <button
+          className={`pip-control-btn ${state.isDeafened ? 'pip-control-btn--danger' : ''}`}
+          onClick={() => doAction('toggle-deafen')}
+          title={state.isDeafened ? 'Undeafen' : 'Deafen'}
+        >
+          {state.isDeafened ? <VolumeX size={16} /> : <Volume2 size={16} />}
+        </button>
+        <button
+          className={`pip-control-btn ${state.isVideoOn ? 'pip-control-btn--active' : ''}`}
+          onClick={() => doAction('toggle-video')}
+          title={state.isVideoOn ? 'Stop Video' : 'Start Video'}
+        >
+          {state.isVideoOn ? <Video size={16} /> : <VideoOff size={16} />}
+        </button>
+        <button
+          className={`pip-control-btn ${state.isScreenSharing ? 'pip-control-btn--active' : ''}`}
+          onClick={() => doAction('toggle-screen')}
+          title={state.isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
+        >
+          {state.isScreenSharing ? <Monitor size={16} /> : <MonitorOff size={16} />}
+        </button>
+        <button
+          className="pip-control-btn pip-control-btn--leave"
+          onClick={() => doAction('leave')}
+          title="Leave Voice"
+        >
+          <PhoneOff size={16} />
+        </button>
+      </div>
+      {state.participantCount > 0 && (
+        <div className="pip-controls-status">
+          {state.participantCount} participant{state.participantCount !== 1 ? 's' : ''}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ── Frames PiP ──────────────────────────────────────────────────
+
+/**
+ * User Frames PiP — all participants in a compact grid with real video.
+ * Uses PipVoiceClient for independent mediasoup consumers.
+ */
+const FramesPipContent: React.FC<{
+  pipId: string;
+  pinned: boolean;
+  onTogglePin: () => void;
+  onClose: () => void;
+}> = ({ pipId, pinned, onTogglePin, onClose }) => {
+  const [participants, setParticipants] = useState<Record<string, VoiceParticipant>>({});
+  const [loading, setLoading] = useState(true);
+  const clientRef = useRef<PipVoiceClient | null>(null);
+
+  useEffect(() => {
+    const client = new PipVoiceClient(pipId);
+    clientRef.current = client;
+
+    client.onStateUpdate = (msg: AnyPipBroadcast) => {
+      if (msg.type === 'state-update') {
+        setParticipants(msg.participants);
+      } else if (msg.type === 'voice-ended') {
+        onClose();
+      }
+    };
+
+    const setup = async () => {
+      try {
+        const voiceState = await client.init();
+        setParticipants(voiceState.participants);
+
+        // Consume all active audio and video producers
+        for (const producer of voiceState.activeProducers) {
+          if (producer.source === 'audio' || producer.source === 'camera') {
+            const stream = await client.consume(
+              producer.producerId,
+              producer.source,
+              producer.userId
+            );
+
+            if (stream) {
+              // Attach stream to participant for rendering
+              setParticipants((prev) => {
+                const p = prev[producer.userId];
+                if (!p) return prev;
+                return {
+                  ...prev,
+                  [producer.userId]: {
+                    ...p,
+                    ...(producer.source === 'audio'
+                      ? { audioStream: stream }
+                      : { videoStream: stream }),
+                  },
+                };
+              });
+            }
+          }
+        }
+
+        // Signal ready — main window will pause its consumers
+        await client.signalReady();
+      } catch (err) {
+        console.error('[FramesPip] Init failed:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    setup();
+
+    return () => {
+      client.dispose().catch(console.error);
+      clientRef.current = null;
+    };
+  }, [pipId, onClose]);
+
   const scales = useVoiceMagnification(participants);
   const participantList = Object.values(participants);
 
@@ -97,48 +287,140 @@ const FramesPipContent: React.FC<{
     <div className="pip-window">
       <PipHeader pinned={pinned} onTogglePin={onTogglePin} onClose={onClose} />
       <div className="pip-frames-grid">
-        {participantList.map((p) => (
-          <ParticipantTile
-            key={p.userId}
-            participant={p}
-            compact
-            magnificationScale={scales[p.userId]}
-          />
-        ))}
-        {participantList.length === 0 && (
+        {loading ? (
+          <div className="pip-empty">Connecting...</div>
+        ) : participantList.length === 0 ? (
           <div className="pip-empty">No participants</div>
+        ) : (
+          participantList.map((p) => (
+            <ParticipantTile
+              key={p.userId}
+              participant={p}
+              compact
+              magnificationScale={scales[p.userId]}
+            />
+          ))
         )}
       </div>
     </div>
   );
 };
 
+// ── Screen PiP ──────────────────────────────────────────────────
+
 /**
- * Screen Share PiP — single screen share video.
- * Note: MediaStream objects can't be sent via BroadcastChannel,
- * so true video PiP requires canvas capture or shared memory.
- * For now, shows an informational placeholder.
+ * Screen Share PiP — single screen share video with real MediaStream
+ * via PipVoiceClient's own mediasoup consumer.
  */
 const ScreenPipContent: React.FC<{
   pipId: string;
   pinned: boolean;
   onTogglePin: () => void;
   onClose: () => void;
-}> = ({ pipId: _pipId, pinned, onTogglePin, onClose }) => {
+}> = ({ pipId, pinned, onTogglePin, onClose }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const clientRef = useRef<PipVoiceClient | null>(null);
+  const [sharerName, setSharerName] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [hasStream, setHasStream] = useState(false);
+
+  // Extract producerId from pipId: "screen-{producerId}"
+  const producerId = pipId.replace(/^screen-/, '');
+
+  useEffect(() => {
+    const client = new PipVoiceClient(pipId);
+    clientRef.current = client;
+
+    client.onStateUpdate = (msg: AnyPipBroadcast) => {
+      if (msg.type === 'producer-closed' && msg.producerId === producerId) {
+        // Screen share ended — close PiP
+        onClose();
+      } else if (msg.type === 'voice-ended') {
+        onClose();
+      }
+    };
+
+    const setup = async () => {
+      try {
+        const voiceState = await client.init();
+
+        // Find the screen producer matching our producerId
+        const screenProducer = voiceState.activeProducers.find(
+          (p) => p.producerId === producerId && p.source === 'screen'
+        );
+
+        if (screenProducer) {
+          // Find sharer name
+          const sharer = Object.values(voiceState.participants).find(
+            (p) => p.userId === screenProducer.userId
+          );
+          setSharerName(sharer?.displayName || sharer?.username || 'Unknown');
+
+          // Consume the screen share
+          const stream = await client.consume(
+            screenProducer.producerId,
+            'screen',
+            screenProducer.userId
+          );
+
+          if (stream && videoRef.current) {
+            videoRef.current.srcObject = stream;
+            videoRef.current.play().catch(() => {});
+            setHasStream(true);
+          }
+
+          // Signal ready — main window will pause its screen consumer
+          await client.signalReady();
+        }
+      } catch (err) {
+        console.error('[ScreenPip] Init failed:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    setup();
+
+    return () => {
+      if (videoRef.current) videoRef.current.srcObject = null;
+      client.dispose().catch(console.error);
+      clientRef.current = null;
+    };
+  }, [pipId, producerId, onClose]);
+
   return (
     <div className="pip-window pip-window--screen">
       <PipHeader pinned={pinned} onTogglePin={onTogglePin} onClose={onClose} />
-      <div className="pip-screen-placeholder">
-        <span className="pip-screen-placeholder__text">
-          Screen share PiP
-        </span>
-        <span className="pip-screen-placeholder__sub">
-          View this stream in the main window
-        </span>
-      </div>
+      {loading ? (
+        <div className="pip-screen-placeholder">
+          <span className="pip-screen-placeholder__text">Connecting...</span>
+        </div>
+      ) : !hasStream ? (
+        <div className="pip-screen-placeholder">
+          <span className="pip-screen-placeholder__text">Screen share ended</span>
+          <span className="pip-screen-placeholder__sub">
+            The stream is no longer available
+          </span>
+        </div>
+      ) : null}
+      <video
+        ref={videoRef}
+        className="pip-screen-video"
+        autoPlay
+        playsInline
+        muted
+        style={{ display: hasStream ? 'block' : 'none' }}
+      />
+      {hasStream && sharerName && (
+        <div className="pip-screen-overlay">
+          <span className="pip-screen-overlay__name">{sharerName}&apos;s screen</span>
+        </div>
+      )}
     </div>
   );
 };
+
+// ── Shared Header ───────────────────────────────────────────────
 
 /**
  * Frameless window header with drag region, pin toggle, and close.
