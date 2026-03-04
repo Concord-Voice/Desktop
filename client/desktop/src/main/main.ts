@@ -56,7 +56,7 @@ if (require('electron-squirrel-startup')) {
 
 let mainWindow: BrowserWindow | null = null;
 
-const createWindow = (): void => {
+const createWindow = async (): Promise<void> => {
   // Create the browser window
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -74,14 +74,15 @@ const createWindow = (): void => {
     show: false, // Don't show until ready
   });
 
-  // Load the app: try Vite dev server first, fall back to built files
-  const devServerUrl = 'http://localhost:3001';
-  const isDev = process.env.NODE_ENV === 'development';
-
-  const tryLoadDev = async () => {
+  // Load the app — packaged builds always load from built files.
+  // Unpackaged (electron-forge start) tries the Vite dev server.
+  if (app.isPackaged) {
+    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+  } else {
+    const devServerUrl = 'http://localhost:3001';
+    const http = await import('http');
+    const httpGet = (http.default?.get ?? http.get) as typeof import('http').get;
     try {
-      const http = await import('http');
-      const httpGet = (http.default?.get ?? http.get) as typeof import('http').get;
       await new Promise<void>((resolve, reject) => {
         const req = httpGet(devServerUrl, { timeout: 1000 }, (res) => {
           res.resume();
@@ -93,30 +94,13 @@ const createWindow = (): void => {
           reject(new Error('timeout'));
         });
       });
-      fs.appendFileSync(
-        '/tmp/concord-permissions.log',
-        `\nDev server detected, loading from ${devServerUrl}\n`
-      );
-      mainWindow!.loadURL(devServerUrl);
+      mainWindow.loadURL(devServerUrl);
       if (process.env.DEVTOOLS !== '0') {
-        mainWindow!.webContents.openDevTools();
+        mainWindow.webContents.openDevTools();
       }
-    } catch (err) {
-      fs.appendFileSync(
-        '/tmp/concord-permissions.log',
-        `\nDev server not found (${err}), loading from file\n`
-      );
-      mainWindow!.loadFile(path.join(__dirname, '../renderer/index.html'));
+    } catch {
+      mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
     }
-  };
-
-  if (isDev) {
-    mainWindow.loadURL(devServerUrl);
-    if (process.env.DEVTOOLS !== '0') {
-      mainWindow.webContents.openDevTools();
-    }
-  } else {
-    tryLoadDev();
   }
 
   // Show window when ready to prevent visual flash
@@ -411,7 +395,7 @@ ipcMain.handle(
     });
 
     // Load PiP route (hash-based routing)
-    if (process.env.NODE_ENV === 'development') {
+    if (!app.isPackaged) {
       pip.loadURL(`http://localhost:3001#/pip/${opts.id}`);
     } else {
       pip.loadFile(path.join(__dirname, '../renderer/index.html'), {
@@ -456,13 +440,13 @@ app.on('web-contents-created', (_, contents) => {
   contents.on('will-navigate', (event, navigationUrl) => {
     const parsedUrl = new URL(navigationUrl);
 
-    if (process.env.NODE_ENV === 'development') {
+    if (!app.isPackaged) {
       // In dev, allow localhost navigation (any port) for HMR
       if (parsedUrl.hostname !== 'localhost') {
         event.preventDefault();
       }
     } else {
-      // In production, block all navigation (app loads from file://)
+      // Packaged release: block all navigation (app loads from file://)
       event.preventDefault();
     }
   });
