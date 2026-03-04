@@ -10,7 +10,10 @@ import { AUDIO_QUALITY_TIERS, type AudioQualityTier } from './voiceStore';
 // ---------------------------------------------------------------------------
 
 export type DraftableAudioSettings = Omit<AudioSettings, 'advancedMode'>;
-export type DraftableVideoSettings = Omit<VideoSettings, 'videoAdvancedMode' | 'codecCapabilities' | 'gpuInfo' | 'systemHdr'>;
+export type DraftableVideoSettings = Omit<
+  VideoSettings,
+  'videoAdvancedMode' | 'codecCapabilities' | 'gpuInfo' | 'systemHdr'
+>;
 export type DraftableTTSSettings = TTSSettings;
 export type DraftableAppearanceSettings = AppearanceSettings;
 
@@ -19,28 +22,58 @@ export type DraftableAppearanceSettings = AppearanceSettings;
 // ---------------------------------------------------------------------------
 
 const AUDIO_DRAFTABLE_KEYS: (keyof DraftableAudioSettings)[] = [
-  'noiseCancellation', 'echoCancellation', 'autoGainControl',
-  'noiseGateMode', 'noiseGateLevel', 'musicMode', 'frameSize',
-  'silenceDetection', 'stereoOverride', 'inlineFec', 'fecHeadroom',
-  'opusNack', 'adaptivePtime', 'audioPriority', 'inputVolume',
-  'outputVolume', 'quietBoost', 'quietBoostThreshold', 'networkType',
+  'noiseCancellation',
+  'echoCancellation',
+  'autoGainControl',
+  'noiseGateMode',
+  'noiseGateLevel',
+  'musicMode',
+  'frameSize',
+  'silenceDetection',
+  'stereoOverride',
+  'inlineFec',
+  'fecHeadroom',
+  'opusNack',
+  'adaptivePtime',
+  'audioPriority',
+  'inputVolume',
+  'outputVolume',
+  'quietBoost',
+  'quietBoostThreshold',
+  'networkType',
   'packetLossWarningThreshold',
 ];
 
 const VIDEO_DRAFTABLE_KEYS: (keyof DraftableVideoSettings)[] = [
-  'cameraPreset', 'preferredVideoCodec', 'cameraPriority',
-  'screenResolution', 'screenFrameRate', 'screenContentType',
-  'screenSharePriority', 'screenShareBitrate', 'degradationPreference',
-  'scalabilityMode', 'hardwareAcceleration', 'hdrEncoding',
+  'cameraPreset',
+  'preferredVideoCodec',
+  'cameraPriority',
+  'screenResolution',
+  'screenFrameRate',
+  'screenContentType',
+  'screenSharePriority',
+  'screenShareBitrate',
+  'degradationPreference',
+  'scalabilityMode',
+  'hardwareAcceleration',
+  'hdrEncoding',
 ];
 
 const TTS_DRAFTABLE_KEYS: (keyof DraftableTTSSettings)[] = [
-  'ttsEnabled', 'ttsSendEnabled', 'ttsVoice', 'ttsRate', 'ttsVolume',
+  'ttsEnabled',
+  'ttsSendEnabled',
+  'ttsVoice',
+  'ttsRate',
+  'ttsVolume',
 ];
 
 // Audio fields that differ between Basic and Advanced modes (tier-controlled in Basic)
 const AUDIO_MODE_KEYS: (keyof DraftableAudioSettings)[] = [
-  'silenceDetection', 'inlineFec', 'fecHeadroom', 'frameSize', 'stereoOverride',
+  'silenceDetection',
+  'inlineFec',
+  'fecHeadroom',
+  'frameSize',
+  'stereoOverride',
 ];
 
 // ---------------------------------------------------------------------------
@@ -135,13 +168,21 @@ interface DraftSettingsState {
 
   // Draft setters
   setAppearanceDraft: <K extends keyof DraftableAppearanceSettings>(
-    key: K, value: DraftableAppearanceSettings[K]) => void;
+    key: K,
+    value: DraftableAppearanceSettings[K]
+  ) => void;
   setAudioDraft: <K extends keyof DraftableAudioSettings>(
-    key: K, value: DraftableAudioSettings[K]) => void;
+    key: K,
+    value: DraftableAudioSettings[K]
+  ) => void;
   setVideoDraft: <K extends keyof DraftableVideoSettings>(
-    key: K, value: DraftableVideoSettings[K]) => void;
+    key: K,
+    value: DraftableVideoSettings[K]
+  ) => void;
   setTtsDraft: <K extends keyof DraftableTTSSettings>(
-    key: K, value: DraftableTTSSettings[K]) => void;
+    key: K,
+    value: DraftableTTSSettings[K]
+  ) => void;
 
   // Batch setter (for tier slider which sets 5 fields at once)
   batchSetAudioDrafts: (updates: Partial<DraftableAudioSettings>) => void;
@@ -218,145 +259,154 @@ export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => 
     if (key === 'customColors') {
       useSettingsStore.getState().setCustomColors(value as CustomColors);
     } else {
-      callSetter(useSettingsStore.getState() as unknown as Record<string, unknown>, key as string, value);
+      callSetter(
+        useSettingsStore.getState() as unknown as Record<string, unknown>,
+        key as string,
+        value
+      );
     }
   },
 
-  setAudioDraft: (key, value) => set((state) => {
-    if (!state.snapshot) return state;
-    const snapshotValue = state.snapshot.audio[key];
-    const newDrafts = { ...state.drafts.audio };
+  setAudioDraft: (key, value) =>
+    set((state) => {
+      if (!state.snapshot) return state;
+      const snapshotValue = state.snapshot.audio[key];
+      const newDrafts = { ...state.drafts.audio };
 
-    if (deepEqual(value, snapshotValue)) {
-      delete newDrafts[key];
-    } else {
-      (newDrafts as Record<string, unknown>)[key as string] = value;
-    }
-
-    return { drafts: { ...state.drafts, audio: newDrafts } };
-  }),
-
-  setVideoDraft: (key, value) => set((state) => {
-    if (!state.snapshot) return state;
-    const snapshotValue = state.snapshot.video[key];
-    const newDrafts = { ...state.drafts.video };
-
-    if (deepEqual(value, snapshotValue)) {
-      delete newDrafts[key];
-    } else {
-      (newDrafts as Record<string, unknown>)[key as string] = value;
-    }
-
-    return { drafts: { ...state.drafts, video: newDrafts } };
-  }),
-
-  setTtsDraft: (key, value) => set((state) => {
-    if (!state.snapshot) return state;
-    const snapshotValue = state.snapshot.tts[key];
-    const newDrafts = { ...state.drafts.tts };
-
-    if (deepEqual(value, snapshotValue)) {
-      delete newDrafts[key];
-    } else {
-      (newDrafts as Record<string, unknown>)[key as string] = value;
-    }
-
-    return { drafts: { ...state.drafts, tts: newDrafts } };
-  }),
-
-  batchSetAudioDrafts: (updates) => set((state) => {
-    if (!state.snapshot) return state;
-    const newDrafts = { ...state.drafts.audio };
-
-    for (const [key, value] of Object.entries(updates)) {
-      const k = key as keyof DraftableAudioSettings;
-      if (deepEqual(value, state.snapshot.audio[k])) {
-        delete newDrafts[k];
+      if (deepEqual(value, snapshotValue)) {
+        delete newDrafts[key];
       } else {
-        (newDrafts as Record<string, unknown>)[key] = value;
+        (newDrafts as Record<string, unknown>)[key as string] = value;
       }
-    }
 
-    return { drafts: { ...state.drafts, audio: newDrafts } };
-  }),
+      return { drafts: { ...state.drafts, audio: newDrafts } };
+    }),
+
+  setVideoDraft: (key, value) =>
+    set((state) => {
+      if (!state.snapshot) return state;
+      const snapshotValue = state.snapshot.video[key];
+      const newDrafts = { ...state.drafts.video };
+
+      if (deepEqual(value, snapshotValue)) {
+        delete newDrafts[key];
+      } else {
+        (newDrafts as Record<string, unknown>)[key as string] = value;
+      }
+
+      return { drafts: { ...state.drafts, video: newDrafts } };
+    }),
+
+  setTtsDraft: (key, value) =>
+    set((state) => {
+      if (!state.snapshot) return state;
+      const snapshotValue = state.snapshot.tts[key];
+      const newDrafts = { ...state.drafts.tts };
+
+      if (deepEqual(value, snapshotValue)) {
+        delete newDrafts[key];
+      } else {
+        (newDrafts as Record<string, unknown>)[key as string] = value;
+      }
+
+      return { drafts: { ...state.drafts, tts: newDrafts } };
+    }),
+
+  batchSetAudioDrafts: (updates) =>
+    set((state) => {
+      if (!state.snapshot) return state;
+      const newDrafts = { ...state.drafts.audio };
+
+      for (const [key, value] of Object.entries(updates)) {
+        const k = key as keyof DraftableAudioSettings;
+        if (deepEqual(value, state.snapshot.audio[k])) {
+          delete newDrafts[k];
+        } else {
+          (newDrafts as Record<string, unknown>)[key] = value;
+        }
+      }
+
+      return { drafts: { ...state.drafts, audio: newDrafts } };
+    }),
 
   // ── Mode stashing ───────────────────────────────────────────────────────
 
-  stashAndSwapAudioMode: (toAdvanced, qualityTier) => set((state) => {
-    if (!state.snapshot) return state;
+  stashAndSwapAudioMode: (toAdvanced, qualityTier) =>
+    set((state) => {
+      if (!state.snapshot) return state;
 
-    const currentDrafts = state.drafts.audio;
-    const snapshot = state.snapshot.audio;
+      const currentDrafts = state.drafts.audio;
+      const snapshot = state.snapshot.audio;
 
-    // Pick current effective values for mode-dependent keys
-    const currentModeValues: Partial<DraftableAudioSettings> = {};
-    for (const k of AUDIO_MODE_KEYS) {
-      currentModeValues[k] = (k in currentDrafts ? currentDrafts[k] : snapshot[k]) as never;
-    }
-
-    const newDrafts = { ...currentDrafts };
-
-    if (toAdvanced) {
-      // Basic → Advanced: stash basic, restore advanced
-      const advancedStash = state.audioAdvancedStash;
-      if (advancedStash) {
-        // Restore advanced stash values
-        for (const k of AUDIO_MODE_KEYS) {
-          if (k in advancedStash) {
-            if (deepEqual(advancedStash[k], snapshot[k])) {
-              delete newDrafts[k];
-            } else {
-              (newDrafts as Record<string, unknown>)[k] = advancedStash[k];
-            }
-          }
-        }
+      // Pick current effective values for mode-dependent keys
+      const currentModeValues: Partial<DraftableAudioSettings> = {};
+      for (const k of AUDIO_MODE_KEYS) {
+        currentModeValues[k] = (k in currentDrafts ? currentDrafts[k] : snapshot[k]) as never;
       }
-      // else: keep current values (tier defaults flow through)
 
-      return {
-        audioBasicStash: currentModeValues,
-        drafts: { ...state.drafts, audio: newDrafts },
-      };
-    } else {
-      // Advanced → Basic: stash advanced, restore basic
-      const basicStash = state.audioBasicStash;
-      if (basicStash) {
-        // Restore basic stash values
-        for (const k of AUDIO_MODE_KEYS) {
-          if (k in basicStash) {
-            if (deepEqual(basicStash[k], snapshot[k])) {
-              delete newDrafts[k];
-            } else {
-              (newDrafts as Record<string, unknown>)[k] = basicStash[k];
+      const newDrafts = { ...currentDrafts };
+
+      if (toAdvanced) {
+        // Basic → Advanced: stash basic, restore advanced
+        const advancedStash = state.audioAdvancedStash;
+        if (advancedStash) {
+          // Restore advanced stash values
+          for (const k of AUDIO_MODE_KEYS) {
+            if (k in advancedStash) {
+              if (deepEqual(advancedStash[k], snapshot[k])) {
+                delete newDrafts[k];
+              } else {
+                (newDrafts as Record<string, unknown>)[k] = advancedStash[k];
+              }
             }
           }
         }
-      } else {
-        // No basic stash — set to tier defaults
-        const tc = AUDIO_QUALITY_TIERS[qualityTier];
-        const tierDefaults: Partial<DraftableAudioSettings> = {
-          silenceDetection: tc.opusDtx,
-          inlineFec: tc.opusFec,
-          fecHeadroom: tc.opusFec,
-          frameSize: 0 as 0 | 10 | 20 | 40 | 60,
-          stereoOverride: null,
+        // else: keep current values (tier defaults flow through)
+
+        return {
+          audioBasicStash: currentModeValues,
+          drafts: { ...state.drafts, audio: newDrafts },
         };
-        for (const [k, v] of Object.entries(tierDefaults)) {
-          const key = k as keyof DraftableAudioSettings;
-          if (deepEqual(v, snapshot[key])) {
-            delete newDrafts[key];
-          } else {
-            (newDrafts as Record<string, unknown>)[k] = v;
+      } else {
+        // Advanced → Basic: stash advanced, restore basic
+        const basicStash = state.audioBasicStash;
+        if (basicStash) {
+          // Restore basic stash values
+          for (const k of AUDIO_MODE_KEYS) {
+            if (k in basicStash) {
+              if (deepEqual(basicStash[k], snapshot[k])) {
+                delete newDrafts[k];
+              } else {
+                (newDrafts as Record<string, unknown>)[k] = basicStash[k];
+              }
+            }
+          }
+        } else {
+          // No basic stash — set to tier defaults
+          const tc = AUDIO_QUALITY_TIERS[qualityTier];
+          const tierDefaults: Partial<DraftableAudioSettings> = {
+            silenceDetection: tc.opusDtx,
+            inlineFec: tc.opusFec,
+            fecHeadroom: tc.opusFec,
+            frameSize: 0 as 0 | 10 | 20 | 40 | 60,
+            stereoOverride: null,
+          };
+          for (const [k, v] of Object.entries(tierDefaults)) {
+            const key = k as keyof DraftableAudioSettings;
+            if (deepEqual(v, snapshot[key])) {
+              delete newDrafts[key];
+            } else {
+              (newDrafts as Record<string, unknown>)[k] = v;
+            }
           }
         }
-      }
 
-      return {
-        audioAdvancedStash: currentModeValues,
-        drafts: { ...state.drafts, audio: newDrafts },
-      };
-    }
-  }),
+        return {
+          audioAdvancedStash: currentModeValues,
+          drafts: { ...state.drafts, audio: newDrafts },
+        };
+      }
+    }),
 
   // ── Apply ────────────────────────────────────────────────────────────────
 

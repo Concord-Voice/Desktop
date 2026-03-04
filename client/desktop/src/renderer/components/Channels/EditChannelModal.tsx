@@ -33,7 +33,9 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
   const [name, setName] = useState(channel.name);
   const [emoji, setEmoji] = useState(channel.emoji || '');
   const [groupId, setGroupId] = useState<string>(channel.group_id || '');
-  const [audioQualityTier, setAudioQualityTier] = useState<string | null>(channel.audio_quality_tier ?? null);
+  const [audioQualityTier, setAudioQualityTier] = useState<string | null>(
+    channel.audio_quality_tier ?? null
+  );
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -198,9 +200,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
 
         {/* Channel Emoji (Optional) */}
         <div className="channel-form-group">
-          <label className="channel-form-label">
-            Channel Emoji (Optional)
-          </label>
+          <label className="channel-form-label">Channel Emoji (Optional)</label>
           <div className="emoji-input-wrapper" ref={emojiPickerRef}>
             <div className="emoji-input-container">
               <button
@@ -249,14 +249,18 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
               <span className="channel-type-icon">{getChannelTypeIcon(channel.type)}</span>
               <div className="channel-type-info">
                 <span className="channel-type-name">
-                  {channel.type === 'text' ? 'Text' : channel.type === 'voice' ? 'Voice' : 'Bulletin'}
+                  {channel.type === 'text'
+                    ? 'Text'
+                    : channel.type === 'voice'
+                      ? 'Voice'
+                      : 'Bulletin'}
                 </span>
                 <span className="channel-type-desc">
                   {channel.type === 'text'
                     ? 'Send messages, images, and files'
                     : channel.type === 'voice'
-                    ? 'Voice and video conversations'
-                    : 'Important announcements only'}
+                      ? 'Voice and video conversations'
+                      : 'Important announcements only'}
                 </span>
               </div>
             </div>
@@ -304,7 +308,9 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
               >
                 <div className="channel-type-info">
                   <span className="channel-type-name">Personal</span>
-                  <span className="channel-type-desc">Each user uses their own quality setting</span>
+                  <span className="channel-type-desc">
+                    Each user uses their own quality setting
+                  </span>
                 </div>
               </button>
               {(Object.keys(AUDIO_QUALITY_TIERS) as AudioQualityTier[]).map((tier) => {

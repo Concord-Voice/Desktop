@@ -119,11 +119,7 @@ const EmojiGrid: React.FC<EmojiGridProps> = ({
   }
 
   return (
-    <div
-      ref={viewportRef}
-      className="emoji-picker-grid-viewport"
-      onScroll={handleScroll}
-    >
+    <div ref={viewportRef} className="emoji-picker-grid-viewport" onScroll={handleScroll}>
       <div className="emoji-picker-grid-spacer" style={{ height: totalHeight }}>
         {rows}
       </div>

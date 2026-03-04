@@ -15,7 +15,7 @@ This directory contains the complete WebSocket client implementation for Concord
 - Typing indicators
 - Presence updates
 - Auto-reconnection with exponential backoff
-- JWT authentication
+- Ticket-based authentication (POST /auth/ws-ticket → single-use 30s ticket)
 
 ---
 
@@ -42,7 +42,7 @@ This directory contains the complete WebSocket client implementation for Concord
 └───────────────────────────────┬─────────────────────────────┘
                                  │
                         WebSocket Connection
-                        (ws://localhost:8080/api/v1/ws?token=JWT)
+                        (ws://localhost:8080/api/v1/ws?ticket=<30s-single-use-ticket>)
                                  │
 ┌───────────────────────────────┴─────────────────────────────┐
 │                     Backend (Go/gorilla/websocket)           │
@@ -89,7 +89,7 @@ src/renderer/
 Singleton service that manages the WebSocket connection lifecycle.
 
 **Features:**
-- JWT authentication via query parameter
+- Ticket-based authentication (POST /auth/ws-ticket → 30s single-use ticket)
 - Auto-reconnect with exponential backoff (1s → 2s → 4s → ... up to 30s)
 - Max 10 reconnection attempts
 - Connection state tracking: `DISCONNECTED`, `CONNECTING`, `CONNECTED`, `RECONNECTING`, `ERROR`
@@ -122,10 +122,10 @@ wsService.disconnect();
 ```
 
 **Connection Flow:**
-1. User logs in → JWT token stored in `authStore`
-2. `useWebSocket` hook detects token → calls `wsService.connect(token)`
-3. WebSocket connects to `ws://localhost:8080/api/v1/ws?token=<JWT>`
-4. Backend validates JWT → sends `connected` message with `client_id` and `user_id`
+1. User logs in → JWT access token stored in `authStore`
+2. `useWebSocket` hook detects token → calls `POST /auth/ws-ticket` to obtain a 30-second single-use ticket
+3. WebSocket connects to `ws://localhost:8080/api/v1/ws?ticket=<ticket>`
+4. Backend validates ticket (single-use, expires in 30s) → sends `connected` message with `client_id` and `user_id`
 5. Client stores connection info → notifies UI via `chatStore.setConnectionStatus(true, clientId)`
 6. Auto-resubscribes to all previously subscribed channels
 
@@ -390,11 +390,11 @@ Visual indicator of WebSocket connection state.
 ## Connection Lifecycle
 
 ### 1. Initial Connection
-1. User logs in → JWT token stored in `authStore`
+1. User logs in → JWT access token stored in `authStore`
 2. `App.tsx` renders `ProtectedRoute` → `useWebSocket()` hook activates
-3. Hook detects `accessToken` → calls `wsService.connect(token)`
-4. WebSocket connects to `ws://localhost:8080/api/v1/ws?token=<JWT>`
-5. Backend validates JWT → sends `connected` message
+3. Hook detects `accessToken` → calls `POST /auth/ws-ticket` to get a 30s single-use ticket
+4. WebSocket connects to `ws://localhost:8080/api/v1/ws?ticket=<ticket>`
+5. Backend validates ticket (single-use, 30s TTL) → sends `connected` message
 6. Frontend stores `client_id` and `user_id` → updates `chatStore.isConnected = true`
 7. `ConnectionStatus` component shows "Connected" badge
 
@@ -529,46 +529,48 @@ console.log('Connected:', useChatStore.getState().isConnected);
 ## Known Issues & Future Improvements
 
 ### Current Limitations
-- [ ] No message delivery confirmation (sent vs received vs read)
-- [ ] No offline message queue (messages sent while offline are lost)
+- [x] Message delivery confirmation (sent vs received) — ✅ Implemented (Phase 1B)
+- [x] Offline message queue — ✅ Implemented via `messageQueue.ts`
 - [ ] No typing indicator debouncing (could spam server)
-- [ ] No presence tracking UI (backend supports it, frontend doesn't display)
+- [x] Presence tracking UI — ✅ Implemented (online/offline indicators)
 - [ ] No audio/visual notification for new messages
 
-### Phase 1C Enhancements (Issue #22, #23)
-- [ ] E2EE message encryption/decryption
-- [ ] Presence system UI (online/offline/away indicators)
-- [ ] User avatars in messages
+### Phase 1C Enhancements (Complete)
+- [x] E2EE message encryption/decryption — ✅ Implemented
+- [x] Presence system UI (online/offline/away indicators) — ✅ Implemented
+- [x] User avatars in messages — ✅ Implemented
+- [x] Unread message badges — ✅ Implemented
+- [x] Voice/video signaling via NATS — ✅ Implemented (Media Plane)
 
-### Phase 2 Enhancements
+### Phase 2 Enhancements (Planned)
 - [ ] Message reactions (emoji)
 - [ ] Message threading/replies
 - [ ] File attachments
 - [ ] Message search
-- [ ] Unread message badges
 - [ ] Push notifications
 
 ---
 
 ## Security Considerations
 
-### JWT Token Management
-- ✅ Token sent via query parameter (WebSocket upgrade handshake)
-- ✅ Token validated on backend before upgrade
-- ⚠️  Token visible in network logs (use HTTPS/WSS in production)
-- ✅ Token rotated on expiry (15-minute access token, refresh token available)
+### Ticket-Based Authentication
+- ✅ Client obtains 30-second single-use ticket via `POST /auth/ws-ticket`
+- ✅ Ticket sent via query parameter (WebSocket upgrade handshake) — NOT the raw JWT
+- ✅ Ticket validated and consumed on backend before upgrade (single-use, prevents replay)
+- ✅ JWT blacklist check performed during ticket creation
+- ⚠️  Use HTTPS/WSS in production to protect ticket in transit
 
 ### Connection Security
-- ✅ JWT authentication required for all connections
-- ✅ User ID extracted from JWT (cannot be spoofed)
+- ✅ Ticket-based authentication required for all connections
+- ✅ User ID extracted from validated session (cannot be spoofed)
 - ⚠️  Currently uses `ws://` (unencrypted), must use `wss://` in production
 - ✅ CORS properly configured in backend
 
 ### Message Validation
 - ✅ All messages validated for channel_id
 - ✅ User permissions checked on backend (channel membership)
+- ✅ E2EE message encryption/decryption implemented (Phase 1C)
 - ⚠️  No client-side message validation (trusts backend)
-- 🔜 E2EE encryption in Phase 1C (Issue #22)
 
 ---
 
@@ -588,4 +590,4 @@ console.log('Connected:', useChatStore.getState().isConnected);
 - **Mark** (Backend WebSocket server)
 - **Michael** (Frontend WebSocket client)
 
-Last updated: 2026-02-17
+Last updated: 2026-03-03

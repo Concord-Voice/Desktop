@@ -126,9 +126,14 @@ const ChatView: React.FC = () => {
           rawMsgs.map(async (m) => {
             if (m.is_encrypted && activeChannelId && e2eeService.isInitialized) {
               try {
-                const plaintext = m.key_version && m.key_version > 1
-                  ? await e2eeService.decryptForChannelWithVersion(activeChannelId, m.content, m.key_version)
-                  : await e2eeService.decryptForChannel(activeChannelId, m.content);
+                const plaintext =
+                  m.key_version && m.key_version > 1
+                    ? await e2eeService.decryptForChannelWithVersion(
+                        activeChannelId,
+                        m.content,
+                        m.key_version
+                      )
+                    : await e2eeService.decryptForChannel(activeChannelId, m.content);
                 return { ...m, content: plaintext };
               } catch (err) {
                 const isPending = err instanceof Error && err.message === 'PENDING_KEY';
@@ -150,6 +155,8 @@ const ChatView: React.FC = () => {
         const kept = optimistic.filter(
           (m) => !fetchedIds.has(m.id) && !fetchedIds.has(m.clientMessageId!)
         );
+        // Server returns DESC (newest first); reverse to ASC for chronological display
+        msgs.reverse();
         setMessages(activeChannelId, kept.length > 0 ? [...msgs, ...kept] : msgs);
         setHasMore(msgs.length === MESSAGES_LIMIT);
       } catch (err) {
@@ -201,9 +208,14 @@ const ChatView: React.FC = () => {
         rawMsgs.map(async (m) => {
           if (m.is_encrypted && activeChannelId && e2eeService.isInitialized) {
             try {
-              const plaintext = m.key_version && m.key_version > 1
-                ? await e2eeService.decryptForChannelWithVersion(activeChannelId, m.content, m.key_version)
-                : await e2eeService.decryptForChannel(activeChannelId, m.content);
+              const plaintext =
+                m.key_version && m.key_version > 1
+                  ? await e2eeService.decryptForChannelWithVersion(
+                      activeChannelId,
+                      m.content,
+                      m.key_version
+                    )
+                  : await e2eeService.decryptForChannel(activeChannelId, m.content);
               return { ...m, content: plaintext };
             } catch (err) {
               const isPending = err instanceof Error && err.message === 'PENDING_KEY';
@@ -214,6 +226,8 @@ const ChatView: React.FC = () => {
         })
       );
 
+      // Server returns DESC; reverse to ASC so oldest-first prepends correctly
+      msgs.reverse();
       prependMessages(activeChannelId, msgs);
       setHasMore(msgs.length === MESSAGES_LIMIT);
     } catch (err) {
@@ -301,7 +315,17 @@ const ChatView: React.FC = () => {
         {activeChannel?.emoji ? (
           <span className="chat-header-emoji">{activeChannel.emoji}</span>
         ) : (
-          <svg className="chat-header-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+          <svg
+            className="chat-header-icon"
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
             <line x1="4" y1="9" x2="20" y2="9" />
             <line x1="4" y1="15" x2="20" y2="15" />
             <line x1="10" y1="3" x2="8" y2="21" />

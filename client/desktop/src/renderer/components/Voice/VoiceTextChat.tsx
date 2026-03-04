@@ -52,8 +52,7 @@ const VoiceTextChat: React.FC = () => {
 
   const { sendMessage } = useMessaging();
 
-  const messages: MessageWithStatus[] =
-    (channelId && messagesByChannel.get(channelId)) || [];
+  const messages: MessageWithStatus[] = (channelId && messagesByChannel.get(channelId)) || [];
   const currentUserId = user?.id || '';
 
   // Fetch messages when linked channel becomes available
@@ -89,9 +88,14 @@ const VoiceTextChat: React.FC = () => {
           rawMsgs.map(async (m) => {
             if (m.is_encrypted && channelId && e2eeService.isInitialized) {
               try {
-                const plaintext = m.key_version && m.key_version > 1
-                  ? await e2eeService.decryptForChannelWithVersion(channelId, m.content, m.key_version)
-                  : await e2eeService.decryptForChannel(channelId, m.content);
+                const plaintext =
+                  m.key_version && m.key_version > 1
+                    ? await e2eeService.decryptForChannelWithVersion(
+                        channelId,
+                        m.content,
+                        m.key_version
+                      )
+                    : await e2eeService.decryptForChannel(channelId, m.content);
                 return { ...m, content: plaintext };
               } catch (err) {
                 const isPending = err instanceof Error && err.message === 'PENDING_KEY';
@@ -127,7 +131,9 @@ const VoiceTextChat: React.FC = () => {
     };
 
     fetchMessages();
-    return () => { aborted = true; };
+    return () => {
+      aborted = true;
+    };
   }, [channelId, setMessages]);
 
   const handleLoadMore = useCallback(async () => {
@@ -159,9 +165,14 @@ const VoiceTextChat: React.FC = () => {
         rawMsgs.map(async (m) => {
           if (m.is_encrypted && channelId && e2eeService.isInitialized) {
             try {
-              const plaintext = m.key_version && m.key_version > 1
-                ? await e2eeService.decryptForChannelWithVersion(channelId, m.content, m.key_version)
-                : await e2eeService.decryptForChannel(channelId, m.content);
+              const plaintext =
+                m.key_version && m.key_version > 1
+                  ? await e2eeService.decryptForChannelWithVersion(
+                      channelId,
+                      m.content,
+                      m.key_version
+                    )
+                  : await e2eeService.decryptForChannel(channelId, m.content);
               return { ...m, content: plaintext };
             } catch (err) {
               const isPending = err instanceof Error && err.message === 'PENDING_KEY';
@@ -258,9 +269,17 @@ const VoiceTextChat: React.FC = () => {
           type="button"
           className="voice-text-chat__layout-toggle"
           onClick={toggleVoiceTextChatLayout}
-          title={voiceTextChatLayout === 'horizontal' ? 'Switch to side layout' : 'Switch to bottom layout'}
+          title={
+            voiceTextChatLayout === 'horizontal'
+              ? 'Switch to side layout'
+              : 'Switch to bottom layout'
+          }
         >
-          {voiceTextChatLayout === 'horizontal' ? <PanelRight size={14} /> : <PanelBottom size={14} />}
+          {voiceTextChatLayout === 'horizontal' ? (
+            <PanelRight size={14} />
+          ) : (
+            <PanelBottom size={14} />
+          )}
         </button>
       </div>
 

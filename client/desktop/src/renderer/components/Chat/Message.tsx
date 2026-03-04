@@ -49,7 +49,8 @@ function getEmojiSizeClass(count: number): string {
  * but NOT \p{Emoji_Presentation} — without this, ZWJ sequences containing them
  * (e.g. 🏴‍☠️) get split into their component emoji.
  */
-const EMOJI_REGEX = /(?:\p{Regional_Indicator}{2}|\p{Emoji_Presentation}[\u{E0020}-\u{E007E}]+\u{E007F}|(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F)(?:\u{200D}(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F)|\p{Emoji_Modifier}|\uFE0F?\u{20E3})*)/gu;
+const EMOJI_REGEX =
+  /(?:\p{Regional_Indicator}{2}|\p{Emoji_Presentation}[\u{E0020}-\u{E007E}]+\u{E007F}|(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F)(?:\u{200D}(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F)|\p{Emoji_Modifier}|\uFE0F?\u{20E3})*)/gu;
 
 /**
  * Renders message text with emoji characters wrapped in <span class="emoji">
@@ -65,7 +66,11 @@ function renderContent(text: string): React.ReactNode[] {
     if (match.index > lastIndex) {
       parts.push(text.slice(lastIndex, match.index));
     }
-    parts.push(<span key={match.index} className="emoji">{match[0]}</span>);
+    parts.push(
+      <span key={match.index} className="emoji">
+        {match[0]}
+      </span>
+    );
     lastIndex = EMOJI_REGEX.lastIndex;
   }
   if (lastIndex < text.length) {
@@ -262,9 +267,10 @@ const Message: React.FC<MessageProps> = ({
           </div>
         ) : (
           (() => {
-            const emojiCount = (!message.pendingKeys && !message.decryptFailed)
-              ? getEmojiOnlyCount(message.content)
-              : 0;
+            const emojiCount =
+              !message.pendingKeys && !message.decryptFailed
+                ? getEmojiOnlyCount(message.content)
+                : 0;
             const emojiClass = getEmojiSizeClass(emojiCount);
             return (
               <div className={`message-text${emojiClass ? ` ${emojiClass}` : ''}`}>

@@ -230,9 +230,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
 
         {/* Channel Emoji (Optional) */}
         <div className="channel-form-group">
-          <label className="channel-form-label">
-            Channel Emoji (Optional)
-          </label>
+          <label className="channel-form-label">Channel Emoji (Optional)</label>
           <div className="emoji-input-wrapper" ref={emojiPickerRef}>
             <div className="emoji-input-container">
               <button
@@ -335,7 +333,9 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
               onChange={(e) => setGroupId(e.target.value)}
               disabled={isSubmitting}
             >
-              <option key="__uncategorized" value="">Uncategorized</option>
+              <option key="__uncategorized" value="">
+                Uncategorized
+              </option>
               {channelGroups.map((g) => (
                 <option key={g.id} value={g.id}>
                   {g.name}

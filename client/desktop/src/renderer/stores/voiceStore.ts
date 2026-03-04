@@ -54,7 +54,14 @@ export interface VoiceParticipant {
 // ---------------------------------------------------------------------------
 // Audio quality tiers (must match server-side AUDIO_QUALITY_TIERS)
 // ---------------------------------------------------------------------------
-export type AudioQualityTier = 'minimum' | 'low' | 'moderate' | 'standard' | 'high' | 'hifi' | 'studio';
+export type AudioQualityTier =
+  | 'minimum'
+  | 'low'
+  | 'moderate'
+  | 'standard'
+  | 'high'
+  | 'hifi'
+  | 'studio';
 
 export interface AudioQualityTierConfig {
   label: string;
@@ -246,6 +253,8 @@ interface VoiceState {
 
   // Stream focus behavior
   keepActiveWhileUnfocused: boolean;
+  // When true, the local user's own stream previews are hidden to save GPU/decode resources
+  localStreamPaused: boolean;
 
   // Persistent voice controls (when navigated away from voice channel)
   voiceControlsPinned: boolean;
@@ -338,6 +347,7 @@ interface VoiceState {
 
   // Stream focus behavior
   setKeepActiveWhileUnfocused: (keep: boolean) => void;
+  setLocalStreamPaused: (paused: boolean) => void;
 
   // Persistent voice controls
   setVoiceControlsPinned: (pinned: boolean) => void;
@@ -390,22 +400,34 @@ const initialState = {
   voiceTextChatHeight: (() => {
     try {
       const s = localStorage.getItem('concord:voice-text-chat-height');
-      if (s) { const n = parseInt(s, 10); if (!isNaN(n) && n >= 150) return n; }
-    } catch { /* ignore */ }
+      if (s) {
+        const n = parseInt(s, 10);
+        if (!isNaN(n) && n >= 150) return n;
+      }
+    } catch {
+      /* ignore */
+    }
     return 300;
   })(),
   voiceTextChatLayout: (() => {
     try {
       const s = localStorage.getItem('concord:voice-text-chat-layout');
       if (s === 'horizontal' || s === 'vertical') return s as 'horizontal' | 'vertical';
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return 'horizontal' as const;
   })() as 'horizontal' | 'vertical',
   voiceTextChatWidth: (() => {
     try {
       const s = localStorage.getItem('concord:voice-text-chat-width');
-      if (s) { const n = parseInt(s, 10); if (!isNaN(n) && n >= 250) return n; }
-    } catch { /* ignore */ }
+      if (s) {
+        const n = parseInt(s, 10);
+        if (!isNaN(n) && n >= 250) return n;
+      }
+    } catch {
+      /* ignore */
+    }
     return 350;
   })(),
   serverVoiceCounts: {} as Record<string, number>,
@@ -420,8 +442,13 @@ const initialState = {
   stageLayout: 'focus' as 'equal' | 'focus',
   pipWindows: [] as string[],
   keepActiveWhileUnfocused: (() => {
-    try { return localStorage.getItem('concord:keep-active-unfocused') === 'true'; } catch { return false; }
+    try {
+      return localStorage.getItem('concord:keep-active-unfocused') === 'true';
+    } catch {
+      return false;
+    }
   })(),
+  localStreamPaused: false,
   voiceControlsPinned: true,
   voiceControlsPoppedOut: false,
   persistentTextChatHeight: 250,
@@ -453,22 +480,42 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
   setAudioInputDevice: (audioInputDeviceId) => {
     set({ audioInputDeviceId });
     const s = useVoiceStore.getState();
-    savePersistedSettings({ audioInputDeviceId, audioOutputDeviceId: s.audioOutputDeviceId, videoDeviceId: s.videoDeviceId, qualityTier: s.qualityTier });
+    savePersistedSettings({
+      audioInputDeviceId,
+      audioOutputDeviceId: s.audioOutputDeviceId,
+      videoDeviceId: s.videoDeviceId,
+      qualityTier: s.qualityTier,
+    });
   },
   setAudioOutputDevice: (audioOutputDeviceId) => {
     set({ audioOutputDeviceId });
     const s = useVoiceStore.getState();
-    savePersistedSettings({ audioInputDeviceId: s.audioInputDeviceId, audioOutputDeviceId, videoDeviceId: s.videoDeviceId, qualityTier: s.qualityTier });
+    savePersistedSettings({
+      audioInputDeviceId: s.audioInputDeviceId,
+      audioOutputDeviceId,
+      videoDeviceId: s.videoDeviceId,
+      qualityTier: s.qualityTier,
+    });
   },
   setVideoDevice: (videoDeviceId) => {
     set({ videoDeviceId });
     const s = useVoiceStore.getState();
-    savePersistedSettings({ audioInputDeviceId: s.audioInputDeviceId, audioOutputDeviceId: s.audioOutputDeviceId, videoDeviceId, qualityTier: s.qualityTier });
+    savePersistedSettings({
+      audioInputDeviceId: s.audioInputDeviceId,
+      audioOutputDeviceId: s.audioOutputDeviceId,
+      videoDeviceId,
+      qualityTier: s.qualityTier,
+    });
   },
   setQualityTier: (qualityTier) => {
     set({ qualityTier });
     const s = useVoiceStore.getState();
-    savePersistedSettings({ audioInputDeviceId: s.audioInputDeviceId, audioOutputDeviceId: s.audioOutputDeviceId, videoDeviceId: s.videoDeviceId, qualityTier });
+    savePersistedSettings({
+      audioInputDeviceId: s.audioInputDeviceId,
+      audioOutputDeviceId: s.audioOutputDeviceId,
+      videoDeviceId: s.videoDeviceId,
+      qualityTier,
+    });
   },
   setEffectiveQualityTier: (effectiveQualityTier) => set({ effectiveQualityTier }),
   setDecoderHealth: (decoderHealth) => set({ decoderHealth }),
@@ -554,26 +601,39 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
     set({ voiceTextChatHeight: height });
     try {
       localStorage.setItem('concord:voice-text-chat-height', String(height));
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   },
   setVoiceTextChatLayout: (layout) => {
     set({ voiceTextChatLayout: layout });
-    try { localStorage.setItem('concord:voice-text-chat-layout', layout); } catch { /* ignore */ }
+    try {
+      localStorage.setItem('concord:voice-text-chat-layout', layout);
+    } catch {
+      /* ignore */
+    }
   },
   toggleVoiceTextChatLayout: () =>
     set((state) => {
       const next = state.voiceTextChatLayout === 'horizontal' ? 'vertical' : 'horizontal';
-      try { localStorage.setItem('concord:voice-text-chat-layout', next); } catch { /* ignore */ }
+      try {
+        localStorage.setItem('concord:voice-text-chat-layout', next);
+      } catch {
+        /* ignore */
+      }
       return { voiceTextChatLayout: next };
     }),
   setVoiceTextChatWidth: (width) => {
     set({ voiceTextChatWidth: width });
-    try { localStorage.setItem('concord:voice-text-chat-width', String(width)); } catch { /* ignore */ }
+    try {
+      localStorage.setItem('concord:voice-text-chat-width', String(width));
+    } catch {
+      /* ignore */
+    }
   },
 
   // Server voice counts
-  setServerVoiceCounts: (counts) =>
-    set({ serverVoiceCounts: counts }),
+  setServerVoiceCounts: (counts) => set({ serverVoiceCounts: counts }),
   setServerVoiceCount: (serverId, count) =>
     set((state) => ({
       serverVoiceCounts: { ...state.serverVoiceCounts, [serverId]: Math.max(0, count) },
@@ -609,7 +669,7 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
       const count = Object.keys(rest).length;
       const dominant =
         state.dominantScreenShareId === producerId
-          ? Object.keys(rest)[0] ?? null
+          ? (Object.keys(rest)[0] ?? null)
           : state.dominantScreenShareId;
       return {
         tunedInScreenShares: rest,
@@ -646,11 +706,17 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
   // Stream focus behavior
   setKeepActiveWhileUnfocused: (keep) => {
     set({ keepActiveWhileUnfocused: keep });
-    try { localStorage.setItem('concord:keep-active-unfocused', String(keep)); } catch { /* ignore */ }
+    try {
+      localStorage.setItem('concord:keep-active-unfocused', String(keep));
+    } catch {
+      /* ignore */
+    }
   },
+  setLocalStreamPaused: (localStreamPaused) => set({ localStreamPaused }),
 
   setVoiceControlsPinned: (voiceControlsPinned) => set({ voiceControlsPinned }),
-  toggleVoiceControlsPinned: () => set((state) => ({ voiceControlsPinned: !state.voiceControlsPinned })),
+  toggleVoiceControlsPinned: () =>
+    set((state) => ({ voiceControlsPinned: !state.voiceControlsPinned })),
   setVoiceControlsPoppedOut: (voiceControlsPoppedOut) => set({ voiceControlsPoppedOut }),
   setPersistentTextChatHeight: (persistentTextChatHeight) => set({ persistentTextChatHeight }),
 

@@ -1,6 +1,10 @@
 import React, { useCallback } from 'react';
 import { Loader, RefreshCw, LogOut, AlertTriangle, Wifi } from 'lucide-react';
-import { useConnectionStore, type RecoveryPhase, type DiagnosticResults } from '../../stores/connectionStore';
+import {
+  useConnectionStore,
+  type RecoveryPhase,
+  type DiagnosticResults,
+} from '../../stores/connectionStore';
 import { runPreflight } from '../../services/recoveryService';
 import { softRestart } from '../../services/resetService';
 import './ConnectionLostOverlay.css';
@@ -31,7 +35,13 @@ function DiagnosticDisplay({ diagnostics }: { diagnostics: DiagnosticResults | n
 }
 
 /** Phase-specific card content */
-function PhaseContent({ phase, diagnostics }: { phase: RecoveryPhase; diagnostics: DiagnosticResults | null }) {
+function PhaseContent({
+  phase,
+  diagnostics,
+}: {
+  phase: RecoveryPhase;
+  diagnostics: DiagnosticResults | null;
+}) {
   const handleRetry = useCallback(async () => {
     const store = useConnectionStore.getState();
     store.enterPreflight();

@@ -178,7 +178,10 @@
   font-family: 'BaronNeue', sans-serif;
   letter-spacing: 0.5px;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    opacity 0.2s ease;
   text-transform: uppercase;
   display: flex;
   align-items: center;

@@ -39,10 +39,13 @@ const ChannelPanel: React.FC<ChannelPanelProps> = ({ header, children, forcePin 
 
   const startHideTimeout = useCallback(() => {
     clearHideTimeout();
-    hideTimeoutRef.current = setTimeout(() => {
-      setIsHovered(false);
-      hideChannelPanelHover();
-    }, reduceAnimations ? 200 : 1000);
+    hideTimeoutRef.current = setTimeout(
+      () => {
+        setIsHovered(false);
+        hideChannelPanelHover();
+      },
+      reduceAnimations ? 200 : 1000
+    );
   }, [clearHideTimeout, hideChannelPanelHover, reduceAnimations]);
 
   const handleMouseEnter = useCallback(() => {

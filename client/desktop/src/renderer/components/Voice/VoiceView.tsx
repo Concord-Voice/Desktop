@@ -3,6 +3,7 @@ import { Lock, Users, ChevronUp, ChevronDown } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useChannelStore } from '../../stores/channelStore';
 import { getVoiceService } from '../../services/voiceLazy';
+import { PipSignalingProxy } from '../../services/pipSignalingProxy';
 import { AudioOutputs, UserFrameGrid } from './ParticipantGrid';
 import UserFrameBar from './UserFrameBar';
 import VoiceStage from './VoiceStage';
@@ -81,30 +82,63 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     hasJoinedRef.current = isConnected;
   }, [channelId, isConnected]);
 
-  // Pause local screen share when window loses focus (unless keepActiveWhileUnfocused)
-  const screenPausedByFocusRef = useRef(false);
-
+  // Auto-pause: hide local stream previews when window loses focus to save
+  // GPU/decode resources. The producer keeps running — other participants
+  // still see the stream. Only the local rendering is paused.
   useEffect(() => {
     if (!isConnected || !isScreenSharing) {
-      screenPausedByFocusRef.current = false;
+      useVoiceStore.getState().setLocalStreamPaused(false);
       return;
     }
 
-    const handleVisibility = async () => {
+    const handleBlur = () => {
       if (keepActiveWhileUnfocused) return;
-      const { voiceService } = await getVoiceService();
-      if (document.hidden) {
-        voiceService.pauseLocalProducer('screen');
-        screenPausedByFocusRef.current = true;
-      } else if (screenPausedByFocusRef.current) {
-        voiceService.resumeLocalProducer('screen');
-        screenPausedByFocusRef.current = false;
-      }
+      useVoiceStore.getState().setLocalStreamPaused(true);
     };
 
-    document.addEventListener('visibilitychange', handleVisibility);
-    return () => document.removeEventListener('visibilitychange', handleVisibility);
+    const handleFocus = () => {
+      if (!useVoiceStore.getState().localStreamPaused) return;
+      useVoiceStore.getState().setLocalStreamPaused(false);
+    };
+
+    window.addEventListener('blur', handleBlur);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('focus', handleFocus);
+      // Ensure we unpause if this effect cleans up (e.g. screen share stops)
+      useVoiceStore.getState().setLocalStreamPaused(false);
+    };
   }, [isConnected, isScreenSharing, keepActiveWhileUnfocused]);
+
+  // PiP signaling proxy: create when connected, dispose when disconnected.
+  // This enables PiP BrowserWindows to proxy mediasoup signaling through
+  // the main window's Socket.IO connection.
+  useEffect(() => {
+    if (!isConnected) return;
+    let proxy: PipSignalingProxy | null = null;
+
+    getVoiceService().then(({ voiceService }) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      proxy = new PipSignalingProxy(voiceService as any);
+
+      // Listen for PiP window closes to resume paused consumers
+      const cleanup = window.electron?.onPipClosed?.((pipId: string) => {
+        proxy?.onPipClosed(pipId);
+      });
+
+      // Store cleanup for the effect teardown
+      (proxy as PipSignalingProxy & { _ipcCleanup?: () => void })._ipcCleanup = cleanup;
+    });
+
+    return () => {
+      if (proxy) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (proxy as any)._ipcCleanup?.();
+        proxy.dispose();
+      }
+    };
+  }, [isConnected]);
 
   // Text chat resize (layout-aware: vertical uses X axis, horizontal uses Y axis)
   const handleChatResizeStart = useCallback(
@@ -146,25 +180,25 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
       document.addEventListener('mousemove', onMouseMove);
       document.addEventListener('mouseup', onMouseUp);
     },
-    [voiceTextChatLayout, voiceTextChatHeight, voiceTextChatWidth, setVoiceTextChatHeight, setVoiceTextChatWidth]
+    [
+      voiceTextChatLayout,
+      voiceTextChatHeight,
+      voiceTextChatWidth,
+      setVoiceTextChatHeight,
+      setVoiceTextChatWidth,
+    ]
   );
 
   // Section resize factory (for UserFrameBar / StreamBar)
   const makeSectionResizeStart = useCallback(
-    (
-      section: 'top' | 'bottom',
-      currentHeight: number,
-      setter: (h: number) => void
-    ) =>
+    (section: 'top' | 'bottom', currentHeight: number, setter: (h: number) => void) =>
       (e: React.MouseEvent) => {
         e.preventDefault();
         const startY = e.clientY;
         const startHeight = currentHeight;
 
         const onMouseMove = (moveEvent: MouseEvent) => {
-          const delta = section === 'top'
-            ? moveEvent.clientY - startY
-            : startY - moveEvent.clientY;
+          const delta = section === 'top' ? moveEvent.clientY - startY : startY - moveEvent.clientY;
           const newHeight = Math.max(MIN_SECTION_HEIGHT, startHeight + delta);
           setter(newHeight);
         };
@@ -196,11 +230,7 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
                 ? `${channelVoiceMembers[channelId].length} user${channelVoiceMembers[channelId].length === 1 ? '' : 's'} in this channel`
                 : 'No one is in this voice channel yet.'}
           </p>
-          <button
-            className="voice-view__join-btn"
-            onClick={handleJoin}
-            disabled={isConnecting}
-          >
+          <button className="voice-view__join-btn" onClick={handleJoin} disabled={isConnecting}>
             {isConnecting ? 'Connecting...' : 'Join Voice'}
           </button>
         </div>
@@ -242,7 +272,9 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
       </div>
 
       {/* Content wrapper: voice area + optional text chat (switches flex direction) */}
-      <div className={`voice-view__content ${isVerticalLayout ? 'voice-view__content--vertical' : 'voice-view__content--horizontal'}`}>
+      <div
+        className={`voice-view__content ${isVerticalLayout ? 'voice-view__content--vertical' : 'voice-view__content--horizontal'}`}
+      >
         {/* Voice area — one resizable entity vs text chat */}
         <div className="voice-view__voice-area">
           {/* Audio outputs (always rendered, hidden) */}
@@ -252,15 +284,17 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
             /* Mode B: Three-section layout */
             <>
               {/* User Frame Bar (top) */}
-              {showUserFrameBar && (
-                <UserFrameBar height={userFrameBarHeight} />
-              )}
+              {showUserFrameBar && <UserFrameBar height={userFrameBarHeight} />}
 
               {/* Resize handle: UserFrameBar ↔ VoiceStage */}
               <div className="voice-view__section-handle">
                 <div
                   className="voice-view__section-handle-grip"
-                  onMouseDown={makeSectionResizeStart('top', userFrameBarHeight, setUserFrameBarHeight)}
+                  onMouseDown={makeSectionResizeStart(
+                    'top',
+                    userFrameBarHeight,
+                    setUserFrameBarHeight
+                  )}
                 />
                 <button
                   className="voice-view__section-toggle"
@@ -279,7 +313,11 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
                 <div className="voice-view__section-handle">
                   <div
                     className="voice-view__section-handle-grip"
-                    onMouseDown={makeSectionResizeStart('bottom', streamBarHeight, setStreamBarHeight)}
+                    onMouseDown={makeSectionResizeStart(
+                      'bottom',
+                      streamBarHeight,
+                      setStreamBarHeight
+                    )}
                   />
                   <button
                     className="voice-view__section-toggle"
@@ -292,9 +330,7 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
               )}
 
               {/* Stream Bar (bottom — non-dominant shares, focus mode only) */}
-              {showStreamSection && showStreamBar && (
-                <StreamBar height={streamBarHeight} />
-              )}
+              {showStreamSection && showStreamBar && <StreamBar height={streamBarHeight} />}
             </>
           ) : (
             /* Mode A: Centered user frames */
@@ -330,16 +366,10 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
       {/* Text chat panel — horizontal (bottom) layout only */}
       {showChat && !isVerticalLayout && (
         <>
-          <div
-            className="voice-text-chat-resize"
-            onMouseDown={handleChatResizeStart}
-          >
+          <div className="voice-text-chat-resize" onMouseDown={handleChatResizeStart}>
             <div className="voice-text-chat-resize__grip" />
           </div>
-          <div
-            className="voice-view__text-chat"
-            style={{ height: voiceTextChatHeight }}
-          >
+          <div className="voice-view__text-chat" style={{ height: voiceTextChatHeight }}>
             <VoiceTextChat />
           </div>
         </>

@@ -92,14 +92,14 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
     >
       <div
         className={`member-profile-banner ${member.header_image_url ? 'has-image' : ''}`}
-        style={!member.header_image_url && userColors ? { background: userColors.gradient, opacity: 0.6 } : undefined}
+        style={
+          !member.header_image_url && userColors
+            ? { background: userColors.gradient, opacity: 0.6 }
+            : undefined
+        }
       >
         {member.header_image_url && (
-          <img
-            src={member.header_image_url}
-            alt=""
-            className="member-profile-banner-img"
-          />
+          <img src={member.header_image_url} alt="" className="member-profile-banner-img" />
         )}
       </div>
 

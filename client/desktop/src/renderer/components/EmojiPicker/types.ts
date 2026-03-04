@@ -1,6 +1,6 @@
 export interface EmojiEntry {
-  e: string;  // emoji character
-  n: string;  // name/description for search
+  e: string; // emoji character
+  n: string; // name/description for search
   s: boolean; // skin tone support
 }
 

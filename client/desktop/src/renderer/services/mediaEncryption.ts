@@ -47,17 +47,12 @@ export const UNENCRYPTED_BYTES: Record<string, number> = {
 };
 
 /** Derive an AES-128-GCM key from a channel CSK + sender userId via HKDF */
-async function deriveFrameKey(
-  channelCSK: CryptoKey,
-  senderUserId: string
-): Promise<CryptoKey> {
+async function deriveFrameKey(channelCSK: CryptoKey, senderUserId: string): Promise<CryptoKey> {
   // Export the CSK to raw bytes for use as HKDF input key material
   const cskBytes = await crypto.subtle.exportKey('raw', channelCSK);
 
   // Import as HKDF key
-  const hkdfKey = await crypto.subtle.importKey('raw', cskBytes, 'HKDF', false, [
-    'deriveKey',
-  ]);
+  const hkdfKey = await crypto.subtle.importKey('raw', cskBytes, 'HKDF', false, ['deriveKey']);
 
   // Derive AES-128-GCM frame key (extractable: true so it can be ratcheted on epoch rotation)
   return crypto.subtle.deriveKey(
@@ -77,9 +72,7 @@ async function deriveFrameKey(
 /** Ratchet a key forward (for epoch rotation) */
 async function ratchetKey(currentKey: CryptoKey): Promise<CryptoKey> {
   const keyBytes = await crypto.subtle.exportKey('raw', currentKey);
-  const hkdfKey = await crypto.subtle.importKey('raw', keyBytes, 'HKDF', false, [
-    'deriveKey',
-  ]);
+  const hkdfKey = await crypto.subtle.importKey('raw', keyBytes, 'HKDF', false, ['deriveKey']);
   return crypto.subtle.deriveKey(
     {
       name: 'HKDF',
@@ -120,11 +113,7 @@ export class MediaEncryption {
   }
 
   /** Add a decryption key for a remote sender */
-  async addDecryptKey(
-    channelCSK: CryptoKey,
-    senderUserId: string,
-    keyId = 0
-  ): Promise<void> {
+  async addDecryptKey(channelCSK: CryptoKey, senderUserId: string, keyId = 0): Promise<void> {
     const key = await deriveFrameKey(channelCSK, senderUserId);
     this.decryptKeys.set(`${senderUserId}:${keyId}`, {
       key,
@@ -247,9 +236,7 @@ export class MediaEncryption {
 
   /** Encrypt a media frame (called by Insertable Streams transform).
    *  Throws if encryption fails — caller should drop the frame. */
-  async encryptFrame(
-    frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame
-  ): Promise<void> {
+  async encryptFrame(frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame): Promise<void> {
     if (!this.encryptKey) throw new Error('E2EE: no encrypt key');
 
     const data = new Uint8Array(frame.data);
@@ -274,9 +261,7 @@ export class MediaEncryption {
     );
 
     // Compose: [header][ciphertext + 16-byte tag][1-byte keyId][12-byte IV][2-byte magic]
-    const result = new Uint8Array(
-      header.length + ciphertext.byteLength + 1 + 12 + 2
-    );
+    const result = new Uint8Array(header.length + ciphertext.byteLength + 1 + 12 + 2);
     result.set(header);
     result.set(new Uint8Array(ciphertext), header.length);
     let offset = header.length + ciphertext.byteLength;
@@ -345,10 +330,7 @@ export class MediaEncryption {
     if (data.length < TRAILER_SIZE + 1) return; // Too small to be encrypted
 
     // Check magic trailer — if absent, frame is not encrypted (pass through)
-    if (
-      data[data.length - 1] !== MAGIC_1 ||
-      data[data.length - 2] !== MAGIC_0
-    ) {
+    if (data[data.length - 1] !== MAGIC_1 || data[data.length - 2] !== MAGIC_0) {
       return; // Unencrypted frame — leave as-is for the decoder
     }
 

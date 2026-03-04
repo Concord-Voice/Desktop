@@ -21,7 +21,7 @@ function bannerGradient(userId: string): string {
   for (let i = 0; i < userId.length; i++) {
     hash = ((hash << 5) - hash + userId.charCodeAt(i)) | 0;
   }
-  const hue1 = ((hash >>> 0) % 360);
+  const hue1 = (hash >>> 0) % 360;
   const hue2 = (hue1 + 60) % 360;
   return `linear-gradient(135deg, hsl(${hue1}, 60%, 35%), hsl(${hue2}, 60%, 25%))`;
 }
@@ -49,24 +49,20 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
   }, [participant.videoStream]);
 
   const displayName = participant.displayName || participant.username;
-  const hasVideo = participant.isVideoOn && participant.videoStream;
+  // Auto-pause only applies to screen shares (VoiceStage/StreamBar), not camera video
+  const hasVideo = participant.isVideoOn && !!participant.videoStream;
   const memberColorScheme = useMemberStore((state) => {
     const member = state.members.find((m) => m.user_id === participant.userId);
     return member?.color_scheme;
   });
-  const userColors = useMemo(
-    () => resolveUserAccentColors(memberColorScheme),
-    [memberColorScheme]
-  );
+  const userColors = useMemo(() => resolveUserAccentColors(memberColorScheme), [memberColorScheme]);
   const gradient = useMemo(
     () => userColors?.gradient ?? bannerGradient(participant.userId),
     [userColors, participant.userId]
   );
 
   const scaleStyle =
-    magnificationScale !== 1
-      ? { transform: `scale(${magnificationScale})`, zIndex: 2 }
-      : undefined;
+    magnificationScale !== 1 ? { transform: `scale(${magnificationScale})`, zIndex: 2 } : undefined;
 
   return (
     <div
@@ -76,13 +72,7 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
       {hasVideo ? (
         /* Video mode — fills the frame, name overlay at bottom */
         <>
-          <video
-            ref={videoRef}
-            className="participant-tile__video"
-            autoPlay
-            playsInline
-            muted
-          />
+          <video ref={videoRef} className="participant-tile__video" autoPlay playsInline muted />
           <div className="participant-tile__video-name">
             <span className="participant-tile__video-name-text">
               {displayName}
@@ -93,10 +83,7 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
       ) : (
         /* Default square frame — banner + avatar + name */
         <>
-          <div
-            className="participant-tile__banner"
-            style={{ background: gradient }}
-          />
+          <div className="participant-tile__banner" style={{ background: gradient }} />
           <div className="participant-tile__body">
             <div className="participant-tile__avatar">
               {participant.avatarUrl ? (

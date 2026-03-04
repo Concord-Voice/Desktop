@@ -10,7 +10,11 @@ interface ServerActionBarProps {
   onOpenCreateCategoryModal: () => void;
 }
 
-const ServerActionBar: React.FC<ServerActionBarProps> = ({ server, onOpenCreateModal, onOpenCreateCategoryModal }) => {
+const ServerActionBar: React.FC<ServerActionBarProps> = ({
+  server,
+  onOpenCreateModal,
+  onOpenCreateCategoryModal,
+}) => {
   const [showPopup, setShowPopup] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -135,14 +139,20 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({ server, onOpenCreateM
         <div className="add-menu-popup" ref={addMenuRef}>
           <button
             className="add-menu-item"
-            onClick={() => { setShowAddMenu(false); onOpenCreateModal(); }}
+            onClick={() => {
+              setShowAddMenu(false);
+              onOpenCreateModal();
+            }}
           >
             <Plus size={14} />
             <span>Channel</span>
           </button>
           <button
             className="add-menu-item"
-            onClick={() => { setShowAddMenu(false); onOpenCreateCategoryModal(); }}
+            onClick={() => {
+              setShowAddMenu(false);
+              onOpenCreateCategoryModal();
+            }}
           >
             <Plus size={14} />
             <span>Category</span>

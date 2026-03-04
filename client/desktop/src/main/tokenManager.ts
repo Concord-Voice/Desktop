@@ -15,7 +15,13 @@
 import { app, safeStorage, net } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { getMachineId } from './machineId';
+
+/** Compute the same SHA-256 hex hash the server uses for DB lookups */
+function clientHashToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
 
 // ─── Module State (never leaves this process) ────────────────────────
 
@@ -52,9 +58,21 @@ function readMeta(): { apiBase: string; rememberMe: boolean } | null {
 }
 
 function deleteFiles(): void {
-  try { fs.unlinkSync(TOKEN_FILE); } catch { /* no-op */ }
-  try { fs.unlinkSync(META_FILE); } catch { /* no-op */ }
-  try { fs.unlinkSync(E2EE_FILE); } catch { /* no-op */ }
+  try {
+    fs.unlinkSync(TOKEN_FILE);
+  } catch {
+    /* no-op */
+  }
+  try {
+    fs.unlinkSync(META_FILE);
+  } catch {
+    /* no-op */
+  }
+  try {
+    fs.unlinkSync(E2EE_FILE);
+  } catch {
+    /* no-op */
+  }
 }
 
 // ─── Public API ──────────────────────────────────────────────────────
@@ -70,12 +88,17 @@ export function storeRefreshToken(data: {
   rememberMe: boolean;
   apiBase: string;
 }): void {
+  const suffix = data.refreshToken?.slice(-8) ?? '(empty)';
+  const hash = data.refreshToken ? clientHashToken(data.refreshToken).slice(0, 16) : '(none)';
   inMemoryRefreshToken = data.refreshToken;
   inMemoryRememberMe = data.rememberMe;
   inMemoryApiBase = data.apiBase;
 
   if (!data.rememberMe) {
     // Session-only: clear any persisted token
+    console.log(
+      `[TokenManager] storeRefreshToken: rememberMe=false, deleting disk files (token …${suffix}, hash=${hash})`
+    );
     deleteFiles();
     return;
   }
@@ -90,6 +113,19 @@ export function storeRefreshToken(data: {
     const encrypted = safeStorage.encryptString(data.refreshToken);
     fs.writeFileSync(TOKEN_FILE, encrypted);
     writeMeta(data.apiBase, data.rememberMe);
+
+    // Verify disk round-trip: read back and compare
+    const readBack = fs.readFileSync(TOKEN_FILE);
+    const decrypted = safeStorage.decryptString(readBack);
+    if (decrypted !== data.refreshToken) {
+      console.error(
+        `[TokenManager] DISK ROUND-TRIP MISMATCH! Stored …${suffix}, read back …${decrypted.slice(-8)}`
+      );
+    } else {
+      console.log(
+        `[TokenManager] storeRefreshToken: persisted to disk ✓ (token …${suffix}, hash=${hash}, rememberMe=true)`
+      );
+    }
   } catch (err) {
     console.error('[TokenManager] Failed to encrypt/write token:', err);
   }
@@ -99,19 +135,31 @@ export function storeRefreshToken(data: {
  * Restore the refresh token from disk on app startup.
  * Returns the token or an error status.
  */
-export function restoreRefreshToken(): { status: 'ok'; token: string; apiBase: string } | { status: 'no_session' | 'tampered' | 'unavailable' } {
+export function restoreRefreshToken():
+  | { status: 'ok'; token: string; apiBase: string }
+  | { status: 'no_session' | 'tampered' | 'unavailable' } {
   if (!canPersist()) {
+    console.log('[TokenManager] restoreRefreshToken: safeStorage unavailable');
     return { status: 'unavailable' };
   }
 
   const meta = readMeta();
   if (!meta) {
+    const tokenFileExists = fs.existsSync(TOKEN_FILE);
+    console.log(
+      `[TokenManager] restoreRefreshToken: no meta file (token file exists: ${tokenFileExists})`
+    );
     return { status: 'no_session' };
   }
 
   try {
     const encrypted = fs.readFileSync(TOKEN_FILE);
     const token = safeStorage.decryptString(encrypted);
+    const suffix = token.slice(-8);
+    const hash = clientHashToken(token).slice(0, 16);
+    console.log(
+      `[TokenManager] restoreRefreshToken: restored from disk (token …${suffix}, hash=${hash}, rememberMe=${meta.rememberMe}, apiBase=${meta.apiBase})`
+    );
     inMemoryRefreshToken = token;
     inMemoryRememberMe = meta.rememberMe;
     inMemoryApiBase = meta.apiBase;
@@ -128,7 +176,11 @@ export function restoreRefreshToken(): { status: 'ok'; token: string; apiBase: s
  * Perform a token refresh via the main process.
  * Deduplicates concurrent calls. Returns only the access token.
  */
-export function performRefresh(): Promise<{ status: string; accessToken?: string; sessionId?: string }> {
+export function performRefresh(): Promise<{
+  status: string;
+  accessToken?: string;
+  sessionId?: string;
+}> {
   if (refreshPromise) {
     return refreshPromise;
   }
@@ -139,19 +191,35 @@ export function performRefresh(): Promise<{ status: string; accessToken?: string
     }
 
     try {
+      const tokenSuffix = inMemoryRefreshToken.slice(-8);
+      const tokenHash = clientHashToken(inMemoryRefreshToken).slice(0, 16);
+      console.log(`[TokenManager] Refreshing token (…${tokenSuffix}, hash=${tokenHash})`);
+
       const response = await net.fetch(`${inMemoryApiBase}/api/v1/auth/refresh`, {
         method: 'POST',
         headers: {
           'X-Refresh-Token': inMemoryRefreshToken,
           'X-Machine-Id': getMachineId(),
         },
+        // Omit cookies — Chromium's persistent cookie store may contain a stale
+        // refresh_token cookie from a previous session/login.  The server reads
+        // cookies before the X-Refresh-Token header, so a stale cookie would
+        // shadow the correct header value and cause a 401.
+        credentials: 'omit',
       });
 
       if (!response.ok) {
+        console.warn(
+          `[TokenManager] Refresh failed: HTTP ${response.status} (token …${tokenSuffix})`
+        );
         return { status: 'refresh_failed' };
       }
 
-      const data = (await response.json()) as { access_token?: string; refresh_token?: string; session_id?: string };
+      const data = (await response.json()) as {
+        access_token?: string;
+        refresh_token?: string;
+        session_id?: string;
+      };
       const newAccessToken = data.access_token;
       const newRefreshToken = data.refresh_token;
       const newSessionId = data.session_id;
@@ -162,15 +230,22 @@ export function performRefresh(): Promise<{ status: string; accessToken?: string
 
       // Rotate: update in-memory refresh token and re-encrypt to disk
       if (newRefreshToken) {
+        const newSuffix = newRefreshToken.slice(-8);
+        console.log(`[TokenManager] Token rotated: …${tokenSuffix} → …${newSuffix}`);
         inMemoryRefreshToken = newRefreshToken;
 
         if (inMemoryRememberMe && canPersist()) {
           try {
             const encrypted = safeStorage.encryptString(newRefreshToken);
             fs.writeFileSync(TOKEN_FILE, encrypted);
+            console.log(`[TokenManager] Rotated token persisted to disk ✓ (…${newSuffix})`);
           } catch (err) {
             console.error('[TokenManager] Failed to re-encrypt rotated token:', err);
           }
+        } else {
+          console.log(
+            `[TokenManager] Rotated token NOT persisted (rememberMe=${inMemoryRememberMe}, canPersist=${canPersist()})`
+          );
         }
       }
 
@@ -204,6 +279,7 @@ export async function performLogout(accessToken?: string): Promise<void> {
     await net.fetch(`${inMemoryApiBase}/api/v1/auth/logout`, {
       method: 'POST',
       headers,
+      credentials: 'omit',
     });
   } catch (err) {
     console.error('[TokenManager] Logout request failed:', err);

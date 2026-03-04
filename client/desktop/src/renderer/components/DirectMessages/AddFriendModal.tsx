@@ -1,6 +1,10 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { Copy, Check, UserPlus, Search, Trash2 } from 'lucide-react';
-import { useFriendStore, type FriendCodePreview, type SearchResult } from '../../stores/friendStore';
+import {
+  useFriendStore,
+  type FriendCodePreview,
+  type SearchResult,
+} from '../../stores/friendStore';
 import { usePrivacyStore } from '../../stores/privacyStore';
 import { apiFetch } from '../../services/apiClient';
 import Modal from '../ui/Modal';
@@ -68,33 +72,38 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
   }, [isOpen, fetchFriendCodes, privacyAutoAccept]);
 
   // Preview friend code on input
-  const handleCodeInput = useCallback(async (value: string) => {
-    setCodeInput(value);
-    setCodeError('');
-    setCodePreview(null);
-    setClaimStatus('');
+  const handleCodeInput = useCallback(
+    async (value: string) => {
+      setCodeInput(value);
+      setCodeError('');
+      setCodePreview(null);
+      setClaimStatus('');
 
-    const trimmed = value.trim();
-    if (trimmed.length === 8) {
-      try {
-        const preview = await previewFriendCode(trimmed);
-        setCodePreview(preview);
-        if (!preview.valid) setCodeError('This code is expired or has been used');
-      } catch (err) {
-        // Check if this might be a server invite code instead
+      const trimmed = value.trim();
+      if (trimmed.length === 8) {
         try {
-          const invRes = await apiFetch(`/api/v1/invites/${trimmed}`);
-          if (invRes.ok) {
-            setCodeError('This looks like a server invite code, not a friend code. Use the Join Server button to use it.');
-          } else {
+          const preview = await previewFriendCode(trimmed);
+          setCodePreview(preview);
+          if (!preview.valid) setCodeError('This code is expired or has been used');
+        } catch (err) {
+          // Check if this might be a server invite code instead
+          try {
+            const invRes = await apiFetch(`/api/v1/invites/${trimmed}`);
+            if (invRes.ok) {
+              setCodeError(
+                'This looks like a server invite code, not a friend code. Use the Join Server button to use it.'
+              );
+            } else {
+              setCodeError(err instanceof Error ? err.message : 'Invalid code');
+            }
+          } catch {
             setCodeError(err instanceof Error ? err.message : 'Invalid code');
           }
-        } catch {
-          setCodeError(err instanceof Error ? err.message : 'Invalid code');
         }
       }
-    }
-  }, [previewFriendCode]);
+    },
+    [previewFriendCode]
+  );
 
   // Claim friend code
   const handleClaim = useCallback(async () => {
@@ -118,39 +127,45 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
   }, [codeInput, isClaiming, claimFriendCode]);
 
   // Search users
-  const handleSearch = useCallback((value: string) => {
-    setSearchQuery(value);
-    setSearchError('');
+  const handleSearch = useCallback(
+    (value: string) => {
+      setSearchQuery(value);
+      setSearchError('');
 
-    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
 
-    if (value.trim().length < 3) {
-      setSearchResults([]);
-      return;
-    }
-
-    searchTimerRef.current = setTimeout(async () => {
-      try {
-        const results = await searchUsers(value.trim());
-        setSearchResults(results.slice(0, 8));
-      } catch {
-        setSearchError('Search failed');
+      if (value.trim().length < 3) {
+        setSearchResults([]);
+        return;
       }
-    }, 300);
-  }, [searchUsers]);
+
+      searchTimerRef.current = setTimeout(async () => {
+        try {
+          const results = await searchUsers(value.trim());
+          setSearchResults(results.slice(0, 8));
+        } catch {
+          setSearchError('Search failed');
+        }
+      }, 300);
+    },
+    [searchUsers]
+  );
 
   // Send friend request from search
-  const handleSendRequest = useCallback(async (userId: string) => {
-    setSendingTo(userId);
-    try {
-      await sendRequest(userId);
-      setSearchResults((prev) => prev.filter((r) => r.id !== userId));
-    } catch (err) {
-      setSearchError(err instanceof Error ? err.message : 'Failed to send request');
-    } finally {
-      setSendingTo(null);
-    }
-  }, [sendRequest]);
+  const handleSendRequest = useCallback(
+    async (userId: string) => {
+      setSendingTo(userId);
+      try {
+        await sendRequest(userId);
+        setSearchResults((prev) => prev.filter((r) => r.id !== userId));
+      } catch (err) {
+        setSearchError(err instanceof Error ? err.message : 'Failed to send request');
+      } finally {
+        setSendingTo(null);
+      }
+    },
+    [sendRequest]
+  );
 
   // Generate friend code
   const handleGenerate = useCallback(async () => {
@@ -167,30 +182,40 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
   }, [isGenerating, generateFriendCode, maxUses, expiresIn, autoAccept]);
 
   // Copy code (with fallback for restricted clipboard access)
-  const handleCopy = useCallback(async (code?: string) => {
-    const text = code || generatedCode;
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      // Fallback: use a temporary textarea for clipboard write
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }, [generatedCode]);
+  const handleCopy = useCallback(
+    async (code?: string) => {
+      const text = code || generatedCode;
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        // Fallback: use a temporary textarea for clipboard write
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    },
+    [generatedCode]
+  );
 
   // Revoke code
-  const handleRevoke = useCallback(async (id: string) => {
-    try { await revokeFriendCode(id); } catch { /* ignore */ }
-  }, [revokeFriendCode]);
+  const handleRevoke = useCallback(
+    async (id: string) => {
+      try {
+        await revokeFriendCode(id);
+      } catch {
+        /* ignore */
+      }
+    },
+    [revokeFriendCode]
+  );
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Add Friend" width="large">
@@ -222,11 +247,7 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
               <span className="friend-code-preview-name">
                 {codePreview.displayName || codePreview.username}
               </span>
-              <button
-                className="add-friend-action-btn"
-                onClick={handleClaim}
-                disabled={isClaiming}
-              >
+              <button className="add-friend-action-btn" onClick={handleClaim} disabled={isClaiming}>
                 <UserPlus size={14} />
                 {isClaiming ? 'Sending...' : 'Send Friend Request'}
               </button>
@@ -283,7 +304,9 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
               <label>Expires after</label>
               <select value={expiresIn} onChange={(e) => setExpiresIn(Number(e.target.value))}>
                 {EXPIRY_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -291,7 +314,9 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
               <label>Max uses</label>
               <select value={maxUses} onChange={(e) => setMaxUses(Number(e.target.value))}>
                 {MAX_USES_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
                 ))}
               </select>
             </div>
@@ -336,13 +361,22 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
                 const expired = fc.expiresAt && new Date(fc.expiresAt) < new Date();
                 const maxed = fc.maxUses !== null && fc.useCount >= fc.maxUses;
                 return (
-                  <div key={fc.id} className={`add-friend-code-item${expired || maxed ? ' expired' : ''}`}>
-                    <span className="invite-code-value" style={{ fontSize: 13 }}>{fc.code}</span>
+                  <div
+                    key={fc.id}
+                    className={`add-friend-code-item${expired || maxed ? ' expired' : ''}`}
+                  >
+                    <span className="invite-code-value" style={{ fontSize: 13 }}>
+                      {fc.code}
+                    </span>
                     <span className="add-friend-code-meta">
                       {fc.useCount}/{fc.maxUses ?? '\u221e'} uses
                       {fc.autoAccept && ' \u00b7 auto-accept'}
                     </span>
-                    <button className="add-friend-revoke-btn" onClick={() => handleRevoke(fc.id)} title="Revoke">
+                    <button
+                      className="add-friend-revoke-btn"
+                      onClick={() => handleRevoke(fc.id)}
+                      title="Revoke"
+                    >
                       <Trash2 size={12} />
                     </button>
                   </div>

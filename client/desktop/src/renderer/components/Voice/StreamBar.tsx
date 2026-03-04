@@ -1,6 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
+import { useUserStore } from '../../stores/userStore';
 import './StreamBar.css';
 
 /**
@@ -11,9 +12,10 @@ const StreamThumbnail: React.FC<{
   producerId: string;
   stream?: MediaStream;
   sharerName: string;
+  isPaused?: boolean;
   onSelect: () => void;
   onTuneOut: () => void;
-}> = ({ producerId: _producerId, stream, sharerName, onSelect, onTuneOut }) => {
+}> = ({ producerId: _producerId, stream, sharerName, isPaused = false, onSelect, onTuneOut }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -34,13 +36,13 @@ const StreamThumbnail: React.FC<{
 
   return (
     <div className="stream-thumbnail" onClick={onSelect} title={`View ${sharerName}'s screen`}>
-      <video
-        ref={videoRef}
-        className="stream-thumbnail__video"
-        autoPlay
-        playsInline
-        muted
-      />
+      {isPaused ? (
+        <div className="stream-thumbnail__paused">
+          <span className="stream-thumbnail__paused-text">Paused</span>
+        </div>
+      ) : (
+        <video ref={videoRef} className="stream-thumbnail__video" autoPlay playsInline muted />
+      )}
       <div className="stream-thumbnail__label">{sharerName}</div>
       <button
         className="stream-thumbnail__close"
@@ -66,6 +68,8 @@ const StreamBar: React.FC<{ height: number }> = ({ height }) => {
   const dominantScreenShareId = useVoiceStore((s) => s.dominantScreenShareId);
   const participants = useVoiceStore((s) => s.participants);
   const setDominantScreenShare = useVoiceStore((s) => s.setDominantScreenShare);
+  const localStreamPaused = useVoiceStore((s) => s.localStreamPaused);
+  const localUserId = useUserStore((s) => s.user?.id);
 
   // Get non-dominant tuned-in shares
   const nonDominantIds = Object.keys(tunedInScreenShares).filter(
@@ -84,12 +88,14 @@ const StreamBar: React.FC<{ height: number }> = ({ height }) => {
           );
           const sharerName = sharer?.displayName || sharer?.username || 'Unknown';
 
+          const isLocalSharer = sharer?.userId === localUserId;
           return (
             <StreamThumbnail
               key={producerId}
               producerId={producerId}
-              stream={sharer?.screenStream}
+              stream={isLocalSharer && localStreamPaused ? undefined : sharer?.screenStream}
               sharerName={sharerName}
+              isPaused={isLocalSharer && localStreamPaused}
               onSelect={() => setDominantScreenShare(producerId)}
               onTuneOut={() => {
                 // Import voiceService lazily to avoid circular dependency

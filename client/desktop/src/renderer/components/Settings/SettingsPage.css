@@ -1443,7 +1443,9 @@
   font-size: calc(13px * var(--font-scale, 1));
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
   white-space: nowrap;
 }
 
@@ -1490,7 +1492,8 @@
   left: 0;
   height: 100%;
   border-radius: 4px;
-  background: linear-gradient(90deg,
+  background: linear-gradient(
+    90deg,
     #22c55e 0%,
     #22c55e 75%,
     #eab308 75%,
@@ -1721,7 +1724,8 @@
 }
 
 @keyframes blobBounce {
-  0%, 100% {
+  0%,
+  100% {
     transform: translateY(0) scale(1);
     box-shadow:
       0 4px 16px rgba(0, 0, 0, 0.25),

@@ -205,7 +205,7 @@ export function useMicTest(): UseMicTestReturn {
           gainNodeRef.current.gain.setTargetAtTime(
             state.inputVolume / 100,
             audioContextRef.current.currentTime,
-            0.01,
+            0.01
           );
         }
 

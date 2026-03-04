@@ -30,11 +30,9 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@electron/remote": "^2.1.2",
     "electron-squirrel-startup": "^1.0.0",
     "lucide-react": "^0.574.0",
     "mediasoup-client": "^3.18.7",
-    "opus-recorder": "^8.0.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.22.0",
@@ -81,7 +79,10 @@
   "overrides": {
     "tar": "^7.5.9",
     "tmp": "^0.2.5",
-    "webpack-dev-server": "^5.2.3"
+    "webpack-dev-server": "^5.2.3",
+    "serialize-javascript": "^7.0.3",
+    "minimatch": "^9.0.7",
+    "rollup": "^4.59.0"
   },
   "optionalDependencies": {
     "@noble/hashes": "^2.0.1"

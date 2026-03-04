@@ -105,7 +105,8 @@ export const useAudioSettingsStore = create<AudioSettingsState>()(
       setEchoCancellation: (echoCancellation) => set({ echoCancellation }),
       setAutoGainControl: (autoGainControl) => set({ autoGainControl }),
       setNoiseGateMode: (noiseGateMode) => set({ noiseGateMode }),
-      setNoiseGateLevel: (noiseGateLevel) => set({ noiseGateLevel: Math.max(-80, Math.min(-20, noiseGateLevel)) }),
+      setNoiseGateLevel: (noiseGateLevel) =>
+        set({ noiseGateLevel: Math.max(-80, Math.min(-20, noiseGateLevel)) }),
       setMusicMode: (musicMode) => set({ musicMode }),
       setFrameSize: (frameSize) => set({ frameSize }),
       setSilenceDetection: (silenceDetection) => set({ silenceDetection }),
@@ -115,12 +116,16 @@ export const useAudioSettingsStore = create<AudioSettingsState>()(
       setOpusNack: (opusNack) => set({ opusNack }),
       setAdaptivePtime: (adaptivePtime) => set({ adaptivePtime }),
       setAudioPriority: (audioPriority) => set({ audioPriority }),
-      setInputVolume: (inputVolume) => set({ inputVolume: Math.max(0, Math.min(200, inputVolume)) }),
-      setOutputVolume: (outputVolume) => set({ outputVolume: Math.max(0, Math.min(200, outputVolume)) }),
+      setInputVolume: (inputVolume) =>
+        set({ inputVolume: Math.max(0, Math.min(200, inputVolume)) }),
+      setOutputVolume: (outputVolume) =>
+        set({ outputVolume: Math.max(0, Math.min(200, outputVolume)) }),
       setQuietBoost: (quietBoost) => set({ quietBoost }),
-      setQuietBoostThreshold: (quietBoostThreshold) => set({ quietBoostThreshold: Math.max(-50, Math.min(-20, quietBoostThreshold)) }),
+      setQuietBoostThreshold: (quietBoostThreshold) =>
+        set({ quietBoostThreshold: Math.max(-50, Math.min(-20, quietBoostThreshold)) }),
       setNetworkType: (networkType) => set({ networkType }),
-      setPacketLossWarningThreshold: (packetLossWarningThreshold) => set({ packetLossWarningThreshold }),
+      setPacketLossWarningThreshold: (packetLossWarningThreshold) =>
+        set({ packetLossWarningThreshold }),
     }),
     {
       name: 'concord:audio-advanced',

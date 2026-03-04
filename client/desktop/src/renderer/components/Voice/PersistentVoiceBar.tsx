@@ -1,8 +1,6 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useEffect } from 'react';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useChannelStore } from '../../stores/channelStore';
-import { useDocumentPip } from './useDocumentPip';
-import { DocumentPipContent } from './DocumentPipContent';
 import VoiceControls from './VoiceControls';
 import VoiceTextChat from './VoiceTextChat';
 import './PersistentVoiceBar.css';
@@ -15,7 +13,10 @@ const MAX_CHAT_RATIO = 0.7;
  * when the user is in voice but viewing a different channel.
  *
  * Includes: full VoiceControls, optional text chat drawer, pin/unpin,
- * and pop-out to Document PiP.
+ * and pop-out to Electron PiP window.
+ *
+ * In vertical layout mode, the text chat panel is rendered by MainView
+ * as a side column instead of inside this bar.
  */
 const PersistentVoiceBar: React.FC = () => {
   const {
@@ -24,33 +25,45 @@ const PersistentVoiceBar: React.FC = () => {
     voiceControlsPoppedOut,
     setVoiceControlsPoppedOut,
     showVoiceTextChat,
+    voiceTextChatLayout,
     persistentTextChatHeight,
     setPersistentTextChatHeight,
   } = useVoiceStore();
 
   const getLinkedTextChannel = useChannelStore((s) => s.getLinkedTextChannel);
   const hasLinkedText = !!(activeChannelId && getLinkedTextChannel(activeChannelId));
-  const showChat = showVoiceTextChat && hasLinkedText;
+  const isVertical = voiceTextChatLayout === 'vertical';
+  // In vertical mode, the text chat is rendered as a side panel by MainView
+  const showChat = showVoiceTextChat && hasLinkedText && !isVertical;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const resizingRef = useRef(false);
 
-  // Document PiP for pop-out controls
-  const docPip = useDocumentPip();
-
+  // Electron PiP for pop-out controls
   const handlePopOut = useCallback(async () => {
-    if (!docPip.isSupported) return;
+    if (!window.electron?.openPipWindow) return;
 
-    const win = await docPip.open({ width: 480, height: 64 });
-    if (win) {
-      setVoiceControlsPoppedOut(true);
+    await window.electron.openPipWindow({
+      id: 'controls-main',
+      width: 480,
+      height: 80,
+      title: 'Concord Voice Controls',
+    });
+    setVoiceControlsPoppedOut(true);
+  }, [setVoiceControlsPoppedOut]);
 
-      // When user closes the PiP window, restore inline bar
-      win.addEventListener('pagehide', () => {
+  // Listen for PiP close to restore inline bar
+  useEffect(() => {
+    if (!voiceControlsPoppedOut) return;
+    const cleanup = window.electron?.onPipClosed?.((closedId: string) => {
+      if (closedId === 'controls-main') {
         setVoiceControlsPoppedOut(false);
-      });
-    }
-  }, [docPip, setVoiceControlsPoppedOut]);
+      }
+    });
+    return () => {
+      cleanup?.();
+    };
+  }, [voiceControlsPoppedOut, setVoiceControlsPoppedOut]);
 
   // Resize handler for text chat drawer (horizontal only)
   const handleChatResizeStart = useCallback(
@@ -86,14 +99,9 @@ const PersistentVoiceBar: React.FC = () => {
     [persistentTextChatHeight, setPersistentTextChatHeight]
   );
 
-  // When popped out, render controls into PiP window instead of inline
-  if (voiceControlsPoppedOut && docPip.isOpen && docPip.pipWindow) {
-    return (
-      <DocumentPipContent
-        pipWindow={docPip.pipWindow}
-        mode="controls"
-      />
-    );
+  // When popped out to Electron PiP, hide the inline bar
+  if (voiceControlsPoppedOut) {
+    return null;
   }
 
   return (
@@ -117,7 +125,10 @@ const PersistentVoiceBar: React.FC = () => {
       )}
 
       {/* Full controls bar */}
-      <VoiceControls context="persistent" onPopOut={docPip.isSupported ? handlePopOut : undefined} />
+      <VoiceControls
+        context="persistent"
+        onPopOut={window.electron?.openPipWindow ? handlePopOut : undefined}
+      />
     </div>
   );
 };

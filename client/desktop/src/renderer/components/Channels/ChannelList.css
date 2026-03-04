@@ -342,7 +342,8 @@
 }
 
 /* Only grouped wrapper in the category — hide trunk; L-connector alone suffices. */
-.channel-group-header + .channel-item-wrapper--grouped:not(:has(~ .channel-item-wrapper--grouped))::before {
+.channel-group-header
+  + .channel-item-wrapper--grouped:not(:has(~ .channel-item-wrapper--grouped))::before {
   display: none;
 }
 
@@ -588,7 +589,9 @@
   height: 0;
   margin: 0 calc(8px * var(--sp, 1));
   border-radius: 4px;
-  transition: height 0.1s ease, background-color 0.15s ease;
+  transition:
+    height 0.1s ease,
+    background-color 0.15s ease;
   overflow: hidden;
 }
 

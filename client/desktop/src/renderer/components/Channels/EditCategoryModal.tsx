@@ -67,11 +67,14 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({ isOpen, group, on
     setError(null);
 
     try {
-      const response = await apiFetch(`/api/v1/servers/${activeServerId}/channel-groups/${group.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmed }),
-      });
+      const response = await apiFetch(
+        `/api/v1/servers/${activeServerId}/channel-groups/${group.id}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: trimmed }),
+        }
+      );
 
       const data = await response.json();
 

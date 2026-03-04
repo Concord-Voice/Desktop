@@ -14,7 +14,7 @@ import { useWebSocket } from './hooks/useWebSocket';
 import { e2eeService } from './services/e2eeService';
 import { preferencesSyncService } from './services/preferencesSync';
 import { detectCodecCapabilities, prewarmWebRTC } from './services/mediaCapabilities';
-import { nuclearReset } from './services/resetService';
+import { gracefulReset } from './services/resetService';
 
 // ─── Error Boundary ────────────────────────────────────────────────────
 // Catches unhandled rendering errors. Instead of going nuclear (which wipes
@@ -77,9 +77,10 @@ function AuthenticatedLayout() {
       window.electron?.getDisplayInfo?.() ?? Promise.resolve(null),
     ]).then(([caps, gpu, hwAccel, displays]) => {
       // Detect HDR: any display with colorDepth > 24 or wide gamut color space
-      const systemHdr = (displays as { colorDepth?: number; colorSpace?: string }[] | null)?.some(
-        (d) => (d.colorDepth ?? 0) > 24 || (d.colorSpace && d.colorSpace !== 'srgb')
-      ) ?? false;
+      const systemHdr =
+        (displays as { colorDepth?: number; colorSpace?: string }[] | null)?.some(
+          (d) => (d.colorDepth ?? 0) > 24 || (d.colorSpace && d.colorSpace !== 'srgb')
+        ) ?? false;
 
       const current = useVideoSettingsStore.getState();
       useVideoSettingsStore.setState({
@@ -109,16 +110,39 @@ function AuthenticatedLayout() {
 
 // ─── App Root ──────────────────────────────────────────────────────────
 
+// Module-level guard: React Strict Mode (dev) double-mounts the component,
+// firing useEffect twice. Without this flag, two restoreSession IPC calls
+// can trigger two sequential token rotations.
+let restoreSessionCalled = false;
+
 function App() {
   const [version, setVersion] = useState<string>('');
   const [platform, setPlatform] = useState<string>('');
-  const [isRestoring, setIsRestoring] = useState(true);
+  // PiP windows don't need auth — they communicate via BroadcastChannel.
+  // Skip session restore entirely to avoid unnecessary token rotations.
+  const isPipWindow = window.location.hash.startsWith('#/pip/');
+  const [isRestoring, setIsRestoring] = useState(!isPipWindow);
   const accessToken = useAuthStore((state) => state.accessToken);
 
   // Restore session on startup: ask main process to decrypt the
   // safeStorage-encrypted refresh token and exchange it for a fresh
-  // access token, so users with "Remember Me" don't see a login flash
+  // access token, so users with "Remember Me" don't see a login flash.
+  // Note: the IPC handler is also deduplicated in main.ts, but we guard
+  // here as well to avoid even making a redundant IPC call.
   useEffect(() => {
+    if (isPipWindow) return; // PiP windows skip session restore
+    // Already authenticated (login succeeded, or HMR re-mounted the component)
+    // — no need to hit restoreSession again.
+    if (useAuthStore.getState().accessToken) {
+      setIsRestoring(false);
+      return;
+    }
+    if (restoreSessionCalled) {
+      setIsRestoring(false);
+      return;
+    }
+    restoreSessionCalled = true;
+
     const restore = async () => {
       if (!window.electron?.restoreSession) {
         setIsRestoring(false);
@@ -142,13 +166,17 @@ function App() {
           }
         }
       } else {
-        // Session cannot be restored — nuclear reset to ensure clean login screen
-        nuclearReset();
+        // Session cannot be restored — clear content stores but keep disk tokens.
+        // The refresh may have failed due to a transient error (server not ready,
+        // network issue). Preserving disk tokens allows the next launch to retry.
+        // If the user logs in fresh, new tokens overwrite the old files anyway.
+        console.warn('[App] Session restore failed:', result.status);
+        gracefulReset();
       }
       setIsRestoring(false);
     };
     restore();
-  }, []);
+  }, [isPipWindow]);
 
   useEffect(() => {
     // Get app info from Electron main process
@@ -181,7 +209,10 @@ function App() {
         </div>
 
         <Routes>
-          <Route path="/" element={accessToken ? <Navigate to="/app/dms" replace /> : <AuthFlow />} />
+          <Route
+            path="/"
+            element={accessToken ? <Navigate to="/app/dms" replace /> : <AuthFlow />}
+          />
           <Route element={<AuthenticatedLayout />}>
             <Route path="/app" element={<MainView />} />
             <Route path="/app/dms" element={<DirectMessagesView />} />

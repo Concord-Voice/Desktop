@@ -34,9 +34,12 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({ isOpen, group
     setError(null);
 
     try {
-      const response = await apiFetch(`/api/v1/servers/${activeServerId}/channel-groups/${group.id}`, {
-        method: 'DELETE',
-      });
+      const response = await apiFetch(
+        `/api/v1/servers/${activeServerId}/channel-groups/${group.id}`,
+        {
+          method: 'DELETE',
+        }
+      );
 
       if (!response.ok) {
         const data = await response.json();
@@ -63,12 +66,28 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({ isOpen, group
               strokeLinecap="round"
               strokeLinejoin="round"
             />
-            <line x1="12" y1="9" x2="12" y2="13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            <line x1="12" y1="17" x2="12.01" y2="17" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            <line
+              x1="12"
+              y1="9"
+              x2="12"
+              y2="13"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+            <line
+              x1="12"
+              y1="17"
+              x2="12.01"
+              y2="17"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
           </svg>
           <p>
-            Are you sure you want to delete the <strong>{group.name}</strong> category?
-            Channels in this category will become uncategorized. No channels or messages will be deleted.
+            Are you sure you want to delete the <strong>{group.name}</strong> category? Channels in
+            this category will become uncategorized. No channels or messages will be deleted.
           </p>
         </div>
 

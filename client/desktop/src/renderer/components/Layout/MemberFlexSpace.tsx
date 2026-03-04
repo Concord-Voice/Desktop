@@ -42,11 +42,7 @@ const MemberFlexSpace: React.FC = () => {
       title={`Members (${memberPanelMode})`}
       aria-label="Toggle member panel"
     >
-      {memberPanelMode === 'hidden' ? (
-        <PanelRightOpen size={16} />
-      ) : (
-        <PanelRightClose size={16} />
-      )}
+      {memberPanelMode === 'hidden' ? <PanelRightOpen size={16} /> : <PanelRightClose size={16} />}
     </button>
   );
 
@@ -108,7 +104,13 @@ const MemberFlexSpace: React.FC = () => {
       <div className="layout-resize-handle" onMouseDown={panel.onMouseDown} />
       <div
         className="member-list-container"
-        style={{ width: panel.width, display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%' }}
+        style={{
+          width: panel.width,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          height: '100%',
+        }}
       >
         <MemberList />
       </div>

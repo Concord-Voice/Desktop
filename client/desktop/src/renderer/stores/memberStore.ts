@@ -31,7 +31,12 @@ interface MemberState {
   removeMember: (userId: string) => void;
   updateMemberProfile: (
     userId: string,
-    updates: Partial<Pick<ServerMember, 'username' | 'display_name' | 'avatar_url' | 'header_image_url' | 'color_scheme'>>
+    updates: Partial<
+      Pick<
+        ServerMember,
+        'username' | 'display_name' | 'avatar_url' | 'header_image_url' | 'color_scheme'
+      >
+    >
   ) => void;
   setOnlineUsers: (userIds: string[]) => void;
   setUserOnline: (userId: string) => void;

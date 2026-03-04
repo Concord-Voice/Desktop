@@ -1,8 +1,7 @@
 import React, { useRef, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight, PictureInPicture2, LayoutGrid, Focus } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
-import { useDocumentPip, hasDocumentPipSupport } from './useDocumentPip';
-import { DocumentPipContent } from './DocumentPipContent';
+import { useUserStore } from '../../stores/userStore';
 import './VoiceStage.css';
 
 /**
@@ -13,7 +12,8 @@ const StageVideo: React.FC<{
   sharerName: string;
   showOverlay?: boolean;
   label?: string;
-}> = ({ stream, sharerName, showOverlay = true, label }) => {
+  isPaused?: boolean;
+}> = ({ stream, sharerName, showOverlay = true, label, isPaused = false }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
@@ -34,18 +34,20 @@ const StageVideo: React.FC<{
 
   return (
     <div className="voice-stage__cell">
-      <video
-        ref={videoRef}
-        className="voice-stage__video"
-        autoPlay
-        playsInline
-        muted
-      />
+      {isPaused ? (
+        <div className="voice-stage__paused-placeholder">
+          <span className="voice-stage__paused-title">Your Screen Is Still Streaming</span>
+          <span className="voice-stage__paused-hint">
+            If you want it to stay on even when Concord Voice is in the background, use the
+            Auto-Pause button in the Controls Panel below.
+          </span>
+        </div>
+      ) : (
+        <video ref={videoRef} className="voice-stage__video" autoPlay playsInline muted />
+      )}
       {showOverlay && (
         <div className="voice-stage__cell-overlay">
-          <span className="voice-stage__sharer-name">
-            {label || `${sharerName}\u2019s screen`}
-          </span>
+          <span className="voice-stage__sharer-name">{label || `${sharerName}\u2019s screen`}</span>
         </div>
       )}
     </div>
@@ -66,7 +68,8 @@ const VoiceStage: React.FC = () => {
   const setDominantScreenShare = useVoiceStore((s) => s.setDominantScreenShare);
   const stageLayout = useVoiceStore((s) => s.stageLayout);
   const toggleStageLayout = useVoiceStore((s) => s.toggleStageLayout);
-  const docPip = useDocumentPip();
+  const localStreamPaused = useVoiceStore((s) => s.localStreamPaused);
+  const localUserId = useUserStore((s) => s.user?.id);
 
   const tunedInIds = Object.keys(tunedInScreenShares);
   const hasMultiple = tunedInIds.length > 1;
@@ -109,9 +112,7 @@ const VoiceStage: React.FC = () => {
   if (tunedInIds.length === 0) {
     return (
       <div className="voice-stage voice-stage--empty">
-        <span className="voice-stage__empty-text">
-          No screen share selected
-        </span>
+        <span className="voice-stage__empty-text">No screen share selected</span>
       </div>
     );
   }
@@ -133,18 +134,17 @@ const VoiceStage: React.FC = () => {
           </button>
         )}
 
-        <div
-          className="voice-stage__grid"
-          data-count={tunedInIds.length}
-        >
+        <div className="voice-stage__grid" data-count={tunedInIds.length}>
           {tunedInIds.map((producerId) => {
             const sharer = findSharer(producerId);
             const name = sharer?.displayName || sharer?.username || 'Unknown';
+            const isLocalSharer = sharer?.userId === localUserId;
             return (
               <StageVideo
                 key={producerId}
-                stream={sharer?.screenStream}
+                stream={isLocalSharer && localStreamPaused ? undefined : sharer?.screenStream}
                 sharerName={name}
+                isPaused={isLocalSharer && localStreamPaused}
               />
             );
           })}
@@ -154,19 +154,19 @@ const VoiceStage: React.FC = () => {
   }
 
   // ── Focus mode: single dominant stream ──────────────────────────────
+  const isDominantLocal = dominantSharer?.userId === localUserId;
   return (
     <div className="voice-stage">
       <StageVideo
-        stream={dominantSharer?.screenStream}
+        stream={isDominantLocal && localStreamPaused ? undefined : dominantSharer?.screenStream}
         sharerName={dominantSharerName}
         showOverlay={false}
+        isPaused={isDominantLocal && localStreamPaused}
       />
 
       {/* Bottom overlay */}
       <div className="voice-stage__overlay">
-        <span className="voice-stage__sharer-name">
-          {dominantSharerName}&apos;s screen
-        </span>
+        <span className="voice-stage__sharer-name">{dominantSharerName}&apos;s screen</span>
         {hasMultiple && (
           <span className="voice-stage__count">
             {tunedInIds.indexOf(dominantScreenShareId!) + 1} / {tunedInIds.length}
@@ -185,30 +185,21 @@ const VoiceStage: React.FC = () => {
         </button>
       )}
 
-      {/* PiP button (top-right) */}
-      {hasDocumentPipSupport && dominantScreenShareId && (
+      {/* PiP button (top-right) — pop out screen share to Electron PiP */}
+      {window.electron?.openPipWindow && dominantScreenShareId && (
         <button
           className="voice-stage__pip-btn"
           onClick={async () => {
-            if (docPip.isOpen) {
-              docPip.close();
-            } else {
-              await docPip.open({ width: 400, height: 300 });
-            }
+            await window.electron.openPipWindow({
+              id: `screen-${dominantScreenShareId}`,
+              width: 400,
+              height: 300,
+            });
           }}
-          title={docPip.isOpen ? 'Close PiP' : 'Pop out to PiP window'}
+          title="Pop out to PiP window"
         >
           <PictureInPicture2 size={16} />
         </button>
-      )}
-
-      {/* Document PiP portal for screen share */}
-      {docPip.isOpen && docPip.pipWindow && (
-        <DocumentPipContent
-          pipWindow={docPip.pipWindow}
-          mode="screen"
-          producerId={dominantScreenShareId || ''}
-        />
       )}
 
       {/* Cycle buttons (only when multiple shares in focus mode) */}

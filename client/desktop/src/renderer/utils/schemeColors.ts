@@ -13,17 +13,17 @@ export interface SchemeAccentColors {
 }
 
 const SCHEME_ACCENTS: Record<string, [primary: string, secondary: string]> = {
-  concord:     ['#fa709a', '#ffe13f'],
-  morky:       ['#e63946', '#ff6b35'],
-  bardic:      ['#c471ed', '#f64f8e'],
-  hacker:      ['#00ff41', '#00ee38'],
-  foxden:      ['#ff6d00', '#ff9100'],
-  spooky:      ['#ff6a00', '#8b20aa'],
-  leviathan:   ['#0ea5e9', '#06b6d4'],
-  grassynill:  ['#6b8e23', '#8b7355'],
+  concord: ['#fa709a', '#ffe13f'],
+  morky: ['#e63946', '#ff6b35'],
+  bardic: ['#c471ed', '#f64f8e'],
+  hacker: ['#00ff41', '#00ee38'],
+  foxden: ['#ff6d00', '#ff9100'],
+  spooky: ['#ff6a00', '#8b20aa'],
+  leviathan: ['#0ea5e9', '#06b6d4'],
+  grassynill: ['#6b8e23', '#8b7355'],
   cottoncandy: ['#ff6ea8', '#40c8ff'],
-  driftwood:   ['#c8a46c', '#a07848'],
-  eclipse:     ['#cc0000', '#880000'],
+  driftwood: ['#c8a46c', '#a07848'],
+  eclipse: ['#cc0000', '#880000'],
   midnightsky: ['#6d8cff', '#a78bfa'],
 };
 
@@ -44,7 +44,7 @@ for (const [name, [p, s]] of Object.entries(SCHEME_ACCENTS)) {
  * @returns Resolved accent colors, or null if not set / invalid (use global theme fallback).
  */
 export function resolveUserAccentColors(
-  colorSchemeJson: string | null | undefined,
+  colorSchemeJson: string | null | undefined
 ): SchemeAccentColors | null {
   if (!colorSchemeJson) return null;
 

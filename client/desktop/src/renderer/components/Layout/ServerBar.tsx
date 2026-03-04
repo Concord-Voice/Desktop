@@ -61,14 +61,26 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
 
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
-  const [dragInsertPos, setDragInsertPos] = useState<{ targetId: string; side: 'before' | 'after' } | null>(null);
+  const [dragInsertPos, setDragInsertPos] = useState<{
+    targetId: string;
+    side: 'before' | 'after';
+  } | null>(null);
   const lastInsertRef = useRef<{ targetId: string; side: 'before' | 'after' } | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [magScales, setMagScales] = useState<Map<string, number>>(new Map());
-  const [hoveredServer, setHoveredServer] = useState<{ server: ServerWithRole; rect: DOMRect } | null>(null);
-  const [addBtnTooltipPos, setAddBtnTooltipPos] = useState<{ top: number; left: number } | null>(null);
+  const [hoveredServer, setHoveredServer] = useState<{
+    server: ServerWithRole;
+    rect: DOMRect;
+  } | null>(null);
+  const [addBtnTooltipPos, setAddBtnTooltipPos] = useState<{ top: number; left: number } | null>(
+    null
+  );
   const addBtnRef = useRef<HTMLButtonElement>(null);
-  const [stickyTooltip, setStickyTooltip] = useState<{ text: string; top: number; left: number } | null>(null);
+  const [stickyTooltip, setStickyTooltip] = useState<{
+    text: string;
+    top: number;
+    left: number;
+  } | null>(null);
   const pmBtnRef = useRef<HTMLButtonElement>(null);
   const activeServerBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -94,9 +106,7 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
 
   // Servers shown in the horizontal bar (non-foldered, ordered, excluding active)
   const barServers = useMemo(() => {
-    const nonFoldered = servers.filter(
-      (s) => !folderedIds.has(s.id) && s.id !== activeServerId
-    );
+    const nonFoldered = servers.filter((s) => !folderedIds.has(s.id) && s.id !== activeServerId);
     if (serverOrder.length === 0) return nonFoldered;
 
     const ordered: ServerWithRole[] = [];
@@ -151,8 +161,14 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
       toggleChannelPin();
     } else {
       // Unpinned — instant show (cancel any pending hover timers)
-      if (hoverShowRef.current) { clearTimeout(hoverShowRef.current); hoverShowRef.current = null; }
-      if (hoverHideRef.current) { clearTimeout(hoverHideRef.current); hoverHideRef.current = null; }
+      if (hoverShowRef.current) {
+        clearTimeout(hoverShowRef.current);
+        hoverShowRef.current = null;
+      }
+      if (hoverHideRef.current) {
+        clearTimeout(hoverHideRef.current);
+        hoverHideRef.current = null;
+      }
       showChannelPanelHover();
     }
   };
@@ -166,8 +182,14 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
     if (channelPanelPinned) {
       toggleChannelPin();
     } else {
-      if (hoverShowRef.current) { clearTimeout(hoverShowRef.current); hoverShowRef.current = null; }
-      if (hoverHideRef.current) { clearTimeout(hoverHideRef.current); hoverHideRef.current = null; }
+      if (hoverShowRef.current) {
+        clearTimeout(hoverShowRef.current);
+        hoverShowRef.current = null;
+      }
+      if (hoverHideRef.current) {
+        clearTimeout(hoverHideRef.current);
+        hoverHideRef.current = null;
+      }
       showChannelPanelHover();
     }
   };
@@ -399,19 +421,22 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
   }, []);
 
   // Sticky icon tooltips (PM + Active Server) — portal-based, instant
-  const showStickyTooltip = useCallback((text: string, ref: React.RefObject<HTMLButtonElement | null>) => {
-    const el = ref.current;
-    if (el) {
-      const rect = el.getBoundingClientRect();
-      const padding = 8;
-      const tooltipWidth = text.length * 7 + 16; // rough estimate
-      const top = rect.bottom + 6;
-      let left = rect.left + rect.width / 2 - tooltipWidth / 2;
-      left = Math.max(padding, Math.min(left, window.innerWidth - tooltipWidth - padding));
-      const clampedTop = Math.min(top, window.innerHeight - 30 - padding);
-      setStickyTooltip({ text, top: clampedTop, left });
-    }
-  }, []);
+  const showStickyTooltip = useCallback(
+    (text: string, ref: React.RefObject<HTMLButtonElement | null>) => {
+      const el = ref.current;
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        const padding = 8;
+        const tooltipWidth = text.length * 7 + 16; // rough estimate
+        const top = rect.bottom + 6;
+        let left = rect.left + rect.width / 2 - tooltipWidth / 2;
+        left = Math.max(padding, Math.min(left, window.innerWidth - tooltipWidth - padding));
+        const clampedTop = Math.min(top, window.innerHeight - 30 - padding);
+        setStickyTooltip({ text, top: clampedTop, left });
+      }
+    },
+    []
+  );
 
   const hideStickyTooltip = useCallback(() => {
     setStickyTooltip(null);
@@ -483,9 +508,10 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
       <div
         className="server-bar-divider"
         style={{
-          marginRight: barServers.length > 0 && !reduceAnimations
-            ? 4 + Math.max(0, (getMagSize(barServers[0].id) - baseIconSize) / 2)
-            : 4,
+          marginRight:
+            barServers.length > 0 && !reduceAnimations
+              ? 4 + Math.max(0, (getMagSize(barServers[0].id) - baseIconSize) / 2)
+              : 4,
         }}
       />
 
@@ -508,16 +534,28 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
         <div
           className="server-bar-scroll"
           ref={scrollRef}
-          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+          }}
           onDragLeave={handleScrollDragLeave}
           onDrop={handleBarDrop}
         >
           {/* Loading skeletons */}
           {isLoading && servers.length === 0 && (
             <>
-              <div className="server-bar-icon skeleton" style={{ width: baseIconSize, height: baseIconSize, opacity: 0.4 }} />
-              <div className="server-bar-icon skeleton" style={{ width: baseIconSize, height: baseIconSize, opacity: 0.3 }} />
-              <div className="server-bar-icon skeleton" style={{ width: baseIconSize, height: baseIconSize, opacity: 0.2 }} />
+              <div
+                className="server-bar-icon skeleton"
+                style={{ width: baseIconSize, height: baseIconSize, opacity: 0.4 }}
+              />
+              <div
+                className="server-bar-icon skeleton"
+                style={{ width: baseIconSize, height: baseIconSize, opacity: 0.3 }}
+              />
+              <div
+                className="server-bar-icon skeleton"
+                style={{ width: baseIconSize, height: baseIconSize, opacity: 0.2 }}
+              />
             </>
           )}
 
@@ -526,8 +564,10 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
             const hasUnread = serverUnreadSet.has(server.id);
             const magSize = getMagSize(server.id);
             const isScaled = magSize > baseIconSize;
-            const ghostBefore = dragInsertPos?.targetId === server.id && dragInsertPos?.side === 'before';
-            const ghostAfter = dragInsertPos?.targetId === server.id && dragInsertPos?.side === 'after';
+            const ghostBefore =
+              dragInsertPos?.targetId === server.id && dragInsertPos?.side === 'before';
+            const ghostAfter =
+              dragInsertPos?.targetId === server.id && dragInsertPos?.side === 'after';
 
             const ghost = (
               <div
@@ -543,7 +583,10 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
                 <div
                   className={`server-bar-icon-wrapper ${draggingId === server.id ? 'dragging' : ''}`}
                   draggable
-                  onDragStart={(e) => { handleDragStart(e, server.id); setHoveredServer(null); }}
+                  onDragStart={(e) => {
+                    handleDragStart(e, server.id);
+                    setHoveredServer(null);
+                  }}
                   onDragEnd={handleDragEnd}
                   onDragOver={(e) => handleDragOver(e, server.id)}
                   onDrop={(e) => handleDrop(e, server.id)}
@@ -605,9 +648,11 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
       <div
         className="server-bar-divider"
         style={{
-          marginLeft: barServers.length > 0 && !reduceAnimations
-            ? 4 + Math.max(0, (getMagSize(barServers[barServers.length - 1].id) - baseIconSize) / 2)
-            : 4,
+          marginLeft:
+            barServers.length > 0 && !reduceAnimations
+              ? 4 +
+                Math.max(0, (getMagSize(barServers[barServers.length - 1].id) - baseIconSize) / 2)
+              : 4,
         }}
       />
 
@@ -626,53 +671,60 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
       </div>
 
       {/* Portal tooltip — rendered outside overflow:hidden containers */}
-      {hoveredServer && createPortal(
-        <div
-          className="server-bar-tooltip-fixed"
-          style={{
-            position: 'fixed',
-            top: hoveredServer.rect.bottom + 8,
-            left: hoveredServer.rect.left + hoveredServer.rect.width / 2,
-            transform: 'translateX(-50%)',
-          }}
-        >
-          <span className="server-bar-tooltip-name">{hoveredServer.server.name}</span>
-          <div className="server-bar-tooltip-stats">
-            <span>{hoveredServer.server.member_count ?? 0} Members</span>
-            <span className="server-bar-tooltip-dot" />
-            <span>{hoveredServer.server.online_count ?? 0} Online</span>
-          </div>
-          <div className="server-bar-tooltip-stats">
-            <span className={`server-bar-tooltip-voice${(serverVoiceCounts[hoveredServer.server.id] ?? 0) > 0 ? ' server-bar-tooltip-voice--active' : ''}`}>{serverVoiceCounts[hoveredServer.server.id] ?? 0} In Voice</span>
-          </div>
-          {serverUnreadSet.has(hoveredServer.server.id) && (
-            <span className="server-bar-tooltip-unread">Unread notifications</span>
-          )}
-        </div>,
-        document.body
-      )}
+      {hoveredServer &&
+        createPortal(
+          <div
+            className="server-bar-tooltip-fixed"
+            style={{
+              position: 'fixed',
+              top: hoveredServer.rect.bottom + 8,
+              left: hoveredServer.rect.left + hoveredServer.rect.width / 2,
+              transform: 'translateX(-50%)',
+            }}
+          >
+            <span className="server-bar-tooltip-name">{hoveredServer.server.name}</span>
+            <div className="server-bar-tooltip-stats">
+              <span>{hoveredServer.server.member_count ?? 0} Members</span>
+              <span className="server-bar-tooltip-dot" />
+              <span>{hoveredServer.server.online_count ?? 0} Online</span>
+            </div>
+            <div className="server-bar-tooltip-stats">
+              <span
+                className={`server-bar-tooltip-voice${(serverVoiceCounts[hoveredServer.server.id] ?? 0) > 0 ? ' server-bar-tooltip-voice--active' : ''}`}
+              >
+                {serverVoiceCounts[hoveredServer.server.id] ?? 0} In Voice
+              </span>
+            </div>
+            {serverUnreadSet.has(hoveredServer.server.id) && (
+              <span className="server-bar-tooltip-unread">Unread notifications</span>
+            )}
+          </div>,
+          document.body
+        )}
 
       {/* "Add Server" tooltip — portaled to body to escape overflow:hidden */}
-      {addBtnTooltipPos && createPortal(
-        <div
-          className="server-bar-add-tooltip visible"
-          style={{ top: addBtnTooltipPos.top, left: addBtnTooltipPos.left }}
-        >
-          Add Server
-        </div>,
-        document.body
-      )}
+      {addBtnTooltipPos &&
+        createPortal(
+          <div
+            className="server-bar-add-tooltip visible"
+            style={{ top: addBtnTooltipPos.top, left: addBtnTooltipPos.left }}
+          >
+            Add Server
+          </div>,
+          document.body
+        )}
 
       {/* Sticky icon tooltip (DM / Active Server) */}
-      {stickyTooltip && createPortal(
-        <div
-          className="server-bar-add-tooltip visible"
-          style={{ top: stickyTooltip.top, left: stickyTooltip.left }}
-        >
-          {stickyTooltip.text}
-        </div>,
-        document.body
-      )}
+      {stickyTooltip &&
+        createPortal(
+          <div
+            className="server-bar-add-tooltip visible"
+            style={{ top: stickyTooltip.top, left: stickyTooltip.left }}
+          >
+            {stickyTooltip.text}
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

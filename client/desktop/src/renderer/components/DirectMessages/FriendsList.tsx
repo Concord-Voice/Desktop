@@ -42,7 +42,11 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
     <div className="friends-list">
       <div className="friends-list-header">
         <h3>Friends</h3>
-        <button className="friends-add-btn" onClick={() => setShowAddFriendModal(true)} title="Add Friend">
+        <button
+          className="friends-add-btn"
+          onClick={() => setShowAddFriendModal(true)}
+          title="Add Friend"
+        >
           <Plus size={16} />
         </button>
       </div>
@@ -57,10 +61,7 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
           const isCollapsed = collapsedCategories.has(cat.id);
           return (
             <div key={cat.id} className="friend-category">
-              <div
-                className="friend-category-header"
-                onClick={() => toggleCategory(cat.id)}
-              >
+              <div className="friend-category-header" onClick={() => toggleCategory(cat.id)}>
                 {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                 <span>{cat.label}</span>
                 <span className="friend-category-count">{cat.friends.length}</span>

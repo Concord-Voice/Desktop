@@ -15,7 +15,11 @@ interface CreateCategoryModalProps {
 const NAME_MIN = 1;
 const NAME_MAX = 100;
 
-const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClose, onSuccess }) => {
+const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({
+  isOpen,
+  onClose,
+  onSuccess,
+}) => {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);

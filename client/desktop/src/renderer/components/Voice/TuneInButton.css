@@ -21,7 +21,10 @@
   color: var(--text-secondary);
   font-size: calc(13px * var(--font-scale, 1));
   cursor: pointer;
-  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+  transition:
+    background 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
 }
 
 .tune-in-btn:hover {

@@ -887,6 +887,60 @@ body {
   overflow: hidden;
 }
 
+.main-content__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.main-content__body--with-side-chat {
+  flex-direction: row;
+}
+
+.main-content__primary {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ─── Vertical Voice Text Chat Side Panel ───────────────────────── */
+
+.main-content__side-resize {
+  width: 6px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-secondary);
+}
+
+.main-content__side-resize-grip {
+  width: 3px;
+  height: 40px;
+  border-radius: 2px;
+  background-color: var(--border-color);
+  transition: background-color 0.15s ease;
+}
+
+.main-content__side-resize:hover .main-content__side-resize-grip {
+  background-color: var(--text-muted);
+}
+
+.main-content__side-chat {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--border-color);
+  background-color: var(--bg-primary);
+}
+
 .main-content-placeholder {
   flex: 1;
   display: flex;

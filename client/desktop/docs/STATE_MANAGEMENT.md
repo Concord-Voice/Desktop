@@ -1,7 +1,7 @@
 # State Management Architecture
 
 **Framework:** Zustand v4.5+
-**Last Updated:** 2026-02-18
+**Last Updated:** 2026-03-03
 **Decision:** Zustand chosen over Redux after cost-benefit analysis (see below)
 
 ---
@@ -23,7 +23,7 @@ Concord uses [Zustand](https://github.com/pmndrs/zustand) for state management a
 
 **Weighted Score:** Zustand 8.6 / Redux 6.1 (40% advantage)
 
-Full analysis: `/docs/REDUX_VS_ZUSTAND_ANALYSIS.md` (internal)
+Full analysis was performed during Phase 1A architecture decisions (internal).
 
 ---
 
@@ -31,14 +31,29 @@ Full analysis: `/docs/REDUX_VS_ZUSTAND_ANALYSIS.md` (internal)
 
 ### Store Inventory
 
-| Store | Purpose | Persisted | DevTools | Lines of Code |
-|-------|---------|-----------|----------|---------------|
-| **authStore** | JWT tokens, auth state | ✅ refresh token only | ✅ | 25 |
-| **chatStore** | Messages, typing, connection | ❌ (privacy) | ✅ | 242 |
-| **serverStore** | Server list, active server | ✅ active server ID | ✅ | 76 |
-| **userStore** | User profile, preferences | ❌ | ✅ | 204 |
+| Store | Purpose | Persisted | Phase |
+|-------|---------|-----------|-------|
+| **authStore** | JWT tokens, auth state | ✅ refresh token only | 1A |
+| **chatStore** | Messages, typing, connection | ❌ (privacy) | 1A |
+| **serverStore** | Server list, active server | ✅ active server ID | 1A |
+| **userStore** | User profile, preferences | ❌ | 1A |
+| **channelStore** | Channel list, active channel | ✅ active channel ID | 1B |
+| **connectionStore** | WebSocket connection state | ❌ | 1B |
+| **memberStore** | Server members, roles | ❌ | 1B |
+| **layoutStore** | UI layout state (sidebar, panels) | ✅ partial | 1B |
+| **settingsStore** | App settings, theme, font scale | ✅ | 1B |
+| **unreadStore** | Unread message counts | ❌ | 1B |
+| **inviteStore** | Server invites | ❌ | 1B |
+| **draftSettingsStore** | Unsaved settings drafts | ❌ | 1B |
+| **ttsSettingsStore** | Text-to-speech settings | ✅ | 1B |
+| **voiceStore** | Voice state, participants, quality tiers | ✅ device settings | 1C |
+| **audioSettingsStore** | Audio input/output device prefs | ✅ | 1C |
+| **videoSettingsStore** | Video device and codec prefs | ✅ | 1C |
+| **dmStore** | DM conversations, participants | ❌ | 1C |
+| **friendStore** | Friend list, friend requests | ❌ | 1C |
+| **privacyStore** | Privacy settings, friend codes | ❌ | 1C |
 
-**Total:** 547 lines of state management code (vs ~750 lines with Redux)
+**Total: 19 Zustand stores** across Phases 1A–1C
 
 ---
 
@@ -550,9 +565,9 @@ Or use the `userStore.logout()` action which does this automatically.
 - **Savings:** 155KB (77% smaller)
 
 **Memory Usage:**
-- Zustand: ~2MB (all 4 stores loaded)
-- Redux: ~7MB (with DevTools + middleware)
-- **Savings:** ~5MB
+- Zustand: ~4MB (all 19 stores loaded)
+- Redux: ~12MB (estimated with DevTools + middleware)
+- **Savings:** ~8MB
 
 **Electron Startup Time:**
 - With Zustand: ~1.2s
@@ -572,9 +587,10 @@ Or use the `userStore.logout()` action which does this automatically.
 
 ## Changelog
 
-**2026-02-18:** Initial documentation, all 4 stores documented, DevTools + persist middleware enabled
+**2026-02-18:** Initial documentation, 4 core stores documented, DevTools + persist middleware enabled
+**2026-03-03:** Updated store inventory to 19 stores (Phase 1A–1C complete), removed dead reference to analysis doc
 
 ---
 
 **Maintained by:** Mark (Backend) + Michael (Frontend)
-**Next Review:** 2026-03-01 (before alpha launch)
+**Next Review:** Before v0.1.0-Alpha release

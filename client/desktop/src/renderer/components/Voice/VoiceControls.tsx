@@ -23,8 +23,6 @@ import { useVoiceStore } from '../../stores/voiceStore';
 import { useChannelStore } from '../../stores/channelStore';
 import { getVoiceService } from '../../services/voiceLazy';
 import ScreenSharePicker from './ScreenSharePicker';
-import { useDocumentPip } from './useDocumentPip';
-import { DocumentPipContent } from './DocumentPipContent';
 import './VoiceControls.css';
 
 interface VoiceControlsProps {
@@ -64,10 +62,8 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   const pipWrapRef = useRef<HTMLDivElement>(null);
   const pipMenuRef = useRef<HTMLDivElement>(null);
 
-  // Document PiP state (for frames/screen pop-out, not controls pop-out)
-  const docPip = useDocumentPip();
-  const [pipMode, setPipMode] = useState<'frames' | 'screen'>('frames');
-  const [pipProducerId, setPipProducerId] = useState('');
+  // Electron PiP — check if electron API is available
+  const hasElectronPip = !!window.electron?.openPipWindow;
 
   const handleToggleMute = async () => {
     const { voiceService } = await getVoiceService();
@@ -147,7 +143,14 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   /** Compute position:fixed style to render a portal element above an anchor */
   const getPortalStyle = (ref: React.RefObject<HTMLElement | null>): React.CSSProperties => {
     const rect = ref.current?.getBoundingClientRect();
-    if (!rect) return { position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', zIndex: 99999 };
+    if (!rect)
+      return {
+        position: 'fixed',
+        bottom: 0,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 99999,
+      };
     return {
       position: 'fixed',
       bottom: window.innerHeight - rect.top,
@@ -158,17 +161,15 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   };
 
   const handleOpenPip = useCallback(async (mode: 'frames' | 'screen', producerId?: string) => {
-    if (docPip.isOpen) {
-      docPip.close();
-    }
-    setPipMode(mode);
-    setPipProducerId(producerId || '');
-    await docPip.open({
+    if (!window.electron?.openPipWindow) return;
+    const id = mode === 'frames' ? 'frames-main' : `screen-${producerId || ''}`;
+    await window.electron.openPipWindow({
+      id,
       width: mode === 'frames' ? 320 : 400,
       height: mode === 'frames' ? 240 : 300,
     });
     setShowPipMenu(false);
-  }, [docPip]);
+  }, []);
 
   const tunedInIds = Object.keys(tunedInScreenShares);
 
@@ -242,24 +243,24 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
             <button
               className={`voice-controls__btn ${keepActiveWhileUnfocused ? 'voice-controls__btn--active' : ''}`}
               onClick={() => setKeepActiveWhileUnfocused(!keepActiveWhileUnfocused)}
-              title={keepActiveWhileUnfocused ? 'Stream stays active when unfocused' : 'Stream pauses when unfocused'}
+              title={
+                keepActiveWhileUnfocused
+                  ? 'Stream stays active when unfocused'
+                  : 'Stream pauses when unfocused'
+              }
             >
               {keepActiveWhileUnfocused ? <Eye size={18} /> : <EyeOff size={18} />}
-              <span className="voice-controls__btn-label">{keepActiveWhileUnfocused ? 'Always On' : 'Auto Pause'}</span>
+              <span className="voice-controls__btn-label">
+                {keepActiveWhileUnfocused ? 'Always On' : 'Auto Pause'}
+              </span>
             </button>
           )}
 
-          {docPip.isSupported && (
+          {hasElectronPip && (
             <div ref={pipWrapRef} className="voice-controls__pip-wrap">
               <button
-                className={`voice-controls__btn ${docPip.isOpen ? 'voice-controls__btn--active' : ''}`}
-                onClick={() => {
-                  if (docPip.isOpen) {
-                    docPip.close();
-                  } else {
-                    setShowPipMenu((v) => !v);
-                  }
-                }}
+                className="voice-controls__btn"
+                onClick={() => setShowPipMenu((v) => !v)}
                 title="Picture-in-Picture"
               >
                 <PictureInPicture2 size={18} />
@@ -270,11 +271,7 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
 
           {/* Pop-Out controls button — persistent context only */}
           {context === 'persistent' && onPopOut && (
-            <button
-              className="voice-controls__btn"
-              onClick={onPopOut}
-              title="Pop out controls"
-            >
+            <button className="voice-controls__btn" onClick={onPopOut} title="Pop out controls">
               <ExternalLink size={18} />
               <span className="voice-controls__btn-label">Pop Out</span>
             </button>
@@ -292,54 +289,49 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
       </div>
 
       {/* Portaled slot error — escapes overflow:hidden ancestors */}
-      {videoSlotError && createPortal(
-        <div className="voice-controls__slot-error" style={getPortalStyle(controlsRef)}>
-          {videoSlotError}
-        </div>,
-        document.body
-      )}
+      {videoSlotError &&
+        createPortal(
+          <div className="voice-controls__slot-error" style={getPortalStyle(controlsRef)}>
+            {videoSlotError}
+          </div>,
+          document.body
+        )}
 
       {/* Portaled PiP menu — escapes overflow:hidden ancestors */}
-      {showPipMenu && !docPip.isOpen && createPortal(
-        <div ref={pipMenuRef} className="voice-controls__pip-menu" style={getPortalStyle(pipWrapRef)}>
-          <button
-            className="voice-controls__pip-menu-item"
-            onClick={() => handleOpenPip('frames')}
+      {showPipMenu &&
+        createPortal(
+          <div
+            ref={pipMenuRef}
+            className="voice-controls__pip-menu"
+            style={getPortalStyle(pipWrapRef)}
           >
-            Pop Out User Frames
-          </button>
-          {tunedInIds.map((producerId) => {
-            const sharer = Object.values(participants).find(
-              (p) => p.isScreenSharing
-            );
-            const name = sharer?.displayName || sharer?.username || 'User';
-            return (
-              <button
-                key={producerId}
-                className="voice-controls__pip-menu-item"
-                onClick={() => handleOpenPip('screen', producerId)}
-              >
-                Pop Out {name}&apos;s Screen
-              </button>
-            );
-          })}
-        </div>,
-        document.body
-      )}
+            <button
+              className="voice-controls__pip-menu-item"
+              onClick={() => handleOpenPip('frames')}
+            >
+              Pop Out User Frames
+            </button>
+            {tunedInIds.map((producerId) => {
+              const sharer = Object.values(participants).find((p) => p.isScreenSharing);
+              const name = sharer?.displayName || sharer?.username || 'User';
+              return (
+                <button
+                  key={producerId}
+                  className="voice-controls__pip-menu-item"
+                  onClick={() => handleOpenPip('screen', producerId)}
+                >
+                  Pop Out {name}&apos;s Screen
+                </button>
+              );
+            })}
+          </div>,
+          document.body
+        )}
 
       {showScreenPicker && (
         <ScreenSharePicker
           onSelect={handleScreenSourceSelected}
           onCancel={() => setShowScreenPicker(false)}
-        />
-      )}
-
-      {/* Render Document PiP content via React Portal */}
-      {docPip.isOpen && docPip.pipWindow && (
-        <DocumentPipContent
-          pipWindow={docPip.pipWindow}
-          mode={pipMode}
-          producerId={pipProducerId}
         />
       )}
     </>

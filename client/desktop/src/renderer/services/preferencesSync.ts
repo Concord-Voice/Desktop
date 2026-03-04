@@ -79,7 +79,10 @@ class PreferencesSyncService {
           settingsChanged = true;
         }
         if (blob.settings.colorScheme === 'custom' && blob.settings.customColors) {
-          if (JSON.stringify(blob.settings.customColors) !== JSON.stringify(currentAppearance.customColors)) {
+          if (
+            JSON.stringify(blob.settings.customColors) !==
+            JSON.stringify(currentAppearance.customColors)
+          ) {
             newAppearance.customColors = blob.settings.customColors;
             newAppearance.colorScheme = 'custom';
             settingsChanged = true;
@@ -112,7 +115,10 @@ class PreferencesSyncService {
           layoutPatch.channelPanelPinned = blob.layout.channelPanelPinned;
         }
         if (blob.layout.channelPanelWidth !== currentLayout.channelPanelWidth) {
-          layoutPatch.channelPanelWidth = Math.max(180, Math.min(400, blob.layout.channelPanelWidth));
+          layoutPatch.channelPanelWidth = Math.max(
+            180,
+            Math.min(400, blob.layout.channelPanelWidth)
+          );
         }
         if (blob.layout.memberPanelMode !== currentLayout.memberPanelMode) {
           layoutPatch.memberPanelMode = blob.layout.memberPanelMode;
@@ -126,7 +132,9 @@ class PreferencesSyncService {
         if (blob.layout.folderBarHeight !== currentLayout.folderBarHeight) {
           layoutPatch.folderBarHeight = Math.max(24, Math.min(48, blob.layout.folderBarHeight));
         }
-        if (JSON.stringify(blob.layout.serverFolders) !== JSON.stringify(currentLayout.serverFolders)) {
+        if (
+          JSON.stringify(blob.layout.serverFolders) !== JSON.stringify(currentLayout.serverFolders)
+        ) {
           layoutPatch.serverFolders = blob.layout.serverFolders;
         }
         if (JSON.stringify(blob.layout.serverOrder) !== JSON.stringify(currentLayout.serverOrder)) {

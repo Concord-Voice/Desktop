@@ -16,30 +16,46 @@ contextBridge.exposeInMainWorld('electron', {
   getPlatform: () => ipcRenderer.invoke('app:getPlatform'),
 
   // Media: screen capture sources for voice/video screen share
-  getDesktopSources: () => ipcRenderer.invoke('media:getDesktopSources') as Promise<DesktopSource[]>,
+  getDesktopSources: () =>
+    ipcRenderer.invoke('media:getDesktopSources') as Promise<DesktopSource[]>,
 
   // Clipboard (navigator.clipboard.writeText is blocked in Electron renderers)
   writeClipboard: (text: string) => ipcRenderer.invoke('clipboard:writeText', text),
 
   // GPU, display info & hardware acceleration
-  getGPUInfo: () => ipcRenderer.invoke('gpu:getInfo') as Promise<{ vendor: string; device: string } | null>,
-  getDisplayInfo: () => ipcRenderer.invoke('screen:getDisplayInfo') as Promise<{ width: number; height: number; refreshRate: number; scaleFactor: number; isPrimary: boolean; colorDepth: number; colorSpace: string }[]>,
-  getHardwareAcceleration: () => ipcRenderer.invoke('app:getHardwareAcceleration') as Promise<boolean>,
-  setHardwareAcceleration: (enabled: boolean) => ipcRenderer.invoke('app:setHardwareAcceleration', enabled),
+  getGPUInfo: () =>
+    ipcRenderer.invoke('gpu:getInfo') as Promise<{ vendor: string; device: string } | null>,
+  getDisplayInfo: () =>
+    ipcRenderer.invoke('screen:getDisplayInfo') as Promise<
+      {
+        width: number;
+        height: number;
+        refreshRate: number;
+        scaleFactor: number;
+        isPrimary: boolean;
+        colorDepth: number;
+        colorSpace: string;
+      }[]
+    >,
+  getHardwareAcceleration: () =>
+    ipcRenderer.invoke('app:getHardwareAcceleration') as Promise<boolean>,
+  setHardwareAcceleration: (enabled: boolean) =>
+    ipcRenderer.invoke('app:setHardwareAcceleration', enabled),
   relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
   quitApp: () => ipcRenderer.invoke('app:quit'),
 
   // PiP (Picture-in-Picture) windows
   openPipWindow: (opts: { id: string; width?: number; height?: number; title?: string }) =>
     ipcRenderer.invoke('pip:open', opts),
-  closePipWindow: (id: string) =>
-    ipcRenderer.invoke('pip:close', { id }),
+  closePipWindow: (id: string) => ipcRenderer.invoke('pip:close', { id }),
   setPipAlwaysOnTop: (id: string, flag: boolean) =>
     ipcRenderer.invoke('pip:setAlwaysOnTop', { id, flag }),
   onPipClosed: (callback: (id: string) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, data: { id: string }) => callback(data.id);
     ipcRenderer.on('pip:closed', handler);
-    return () => { ipcRenderer.removeListener('pip:closed', handler); };
+    return () => {
+      ipcRenderer.removeListener('pip:closed', handler);
+    };
   },
 
   // Secure auth token management (safeStorage via main process)
@@ -50,20 +66,29 @@ contextBridge.exposeInMainWorld('electron', {
       status: string;
       accessToken?: string;
       sessionId?: string;
-      e2eeKeys?: { wrappingKeyBase64: string; preferencesKeyBase64: string; wrappedPrivateKeyBase64: string } | null;
+      e2eeKeys?: {
+        wrappingKeyBase64: string;
+        preferencesKeyBase64: string;
+        wrappedPrivateKeyBase64: string;
+      } | null;
     }>,
   refreshToken: () =>
-    ipcRenderer.invoke('auth:refreshToken') as Promise<{ status: string; accessToken?: string; sessionId?: string }>,
-  clearTokens: () =>
-    ipcRenderer.invoke('auth:clearTokens'),
-  logout: (data?: { accessToken?: string }) =>
-    ipcRenderer.invoke('auth:logout', data),
+    ipcRenderer.invoke('auth:refreshToken') as Promise<{
+      status: string;
+      accessToken?: string;
+      sessionId?: string;
+    }>,
+  clearTokens: () => ipcRenderer.invoke('auth:clearTokens'),
+  logout: (data?: { accessToken?: string }) => ipcRenderer.invoke('auth:logout', data),
   getAuthCapabilities: () =>
     ipcRenderer.invoke('auth:getCapabilities') as Promise<{ persistAvailable: boolean }>,
 
   // E2EE key persistence (safeStorage via main process)
-  storeE2EEKeys: (data: { wrappingKeyBase64: string; preferencesKeyBase64: string; wrappedPrivateKeyBase64: string }) =>
-    ipcRenderer.invoke('auth:storeE2EEKeys', data),
+  storeE2EEKeys: (data: {
+    wrappingKeyBase64: string;
+    preferencesKeyBase64: string;
+    wrappedPrivateKeyBase64: string;
+  }) => ipcRenderer.invoke('auth:storeE2EEKeys', data),
 
   // Machine ID for token theft detection (#89)
   getMachineId: () => ipcRenderer.invoke('auth:getMachineId') as Promise<string>,
@@ -76,23 +101,46 @@ export interface ElectronAPI {
   getDesktopSources: () => Promise<DesktopSource[]>;
   writeClipboard: (text: string) => Promise<void>;
   getGPUInfo: () => Promise<{ vendor: string; device: string } | null>;
-  getDisplayInfo: () => Promise<{ width: number; height: number; refreshRate: number; scaleFactor: number; isPrimary: boolean; colorDepth: number; colorSpace: string }[]>;
+  getDisplayInfo: () => Promise<
+    {
+      width: number;
+      height: number;
+      refreshRate: number;
+      scaleFactor: number;
+      isPrimary: boolean;
+      colorDepth: number;
+      colorSpace: string;
+    }[]
+  >;
   getHardwareAcceleration: () => Promise<boolean>;
   setHardwareAcceleration: (enabled: boolean) => Promise<void>;
   relaunchApp: () => Promise<void>;
   quitApp: () => Promise<void>;
-  openPipWindow: (opts: { id: string; width?: number; height?: number; title?: string }) => Promise<void>;
+  openPipWindow: (opts: {
+    id: string;
+    width?: number;
+    height?: number;
+    title?: string;
+  }) => Promise<void>;
   closePipWindow: (id: string) => Promise<void>;
   setPipAlwaysOnTop: (id: string, flag: boolean) => Promise<void>;
   onPipClosed: (callback: (id: string) => void) => () => void;
 
   // Secure auth token management
-  storeRefreshToken: (data: { refreshToken: string; rememberMe: boolean; apiBase: string }) => Promise<void>;
+  storeRefreshToken: (data: {
+    refreshToken: string;
+    rememberMe: boolean;
+    apiBase: string;
+  }) => Promise<void>;
   restoreSession: () => Promise<{
     status: string;
     accessToken?: string;
     sessionId?: string;
-    e2eeKeys?: { wrappingKeyBase64: string; preferencesKeyBase64: string; wrappedPrivateKeyBase64: string } | null;
+    e2eeKeys?: {
+      wrappingKeyBase64: string;
+      preferencesKeyBase64: string;
+      wrappedPrivateKeyBase64: string;
+    } | null;
   }>;
   refreshToken: () => Promise<{ status: string; accessToken?: string; sessionId?: string }>;
   clearTokens: () => Promise<void>;
@@ -100,7 +148,11 @@ export interface ElectronAPI {
   getAuthCapabilities: () => Promise<{ persistAvailable: boolean }>;
 
   // E2EE key persistence
-  storeE2EEKeys: (data: { wrappingKeyBase64: string; preferencesKeyBase64: string; wrappedPrivateKeyBase64: string }) => Promise<void>;
+  storeE2EEKeys: (data: {
+    wrappingKeyBase64: string;
+    preferencesKeyBase64: string;
+    wrappedPrivateKeyBase64: string;
+  }) => Promise<void>;
 
   // Machine ID for token theft detection
   getMachineId: () => Promise<string>;

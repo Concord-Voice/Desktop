@@ -38,6 +38,13 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
       },
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-zustand': ['zustand'],
+          'vendor-icons': ['lucide-react'],
+        },
+      },
     },
   },
   base: './',

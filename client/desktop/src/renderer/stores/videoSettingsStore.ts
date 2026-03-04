@@ -15,15 +15,39 @@ export interface VideoQualityPreset {
 }
 
 export const VIDEO_QUALITY_PRESETS: Record<string, VideoQualityPreset> = {
-  'system': { label: 'System Default', width: 0, height: 0, frameRate: 0, maxBitrate: 2_500_000 },
+  system: { label: 'System Default', width: 0, height: 0, frameRate: 0, maxBitrate: 2_500_000 },
   '360p30': { label: '360p 30fps', width: 640, height: 360, frameRate: 30, maxBitrate: 400_000 },
   '480p30': { label: '480p 30fps', width: 854, height: 480, frameRate: 30, maxBitrate: 700_000 },
   '720p30': { label: '720p 30fps', width: 1280, height: 720, frameRate: 30, maxBitrate: 1_500_000 },
   '720p60': { label: '720p 60fps', width: 1280, height: 720, frameRate: 60, maxBitrate: 2_500_000 },
-  '1080p30': { label: '1080p 30fps', width: 1920, height: 1080, frameRate: 30, maxBitrate: 3_500_000 },
-  '1080p60': { label: '1080p 60fps', width: 1920, height: 1080, frameRate: 60, maxBitrate: 5_000_000 },
-  '1440p30': { label: '1440p 30fps', width: 2560, height: 1440, frameRate: 30, maxBitrate: 6_000_000 },
-  '1440p60': { label: '1440p 60fps', width: 2560, height: 1440, frameRate: 60, maxBitrate: 8_000_000 },
+  '1080p30': {
+    label: '1080p 30fps',
+    width: 1920,
+    height: 1080,
+    frameRate: 30,
+    maxBitrate: 3_500_000,
+  },
+  '1080p60': {
+    label: '1080p 60fps',
+    width: 1920,
+    height: 1080,
+    frameRate: 60,
+    maxBitrate: 5_000_000,
+  },
+  '1440p30': {
+    label: '1440p 30fps',
+    width: 2560,
+    height: 1440,
+    frameRate: 30,
+    maxBitrate: 6_000_000,
+  },
+  '1440p60': {
+    label: '1440p 60fps',
+    width: 2560,
+    height: 1440,
+    frameRate: 60,
+    maxBitrate: 8_000_000,
+  },
   '4K30': { label: '4K 30fps', width: 3840, height: 2160, frameRate: 30, maxBitrate: 10_000_000 },
   '4K60': { label: '4K 60fps', width: 3840, height: 2160, frameRate: 60, maxBitrate: 16_000_000 },
 };
@@ -65,8 +89,8 @@ export interface VideoSettings {
   hardwareAcceleration: boolean;
 
   // HDR
-  hdrEncoding: boolean;  // Enable HDR encoding (VP9 P2). Auto-detected from display.
-  systemHdr: boolean;    // Whether any connected display supports HDR (non-persisted, runtime)
+  hdrEncoding: boolean; // Enable HDR encoding (VP9 P2). Auto-detected from display.
+  systemHdr: boolean; // Whether any connected display supports HDR (non-persisted, runtime)
 
   // Cached capabilities (non-persisted in practice, but ok to persist for fast initial render)
   codecCapabilities: CodecCapability[];

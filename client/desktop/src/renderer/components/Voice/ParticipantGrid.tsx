@@ -85,7 +85,11 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
   // Update output volume in real-time
   useEffect(() => {
     if (volumeGainRef.current && ctxRef.current && ctxRef.current.state !== 'closed') {
-      volumeGainRef.current.gain.setTargetAtTime(outputVolume / 100, ctxRef.current.currentTime, 0.01);
+      volumeGainRef.current.gain.setTargetAtTime(
+        outputVolume / 100,
+        ctxRef.current.currentTime,
+        0.01
+      );
     }
   }, [outputVolume]);
 
@@ -114,7 +118,13 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
     boostTimerRef.current = setInterval(() => {
-      if (!analyserRef.current || !boostGainRef.current || !ctxRef.current || ctxRef.current.state === 'closed') return;
+      if (
+        !analyserRef.current ||
+        !boostGainRef.current ||
+        !ctxRef.current ||
+        ctxRef.current.state === 'closed'
+      )
+        return;
 
       analyserRef.current.getByteFrequencyData(dataArray);
 

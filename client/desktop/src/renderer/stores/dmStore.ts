@@ -124,9 +124,7 @@ export const useDMStore = create<DMState>()(
           set((state) => {
             const exists = state.conversations.some((c) => c.id === conv.id);
             return {
-              conversations: exists
-                ? state.conversations
-                : [conv, ...state.conversations],
+              conversations: exists ? state.conversations : [conv, ...state.conversations],
               activeConversationId: conv.id,
             };
           });
@@ -212,9 +210,7 @@ export const useDMStore = create<DMState>()(
           set((state) => {
             const exists = state.conversations.some((c) => c.id === conv.id);
             return {
-              conversations: exists
-                ? state.conversations
-                : [conv, ...state.conversations],
+              conversations: exists ? state.conversations : [conv, ...state.conversations],
               activeConversationId: conv.id,
             };
           });
@@ -222,8 +218,7 @@ export const useDMStore = create<DMState>()(
           return conv;
         },
 
-        setActiveConversation: (id: string | null) =>
-          set({ activeConversationId: id }),
+        setActiveConversation: (id: string | null) => set({ activeConversationId: id }),
 
         addConversation: (conv: DMConversation) =>
           set((state) => {
@@ -233,15 +228,14 @@ export const useDMStore = create<DMState>()(
 
         updateConversation: (id: string, updates: Partial<DMConversation>) =>
           set((state) => ({
-            conversations: state.conversations.map((c) =>
-              c.id === id ? { ...c, ...updates } : c
-            ),
+            conversations: state.conversations.map((c) => (c.id === id ? { ...c, ...updates } : c)),
           })),
 
         removeConversation: (id: string) =>
           set((state) => ({
             conversations: state.conversations.filter((c) => c.id !== id),
-            activeConversationId: state.activeConversationId === id ? null : state.activeConversationId,
+            activeConversationId:
+              state.activeConversationId === id ? null : state.activeConversationId,
           })),
 
         updateLastMessage: (convId: string, message: DMLastMessage) =>
