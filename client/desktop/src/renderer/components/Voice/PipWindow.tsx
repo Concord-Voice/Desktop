@@ -235,9 +235,9 @@ const FramesPipContent: React.FC<{
         const voiceState = await client.init();
         setParticipants(voiceState.participants);
 
-        // Consume all active audio and video producers
+        // Consume all active mic and camera producers
         for (const producer of voiceState.activeProducers) {
-          if (producer.source === 'audio' || producer.source === 'camera') {
+          if (producer.source === 'mic' || producer.source === 'camera') {
             const stream = await client.consume(
               producer.producerId,
               producer.source,
@@ -253,7 +253,7 @@ const FramesPipContent: React.FC<{
                   ...prev,
                   [producer.userId]: {
                     ...p,
-                    ...(producer.source === 'audio'
+                    ...(producer.source === 'mic'
                       ? { audioStream: stream }
                       : { videoStream: stream }),
                   },

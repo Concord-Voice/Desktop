@@ -83,7 +83,7 @@ export interface VoiceStateResult {
   activeProducers: Array<{
     producerId: string;
     userId: string;
-    source: string; // 'audio' | 'video' | 'screen'
+    source: string; // 'mic' | 'camera' | 'screen'
   }>;
 }
 

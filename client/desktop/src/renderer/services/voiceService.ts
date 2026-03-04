@@ -93,7 +93,7 @@ class VoiceService {
   // Remote consumers: consumerId → Consumer
   private consumers: Map<string, mediasoupTypes.Consumer> = new Map();
   // Consumer metadata for ownership transfer (parallel to consumers Map)
-  private consumerMeta: Map<string, { source: string; producerUserId: string }> = new Map();
+  private consumerMeta: Map<string, { source: string; producerUserId: string; producerId: string }> = new Map();
   // Local media streams
   private localMicStream: MediaStream | null = null;
   private localCameraStream: MediaStream | null = null;
@@ -2056,7 +2056,7 @@ class VoiceService {
   }
 
   /** Get all consumer metadata entries (used by PiP signaling proxy for ownership transfer) */
-  getConsumerMeta(): Map<string, { source: string; producerUserId: string }> {
+  getConsumerMeta(): Map<string, { source: string; producerUserId: string; producerId: string }> {
     return new Map(this.consumerMeta);
   }
 
@@ -2258,7 +2258,7 @@ class VoiceService {
       });
 
       this.consumers.set(consumer.id, consumer);
-      this.consumerMeta.set(consumer.id, { source: result.source, producerUserId: result.producerUserId });
+      this.consumerMeta.set(consumer.id, { source: result.source, producerUserId: result.producerUserId, producerId: result.producerId });
 
       console.debug('[consume] consumer created', {
         consumerId: consumer.id,

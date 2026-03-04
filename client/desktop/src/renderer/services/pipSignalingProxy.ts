@@ -34,7 +34,7 @@ type VoiceService = {
   forwardToServer<T>(event: string, data?: unknown): Promise<T>;
   getRouterRtpCapabilities(): unknown;
   getConsumerIdsBySource(source?: string): string[];
-  getConsumerMeta(): Map<string, { source: string; producerUserId: string }>;
+  getConsumerMeta(): Map<string, { source: string; producerUserId: string; producerId: string }>;
   pauseConsumer(consumerId: string): void;
   resumeConsumer(consumerId: string): void;
   toggleMute(): Promise<void>;
@@ -154,27 +154,19 @@ export class PipSignalingProxy {
     const rtpCaps = this.voiceService.getRouterRtpCapabilities() as RtpCapabilities | null;
     const meta = this.voiceService.getConsumerMeta();
 
-    // Build active producers list from consumer metadata
+    // Build active producers list from consumer metadata.
+    // Deduplicate by source+userId — each unique producer appears once.
     const activeProducers: VoiceStateResult['activeProducers'] = [];
     const seen = new Set<string>();
     for (const [, m] of meta) {
       const key = `${m.source}-${m.producerUserId}`;
       if (!seen.has(key)) {
         seen.add(key);
-        // Find the producerId from the consumer that consumes this source/user
-        for (const [consumerId, cm] of meta) {
-          if (cm.source === m.source && cm.producerUserId === m.producerUserId) {
-            // We need the actual producerId — get it from the consumer map
-            // For now, use consumerId as a lookup hint; the PiP will use
-            // the producerId from the consume response
-            activeProducers.push({
-              producerId: consumerId, // PiP will re-consume via server
-              userId: m.producerUserId,
-              source: m.source,
-            });
-            break;
-          }
-        }
+        activeProducers.push({
+          producerId: m.producerId,
+          userId: m.producerUserId,
+          source: m.source,
+        });
       }
     }
 
