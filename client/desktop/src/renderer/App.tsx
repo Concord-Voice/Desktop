@@ -130,6 +130,12 @@ function App() {
   // here as well to avoid even making a redundant IPC call.
   useEffect(() => {
     if (isPipWindow) return; // PiP windows skip session restore
+    // Already authenticated (login succeeded, or HMR re-mounted the component)
+    // — no need to hit restoreSession again.
+    if (useAuthStore.getState().accessToken) {
+      setIsRestoring(false);
+      return;
+    }
     if (restoreSessionCalled) {
       setIsRestoring(false);
       return;
