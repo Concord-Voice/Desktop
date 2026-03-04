@@ -36,7 +36,6 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
   const voiceConnectionState = useVoiceStore((s) => s.connectionState);
   const channelVoiceMembers = useVoiceStore((s) => s.channelVoiceMembers);
   const setChannelVoiceMembers = useVoiceStore((s) => s.setChannelVoiceMembers);
-  const setServerVoiceCount = useVoiceStore((s) => s.setServerVoiceCount);
   const clearAllChannelVoiceMembers = useVoiceStore((s) => s.clearAllChannelVoiceMembers);
   const showVoiceTextChat = useVoiceStore((s) => s.showVoiceTextChat);
   const setShowVoiceTextChat = useVoiceStore((s) => s.setShowVoiceTextChat);
@@ -84,11 +83,13 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
     if (fetchedServerRef.current === activeServerId) return;
     fetchedServerRef.current = activeServerId;
 
-    let totalVoiceCount = 0;
-    const fetchAll = voiceChans.map(async (channel) => {
+    // Fetch per-channel voice members for sidebar display.
+    // Server-wide voice counts are now provided by the backend via
+    // the server_voice_counts WebSocket broadcast.
+    voiceChans.forEach(async (channel) => {
       try {
         const res = await apiFetch(`/api/v1/channels/${channel.id}/voice/participants`);
-        if (!res.ok) return 0;
+        if (!res.ok) return;
         const data = await res.json();
         const members: ChannelVoiceMember[] = (data.participants || []).map(
           (p: { user_id: string; username: string; display_name?: string; avatar_url?: string; is_muted?: boolean }) => ({
@@ -102,17 +103,11 @@ const ChannelList: React.FC<ChannelListProps> = ({ onContextMenu, onEmptyContext
         if (members.length > 0) {
           setChannelVoiceMembers(channel.id, members);
         }
-        return members.length;
       } catch {
         // Non-critical — voice participants just won't show
-        return 0;
       }
     });
-    Promise.all(fetchAll).then((counts) => {
-      totalVoiceCount = counts.reduce((sum, c) => sum + c, 0);
-      if (activeServerId) setServerVoiceCount(activeServerId, totalVoiceCount);
-    });
-  }, [channels, activeServerId, setChannelVoiceMembers, setServerVoiceCount]);
+  }, [channels, activeServerId, setChannelVoiceMembers]);
 
   // Clear voice members when server changes
   useEffect(() => {
