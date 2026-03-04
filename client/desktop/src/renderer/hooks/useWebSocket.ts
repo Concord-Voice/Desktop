@@ -751,6 +751,14 @@ export function useWebSocket() {
       }
     });
 
+    // Server voice counts handler — updates voice counts for tooltip display
+    const unsubServerVoiceCounts = wsService.on('server_voice_counts', (msg: WebSocketMessage) => {
+      const counts = msg.data.counts as Record<string, number> | undefined;
+      if (counts) {
+        useVoiceStore.getState().setServerVoiceCounts(counts);
+      }
+    });
+
     // Voice state update handler — from control plane via NATS
     const unsubVoiceState = wsService.on('voice_state_update', (msg: WebSocketMessage) => {
       const { data } = msg;
@@ -1143,6 +1151,7 @@ export function useWebSocket() {
       unsubPresenceSnapshot();
       unsubPresence();
       unsubServerOnlineCounts();
+      unsubServerVoiceCounts();
       unsubVoiceState();
       unsubDMMessage();
       unsubDMAck();

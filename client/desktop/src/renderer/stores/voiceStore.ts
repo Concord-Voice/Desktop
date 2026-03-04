@@ -312,6 +312,7 @@ interface VoiceState {
   setVoiceTextChatWidth: (width: number) => void;
 
   // Server voice counts (tooltip)
+  setServerVoiceCounts: (counts: Record<string, number>) => void;
   setServerVoiceCount: (serverId: string, count: number) => void;
   incrementServerVoiceCount: (serverId: string) => void;
   decrementServerVoiceCount: (serverId: string) => void;
@@ -571,6 +572,8 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
   },
 
   // Server voice counts
+  setServerVoiceCounts: (counts) =>
+    set({ serverVoiceCounts: counts }),
   setServerVoiceCount: (serverId, count) =>
     set((state) => ({
       serverVoiceCounts: { ...state.serverVoiceCounts, [serverId]: Math.max(0, count) },

@@ -73,19 +73,22 @@ const createWindow = (): void => {
   const tryLoadDev = async () => {
     try {
       const http = await import('http');
+      const httpGet = (http.default?.get ?? http.get) as typeof import('http').get;
       await new Promise<void>((resolve, reject) => {
-        const req = http.default.get(devServerUrl, { timeout: 500 }, (res) => {
+        const req = httpGet(devServerUrl, { timeout: 1000 }, (res) => {
           res.resume();
           resolve();
         });
         req.on('error', reject);
         req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
       });
+      fs.appendFileSync('/tmp/concord-permissions.log', `\nDev server detected, loading from ${devServerUrl}\n`);
       mainWindow!.loadURL(devServerUrl);
       if (process.env.DEVTOOLS !== '0') {
         mainWindow!.webContents.openDevTools();
       }
-    } catch {
+    } catch (err) {
+      fs.appendFileSync('/tmp/concord-permissions.log', `\nDev server not found (${err}), loading from file\n`);
       mainWindow!.loadFile(path.join(__dirname, '../renderer/index.html'));
     }
   };
