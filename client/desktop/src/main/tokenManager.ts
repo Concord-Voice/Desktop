@@ -173,6 +173,11 @@ export function performRefresh(): Promise<{ status: string; accessToken?: string
           'X-Refresh-Token': inMemoryRefreshToken,
           'X-Machine-Id': getMachineId(),
         },
+        // Omit cookies — Chromium's persistent cookie store may contain a stale
+        // refresh_token cookie from a previous session/login.  The server reads
+        // cookies before the X-Refresh-Token header, so a stale cookie would
+        // shadow the correct header value and cause a 401.
+        credentials: 'omit',
       });
 
       if (!response.ok) {
@@ -238,6 +243,7 @@ export async function performLogout(accessToken?: string): Promise<void> {
     await net.fetch(`${inMemoryApiBase}/api/v1/auth/logout`, {
       method: 'POST',
       headers,
+      credentials: 'omit',
     });
   } catch (err) {
     console.error('[TokenManager] Logout request failed:', err);
