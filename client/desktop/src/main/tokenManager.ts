@@ -58,9 +58,21 @@ function readMeta(): { apiBase: string; rememberMe: boolean } | null {
 }
 
 function deleteFiles(): void {
-  try { fs.unlinkSync(TOKEN_FILE); } catch { /* no-op */ }
-  try { fs.unlinkSync(META_FILE); } catch { /* no-op */ }
-  try { fs.unlinkSync(E2EE_FILE); } catch { /* no-op */ }
+  try {
+    fs.unlinkSync(TOKEN_FILE);
+  } catch {
+    /* no-op */
+  }
+  try {
+    fs.unlinkSync(META_FILE);
+  } catch {
+    /* no-op */
+  }
+  try {
+    fs.unlinkSync(E2EE_FILE);
+  } catch {
+    /* no-op */
+  }
 }
 
 // ─── Public API ──────────────────────────────────────────────────────
@@ -84,7 +96,9 @@ export function storeRefreshToken(data: {
 
   if (!data.rememberMe) {
     // Session-only: clear any persisted token
-    console.log(`[TokenManager] storeRefreshToken: rememberMe=false, deleting disk files (token …${suffix}, hash=${hash})`);
+    console.log(
+      `[TokenManager] storeRefreshToken: rememberMe=false, deleting disk files (token …${suffix}, hash=${hash})`
+    );
     deleteFiles();
     return;
   }
@@ -104,9 +118,13 @@ export function storeRefreshToken(data: {
     const readBack = fs.readFileSync(TOKEN_FILE);
     const decrypted = safeStorage.decryptString(readBack);
     if (decrypted !== data.refreshToken) {
-      console.error(`[TokenManager] DISK ROUND-TRIP MISMATCH! Stored …${suffix}, read back …${decrypted.slice(-8)}`);
+      console.error(
+        `[TokenManager] DISK ROUND-TRIP MISMATCH! Stored …${suffix}, read back …${decrypted.slice(-8)}`
+      );
     } else {
-      console.log(`[TokenManager] storeRefreshToken: persisted to disk ✓ (token …${suffix}, hash=${hash}, rememberMe=true)`);
+      console.log(
+        `[TokenManager] storeRefreshToken: persisted to disk ✓ (token …${suffix}, hash=${hash}, rememberMe=true)`
+      );
     }
   } catch (err) {
     console.error('[TokenManager] Failed to encrypt/write token:', err);
@@ -117,7 +135,9 @@ export function storeRefreshToken(data: {
  * Restore the refresh token from disk on app startup.
  * Returns the token or an error status.
  */
-export function restoreRefreshToken(): { status: 'ok'; token: string; apiBase: string } | { status: 'no_session' | 'tampered' | 'unavailable' } {
+export function restoreRefreshToken():
+  | { status: 'ok'; token: string; apiBase: string }
+  | { status: 'no_session' | 'tampered' | 'unavailable' } {
   if (!canPersist()) {
     console.log('[TokenManager] restoreRefreshToken: safeStorage unavailable');
     return { status: 'unavailable' };
@@ -126,7 +146,9 @@ export function restoreRefreshToken(): { status: 'ok'; token: string; apiBase: s
   const meta = readMeta();
   if (!meta) {
     const tokenFileExists = fs.existsSync(TOKEN_FILE);
-    console.log(`[TokenManager] restoreRefreshToken: no meta file (token file exists: ${tokenFileExists})`);
+    console.log(
+      `[TokenManager] restoreRefreshToken: no meta file (token file exists: ${tokenFileExists})`
+    );
     return { status: 'no_session' };
   }
 
@@ -135,7 +157,9 @@ export function restoreRefreshToken(): { status: 'ok'; token: string; apiBase: s
     const token = safeStorage.decryptString(encrypted);
     const suffix = token.slice(-8);
     const hash = clientHashToken(token).slice(0, 16);
-    console.log(`[TokenManager] restoreRefreshToken: restored from disk (token …${suffix}, hash=${hash}, rememberMe=${meta.rememberMe}, apiBase=${meta.apiBase})`);
+    console.log(
+      `[TokenManager] restoreRefreshToken: restored from disk (token …${suffix}, hash=${hash}, rememberMe=${meta.rememberMe}, apiBase=${meta.apiBase})`
+    );
     inMemoryRefreshToken = token;
     inMemoryRememberMe = meta.rememberMe;
     inMemoryApiBase = meta.apiBase;
@@ -152,7 +176,11 @@ export function restoreRefreshToken(): { status: 'ok'; token: string; apiBase: s
  * Perform a token refresh via the main process.
  * Deduplicates concurrent calls. Returns only the access token.
  */
-export function performRefresh(): Promise<{ status: string; accessToken?: string; sessionId?: string }> {
+export function performRefresh(): Promise<{
+  status: string;
+  accessToken?: string;
+  sessionId?: string;
+}> {
   if (refreshPromise) {
     return refreshPromise;
   }
@@ -181,11 +209,17 @@ export function performRefresh(): Promise<{ status: string; accessToken?: string
       });
 
       if (!response.ok) {
-        console.warn(`[TokenManager] Refresh failed: HTTP ${response.status} (token …${tokenSuffix})`);
+        console.warn(
+          `[TokenManager] Refresh failed: HTTP ${response.status} (token …${tokenSuffix})`
+        );
         return { status: 'refresh_failed' };
       }
 
-      const data = (await response.json()) as { access_token?: string; refresh_token?: string; session_id?: string };
+      const data = (await response.json()) as {
+        access_token?: string;
+        refresh_token?: string;
+        session_id?: string;
+      };
       const newAccessToken = data.access_token;
       const newRefreshToken = data.refresh_token;
       const newSessionId = data.session_id;
@@ -209,7 +243,9 @@ export function performRefresh(): Promise<{ status: string; accessToken?: string
             console.error('[TokenManager] Failed to re-encrypt rotated token:', err);
           }
         } else {
-          console.log(`[TokenManager] Rotated token NOT persisted (rememberMe=${inMemoryRememberMe}, canPersist=${canPersist()})`);
+          console.log(
+            `[TokenManager] Rotated token NOT persisted (rememberMe=${inMemoryRememberMe}, canPersist=${canPersist()})`
+          );
         }
       }
 

@@ -1,4 +1,14 @@
-import { app, BrowserWindow, clipboard, desktopCapturer, ipcMain, screen, session, shell, systemPreferences } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  desktopCapturer,
+  ipcMain,
+  screen,
+  session,
+  shell,
+  systemPreferences,
+} from 'electron';
 import path from 'path';
 import fs from 'fs';
 import {
@@ -28,7 +38,10 @@ if (!readHwAccelPref()) {
   app.disableHardwareAcceleration();
 } else {
   // Hardware acceleration flags for video encode/decode (IGNIS insight: fastest preset wins)
-  app.commandLine.appendSwitch('enable-features', 'AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxGL');
+  app.commandLine.appendSwitch(
+    'enable-features',
+    'AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxGL'
+  );
 }
 
 // Allow autoplay for all media — Concord is a real-time communication app that
@@ -74,7 +87,10 @@ const createWindow = (): void => {
           resolve();
         });
         req.on('error', reject);
-        req.on('timeout', () => { req.destroy(); reject(new Error('timeout')); });
+        req.on('timeout', () => {
+          req.destroy();
+          reject(new Error('timeout'));
+        });
       });
       mainWindow!.loadURL(devServerUrl);
       if (process.env.DEVTOOLS !== '0') {
@@ -193,20 +209,36 @@ ipcMain.handle('clipboard:writeText', (_event, text: string) => {
 
 // GPU info
 const GPU_VENDORS: Record<number, string> = {
-  0x106b: 'Apple', 0x8086: 'Intel', 0x10de: 'NVIDIA', 0x1002: 'AMD',
-  0x1022: 'AMD', 0x5143: 'Qualcomm', 0x13b5: 'ARM',
+  0x106b: 'Apple',
+  0x8086: 'Intel',
+  0x10de: 'NVIDIA',
+  0x1002: 'AMD',
+  0x1022: 'AMD',
+  0x5143: 'Qualcomm',
+  0x13b5: 'ARM',
 };
 
 ipcMain.handle('gpu:getInfo', async () => {
   try {
     const info = await app.getGPUInfo('basic');
-    const gpu = (info as { gpuDevice?: Array<{ vendorId: number; deviceId: number; driverVendor?: string; driverDescription?: string }> })
-      .gpuDevice?.[0];
+    const gpu = (
+      info as {
+        gpuDevice?: Array<{
+          vendorId: number;
+          deviceId: number;
+          driverVendor?: string;
+          driverDescription?: string;
+        }>;
+      }
+    ).gpuDevice?.[0];
     if (gpu) {
       // driverVendor on macOS often contains the hex vendorId as a string — skip it
-      const driverName = gpu.driverVendor && !/^0x[0-9a-f]+$/i.test(gpu.driverVendor) ? gpu.driverVendor : '';
-      const vendor = driverName || GPU_VENDORS[gpu.vendorId] || `Unknown (0x${gpu.vendorId.toString(16)})`;
-      const device = gpu.driverDescription || (gpu.deviceId ? `Device 0x${gpu.deviceId.toString(16)}` : '');
+      const driverName =
+        gpu.driverVendor && !/^0x[0-9a-f]+$/i.test(gpu.driverVendor) ? gpu.driverVendor : '';
+      const vendor =
+        driverName || GPU_VENDORS[gpu.vendorId] || `Unknown (0x${gpu.vendorId.toString(16)})`;
+      const device =
+        gpu.driverDescription || (gpu.deviceId ? `Device 0x${gpu.deviceId.toString(16)}` : '');
       return { vendor, device };
     }
     return null;
@@ -225,8 +257,8 @@ ipcMain.handle('screen:getDisplayInfo', () => {
     refreshRate: d.displayFrequency,
     scaleFactor: d.scaleFactor,
     isPrimary: d.id === primary.id,
-    colorDepth: d.colorDepth,       // 24 = SDR, 30/48 = HDR
-    colorSpace: d.colorSpace,       // "srgb" = SDR, "p3"/"rec2020" = wide gamut
+    colorDepth: d.colorDepth, // 24 = SDR, 30/48 = HDR
+    colorSpace: d.colorSpace, // "srgb" = SDR, "p3"/"rec2020" = wide gamut
   }));
 });
 
@@ -250,23 +282,34 @@ ipcMain.handle('app:quit', () => {
 
 // ─── Secure Auth Token Management (safeStorage) ──────────────────────
 
-ipcMain.handle('auth:storeRefreshToken', (_event, data: {
-  refreshToken: string;
-  rememberMe: boolean;
-  apiBase: string;
-}) => {
-  storeRefreshToken(data);
-  // Clear any cached restore result so subsequent restoreSession calls
-  // (e.g. after HMR or renderer reload) use the fresh token, not a stale
-  // 'refresh_failed' from a previous attempt.
-  restoreSessionPromise = null;
-});
+ipcMain.handle(
+  'auth:storeRefreshToken',
+  (
+    _event,
+    data: {
+      refreshToken: string;
+      rememberMe: boolean;
+      apiBase: string;
+    }
+  ) => {
+    storeRefreshToken(data);
+    // Clear any cached restore result so subsequent restoreSession calls
+    // (e.g. after HMR or renderer reload) use the fresh token, not a stale
+    // 'refresh_failed' from a previous attempt.
+    restoreSessionPromise = null;
+  }
+);
 
 // Deduplicate restoreSession: React Strict Mode can fire the renderer's
 // useEffect twice, causing two IPC calls.  Without dedup each call would
 // trigger a separate token rotation, wasting rotations and widening the
 // window for race conditions.
-let restoreSessionPromise: Promise<{ status: string; accessToken?: string; sessionId?: string; e2eeKeys?: unknown }> | null = null;
+let restoreSessionPromise: Promise<{
+  status: string;
+  accessToken?: string;
+  sessionId?: string;
+  e2eeKeys?: unknown;
+}> | null = null;
 
 ipcMain.handle('auth:restoreSession', () => {
   if (restoreSessionPromise) return restoreSessionPromise;
@@ -281,7 +324,12 @@ ipcMain.handle('auth:restoreSession', () => {
     if (refreshResult.status === 'ok' && refreshResult.accessToken) {
       // Also restore E2EE keys if available
       const e2eeKeys = restoreE2EEKeys();
-      return { status: 'restored', accessToken: refreshResult.accessToken, sessionId: refreshResult.sessionId, e2eeKeys };
+      return {
+        status: 'restored',
+        accessToken: refreshResult.accessToken,
+        sessionId: refreshResult.sessionId,
+        e2eeKeys,
+      };
     }
     return { status: 'refresh_failed' };
   })();
@@ -289,13 +337,19 @@ ipcMain.handle('auth:restoreSession', () => {
   return restoreSessionPromise;
 });
 
-ipcMain.handle('auth:storeE2EEKeys', (_event, data: {
-  wrappingKeyBase64: string;
-  preferencesKeyBase64: string;
-  wrappedPrivateKeyBase64: string;
-}) => {
-  storeE2EEKeys(data);
-});
+ipcMain.handle(
+  'auth:storeE2EEKeys',
+  (
+    _event,
+    data: {
+      wrappingKeyBase64: string;
+      preferencesKeyBase64: string;
+      wrappedPrivateKeyBase64: string;
+    }
+  ) => {
+    storeE2EEKeys(data);
+  }
+);
 
 ipcMain.handle('auth:refreshToken', async () => {
   return performRefresh();
@@ -320,47 +374,50 @@ ipcMain.handle('auth:getMachineId', () => {
 // ─── PiP (Picture-in-Picture) Window Management ──────────────────────
 const pipWindows = new Map<string, BrowserWindow>();
 
-ipcMain.handle('pip:open', (_event, opts: { id: string; width?: number; height?: number; title?: string }) => {
-  if (pipWindows.has(opts.id)) {
-    pipWindows.get(opts.id)!.focus();
-    return;
-  }
+ipcMain.handle(
+  'pip:open',
+  (_event, opts: { id: string; width?: number; height?: number; title?: string }) => {
+    if (pipWindows.has(opts.id)) {
+      pipWindows.get(opts.id)!.focus();
+      return;
+    }
 
-  const pip = new BrowserWindow({
-    width: opts.width || 320,
-    height: opts.height || 240,
-    minWidth: 160,
-    minHeight: 120,
-    frame: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: true,
-    title: opts.title || 'Concord Voice PiP',
-    webPreferences: {
-      preload: path.join(__dirname, '../preload/preload.js'),
-      nodeIntegration: false,
-      contextIsolation: true,
-      sandbox: true,
-    },
-    backgroundColor: '#000',
-  });
+    const pip = new BrowserWindow({
+      width: opts.width || 320,
+      height: opts.height || 240,
+      minWidth: 160,
+      minHeight: 120,
+      frame: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: true,
+      title: opts.title || 'Concord Voice PiP',
+      webPreferences: {
+        preload: path.join(__dirname, '../preload/preload.js'),
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+      },
+      backgroundColor: '#000',
+    });
 
-  // Load PiP route (hash-based routing)
-  if (process.env.NODE_ENV === 'development') {
-    pip.loadURL(`http://localhost:3001#/pip/${opts.id}`);
-  } else {
-    pip.loadFile(path.join(__dirname, '../renderer/index.html'), {
-      hash: `/pip/${opts.id}`,
+    // Load PiP route (hash-based routing)
+    if (process.env.NODE_ENV === 'development') {
+      pip.loadURL(`http://localhost:3001#/pip/${opts.id}`);
+    } else {
+      pip.loadFile(path.join(__dirname, '../renderer/index.html'), {
+        hash: `/pip/${opts.id}`,
+      });
+    }
+
+    pipWindows.set(opts.id, pip);
+
+    pip.on('closed', () => {
+      pipWindows.delete(opts.id);
+      mainWindow?.webContents.send('pip:closed', { id: opts.id });
     });
   }
-
-  pipWindows.set(opts.id, pip);
-
-  pip.on('closed', () => {
-    pipWindows.delete(opts.id);
-    mainWindow?.webContents.send('pip:closed', { id: opts.id });
-  });
-});
+);
 
 ipcMain.handle('pip:close', (_event, opts: { id: string }) => {
   pipWindows.get(opts.id)?.close();
