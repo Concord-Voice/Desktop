@@ -8,5 +8,10 @@ const USE_TLS = import.meta.env.VITE_USE_TLS === 'true';
 const protocol = USE_TLS ? 'https' : 'http';
 const wsProtocol = USE_TLS ? 'wss' : 'ws';
 
-export const API_BASE = `${protocol}://${SERVER_HOST}:${API_PORT}`;
-export const WS_BASE = `${wsProtocol}://${SERVER_HOST}:${API_PORT}`;
+// Omit port when it's the default for the protocol (443 for TLS, 80 for plain)
+const isDefaultPort =
+  (USE_TLS && API_PORT === '443') || (!USE_TLS && API_PORT === '80');
+const portSuffix = isDefaultPort ? '' : `:${API_PORT}`;
+
+export const API_BASE = `${protocol}://${SERVER_HOST}${portSuffix}`;
+export const WS_BASE = `${wsProtocol}://${SERVER_HOST}${portSuffix}`;
