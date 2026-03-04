@@ -15,6 +15,7 @@
 
 import type {
   PipChannelMessage,
+  PipRpcRequest,
   AnyPipRpcRequest,
   PipRpcResponse,
   StateUpdateBroadcast,
@@ -138,8 +139,10 @@ export class PipSignalingProxy {
         case 'pip-closing':
           await this.handlePipClosing(req);
           break;
-        default:
-          this.respond(req.id, undefined, `Unknown method: ${(req as AnyPipRpcRequest).method}`);
+        default: {
+          const unknownReq = req as PipRpcRequest;
+          this.respond(unknownReq.id, undefined, `Unknown method: ${unknownReq.method}`);
+        }
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -175,7 +178,7 @@ export class PipSignalingProxy {
     const sanitizedParticipants: Record<string, unknown> = {};
     for (const [key, p] of Object.entries(store.participants)) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { videoStream, screenStream, ...rest } = p as Record<string, unknown>;
+      const { videoStream, screenStream, audioStream, ...rest } = p;
       sanitizedParticipants[key] = rest;
     }
 
@@ -324,14 +327,13 @@ export class PipSignalingProxy {
 
   broadcastStateUpdate(
     participants: Record<string, unknown>,
-    tunedInScreenShares: Record<string, boolean>
+    tunedInScreenShares: Record<string, string>
   ): void {
     // Strip MediaStream objects before posting — BroadcastChannel uses
     // the structured clone algorithm which cannot serialize MediaStreams.
     const sanitized: Record<string, unknown> = {};
     for (const [key, p] of Object.entries(participants)) {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { videoStream, screenStream, ...rest } = p as Record<string, unknown>;
+      const { videoStream, screenStream, audioStream, ...rest } = p as Record<string, unknown> & { videoStream?: unknown; screenStream?: unknown; audioStream?: unknown };
       sanitized[key] = rest;
     }
     this.broadcast({

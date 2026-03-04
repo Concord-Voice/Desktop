@@ -77,7 +77,7 @@ export type PauseConsumerRequest = PipRpcRequest<'pause-consumer', {
 export type RequestStateRequest = PipRpcRequest<'request-state', Record<string, never>>;
 export interface VoiceStateResult {
   participants: Record<string, VoiceParticipant>;
-  tunedInScreenShares: Record<string, boolean>;
+  tunedInScreenShares: Record<string, string>;
   routerRtpCapabilities: RtpCapabilities | null;
   /** Active producer IDs that the PiP should consume */
   activeProducers: Array<{
@@ -120,7 +120,7 @@ export interface StateUpdateBroadcast {
   kind: 'broadcast';
   type: 'state-update';
   participants: Record<string, VoiceParticipant>;
-  tunedInScreenShares: Record<string, boolean>;
+  tunedInScreenShares: Record<string, string>;
 }
 
 /** New producer available to consume */

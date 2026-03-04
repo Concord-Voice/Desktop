@@ -256,6 +256,10 @@ ipcMain.handle('auth:storeRefreshToken', (_event, data: {
   apiBase: string;
 }) => {
   storeRefreshToken(data);
+  // Clear any cached restore result so subsequent restoreSession calls
+  // (e.g. after HMR or renderer reload) use the fresh token, not a stale
+  // 'refresh_failed' from a previous attempt.
+  restoreSessionPromise = null;
 });
 
 // Deduplicate restoreSession: React Strict Mode can fire the renderer's
