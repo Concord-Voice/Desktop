@@ -117,9 +117,11 @@ const VoiceTextChat: React.FC = () => {
         const kept = optimistic.filter(
           (m) => !fetchedIds.has(m.id) && !fetchedIds.has(m.clientMessageId!)
         );
-        // Server returns DESC (newest first); reverse to ASC for chronological display
-        msgs.reverse();
-        setMessages(channelId, kept.length > 0 ? [...msgs, ...kept] : msgs);
+        // Sort ASC (oldest first) for chronological display — defensive against server order
+        msgs.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        const merged = kept.length > 0 ? [...msgs, ...kept] : msgs;
+        merged.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        setMessages(channelId, merged);
         setHasMore(msgs.length === MESSAGES_LIMIT);
       } catch (err) {
         if (!aborted) {
@@ -185,8 +187,8 @@ const VoiceTextChat: React.FC = () => {
         })
       );
 
-      // Server returns DESC (newest first); reverse to ASC for chronological display
-      msgs.reverse();
+      // Sort ASC (oldest first) for chronological display — defensive against server order
+      msgs.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       prependMessages(channelId, msgs);
       setHasMore(msgs.length === MESSAGES_LIMIT);
     } catch (err) {
