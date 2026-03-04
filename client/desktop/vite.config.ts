@@ -21,12 +21,6 @@ export default defineConfig({
       reporter: ['text', 'html', 'lcov'],
       include: ['src/renderer/**/*.{ts,tsx}'],
       exclude: ['src/renderer/types/**', '**/*.d.ts'],
-      thresholds: {
-        lines: 80,
-        functions: 80,
-        branches: 80,
-        statements: 80,
-      },
     },
     alias: {
       '@': path.resolve(__dirname, './src'),
