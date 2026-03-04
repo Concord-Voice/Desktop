@@ -79,10 +79,18 @@ class E2EEService {
 
     // Re-import as non-extractable for runtime use (XSS protection)
     this.wrappingKey = await crypto.subtle.importKey(
-      'raw', wrappingRaw, { name: 'AES-GCM', length: 256 }, false, ['wrapKey', 'unwrapKey']
+      'raw',
+      wrappingRaw,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['wrapKey', 'unwrapKey']
     );
     this.preferencesKey = await crypto.subtle.importKey(
-      'raw', prefsRaw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+      'raw',
+      prefsRaw,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
     );
 
     this.wrappedPrivateKey = wrappedPrivateKeyBase64;
@@ -108,10 +116,18 @@ class E2EEService {
     const prefsRaw = base64ToArrayBuffer(keys.preferencesKeyBase64);
 
     this.wrappingKey = await crypto.subtle.importKey(
-      'raw', wrappingRaw, { name: 'AES-GCM', length: 256 }, false, ['wrapKey', 'unwrapKey']
+      'raw',
+      wrappingRaw,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['wrapKey', 'unwrapKey']
     );
     this.preferencesKey = await crypto.subtle.importKey(
-      'raw', prefsRaw, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']
+      'raw',
+      prefsRaw,
+      { name: 'AES-GCM', length: 256 },
+      false,
+      ['encrypt', 'decrypt']
     );
 
     this.wrappedPrivateKey = keys.wrappedPrivateKeyBase64;
@@ -303,7 +319,13 @@ class E2EEService {
               wrapped_keys: { [req.user_id]: wrappedKey },
             }),
           });
-          console.debug('[E2EE] Key distributed for', req.user_id, 'channel', req.channel_id, uploadRes.status);
+          console.debug(
+            '[E2EE] Key distributed for',
+            req.user_id,
+            'channel',
+            req.channel_id,
+            uploadRes.status
+          );
         } catch (err) {
           console.debug('[E2EE] Failed to process key request:', err);
         }

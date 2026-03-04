@@ -19,9 +19,18 @@ import { Device, types as mediasoupTypes } from 'mediasoup-client';
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../stores/authStore';
 import { useUserStore } from '../stores/userStore';
-import { useVoiceStore, AUDIO_QUALITY_TIERS, type AudioQualityTier, type VoiceParticipant } from '../stores/voiceStore';
+import {
+  useVoiceStore,
+  AUDIO_QUALITY_TIERS,
+  type AudioQualityTier,
+  type VoiceParticipant,
+} from '../stores/voiceStore';
 import { useAudioSettingsStore, type AudioPriority } from '../stores/audioSettingsStore';
-import { useVideoSettingsStore, VIDEO_QUALITY_PRESETS, type VideoPriority } from '../stores/videoSettingsStore';
+import {
+  useVideoSettingsStore,
+  VIDEO_QUALITY_PRESETS,
+  type VideoPriority,
+} from '../stores/videoSettingsStore';
 import { apiFetch } from './apiClient';
 import { MediaEncryption } from './mediaEncryption';
 import { e2eeService } from './e2eeService';
@@ -93,7 +102,10 @@ class VoiceService {
   // Remote consumers: consumerId → Consumer
   private consumers: Map<string, mediasoupTypes.Consumer> = new Map();
   // Consumer metadata for ownership transfer (parallel to consumers Map)
-  private consumerMeta: Map<string, { source: string; producerUserId: string; producerId: string }> = new Map();
+  private consumerMeta: Map<
+    string,
+    { source: string; producerUserId: string; producerId: string }
+  > = new Map();
   // Local media streams
   private localMicStream: MediaStream | null = null;
   private localCameraStream: MediaStream | null = null;
@@ -306,9 +318,17 @@ class VoiceService {
 
     // Subscribe to real-time volume changes from the settings store
     this.inputVolumeUnsub = useAudioSettingsStore.subscribe((state, prevState) => {
-      if (state.inputVolume !== prevState.inputVolume &&
-          this.inputVolumeGain && this.inputVolumeCtx && this.inputVolumeCtx.state !== 'closed') {
-        this.inputVolumeGain.gain.setTargetAtTime(state.inputVolume / 100, this.inputVolumeCtx.currentTime, 0.01);
+      if (
+        state.inputVolume !== prevState.inputVolume &&
+        this.inputVolumeGain &&
+        this.inputVolumeCtx &&
+        this.inputVolumeCtx.state !== 'closed'
+      ) {
+        this.inputVolumeGain.gain.setTargetAtTime(
+          state.inputVolume / 100,
+          this.inputVolumeCtx.currentTime,
+          0.01
+        );
       }
     });
 
@@ -377,7 +397,7 @@ class VoiceService {
           const tier = useVoiceStore.getState().effectiveQualityTier;
           const tierConfig = AUDIO_QUALITY_TIERS[tier];
           const effectiveHeadroom = adv.advancedMode
-            ? (adv.inlineFec && adv.fecHeadroom)
+            ? adv.inlineFec && adv.fecHeadroom
             : tierConfig.opusFec; // basic mode: headroom on when FEC is on
 
           const params = micProducer.rtpSender.getParameters();
@@ -385,9 +405,8 @@ class VoiceService {
             if (effectiveHeadroom && lossPercent > 0) {
               // Tier-derived multiplier: low bitrate tiers need proportionally more
               // headroom since FEC eats a larger share of a small budget
-              const K = tierConfig.maxBitrate < 64_000 ? 4
-                      : tierConfig.maxBitrate < 128_000 ? 2.5
-                      : 1.5;
+              const K =
+                tierConfig.maxBitrate < 64_000 ? 4 : tierConfig.maxBitrate < 128_000 ? 2.5 : 1.5;
               const headroomPercent = Math.min(50, lossPercent * K);
               params.encodings[0].maxBitrate = Math.round(
                 tierConfig.maxBitrate * (1 + headroomPercent / 100)
@@ -434,7 +453,8 @@ class VoiceService {
       return matches.find((c) => {
         const params = c.parameters ?? {};
         if (mimeLower === 'video/h264') {
-          return String(params['profile-level-id'] ?? '').toLowerCase()
+          return String(params['profile-level-id'] ?? '')
+            .toLowerCase()
             .startsWith(profileId.toLowerCase().substring(0, 4));
         }
         if (mimeLower === 'video/vp9') {
@@ -466,34 +486,41 @@ class VoiceService {
   private isHwAccelerated(key: string): boolean {
     const caps = useVideoSettingsStore.getState().codecCapabilities;
     const mime = key.split(':')[0].toLowerCase();
-    return caps.some(
-      (c) => c.mimeType.toLowerCase() === mime && c.powerEfficient
-    );
+    return caps.some((c) => c.mimeType.toLowerCase() === mime && c.powerEfficient);
   }
 
   /**
    * Calculate recommended bitrate based on resolution, FPS, and codec.
    */
-  private calculateRecommendedBitrate(vs: ReturnType<typeof useVideoSettingsStore.getState>): number {
+  private calculateRecommendedBitrate(
+    vs: ReturnType<typeof useVideoSettingsStore.getState>
+  ): number {
     const resMap: Record<string, { w: number; h: number }> = {
       '720p': { w: 1280, h: 720 },
       '1080p': { w: 1920, h: 1080 },
       '1440p': { w: 2560, h: 1440 },
       '4K': { w: 3840, h: 2160 },
-      'source': { w: 1920, h: 1080 },
+      source: { w: 1920, h: 1080 },
     };
     const parsed = vs.screenResolution.match(/^(\d+)x(\d+)$/);
     const res = parsed
       ? { w: Number(parsed[1]), h: Number(parsed[2]) }
-      : (resMap[vs.screenResolution] || resMap['1080p']);
+      : resMap[vs.screenResolution] || resMap['1080p'];
     const effectiveFps = vs.screenFrameRate === 0 ? 60 : vs.screenFrameRate;
     // Effective codec: active (in-use) > preferred > auto-pick (check if any efficient codec is available)
     const activeCodec = useVoiceStore.getState().activeScreenCodec;
     const effectiveCodec = activeCodec ?? vs.preferredVideoCodec;
     const isEfficient = effectiveCodec
-      ? (effectiveCodec.includes('AV1') || effectiveCodec.includes('H265') || effectiveCodec.includes('HEVC') || effectiveCodec.includes('VP9'))
-      : vs.codecCapabilities.some((c) =>
-          c.mimeType.includes('AV1') || c.mimeType.includes('H265') || c.mimeType.includes('HEVC') || c.mimeType.includes('VP9')
+      ? effectiveCodec.includes('AV1') ||
+        effectiveCodec.includes('H265') ||
+        effectiveCodec.includes('HEVC') ||
+        effectiveCodec.includes('VP9')
+      : vs.codecCapabilities.some(
+          (c) =>
+            c.mimeType.includes('AV1') ||
+            c.mimeType.includes('H265') ||
+            c.mimeType.includes('HEVC') ||
+            c.mimeType.includes('VP9')
         );
     const bpp = isEfficient ? 0.04 : 0.07;
     const bps = res.w * res.h * effectiveFps * bpp;
@@ -514,13 +541,19 @@ class VoiceService {
     const svcMode = vs.scalabilityMode === 'auto' ? 'L3T3' : vs.scalabilityMode;
 
     // Base encoding params: priority for DSCP marking (skip when 'off')
-    const base: Partial<mediasoupTypes.RtpEncodingParameters> = prio === 'off' ? {} : {
-      priority: prio,
-      networkPriority: prio,
-    };
+    const base: Partial<mediasoupTypes.RtpEncodingParameters> =
+      prio === 'off'
+        ? {}
+        : {
+            priority: prio,
+            networkPriority: prio,
+          };
 
     const isSvcCodec = (mime: string) =>
-      mime.includes('AV1') || mime.includes('H265') || mime.includes('HEVC') || mime.includes('VP9');
+      mime.includes('AV1') ||
+      mime.includes('H265') ||
+      mime.includes('HEVC') ||
+      mime.includes('VP9');
 
     const makeSvc = (codec: mediasoupTypes.RtpCodecCapability) => ({
       codec,
@@ -560,8 +593,10 @@ class VoiceService {
     // Pass 1: HW-only (when HW accel enabled)
     if (hwAccel) {
       for (const { mime, alt, svc } of codecCascade) {
-        if ((this.isHwAccelerated(mime) || (alt && this.isHwAccelerated(alt))) &&
-            (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt)))) {
+        if (
+          (this.isHwAccelerated(mime) || (alt && this.isHwAccelerated(alt))) &&
+          (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt)))
+        ) {
           const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
           if (codec) return svc ? makeSvc(codec) : makeSimulcast(codec);
         }
@@ -595,13 +630,19 @@ class VoiceService {
     const userBitrate = vs.screenShareBitrate; // 0 = auto
 
     // Base encoding params: priority for DSCP marking (skip when 'off')
-    const base: Partial<mediasoupTypes.RtpEncodingParameters> = prio === 'off' ? {} : {
-      priority: prio,
-      networkPriority: prio,
-    };
+    const base: Partial<mediasoupTypes.RtpEncodingParameters> =
+      prio === 'off'
+        ? {}
+        : {
+            priority: prio,
+            networkPriority: prio,
+          };
 
     const isSvcCodec = (mime: string) =>
-      mime.includes('AV1') || mime.includes('H265') || mime.includes('HEVC') || mime.includes('VP9');
+      mime.includes('AV1') ||
+      mime.includes('H265') ||
+      mime.includes('HEVC') ||
+      mime.includes('VP9');
 
     // Dynamic auto-bitrate: calculate based on resolution, FPS, and codec
     const autoBitrate = this.calculateRecommendedBitrate(vs);
@@ -630,15 +671,18 @@ class VoiceService {
       { mime: 'video/H264', svc: false },
     ];
 
-    const makeEncodings = (svc: boolean) => svc
-      ? [{ ...base, scalabilityMode: svcMode, maxBitrate: bitrate }]
-      : [{ ...base, maxBitrate: bitrate }];
+    const makeEncodings = (svc: boolean) =>
+      svc
+        ? [{ ...base, scalabilityMode: svcMode, maxBitrate: bitrate }]
+        : [{ ...base, maxBitrate: bitrate }];
 
     // Pass 1: HW-only (when HW accel enabled)
     if (hwAccel) {
       for (const { mime, alt, svc } of codecCascade) {
-        if ((this.isHwAccelerated(mime) || (alt && this.isHwAccelerated(alt))) &&
-            (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt)))) {
+        if (
+          (this.isHwAccelerated(mime) || (alt && this.isHwAccelerated(alt))) &&
+          (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt)))
+        ) {
           const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
           if (codec) return { codec, encodings: makeEncodings(svc) };
         }
@@ -788,10 +832,15 @@ class VoiceService {
         }
         producer.rtpSender.setParameters(params).catch(() => {});
       }
-    } catch { /* rtpSender may not be available */ }
+    } catch {
+      /* rtpSender may not be available */
+    }
   }
 
-  private liveUpdateVideoPriority(producer: mediasoupTypes.Producer, priority: VideoPriority): void {
+  private liveUpdateVideoPriority(
+    producer: mediasoupTypes.Producer,
+    priority: VideoPriority
+  ): void {
     if (!producer?.rtpSender) return;
     try {
       const params = producer.rtpSender.getParameters();
@@ -801,7 +850,9 @@ class VoiceService {
         (enc as any).networkPriority = effectivePriority;
       }
       producer.rtpSender.setParameters(params).catch(() => {});
-    } catch { /* rtpSender may not be available */ }
+    } catch {
+      /* rtpSender may not be available */
+    }
   }
 
   private liveUpdateScreenBitrate(producer: mediasoupTypes.Producer, bitrate: number): void {
@@ -812,7 +863,9 @@ class VoiceService {
         params.encodings[0].maxBitrate = bitrate;
         producer.rtpSender.setParameters(params).catch(() => {});
       }
-    } catch { /* rtpSender may not be available */ }
+    } catch {
+      /* rtpSender may not be available */
+    }
   }
 
   // --- replaceTrack: re-acquire media with new constraints, swap on existing producer ---
@@ -883,15 +936,21 @@ class VoiceService {
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
-            ...(isSystemDefault ? {} : {
-              width: { ideal: preset.width },
-              height: { ideal: preset.height },
-              frameRate: { ideal: preset.frameRate },
-            }),
+            ...(isSystemDefault
+              ? {}
+              : {
+                  width: { ideal: preset.width },
+                  height: { ideal: preset.height },
+                  frameRate: { ideal: preset.frameRate },
+                }),
           },
         });
       } catch (err) {
-        if (err instanceof DOMException && err.name === 'OverconstrainedError' && !isSystemDefault) {
+        if (
+          err instanceof DOMException &&
+          err.name === 'OverconstrainedError' &&
+          !isSystemDefault
+        ) {
           console.warn('Camera overconstrained during track replace, falling back:', err);
           stream = await navigator.mediaDevices.getUserMedia({ video: true });
         } else {
@@ -1012,7 +1071,9 @@ class VoiceService {
 
     useVoiceStore.getState().setActiveCameraCodec(codec?.mimeType?.toLowerCase() ?? null);
     const hwTag = codec && this.isHwAccelerated(codec.mimeType) ? 'HW' : 'SW';
-    console.debug(`[codec-floor] Fast re-produced camera with ${codec?.mimeType ?? 'default'} (${hwTag})`);
+    console.debug(
+      `[codec-floor] Fast re-produced camera with ${codec?.mimeType ?? 'default'} (${hwTag})`
+    );
   }
 
   /**
@@ -1085,7 +1146,9 @@ class VoiceService {
 
     useVoiceStore.getState().setActiveScreenCodec(codec?.mimeType?.toLowerCase() ?? null);
     const hwTag = codec && this.isHwAccelerated(codec.mimeType) ? 'HW' : 'SW';
-    console.debug(`[codec-floor] Fast re-produced screen with ${codec?.mimeType ?? 'default'} (${hwTag})`);
+    console.debug(
+      `[codec-floor] Fast re-produced screen with ${codec?.mimeType ?? 'default'} (${hwTag})`
+    );
   }
 
   /**
@@ -1112,11 +1175,15 @@ class VoiceService {
         // Never switch to a HW codec if hardware acceleration is disabled
         const hwAccel = useVideoSettingsStore.getState().hardwareAcceleration;
         if (!hwAccel && this.isHwAccelerated(bestMime) && !this.isHwAccelerated(currentMime)) {
-          console.debug(`[codec-floor] Skipping ${source} switch to ${bestMime} (HW) — hardware accel is off`);
+          console.debug(
+            `[codec-floor] Skipping ${source} switch to ${bestMime} (HW) — hardware accel is off`
+          );
           continue;
         }
         const hwLabel = this.isHwAccelerated(bestMime) ? 'HW' : 'SW';
-        console.info(`[codec-floor] Re-producing ${source}: ${currentMime} → ${bestMime} (${hwLabel})`);
+        console.info(
+          `[codec-floor] Re-producing ${source}: ${currentMime} → ${bestMime} (${hwLabel})`
+        );
         if (source === 'camera') {
           await this.fastReproduceCamera();
         } else {
@@ -1142,9 +1209,10 @@ class VoiceService {
 
     try {
       // Step 1: Authorize via control plane (uses apiFetch for automatic token refresh)
-      const endpoint = joinType === 'dm'
-        ? `/api/v1/dm/conversations/${channelId}/voice/join`
-        : `/api/v1/channels/${channelId}/voice/join`;
+      const endpoint =
+        joinType === 'dm'
+          ? `/api/v1/dm/conversations/${channelId}/voice/join`
+          : `/api/v1/channels/${channelId}/voice/join`;
       const res = await apiFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1245,7 +1313,10 @@ class VoiceService {
       // immediately see who has camera or screen share active.
       const producersByUser = new Map<string, { isVideoOn: boolean; isScreenSharing: boolean }>();
       for (const ep of roomJoined.existingProducers) {
-        const entry = producersByUser.get(ep.userId) || { isVideoOn: false, isScreenSharing: false };
+        const entry = producersByUser.get(ep.userId) || {
+          isVideoOn: false,
+          isScreenSharing: false,
+        };
         if (ep.source === 'camera') entry.isVideoOn = true;
         if (ep.source === 'screen') entry.isScreenSharing = true;
         producersByUser.set(ep.userId, entry);
@@ -1342,20 +1413,36 @@ class VoiceService {
 
     // 2. Close all producers (sync)
     for (const [, producer] of this.producers) {
-      try { producer.close(); } catch { /* ignore */ }
+      try {
+        producer.close();
+      } catch {
+        /* ignore */
+      }
     }
     this.producers.clear();
 
     // 3. Close all consumers
     for (const [, consumer] of this.consumers) {
-      try { consumer.close(); } catch { /* ignore */ }
+      try {
+        consumer.close();
+      } catch {
+        /* ignore */
+      }
     }
     this.consumers.clear();
     this.consumerMeta.clear();
 
     // 4. Close transports (sync)
-    try { this.sendTransport?.close(); } catch { /* ignore */ }
-    try { this.recvTransport?.close(); } catch { /* ignore */ }
+    try {
+      this.sendTransport?.close();
+    } catch {
+      /* ignore */
+    }
+    try {
+      this.recvTransport?.close();
+    } catch {
+      /* ignore */
+    }
     this.sendTransport = null;
     this.recvTransport = null;
 
@@ -1374,7 +1461,11 @@ class VoiceService {
     this.isEncrypted = false;
 
     // 7. Disconnect socket (fire-and-forget)
-    try { this.socket?.disconnect(); } catch { /* ignore */ }
+    try {
+      this.socket?.disconnect();
+    } catch {
+      /* ignore */
+    }
     this.socket = null;
 
     // 8. Reset device and consume queue
@@ -1461,13 +1552,12 @@ class VoiceService {
 
     // DTX: in basic mode, tier controls; in advanced mode, user overrides
     const effectiveDtx = adv.advancedMode
-      ? (adv.silenceDetection || tierConfig.opusDtx)
+      ? adv.silenceDetection || tierConfig.opusDtx
       : tierConfig.opusDtx;
 
     // Stereo: in basic mode, tier controls; in advanced mode, user can override
-    const effectiveStereo = adv.advancedMode && adv.stereoOverride !== null
-      ? adv.stereoOverride
-      : tierConfig.opusStereo;
+    const effectiveStereo =
+      adv.advancedMode && adv.stereoOverride !== null ? adv.stereoOverride : tierConfig.opusStereo;
 
     // Frame size resolution:
     //   0 (Default) → use tier's preferredFrameSize
@@ -1482,17 +1572,22 @@ class VoiceService {
       effectiveFrameSize = adv.frameSize;
     }
 
-    const audioPrioParams = adv.audioPriority === 'off' ? {} : {
-      priority: adv.audioPriority,
-      networkPriority: adv.audioPriority,
-    };
+    const audioPrioParams =
+      adv.audioPriority === 'off'
+        ? {}
+        : {
+            priority: adv.audioPriority,
+            networkPriority: adv.audioPriority,
+          };
     const producer = await this.sendTransport.produce({
       track,
-      encodings: [{
-        maxBitrate: tierConfig.maxBitrate,
-        adaptivePtime: adv.adaptivePtime || undefined,
-        ...audioPrioParams,
-      }],
+      encodings: [
+        {
+          maxBitrate: tierConfig.maxBitrate,
+          adaptivePtime: adv.adaptivePtime || undefined,
+          ...audioPrioParams,
+        },
+      ],
       codecOptions: {
         opusStereo: effectiveStereo,
         opusDtx: effectiveDtx,
@@ -1540,7 +1635,7 @@ class VoiceService {
     if (videoOnCount >= voiceState.maxVideoSlots) {
       voiceState.setVideoSlotError(
         `Maximum video streams reached (${voiceState.maxVideoSlots}). ` +
-        'Wait for someone to turn off video or a screen share to end.'
+          'Wait for someone to turn off video or a screen share to end.'
       );
       return;
     }
@@ -1548,7 +1643,8 @@ class VoiceService {
     try {
       // Read video settings for camera preset
       const videoSettings = useVideoSettingsStore.getState();
-      const preset = VIDEO_QUALITY_PRESETS[videoSettings.cameraPreset] || VIDEO_QUALITY_PRESETS['system'];
+      const preset =
+        VIDEO_QUALITY_PRESETS[videoSettings.cameraPreset] || VIDEO_QUALITY_PRESETS['system'];
       const isSystemDefault = videoSettings.cameraPreset === 'system' || preset.width === 0;
 
       // Try getUserMedia with progressive constraint relaxation on OverconstrainedError:
@@ -1560,23 +1656,33 @@ class VoiceService {
         {
           video: {
             deviceId: deviceId ? { exact: deviceId } : undefined,
-            ...(isSystemDefault ? {} : {
-              width: { ideal: preset.width },
-              height: { ideal: preset.height },
-              frameRate: { ideal: preset.frameRate },
-            }),
+            ...(isSystemDefault
+              ? {}
+              : {
+                  width: { ideal: preset.width },
+                  height: { ideal: preset.height },
+                  frameRate: { ideal: preset.frameRate },
+                }),
           },
         },
-        ...(deviceId && !isSystemDefault ? [{
-          video: { deviceId: { exact: deviceId } },
-        }] : []),
-        ...(!isSystemDefault ? [{
-          video: {
-            width: { ideal: preset.width },
-            height: { ideal: preset.height },
-            frameRate: { ideal: preset.frameRate },
-          },
-        }] : []),
+        ...(deviceId && !isSystemDefault
+          ? [
+              {
+                video: { deviceId: { exact: deviceId } },
+              },
+            ]
+          : []),
+        ...(!isSystemDefault
+          ? [
+              {
+                video: {
+                  width: { ideal: preset.width },
+                  height: { ideal: preset.height },
+                  frameRate: { ideal: preset.frameRate },
+                },
+              },
+            ]
+          : []),
         { video: true },
       ];
 
@@ -1585,7 +1691,11 @@ class VoiceService {
           this.localCameraStream = await navigator.mediaDevices.getUserMedia(constraints);
           break;
         } catch (err) {
-          if (err instanceof DOMException && err.name === 'OverconstrainedError' && constraints !== fallbackChain[fallbackChain.length - 1]) {
+          if (
+            err instanceof DOMException &&
+            err.name === 'OverconstrainedError' &&
+            constraints !== fallbackChain[fallbackChain.length - 1]
+          ) {
             console.warn('Camera overconstrained, relaxing constraints:', err);
             continue;
           }
@@ -1594,7 +1704,9 @@ class VoiceService {
       }
 
       if (!this.localCameraStream) {
-        voiceState.setVideoSlotError('Could not access camera. Check that your camera is connected and not in use by another application.');
+        voiceState.setVideoSlotError(
+          'Could not access camera. Check that your camera is connected and not in use by another application.'
+        );
         return;
       }
       const track = this.localCameraStream.getVideoTracks()[0];
@@ -1652,11 +1764,12 @@ class VoiceService {
         this.localCameraStream.getTracks().forEach((t) => t.stop());
         this.localCameraStream = null;
       }
-      const errMsg = err instanceof DOMException && err.name === 'NotAllowedError'
-        ? 'Camera access denied. Check your browser or system permissions.'
-        : err instanceof DOMException && err.name === 'NotFoundError'
-          ? 'No camera found. Check that your camera is connected.'
-          : 'Could not start camera. Try a different camera or video preset in Settings.';
+      const errMsg =
+        err instanceof DOMException && err.name === 'NotAllowedError'
+          ? 'Camera access denied. Check your browser or system permissions.'
+          : err instanceof DOMException && err.name === 'NotFoundError'
+            ? 'No camera found. Check that your camera is connected.'
+            : 'Could not start camera. Try a different camera or video preset in Settings.';
       voiceState.setVideoSlotError(errMsg);
     }
   }
@@ -1672,7 +1785,7 @@ class VoiceService {
     const screenSettings = useVideoSettingsStore.getState();
     const screenFps = screenSettings.screenFrameRate === 0 ? 60 : screenSettings.screenFrameRate; // 0 = Native, use 60 as capture max
     const resMap: Record<string, { w: number; h: number }> = {
-      'source': { w: 3840, h: 2160 },
+      source: { w: 3840, h: 2160 },
       '720p': { w: 1280, h: 720 },
       '1080p': { w: 1920, h: 1080 },
       '1440p': { w: 2560, h: 1440 },
@@ -1682,7 +1795,7 @@ class VoiceService {
     const customParsed = screenSettings.screenResolution.match(/^(\d+)x(\d+)$/);
     const screenRes = customParsed
       ? { w: Number(customParsed[1]), h: Number(customParsed[2]) }
-      : (resMap[screenSettings.screenResolution] || resMap['source']);
+      : resMap[screenSettings.screenResolution] || resMap['source'];
 
     // Use Electron desktopCapturer if available
     let stream: MediaStream;
@@ -1710,7 +1823,11 @@ class VoiceService {
     } else {
       console.debug('produceScreen: using getDisplayMedia fallback');
       stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { width: { ideal: screenRes.w }, height: { ideal: screenRes.h }, frameRate: { ideal: screenFps } },
+        video: {
+          width: { ideal: screenRes.w },
+          height: { ideal: screenRes.h },
+          frameRate: { ideal: screenFps },
+        },
         audio: false,
       });
     }
@@ -2081,10 +2198,9 @@ class VoiceService {
     if (!this.sendTransport || this.sendTransport.closed) return;
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (this.sendTransport as any)._awaitQueue.push(
-        async () => { /* no-op — just wait for our turn */ },
-        'drainSendTransportQueue'
-      );
+      await (this.sendTransport as any)._awaitQueue.push(async () => {
+        /* no-op — just wait for our turn */
+      }, 'drainSendTransportQueue');
     } catch {
       // Transport may have closed while waiting — safe to ignore
     }
@@ -2122,7 +2238,9 @@ class VoiceService {
       useVoiceStore.getState().setVideoOn(false);
       useVoiceStore.getState().setActiveCameraCodec(null);
       if (localUserId) {
-        useVoiceStore.getState().updateParticipant(localUserId, { videoStream: undefined, isVideoOn: false });
+        useVoiceStore
+          .getState()
+          .updateParticipant(localUserId, { videoStream: undefined, isVideoOn: false });
       }
     } else if (source === 'screen') {
       if (this.localScreenStream) {
@@ -2132,7 +2250,9 @@ class VoiceService {
       useVoiceStore.getState().setScreenSharing(false);
       useVoiceStore.getState().setActiveScreenCodec(null);
       if (localUserId) {
-        useVoiceStore.getState().updateParticipant(localUserId, { screenStream: undefined, isScreenSharing: false });
+        useVoiceStore
+          .getState()
+          .updateParticipant(localUserId, { screenStream: undefined, isScreenSharing: false });
       }
     }
   }
@@ -2161,7 +2281,9 @@ class VoiceService {
       iceCandidates: options.iceCandidates,
       dtlsParameters: options.dtlsParameters,
       ...(this.isEncrypted && {
-        additionalSettings: { encodedInsertableStreams: true } as unknown as Partial<RTCConfiguration>,
+        additionalSettings: {
+          encodedInsertableStreams: true,
+        } as unknown as Partial<RTCConfiguration>,
       }),
     });
 
@@ -2174,19 +2296,22 @@ class VoiceService {
         .catch(errback);
     });
 
-    this.sendTransport.on('produce', async ({ kind, rtpParameters, appData }, callback, errback) => {
-      try {
-        const result = await this.emitAsync<{ id: string }>('produce', {
-          transportId: this.sendTransport!.id,
-          kind,
-          rtpParameters,
-          appData,
-        });
-        callback({ id: result.id });
-      } catch (err) {
-        errback(err as Error);
+    this.sendTransport.on(
+      'produce',
+      async ({ kind, rtpParameters, appData }, callback, errback) => {
+        try {
+          const result = await this.emitAsync<{ id: string }>('produce', {
+            transportId: this.sendTransport!.id,
+            kind,
+            rtpParameters,
+            appData,
+          });
+          callback({ id: result.id });
+        } catch (err) {
+          errback(err as Error);
+        }
       }
-    });
+    );
   }
 
   private async createRecvTransport(): Promise<void> {
@@ -2200,7 +2325,9 @@ class VoiceService {
       iceCandidates: options.iceCandidates,
       dtlsParameters: options.dtlsParameters,
       ...(this.isEncrypted && {
-        additionalSettings: { encodedInsertableStreams: true } as unknown as Partial<RTCConfiguration>,
+        additionalSettings: {
+          encodedInsertableStreams: true,
+        } as unknown as Partial<RTCConfiguration>,
       }),
     });
 
@@ -2221,11 +2348,11 @@ class VoiceService {
    * concurrent SDP negotiations that cause "Duplicate a=mid value" errors.
    */
   private async consumeProducer(producerId: string, senderUserId?: string): Promise<void> {
-    this.consumeQueue = this.consumeQueue.then(() =>
-      this.consumeProducerImpl(producerId, senderUserId)
-    ).catch((err) => {
-      console.error('Consume queue error:', err);
-    });
+    this.consumeQueue = this.consumeQueue
+      .then(() => this.consumeProducerImpl(producerId, senderUserId))
+      .catch((err) => {
+        console.error('Consume queue error:', err);
+      });
     await this.consumeQueue;
   }
 
@@ -2258,7 +2385,11 @@ class VoiceService {
       });
 
       this.consumers.set(consumer.id, consumer);
-      this.consumerMeta.set(consumer.id, { source: result.source, producerUserId: result.producerUserId, producerId: result.producerId });
+      this.consumerMeta.set(consumer.id, {
+        source: result.source,
+        producerUserId: result.producerUserId,
+        producerId: result.producerId,
+      });
 
       console.debug('[consume] consumer created', {
         consumerId: consumer.id,
@@ -2292,7 +2423,10 @@ class VoiceService {
       } else if (source === 'camera') {
         store.updateParticipant(result.producerUserId, { videoStream: stream, isVideoOn: true });
       } else if (source === 'screen') {
-        store.updateParticipant(result.producerUserId, { screenStream: stream, isScreenSharing: true });
+        store.updateParticipant(result.producerUserId, {
+          screenStream: stream,
+          isScreenSharing: true,
+        });
       }
 
       console.debug('[consume] stream attached', {
@@ -2322,46 +2456,51 @@ class VoiceService {
   private setupSocketListeners(): void {
     if (!this.socket) return;
 
-    this.socket.on('new-producer', async ({ producerId, userId, kind: _kind, source, requiresOptIn }) => {
-      const store = useVoiceStore.getState();
+    this.socket.on(
+      'new-producer',
+      async ({ producerId, userId, kind: _kind, source, requiresOptIn }) => {
+        const store = useVoiceStore.getState();
 
-      // Screen shares use opt-in ("Tune In") model — announce but don't auto-consume
-      if (requiresOptIn && source === 'screen') {
-        const participant = store.participants[userId];
-        store.addAvailableScreenShare({
-          producerId,
-          userId,
-          username: participant?.username || 'Unknown',
-          displayName: participant?.displayName,
-        });
-        store.updateParticipant(userId, { isScreenSharing: true });
-        return;
-      }
-
-      // E2EE: ensure decrypt key is ready BEFORE consuming so the first
-      // frames can be decrypted. Socket.IO doesn't await async handlers,
-      // so user-joined's addDecryptKeyForUser may still be in-flight.
-      if (this.isEncrypted && this.mediaEncryption) {
-        const channelId = store.activeChannelId;
-        if (channelId) {
-          await this.addDecryptKeyForUser(channelId, userId);
-        }
-      }
-
-      // Video slot enforcement for camera streams
-      if (source === 'camera') {
-        const videoOnCount = Object.values(store.participants).filter((p) => p.isVideoOn).length;
-        if (videoOnCount >= store.maxVideoSlots) {
-          console.warn(`[new-producer] Video slot limit reached (${store.maxVideoSlots}), skipping camera consume for ${userId}`);
-          store.updateParticipant(userId, { isVideoOn: true }); // Mark them as video-on even if we can't consume
+        // Screen shares use opt-in ("Tune In") model — announce but don't auto-consume
+        if (requiresOptIn && source === 'screen') {
+          const participant = store.participants[userId];
+          store.addAvailableScreenShare({
+            producerId,
+            userId,
+            username: participant?.username || 'Unknown',
+            displayName: participant?.displayName,
+          });
+          store.updateParticipant(userId, { isScreenSharing: true });
           return;
         }
-      }
 
-      await this.consumeProducer(producerId, userId);
-      if (source === 'camera') store.updateParticipant(userId, { isVideoOn: true });
-      if (source === 'screen') store.updateParticipant(userId, { isScreenSharing: true });
-    });
+        // E2EE: ensure decrypt key is ready BEFORE consuming so the first
+        // frames can be decrypted. Socket.IO doesn't await async handlers,
+        // so user-joined's addDecryptKeyForUser may still be in-flight.
+        if (this.isEncrypted && this.mediaEncryption) {
+          const channelId = store.activeChannelId;
+          if (channelId) {
+            await this.addDecryptKeyForUser(channelId, userId);
+          }
+        }
+
+        // Video slot enforcement for camera streams
+        if (source === 'camera') {
+          const videoOnCount = Object.values(store.participants).filter((p) => p.isVideoOn).length;
+          if (videoOnCount >= store.maxVideoSlots) {
+            console.warn(
+              `[new-producer] Video slot limit reached (${store.maxVideoSlots}), skipping camera consume for ${userId}`
+            );
+            store.updateParticipant(userId, { isVideoOn: true }); // Mark them as video-on even if we can't consume
+            return;
+          }
+        }
+
+        await this.consumeProducer(producerId, userId);
+        if (source === 'camera') store.updateParticipant(userId, { isVideoOn: true });
+        if (source === 'screen') store.updateParticipant(userId, { isScreenSharing: true });
+      }
+    );
 
     this.socket.on('producer-paused', ({ producerId: _producerId, userId }) => {
       useVoiceStore.getState().updateParticipant(userId, { isMuted: true });
@@ -2383,7 +2522,8 @@ class VoiceService {
       }
 
       const store = useVoiceStore.getState();
-      if (source === 'camera') store.updateParticipant(userId, { isVideoOn: false, videoStream: undefined });
+      if (source === 'camera')
+        store.updateParticipant(userId, { isVideoOn: false, videoStream: undefined });
       else if (source === 'screen') {
         store.updateParticipant(userId, { isScreenSharing: false, screenStream: undefined });
         store.removeAvailableScreenShare(producerId);
@@ -2396,8 +2536,14 @@ class VoiceService {
 
     this.socket.on('user-joined', async ({ userId, username, displayName, avatarUrl }) => {
       useVoiceStore.getState().addParticipant({
-        userId, username, displayName, avatarUrl,
-        isMuted: false, isDeafened: false, isVideoOn: false, isScreenSharing: false,
+        userId,
+        username,
+        displayName,
+        avatarUrl,
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
         isSpeaking: false,
       });
 
@@ -2431,7 +2577,9 @@ class VoiceService {
       if (!this.isEncrypted || !this.mediaEncryption) return;
       const localEpoch = this.mediaEncryption.getCurrentKeyId();
       if (epoch > localEpoch) {
-        console.info(`E2EE epoch sync: local=${localEpoch}, server=${epoch}, catching up ${epoch - localEpoch} steps`);
+        console.info(
+          `E2EE epoch sync: local=${localEpoch}, server=${epoch}, catching up ${epoch - localEpoch} steps`
+        );
         this.mediaEncryption.catchUpToEpoch(epoch);
       }
     });
@@ -2522,10 +2670,7 @@ class VoiceService {
       // Switch to slower interval after initial profiling
       if (probeCount === maxInitialProbes + 1 && this.decoderProfilingTimer) {
         clearInterval(this.decoderProfilingTimer);
-        this.decoderProfilingTimer = setInterval(
-          () => this.profileDecoders(),
-          30_000,
-        );
+        this.decoderProfilingTimer = setInterval(() => this.profileDecoders(), 30_000);
       }
 
       await this.profileDecoders();
@@ -2562,9 +2707,15 @@ class VoiceService {
         for (const report of stats.values()) {
           if (report.type !== 'inbound-rtp' || report.kind !== 'video') continue;
 
-          const totalDecodeTime = (report as Record<string, unknown>).totalDecodeTime as number | undefined;
-          const framesDecoded = (report as Record<string, unknown>).framesDecoded as number | undefined;
-          const currentFps = (report as Record<string, unknown>).framesPerSecond as number | undefined;
+          const totalDecodeTime = (report as Record<string, unknown>).totalDecodeTime as
+            | number
+            | undefined;
+          const framesDecoded = (report as Record<string, unknown>).framesDecoded as
+            | number
+            | undefined;
+          const currentFps = (report as Record<string, unknown>).framesPerSecond as
+            | number
+            | undefined;
 
           if (!totalDecodeTime || !framesDecoded || framesDecoded === 0 || !currentFps) continue;
 
@@ -2591,7 +2742,7 @@ class VoiceService {
               });
               console.warn(
                 `IGNIS RED: lowering spatial layer for consumer ${consumer.id}`,
-                `(rho=${rho.toFixed(2)}, decode p95=${p95DecodeMs.toFixed(1)}ms, fps=${currentFps})`,
+                `(rho=${rho.toFixed(2)}, decode p95=${p95DecodeMs.toFixed(1)}ms, fps=${currentFps})`
               );
             } else if (currentLayers && currentLayers.temporalLayer > 0) {
               consumerAny.setPreferredLayers({
@@ -2600,7 +2751,7 @@ class VoiceService {
               });
               console.warn(
                 `IGNIS RED: lowering temporal layer for consumer ${consumer.id}`,
-                `(rho=${rho.toFixed(2)})`,
+                `(rho=${rho.toFixed(2)})`
               );
             } else {
               // Already at lowest layers — pause lowest-priority consumer.
@@ -2613,21 +2764,27 @@ class VoiceService {
                 for (const [, c] of this.consumers) {
                   if (c.kind === 'video' && !c.paused && !Object.values(tunedIn).includes(c.id)) {
                     c.pause();
-                    console.warn(`IGNIS RED: pausing camera consumer ${c.id} instead of screen share ${consumer.id}`);
+                    console.warn(
+                      `IGNIS RED: pausing camera consumer ${c.id} instead of screen share ${consumer.id}`
+                    );
                     pausedCamera = true;
                     break;
                   }
                 }
                 if (!pausedCamera) {
                   consumer.pause();
-                  console.warn(`IGNIS RED: pausing screen share consumer ${consumer.id} — no camera to demote`);
+                  console.warn(
+                    `IGNIS RED: pausing screen share consumer ${consumer.id} — no camera to demote`
+                  );
                 }
               } else {
                 consumer.pause();
-                console.warn(`IGNIS RED: pausing camera consumer ${consumer.id} — no layers to reduce`);
+                console.warn(
+                  `IGNIS RED: pausing camera consumer ${consumer.id} — no layers to reduce`
+                );
               }
             }
-          } else if (rho >= 0.80) {
+          } else if (rho >= 0.8) {
             // YELLOW zone — approaching limit
             if (worstZone !== 'red') worstZone = 'yellow';
             if (currentLayers && currentLayers.temporalLayer > 0) {
@@ -2637,7 +2794,7 @@ class VoiceService {
               });
               console.info(
                 `IGNIS YELLOW: lowering temporal layer for consumer ${consumer.id}`,
-                `(rho=${rho.toFixed(2)}, decode p95=${p95DecodeMs.toFixed(1)}ms, fps=${currentFps})`,
+                `(rho=${rho.toFixed(2)}, decode p95=${p95DecodeMs.toFixed(1)}ms, fps=${currentFps})`
               );
             }
           }
@@ -2716,9 +2873,12 @@ class VoiceService {
             }
           },
         });
-        readable.pipeThrough(transform).pipeTo(writable).catch((err: unknown) => {
-          console.warn('E2EE encrypt pipe error:', err);
-        });
+        readable
+          .pipeThrough(transform)
+          .pipeTo(writable)
+          .catch((err: unknown) => {
+            console.warn('E2EE encrypt pipe error:', err);
+          });
         console.debug('E2EE: encrypt transform applied via createEncodedStreams');
       } catch (err) {
         console.error('E2EE: createEncodedStreams failed on sender:', err);
@@ -2756,7 +2916,9 @@ class VoiceService {
               controller.enqueue(frame);
               // Reset drop counter on success
               if (dropCount > 0) {
-                console.debug(`E2EE: decrypt recovered after ${dropCount} dropped frames for ${senderUserId}`);
+                console.debug(
+                  `E2EE: decrypt recovered after ${dropCount} dropped frames for ${senderUserId}`
+                );
                 dropCount = 0;
               }
             } catch {
@@ -2765,14 +2927,19 @@ class VoiceService {
               // which produces garbled noise or corrupted video.
               dropCount++;
               if (dropCount === 1 || dropCount % 100 === 0) {
-                console.warn(`E2EE: dropping undecryptable frame for ${senderUserId} (total dropped: ${dropCount})`);
+                console.warn(
+                  `E2EE: dropping undecryptable frame for ${senderUserId} (total dropped: ${dropCount})`
+                );
               }
             }
           },
         });
-        readable.pipeThrough(transform).pipeTo(writable).catch((err: unknown) => {
-          console.warn('E2EE decrypt pipe error:', err);
-        });
+        readable
+          .pipeThrough(transform)
+          .pipeTo(writable)
+          .catch((err: unknown) => {
+            console.warn('E2EE decrypt pipe error:', err);
+          });
         console.debug('E2EE: decrypt transform applied via createEncodedStreams');
       } catch (err) {
         console.error('E2EE: createEncodedStreams failed on receiver:', err);

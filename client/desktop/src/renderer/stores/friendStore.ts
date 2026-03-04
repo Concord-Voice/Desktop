@@ -70,10 +70,16 @@ interface FriendState {
 
   // Friend codes
   fetchFriendCodes: () => Promise<void>;
-  generateFriendCode: (opts?: { maxUses?: number; expiresIn?: number; autoAccept?: boolean }) => Promise<FriendCode>;
+  generateFriendCode: (opts?: {
+    maxUses?: number;
+    expiresIn?: number;
+    autoAccept?: boolean;
+  }) => Promise<FriendCode>;
   revokeFriendCode: (id: string) => Promise<void>;
   previewFriendCode: (code: string) => Promise<FriendCodePreview>;
-  claimFriendCode: (code: string) => Promise<{ status: string; friendshipId: string; user: SearchResult }>;
+  claimFriendCode: (
+    code: string
+  ) => Promise<{ status: string; friendshipId: string; user: SearchResult }>;
   searchUsers: (query: string) => Promise<SearchResult[]>;
 
   // Real-time updates (called from WebSocket handlers)
@@ -135,19 +141,21 @@ export const useFriendStore = create<FriendState>()(
           }
 
           const data = await response.json();
-          const requests: FriendRequest[] = (data.requests || []).map((r: Record<string, unknown>) => ({
-            id: r.id,
-            fromUserId: r.from_user_id,
-            fromUsername: r.from_username,
-            fromDisplayName: r.from_display_name,
-            fromAvatarUrl: r.from_avatar_url,
-            toUserId: r.to_user_id,
-            toUsername: r.to_username,
-            toDisplayName: r.to_display_name,
-            toAvatarUrl: r.to_avatar_url,
-            direction: r.direction as 'sent' | 'received',
-            createdAt: r.created_at as string,
-          }));
+          const requests: FriendRequest[] = (data.requests || []).map(
+            (r: Record<string, unknown>) => ({
+              id: r.id,
+              fromUserId: r.from_user_id,
+              fromUsername: r.from_username,
+              fromDisplayName: r.from_display_name,
+              fromAvatarUrl: r.from_avatar_url,
+              toUserId: r.to_user_id,
+              toUsername: r.to_username,
+              toDisplayName: r.to_display_name,
+              toAvatarUrl: r.to_avatar_url,
+              direction: r.direction as 'sent' | 'received',
+              createdAt: r.created_at as string,
+            })
+          );
 
           set({ pendingRequests: requests });
         } catch (error) {
@@ -156,9 +164,7 @@ export const useFriendStore = create<FriendState>()(
       },
 
       sendRequest: async (userIdOrUsername: string, byUsername = false) => {
-        const body = byUsername
-          ? { username: userIdOrUsername }
-          : { user_id: userIdOrUsername };
+        const body = byUsername ? { username: userIdOrUsername } : { user_id: userIdOrUsername };
 
         const response = await apiFetch('/api/v1/friends/request', {
           method: 'POST',
@@ -244,16 +250,18 @@ export const useFriendStore = create<FriendState>()(
           const response = await apiFetch('/api/v1/friends/codes');
           if (!response.ok) return;
           const data = await response.json();
-          const codes: FriendCode[] = (data.friend_codes || []).map((fc: Record<string, unknown>) => ({
-            id: fc.id as string,
-            code: fc.code as string,
-            maxUses: fc.max_uses as number | null,
-            useCount: fc.use_count as number,
-            expiresAt: fc.expires_at as string | null,
-            isRevoked: fc.is_revoked as boolean,
-            autoAccept: fc.auto_accept as boolean,
-            createdAt: fc.created_at as string,
-          }));
+          const codes: FriendCode[] = (data.friend_codes || []).map(
+            (fc: Record<string, unknown>) => ({
+              id: fc.id as string,
+              code: fc.code as string,
+              maxUses: fc.max_uses as number | null,
+              useCount: fc.use_count as number,
+              expiresAt: fc.expires_at as string | null,
+              isRevoked: fc.is_revoked as boolean,
+              autoAccept: fc.auto_accept as boolean,
+              createdAt: fc.created_at as string,
+            })
+          );
           set({ friendCodes: codes });
         } catch (error) {
           console.error('Failed to fetch friend codes:', error);
@@ -377,9 +385,7 @@ export const useFriendStore = create<FriendState>()(
 
       updateFriendPresence: (userId: string, status: PresenceStatus) =>
         set((state) => ({
-          friends: state.friends.map((f) =>
-            f.userId === userId ? { ...f, status } : f
-          ),
+          friends: state.friends.map((f) => (f.userId === userId ? { ...f, status } : f)),
         })),
 
       refreshFriendCodeUseCounts: () => {

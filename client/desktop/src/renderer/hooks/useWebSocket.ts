@@ -78,7 +78,14 @@ export function useWebSocket() {
     const revocations = data.revocations || [];
 
     for (const rev of revocations) {
-      console.debug('[WebSocket] Stale epoch detected:', rev.channel_id, 'revoked:', rev.revoked_epoch, '→', rev.successor_epoch);
+      console.debug(
+        '[WebSocket] Stale epoch detected:',
+        rev.channel_id,
+        'revoked:',
+        rev.revoked_epoch,
+        '→',
+        rev.successor_epoch
+      );
       e2eeService.invalidateChannelKey(rev.channel_id);
 
       // Trigger rotation coordinator
@@ -194,11 +201,15 @@ export function useWebSocket() {
         }
 
         // Emergency-stop voice (don't keep broadcasting while disconnected)
-        getVoiceService().then(({ voiceService }) => {
-          if (useVoiceStore.getState().connectionState !== 'disconnected') {
-            voiceService.emergencyCleanup();
-          }
-        }).catch(() => { /* voice module never loaded */ });
+        getVoiceService()
+          .then(({ voiceService }) => {
+            if (useVoiceStore.getState().connectionState !== 'disconnected') {
+              voiceService.emergencyCleanup();
+            }
+          })
+          .catch(() => {
+            /* voice module never loaded */
+          });
 
         // After 15s grace period, run preflight diagnostics
         setTimeout(async () => {
@@ -284,9 +295,13 @@ export function useWebSocket() {
           const lastVoiceId = useConnectionStore.getState().lastVoiceChannelId;
           if (lastVoiceId) {
             useConnectionStore.getState().setLastVoiceChannelId(null);
-            getVoiceService().then(({ voiceService }) => {
-              voiceService.joinChannel(lastVoiceId);
-            }).catch(() => { /* voice module not available */ });
+            getVoiceService()
+              .then(({ voiceService }) => {
+                voiceService.joinChannel(lastVoiceId);
+              })
+              .catch(() => {
+                /* voice module not available */
+              });
           }
           return;
         }
@@ -336,9 +351,10 @@ export function useWebSocket() {
 
       if (isEncrypted && e2eeService.isInitialized) {
         // Decrypt asynchronously with version-aware decryption
-        const decryptPromise = keyVersion && keyVersion > 1
-          ? e2eeService.decryptForChannelWithVersion(channelId, data.content, keyVersion)
-          : e2eeService.decryptForChannel(channelId, data.content);
+        const decryptPromise =
+          keyVersion && keyVersion > 1
+            ? e2eeService.decryptForChannelWithVersion(channelId, data.content, keyVersion)
+            : e2eeService.decryptForChannel(channelId, data.content);
 
         decryptPromise
           .then((plaintext) => {
@@ -499,7 +515,7 @@ export function useWebSocket() {
           availableScreenShares: voiceState.availableScreenShares.map((s) =>
             s.userId === userId
               ? { ...s, username: data.username, displayName: data.display_name || undefined }
-              : s,
+              : s
           ),
         });
       }
@@ -677,7 +693,14 @@ export function useWebSocket() {
       const removedUserId = data.removed_user_id;
 
       if (!channelId) return;
-      console.debug('[WebSocket] key_revocation:', channelId, 'new_epoch:', newEpoch, 'reason:', data.reason);
+      console.debug(
+        '[WebSocket] key_revocation:',
+        channelId,
+        'new_epoch:',
+        newEpoch,
+        'reason:',
+        data.reason
+      );
 
       // Invalidate cached key for this channel
       e2eeService.invalidateChannelKey(channelId);
@@ -748,12 +771,15 @@ export function useWebSocket() {
     });
 
     // Server online counts handler — updates online_count on server objects after presence changes
-    const unsubServerOnlineCounts = wsService.on('server_online_counts', (msg: WebSocketMessage) => {
-      const counts = msg.data.counts as Record<string, number> | undefined;
-      if (counts) {
-        useServerStore.getState().updateOnlineCounts(counts);
+    const unsubServerOnlineCounts = wsService.on(
+      'server_online_counts',
+      (msg: WebSocketMessage) => {
+        const counts = msg.data.counts as Record<string, number> | undefined;
+        if (counts) {
+          useServerStore.getState().updateOnlineCounts(counts);
+        }
       }
-    });
+    );
 
     // Server voice counts handler — updates voice counts for tooltip display
     const unsubServerVoiceCounts = wsService.on('server_voice_counts', (msg: WebSocketMessage) => {
@@ -803,24 +829,35 @@ export function useWebSocket() {
       if (action === 'joined' || action === 'left') {
         const existing = voiceRefetchTimers.get(channelId);
         if (existing) clearTimeout(existing);
-        voiceRefetchTimers.set(channelId, setTimeout(async () => {
-          voiceRefetchTimers.delete(channelId);
-          try {
-            const res = await apiFetch(`/api/v1/channels/${channelId}/voice/participants`);
-            if (!res.ok) return;
-            const json = await res.json();
-            const members = (json.participants || []).map(
-              (p: { user_id: string; username: string; display_name?: string; avatar_url?: string; is_muted?: boolean }) => ({
-                userId: p.user_id,
-                username: p.username,
-                displayName: p.display_name,
-                avatarUrl: p.avatar_url,
-                isMuted: p.is_muted || false,
-              })
-            );
-            voiceStore.setChannelVoiceMembers(channelId, members);
-          } catch { /* non-critical */ }
-        }, 2000));
+        voiceRefetchTimers.set(
+          channelId,
+          setTimeout(async () => {
+            voiceRefetchTimers.delete(channelId);
+            try {
+              const res = await apiFetch(`/api/v1/channels/${channelId}/voice/participants`);
+              if (!res.ok) return;
+              const json = await res.json();
+              const members = (json.participants || []).map(
+                (p: {
+                  user_id: string;
+                  username: string;
+                  display_name?: string;
+                  avatar_url?: string;
+                  is_muted?: boolean;
+                }) => ({
+                  userId: p.user_id,
+                  username: p.username,
+                  displayName: p.display_name,
+                  avatarUrl: p.avatar_url,
+                  isMuted: p.is_muted || false,
+                })
+              );
+              voiceStore.setChannelVoiceMembers(channelId, members);
+            } catch {
+              /* non-critical */
+            }
+          }, 2000)
+        );
       }
 
       // Update detailed participants only for the channel we're connected to
@@ -876,9 +913,10 @@ export function useWebSocket() {
       };
 
       if (isEncrypted && e2eeService.isInitialized) {
-        const decryptPromise = dmKeyVersion && dmKeyVersion > 1
-          ? e2eeService.decryptForChannelWithVersion(conversationId, data.content, dmKeyVersion)
-          : e2eeService.decryptForChannel(conversationId, data.content);
+        const decryptPromise =
+          dmKeyVersion && dmKeyVersion > 1
+            ? e2eeService.decryptForChannelWithVersion(conversationId, data.content, dmKeyVersion)
+            : e2eeService.decryptForChannel(conversationId, data.content);
 
         decryptPromise
           .then((plaintext) => {
@@ -973,74 +1011,88 @@ export function useWebSocket() {
     });
 
     // DM conversation created (when another user opens a DM with us)
-    const unsubDMConvCreated = wsService.on('dm_conversation_created', async (msg: WebSocketMessage) => {
-      const { data } = msg;
-      if (data.conversation) {
-        const { useDMStore } = await import('../stores/dmStore');
-        useDMStore.getState().addConversation({
-          id: data.conversation.id,
-          isGroup: data.conversation.is_group,
-          isPersonal: data.conversation.is_personal ?? false,
-          name: data.conversation.name || null,
-          isEncrypted: data.conversation.is_encrypted,
-          participants: (data.conversation.participants || []).map((p: Record<string, unknown>) => ({
-            userId: p.user_id as string,
-            username: p.username as string,
-            displayName: p.display_name as string | undefined,
-            avatarUrl: p.avatar_url as string | undefined,
-          })),
-          lastMessage: null,
-          unreadCount: 0,
-          createdAt: data.conversation.created_at,
-        });
+    const unsubDMConvCreated = wsService.on(
+      'dm_conversation_created',
+      async (msg: WebSocketMessage) => {
+        const { data } = msg;
+        if (data.conversation) {
+          const { useDMStore } = await import('../stores/dmStore');
+          useDMStore.getState().addConversation({
+            id: data.conversation.id,
+            isGroup: data.conversation.is_group,
+            isPersonal: data.conversation.is_personal ?? false,
+            name: data.conversation.name || null,
+            isEncrypted: data.conversation.is_encrypted,
+            participants: (data.conversation.participants || []).map(
+              (p: Record<string, unknown>) => ({
+                userId: p.user_id as string,
+                username: p.username as string,
+                displayName: p.display_name as string | undefined,
+                avatarUrl: p.avatar_url as string | undefined,
+              })
+            ),
+            lastMessage: null,
+            unreadCount: 0,
+            createdAt: data.conversation.created_at,
+          });
+        }
       }
-    });
+    );
 
     // DM subscribed confirmation
     const unsubDMSubscribed = wsService.on('dm_subscribed', (msg: WebSocketMessage) => {
-      console.debug('[WebSocket] Subscribed to DM:', msg.data.conversation_id || msg.data.channel_id);
+      console.debug(
+        '[WebSocket] Subscribed to DM:',
+        msg.data.conversation_id || msg.data.channel_id
+      );
     });
 
     // ── Friend event handlers ────────────────────────────────────────────
 
-    const unsubFriendRequestReceived = wsService.on('friend_request_received', async (msg: WebSocketMessage) => {
-      const { data } = msg;
-      const { useFriendStore } = await import('../stores/friendStore');
-      useFriendStore.getState().addRequest({
-        id: data.id,
-        fromUserId: data.from_user_id,
-        fromUsername: data.from_username,
-        fromDisplayName: data.from_display_name,
-        fromAvatarUrl: data.from_avatar_url,
-        toUserId: data.to_user_id,
-        toUsername: data.to_username,
-        toDisplayName: data.to_display_name,
-        toAvatarUrl: data.to_avatar_url,
-        direction: 'received',
-        createdAt: data.created_at,
-      });
-    });
-
-    const unsubFriendRequestAccepted = wsService.on('friend_request_accepted', async (msg: WebSocketMessage) => {
-      const { data } = msg;
-      const { useFriendStore } = await import('../stores/friendStore');
-      const store = useFriendStore.getState();
-      // Remove the pending request
-      if (data.request_id) {
-        store.removeRequest(data.request_id);
-      }
-      // Add the new friend
-      if (data.friend) {
-        store.addFriend({
-          id: data.friend.id,
-          userId: data.friend.user_id,
-          username: data.friend.username,
-          displayName: data.friend.display_name,
-          avatarUrl: data.friend.avatar_url,
-          status: data.friend.status || 'offline',
+    const unsubFriendRequestReceived = wsService.on(
+      'friend_request_received',
+      async (msg: WebSocketMessage) => {
+        const { data } = msg;
+        const { useFriendStore } = await import('../stores/friendStore');
+        useFriendStore.getState().addRequest({
+          id: data.id,
+          fromUserId: data.from_user_id,
+          fromUsername: data.from_username,
+          fromDisplayName: data.from_display_name,
+          fromAvatarUrl: data.from_avatar_url,
+          toUserId: data.to_user_id,
+          toUsername: data.to_username,
+          toDisplayName: data.to_display_name,
+          toAvatarUrl: data.to_avatar_url,
+          direction: 'received',
+          createdAt: data.created_at,
         });
       }
-    });
+    );
+
+    const unsubFriendRequestAccepted = wsService.on(
+      'friend_request_accepted',
+      async (msg: WebSocketMessage) => {
+        const { data } = msg;
+        const { useFriendStore } = await import('../stores/friendStore');
+        const store = useFriendStore.getState();
+        // Remove the pending request
+        if (data.request_id) {
+          store.removeRequest(data.request_id);
+        }
+        // Add the new friend
+        if (data.friend) {
+          store.addFriend({
+            id: data.friend.id,
+            userId: data.friend.user_id,
+            username: data.friend.username,
+            displayName: data.friend.display_name,
+            avatarUrl: data.friend.avatar_url,
+            status: data.friend.status || 'offline',
+          });
+        }
+      }
+    );
 
     const unsubFriendRemoved = wsService.on('friend_removed', async (msg: WebSocketMessage) => {
       const { data } = msg;
@@ -1050,41 +1102,44 @@ export function useWebSocket() {
       }
     });
 
-    const unsubFriendCodeClaimed = wsService.on('friend_code_claimed', async (msg: WebSocketMessage) => {
-      const { data } = msg;
-      const { useFriendStore } = await import('../stores/friendStore');
-      const store = useFriendStore.getState();
+    const unsubFriendCodeClaimed = wsService.on(
+      'friend_code_claimed',
+      async (msg: WebSocketMessage) => {
+        const { data } = msg;
+        const { useFriendStore } = await import('../stores/friendStore');
+        const store = useFriendStore.getState();
 
-      if (data.status === 'accepted' && data.friend) {
-        // Auto-accepted: add directly to friends list
-        store.addFriend({
-          id: data.friend.id,
-          userId: data.friend.user_id,
-          username: data.friend.username,
-          displayName: data.friend.display_name,
-          avatarUrl: data.friend.avatar_url,
-          status: data.friend.status || 'offline',
-        });
-      } else if (data.status === 'pending' && data.request) {
-        // Pending: add to incoming requests
-        store.addRequest({
-          id: data.request.id,
-          fromUserId: data.request.from_user_id,
-          fromUsername: data.request.from_username,
-          fromDisplayName: data.request.from_display_name,
-          fromAvatarUrl: data.request.from_avatar_url,
-          toUserId: data.request.to_user_id,
-          toUsername: data.request.to_username,
-          toDisplayName: data.request.to_display_name,
-          toAvatarUrl: data.request.to_avatar_url,
-          direction: 'received',
-          createdAt: data.request.created_at,
-        });
+        if (data.status === 'accepted' && data.friend) {
+          // Auto-accepted: add directly to friends list
+          store.addFriend({
+            id: data.friend.id,
+            userId: data.friend.user_id,
+            username: data.friend.username,
+            displayName: data.friend.display_name,
+            avatarUrl: data.friend.avatar_url,
+            status: data.friend.status || 'offline',
+          });
+        } else if (data.status === 'pending' && data.request) {
+          // Pending: add to incoming requests
+          store.addRequest({
+            id: data.request.id,
+            fromUserId: data.request.from_user_id,
+            fromUsername: data.request.from_username,
+            fromDisplayName: data.request.from_display_name,
+            fromAvatarUrl: data.request.from_avatar_url,
+            toUserId: data.request.to_user_id,
+            toUsername: data.request.to_username,
+            toDisplayName: data.request.to_display_name,
+            toAvatarUrl: data.request.to_avatar_url,
+            direction: 'received',
+            createdAt: data.request.created_at,
+          });
+        }
+
+        // Refresh friend code use counts
+        store.refreshFriendCodeUseCounts();
       }
-
-      // Refresh friend code use counts
-      store.refreshFriendCodeUseCounts();
-    });
+    );
 
     // ── DM voice state update handler ────────────────────────────────────
 

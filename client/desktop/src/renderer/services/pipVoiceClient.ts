@@ -47,11 +47,14 @@ export class PipVoiceClient {
   private disposed = false;
 
   /** Pending RPC response callbacks keyed by request ID */
-  private pending: Map<string, {
-    resolve: (result: unknown) => void;
-    reject: (err: Error) => void;
-    timer: ReturnType<typeof setTimeout>;
-  }> = new Map();
+  private pending: Map<
+    string,
+    {
+      resolve: (result: unknown) => void;
+      reject: (err: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  > = new Map();
 
   /** Callback for state updates from main window */
   onStateUpdate: ((msg: AnyPipBroadcast) => void) | null = null;
@@ -174,7 +177,9 @@ export class PipVoiceClient {
   /**
    * Execute a voice action in the main window.
    */
-  async action(action: 'toggle-mute' | 'toggle-deafen' | 'leave' | 'toggle-video' | 'toggle-screen'): Promise<void> {
+  async action(
+    action: 'toggle-mute' | 'toggle-deafen' | 'leave' | 'toggle-video' | 'toggle-screen'
+  ): Promise<void> {
     await this.rpc('action', { action });
   }
 
@@ -207,20 +212,26 @@ export class PipVoiceClient {
     // Signal pre-close so main window can start resuming
     try {
       await this.rpc('pip-closing', {});
-    } catch { /* best effort */ }
+    } catch {
+      /* best effort */
+    }
 
     // Close all consumers
     for (const [, track] of this.consumers) {
       try {
         track.consumer.close();
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
     this.consumers.clear();
 
     // Close transport
     try {
       this.recvTransport?.close();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     this.recvTransport = null;
 
     // Cancel pending RPCs

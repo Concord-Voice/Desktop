@@ -41,10 +41,7 @@ const DirectMessagesView: React.FC = () => {
     position: { x: number; y: number };
   } | null>(null);
 
-  const handleServerContextMenu = (
-    server: ServerWithRole,
-    position: { x: number; y: number }
-  ) => {
+  const handleServerContextMenu = (server: ServerWithRole, position: { x: number; y: number }) => {
     setContextMenu({ server, position });
   };
 

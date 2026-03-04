@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Monitor, X } from 'lucide-react';
-import { useVideoSettingsStore, type ScreenResolution, type ScreenContentType } from '../../stores/videoSettingsStore';
+import {
+  useVideoSettingsStore,
+  type ScreenResolution,
+  type ScreenContentType,
+} from '../../stores/videoSettingsStore';
 import './ScreenSharePicker.css';
 
 interface DesktopSource {
@@ -41,7 +45,7 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') onCancel();
     },
-    [onCancel],
+    [onCancel]
   );
 
   useEffect(() => {
@@ -116,11 +120,7 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
                       />
                       <div className="screen-picker__source-info">
                         {source.appIcon && (
-                          <img
-                            src={source.appIcon}
-                            alt=""
-                            className="screen-picker__app-icon"
-                          />
+                          <img src={source.appIcon} alt="" className="screen-picker__app-icon" />
                         )}
                         <span className="screen-picker__source-name">{source.name}</span>
                       </div>
@@ -138,7 +138,11 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
             <select
               className="screen-picker__quality-select"
               value={useVideoSettingsStore.getState().screenResolution}
-              onChange={(e) => useVideoSettingsStore.getState().setScreenResolution(e.target.value as ScreenResolution)}
+              onChange={(e) =>
+                useVideoSettingsStore
+                  .getState()
+                  .setScreenResolution(e.target.value as ScreenResolution)
+              }
             >
               <option value="source">Source Native</option>
               <option value="1080p">1080p</option>
@@ -150,7 +154,11 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
             <select
               className="screen-picker__quality-select"
               value={useVideoSettingsStore.getState().screenFrameRate}
-              onChange={(e) => useVideoSettingsStore.getState().setScreenFrameRate(Number(e.target.value) as 5 | 15 | 30 | 60)}
+              onChange={(e) =>
+                useVideoSettingsStore
+                  .getState()
+                  .setScreenFrameRate(Number(e.target.value) as 5 | 15 | 30 | 60)
+              }
             >
               <option value={5}>5 FPS</option>
               <option value={15}>15 FPS</option>
@@ -163,7 +171,11 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
             <select
               className="screen-picker__quality-select"
               value={useVideoSettingsStore.getState().screenContentType}
-              onChange={(e) => useVideoSettingsStore.getState().setScreenContentType(e.target.value as ScreenContentType)}
+              onChange={(e) =>
+                useVideoSettingsStore
+                  .getState()
+                  .setScreenContentType(e.target.value as ScreenContentType)
+              }
             >
               <option value="auto">Auto</option>
               <option value="motion">Motion (video)</option>

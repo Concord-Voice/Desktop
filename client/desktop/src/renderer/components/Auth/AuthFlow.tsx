@@ -49,10 +49,7 @@ const AuthFlow: React.FC = () => {
     setServerUrl('');
   };
 
-  const handleRegistrationSuccess = (data: {
-    accessToken: string;
-    user?: UserProfile;
-  }) => {
+  const handleRegistrationSuccess = (data: { accessToken: string; user?: UserProfile }) => {
     console.debug('Registration successful, access token received');
     useAuthStore.getState().setAccessToken(data.accessToken);
     useAuthStore.getState().setRememberMe(true); // Registration always remembers

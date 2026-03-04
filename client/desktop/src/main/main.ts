@@ -93,13 +93,19 @@ const createWindow = (): void => {
           reject(new Error('timeout'));
         });
       });
-      fs.appendFileSync('/tmp/concord-permissions.log', `\nDev server detected, loading from ${devServerUrl}\n`);
+      fs.appendFileSync(
+        '/tmp/concord-permissions.log',
+        `\nDev server detected, loading from ${devServerUrl}\n`
+      );
       mainWindow!.loadURL(devServerUrl);
       if (process.env.DEVTOOLS !== '0') {
         mainWindow!.webContents.openDevTools();
       }
     } catch (err) {
-      fs.appendFileSync('/tmp/concord-permissions.log', `\nDev server not found (${err}), loading from file\n`);
+      fs.appendFileSync(
+        '/tmp/concord-permissions.log',
+        `\nDev server not found (${err}), loading from file\n`
+      );
       mainWindow!.loadFile(path.join(__dirname, '../renderer/index.html'));
     }
   };

@@ -44,31 +44,28 @@ export function useEmojiData() {
   }, []);
 
   // Load a specific category's emoji data
-  const loadCategory = useCallback(
-    async (categoryId: string): Promise<EmojiEntry[]> => {
-      // Return cached if available
-      const cached = getCachedCategory(categoryId);
-      if (cached) return cached;
+  const loadCategory = useCallback(async (categoryId: string): Promise<EmojiEntry[]> => {
+    // Return cached if available
+    const cached = getCachedCategory(categoryId);
+    if (cached) return cached;
 
-      const loader = categoryLoaders[categoryId];
-      if (!loader) return [];
+    const loader = categoryLoaders[categoryId];
+    if (!loader) return [];
 
-      setLoadingCategory(categoryId);
-      try {
-        const mod = await loader();
-        const data: EmojiEntry[] = mod.default;
-        setCachedCategory(categoryId, data);
-        setLoadedCategories((prev) => new Set(prev).add(categoryId));
-        return data;
-      } catch (err) {
-        console.error(`Failed to load emoji category: ${categoryId}`, err);
-        return [];
-      } finally {
-        setLoadingCategory(null);
-      }
-    },
-    []
-  );
+    setLoadingCategory(categoryId);
+    try {
+      const mod = await loader();
+      const data: EmojiEntry[] = mod.default;
+      setCachedCategory(categoryId, data);
+      setLoadedCategories((prev) => new Set(prev).add(categoryId));
+      return data;
+    } catch (err) {
+      console.error(`Failed to load emoji category: ${categoryId}`, err);
+      return [];
+    } finally {
+      setLoadingCategory(null);
+    }
+  }, []);
 
   // Get emoji data for a category (returns cached or empty)
   const getCategory = useCallback((categoryId: string): EmojiEntry[] => {

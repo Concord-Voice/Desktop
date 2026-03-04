@@ -222,7 +222,9 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
             alt="Concord Voice"
           />
           <h2 className="register-title">Create Your Account</h2>
-          <p className="register-subtitle">Join the Concord Voice network with end-to-end encryption</p>
+          <p className="register-subtitle">
+            Join the Concord Voice network with end-to-end encryption
+          </p>
         </div>
 
         <form className="register-form" onSubmit={handleSubmit}>
@@ -324,8 +326,8 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
                             <strong>Your Keys:</strong> Protected by your password - keep it safe!
                           </li>
                         </ul>
-                        <strong>Privacy First:</strong> Not even Concord Voice can read your encrypted
-                        messages. We can't reset your password if you forget it.
+                        <strong>Privacy First:</strong> Not even Concord Voice can read your
+                        encrypted messages. We can't reset your password if you forget it.
                       </div>
                     }
                   />

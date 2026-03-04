@@ -1,11 +1,17 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import {
-  Pin, PinOff, X,
-  Mic, MicOff,
-  Volume2, VolumeX,
-  Video, VideoOff,
-  Monitor, MonitorOff,
+  Pin,
+  PinOff,
+  X,
+  Mic,
+  MicOff,
+  Volume2,
+  VolumeX,
+  Video,
+  VideoOff,
+  Monitor,
+  MonitorOff,
   PhoneOff,
 } from 'lucide-react';
 import type { VoiceParticipant } from '../../stores/voiceStore';
@@ -114,7 +120,9 @@ const ControlsPipContent: React.FC<{
         const participants = Object.values(msg.participants);
         // Infer local user state from participants (first participant is usually local,
         // but we check all and use the one flagged as local if available)
-        const localP = participants.find((p) => (p as VoiceParticipant & { isLocal?: boolean }).isLocal);
+        const localP = participants.find(
+          (p) => (p as VoiceParticipant & { isLocal?: boolean }).isLocal
+        );
         if (localP) {
           setState({
             isMuted: localP.isMuted,
@@ -135,10 +143,13 @@ const ControlsPipContent: React.FC<{
     };
 
     // Request initial state (we don't need media, just participant info)
-    client.init().then((voiceState: VoiceStateResult) => {
-      const participants = Object.values(voiceState.participants);
-      setState((prev) => ({ ...prev, participantCount: participants.length }));
-    }).catch(console.error);
+    client
+      .init()
+      .then((voiceState: VoiceStateResult) => {
+        const participants = Object.values(voiceState.participants);
+        setState((prev) => ({ ...prev, participantCount: participants.length }));
+      })
+      .catch(console.error);
 
     return () => {
       client.dispose().catch(console.error);
@@ -398,9 +409,7 @@ const ScreenPipContent: React.FC<{
       ) : !hasStream ? (
         <div className="pip-screen-placeholder">
           <span className="pip-screen-placeholder__text">Screen share ended</span>
-          <span className="pip-screen-placeholder__sub">
-            The stream is no longer available
-          </span>
+          <span className="pip-screen-placeholder__sub">The stream is no longer available</span>
         </div>
       ) : null}
       <video
@@ -439,11 +448,7 @@ const PipHeader: React.FC<{
     >
       {pinned ? <Pin size={12} /> : <PinOff size={12} />}
     </button>
-    <button
-      className="pip-header__btn pip-header__btn--close"
-      onClick={onClose}
-      title="Close PiP"
-    >
+    <button className="pip-header__btn pip-header__btn--close" onClick={onClose} title="Close PiP">
       <X size={12} />
     </button>
   </div>

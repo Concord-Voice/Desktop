@@ -41,13 +41,7 @@ const StreamThumbnail: React.FC<{
           <span className="stream-thumbnail__paused-text">Paused</span>
         </div>
       ) : (
-        <video
-          ref={videoRef}
-          className="stream-thumbnail__video"
-          autoPlay
-          playsInline
-          muted
-        />
+        <video ref={videoRef} className="stream-thumbnail__video" autoPlay playsInline muted />
       )}
       <div className="stream-thumbnail__label">{sharerName}</div>
       <button

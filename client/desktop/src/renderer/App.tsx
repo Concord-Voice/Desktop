@@ -77,9 +77,10 @@ function AuthenticatedLayout() {
       window.electron?.getDisplayInfo?.() ?? Promise.resolve(null),
     ]).then(([caps, gpu, hwAccel, displays]) => {
       // Detect HDR: any display with colorDepth > 24 or wide gamut color space
-      const systemHdr = (displays as { colorDepth?: number; colorSpace?: string }[] | null)?.some(
-        (d) => (d.colorDepth ?? 0) > 24 || (d.colorSpace && d.colorSpace !== 'srgb')
-      ) ?? false;
+      const systemHdr =
+        (displays as { colorDepth?: number; colorSpace?: string }[] | null)?.some(
+          (d) => (d.colorDepth ?? 0) > 24 || (d.colorSpace && d.colorSpace !== 'srgb')
+        ) ?? false;
 
       const current = useVideoSettingsStore.getState();
       useVideoSettingsStore.setState({
@@ -208,7 +209,10 @@ function App() {
         </div>
 
         <Routes>
-          <Route path="/" element={accessToken ? <Navigate to="/app/dms" replace /> : <AuthFlow />} />
+          <Route
+            path="/"
+            element={accessToken ? <Navigate to="/app/dms" replace /> : <AuthFlow />}
+          />
           <Route element={<AuthenticatedLayout />}>
             <Route path="/app" element={<MainView />} />
             <Route path="/app/dms" element={<DirectMessagesView />} />

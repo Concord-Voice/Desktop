@@ -2,12 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { EmojiPickerProps, EmojiEntry, SkinTone, SKIN_TONES } from './types';
 import { useEmojiData } from './useEmojiData';
-import {
-  getRecentEmojis,
-  addRecentEmoji,
-  getSavedSkinTone,
-  saveSkinTone,
-} from './emojiDataCache';
+import { getRecentEmojis, addRecentEmoji, getSavedSkinTone, saveSkinTone } from './emojiDataCache';
 import EmojiSearch from './EmojiSearch';
 import EmojiCategoryBar from './EmojiCategoryBar';
 import EmojiGrid from './EmojiGrid';
@@ -19,27 +14,17 @@ const EmojiPicker: React.FC<EmojiPickerProps> = ({
   mode = 'popover',
   position,
 }) => {
-  const {
-    categories,
-    loadingCategory,
-    loadCategory,
-    getCategory,
-    search,
-    loadAllForSearch,
-  } = useEmojiData();
+  const { categories, loadingCategory, loadCategory, getCategory, search, loadAllForSearch } =
+    useEmojiData();
 
   const recentEmojis = getRecentEmojis();
   const hasRecent = recentEmojis.length > 0;
 
-  const [activeCategory, setActiveCategory] = useState<string>(
-    hasRecent ? 'recent' : 'smileys'
-  );
+  const [activeCategory, setActiveCategory] = useState<string>(hasRecent ? 'recent' : 'smileys');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<EmojiEntry[]>([]);
   const [hoveredEmoji, setHoveredEmoji] = useState<EmojiEntry | null>(null);
-  const [skinTone, setSkinTone] = useState<SkinTone>(
-    () => getSavedSkinTone() as SkinTone
-  );
+  const [skinTone, setSkinTone] = useState<SkinTone>(() => getSavedSkinTone() as SkinTone);
   const [showSkinTones, setShowSkinTones] = useState(false);
 
   const pickerRef = useRef<HTMLDivElement>(null);
@@ -142,16 +127,9 @@ const EmojiPicker: React.FC<EmojiPickerProps> = ({
     <div
       ref={pickerRef}
       className={`emoji-picker ${mode === 'popover' ? 'emoji-picker--popover' : 'emoji-picker--inline'}`}
-      style={
-        mode === 'popover' && position
-          ? { left: position.x, top: position.y }
-          : undefined
-      }
+      style={mode === 'popover' && position ? { left: position.x, top: position.y } : undefined}
     >
-      <EmojiSearch
-        onSearch={setSearchQuery}
-        autoFocus={mode === 'popover'}
-      />
+      <EmojiSearch onSearch={setSearchQuery} autoFocus={mode === 'popover'} />
 
       {!searchQuery && (
         <EmojiCategoryBar

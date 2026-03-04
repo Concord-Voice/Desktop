@@ -12,8 +12,8 @@ export interface HSL {
 }
 
 export interface CustomColors {
-  background: string;      // hex e.g. "#0d0821"
-  accentPrimary: string;   // hex e.g. "#fa709a"
+  background: string; // hex e.g. "#0d0821"
+  accentPrimary: string; // hex e.g. "#fa709a"
   accentSecondary: string; // hex e.g. "#ffe13f"
 }
 
@@ -46,12 +46,30 @@ export interface DerivedThemeVariables {
 
 // All CSS property keys that we derive (used by clear function)
 const THEME_VARIABLE_KEYS: (keyof DerivedThemeVariables)[] = [
-  '--bg-primary', '--bg-secondary', '--bg-tertiary', '--bg-hover', '--bg-active',
-  '--text-primary', '--text-secondary', '--text-muted', '--text-tertiary',
-  '--accent-primary', '--accent-secondary', '--accent-hover', '--accent-color',
-  '--gradient-brand', '--border-color', '--on-accent',
-  '--success', '--danger', '--danger-hover', '--error-color', '--success-color',
-  '--status-connected', '--status-connecting', '--status-disconnected',
+  '--bg-primary',
+  '--bg-secondary',
+  '--bg-tertiary',
+  '--bg-hover',
+  '--bg-active',
+  '--text-primary',
+  '--text-secondary',
+  '--text-muted',
+  '--text-tertiary',
+  '--accent-primary',
+  '--accent-secondary',
+  '--accent-hover',
+  '--accent-color',
+  '--gradient-brand',
+  '--border-color',
+  '--on-accent',
+  '--success',
+  '--danger',
+  '--danger-hover',
+  '--error-color',
+  '--success-color',
+  '--status-connected',
+  '--status-connecting',
+  '--status-disconnected',
 ];
 
 // ─── Hex ↔ HSL Conversion ────────────────────────────────────────────────────
@@ -98,14 +116,35 @@ export function hslToHex(hsl: HSL): string {
   const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
   const m = l - c / 2;
 
-  let r1 = 0, g1 = 0, b1 = 0;
+  let r1 = 0,
+    g1 = 0,
+    b1 = 0;
 
-  if (h >= 0 && h < 60) { r1 = c; g1 = x; b1 = 0; }
-  else if (h >= 60 && h < 120) { r1 = x; g1 = c; b1 = 0; }
-  else if (h >= 120 && h < 180) { r1 = 0; g1 = c; b1 = x; }
-  else if (h >= 180 && h < 240) { r1 = 0; g1 = x; b1 = c; }
-  else if (h >= 240 && h < 300) { r1 = x; g1 = 0; b1 = c; }
-  else { r1 = c; g1 = 0; b1 = x; }
+  if (h >= 0 && h < 60) {
+    r1 = c;
+    g1 = x;
+    b1 = 0;
+  } else if (h >= 60 && h < 120) {
+    r1 = x;
+    g1 = c;
+    b1 = 0;
+  } else if (h >= 120 && h < 180) {
+    r1 = 0;
+    g1 = c;
+    b1 = x;
+  } else if (h >= 180 && h < 240) {
+    r1 = 0;
+    g1 = x;
+    b1 = c;
+  } else if (h >= 240 && h < 300) {
+    r1 = x;
+    g1 = 0;
+    b1 = c;
+  } else {
+    r1 = c;
+    g1 = 0;
+    b1 = x;
+  }
 
   const toHex = (n: number) => {
     const val = Math.round((n + m) * 255);
@@ -137,8 +176,7 @@ export function relativeLuminance(hex: string): number {
   const g = parseInt(h.substring(2, 4), 16) / 255;
   const b = parseInt(h.substring(4, 6), 16) / 255;
 
-  const linearize = (c: number) =>
-    c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  const linearize = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 
   return 0.2126 * linearize(r) + 0.7152 * linearize(g) + 0.0722 * linearize(b);
 }
@@ -155,10 +193,7 @@ export function isValidHex(hex: string): boolean {
 
 // ─── Theme Derivation ────────────────────────────────────────────────────────
 
-export function deriveThemeVariables(
-  colors: CustomColors,
-  isDark: boolean
-): DerivedThemeVariables {
+export function deriveThemeVariables(colors: CustomColors, isDark: boolean): DerivedThemeVariables {
   if (isDark) {
     return deriveDark(colors);
   }

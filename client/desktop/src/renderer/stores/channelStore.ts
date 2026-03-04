@@ -27,7 +27,9 @@ interface ChannelState {
   updateChannelGroup: (groupId: string, updates: Partial<ChannelGroup>) => void;
   removeChannelGroup: (groupId: string) => void;
   toggleGroupCollapsed: (groupId: string) => void;
-  reorderChannels: (updates: { channel_id: string; group_id: string | null; position: number }[]) => void;
+  reorderChannels: (
+    updates: { channel_id: string; group_id: string | null; position: number }[]
+  ) => void;
 
   // Voice text chat helpers
   getLinkedTextChannel: (voiceChannelId: string) => Channel | undefined;
@@ -177,7 +179,11 @@ export const useChannelStore = create<ChannelState>()(
           set((state) => {
             // Deduplicate: API response + WS broadcast can both call addChannelGroup
             if (state.channelGroups.some((g) => g.id === group.id)) return state;
-            return { channelGroups: [...state.channelGroups, group].sort((a, b) => a.position - b.position) };
+            return {
+              channelGroups: [...state.channelGroups, group].sort(
+                (a, b) => a.position - b.position
+              ),
+            };
           });
         },
 

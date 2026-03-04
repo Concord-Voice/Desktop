@@ -60,7 +60,9 @@ const PersistentVoiceBar: React.FC = () => {
         setVoiceControlsPoppedOut(false);
       }
     });
-    return () => { cleanup?.(); };
+    return () => {
+      cleanup?.();
+    };
   }, [voiceControlsPoppedOut, setVoiceControlsPoppedOut]);
 
   // Resize handler for text chat drawer (horizontal only)
@@ -123,7 +125,10 @@ const PersistentVoiceBar: React.FC = () => {
       )}
 
       {/* Full controls bar */}
-      <VoiceControls context="persistent" onPopOut={window.electron?.openPipWindow ? handlePopOut : undefined} />
+      <VoiceControls
+        context="persistent"
+        onPopOut={window.electron?.openPipWindow ? handlePopOut : undefined}
+      />
     </div>
   );
 };

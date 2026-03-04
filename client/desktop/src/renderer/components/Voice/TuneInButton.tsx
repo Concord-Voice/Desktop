@@ -16,9 +16,7 @@ const MAX_SCREEN_SHARES = 5;
  * Disabled when at the 5-stream maximum.
  */
 const TuneInButton: React.FC<TuneInButtonProps> = ({ share }) => {
-  const tunedInCount = useVoiceStore(
-    (s) => Object.keys(s.tunedInScreenShares).length
-  );
+  const tunedInCount = useVoiceStore((s) => Object.keys(s.tunedInScreenShares).length);
   const atLimit = tunedInCount >= MAX_SCREEN_SHARES;
 
   const handleTuneIn = useCallback(async () => {
@@ -38,12 +36,14 @@ const TuneInButton: React.FC<TuneInButtonProps> = ({ share }) => {
       className={`tune-in-btn${atLimit ? ' tune-in-btn--disabled' : ''}`}
       onClick={handleTuneIn}
       disabled={atLimit}
-      title={atLimit ? `Maximum ${MAX_SCREEN_SHARES} screen shares` : `Tune in to ${displayName}'s screen`}
+      title={
+        atLimit
+          ? `Maximum ${MAX_SCREEN_SHARES} screen shares`
+          : `Tune in to ${displayName}'s screen`
+      }
     >
       <Tv size={16} className="tune-in-btn__icon" />
-      <span className="tune-in-btn__label">
-        {displayName}&apos;s screen
-      </span>
+      <span className="tune-in-btn__label">{displayName}&apos;s screen</span>
       <span className="tune-in-btn__hint">Tune In</span>
     </button>
   );

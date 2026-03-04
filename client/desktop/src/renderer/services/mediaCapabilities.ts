@@ -21,17 +21,22 @@ export interface CodecCapability {
   sdpFmtpLine?: string;
   powerEfficient: boolean; // true = hardware accelerated
   supported: boolean;
-  profileId: string | null;    // "640034" for H264 High, "2" for VP9 P2, null for VP8/AV1
+  profileId: string | null; // "640034" for H264 High, "2" for VP9 P2, null for VP8/AV1
   profileLabel: string | null; // "High", "Main", "Baseline", "HDR", null for no-profile codecs
-  isHdr: boolean;              // true for VP9 P2 (10-bit)
+  isHdr: boolean; // true for VP9 P2 (10-bit)
 }
 
 // ---------------------------------------------------------------------------
 // Profile parsing
 // ---------------------------------------------------------------------------
 
-function parseProfile(mimeType: string, sdpFmtpLine?: string): {
-  id: string | null; label: string | null; isHdr: boolean;
+function parseProfile(
+  mimeType: string,
+  sdpFmtpLine?: string
+): {
+  id: string | null;
+  label: string | null;
+  isHdr: boolean;
 } {
   if (!sdpFmtpLine) return { id: null, label: null, isHdr: false };
   const mime = mimeType.toLowerCase();
@@ -42,7 +47,9 @@ function parseProfile(mimeType: string, sdpFmtpLine?: string): {
     const plid = match[1].toLowerCase();
     const profile = plid.substring(0, 4);
     const labels: Record<string, string> = {
-      '42e0': 'Baseline', '4d00': 'Main', '6400': 'High',
+      '42e0': 'Baseline',
+      '4d00': 'Main',
+      '6400': 'High',
     };
     return { id: plid, label: labels[profile] ?? plid, isHdr: false };
   }
@@ -84,49 +91,79 @@ export function getCodecInfo(key: string): CodecInfo {
   const [mime, profileId] = key.split(':');
   const m = mime.toLowerCase();
 
-  if (m === 'video/av1') return {
-    name: 'AV1', quality: 'Excellent', efficiency: 'Very High',
-    compressionRatio: '~50% better than H.264',
-    hdr: false, notes: 'SVC capable. Best for screen sharing. Requires modern GPU for HW encode.',
-  };
-  if (m === 'video/vp9') {
-    if (profileId === '2') return {
-      name: 'VP9 (HDR)', quality: 'Excellent', efficiency: 'High',
-      compressionRatio: '~40% better than H.264',
-      hdr: true, notes: '10-bit color depth. SVC capable. Requires HDR display for full benefit.',
-    };
+  if (m === 'video/av1')
     return {
-      name: 'VP9', quality: 'Very Good', efficiency: 'High',
+      name: 'AV1',
+      quality: 'Excellent',
+      efficiency: 'Very High',
+      compressionRatio: '~50% better than H.264',
+      hdr: false,
+      notes: 'SVC capable. Best for screen sharing. Requires modern GPU for HW encode.',
+    };
+  if (m === 'video/vp9') {
+    if (profileId === '2')
+      return {
+        name: 'VP9 (HDR)',
+        quality: 'Excellent',
+        efficiency: 'High',
+        compressionRatio: '~40% better than H.264',
+        hdr: true,
+        notes: '10-bit color depth. SVC capable. Requires HDR display for full benefit.',
+      };
+    return {
+      name: 'VP9',
+      quality: 'Very Good',
+      efficiency: 'High',
       compressionRatio: '~40% better than H.264',
-      hdr: false, notes: 'SVC capable. Good balance of quality and compatibility.',
+      hdr: false,
+      notes: 'SVC capable. Good balance of quality and compatibility.',
     };
   }
   if (m === 'video/h264') {
-    if (profileId?.startsWith('6400')) return {
-      name: 'H.264 (High)', quality: 'Very Good', efficiency: 'Good',
-      compressionRatio: '~25% better than Baseline',
-      hdr: false, notes: '8x8 transforms, best H.264 compression. Ideal for high-res.',
-    };
-    if (profileId?.startsWith('4d00')) return {
-      name: 'H.264 (Main)', quality: 'Good', efficiency: 'Moderate',
-      compressionRatio: '~15% better than Baseline',
-      hdr: false, notes: 'B-frames & CABAC entropy coding. Good general-purpose profile.',
-    };
+    if (profileId?.startsWith('6400'))
+      return {
+        name: 'H.264 (High)',
+        quality: 'Very Good',
+        efficiency: 'Good',
+        compressionRatio: '~25% better than Baseline',
+        hdr: false,
+        notes: '8x8 transforms, best H.264 compression. Ideal for high-res.',
+      };
+    if (profileId?.startsWith('4d00'))
+      return {
+        name: 'H.264 (Main)',
+        quality: 'Good',
+        efficiency: 'Moderate',
+        compressionRatio: '~15% better than Baseline',
+        hdr: false,
+        notes: 'B-frames & CABAC entropy coding. Good general-purpose profile.',
+      };
     return {
-      name: 'H.264 (Baseline)', quality: 'Baseline', efficiency: 'Moderate',
+      name: 'H.264 (Baseline)',
+      quality: 'Baseline',
+      efficiency: 'Moderate',
       compressionRatio: 'Reference',
-      hdr: false, notes: 'Maximum compatibility, lowest latency. No B-frames.',
+      hdr: false,
+      notes: 'Maximum compatibility, lowest latency. No B-frames.',
     };
   }
-  if (m === 'video/vp8') return {
-    name: 'VP8', quality: 'Basic', efficiency: 'Low',
-    compressionRatio: 'Similar to H.264 Baseline',
-    hdr: false, notes: 'Universal fallback. Always works.',
-  };
+  if (m === 'video/vp8')
+    return {
+      name: 'VP8',
+      quality: 'Basic',
+      efficiency: 'Low',
+      compressionRatio: 'Similar to H.264 Baseline',
+      hdr: false,
+      notes: 'Universal fallback. Always works.',
+    };
 
   return {
-    name: mime.replace('video/', ''), quality: 'Unknown', efficiency: 'Unknown',
-    compressionRatio: 'Unknown', hdr: false, notes: '',
+    name: mime.replace('video/', ''),
+    quality: 'Unknown',
+    efficiency: 'Unknown',
+    compressionRatio: 'Unknown',
+    hdr: false,
+    notes: '',
   };
 }
 
@@ -155,9 +192,7 @@ let cachedCodecCaps: CodecCapability[] | null = null;
  * Enumerate supported resolutions and frame rates for a given webcam.
  * Results are cached per deviceId to avoid repeated probing.
  */
-export async function enumerateWebcamCapabilities(
-  deviceId: string
-): Promise<WebcamCapability[]> {
+export async function enumerateWebcamCapabilities(deviceId: string): Promise<WebcamCapability[]> {
   if (cachedWebcamCaps.has(deviceId)) {
     return cachedWebcamCaps.get(deviceId)!;
   }
@@ -211,7 +246,8 @@ export async function detectCodecCapabilities(): Promise<CodecCapability[]> {
   // De-duplicate by mimeType + profile (not mimeType alone)
   const seen = new Set<string>();
   const uniqueCodecs = senderCaps.codecs.filter((c) => {
-    if (c.mimeType.includes('rtx') || c.mimeType.includes('red') || c.mimeType.includes('ulpfec')) return false;
+    if (c.mimeType.includes('rtx') || c.mimeType.includes('red') || c.mimeType.includes('ulpfec'))
+      return false;
     const { id } = parseProfile(c.mimeType, c.sdpFmtpLine);
     const key = `${c.mimeType}:${id ?? ''}`;
     if (seen.has(key)) return false;
@@ -286,7 +322,9 @@ export function prewarmWebRTC(): void {
   }
 
   // Preload the voice service chunk so it's cached when user clicks Join
-  import('./voiceLazy').then((m) => m.getVoiceService()).catch(() => {
-    // Non-critical — will load on demand when user joins voice
-  });
+  import('./voiceLazy')
+    .then((m) => m.getVoiceService())
+    .catch(() => {
+      // Non-critical — will load on demand when user joins voice
+    });
 }

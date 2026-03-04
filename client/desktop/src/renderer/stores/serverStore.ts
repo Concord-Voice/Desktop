@@ -48,9 +48,10 @@ export const useServerStore = create<ServerState>()(
 
             // Validate persisted activeServerId still exists in fetched list
             const currentActiveId = get().activeServerId;
-            const validActiveId = currentActiveId && fetchedServers.some((s) => s.id === currentActiveId)
-              ? currentActiveId
-              : null;
+            const validActiveId =
+              currentActiveId && fetchedServers.some((s) => s.id === currentActiveId)
+                ? currentActiveId
+                : null;
 
             set({ servers: fetchedServers, activeServerId: validActiveId, isLoading: false });
           } catch (error) {

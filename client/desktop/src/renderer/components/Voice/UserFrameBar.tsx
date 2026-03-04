@@ -49,11 +49,7 @@ const UserFrameBar: React.FC<UserFrameBarProps> = ({ height }) => {
 
   return (
     <div className="user-frame-bar" style={{ height }}>
-      <div
-        className="user-frame-bar__scroll"
-        ref={scrollRef}
-        onScroll={handleScroll}
-      >
+      <div className="user-frame-bar__scroll" ref={scrollRef} onScroll={handleScroll}>
         {sortedParticipants.map((p) => (
           <ParticipantTile
             key={p.userId}

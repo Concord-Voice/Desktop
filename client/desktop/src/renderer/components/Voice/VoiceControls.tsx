@@ -143,7 +143,14 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   /** Compute position:fixed style to render a portal element above an anchor */
   const getPortalStyle = (ref: React.RefObject<HTMLElement | null>): React.CSSProperties => {
     const rect = ref.current?.getBoundingClientRect();
-    if (!rect) return { position: 'fixed', bottom: 0, left: '50%', transform: 'translateX(-50%)', zIndex: 99999 };
+    if (!rect)
+      return {
+        position: 'fixed',
+        bottom: 0,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 99999,
+      };
     return {
       position: 'fixed',
       bottom: window.innerHeight - rect.top,
@@ -236,10 +243,16 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
             <button
               className={`voice-controls__btn ${keepActiveWhileUnfocused ? 'voice-controls__btn--active' : ''}`}
               onClick={() => setKeepActiveWhileUnfocused(!keepActiveWhileUnfocused)}
-              title={keepActiveWhileUnfocused ? 'Stream stays active when unfocused' : 'Stream pauses when unfocused'}
+              title={
+                keepActiveWhileUnfocused
+                  ? 'Stream stays active when unfocused'
+                  : 'Stream pauses when unfocused'
+              }
             >
               {keepActiveWhileUnfocused ? <Eye size={18} /> : <EyeOff size={18} />}
-              <span className="voice-controls__btn-label">{keepActiveWhileUnfocused ? 'Always On' : 'Auto Pause'}</span>
+              <span className="voice-controls__btn-label">
+                {keepActiveWhileUnfocused ? 'Always On' : 'Auto Pause'}
+              </span>
             </button>
           )}
 
@@ -258,11 +271,7 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
 
           {/* Pop-Out controls button — persistent context only */}
           {context === 'persistent' && onPopOut && (
-            <button
-              className="voice-controls__btn"
-              onClick={onPopOut}
-              title="Pop out controls"
-            >
+            <button className="voice-controls__btn" onClick={onPopOut} title="Pop out controls">
               <ExternalLink size={18} />
               <span className="voice-controls__btn-label">Pop Out</span>
             </button>
@@ -280,40 +289,44 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
       </div>
 
       {/* Portaled slot error — escapes overflow:hidden ancestors */}
-      {videoSlotError && createPortal(
-        <div className="voice-controls__slot-error" style={getPortalStyle(controlsRef)}>
-          {videoSlotError}
-        </div>,
-        document.body
-      )}
+      {videoSlotError &&
+        createPortal(
+          <div className="voice-controls__slot-error" style={getPortalStyle(controlsRef)}>
+            {videoSlotError}
+          </div>,
+          document.body
+        )}
 
       {/* Portaled PiP menu — escapes overflow:hidden ancestors */}
-      {showPipMenu && createPortal(
-        <div ref={pipMenuRef} className="voice-controls__pip-menu" style={getPortalStyle(pipWrapRef)}>
-          <button
-            className="voice-controls__pip-menu-item"
-            onClick={() => handleOpenPip('frames')}
+      {showPipMenu &&
+        createPortal(
+          <div
+            ref={pipMenuRef}
+            className="voice-controls__pip-menu"
+            style={getPortalStyle(pipWrapRef)}
           >
-            Pop Out User Frames
-          </button>
-          {tunedInIds.map((producerId) => {
-            const sharer = Object.values(participants).find(
-              (p) => p.isScreenSharing
-            );
-            const name = sharer?.displayName || sharer?.username || 'User';
-            return (
-              <button
-                key={producerId}
-                className="voice-controls__pip-menu-item"
-                onClick={() => handleOpenPip('screen', producerId)}
-              >
-                Pop Out {name}&apos;s Screen
-              </button>
-            );
-          })}
-        </div>,
-        document.body
-      )}
+            <button
+              className="voice-controls__pip-menu-item"
+              onClick={() => handleOpenPip('frames')}
+            >
+              Pop Out User Frames
+            </button>
+            {tunedInIds.map((producerId) => {
+              const sharer = Object.values(participants).find((p) => p.isScreenSharing);
+              const name = sharer?.displayName || sharer?.username || 'User';
+              return (
+                <button
+                  key={producerId}
+                  className="voice-controls__pip-menu-item"
+                  onClick={() => handleOpenPip('screen', producerId)}
+                >
+                  Pop Out {name}&apos;s Screen
+                </button>
+              );
+            })}
+          </div>,
+          document.body
+        )}
 
       {showScreenPicker && (
         <ScreenSharePicker

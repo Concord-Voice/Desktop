@@ -17,8 +17,8 @@ import type { RtpCapabilities, RtpParameters, DtlsParameters } from 'mediasoup-c
 /** Base envelope for all RPC requests (PiP → Main) */
 export interface PipRpcRequest<M extends string = string, P = unknown> {
   kind: 'rpc-request';
-  id: string;        // Unique request ID for correlating responses
-  pipId: string;     // Which PiP window sent this
+  id: string; // Unique request ID for correlating responses
+  pipId: string; // Which PiP window sent this
   method: M;
   params: P;
 }
@@ -26,7 +26,7 @@ export interface PipRpcRequest<M extends string = string, P = unknown> {
 /** Base envelope for RPC responses (Main → PiP) */
 export interface PipRpcResponse<R = unknown> {
   kind: 'rpc-response';
-  id: string;        // Matches the request ID
+  id: string; // Matches the request ID
   result?: R;
   error?: string;
 }
@@ -34,9 +34,12 @@ export interface PipRpcResponse<R = unknown> {
 // ── RPC Methods ─────────────────────────────────────────────────────
 
 /** Create a recv transport on the SFU for this PiP window */
-export type CreateRecvTransportRequest = PipRpcRequest<'create-recv-transport', {
-  forceTcp?: boolean;
-}>;
+export type CreateRecvTransportRequest = PipRpcRequest<
+  'create-recv-transport',
+  {
+    forceTcp?: boolean;
+  }
+>;
 export interface CreateRecvTransportResult {
   transportId: string;
   iceParameters: unknown;
@@ -45,17 +48,23 @@ export interface CreateRecvTransportResult {
 }
 
 /** Connect a recv transport (DTLS handshake) */
-export type ConnectTransportRequest = PipRpcRequest<'connect-transport', {
-  transportId: string;
-  dtlsParameters: DtlsParameters;
-}>;
+export type ConnectTransportRequest = PipRpcRequest<
+  'connect-transport',
+  {
+    transportId: string;
+    dtlsParameters: DtlsParameters;
+  }
+>;
 
 /** Consume a producer through the PiP's own recv transport */
-export type ConsumeRequest = PipRpcRequest<'consume', {
-  producerId: string;
-  transportId: string;
-  rtpCapabilities: RtpCapabilities;
-}>;
+export type ConsumeRequest = PipRpcRequest<
+  'consume',
+  {
+    producerId: string;
+    transportId: string;
+    rtpCapabilities: RtpCapabilities;
+  }
+>;
 export interface ConsumeResult {
   consumerId: string;
   producerId: string;
@@ -64,14 +73,20 @@ export interface ConsumeResult {
 }
 
 /** Resume a consumer (mediasoup consumers start paused) */
-export type ResumeConsumerRequest = PipRpcRequest<'resume-consumer', {
-  consumerId: string;
-}>;
+export type ResumeConsumerRequest = PipRpcRequest<
+  'resume-consumer',
+  {
+    consumerId: string;
+  }
+>;
 
 /** Pause a consumer */
-export type PauseConsumerRequest = PipRpcRequest<'pause-consumer', {
-  consumerId: string;
-}>;
+export type PauseConsumerRequest = PipRpcRequest<
+  'pause-consumer',
+  {
+    consumerId: string;
+  }
+>;
 
 /** Request current voice state (participants, screen shares, etc.) */
 export type RequestStateRequest = PipRpcRequest<'request-state', Record<string, never>>;
@@ -88,15 +103,21 @@ export interface VoiceStateResult {
 }
 
 /** Execute a voice action (mute, deafen, leave, etc.) */
-export type ActionRequest = PipRpcRequest<'action', {
-  action: 'toggle-mute' | 'toggle-deafen' | 'leave' | 'toggle-video' | 'toggle-screen';
-}>;
+export type ActionRequest = PipRpcRequest<
+  'action',
+  {
+    action: 'toggle-mute' | 'toggle-deafen' | 'leave' | 'toggle-video' | 'toggle-screen';
+  }
+>;
 
 /** Signal that PiP has consumed all producers and is ready */
-export type PipReadyRequest = PipRpcRequest<'pip-ready', {
-  /** Consumer IDs created by this PiP, so main can pause its matching ones */
-  consumerSources: Array<{ source: string; producerUserId: string }>;
-}>;
+export type PipReadyRequest = PipRpcRequest<
+  'pip-ready',
+  {
+    /** Consumer IDs created by this PiP, so main can pause its matching ones */
+    consumerSources: Array<{ source: string; producerUserId: string }>;
+  }
+>;
 
 /** Signal that PiP is about to close (pre-close for smooth transition) */
 export type PipClosingRequest = PipRpcRequest<'pip-closing', Record<string, never>>;

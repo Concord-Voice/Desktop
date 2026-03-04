@@ -31,7 +31,9 @@
   justify-content: center;
   cursor: pointer;
   overflow: hidden;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
   padding: 0;
   position: relative;
   flex-shrink: 0;
@@ -81,7 +83,9 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: border-color 0.2s ease, color 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease;
   color: var(--text-muted);
   padding: 0;
   flex-shrink: 0;
@@ -183,7 +187,9 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
   overflow: hidden;
   padding: 0;
   flex-shrink: 0;
@@ -321,7 +327,9 @@
 .server-bar-icon-wrapper.dragging {
   opacity: 0.35;
   transform: scale(0.75);
-  transition: opacity 0.15s ease, transform 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
 }
 
 /* Ghost placeholder — shows where the dragged icon will land */

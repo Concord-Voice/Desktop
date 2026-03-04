@@ -68,12 +68,18 @@ export const usePrivacyStore = create<PrivacyState>()(
 
       updatePrivacy: async (updates: Partial<PrivacySettings>) => {
         const body: Record<string, boolean> = {};
-        if (updates.messagesFriendsOnly !== undefined) body.messages_friends_only = updates.messagesFriendsOnly;
-        if (updates.messagesServerMembers !== undefined) body.messages_server_members = updates.messagesServerMembers;
-        if (updates.autoAcceptFriendCodes !== undefined) body.auto_accept_friend_codes = updates.autoAcceptFriendCodes;
-        if (updates.searchableByUsername !== undefined) body.searchable_by_username = updates.searchableByUsername;
-        if (updates.searchableByEmail !== undefined) body.searchable_by_email = updates.searchableByEmail;
-        if (updates.searchableByPhone !== undefined) body.searchable_by_phone = updates.searchableByPhone;
+        if (updates.messagesFriendsOnly !== undefined)
+          body.messages_friends_only = updates.messagesFriendsOnly;
+        if (updates.messagesServerMembers !== undefined)
+          body.messages_server_members = updates.messagesServerMembers;
+        if (updates.autoAcceptFriendCodes !== undefined)
+          body.auto_accept_friend_codes = updates.autoAcceptFriendCodes;
+        if (updates.searchableByUsername !== undefined)
+          body.searchable_by_username = updates.searchableByUsername;
+        if (updates.searchableByEmail !== undefined)
+          body.searchable_by_email = updates.searchableByEmail;
+        if (updates.searchableByPhone !== undefined)
+          body.searchable_by_phone = updates.searchableByPhone;
 
         const response = await apiFetch('/api/v1/users/me/privacy', {
           method: 'PATCH',

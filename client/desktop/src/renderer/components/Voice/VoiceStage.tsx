@@ -38,23 +38,16 @@ const StageVideo: React.FC<{
         <div className="voice-stage__paused-placeholder">
           <span className="voice-stage__paused-title">Your Screen Is Still Streaming</span>
           <span className="voice-stage__paused-hint">
-            If you want it to stay on even when Concord Voice is in the background, use the Auto-Pause button in the Controls Panel below.
+            If you want it to stay on even when Concord Voice is in the background, use the
+            Auto-Pause button in the Controls Panel below.
           </span>
         </div>
       ) : (
-        <video
-          ref={videoRef}
-          className="voice-stage__video"
-          autoPlay
-          playsInline
-          muted
-        />
+        <video ref={videoRef} className="voice-stage__video" autoPlay playsInline muted />
       )}
       {showOverlay && (
         <div className="voice-stage__cell-overlay">
-          <span className="voice-stage__sharer-name">
-            {label || `${sharerName}\u2019s screen`}
-          </span>
+          <span className="voice-stage__sharer-name">{label || `${sharerName}\u2019s screen`}</span>
         </div>
       )}
     </div>
@@ -119,9 +112,7 @@ const VoiceStage: React.FC = () => {
   if (tunedInIds.length === 0) {
     return (
       <div className="voice-stage voice-stage--empty">
-        <span className="voice-stage__empty-text">
-          No screen share selected
-        </span>
+        <span className="voice-stage__empty-text">No screen share selected</span>
       </div>
     );
   }
@@ -143,10 +134,7 @@ const VoiceStage: React.FC = () => {
           </button>
         )}
 
-        <div
-          className="voice-stage__grid"
-          data-count={tunedInIds.length}
-        >
+        <div className="voice-stage__grid" data-count={tunedInIds.length}>
           {tunedInIds.map((producerId) => {
             const sharer = findSharer(producerId);
             const name = sharer?.displayName || sharer?.username || 'Unknown';
@@ -178,9 +166,7 @@ const VoiceStage: React.FC = () => {
 
       {/* Bottom overlay */}
       <div className="voice-stage__overlay">
-        <span className="voice-stage__sharer-name">
-          {dominantSharerName}&apos;s screen
-        </span>
+        <span className="voice-stage__sharer-name">{dominantSharerName}&apos;s screen</span>
         {hasMultiple && (
           <span className="voice-stage__count">
             {tunedInIds.indexOf(dominantScreenShareId!) + 1} / {tunedInIds.length}

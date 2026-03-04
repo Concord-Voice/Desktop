@@ -107,9 +107,14 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
           rawMsgs.map(async (m) => {
             if (m.is_encrypted && selectedThreadId && e2eeService.isInitialized) {
               try {
-                const plaintext = m.key_version && m.key_version > 1
-                  ? await e2eeService.decryptForChannelWithVersion(selectedThreadId, m.content, m.key_version)
-                  : await e2eeService.decryptForChannel(selectedThreadId, m.content);
+                const plaintext =
+                  m.key_version && m.key_version > 1
+                    ? await e2eeService.decryptForChannelWithVersion(
+                        selectedThreadId,
+                        m.content,
+                        m.key_version
+                      )
+                    : await e2eeService.decryptForChannel(selectedThreadId, m.content);
                 return { ...m, content: plaintext };
               } catch (err) {
                 const isPending = err instanceof Error && err.message === 'PENDING_KEY';
@@ -137,7 +142,9 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
         setHasMore(msgs.length === MESSAGES_LIMIT);
 
         // Mark conversation as read
-        apiFetch(`/api/v1/dm/conversations/${selectedThreadId}/read`, { method: 'POST' }).catch(() => {});
+        apiFetch(`/api/v1/dm/conversations/${selectedThreadId}/read`, { method: 'POST' }).catch(
+          () => {}
+        );
         clearUnread(selectedThreadId);
       } catch (err) {
         if (!aborted) {
@@ -149,7 +156,9 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
     };
 
     fetchMessages();
-    return () => { aborted = true; };
+    return () => {
+      aborted = true;
+    };
   }, [selectedThreadId, setMessages, clearUnread, fetchTrigger]);
 
   // Load older messages (pagination)
@@ -182,9 +191,14 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
         rawMsgs.map(async (m) => {
           if (m.is_encrypted && selectedThreadId && e2eeService.isInitialized) {
             try {
-              const plaintext = m.key_version && m.key_version > 1
-                ? await e2eeService.decryptForChannelWithVersion(selectedThreadId, m.content, m.key_version)
-                : await e2eeService.decryptForChannel(selectedThreadId, m.content);
+              const plaintext =
+                m.key_version && m.key_version > 1
+                  ? await e2eeService.decryptForChannelWithVersion(
+                      selectedThreadId,
+                      m.content,
+                      m.key_version
+                    )
+                  : await e2eeService.decryptForChannel(selectedThreadId, m.content);
               return { ...m, content: plaintext };
             } catch (err) {
               const isPending = err instanceof Error && err.message === 'PENDING_KEY';
@@ -286,7 +300,10 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
   }
 
   return (
-    <div className="dm-chat-placeholder" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div
+      className="dm-chat-placeholder"
+      style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
+    >
       <div className="dm-chat-header">
         <div className="conversation-avatar" style={{ width: 28, height: 28 }}>
           <span className="conversation-avatar-initial" style={{ fontSize: 12 }}>
@@ -299,7 +316,8 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
             {activeConv?.isPersonal
               ? 'Your personal notes'
               : activeConv && !activeConv.isGroup
-                ? (activeConv.participants.find((p) => p.userId !== currentUserId)?.status || 'offline')
+                ? activeConv.participants.find((p) => p.userId !== currentUserId)?.status ||
+                  'offline'
                 : `${activeConv?.participants.length || 0} members`}
           </div>
         </div>

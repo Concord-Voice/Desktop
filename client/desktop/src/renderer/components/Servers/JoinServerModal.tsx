@@ -72,7 +72,9 @@ const JoinServerModal: React.FC<JoinServerModalProps> = ({ isOpen, onClose, onSu
           try {
             const fcRes = await apiFetch(`/api/v1/friends/codes/${code}`);
             if (fcRes.ok) {
-              setError('This looks like a friend code, not a server invite. Use the Add Friend button in Direct Messages to claim it.');
+              setError(
+                'This looks like a friend code, not a server invite. Use the Add Friend button in Direct Messages to claim it.'
+              );
             } else {
               setError('Invalid invite code');
             }

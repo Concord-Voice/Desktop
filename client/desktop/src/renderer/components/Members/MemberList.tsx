@@ -116,7 +116,9 @@ const MemberList: React.FC = () => {
           ) : (
             <span
               className="member-avatar-initial"
-              style={memberColors ? { background: memberColors.gradient, color: '#fff' } : undefined}
+              style={
+                memberColors ? { background: memberColors.gradient, color: '#fff' } : undefined
+              }
             >
               {member.username.charAt(0).toUpperCase()}
             </span>
@@ -164,9 +166,7 @@ const MemberList: React.FC = () => {
         <div className="member-list-error">
           <p>{error}</p>
           <button
-            onClick={() =>
-              activeServerId && fetchMembers(activeServerId)
-            }
+            onClick={() => activeServerId && fetchMembers(activeServerId)}
             className="retry-btn"
           >
             Retry

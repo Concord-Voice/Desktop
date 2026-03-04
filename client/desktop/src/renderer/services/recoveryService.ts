@@ -38,7 +38,9 @@ export async function runPreflight(): Promise<DiagnosticResults> {
         signal: AbortSignal.timeout(5000),
       });
       results.internet = true;
-    } catch { /* offline or blocked */ }
+    } catch {
+      /* offline or blocked */
+    }
   }
 
   if (!results.internet) return results;
@@ -51,7 +53,9 @@ export async function runPreflight(): Promise<DiagnosticResults> {
       signal: AbortSignal.timeout(5000),
     });
     results.serverReachable = res.ok;
-  } catch { /* server down */ }
+  } catch {
+    /* server down */
+  }
 
   if (!results.serverReachable) return results;
 

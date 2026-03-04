@@ -8,7 +8,9 @@
   border-top: 1px solid var(--border-color);
   overflow: hidden;
   /* Slide animation for hide/show */
-  transition: transform 300ms ease, opacity 300ms ease;
+  transition:
+    transform 300ms ease,
+    opacity 300ms ease;
 }
 
 .stream-bar--hidden {

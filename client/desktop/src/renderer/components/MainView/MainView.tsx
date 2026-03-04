@@ -52,7 +52,9 @@ const MainView: React.FC = () => {
   const [isJoinServerModalOpen, setIsJoinServerModalOpen] = useState(false);
   const [isCreateChannelModalOpen, setIsCreateChannelModalOpen] = useState(false);
   const [isCreateCategoryModalOpen, setIsCreateCategoryModalOpen] = useState(false);
-  const [emptyContextMenu, setEmptyContextMenu] = useState<{ position: { x: number; y: number } } | null>(null);
+  const [emptyContextMenu, setEmptyContextMenu] = useState<{
+    position: { x: number; y: number };
+  } | null>(null);
   const [serverContextMenu, setServerContextMenu] = useState<{
     server: ServerWithRole;
     position: { x: number; y: number };
@@ -234,9 +236,11 @@ const MainView: React.FC = () => {
   // Determine if any MessageInput (which renders compact UserPanel) is on screen.
   // VoiceTextChat contains a MessageInput that shows compact UserPanel when channel panel is unpinned.
   const voiceLinkedTextExists = !!voiceLinkedText;
-  const voiceTextChatVisible = isInVoice && voiceShowTextChat && voiceLinkedTextExists && (
-    isViewingOwnVoiceChannel || (showPersistentBar && voiceControlsPinned)
-  );
+  const voiceTextChatVisible =
+    isInVoice &&
+    voiceShowTextChat &&
+    voiceLinkedTextExists &&
+    (isViewingOwnVoiceChannel || (showPersistentBar && voiceControlsPinned));
   const hasVisibleMessageInput =
     (activeChannel?.type === 'text' && !!activeChannelId) || voiceTextChatVisible;
   const showFloatingAvatar = !channelPanelPinned && !hasVisibleMessageInput;
@@ -261,8 +265,14 @@ const MainView: React.FC = () => {
 
   // ─── Chat area content ───
   const chatContent = (
-    <div ref={mainContentRef} className="main-content" data-has-persistent-bar={showPersistentBar || undefined}>
-      <div className={`main-content__body ${showVerticalSideChat ? 'main-content__body--with-side-chat' : ''}`}>
+    <div
+      ref={mainContentRef}
+      className="main-content"
+      data-has-persistent-bar={showPersistentBar || undefined}
+    >
+      <div
+        className={`main-content__body ${showVerticalSideChat ? 'main-content__body--with-side-chat' : ''}`}
+      >
         <div className="main-content__primary">
           {activeServer && channels.length === 0 ? (
             <div className="main-content-placeholder">
@@ -343,10 +353,7 @@ const MainView: React.FC = () => {
         }
         folderBar={<FolderBar />}
         channelPanel={
-          <ChannelPanel
-            header={channelHeader}
-            forcePin={!!activeServer && channels.length === 0}
-          >
+          <ChannelPanel header={channelHeader} forcePin={!!activeServer && channels.length === 0}>
             {channelBody}
           </ChannelPanel>
         }
@@ -436,14 +443,22 @@ const MainView: React.FC = () => {
         />
       )}
 
-      {emptyContextMenu && activeServer && (activeServer.role === 'owner' || activeServer.role === 'admin') && (
-        <ChannelListContextMenu
-          position={emptyContextMenu.position}
-          onClose={() => setEmptyContextMenu(null)}
-          onCreateChannel={() => { setEmptyContextMenu(null); setIsCreateChannelModalOpen(true); }}
-          onCreateCategory={() => { setEmptyContextMenu(null); setIsCreateCategoryModalOpen(true); }}
-        />
-      )}
+      {emptyContextMenu &&
+        activeServer &&
+        (activeServer.role === 'owner' || activeServer.role === 'admin') && (
+          <ChannelListContextMenu
+            position={emptyContextMenu.position}
+            onClose={() => setEmptyContextMenu(null)}
+            onCreateChannel={() => {
+              setEmptyContextMenu(null);
+              setIsCreateChannelModalOpen(true);
+            }}
+            onCreateCategory={() => {
+              setEmptyContextMenu(null);
+              setIsCreateCategoryModalOpen(true);
+            }}
+          />
+        )}
 
       {invitingServer && (
         <InviteToServerModal
@@ -453,21 +468,23 @@ const MainView: React.FC = () => {
         />
       )}
 
-      {categoryContextMenu && activeServer && (activeServer.role === 'owner' || activeServer.role === 'admin') && (
-        <CategoryContextMenu
-          group={categoryContextMenu.group}
-          position={categoryContextMenu.position}
-          onClose={() => setCategoryContextMenu(null)}
-          onEditCategory={(group) => {
-            setCategoryContextMenu(null);
-            setEditingCategory(group);
-          }}
-          onDeleteCategory={(group) => {
-            setCategoryContextMenu(null);
-            setDeletingCategory(group);
-          }}
-        />
-      )}
+      {categoryContextMenu &&
+        activeServer &&
+        (activeServer.role === 'owner' || activeServer.role === 'admin') && (
+          <CategoryContextMenu
+            group={categoryContextMenu.group}
+            position={categoryContextMenu.position}
+            onClose={() => setCategoryContextMenu(null)}
+            onEditCategory={(group) => {
+              setCategoryContextMenu(null);
+              setEditingCategory(group);
+            }}
+            onDeleteCategory={(group) => {
+              setCategoryContextMenu(null);
+              setDeletingCategory(group);
+            }}
+          />
+        )}
 
       {editingChannel && (
         <EditChannelModal
@@ -502,26 +519,28 @@ const MainView: React.FC = () => {
       )}
 
       {/* E2EE tooltip — portaled to body to escape transform-based containing blocks */}
-      {e2eeTooltipPos && activeServer && createPortal(
-        <div
-          className={`e2ee-tooltip visible ${activeServer.e2ee_default ? 'encrypted' : 'unencrypted'}`}
-          style={{ top: e2eeTooltipPos.top, left: e2eeTooltipPos.left }}
-        >
-          <span className="e2ee-tooltip-header">
-            {activeServer.e2ee_default ? <Lock size={11} /> : <LockOpen size={11} />}
-            {activeServer.e2ee_default ? 'E2EE Enabled' : 'E2EE Disabled'}
-          </span>
-          <span className="e2ee-tooltip-body">
-            {activeServer.e2ee_default
-              ? 'End-to-End Encryption is enabled by default in this server. New channels are created with E2EE on.'
-              : 'End-to-End Encryption is not enabled by default in this server. Channels may still enable E2EE individually.'}
-          </span>
-          <span className="e2ee-tooltip-hint">
-            Always check the channel encryption status near the message box to verify E2EE.
-          </span>
-        </div>,
-        document.body
-      )}
+      {e2eeTooltipPos &&
+        activeServer &&
+        createPortal(
+          <div
+            className={`e2ee-tooltip visible ${activeServer.e2ee_default ? 'encrypted' : 'unencrypted'}`}
+            style={{ top: e2eeTooltipPos.top, left: e2eeTooltipPos.left }}
+          >
+            <span className="e2ee-tooltip-header">
+              {activeServer.e2ee_default ? <Lock size={11} /> : <LockOpen size={11} />}
+              {activeServer.e2ee_default ? 'E2EE Enabled' : 'E2EE Disabled'}
+            </span>
+            <span className="e2ee-tooltip-body">
+              {activeServer.e2ee_default
+                ? 'End-to-End Encryption is enabled by default in this server. New channels are created with E2EE on.'
+                : 'End-to-End Encryption is not enabled by default in this server. Channels may still enable E2EE individually.'}
+            </span>
+            <span className="e2ee-tooltip-hint">
+              Always check the channel encryption status near the message box to verify E2EE.
+            </span>
+          </div>,
+          document.body
+        )}
     </div>
   );
 };

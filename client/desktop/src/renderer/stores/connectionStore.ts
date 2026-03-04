@@ -1,12 +1,12 @@
 import { create } from 'zustand';
 
 export type RecoveryPhase =
-  | 'stable'          // Normal operation
-  | 'grace_period'    // First 15s — aggressive reconnect, no UI overlay
-  | 'preflight'       // Running diagnostics
-  | 'recovery_a'      // Server issue — graceful reset + wait for server
-  | 'recovery_b'      // Client issue — soft restart attempt
-  | 'fatal';          // Unrecoverable — show full overlay
+  | 'stable' // Normal operation
+  | 'grace_period' // First 15s — aggressive reconnect, no UI overlay
+  | 'preflight' // Running diagnostics
+  | 'recovery_a' // Server issue — graceful reset + wait for server
+  | 'recovery_b' // Client issue — soft restart attempt
+  | 'fatal'; // Unrecoverable — show full overlay
 
 export interface DiagnosticResults {
   internet: boolean;
@@ -67,40 +67,47 @@ export const useConnectionStore = create<ConnectionState>()((set) => ({
   lastVoiceChannelId: null,
   recoveryAttempts: 0,
 
-  startGracePeriod: () => set({
-    phase: 'grace_period',
-    lostAt: Date.now(),
-  }),
+  startGracePeriod: () =>
+    set({
+      phase: 'grace_period',
+      lostAt: Date.now(),
+    }),
 
-  enterPreflight: () => set({
-    phase: 'preflight',
-  }),
+  enterPreflight: () =>
+    set({
+      phase: 'preflight',
+    }),
 
   setDiagnostics: (d) => set({ diagnostics: d }),
 
-  enterRecoveryA: () => set({
-    phase: 'recovery_a',
-  }),
+  enterRecoveryA: () =>
+    set({
+      phase: 'recovery_a',
+    }),
 
-  enterRecoveryB: () => set({
-    phase: 'recovery_b',
-  }),
+  enterRecoveryB: () =>
+    set({
+      phase: 'recovery_b',
+    }),
 
-  enterFatal: () => set({
-    phase: 'fatal',
-  }),
+  enterFatal: () =>
+    set({
+      phase: 'fatal',
+    }),
 
   setLastVoiceChannelId: (id) => set({ lastVoiceChannelId: id }),
 
-  incrementRecoveryAttempts: () => set((s) => ({
-    recoveryAttempts: s.recoveryAttempts + 1,
-  })),
+  incrementRecoveryAttempts: () =>
+    set((s) => ({
+      recoveryAttempts: s.recoveryAttempts + 1,
+    })),
 
-  reset: () => set({
-    phase: 'stable',
-    diagnostics: null,
-    lostAt: null,
-    lastVoiceChannelId: null,
-    recoveryAttempts: 0,
-  }),
+  reset: () =>
+    set({
+      phase: 'stable',
+      diagnostics: null,
+      lostAt: null,
+      lastVoiceChannelId: null,
+      recoveryAttempts: 0,
+    }),
 }));

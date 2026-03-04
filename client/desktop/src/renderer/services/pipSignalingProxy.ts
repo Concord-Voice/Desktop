@@ -68,7 +68,10 @@ export class PipSignalingProxy {
     // Subscribe to voice store changes to broadcast participant updates
     this.stateUnsub = useVoiceStore.subscribe((state, prev) => {
       if (this.disposed) return;
-      if (state.participants !== prev.participants || state.tunedInScreenShares !== prev.tunedInScreenShares) {
+      if (
+        state.participants !== prev.participants ||
+        state.tunedInScreenShares !== prev.tunedInScreenShares
+      ) {
         this.broadcastStateUpdate(state.participants, state.tunedInScreenShares);
       }
     });
@@ -84,7 +87,9 @@ export class PipSignalingProxy {
       for (const id of consumerIds) {
         try {
           this.voiceService.resumeConsumer(id);
-        } catch { /* consumer may already be closed */ }
+        } catch {
+          /* consumer may already be closed */
+        }
       }
     }
     this.pausedForPip.clear();
@@ -210,7 +215,11 @@ export class PipSignalingProxy {
   }
 
   private async handleConsume(req: AnyPipRpcRequest): Promise<void> {
-    const params = (req as { params: { producerId: string; transportId: string; rtpCapabilities: RtpCapabilities } }).params;
+    const params = (
+      req as {
+        params: { producerId: string; transportId: string; rtpCapabilities: RtpCapabilities };
+      }
+    ).params;
     const result = await this.voiceService.forwardToServer<ConsumeResult>('consume', {
       producerId: params.producerId,
       rtpCapabilities: params.rtpCapabilities,
@@ -261,7 +270,9 @@ export class PipSignalingProxy {
   }
 
   private async handlePipReady(req: AnyPipRpcRequest): Promise<void> {
-    const params = (req as { params: { consumerSources: Array<{ source: string; producerUserId: string }> } }).params;
+    const params = (
+      req as { params: { consumerSources: Array<{ source: string; producerUserId: string }> } }
+    ).params;
     const { pipId } = req;
 
     // Pause main window consumers that match the PiP's consumed sources
@@ -318,7 +329,9 @@ export class PipSignalingProxy {
     for (const id of paused) {
       try {
         this.voiceService.resumeConsumer(id);
-      } catch { /* consumer may have been closed */ }
+      } catch {
+        /* consumer may have been closed */
+      }
     }
     this.pausedForPip.delete(pipId);
   }
@@ -333,7 +346,11 @@ export class PipSignalingProxy {
     // the structured clone algorithm which cannot serialize MediaStreams.
     const sanitized: Record<string, unknown> = {};
     for (const [key, p] of Object.entries(participants)) {
-      const { videoStream, screenStream, audioStream, ...rest } = p as Record<string, unknown> & { videoStream?: unknown; screenStream?: unknown; audioStream?: unknown };
+      const { videoStream, screenStream, audioStream, ...rest } = p as Record<string, unknown> & {
+        videoStream?: unknown;
+        screenStream?: unknown;
+        audioStream?: unknown;
+      };
       sanitized[key] = rest;
     }
     this.broadcast({

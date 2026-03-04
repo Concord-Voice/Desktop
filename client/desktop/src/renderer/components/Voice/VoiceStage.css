@@ -97,40 +97,40 @@
 }
 
 /* Dynamic grid columns based on stream count */
-.voice-stage__grid[data-count="1"] {
+.voice-stage__grid[data-count='1'] {
   grid-template-columns: 1fr;
 }
 
-.voice-stage__grid[data-count="2"] {
+.voice-stage__grid[data-count='2'] {
   grid-template-columns: 1fr 1fr;
 }
 
-.voice-stage__grid[data-count="3"] {
+.voice-stage__grid[data-count='3'] {
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
 }
 
 /* 3rd cell spans full width on second row */
-.voice-stage__grid[data-count="3"] .voice-stage__cell:nth-child(3) {
+.voice-stage__grid[data-count='3'] .voice-stage__cell:nth-child(3) {
   grid-column: 1 / -1;
 }
 
-.voice-stage__grid[data-count="4"] {
+.voice-stage__grid[data-count='4'] {
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
 }
 
-.voice-stage__grid[data-count="5"] {
+.voice-stage__grid[data-count='5'] {
   grid-template-columns: 1fr 1fr 1fr;
   grid-template-rows: 1fr 1fr;
 }
 
 /* 4th and 5th cells on second row: center the 2 remaining under 3 */
-.voice-stage__grid[data-count="5"] .voice-stage__cell:nth-child(4) {
+.voice-stage__grid[data-count='5'] .voice-stage__cell:nth-child(4) {
   grid-column: 1 / 2;
 }
 
-.voice-stage__grid[data-count="5"] .voice-stage__cell:nth-child(5) {
+.voice-stage__grid[data-count='5'] .voice-stage__cell:nth-child(5) {
   grid-column: 2 / 3;
 }
 
@@ -151,7 +151,9 @@
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 200ms ease, background 150ms ease;
+  transition:
+    opacity 200ms ease,
+    background 150ms ease;
   z-index: 2;
 }
 
@@ -181,7 +183,9 @@
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 200ms ease, background 150ms ease;
+  transition:
+    opacity 200ms ease,
+    background 150ms ease;
 }
 
 .voice-stage:hover .voice-stage__nav {
@@ -217,7 +221,9 @@
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 200ms ease, background 150ms ease;
+  transition:
+    opacity 200ms ease,
+    background 150ms ease;
 }
 
 .voice-stage:hover .voice-stage__pip-btn {

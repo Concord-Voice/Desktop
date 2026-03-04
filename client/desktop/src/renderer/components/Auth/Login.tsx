@@ -10,11 +10,7 @@ import './Login.css';
 
 export interface LoginProps {
   onBack: () => void;
-  onSuccess: (data: {
-    accessToken: string;
-    user?: UserProfile;
-    rememberMe: boolean;
-  }) => void;
+  onSuccess: (data: { accessToken: string; user?: UserProfile; rememberMe: boolean }) => void;
   onSwitchToRegister: () => void;
 }
 

@@ -434,10 +434,7 @@ const PREFERENCES_DOMAIN_SEPARATOR = 'concord-preferences-v1';
  * Uses the same PBKDF2 parameters as deriveKeyFromPassword but with a
  * domain-separated salt to ensure cryptographic independence from the wrapping key.
  */
-export async function derivePreferencesKey(
-  password: string,
-  salt: Uint8Array
-): Promise<CryptoKey> {
+export async function derivePreferencesKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
   const encoder = new TextEncoder();
 
   // Domain-separate: append a fixed suffix to the salt

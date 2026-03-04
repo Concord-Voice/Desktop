@@ -73,10 +73,7 @@ export class WebSocketService {
    * Connect to WebSocket server with JWT token
    */
   connect(token: string): void {
-    if (
-      this.state === ConnectionState.CONNECTED ||
-      this.state === ConnectionState.CONNECTING
-    ) {
+    if (this.state === ConnectionState.CONNECTED || this.state === ConnectionState.CONNECTING) {
       return;
     }
 
@@ -533,12 +530,13 @@ export class WebSocketService {
     } else {
       // Normal: exponential backoff for first 10 attempts, then fixed 30s intervals
       // (keeps retrying indefinitely — the UI layer handles the timeout UX)
-      delay = this.reconnectAttempts < this.maxReconnectAttempts
-        ? Math.min(
-            this.reconnectDelay * Math.pow(2, this.reconnectAttempts),
-            this.maxReconnectDelay
-          )
-        : 30_000;
+      delay =
+        this.reconnectAttempts < this.maxReconnectAttempts
+          ? Math.min(
+              this.reconnectDelay * Math.pow(2, this.reconnectAttempts),
+              this.maxReconnectDelay
+            )
+          : 30_000;
     }
 
     console.debug(

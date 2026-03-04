@@ -20,7 +20,13 @@ const FriendsFlexSpace: React.FC<FriendsFlexSpaceProps> = ({ onFriendClick }) =>
       <div className="layout-resize-handle" onMouseDown={panel.onMouseDown} />
       <div
         className="member-list-container"
-        style={{ width: panel.width, display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100%' }}
+        style={{
+          width: panel.width,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          height: '100%',
+        }}
       >
         <FriendsList onFriendClick={onFriendClick} />
       </div>

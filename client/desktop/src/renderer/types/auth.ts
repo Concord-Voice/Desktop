@@ -33,4 +33,3 @@ export interface LoginResponse {
   user: UserProfile;
   e2ee_keys: E2EEKeys;
 }
-

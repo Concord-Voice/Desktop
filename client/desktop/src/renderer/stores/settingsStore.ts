@@ -11,7 +11,20 @@ import { draftModeActive } from './draftSettingsStore';
 
 export interface AppearanceSettings {
   theme: 'dark' | 'light' | 'system';
-  colorScheme: 'concord' | 'morky' | 'bardic' | 'hacker' | 'foxden' | 'spooky' | 'leviathan' | 'grassynill' | 'cottoncandy' | 'driftwood' | 'eclipse' | 'midnightsky' | 'custom';
+  colorScheme:
+    | 'concord'
+    | 'morky'
+    | 'bardic'
+    | 'hacker'
+    | 'foxden'
+    | 'spooky'
+    | 'leviathan'
+    | 'grassynill'
+    | 'cottoncandy'
+    | 'driftwood'
+    | 'eclipse'
+    | 'midnightsky'
+    | 'custom';
   fontSize: 'small' | 'default' | 'large';
   compactMode: boolean;
   reduceAnimations: boolean;
@@ -237,9 +250,12 @@ useSettingsStore.subscribe(
         payload = JSON.stringify({ scheme: colorScheme });
       }
 
-      useUserStore.getState().updateProfile({ color_scheme: payload }).catch(() => {
-        // Fire-and-forget — local settings still work if server sync fails
-      });
+      useUserStore
+        .getState()
+        .updateProfile({ color_scheme: payload })
+        .catch(() => {
+          // Fire-and-forget — local settings still work if server sync fails
+        });
     }, 500);
   },
   {

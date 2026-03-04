@@ -79,9 +79,12 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, serve
       const diff = new Date(inv.expires_at).getTime() - Date.now();
       return diff > 0 && diff < 3600000;
     });
-    const interval = setInterval(() => {
-      setExistingInvites(filterActive());
-    }, hasSubHour ? 1000 : 30000);
+    const interval = setInterval(
+      () => {
+        setExistingInvites(filterActive());
+      },
+      hasSubHour ? 1000 : 30000
+    );
     return () => clearInterval(interval);
   }, [isOpen, existingInvites, filterActive]);
 

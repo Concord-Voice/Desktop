@@ -137,7 +137,9 @@
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 150ms ease, background 150ms ease;
+  transition:
+    opacity 150ms ease,
+    background 150ms ease;
 }
 
 .voice-view__section-handle:hover .voice-view__section-toggle {

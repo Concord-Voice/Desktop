@@ -18,7 +18,7 @@ import { useSettingsStore, type AppearanceSettings } from '../stores/settingsSto
 // ---------------------------------------------------------------------------
 
 export function useDraftAudioSetting<K extends keyof DraftableAudioSettings>(
-  key: K,
+  key: K
 ): DraftableAudioSettings[K] {
   return useDraftSettingsStore(
     useCallback(
@@ -27,13 +27,13 @@ export function useDraftAudioSetting<K extends keyof DraftableAudioSettings>(
         if (s.snapshot) return s.snapshot.audio[key];
         return useAudioSettingsStore.getState()[key];
       },
-      [key],
-    ),
+      [key]
+    )
   );
 }
 
 export function useDraftVideoSetting<K extends keyof DraftableVideoSettings>(
-  key: K,
+  key: K
 ): DraftableVideoSettings[K] {
   return useDraftSettingsStore(
     useCallback(
@@ -42,13 +42,13 @@ export function useDraftVideoSetting<K extends keyof DraftableVideoSettings>(
         if (s.snapshot) return s.snapshot.video[key];
         return useVideoSettingsStore.getState()[key];
       },
-      [key],
-    ),
+      [key]
+    )
   );
 }
 
 export function useDraftTtsSetting<K extends keyof DraftableTTSSettings>(
-  key: K,
+  key: K
 ): DraftableTTSSettings[K] {
   return useDraftSettingsStore(
     useCallback(
@@ -57,8 +57,8 @@ export function useDraftTtsSetting<K extends keyof DraftableTTSSettings>(
         if (s.snapshot) return s.snapshot.tts[key];
         return useTTSSettingsStore.getState()[key];
       },
-      [key],
-    ),
+      [key]
+    )
   );
 }
 
@@ -70,7 +70,7 @@ export function useDraftAppearance(): AppearanceSettings {
       if (Object.keys(s.drafts.appearance).length === 0) return s.snapshot.appearance;
       return { ...s.snapshot.appearance, ...s.drafts.appearance } as AppearanceSettings;
     },
-    shallow,
+    shallow
   );
 }
 
@@ -80,28 +80,28 @@ export function useDraftAppearance(): AppearanceSettings {
 
 export function setDraftAudioSetting<K extends keyof DraftableAudioSettings>(
   key: K,
-  value: DraftableAudioSettings[K],
+  value: DraftableAudioSettings[K]
 ) {
   useDraftSettingsStore.getState().setAudioDraft(key, value);
 }
 
 export function setDraftVideoSetting<K extends keyof DraftableVideoSettings>(
   key: K,
-  value: DraftableVideoSettings[K],
+  value: DraftableVideoSettings[K]
 ) {
   useDraftSettingsStore.getState().setVideoDraft(key, value);
 }
 
 export function setDraftTtsSetting<K extends keyof DraftableTTSSettings>(
   key: K,
-  value: DraftableTTSSettings[K],
+  value: DraftableTTSSettings[K]
 ) {
   useDraftSettingsStore.getState().setTtsDraft(key, value);
 }
 
 export function setDraftAppearanceSetting<K extends keyof DraftableAppearanceSettings>(
   key: K,
-  value: DraftableAppearanceSettings[K],
+  value: DraftableAppearanceSettings[K]
 ) {
   useDraftSettingsStore.getState().setAppearanceDraft(key, value);
 }
@@ -133,11 +133,9 @@ export function useDraftActions() {
       Object.keys(s.drafts.appearance).length > 0 ||
       Object.keys(s.drafts.audio).length > 0 ||
       Object.keys(s.drafts.video).length > 0 ||
-      Object.keys(s.drafts.tts).length > 0,
+      Object.keys(s.drafts.tts).length > 0
   );
-  const hwAccelChanged = useDraftSettingsStore(
-    (s) => 'hardwareAcceleration' in s.drafts.video,
-  );
+  const hwAccelChanged = useDraftSettingsStore((s) => 'hardwareAcceleration' in s.drafts.video);
   return { apply, revert, hasPendingChanges, hwAccelChanged };
 }
 

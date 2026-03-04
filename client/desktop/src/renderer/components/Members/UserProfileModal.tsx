@@ -131,14 +131,14 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
         {/* Banner + Close Button */}
         <div
           className={`user-profile-modal-banner ${profile?.header_image_url ? 'has-image' : ''}`}
-          style={!profile?.header_image_url && userColors ? { background: userColors.gradient, opacity: 0.6 } : undefined}
+          style={
+            !profile?.header_image_url && userColors
+              ? { background: userColors.gradient, opacity: 0.6 }
+              : undefined
+          }
         >
           {profile?.header_image_url && (
-            <img
-              src={profile.header_image_url}
-              alt=""
-              className="user-profile-modal-banner-img"
-            />
+            <img src={profile.header_image_url} alt="" className="user-profile-modal-banner-img" />
           )}
           <button className="user-profile-modal-close" onClick={onClose} aria-label="Close">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -166,7 +166,9 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
               ) : (
                 <span
                   className="user-profile-modal-avatar-initial"
-                  style={userColors ? { background: userColors.gradient, color: '#fff' } : undefined}
+                  style={
+                    userColors ? { background: userColors.gradient, color: '#fff' } : undefined
+                  }
                 >
                   {member.username.charAt(0).toUpperCase()}
                 </span>
@@ -179,9 +181,7 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
           <div className="user-profile-modal-identity">
             <div className="user-profile-modal-name">{displayName}</div>
             <div className="user-profile-modal-username">@{member.username}</div>
-            <span className={`user-profile-modal-role-badge role-${member.role}`}>
-              {roleLabel}
-            </span>
+            <span className={`user-profile-modal-role-badge role-${member.role}`}>{roleLabel}</span>
           </div>
 
           {/* Info Section */}
@@ -250,9 +250,7 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
                         strokeLinejoin="round"
                       />
                     </svg>
-                    <span className="user-profile-modal-link-text">
-                      {formatLinkDisplay(link)}
-                    </span>
+                    <span className="user-profile-modal-link-text">{formatLinkDisplay(link)}</span>
                   </a>
                 ))}
               </div>

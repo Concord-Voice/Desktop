@@ -110,7 +110,9 @@ const ConversationList: React.FC<ConversationListProps> = ({
       ) : (
         filtered.map((conv) => {
           const name = getConversationName(conv, currentUserId);
-          const other = conv.isGroup ? null : conv.participants.find((p) => p.userId !== currentUserId);
+          const other = conv.isGroup
+            ? null
+            : conv.participants.find((p) => p.userId !== currentUserId);
           const status = other?.status || 'offline';
           const lastTime = conv.lastMessage?.createdAt || conv.createdAt;
           const preview = conv.lastMessage
@@ -133,9 +135,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
                     {getInitial(conv, currentUserId)}
                   </span>
                 )}
-                {!conv.isGroup && (
-                  <span className={`member-status-dot ${status}`} />
-                )}
+                {!conv.isGroup && <span className={`member-status-dot ${status}`} />}
               </div>
 
               <div className="conversation-content">
