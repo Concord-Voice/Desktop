@@ -52,6 +52,7 @@ class E2EEService {
   private channelKeyCache: Map<string, CachedWrappedKey> = new Map();
   private versionedKeyCache: Map<string, Map<number, CachedWrappedKey>> = new Map();
   private pendingKeyFetches: Map<string, Promise<CryptoKey>> = new Map();
+  private rateLimitedUntil: number = 0; // timestamp when rate limit expires
   private cacheCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   /** Cached exported keys for safeStorage persistence (set during initialize) */
@@ -179,6 +180,11 @@ class E2EEService {
       return unwrapChannelKey(cached.wrappedKey, privateKey);
     }
 
+    // If we're rate-limited, don't fire another request
+    if (Date.now() < this.rateLimitedUntil) {
+      throw new Error('Failed to fetch channel key');
+    }
+
     // Deduplicate concurrent fetches for the same channel
     const pending = this.pendingKeyFetches.get(channelId);
     if (pending) {
@@ -201,6 +207,11 @@ class E2EEService {
   private async fetchAndUnwrapChannelKey(channelId: string): Promise<CryptoKey> {
     const res = await apiFetch(`/api/v1/e2ee/keys/${channelId}`);
     if (!res.ok) {
+      if (res.status === 429) {
+        const retryAfter = parseInt(res.headers.get('Retry-After') || '30', 10);
+        this.rateLimitedUntil = Date.now() + retryAfter * 1000;
+        throw new Error('Failed to fetch channel key');
+      }
       const data = await res.json().catch(() => ({}));
       if (data.pending) {
         throw new Error('PENDING_KEY');
@@ -386,9 +397,18 @@ class E2EEService {
       return unwrapChannelKey(versionCached.wrappedKey, privateKey);
     }
 
+    // If we're rate-limited, don't fire another request
+    if (Date.now() < this.rateLimitedUntil) {
+      throw new Error(`Failed to fetch channel key version ${version}`);
+    }
+
     // Fetch specific version from server
     const res = await apiFetch(`/api/v1/e2ee/keys/${channelId}?version=${version}`);
     if (!res.ok) {
+      if (res.status === 429) {
+        const retryAfter = parseInt(res.headers.get('Retry-After') || '30', 10);
+        this.rateLimitedUntil = Date.now() + retryAfter * 1000;
+      }
       throw new Error(`Failed to fetch channel key version ${version}`);
     }
     const data = await res.json();
