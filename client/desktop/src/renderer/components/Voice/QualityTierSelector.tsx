@@ -1,7 +1,7 @@
 import React from 'react';
 import { Gauge, Crown } from 'lucide-react';
 import { useVoiceStore, AUDIO_QUALITY_TIERS, type AudioQualityTier } from '../../stores/voiceStore';
-import { getVoiceService } from '../../services/voiceLazy';
+// voiceService is loaded on-demand via dynamic import() — see voiceService.ts
 import './QualityTierSelector.css';
 
 const TIER_ORDER: AudioQualityTier[] = [
@@ -22,7 +22,7 @@ const QualityTierSelector: React.FC = () => {
     if (config.premium) {
       // TODO: Check subscription status; for now, allow all tiers
     }
-    const { voiceService } = await getVoiceService();
+    const { voiceService } = await import('../../services/voiceService');
     await voiceService.setQualityTier(tier);
   };
 

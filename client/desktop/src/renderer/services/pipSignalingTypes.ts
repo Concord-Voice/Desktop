@@ -10,7 +10,7 @@
  */
 
 import type { VoiceParticipant } from '../stores/voiceStore';
-import type { RtpCapabilities, RtpParameters, DtlsParameters } from 'mediasoup-client/lib/types';
+import type { RtpCapabilities, RtpParameters, DtlsParameters } from 'mediasoup-client/types';
 
 // ── RPC Request/Response ────────────────────────────────────────────
 

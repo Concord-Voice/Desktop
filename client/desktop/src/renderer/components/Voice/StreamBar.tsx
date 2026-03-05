@@ -99,10 +99,8 @@ const StreamBar: React.FC<{ height: number }> = ({ height }) => {
               onSelect={() => setDominantScreenShare(producerId)}
               onTuneOut={() => {
                 // Import voiceService lazily to avoid circular dependency
-                import('../../services/voiceLazy').then(({ getVoiceService }) => {
-                  getVoiceService().then(({ voiceService }) => {
-                    voiceService.tuneOutOfScreenShare(producerId);
-                  });
+                import('../../services/voiceService').then(({ voiceService }) => {
+                  voiceService.tuneOutOfScreenShare(producerId);
                 });
               }}
             />

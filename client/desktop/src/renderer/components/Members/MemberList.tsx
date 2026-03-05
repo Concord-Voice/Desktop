@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useServerStore } from '../../stores/serverStore';
 import { useUserStore } from '../../stores/userStore';
 import { useMemberStore, ServerMember, PresenceStatus } from '../../stores/memberStore';
-import { resolveUserAccentColors } from '../../utils/schemeColors';
+import MemberItem from './MemberItem';
 import MemberProfileCard from './MemberProfileCard';
 import MemberContextMenu from './MemberContextMenu';
 import UserProfileModal from './UserProfileModal';
@@ -99,37 +99,6 @@ const MemberList: React.FC = () => {
   const admins = sortMembers(members.filter((m) => m.role === 'admin'));
   const regularMembers = sortMembers(members.filter((m) => m.role === 'member'));
 
-  const renderMemberItem = (member: ServerMember) => {
-    const status = getMemberStatus(member.user_id);
-    const memberColors = resolveUserAccentColors(member.color_scheme);
-    return (
-      <div
-        key={member.user_id}
-        className={`member-item ${status}`}
-        onClick={(e) => handleMemberClick(e, member)}
-        onContextMenu={(e) => handleMemberContextMenu(e, member)}
-        title={member.display_name || member.username}
-      >
-        <div className="member-avatar">
-          {member.avatar_url ? (
-            <img src={member.avatar_url} alt={member.username} className="member-avatar-img" />
-          ) : (
-            <span
-              className="member-avatar-initial"
-              style={
-                memberColors ? { background: memberColors.gradient, color: '#fff' } : undefined
-              }
-            >
-              {member.username.charAt(0).toUpperCase()}
-            </span>
-          )}
-          <span className={`member-status-dot ${status}`} />
-        </div>
-        <span className="member-username">{member.display_name || member.username}</span>
-      </div>
-    );
-  };
-
   const renderGroup = (label: string, groupMembers: ServerMember[]) => {
     if (groupMembers.length === 0) return null;
     return (
@@ -139,7 +108,15 @@ const MemberList: React.FC = () => {
             {label} — {groupMembers.length}
           </span>
         </div>
-        {groupMembers.map(renderMemberItem)}
+        {groupMembers.map((member) => (
+          <MemberItem
+            key={member.user_id}
+            member={member}
+            status={getMemberStatus(member.user_id)}
+            onClick={handleMemberClick}
+            onContextMenu={handleMemberContextMenu}
+          />
+        ))}
       </div>
     );
   };

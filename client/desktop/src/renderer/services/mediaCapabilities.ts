@@ -322,9 +322,7 @@ export function prewarmWebRTC(): void {
   }
 
   // Preload the voice service chunk so it's cached when user clicks Join
-  import('./voiceLazy')
-    .then((m) => m.getVoiceService())
-    .catch(() => {
-      // Non-critical — will load on demand when user joins voice
-    });
+  import('./voiceService').catch(() => {
+    // Non-critical — will load on demand when user joins voice
+  });
 }

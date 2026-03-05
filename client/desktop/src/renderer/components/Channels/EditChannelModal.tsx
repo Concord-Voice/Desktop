@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useFormState } from '../../hooks/useFormState';
 import { Hash, Volume2, Pin } from 'lucide-react';
-import EmojiPicker from '../EmojiPicker/EmojiPicker';
+import EmojiPicker from '../EmojiPicker/LazyEmojiPicker';
 import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useChannelStore } from '../../stores/channelStore';
@@ -36,9 +37,15 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
   const [audioQualityTier, setAudioQualityTier] = useState<string | null>(
     channel.audio_quality_tier ?? null
   );
-  const [errors, setErrors] = useState<FormErrors>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const {
+    errors,
+    setErrors,
+    isSubmitting,
+    setIsSubmitting,
+    successMessage,
+    setSuccessMessage,
+    reset: resetFormState,
+  } = useFormState<FormErrors>();
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const updateChannel = useChannelStore((state) => state.updateChannel);
@@ -52,15 +59,13 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
     setEmoji(channel.emoji || '');
     setGroupId(channel.group_id || '');
     setAudioQualityTier(channel.audio_quality_tier ?? null);
-    setErrors({});
-    setSuccessMessage(null);
+    resetFormState();
     setShowEmojiPicker(false);
-  }, [channel]);
+  }, [channel, resetFormState]);
 
   const handleClose = () => {
     if (!isSubmitting) {
-      setErrors({});
-      setSuccessMessage(null);
+      resetFormState();
       setShowEmojiPicker(false);
       onClose();
     }

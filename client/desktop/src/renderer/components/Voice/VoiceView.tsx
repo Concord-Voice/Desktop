@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import { Lock, Users, ChevronUp, ChevronDown } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useChannelStore } from '../../stores/channelStore';
-import { getVoiceService } from '../../services/voiceLazy';
 import { PipSignalingProxy } from '../../services/pipSignalingProxy';
+// voiceService is loaded on-demand via dynamic import() — see voiceService.ts
 import { AudioOutputs, UserFrameGrid } from './ParticipantGrid';
 import UserFrameBar from './UserFrameBar';
 import VoiceStage from './VoiceStage';
@@ -71,7 +71,7 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     if (hasJoinedRef.current) return;
     hasJoinedRef.current = true;
     try {
-      const { voiceService } = await getVoiceService();
+      const { voiceService } = await import('../../services/voiceService');
       await voiceService.joinChannel(channelId);
     } catch {
       hasJoinedRef.current = false;
@@ -118,7 +118,7 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     if (!isConnected) return;
     let proxy: PipSignalingProxy | null = null;
 
-    getVoiceService().then(({ voiceService }) => {
+    import('../../services/voiceService').then(({ voiceService }) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       proxy = new PipSignalingProxy(voiceService as any);
 

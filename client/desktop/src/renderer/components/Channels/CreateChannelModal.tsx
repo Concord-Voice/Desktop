@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useFormState } from '../../hooks/useFormState';
 import { Hash, Volume2, Pin, Lock } from 'lucide-react';
-import EmojiPicker from '../EmojiPicker/EmojiPicker';
+import EmojiPicker from '../EmojiPicker/LazyEmojiPicker';
 import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useServerStore } from '../../stores/serverStore';
@@ -32,9 +33,15 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
   const [type, setType] = useState<'text' | 'voice' | 'bulletin'>('text');
   const [groupId, setGroupId] = useState<string | ''>('');
   const [isEncrypted, setIsEncrypted] = useState(false);
-  const [errors, setErrors] = useState<FormErrors>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const {
+    errors,
+    setErrors,
+    isSubmitting,
+    setIsSubmitting,
+    successMessage,
+    setSuccessMessage,
+    reset: resetFormState,
+  } = useFormState<FormErrors>();
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const activeServerId = useServerStore((state) => state.activeServerId);
@@ -60,9 +67,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
     setGroupId('');
     const server = servers.find((s) => s.id === activeServerId);
     setIsEncrypted(server?.e2ee_default ?? false);
-    setErrors({});
-    setIsSubmitting(false);
-    setSuccessMessage(null);
+    resetFormState();
     setShowEmojiPicker(false);
   };
 

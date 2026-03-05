@@ -27,7 +27,7 @@ import {
   type CreateRecvTransportResult,
   type ConsumeResult,
 } from './pipSignalingTypes';
-import type { RtpCapabilities } from 'mediasoup-client/lib/types';
+import type { RtpCapabilities } from 'mediasoup-client/types';
 
 const RPC_TIMEOUT = 10_000;
 

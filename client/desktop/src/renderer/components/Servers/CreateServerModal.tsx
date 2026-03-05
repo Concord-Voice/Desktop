@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { useFormState } from '../../hooks/useFormState';
 import { Lock } from 'lucide-react';
 import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
@@ -29,18 +30,22 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({ isOpen, onClose, 
   const [iconPreview, setIconPreview] = useState<string | null>(null);
   const [iconDataUrl, setIconDataUrl] = useState<string | null>(null);
   const [e2eeDefault, setE2eeDefault] = useState(true);
-  const [errors, setErrors] = useState<FormErrors>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const {
+    errors,
+    setErrors,
+    isSubmitting,
+    setIsSubmitting,
+    successMessage,
+    setSuccessMessage,
+    reset: resetFormState,
+  } = useFormState<FormErrors>();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const resetForm = () => {
     setName('');
     setIconPreview(null);
     setIconDataUrl(null);
     setE2eeDefault(true);
-    setErrors({});
-    setIsSubmitting(false);
-    setSuccessMessage(null);
+    resetFormState();
   };
 
   const handleClose = () => {

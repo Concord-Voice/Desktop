@@ -1,11 +1,19 @@
-import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
+import {
+  Component,
+  Suspense,
+  lazy,
+  useEffect,
+  useState,
+  type ErrorInfo,
+  type ReactNode,
+} from 'react';
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import AuthFlow from './components/Auth/AuthFlow';
 import MainView from './components/MainView/MainView';
 import DirectMessagesView from './components/DirectMessages/DirectMessagesView';
-import ProfilePage from './components/Profile/ProfilePage';
-import SettingsPage from './components/Settings/SettingsPage';
-import PipWindow from './components/Voice/PipWindow';
+const ProfilePage = lazy(() => import('./components/Profile/ProfilePage'));
+const SettingsPage = lazy(() => import('./components/Settings/SettingsPage'));
+const PipWindow = lazy(() => import('./components/Voice/PipWindow'));
 import ConnectionLostOverlay from './components/ui/ConnectionLostOverlay';
 import { useAuthStore } from './stores/authStore';
 import { useUserStore } from './stores/userStore';
@@ -14,7 +22,7 @@ import { useWebSocket } from './hooks/useWebSocket';
 import { e2eeService } from './services/e2eeService';
 import { preferencesSyncService } from './services/preferencesSync';
 import { detectCodecCapabilities, prewarmWebRTC } from './services/mediaCapabilities';
-import { gracefulReset } from './services/resetService';
+// resetService is loaded on-demand via dynamic import() to allow code splitting
 
 // ─── Error Boundary ────────────────────────────────────────────────────
 // Catches unhandled rendering errors. Instead of going nuclear (which wipes
@@ -171,6 +179,7 @@ function App() {
         // network issue). Preserving disk tokens allows the next launch to retry.
         // If the user logs in fresh, new tokens overwrite the old files anyway.
         console.warn('[App] Session restore failed:', result.status);
+        const { gracefulReset } = await import('./services/resetService');
         gracefulReset();
       }
       setIsRestoring(false);
@@ -208,20 +217,22 @@ function App() {
           )}
         </div>
 
-        <Routes>
-          <Route
-            path="/"
-            element={accessToken ? <Navigate to="/app/dms" replace /> : <AuthFlow />}
-          />
-          <Route element={<AuthenticatedLayout />}>
-            <Route path="/app" element={<MainView />} />
-            <Route path="/app/dms" element={<DirectMessagesView />} />
-            <Route path="/app/profile" element={<ProfilePage />} />
-            <Route path="/app/settings" element={<SettingsPage />} />
-          </Route>
-          {/* PiP windows — separate Electron BrowserWindows, state synced via BroadcastChannel */}
-          <Route path="/pip/:pipId" element={<PipWindow />} />
-        </Routes>
+        <Suspense fallback={null}>
+          <Routes>
+            <Route
+              path="/"
+              element={accessToken ? <Navigate to="/app/dms" replace /> : <AuthFlow />}
+            />
+            <Route element={<AuthenticatedLayout />}>
+              <Route path="/app" element={<MainView />} />
+              <Route path="/app/dms" element={<DirectMessagesView />} />
+              <Route path="/app/profile" element={<ProfilePage />} />
+              <Route path="/app/settings" element={<SettingsPage />} />
+            </Route>
+            {/* PiP windows — separate Electron BrowserWindows, state synced via BroadcastChannel */}
+            <Route path="/pip/:pipId" element={<PipWindow />} />
+          </Routes>
+        </Suspense>
       </div>
     </AppErrorBoundary>
   );

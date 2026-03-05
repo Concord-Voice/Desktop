@@ -5,8 +5,7 @@ import {
   type RecoveryPhase,
   type DiagnosticResults,
 } from '../../stores/connectionStore';
-import { runPreflight } from '../../services/recoveryService';
-import { softRestart } from '../../services/resetService';
+// recoveryService & resetService loaded on-demand via dynamic import() to allow code splitting
 import './ConnectionLostOverlay.css';
 
 /** Diagnostic checklist shown during recovery phases */
@@ -45,6 +44,7 @@ function PhaseContent({
   const handleRetry = useCallback(async () => {
     const store = useConnectionStore.getState();
     store.enterPreflight();
+    const { runPreflight } = await import('../../services/recoveryService');
     const diag = await runPreflight();
     store.setDiagnostics(diag);
 
@@ -52,13 +52,15 @@ function PhaseContent({
       store.enterFatal();
     } else if (diag.serverReachable && diag.tokenValid) {
       // Things look good — soft restart to reconnect everything
+      const { softRestart } = await import('../../services/resetService');
       softRestart();
     } else {
       store.enterRecoveryA();
     }
   }, []);
 
-  const handleRestart = useCallback(() => {
+  const handleRestart = useCallback(async () => {
+    const { softRestart } = await import('../../services/resetService');
     softRestart();
   }, []);
 

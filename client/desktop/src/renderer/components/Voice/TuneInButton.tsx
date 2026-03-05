@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import { Tv } from 'lucide-react';
 import { useVoiceStore, AvailableScreenShare } from '../../stores/voiceStore';
-import { getVoiceService } from '../../services/voiceLazy';
+// voiceService is loaded on-demand via dynamic import() — see voiceService.ts
 import './TuneInButton.css';
 
 interface TuneInButtonProps {
@@ -22,7 +22,7 @@ const TuneInButton: React.FC<TuneInButtonProps> = ({ share }) => {
   const handleTuneIn = useCallback(async () => {
     if (atLimit) return;
     try {
-      const { voiceService } = await getVoiceService();
+      const { voiceService } = await import('../../services/voiceService');
       await voiceService.tuneInToScreenShare(share.producerId, share.userId);
     } catch (err) {
       console.error('Failed to tune in:', err);

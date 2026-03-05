@@ -28,7 +28,7 @@ import type {
   ConsumeResult,
 } from './pipSignalingTypes';
 import { useVoiceStore } from '../stores/voiceStore';
-import type { RtpCapabilities } from 'mediasoup-client/lib/types';
+import type { RtpCapabilities } from 'mediasoup-client/types';
 
 // Type for voiceService — imported lazily to avoid circular deps
 type VoiceService = {

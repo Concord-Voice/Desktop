@@ -40,7 +40,7 @@ export default defineConfig({
       },
       output: {
         manualChunks: {
-          'vendor-react': ['react', 'react-dom'],
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
           'vendor-zustand': ['zustand'],
           'vendor-icons': ['lucide-react'],
         },

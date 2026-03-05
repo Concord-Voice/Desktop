@@ -126,4 +126,4 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
   );
 };
 
-export default ParticipantTile;
+export default React.memo(ParticipantTile);

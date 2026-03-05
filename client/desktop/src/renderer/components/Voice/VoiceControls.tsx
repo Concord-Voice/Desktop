@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useChannelStore } from '../../stores/channelStore';
-import { getVoiceService } from '../../services/voiceLazy';
+// voiceService is loaded on-demand via dynamic import() — see voiceService.ts
 import ScreenSharePicker from './ScreenSharePicker';
 import './VoiceControls.css';
 
@@ -66,30 +66,30 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   const hasElectronPip = !!window.electron?.openPipWindow;
 
   const handleToggleMute = async () => {
-    const { voiceService } = await getVoiceService();
+    const { voiceService } = await import('../../services/voiceService');
     voiceService.toggleMute();
   };
 
   const handleToggleDeafen = async () => {
-    const { voiceService } = await getVoiceService();
+    const { voiceService } = await import('../../services/voiceService');
     voiceService.toggleDeafen();
   };
 
   const handleToggleVideo = async () => {
-    const { voiceService } = await getVoiceService();
+    const { voiceService } = await import('../../services/voiceService');
     await voiceService.toggleVideo();
   };
 
   const handleToggleScreen = async () => {
     try {
       if (isScreenSharing) {
-        const { voiceService } = await getVoiceService();
+        const { voiceService } = await import('../../services/voiceService');
         await voiceService.toggleScreenShare();
       } else {
         if (typeof window.electron?.getDesktopSources === 'function') {
           setShowScreenPicker(true);
         } else {
-          const { voiceService } = await getVoiceService();
+          const { voiceService } = await import('../../services/voiceService');
           await voiceService.toggleScreenShare();
         }
       }
@@ -101,7 +101,7 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   const handleScreenSourceSelected = async (sourceId: string) => {
     setShowScreenPicker(false);
     try {
-      const { voiceService } = await getVoiceService();
+      const { voiceService } = await import('../../services/voiceService');
       await voiceService.toggleScreenShare(sourceId);
     } catch (err) {
       console.error('Failed to start screen share:', err);
@@ -109,7 +109,7 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   };
 
   const handleLeave = async () => {
-    const { voiceService } = await getVoiceService();
+    const { voiceService } = await import('../../services/voiceService');
     await voiceService.leaveChannel();
   };
 

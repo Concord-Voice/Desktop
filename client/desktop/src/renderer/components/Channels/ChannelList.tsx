@@ -1,21 +1,12 @@
 import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
-import {
-  Hash,
-  Volume2,
-  Pin,
-  Lock,
-  Mic,
-  MicOff,
-  ChevronDown,
-  ChevronRight,
-  MessageSquare,
-} from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useChannelStore } from '../../stores/channelStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useUnreadStore } from '../../stores/unreadStore';
 import { useVoiceStore, type ChannelVoiceMember } from '../../stores/voiceStore';
 import { apiFetch } from '../../services/apiClient';
 import { Channel, ChannelGroup } from '../../types/chat';
+import ChannelItem, { type VoiceMemberInfo } from './ChannelItem';
 import './ChannelList.css';
 
 interface ChannelListProps {
@@ -151,10 +142,13 @@ const ChannelList: React.FC<ChannelListProps> = ({
     }
   }, [activeChannelId, activeServerId, clearUnread]);
 
-  const handleContextMenu = (e: React.MouseEvent, channel: Channel) => {
-    e.preventDefault();
-    onContextMenu(channel, { x: e.clientX, y: e.clientY });
-  };
+  const handleContextMenu = useCallback(
+    (e: React.MouseEvent, channel: Channel) => {
+      e.preventDefault();
+      onContextMenu(channel, { x: e.clientX, y: e.clientY });
+    },
+    [onContextMenu]
+  );
 
   const handleEmptyContextMenu = (e: React.MouseEvent) => {
     // Only fire if clicking empty space (not a channel item or group header)
@@ -163,10 +157,31 @@ const ChannelList: React.FC<ChannelListProps> = ({
     onEmptyContextMenu({ x: e.clientX, y: e.clientY });
   };
 
-  const handleChannelClick = (channel: Channel) => {
-    setActiveChannel(channel.id);
-    // clearUnread + read mark handled by useEffect([activeChannelId]) above
-  };
+  const handleChannelClick = useCallback(
+    (channel: Channel) => {
+      setActiveChannel(channel.id);
+      // clearUnread + read mark handled by useEffect([activeChannelId]) above
+    },
+    [setActiveChannel]
+  );
+
+  const handleLinkedTextClick = useCallback(
+    (voiceChannel: Channel, linkedText: Channel) => {
+      setActiveChannel(voiceChannel.id);
+      const opening = !showVoiceTextChat;
+      setShowVoiceTextChat(opening);
+      if (opening && linkedText) {
+        clearUnread(linkedText.id);
+        apiFetch(`/api/v1/channels/${linkedText.id}/read`, { method: 'POST' }).catch(() => {});
+      }
+    },
+    [setActiveChannel, showVoiceTextChat, setShowVoiceTextChat, clearUnread]
+  );
+
+  const handleItemRef = useCallback((id: string, el: HTMLDivElement | null) => {
+    if (el) itemRefs.current.set(id, el);
+    else itemRefs.current.delete(id);
+  }, []);
 
   // ── Drag-and-drop handlers ──
 
@@ -530,179 +545,99 @@ const ChannelList: React.FC<ChannelListProps> = ({
     }
   }, [showVoiceTextChat, voiceChannelId, linkedTextByVoice, unreadCounts, clearUnread]);
 
-  const renderChannelItem = (
-    channel: Channel,
-    index: number,
-    arr: Channel[],
-    isGrouped: boolean
-  ) => {
-    const isActive = channel.id === activeChannelId;
-    const unread = unreadCounts.get(channel.id) || 0;
-    const isVoiceConnected =
-      channel.type === 'voice' &&
-      channel.id === voiceChannelId &&
-      voiceConnectionState === 'connected';
-    const isLastInGroup = isGrouped && index === arr.length - 1;
-
-    // For voice channels: use detailed voiceParticipants if we're connected to this channel,
-    // otherwise use channelVoiceMembers from the server-wide WS feed / REST fetch
-    let voiceMembers: Array<{
-      userId: string;
-      displayName?: string;
-      username: string;
-      isMuted: boolean;
-      isSpeaking?: boolean;
-    }> = [];
-
-    if (channel.type === 'voice') {
-      if (isVoiceConnected) {
-        voiceMembers = Object.values(voiceParticipants).map((p) => ({
+  /** Compute voice member list for a channel */
+  const getVoiceMembers = useCallback(
+    (channel: Channel): VoiceMemberInfo[] => {
+      if (channel.type !== 'voice') return [];
+      const isConnected = channel.id === voiceChannelId && voiceConnectionState === 'connected';
+      if (isConnected) {
+        return Object.values(voiceParticipants).map((p) => ({
           userId: p.userId,
           displayName: p.displayName,
           username: p.username,
           isMuted: p.isMuted,
           isSpeaking: p.isSpeaking,
         }));
-      } else {
-        voiceMembers = (channelVoiceMembers[channel.id] || []).map((m) => ({
-          userId: m.userId,
-          displayName: m.displayName,
-          username: m.username,
-          isMuted: m.isMuted,
-          isSpeaking: false,
-        }));
       }
-    }
+      return (channelVoiceMembers[channel.id] || []).map((m) => ({
+        userId: m.userId,
+        displayName: m.displayName,
+        username: m.username,
+        isMuted: m.isMuted,
+        isSpeaking: false,
+      }));
+    },
+    [voiceChannelId, voiceConnectionState, voiceParticipants, channelVoiceMembers]
+  );
 
-    // Check if this voice channel has a linked text chat that should be shown
-    const linkedText = channel.type === 'voice' ? linkedTextByVoice.get(channel.id) : null;
-    const showLinkedText = linkedText && voiceChannelId === channel.id;
-    const linkedTextUnread = linkedText ? unreadCounts.get(linkedText.id) || 0 : 0;
-    const isLinkedTextActive = showLinkedText && showVoiceTextChat;
+  const renderChannelItem = useCallback(
+    (channel: Channel, index: number, arr: Channel[], isGrouped: boolean) => {
+      const isActive = channel.id === activeChannelId;
+      const unread = unreadCounts.get(channel.id) || 0;
+      const isVoiceConnected =
+        channel.type === 'voice' &&
+        channel.id === voiceChannelId &&
+        voiceConnectionState === 'connected';
+      const isLastInGroup = isGrouped && index === arr.length - 1;
+      const voiceMembers = getVoiceMembers(channel);
+      const linkedText =
+        channel.type === 'voice' ? (linkedTextByVoice.get(channel.id) ?? null) : null;
+      const showLinkedText = !!(linkedText && voiceChannelId === channel.id);
+      const linkedTextUnread = linkedText ? unreadCounts.get(linkedText.id) || 0 : 0;
+      const isLinkedTextActive = !!(showLinkedText && showVoiceTextChat);
 
-    // Build class list for grouped hierarchy
-    const itemClasses = [
-      'channel-item',
-      isActive ? 'active' : '',
-      unread > 0 ? 'has-unread' : '',
-      isGrouped ? 'channel-item--grouped' : '',
-      isLastInGroup ? 'channel-item--grouped-last' : '',
+      return (
+        <ChannelItem
+          key={channel.id}
+          channel={channel}
+          isActive={isActive}
+          unread={unread}
+          isGrouped={isGrouped}
+          isLastInGroup={isLastInGroup}
+          isVoiceConnected={isVoiceConnected}
+          voiceMembers={voiceMembers}
+          linkedText={linkedText}
+          showLinkedText={showLinkedText}
+          isLinkedTextActive={isLinkedTextActive}
+          linkedTextUnread={linkedTextUnread}
+          canReorder={canReorder}
+          isDragging={draggingId === channel.id}
+          showGhostBefore={
+            dragInsertPos?.targetId === channel.id && dragInsertPos?.side === 'before'
+          }
+          showGhostAfter={dragInsertPos?.targetId === channel.id && dragInsertPos?.side === 'after'}
+          onChannelClick={handleChannelClick}
+          onContextMenu={handleContextMenu}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          onDragEnd={handleDragEnd}
+          onLinkedTextClick={handleLinkedTextClick}
+          itemRef={handleItemRef}
+        />
+      );
+    },
+    [
+      activeChannelId,
+      unreadCounts,
+      voiceChannelId,
+      voiceConnectionState,
+      showVoiceTextChat,
+      linkedTextByVoice,
+      getVoiceMembers,
+      canReorder,
+      draggingId,
+      dragInsertPos,
+      handleChannelClick,
+      handleContextMenu,
+      handleDragStart,
+      handleDragOver,
+      handleDrop,
+      handleDragEnd,
+      handleLinkedTextClick,
+      handleItemRef,
     ]
-      .filter(Boolean)
-      .join(' ');
-
-    const isDragging = draggingId === channel.id;
-    const showGhostBefore =
-      dragInsertPos?.targetId === channel.id && dragInsertPos?.side === 'before';
-    const showGhostAfter =
-      dragInsertPos?.targetId === channel.id && dragInsertPos?.side === 'after';
-
-    return (
-      <React.Fragment key={channel.id}>
-        <div className={`channel-item-wrapper${isGrouped ? ' channel-item-wrapper--grouped' : ''}`}>
-          {showGhostBefore && <div className="channel-drag-ghost" />}
-          <div
-            ref={(el) => {
-              if (el) itemRefs.current.set(channel.id, el);
-              else itemRefs.current.delete(channel.id);
-            }}
-            className={`${itemClasses} ${isDragging ? 'dragging' : ''}`}
-            draggable={canReorder}
-            onDragStart={(e) => handleDragStart(e, channel.id, 'channel')}
-            onDragOver={(e) => handleDragOver(e, channel.id, 'channel')}
-            onDrop={handleDrop}
-            onDragEnd={handleDragEnd}
-            onClick={() => handleChannelClick(channel)}
-            onContextMenu={(e) => handleContextMenu(e, channel)}
-            title={channel.name}
-          >
-            <span className="channel-type-icon">{getChannelTypeIcon(channel.type)}</span>
-            {channel.emoji && <span className="channel-custom-emoji">{channel.emoji}</span>}
-            <span className="channel-name">{channel.name}</span>
-            {channel.is_encrypted && (
-              <span className="channel-encrypted-icon" title="End-to-End Encrypted">
-                <Lock size={12} />
-              </span>
-            )}
-            {unread > 0 && !isActive && (
-              <span className="channel-unread-badge">{unread > 99 ? '99+' : unread}</span>
-            )}
-          </div>
-          {showGhostAfter && <div className="channel-drag-ghost" />}
-        </div>
-        {/* Voice sub-items — rendered outside the grouped wrapper so category
-            trunk lines don't extend through them. Wrapped in a container for
-            subtle visual grouping that grows with the member list. */}
-        {((showLinkedText && linkedText) || voiceMembers.length > 0) && (
-          <div
-            className={`voice-channel-sub-container ${isGrouped ? 'voice-channel-sub-container--grouped' : ''} ${isActive ? 'voice-channel-sub-container--active' : ''}`}
-            onClick={() => handleChannelClick(channel)}
-          >
-            {showLinkedText && linkedText && (
-              <div
-                className={`channel-item--voice-text ${isGrouped ? 'channel-item--voice-text-grouped' : ''} ${isLinkedTextActive ? 'active' : ''} ${linkedTextUnread > 0 ? 'has-unread' : ''}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  // Keep voice channel active and toggle the integrated text chat panel
-                  setActiveChannel(channel.id);
-                  const opening = !showVoiceTextChat;
-                  setShowVoiceTextChat(opening);
-                  // Clear unread badge for the linked text channel when opening
-                  if (opening && linkedText) {
-                    clearUnread(linkedText.id);
-                    apiFetch(`/api/v1/channels/${linkedText.id}/read`, { method: 'POST' }).catch(
-                      () => {}
-                    );
-                  }
-                }}
-                title={`${channel.name} Text Chat`}
-              >
-                <span className="channel-type-icon">
-                  <MessageSquare size={12} />
-                </span>
-                <span className="channel-name">{channel.name} Text Chat</span>
-                {linkedTextUnread > 0 && !isLinkedTextActive && (
-                  <span className="channel-unread-badge">
-                    {linkedTextUnread > 99 ? '99+' : linkedTextUnread}
-                  </span>
-                )}
-              </div>
-            )}
-            {voiceMembers.length > 0 && (
-              <div
-                className={`voice-channel-participants ${isGrouped ? 'voice-channel-participants--grouped' : ''}`}
-              >
-                {voiceMembers.map((p) => (
-                  <div
-                    key={p.userId}
-                    className={`voice-channel-participant ${p.isSpeaking ? 'speaking' : ''}`}
-                  >
-                    {p.isMuted ? <MicOff size={12} /> : <Mic size={12} />}
-                    <span className="voice-channel-participant-name">
-                      {p.displayName || p.username}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </React.Fragment>
-    );
-  };
-
-  const getChannelTypeIcon = (type: Channel['type']) => {
-    switch (type) {
-      case 'text':
-        return <Hash size={16} />;
-      case 'voice':
-        return <Volume2 size={16} />;
-      case 'bulletin':
-        return <Pin size={16} />;
-      default:
-        return <Hash size={16} />;
-    }
-  };
+  );
 
   // No server selected
   if (!activeServerId) {

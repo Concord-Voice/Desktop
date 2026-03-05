@@ -127,7 +127,7 @@ const PersistentVoiceBar: React.FC = () => {
       {/* Full controls bar */}
       <VoiceControls
         context="persistent"
-        onPopOut={window.electron?.openPipWindow ? handlePopOut : undefined}
+        onPopOut={typeof window.electron?.openPipWindow === 'function' ? handlePopOut : undefined}
       />
     </div>
   );

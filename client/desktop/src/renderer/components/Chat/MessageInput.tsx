@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Smile, ImagePlay, Paperclip, Lock, Unlock } from 'lucide-react';
 import MessageInputContextMenu from './MessageInputContextMenu';
-import EmojiPicker from '../EmojiPicker/EmojiPicker';
+import EmojiPicker from '../EmojiPicker/LazyEmojiPicker';
 import UserPanel from '../User/UserPanel';
 import { useLayoutStore } from '../../stores/layoutStore';
 import './MessageInput.css';
