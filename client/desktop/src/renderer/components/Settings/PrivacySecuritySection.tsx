@@ -711,7 +711,8 @@ const PrivacySecuritySection: React.FC = () => {
                 fetchMFAStatus();
                 return true;
               }
-              return false;
+              const data = await res.json().catch(() => ({}));
+              throw new Error(data.error || 'Failed to disable TOTP');
             }}
             onRevokeWebAuthnKey={async (credentialId, password) => {
               const res = await apiFetch(`/api/v1/mfa/webauthn/credentials/${credentialId}`, {
@@ -758,7 +759,8 @@ const PrivacySecuritySection: React.FC = () => {
                 fetchMFAStatus();
                 return true;
               }
-              return false;
+              const errData = await res.json().catch(() => ({}));
+              throw new Error(errData.error || 'Failed to revoke credential');
             }}
             onDisableEmailSms={async () => {
               const res = await apiFetch('/api/v1/mfa/email-sms/disable', {
@@ -768,7 +770,8 @@ const PrivacySecuritySection: React.FC = () => {
                 fetchMFAStatus();
                 return true;
               }
-              return false;
+              const errData = await res.json().catch(() => ({}));
+              throw new Error(errData.error || 'Failed to disable Email/SMS');
             }}
             onSetBackupEmail={async (email) => {
               const res = await apiFetch('/api/v1/mfa/backup-email', {
