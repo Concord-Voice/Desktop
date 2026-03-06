@@ -1,5 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight, UserPlus, Plus, Check, X, Clock, MessageSquare, UserMinus } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  UserPlus,
+  Plus,
+  Check,
+  X,
+  Clock,
+  MessageSquare,
+  UserMinus,
+} from 'lucide-react';
 import { useFriendStore, type Friend } from '../../stores/friendStore';
 import ContextMenu from '../ui/ContextMenu';
 import AddFriendModal from './AddFriendModal';
@@ -19,7 +29,9 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
   const acceptRequest = useFriendStore((s) => s.acceptRequest);
   const declineRequest = useFriendStore((s) => s.declineRequest);
   const removeFriend = useFriendStore((s) => s.removeFriend);
-  const [actionLoading, setActionLoading] = useState<Record<string, 'accept' | 'decline' | null>>({});
+  const [actionLoading, setActionLoading] = useState<Record<string, 'accept' | 'decline' | null>>(
+    {}
+  );
   const [contextMenu, setContextMenu] = useState<{
     friend: Friend;
     position: { x: number; y: number };
@@ -42,49 +54,58 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
     });
   };
 
-  const handleAccept = useCallback(async (requestId: string) => {
-    setActionLoading((prev) => ({ ...prev, [requestId]: 'accept' }));
-    try {
-      await acceptRequest(requestId);
-    } catch (err) {
-      console.error('Failed to accept friend request:', err);
-    } finally {
-      setActionLoading((prev) => {
-        const next = { ...prev };
-        delete next[requestId];
-        return next;
-      });
-    }
-  }, [acceptRequest]);
+  const handleAccept = useCallback(
+    async (requestId: string) => {
+      setActionLoading((prev) => ({ ...prev, [requestId]: 'accept' }));
+      try {
+        await acceptRequest(requestId);
+      } catch (err) {
+        console.error('Failed to accept friend request:', err);
+      } finally {
+        setActionLoading((prev) => {
+          const next = { ...prev };
+          delete next[requestId];
+          return next;
+        });
+      }
+    },
+    [acceptRequest]
+  );
 
-  const handleDecline = useCallback(async (requestId: string) => {
-    setActionLoading((prev) => ({ ...prev, [requestId]: 'decline' }));
-    try {
-      await declineRequest(requestId);
-    } catch (err) {
-      console.error('Failed to decline friend request:', err);
-    } finally {
-      setActionLoading((prev) => {
-        const next = { ...prev };
-        delete next[requestId];
-        return next;
-      });
-    }
-  }, [declineRequest]);
+  const handleDecline = useCallback(
+    async (requestId: string) => {
+      setActionLoading((prev) => ({ ...prev, [requestId]: 'decline' }));
+      try {
+        await declineRequest(requestId);
+      } catch (err) {
+        console.error('Failed to decline friend request:', err);
+      } finally {
+        setActionLoading((prev) => {
+          const next = { ...prev };
+          delete next[requestId];
+          return next;
+        });
+      }
+    },
+    [declineRequest]
+  );
 
   const handleFriendContextMenu = useCallback((e: React.MouseEvent, friend: Friend) => {
     e.preventDefault();
     setContextMenu({ friend, position: { x: e.clientX, y: e.clientY } });
   }, []);
 
-  const handleRemoveFriend = useCallback(async (userId: string) => {
-    setContextMenu(null);
-    try {
-      await removeFriend(userId);
-    } catch (err) {
-      console.error('Failed to remove friend:', err);
-    }
-  }, [removeFriend]);
+  const handleRemoveFriend = useCallback(
+    async (userId: string) => {
+      setContextMenu(null);
+      try {
+        await removeFriend(userId);
+      } catch (err) {
+        console.error('Failed to remove friend:', err);
+      }
+    },
+    [removeFriend]
+  );
 
   const incomingRequests = pendingRequests.filter((r) => r.direction === 'received');
   const outgoingRequests = pendingRequests.filter((r) => r.direction === 'sent');
@@ -104,9 +125,7 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
         <h3>
           Friends
           {incomingCount > 0 && (
-            <span className="conversation-unread-badge friends-header-badge">
-              {incomingCount}
-            </span>
+            <span className="conversation-unread-badge friends-header-badge">{incomingCount}</span>
           )}
         </h3>
         <button
@@ -121,10 +140,7 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
       {/* Pending Requests Section */}
       {pendingRequests.length > 0 && (
         <div className="friend-category">
-          <div
-            className="friend-category-header"
-            onClick={() => toggleCategory('pending')}
-          >
+          <div className="friend-category-header" onClick={() => toggleCategory('pending')}>
             {collapsedCategories.has('pending') ? (
               <ChevronRight size={12} />
             ) : (
@@ -191,7 +207,10 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
                 const displayName = req.toDisplayName || req.toUsername;
                 const initial = displayName.charAt(0).toUpperCase();
                 return (
-                  <div key={req.id} className="friend-item friend-request-item friend-request-outgoing">
+                  <div
+                    key={req.id}
+                    className="friend-item friend-request-item friend-request-outgoing"
+                  >
                     <div className="member-avatar">
                       <span className="member-avatar-initial">{initial}</span>
                     </div>
@@ -252,10 +271,7 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
       )}
 
       {contextMenu && (
-        <ContextMenu
-          position={contextMenu.position}
-          onClose={() => setContextMenu(null)}
-        >
+        <ContextMenu position={contextMenu.position} onClose={() => setContextMenu(null)}>
           <ContextMenu.Header>
             {contextMenu.friend.displayName || contextMenu.friend.username}
           </ContextMenu.Header>
