@@ -29,7 +29,7 @@
   font-size: calc(14px * var(--font-scale, 1));
   font-family: 'SourceSans', sans-serif;
   padding: 4px 0;
-  margin-bottom: 24px;
+  margin-bottom: 8px;
   transition: color 0.15s ease;
 }
 
@@ -37,11 +37,11 @@
   color: var(--text-primary);
 }
 
-/* Page title */
+/* Page title (inside nav sidebar) */
 .settings-page-title {
   font-family: 'BaronNeue', sans-serif;
-  font-size: calc(28px * var(--font-scale, 1));
-  margin-bottom: 32px;
+  font-size: calc(22px * var(--font-scale, 1));
+  margin-bottom: 16px;
   color: var(--text-primary);
 }
 
@@ -51,16 +51,19 @@
   gap: 32px;
 }
 
-/* Left navigation */
+/* Left navigation (includes back button and title) */
 .settings-nav {
   width: 200px;
   flex-shrink: 0;
   position: sticky;
-  top: 32px;
+  top: 0;
   align-self: flex-start;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  max-height: calc(100vh - 64px);
+  overflow-y: auto;
+  padding-top: 4px;
 }
 
 .settings-nav-item {
@@ -89,7 +92,9 @@
   color: var(--text-primary);
   background: var(--bg-tertiary);
   border-left: 3px solid var(--accent-primary);
+  border-right: 3px solid var(--accent-primary);
   padding-left: 9px;
+  padding-right: 9px;
 }
 
 .settings-nav-item:disabled {
@@ -1060,6 +1065,21 @@
   color: var(--text-primary);
   font-size: calc(12px * var(--font-scale, 1));
   letter-spacing: 0.03em;
+}
+
+/*
+ * DM Privacy slider override — 4 stops instead of 7.
+ * For N=4 labels with flex:1, centers are at 12.5%, 37.5%, 62.5%, 87.5%.
+ * The -10px compensates for Chromium's range thumb being 10px inset from edges,
+ * matching the audio quality slider's approach (calc(100%/14 - 10px) for 7 stops).
+ */
+.dm-privacy-track {
+  padding: 0 calc(12.5% - 10px);
+}
+
+.dm-privacy-track .settings-tier-ticks {
+  left: 12.5%;
+  right: 12.5%;
 }
 
 /* ─── Audio Settings Controls ──────────────────────────────────────── */

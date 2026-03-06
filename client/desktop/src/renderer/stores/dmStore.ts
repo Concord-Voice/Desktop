@@ -114,6 +114,9 @@ export const useDMStore = create<DMState>()(
 
           if (!response.ok) {
             const data = await response.json();
+            if (data.error === 'dm_disabled' || data.error === 'privacy_blocked') {
+              throw new Error("This user isn't accepting DMs right now due to their privacy settings. Please try again later.");
+            }
             throw new Error(data.error || 'Failed to open DM');
           }
 

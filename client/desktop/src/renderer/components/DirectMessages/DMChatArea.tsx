@@ -11,6 +11,7 @@ import { e2eeService } from '../../services/e2eeService';
 import { getWebSocketService, ConnectionState } from '../../services/websocketService';
 import { getMessageQueue } from '../../services/messageQueue';
 import type { MessageWithStatus } from '../../types/chat';
+import { usePrivacyStore } from '../../stores/privacyStore';
 import './DirectMessages.css';
 
 /*
@@ -47,6 +48,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
   const addMessage = useChatStore((s) => s.addMessage);
   const updateMessageStatus = useChatStore((s) => s.updateMessageStatus);
   const user = useUserStore((s) => s.user);
+  const dmPrivacyLevel = usePrivacyStore((s) => s.settings.dmPrivacyLevel);
 
   const [isLoading, setIsLoading] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -338,14 +340,20 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
         />
       </div>
 
-      <div className="chat-input">
-        <MessageInput
-          onSendMessage={handleSendMessage}
-          channelName={threadName}
-          disabled={!currentUserId}
-          isChannelEncrypted={activeConv?.isEncrypted ?? false}
-        />
-      </div>
+      {dmPrivacyLevel === 0 ? (
+        <div className="dm-disabled-notice">
+          All DMs have been disabled. Change your privacy settings to restore DMs.
+        </div>
+      ) : (
+        <div className="chat-input">
+          <MessageInput
+            onSendMessage={handleSendMessage}
+            channelName={threadName}
+            disabled={!currentUserId}
+            isChannelEncrypted={activeConv?.isEncrypted ?? false}
+          />
+        </div>
+      )}
     </div>
   );
 };

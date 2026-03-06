@@ -1,12 +1,50 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { unwrapLoginKeys, generateRegistrationKeys } from '../../utils/crypto';
 import { e2eeService } from '../../services/e2eeService';
 import { preferencesSyncService } from '../../services/preferencesSync';
 import { useAuthStore } from '../../stores/authStore';
 import { API_BASE, apiFetch, ensureMachineId } from '../../services/apiClient';
 import { UserProfile } from '../../stores/userStore';
+import TOTPInput from './TOTPInput';
+import BackupCodeInput from './BackupCodeInput';
+import WebAuthnPrompt from './WebAuthnPrompt';
+import MFAMethodPicker, { getDefaultMethod, getAvailableCategories, MFAMethodCategory } from './MFAMethodPicker';
 import LoadingSpinner from './LoadingSpinner';
 import './Login.css';
+import './TOTPInput.css';
+
+// Convert base64url-encoded WebAuthn options from the server into ArrayBuffer format
+// that navigator.credentials.get() expects.
+function base64urlToBuffer(base64url: string): ArrayBuffer {
+  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = base64.length % 4 === 0 ? '' : '='.repeat(4 - (base64.length % 4));
+  const binary = atob(base64 + pad);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function parseWebAuthnOptions(serverOptions: any): PublicKeyCredentialRequestOptions {
+  const pk = serverOptions.publicKey || serverOptions;
+  const opts: PublicKeyCredentialRequestOptions = {
+    challenge: base64urlToBuffer(pk.challenge),
+    timeout: pk.timeout,
+    rpId: pk.rpId,
+  };
+  if (pk.allowCredentials) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    opts.allowCredentials = pk.allowCredentials.map((cred: any) => ({
+      type: cred.type,
+      id: base64urlToBuffer(cred.id),
+      transports: cred.transports,
+    }));
+  }
+  if (pk.userVerification) {
+    opts.userVerification = pk.userVerification;
+  }
+  return opts;
+}
 
 export interface LoginProps {
   onBack: () => void;
@@ -35,6 +73,15 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
 
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // MFA state
+  const [mfaRequired, setMfaRequired] = useState(false);
+  const [mfaChallengeToken, setMfaChallengeToken] = useState('');
+  const [mfaMethods, setMfaMethods] = useState<string[]>([]);
+  const [mfaMode, setMfaMode] = useState<MFAMethodCategory | 'method-select'>('totp');
+  const [mfaRecoveryOnly, setMfaRecoveryOnly] = useState<string[]>([]);
+  const [mfaError, setMfaError] = useState('');
+  const [webauthnOptions, setWebauthnOptions] = useState<PublicKeyCredentialRequestOptions | null>(null);
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
@@ -92,96 +139,127 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
         throw new Error(data.error || 'Login failed');
       }
 
-      console.debug('Login successful, unwrapping private key...');
-
-      // Unwrap the private key using the password and initialize E2EE service
-      try {
-        await unwrapLoginKeys(
-          formData.password,
-          data.e2ee_keys.wrapped_private_key,
-          data.e2ee_keys.key_derivation_salt
-        );
-        // Initialize the E2EE service for JIT encrypt/decrypt during the session
-        await e2eeService.initialize(
-          formData.password,
-          data.e2ee_keys.wrapped_private_key,
-          data.e2ee_keys.key_derivation_salt
-        );
-        console.debug('Private key unwrapped and E2EE service initialized!');
-      } catch (unwrapError) {
-        // Key unwrapping failed — keys are corrupted (e.g. password was changed
-        // without re-wrapping). Regenerate keys with the current password.
-        console.warn('Key unwrap failed, regenerating E2EE keys...', unwrapError);
-
-        const newKeys = await generateRegistrationKeys(formData.password);
-
-        // Store refresh token securely in main process, set access token for apiFetch
-        if (window.electron?.storeRefreshToken) {
-          await window.electron.storeRefreshToken({
-            refreshToken: data.refresh_token,
-            rememberMe: formData.rememberMe,
-            apiBase: API_BASE,
-          });
-        }
-        useAuthStore.getState().setAccessToken(data.access_token);
-        if (data.session_id) useAuthStore.getState().setSessionId(data.session_id);
-
-        const replaceRes = await apiFetch('/api/v1/users/me/keys', {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            wrapped_private_key: newKeys.wrappedPrivateKey,
-            key_derivation_salt: newKeys.keyDerivationSalt,
-          }),
-        });
-
-        if (!replaceRes.ok) {
-          throw new Error('Failed to recover encryption keys. Please try again.');
-        }
-
-        // Initialize E2EE service with the regenerated keys
-        await e2eeService.initialize(
-          formData.password,
-          newKeys.wrappedPrivateKey,
-          newKeys.keyDerivationSalt
-        );
-        console.debug('E2EE keys regenerated and service initialized!');
+      // Check if MFA is required
+      if (data.mfa_required) {
+        const serverMethods = data.methods || [];
+        const recoveryOnly = data.recovery_only_methods || [];
+        setMfaChallengeToken(data.mfa_challenge_token);
+        setMfaMethods(serverMethods);
+        setMfaRecoveryOnly(recoveryOnly);
+        setMfaMode(getDefaultMethod(serverMethods, recoveryOnly));
+        if (data.webauthn_options) setWebauthnOptions(parseWebAuthnOptions(data.webauthn_options));
+        setMfaRequired(true);
+        setIsSubmitting(false);
+        return;
       }
 
-      // Store refresh token securely in main process, set access token for apiFetch
+      await completeLoginFromResponse(data);
+    } catch (error) {
+      console.error('Login error:', error);
+      setErrors({
+        general: error instanceof Error ? error.message : 'Login failed. Please try again.',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Complete login after receiving tokens (shared between direct login and MFA verify)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const completeLoginFromResponse = async (data: any) => {
+    console.debug('Login successful, unwrapping private key...');
+
+    try {
+      await unwrapLoginKeys(
+        formData.password,
+        data.e2ee_keys.wrapped_private_key,
+        data.e2ee_keys.key_derivation_salt
+      );
+      await e2eeService.initialize(
+        formData.password,
+        data.e2ee_keys.wrapped_private_key,
+        data.e2ee_keys.key_derivation_salt
+      );
+      console.debug('Private key unwrapped and E2EE service initialized!');
+    } catch (unwrapError) {
+      console.warn('Key unwrap failed, regenerating E2EE keys...', unwrapError);
+      const newKeys = await generateRegistrationKeys(formData.password);
+
       if (window.electron?.storeRefreshToken) {
         await window.electron.storeRefreshToken({
           refreshToken: data.refresh_token,
-          rememberMe: data.remember_me ?? formData.rememberMe,
+          rememberMe: formData.rememberMe,
           apiBase: API_BASE,
         });
       }
       useAuthStore.getState().setAccessToken(data.access_token);
       if (data.session_id) useAuthStore.getState().setSessionId(data.session_id);
 
-      // Persist E2EE session keys in safeStorage for session restore
-      const sessionKeys = e2eeService.getSessionKeys();
-      if (sessionKeys && window.electron?.storeE2EEKeys) {
-        await window.electron.storeE2EEKeys(sessionKeys);
-      }
+      const replaceRes = await apiFetch('/api/v1/users/me/keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wrapped_private_key: newKeys.wrappedPrivateKey,
+          key_derivation_salt: newKeys.keyDerivationSalt,
+        }),
+      });
+      if (!replaceRes.ok) throw new Error('Failed to recover encryption keys. Please try again.');
 
-      // Start watching for local preference changes and fetch remote preferences
-      preferencesSyncService.startWatching();
-      await preferencesSyncService.fetchAndApply();
+      await e2eeService.initialize(formData.password, newKeys.wrappedPrivateKey, newKeys.keyDerivationSalt);
+      console.debug('E2EE keys regenerated and service initialized!');
+    }
 
-      // Pass tokens and user data up
-      onSuccess({
-        accessToken: data.access_token,
-        user: data.user,
+    if (window.electron?.storeRefreshToken) {
+      await window.electron.storeRefreshToken({
+        refreshToken: data.refresh_token,
         rememberMe: data.remember_me ?? formData.rememberMe,
+        apiBase: API_BASE,
       });
-    } catch (error) {
-      console.error('Login error:', error);
-      setErrors({
-        general: error instanceof Error ? error.message : 'Login failed. Please try again.',
+    }
+    useAuthStore.getState().setAccessToken(data.access_token);
+    if (data.session_id) useAuthStore.getState().setSessionId(data.session_id);
+
+    const sessionKeys = e2eeService.getSessionKeys();
+    if (sessionKeys && window.electron?.storeE2EEKeys) {
+      await window.electron.storeE2EEKeys(sessionKeys);
+    }
+
+    preferencesSyncService.startWatching();
+    await preferencesSyncService.fetchAndApply();
+
+    onSuccess({
+      accessToken: data.access_token,
+      user: data.user,
+      rememberMe: data.remember_me ?? formData.rememberMe,
+    });
+  };
+
+  const handleMFAVerify = async (code: string, method: string) => {
+    setIsSubmitting(true);
+    setMfaError('');
+    try {
+      const machineId = await ensureMachineId();
+      const res = await fetch(`${API_BASE}/api/v1/auth/mfa/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(machineId ? { 'X-Machine-Id': machineId } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          mfa_challenge_token: mfaChallengeToken,
+          method,
+          code,
+        }),
       });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Verification failed');
+
+      // MFA verify returns full login response (tokens + user + keys)
+      await completeLoginFromResponse(data);
+    } catch (err) {
+      setMfaError(err instanceof Error ? err.message : 'Verification failed');
     } finally {
       setIsSubmitting(false);
     }
@@ -195,6 +273,173 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
       setErrors((prev) => ({ ...prev, [field]: undefined }));
     }
   };
+
+  const available = useMemo(() => getAvailableCategories(mfaMethods, mfaRecoveryOnly), [mfaMethods, mfaRecoveryOnly]);
+  const hasMultipleMethods = available.length > 1;
+  const defaultMethod = useMemo(() => getDefaultMethod(mfaMethods, mfaRecoveryOnly), [mfaMethods, mfaRecoveryOnly]);
+
+  const handleWebAuthnSuccess = async (credential: Credential) => {
+    const pkc = credential as PublicKeyCredential;
+    const response = pkc.response as AuthenticatorAssertionResponse;
+
+    // Encode ArrayBuffers as base64url (no padding) for the go-webauthn library
+    const toBase64url = (buf: ArrayBuffer): string => {
+      const bytes = new Uint8Array(buf);
+      let binary = '';
+      for (const byte of bytes) binary += String.fromCharCode(byte);
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    };
+
+    const assertion = {
+      id: pkc.id,
+      rawId: toBase64url(pkc.rawId),
+      type: pkc.type,
+      response: {
+        authenticatorData: toBase64url(response.authenticatorData),
+        clientDataJSON: toBase64url(response.clientDataJSON),
+        signature: toBase64url(response.signature),
+        userHandle: response.userHandle ? toBase64url(response.userHandle) : null,
+      },
+    };
+
+    setIsSubmitting(true);
+    setMfaError('');
+    try {
+      const machineId = await ensureMachineId();
+      const res = await fetch(`${API_BASE}/api/v1/auth/mfa/verify`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(machineId ? { 'X-Machine-Id': machineId } : {}),
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          mfa_challenge_token: mfaChallengeToken,
+          method: 'webauthn',
+          assertion,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Verification failed');
+      await completeLoginFromResponse(data);
+    } catch (err) {
+      setMfaError(err instanceof Error ? err.message : 'Verification failed');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const mfaSubtitle = mfaMode === 'totp'
+    ? 'Enter the 6-digit code from your authenticator app'
+    : mfaMode === 'backup'
+      ? 'Enter one of your backup codes'
+      : mfaMode === 'webauthn'
+        ? 'Use your security key or biometrics'
+        : mfaMode === 'email-sms'
+          ? 'Enter the verification code sent to you'
+          : 'Select a verification method';
+
+  // MFA Step UI
+  if (mfaRequired) {
+    return (
+      <div className="login-container">
+        <div className="login-content">
+          <div className="login-header">
+            <img
+              src="./branding/logos/main-logo-transparent-vector.svg"
+              className="login-logo"
+              alt="Concord Voice"
+            />
+            <h2 className="login-title">Two-Factor Authentication</h2>
+            <p className="login-subtitle">{mfaSubtitle}</p>
+          </div>
+
+          <div className="login-form">
+            {mfaMode === 'method-select' && (
+              <MFAMethodPicker
+                methods={mfaMethods}
+                excludeMethods={mfaRecoveryOnly}
+                currentMethod={defaultMethod}
+                onSelect={(method) => { setMfaMode(method); setMfaError(''); }}
+                onCancel={() => { setMfaMode(defaultMethod); setMfaError(''); }}
+              />
+            )}
+
+            {mfaMode === 'totp' && (
+              <TOTPInput
+                onSubmit={(code) => handleMFAVerify(code, 'totp')}
+                disabled={isSubmitting}
+                error={mfaError}
+              />
+            )}
+
+            {mfaMode === 'backup' && (
+              <BackupCodeInput
+                onSubmit={(code) => handleMFAVerify(code, 'backup_code')}
+                disabled={isSubmitting}
+                error={mfaError}
+              />
+            )}
+
+            {mfaMode === 'webauthn' && (
+              <>
+                {webauthnOptions ? (
+                  <WebAuthnPrompt
+                    requestOptions={webauthnOptions}
+                    onSuccess={handleWebAuthnSuccess}
+                    onError={(msg) => setMfaError(msg)}
+                    onCancel={() => { setMfaMode('method-select'); setMfaError(''); }}
+                  />
+                ) : (
+                  <div style={{ textAlign: 'center' }}>
+                    <p style={{ color: 'var(--text-secondary, #bbb)', fontSize: 14 }}>
+                      WebAuthn verification will be triggered by the server challenge.
+                    </p>
+                    {mfaError && <p className="totp-error">{mfaError}</p>}
+                  </div>
+                )}
+              </>
+            )}
+
+            {mfaMode === 'email-sms' && (
+              <TOTPInput
+                onSubmit={(code) => handleMFAVerify(code, mfaMethods.includes('email') ? 'email' : 'sms')}
+                disabled={isSubmitting}
+                error={mfaError}
+              />
+            )}
+
+            {/* "Choose another form" link */}
+            {mfaMode !== 'method-select' && hasMultipleMethods && (
+              <button
+                type="button"
+                className="mfa-choose-another"
+                onClick={() => { setMfaMode('method-select'); setMfaError(''); }}
+                disabled={isSubmitting}
+              >
+                Choose another form of verification
+              </button>
+            )}
+
+            {isSubmitting && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 12 }}>
+                <LoadingSpinner size="small" inline />
+              </div>
+            )}
+
+            <button
+              type="button"
+              className="login-back-btn"
+              onClick={() => { setMfaRequired(false); setMfaError(''); }}
+              disabled={isSubmitting}
+            >
+              ← Back to login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="login-container">

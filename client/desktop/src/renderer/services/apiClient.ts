@@ -64,6 +64,24 @@ export async function refreshAccessToken(): Promise<string | null> {
       if (result.sessionId) useAuthStore.getState().setSessionId(result.sessionId);
       return result.accessToken;
     }
+
+    // Handle suspicious session MFA challenge
+    if (result.status === 'mfa_required' && result.mfaChallengeToken) {
+      const { useMFAChallengeStore } = await import('../stores/mfaChallengeStore');
+      const verified = await useMFAChallengeStore
+        .getState()
+        .showChallenge(result.mfaChallengeToken, result.mfaMethods || [], 'suspicious_refresh', result.mfaRecoveryOnlyMethods || []);
+      if (verified) {
+        // MFA verified — retry the refresh
+        const retryResult = await window.electron.refreshToken();
+        if (retryResult.status === 'ok' && retryResult.accessToken) {
+          useAuthStore.getState().setAccessToken(retryResult.accessToken);
+          if (retryResult.sessionId) useAuthStore.getState().setSessionId(retryResult.sessionId);
+          return retryResult.accessToken;
+        }
+      }
+    }
+
     return null;
   })();
 

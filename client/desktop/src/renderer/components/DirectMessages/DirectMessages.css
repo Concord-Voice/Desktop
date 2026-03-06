@@ -763,3 +763,16 @@
   font-size: calc(12px * var(--font-scale, 1));
   color: var(--text-muted);
 }
+
+/* ─── DM Disabled Notice ──────────────────────────────────────────── */
+
+.dm-disabled-notice {
+  padding: 14px 16px;
+  margin: 0 12px 12px;
+  text-align: center;
+  font-size: calc(13px * var(--font-scale, 1));
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
