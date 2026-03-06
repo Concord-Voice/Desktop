@@ -16,7 +16,14 @@ const ALL_METHODS: MethodOption[] = [
     label: 'Security Key / Biometrics',
     description: 'Hardware key, fingerprint, or face recognition',
     icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      >
         <path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
       </svg>
     ),
@@ -26,7 +33,14 @@ const ALL_METHODS: MethodOption[] = [
     label: 'Authenticator App',
     description: '6-digit code from your authenticator',
     icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      >
         <rect x="5" y="2" width="14" height="20" rx="2" />
         <line x1="12" y1="18" x2="12" y2="18.01" strokeWidth="2" strokeLinecap="round" />
       </svg>
@@ -37,7 +51,14 @@ const ALL_METHODS: MethodOption[] = [
     label: 'Email / SMS Code',
     description: 'Verification code sent to your email or phone',
     icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      >
         <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
       </svg>
     ),
@@ -47,7 +68,14 @@ const ALL_METHODS: MethodOption[] = [
     label: 'Backup Code',
     description: 'One-time use recovery code',
     icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <svg
+        width="20"
+        height="20"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+      >
         <path d="M9 12h6m-3-3v6m-7 4h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
       </svg>
     ),
@@ -60,16 +88,24 @@ const PRIORITY: MFAMethodCategory[] = ['webauthn', 'totp', 'email-sms', 'backup'
 /** Maps raw server method strings to our categories */
 function methodToCategory(method: string): MFAMethodCategory | null {
   switch (method) {
-    case 'webauthn': return 'webauthn';
-    case 'totp': return 'totp';
-    case 'email': case 'sms': return 'email-sms';
-    default: return null;
+    case 'webauthn':
+      return 'webauthn';
+    case 'totp':
+      return 'totp';
+    case 'email':
+    case 'sms':
+      return 'email-sms';
+    default:
+      return null;
   }
 }
 
 /** Given available server methods, returns available categories in priority order.
  *  excludeMethods: optional list of raw method strings to exclude (e.g. recovery-only methods) */
-export function getAvailableCategories(methods: string[], excludeMethods?: string[]): MFAMethodCategory[] {
+export function getAvailableCategories(
+  methods: string[],
+  excludeMethods?: string[]
+): MFAMethodCategory[] {
   const excluded = excludeMethods ? new Set(excludeMethods) : null;
   const categories = new Set<MFAMethodCategory>();
   for (const m of methods) {

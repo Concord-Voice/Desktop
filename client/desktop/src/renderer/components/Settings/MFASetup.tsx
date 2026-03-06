@@ -19,7 +19,15 @@ interface MFASetupProps {
   onCancel: () => void;
 }
 
-const MFASetup: React.FC<MFASetupProps> = ({ method, credentialType = 'hardware', mfaActive, activeMethods = [], recoveryOnlyMethods = [], onComplete, onCancel }) => {
+const MFASetup: React.FC<MFASetupProps> = ({
+  method,
+  credentialType = 'hardware',
+  mfaActive,
+  activeMethods = [],
+  recoveryOnlyMethods = [],
+  onComplete,
+  onCancel,
+}) => {
   // Shared state
   const [password, setPassword] = useState('');
   const [mfaCode, setMfaCode] = useState('');
@@ -122,7 +130,12 @@ const MFASetup: React.FC<MFASetupProps> = ({ method, credentialType = 'hardware'
       const beginRes = await apiFetch('/api/v1/mfa/webauthn/register/begin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password, ...(mfaCode ? { mfa_code: mfaCode } : {}), credential_name: credentialName || 'Security Key', credential_type: credentialType }),
+        body: JSON.stringify({
+          password,
+          ...(mfaCode ? { mfa_code: mfaCode } : {}),
+          credential_name: credentialName || 'Security Key',
+          credential_type: credentialType,
+        }),
       });
       const beginData = await beginRes.json();
       if (!beginRes.ok) throw new Error(beginData.error || 'Registration failed');
@@ -141,12 +154,20 @@ const MFASetup: React.FC<MFASetupProps> = ({ method, credentialType = 'hardware'
       setWebauthnStep('registering');
 
       // Call browser WebAuthn API with timeout protection
-      const credential = await Promise.race([
+      const credential = (await Promise.race([
         navigator.credentials.create({ publicKey: options }),
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('Security key registration timed out. Make sure your key is connected and try again.')), 60000)
+          setTimeout(
+            () =>
+              reject(
+                new Error(
+                  'Security key registration timed out. Make sure your key is connected and try again.'
+                )
+              ),
+            60000
+          )
         ),
-      ]) as PublicKeyCredential;
+      ])) as PublicKeyCredential;
       if (!credential) throw new Error('No credential returned');
 
       const attestation = credential.response as AuthenticatorAttestationResponse;
@@ -179,7 +200,11 @@ const MFASetup: React.FC<MFASetupProps> = ({ method, credentialType = 'hardware'
         const msg = err instanceof Error ? err.message : 'Registration failed';
         setFieldError(msg);
         // If the error is from the begin step (password/MFA), go back to password step
-        if (webauthnStep === 'password' || msg.toLowerCase().includes('password') || msg.toLowerCase().includes('mfa')) {
+        if (
+          webauthnStep === 'password' ||
+          msg.toLowerCase().includes('password') ||
+          msg.toLowerCase().includes('mfa')
+        ) {
           setWebauthnStep('password');
         }
         // Otherwise stay on 'registering' step so the error banner is clearly visible
@@ -198,7 +223,11 @@ const MFASetup: React.FC<MFASetupProps> = ({ method, credentialType = 'hardware'
 
         {totpStep === 'password' && (
           <div className="mfa-setup-step">
-            <p>{mfaActive ? 'Verify your identity to add another method.' : 'Enter your password to begin setup.'}</p>
+            <p>
+              {mfaActive
+                ? 'Verify your identity to add another method.'
+                : 'Enter your password to begin setup.'}
+            </p>
             <input
               type="password"
               className={`form-input ${errorField === 'password' ? 'error' : ''}`}
@@ -220,7 +249,15 @@ const MFASetup: React.FC<MFASetupProps> = ({ method, credentialType = 'hardware'
             )}
             {error && errorField !== 'mfa' && (
               <div className="mfa-setup-error-banner">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  style={{ flexShrink: 0 }}
+                >
                   <circle cx="12" cy="12" r="10" />
                   <line x1="12" y1="8" x2="12" y2="12" />
                   <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -229,10 +266,16 @@ const MFASetup: React.FC<MFASetupProps> = ({ method, credentialType = 'hardware'
               </div>
             )}
             <div className="mfa-setup-actions">
-              <button className="btn btn-primary" onClick={handleTOTPSetup} disabled={loading || !password || (mfaActive && !mfaCode)}>
+              <button
+                className="btn btn-primary"
+                onClick={handleTOTPSetup}
+                disabled={loading || !password || (mfaActive && !mfaCode)}
+              >
                 {loading ? 'Setting up...' : 'Continue'}
               </button>
-              <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+              <button className="btn btn-secondary" onClick={onCancel}>
+                Cancel
+              </button>
             </div>
           </div>
         )}
@@ -247,15 +290,24 @@ const MFASetup: React.FC<MFASetupProps> = ({ method, credentialType = 'hardware'
             </details>
             <TOTPInput onSubmit={handleTOTPVerify} disabled={loading} error={error} />
             <div className="mfa-setup-actions">
-              <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+              <button className="btn btn-secondary" onClick={onCancel}>
+                Cancel
+              </button>
             </div>
           </div>
         )}
 
         {totpStep === 'backup' && (
           <div className="mfa-setup-step">
-            <p>Save these backup codes. They&apos;re your safety net if you lose access to your authenticator.</p>
-            <BackupCodeDisplay codes={backupCodes} onConfirm={handleTOTPConfirm} disabled={loading} />
+            <p>
+              Save these backup codes. They&apos;re your safety net if you lose access to your
+              authenticator.
+            </p>
+            <BackupCodeDisplay
+              codes={backupCodes}
+              onConfirm={handleTOTPConfirm}
+              disabled={loading}
+            />
             {error && <p className="mfa-setup-error">{error}</p>}
           </div>
         )}
@@ -264,7 +316,9 @@ const MFASetup: React.FC<MFASetupProps> = ({ method, credentialType = 'hardware'
           <div className="mfa-setup-step mfa-setup-success">
             <h4>MFA Activated!</h4>
             <p>Your authenticator app is now protecting your account.</p>
-            <button className="btn btn-primary" onClick={onComplete}>Done</button>
+            <button className="btn btn-primary" onClick={onComplete}>
+              Done
+            </button>
           </div>
         )}
       </div>
@@ -274,11 +328,17 @@ const MFASetup: React.FC<MFASetupProps> = ({ method, credentialType = 'hardware'
   // WebAuthn flow
   return (
     <div className="mfa-setup-wizard">
-      <h3>{credentialType === 'platform' ? 'Set Up Platform Authenticator' : 'Set Up Security Key'}</h3>
+      <h3>
+        {credentialType === 'platform' ? 'Set Up Platform Authenticator' : 'Set Up Security Key'}
+      </h3>
 
       {webauthnStep === 'password' && (
         <div className="mfa-setup-step">
-          <p>{mfaActive ? 'Verify your identity and name your key.' : 'Enter your password and name your key.'}</p>
+          <p>
+            {mfaActive
+              ? 'Verify your identity and name your key.'
+              : 'Enter your password and name your key.'}
+          </p>
           <input
             type="password"
             className={`form-input ${errorField === 'password' ? 'error' : ''}`}
@@ -303,12 +363,24 @@ const MFASetup: React.FC<MFASetupProps> = ({ method, credentialType = 'hardware'
             className="form-input"
             value={credentialName}
             onChange={(e) => setCredentialName(e.target.value)}
-            placeholder={credentialType === 'platform' ? 'Key name (e.g. MacBook Touch ID, Windows Hello)' : 'Key name (e.g. YubiKey 5, Google Titan)'}
+            placeholder={
+              credentialType === 'platform'
+                ? 'Key name (e.g. MacBook Touch ID, Windows Hello)'
+                : 'Key name (e.g. YubiKey 5, Google Titan)'
+            }
             disabled={loading}
           />
           {error && errorField !== 'mfa' && (
             <div className="mfa-setup-error-banner">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                style={{ flexShrink: 0 }}
+              >
                 <circle cx="12" cy="12" r="10" />
                 <line x1="12" y1="8" x2="12" y2="12" />
                 <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -317,10 +389,16 @@ const MFASetup: React.FC<MFASetupProps> = ({ method, credentialType = 'hardware'
             </div>
           )}
           <div className="mfa-setup-actions">
-            <button className="btn btn-primary" onClick={handleWebAuthnRegister} disabled={loading || !password || (mfaActive && !mfaCode)}>
+            <button
+              className="btn btn-primary"
+              onClick={handleWebAuthnRegister}
+              disabled={loading || !password || (mfaActive && !mfaCode)}
+            >
               {loading ? 'Registering...' : 'Register Key'}
             </button>
-            <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+            <button className="btn btn-secondary" onClick={onCancel}>
+              Cancel
+            </button>
           </div>
         </div>
       )}
@@ -330,17 +408,36 @@ const MFASetup: React.FC<MFASetupProps> = ({ method, credentialType = 'hardware'
           <div style={{ textAlign: 'center', padding: '20px 0' }}>
             {!error ? (
               <>
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ margin: '0 auto 16px', display: 'block' }}>
+                <svg
+                  width="48"
+                  height="48"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  style={{ margin: '0 auto 16px', display: 'block' }}
+                >
                   <path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                 </svg>
-                <p><strong>Waiting for your security key...</strong></p>
+                <p>
+                  <strong>Waiting for your security key...</strong>
+                </p>
                 <p className="mfa-modal-desc">
-                  Touch your security key, use your fingerprint reader, or follow your browser&apos;s prompt.
+                  Touch your security key, use your fingerprint reader, or follow your
+                  browser&apos;s prompt.
                 </p>
               </>
             ) : (
               <div className="mfa-setup-error-banner">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ flexShrink: 0 }}>
+                <svg
+                  width="20"
+                  height="20"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  style={{ flexShrink: 0 }}
+                >
                   <circle cx="12" cy="12" r="10" />
                   <line x1="12" y1="8" x2="12" y2="12" />
                   <line x1="12" y1="16" x2="12.01" y2="16" />
@@ -351,9 +448,25 @@ const MFASetup: React.FC<MFASetupProps> = ({ method, credentialType = 'hardware'
           </div>
           <div className="mfa-setup-actions" style={{ justifyContent: 'center' }}>
             {error ? (
-              <button className="btn btn-primary" onClick={() => { setWebauthnStep('password'); setError(''); }}>Try Again</button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  setWebauthnStep('password');
+                  setError('');
+                }}
+              >
+                Try Again
+              </button>
             ) : (
-              <button className="btn btn-secondary" onClick={() => { setWebauthnStep('password'); setError(''); }}>Cancel</button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  setWebauthnStep('password');
+                  setError('');
+                }}
+              >
+                Cancel
+              </button>
             )}
           </div>
         </div>
@@ -363,7 +476,9 @@ const MFASetup: React.FC<MFASetupProps> = ({ method, credentialType = 'hardware'
         <div className="mfa-setup-step mfa-setup-success">
           <h4>Security Key Registered!</h4>
           <p>Your security key is now active and protecting your account.</p>
-          <button className="btn btn-primary" onClick={onComplete}>Done</button>
+          <button className="btn btn-primary" onClick={onComplete}>
+            Done
+          </button>
         </div>
       )}
     </div>
@@ -381,7 +496,9 @@ const QRCodeCanvas: React.FC<{ data: string }> = ({ data }) => {
     QRCode.toDataURL(data, { width: 200, margin: 2 }).then((url) => {
       if (mounted.current) setDataUrl(url);
     });
-    return () => { mounted.current = false; };
+    return () => {
+      mounted.current = false;
+    };
   }, [data]);
 
   return (
@@ -389,7 +506,15 @@ const QRCodeCanvas: React.FC<{ data: string }> = ({ data }) => {
       {dataUrl ? (
         <img src={dataUrl} alt="TOTP QR Code" width={200} height={200} className="mfa-qr-image" />
       ) : (
-        <div style={{ width: 200, height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div
+          style={{
+            width: 200,
+            height: 200,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
           Generating...
         </div>
       )}

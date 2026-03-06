@@ -6,11 +6,7 @@ interface BackupCodeInputProps {
   error?: string;
 }
 
-const BackupCodeInput: React.FC<BackupCodeInputProps> = ({
-  onSubmit,
-  disabled = false,
-  error,
-}) => {
+const BackupCodeInput: React.FC<BackupCodeInputProps> = ({ onSubmit, disabled = false, error }) => {
   const [code, setCode] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -33,7 +29,11 @@ const BackupCodeInput: React.FC<BackupCodeInputProps> = ({
         disabled={disabled}
         autoFocus
         className={`form-input backup-code-field ${error ? 'error' : ''}`}
-        style={{ fontFamily: 'var(--font-mono, monospace)', letterSpacing: '2px', textAlign: 'center' }}
+        style={{
+          fontFamily: 'var(--font-mono, monospace)',
+          letterSpacing: '2px',
+          textAlign: 'center',
+        }}
       />
       {error && <p className="totp-error">{error}</p>}
       <div className="backup-code-actions">

@@ -4,7 +4,11 @@ import { API_BASE, ensureMachineId } from '../../services/apiClient';
 import TOTPInput from './TOTPInput';
 import BackupCodeInput from './BackupCodeInput';
 import WebAuthnPrompt from './WebAuthnPrompt';
-import MFAMethodPicker, { getDefaultMethod, getAvailableCategories, MFAMethodCategory } from './MFAMethodPicker';
+import MFAMethodPicker, {
+  getDefaultMethod,
+  getAvailableCategories,
+  MFAMethodCategory,
+} from './MFAMethodPicker';
 import './TOTPInput.css';
 
 const MFAChallengeModal: React.FC = () => {
@@ -32,88 +36,99 @@ const MFAChallengeModal: React.FC = () => {
     }
   }
 
-  const available = useMemo(() => getAvailableCategories(methods, recoveryOnlyMethods), [methods, recoveryOnlyMethods]);
+  const available = useMemo(
+    () => getAvailableCategories(methods, recoveryOnlyMethods),
+    [methods, recoveryOnlyMethods]
+  );
   const hasMultipleMethods = available.length > 1;
 
-  const handleVerify = useCallback(async (code: string, method: string) => {
-    setLoading(true);
-    setError('');
-    try {
-      const machineId = await ensureMachineId();
-      const res = await fetch(`${API_BASE}/api/v1/auth/mfa/verify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(machineId ? { 'X-Machine-Id': machineId } : {}),
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          mfa_challenge_token: challengeToken,
-          method,
-          code,
-        }),
-      });
+  const handleVerify = useCallback(
+    async (code: string, method: string) => {
+      setLoading(true);
+      setError('');
+      try {
+        const machineId = await ensureMachineId();
+        const res = await fetch(`${API_BASE}/api/v1/auth/mfa/verify`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(machineId ? { 'X-Machine-Id': machineId } : {}),
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            mfa_challenge_token: challengeToken,
+            method,
+            code,
+          }),
+        });
 
-      if (res.ok) {
-        completeChallenge(true);
-      } else {
-        const data = await res.json();
-        setError(data.error || 'Verification failed');
+        if (res.ok) {
+          completeChallenge(true);
+        } else {
+          const data = await res.json();
+          setError(data.error || 'Verification failed');
+        }
+      } catch {
+        setError('Verification failed. Please try again.');
+      } finally {
+        setLoading(false);
       }
-    } catch {
-      setError('Verification failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, [challengeToken, completeChallenge]);
+    },
+    [challengeToken, completeChallenge]
+  );
 
-  const handleWebAuthnSuccess = useCallback(async (credential: Credential) => {
-    const pkc = credential as PublicKeyCredential;
-    const response = pkc.response as AuthenticatorAssertionResponse;
-    const assertion = {
-      id: pkc.id,
-      rawId: btoa(String.fromCharCode(...new Uint8Array(pkc.rawId))),
-      type: pkc.type,
-      response: {
-        authenticatorData: btoa(String.fromCharCode(...new Uint8Array(response.authenticatorData))),
-        clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(response.clientDataJSON))),
-        signature: btoa(String.fromCharCode(...new Uint8Array(response.signature))),
-        userHandle: response.userHandle
-          ? btoa(String.fromCharCode(...new Uint8Array(response.userHandle)))
-          : null,
-      },
-    };
-
-    setLoading(true);
-    setError('');
-    try {
-      const machineId = await ensureMachineId();
-      const res = await fetch(`${API_BASE}/api/v1/auth/mfa/verify`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(machineId ? { 'X-Machine-Id': machineId } : {}),
+  const handleWebAuthnSuccess = useCallback(
+    async (credential: Credential) => {
+      const pkc = credential as PublicKeyCredential;
+      const response = pkc.response as AuthenticatorAssertionResponse;
+      const assertion = {
+        id: pkc.id,
+        rawId: btoa(String.fromCharCode(...new Uint8Array(pkc.rawId))),
+        type: pkc.type,
+        response: {
+          authenticatorData: btoa(
+            String.fromCharCode(...new Uint8Array(response.authenticatorData))
+          ),
+          clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(response.clientDataJSON))),
+          signature: btoa(String.fromCharCode(...new Uint8Array(response.signature))),
+          userHandle: response.userHandle
+            ? btoa(String.fromCharCode(...new Uint8Array(response.userHandle)))
+            : null,
         },
-        credentials: 'include',
-        body: JSON.stringify({
-          mfa_challenge_token: challengeToken,
-          method: 'webauthn',
-          assertion,
-        }),
-      });
+      };
 
-      if (res.ok) {
-        completeChallenge(true);
-      } else {
-        const data = await res.json();
-        setError(data.error || 'Verification failed');
+      setLoading(true);
+      setError('');
+      try {
+        const machineId = await ensureMachineId();
+        const res = await fetch(`${API_BASE}/api/v1/auth/mfa/verify`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(machineId ? { 'X-Machine-Id': machineId } : {}),
+          },
+          credentials: 'include',
+          body: JSON.stringify({
+            mfa_challenge_token: challengeToken,
+            method: 'webauthn',
+            assertion,
+          }),
+        });
+
+        if (res.ok) {
+          completeChallenge(true);
+        } else {
+          const data = await res.json();
+          setError(data.error || 'Verification failed');
+        }
+      } catch {
+        setError('Verification failed. Please try again.');
+      } finally {
+        setLoading(false);
       }
-    } catch {
-      setError('Verification failed. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  }, [challengeToken, completeChallenge]);
+    },
+    [challengeToken, completeChallenge]
+  );
 
   const handleWebAuthnError = useCallback((errMsg: string) => {
     setError(errMsg);
@@ -127,15 +142,16 @@ const MFAChallengeModal: React.FC = () => {
     setError('');
   };
 
-  const subtitle = mode === 'totp'
-    ? 'Enter the 6-digit code from your authenticator app'
-    : mode === 'backup'
-      ? 'Enter one of your backup codes'
-      : mode === 'webauthn'
-        ? 'Use your security key or biometrics'
-        : mode === 'email-sms'
-          ? 'Enter the verification code sent to you'
-          : 'Select a verification method';
+  const subtitle =
+    mode === 'totp'
+      ? 'Enter the 6-digit code from your authenticator app'
+      : mode === 'backup'
+        ? 'Enter one of your backup codes'
+        : mode === 'webauthn'
+          ? 'Use your security key or biometrics'
+          : mode === 'email-sms'
+            ? 'Enter the verification code sent to you'
+            : 'Select a verification method';
 
   return (
     <div className="mfa-modal-overlay">
@@ -149,7 +165,10 @@ const MFAChallengeModal: React.FC = () => {
             excludeMethods={recoveryOnlyMethods}
             currentMethod={defaultMethod}
             onSelect={handleMethodSelect}
-            onCancel={() => { setMode(defaultMethod); setError(''); }}
+            onCancel={() => {
+              setMode(defaultMethod);
+              setError('');
+            }}
           />
         )}
 
@@ -176,7 +195,10 @@ const MFAChallengeModal: React.FC = () => {
                 requestOptions={webauthnOptions}
                 onSuccess={handleWebAuthnSuccess}
                 onError={handleWebAuthnError}
-                onCancel={() => { setMode('method-select'); setError(''); }}
+                onCancel={() => {
+                  setMode('method-select');
+                  setError('');
+                }}
               />
             ) : (
               <div style={{ textAlign: 'center' }}>
@@ -201,7 +223,10 @@ const MFAChallengeModal: React.FC = () => {
           <button
             type="button"
             className="mfa-choose-another"
-            onClick={() => { setMode('method-select'); setError(''); }}
+            onClick={() => {
+              setMode('method-select');
+              setError('');
+            }}
             disabled={loading}
           >
             Choose another form of verification

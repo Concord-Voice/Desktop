@@ -36,7 +36,7 @@ const TOTPInput: React.FC<TOTPInputProps> = ({
         onSubmit(code);
       }
     },
-    [digits, disabled, onSubmit],
+    [digits, disabled, onSubmit]
   );
 
   const handleKeyDown = useCallback(
@@ -45,7 +45,7 @@ const TOTPInput: React.FC<TOTPInputProps> = ({
         inputRefs.current[index - 1]?.focus();
       }
     },
-    [digits],
+    [digits]
   );
 
   const handlePaste = useCallback(
@@ -66,7 +66,7 @@ const TOTPInput: React.FC<TOTPInputProps> = ({
         inputRefs.current[pasted.length]?.focus();
       }
     },
-    [onSubmit],
+    [onSubmit]
   );
 
   return (

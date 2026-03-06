@@ -70,7 +70,12 @@ export async function refreshAccessToken(): Promise<string | null> {
       const { useMFAChallengeStore } = await import('../stores/mfaChallengeStore');
       const verified = await useMFAChallengeStore
         .getState()
-        .showChallenge(result.mfaChallengeToken, result.mfaMethods || [], 'suspicious_refresh', result.mfaRecoveryOnlyMethods || []);
+        .showChallenge(
+          result.mfaChallengeToken,
+          result.mfaMethods || [],
+          'suspicious_refresh',
+          result.mfaRecoveryOnlyMethods || []
+        );
       if (verified) {
         // MFA verified — retry the refresh
         const retryResult = await window.electron.refreshToken();

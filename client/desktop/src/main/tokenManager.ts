@@ -212,14 +212,20 @@ export function performRefresh(): Promise<{
         // Check for suspicious session MFA challenge (403 with challenge token)
         if (response.status === 403) {
           try {
-            const errData = await response.json() as {
+            const errData = (await response.json()) as {
               error?: string;
               mfa_challenge_token?: string;
               methods?: string[];
               recovery_only_methods?: string[];
             };
-            if ((errData.error === 'suspicious_session_mfa' || errData.error === 'mfa_upgrade_required') && errData.mfa_challenge_token) {
-              console.warn(`[TokenManager] ${errData.error} — MFA required (token …${tokenSuffix})`);
+            if (
+              (errData.error === 'suspicious_session_mfa' ||
+                errData.error === 'mfa_upgrade_required') &&
+              errData.mfa_challenge_token
+            ) {
+              console.warn(
+                `[TokenManager] ${errData.error} — MFA required (token …${tokenSuffix})`
+              );
               return {
                 status: 'mfa_required',
                 mfaChallengeToken: errData.mfa_challenge_token,

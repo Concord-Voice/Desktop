@@ -8,7 +8,11 @@ import { UserProfile } from '../../stores/userStore';
 import TOTPInput from './TOTPInput';
 import BackupCodeInput from './BackupCodeInput';
 import WebAuthnPrompt from './WebAuthnPrompt';
-import MFAMethodPicker, { getDefaultMethod, getAvailableCategories, MFAMethodCategory } from './MFAMethodPicker';
+import MFAMethodPicker, {
+  getDefaultMethod,
+  getAvailableCategories,
+  MFAMethodCategory,
+} from './MFAMethodPicker';
 import LoadingSpinner from './LoadingSpinner';
 import './Login.css';
 import './TOTPInput.css';
@@ -81,7 +85,9 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
   const [mfaMode, setMfaMode] = useState<MFAMethodCategory | 'method-select'>('totp');
   const [mfaRecoveryOnly, setMfaRecoveryOnly] = useState<string[]>([]);
   const [mfaError, setMfaError] = useState('');
-  const [webauthnOptions, setWebauthnOptions] = useState<PublicKeyCredentialRequestOptions | null>(null);
+  const [webauthnOptions, setWebauthnOptions] = useState<PublicKeyCredentialRequestOptions | null>(
+    null
+  );
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
@@ -205,7 +211,11 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
       });
       if (!replaceRes.ok) throw new Error('Failed to recover encryption keys. Please try again.');
 
-      await e2eeService.initialize(formData.password, newKeys.wrappedPrivateKey, newKeys.keyDerivationSalt);
+      await e2eeService.initialize(
+        formData.password,
+        newKeys.wrappedPrivateKey,
+        newKeys.keyDerivationSalt
+      );
       console.debug('E2EE keys regenerated and service initialized!');
     }
 
@@ -274,9 +284,15 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
     }
   };
 
-  const available = useMemo(() => getAvailableCategories(mfaMethods, mfaRecoveryOnly), [mfaMethods, mfaRecoveryOnly]);
+  const available = useMemo(
+    () => getAvailableCategories(mfaMethods, mfaRecoveryOnly),
+    [mfaMethods, mfaRecoveryOnly]
+  );
   const hasMultipleMethods = available.length > 1;
-  const defaultMethod = useMemo(() => getDefaultMethod(mfaMethods, mfaRecoveryOnly), [mfaMethods, mfaRecoveryOnly]);
+  const defaultMethod = useMemo(
+    () => getDefaultMethod(mfaMethods, mfaRecoveryOnly),
+    [mfaMethods, mfaRecoveryOnly]
+  );
 
   const handleWebAuthnSuccess = async (credential: Credential) => {
     const pkc = credential as PublicKeyCredential;
@@ -329,15 +345,16 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
     }
   };
 
-  const mfaSubtitle = mfaMode === 'totp'
-    ? 'Enter the 6-digit code from your authenticator app'
-    : mfaMode === 'backup'
-      ? 'Enter one of your backup codes'
-      : mfaMode === 'webauthn'
-        ? 'Use your security key or biometrics'
-        : mfaMode === 'email-sms'
-          ? 'Enter the verification code sent to you'
-          : 'Select a verification method';
+  const mfaSubtitle =
+    mfaMode === 'totp'
+      ? 'Enter the 6-digit code from your authenticator app'
+      : mfaMode === 'backup'
+        ? 'Enter one of your backup codes'
+        : mfaMode === 'webauthn'
+          ? 'Use your security key or biometrics'
+          : mfaMode === 'email-sms'
+            ? 'Enter the verification code sent to you'
+            : 'Select a verification method';
 
   // MFA Step UI
   if (mfaRequired) {
@@ -360,8 +377,14 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
                 methods={mfaMethods}
                 excludeMethods={mfaRecoveryOnly}
                 currentMethod={defaultMethod}
-                onSelect={(method) => { setMfaMode(method); setMfaError(''); }}
-                onCancel={() => { setMfaMode(defaultMethod); setMfaError(''); }}
+                onSelect={(method) => {
+                  setMfaMode(method);
+                  setMfaError('');
+                }}
+                onCancel={() => {
+                  setMfaMode(defaultMethod);
+                  setMfaError('');
+                }}
               />
             )}
 
@@ -388,7 +411,10 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
                     requestOptions={webauthnOptions}
                     onSuccess={handleWebAuthnSuccess}
                     onError={(msg) => setMfaError(msg)}
-                    onCancel={() => { setMfaMode('method-select'); setMfaError(''); }}
+                    onCancel={() => {
+                      setMfaMode('method-select');
+                      setMfaError('');
+                    }}
                   />
                 ) : (
                   <div style={{ textAlign: 'center' }}>
@@ -403,7 +429,9 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
 
             {mfaMode === 'email-sms' && (
               <TOTPInput
-                onSubmit={(code) => handleMFAVerify(code, mfaMethods.includes('email') ? 'email' : 'sms')}
+                onSubmit={(code) =>
+                  handleMFAVerify(code, mfaMethods.includes('email') ? 'email' : 'sms')
+                }
                 disabled={isSubmitting}
                 error={mfaError}
               />
@@ -414,7 +442,10 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
               <button
                 type="button"
                 className="mfa-choose-another"
-                onClick={() => { setMfaMode('method-select'); setMfaError(''); }}
+                onClick={() => {
+                  setMfaMode('method-select');
+                  setMfaError('');
+                }}
                 disabled={isSubmitting}
               >
                 Choose another form of verification
@@ -430,7 +461,10 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
             <button
               type="button"
               className="login-back-btn"
-              onClick={() => { setMfaRequired(false); setMfaError(''); }}
+              onClick={() => {
+                setMfaRequired(false);
+                setMfaError('');
+              }}
               disabled={isSubmitting}
             >
               ← Back to login

@@ -2,7 +2,11 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import TOTPInput from './TOTPInput';
 import BackupCodeInput from './BackupCodeInput';
 import { apiFetch } from '../../services/apiClient';
-import { getAvailableCategories, getDefaultMethod, type MFAMethodCategory } from './MFAMethodPicker';
+import {
+  getAvailableCategories,
+  getDefaultMethod,
+  type MFAMethodCategory,
+} from './MFAMethodPicker';
 
 interface MFAVerifyPromptProps {
   /** Raw method strings from the server (e.g. ['totp', 'webauthn', 'email', 'sms']) */
@@ -59,31 +63,62 @@ const MFAVerifyPrompt: React.FC<MFAVerifyPromptProps> = ({
   }, []);
 
   // Build switch links for other available methods
-  const otherMethodLinks = useCallback((currentMode: MFAMethodCategory) => {
-    const links: React.ReactNode[] = [];
-    if (currentMode !== 'webauthn' && available.includes('webauthn')) {
-      links.push(
-        <button key="webauthn" type="button" className="totp-backup-link" onClick={() => { setMode('webauthn'); setWebauthnStatus('idle'); setWebauthnError(''); }} disabled={disabled}>
-          Use a security key instead
-        </button>
-      );
-    }
-    if (currentMode !== 'totp' && available.includes('totp')) {
-      links.push(
-        <button key="totp" type="button" className="totp-backup-link" onClick={() => { abortRef.current?.abort(); setMode('totp'); }} disabled={disabled}>
-          Use authenticator app instead
-        </button>
-      );
-    }
-    if (showBackupSwitch && currentMode !== 'backup') {
-      links.push(
-        <button key="backup" type="button" className="totp-backup-link" onClick={() => { abortRef.current?.abort(); setMode('backup'); }} disabled={disabled}>
-          Use a backup code instead
-        </button>
-      );
-    }
-    return links;
-  }, [available, showBackupSwitch, disabled]);
+  const otherMethodLinks = useCallback(
+    (currentMode: MFAMethodCategory) => {
+      const links: React.ReactNode[] = [];
+      if (currentMode !== 'webauthn' && available.includes('webauthn')) {
+        links.push(
+          <button
+            key="webauthn"
+            type="button"
+            className="totp-backup-link"
+            onClick={() => {
+              setMode('webauthn');
+              setWebauthnStatus('idle');
+              setWebauthnError('');
+            }}
+            disabled={disabled}
+          >
+            Use a security key instead
+          </button>
+        );
+      }
+      if (currentMode !== 'totp' && available.includes('totp')) {
+        links.push(
+          <button
+            key="totp"
+            type="button"
+            className="totp-backup-link"
+            onClick={() => {
+              abortRef.current?.abort();
+              setMode('totp');
+            }}
+            disabled={disabled}
+          >
+            Use authenticator app instead
+          </button>
+        );
+      }
+      if (showBackupSwitch && currentMode !== 'backup') {
+        links.push(
+          <button
+            key="backup"
+            type="button"
+            className="totp-backup-link"
+            onClick={() => {
+              abortRef.current?.abort();
+              setMode('backup');
+            }}
+            disabled={disabled}
+          >
+            Use a backup code instead
+          </button>
+        );
+      }
+      return links;
+    },
+    [available, showBackupSwitch, disabled]
+  );
 
   // WebAuthn inline-verify flow
   const handleWebAuthnVerify = useCallback(async () => {
@@ -96,7 +131,9 @@ const MFAVerifyPrompt: React.FC<MFAVerifyPromptProps> = ({
     setWebauthnError('');
     try {
       // Step 1: Get assertion options from server
-      const beginRes = await apiFetch('/api/v1/mfa/webauthn/verify-inline/begin', { method: 'POST' });
+      const beginRes = await apiFetch('/api/v1/mfa/webauthn/verify-inline/begin', {
+        method: 'POST',
+      });
       const beginData = await beginRes.json();
       if (!beginRes.ok) throw new Error(beginData.error || 'Failed to start verification');
 
@@ -110,10 +147,10 @@ const MFAVerifyPrompt: React.FC<MFAVerifyPromptProps> = ({
       }
 
       // Step 2: Browser WebAuthn ceremony
-      const credential = await navigator.credentials.get({
+      const credential = (await navigator.credentials.get({
         publicKey: options,
         signal: controller.signal,
-      }) as PublicKeyCredential;
+      })) as PublicKeyCredential;
       if (!credential) throw new Error('No credential returned');
 
       const assertion = credential.response as AuthenticatorAssertionResponse;
@@ -160,23 +197,14 @@ const MFAVerifyPrompt: React.FC<MFAVerifyPromptProps> = ({
 
       {mode === 'totp' && (
         <>
-          <TOTPInput
-            onSubmit={onVerify}
-            disabled={disabled}
-            error={error}
-            autoFocus
-          />
+          <TOTPInput onSubmit={onVerify} disabled={disabled} error={error} autoFocus />
           {otherMethodLinks('totp')}
         </>
       )}
 
       {mode === 'backup' && !excludeBackupCodes && (
         <>
-          <BackupCodeInput
-            onSubmit={onVerify}
-            disabled={disabled}
-            error={error}
-          />
+          <BackupCodeInput onSubmit={onVerify} disabled={disabled} error={error} />
           {otherMethodLinks('backup')}
         </>
       )}
@@ -195,7 +223,15 @@ const MFAVerifyPrompt: React.FC<MFAVerifyPromptProps> = ({
           )}
           {webauthnStatus === 'waiting' && (
             <div style={{ textAlign: 'center', padding: '8px 0' }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ margin: '0 auto 8px', display: 'block', opacity: 0.7 }}>
+              <svg
+                width="32"
+                height="32"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                style={{ margin: '0 auto 8px', display: 'block', opacity: 0.7 }}
+              >
                 <path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
               </svg>
               <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary, #bbb)' }}>
@@ -205,7 +241,13 @@ const MFAVerifyPrompt: React.FC<MFAVerifyPromptProps> = ({
           )}
           {webauthnStatus === 'error' && (
             <>
-              <p style={{ margin: '0 0 8px', fontSize: '13px', color: 'var(--error-color, #ed4245)' }}>
+              <p
+                style={{
+                  margin: '0 0 8px',
+                  fontSize: '13px',
+                  color: 'var(--error-color, #ed4245)',
+                }}
+              >
                 {webauthnError}
               </p>
               <button
@@ -224,12 +266,7 @@ const MFAVerifyPrompt: React.FC<MFAVerifyPromptProps> = ({
 
       {mode === 'email-sms' && (
         <>
-          <TOTPInput
-            onSubmit={onVerify}
-            disabled={disabled}
-            error={error}
-            autoFocus
-          />
+          <TOTPInput onSubmit={onVerify} disabled={disabled} error={error} autoFocus />
           {otherMethodLinks('email-sms')}
         </>
       )}

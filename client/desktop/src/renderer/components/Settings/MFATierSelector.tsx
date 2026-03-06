@@ -36,13 +36,21 @@ const tiers: MFATier[] = [
     methodKey: 'webauthn',
     methods: ['Windows Hello', 'Apple Touch ID / Face ID', 'Android biometrics', 'Chrome OS'],
     description:
-      "Your device IS the key. Built-in biometrics + secure hardware. Very solid, and nothing extra to carry.",
+      'Your device IS the key. Built-in biometrics + secure hardware. Very solid, and nothing extra to carry.',
   },
   {
     level: 'standard',
     name: 'Standard — Authenticator App',
     methodKey: 'totp',
-    methods: ['Google Authenticator', 'Microsoft Authenticator', 'Authy', 'Proton Pass', 'Bitwarden', '1Password', 'Any TOTP app'],
+    methods: [
+      'Google Authenticator',
+      'Microsoft Authenticator',
+      'Authy',
+      'Proton Pass',
+      'Bitwarden',
+      '1Password',
+      'Any TOTP app',
+    ],
     description:
       'The classic. 6 digits, 30 seconds. Works with any app that supports TOTP. A tried-and-true workhorse.',
   },
@@ -52,14 +60,19 @@ const tiers: MFATier[] = [
     methodKey: 'email',
     methods: ['Email code', 'SMS code'],
     description:
-      "Better than nothing, but phone numbers get SIM-swapped and emails get phished. Requires a real MFA method first.",
+      'Better than nothing, but phone numbers get SIM-swapped and emails get phished. Requires a real MFA method first.',
     locked: true,
     lockReason: 'Enable a Standard or higher MFA method first',
     recoveryOnlyEligible: true,
   },
 ];
 
-type ActionType = 'reset-totp' | 'revoke-webauthn' | 'disable-emailsms' | 'toggle-recovery-only' | 'toggle-hardened';
+type ActionType =
+  | 'reset-totp'
+  | 'revoke-webauthn'
+  | 'disable-emailsms'
+  | 'toggle-recovery-only'
+  | 'toggle-hardened';
 
 interface MFATierSelectorProps {
   activeMethods: string[];
@@ -71,8 +84,17 @@ interface MFATierSelectorProps {
   onSetupTOTP: () => void;
   onSetupWebAuthn: (credentialType: 'hardware' | 'platform') => void;
   onSetupEmailSms?: () => void;
-  onToggleRecoveryOnly?: (method: string, recoveryOnly: boolean, password: string, mfaCode: string) => Promise<boolean>;
-  onToggleRecoveryHardened?: (enabled: boolean, password: string, mfaCode: string) => Promise<boolean>;
+  onToggleRecoveryOnly?: (
+    method: string,
+    recoveryOnly: boolean,
+    password: string,
+    mfaCode: string
+  ) => Promise<boolean>;
+  onToggleRecoveryHardened?: (
+    enabled: boolean,
+    password: string,
+    mfaCode: string
+  ) => Promise<boolean>;
   onResetTOTP?: (password: string, code: string) => Promise<boolean>;
   onRevokeWebAuthnKey?: (credentialId: string, password: string) => Promise<boolean>;
   onDisableEmailSms?: (password: string) => Promise<boolean>;
@@ -148,12 +170,25 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
           if (onDisableEmailSms) success = await onDisableEmailSms(actionPassword);
           break;
         case 'toggle-recovery-only':
-          if (onToggleRecoveryOnly && actionModal.toggleMethod !== undefined && actionModal.toggleValue !== undefined)
-            success = await onToggleRecoveryOnly(actionModal.toggleMethod, actionModal.toggleValue, actionPassword, actionMfaCode);
+          if (
+            onToggleRecoveryOnly &&
+            actionModal.toggleMethod !== undefined &&
+            actionModal.toggleValue !== undefined
+          )
+            success = await onToggleRecoveryOnly(
+              actionModal.toggleMethod,
+              actionModal.toggleValue,
+              actionPassword,
+              actionMfaCode
+            );
           break;
         case 'toggle-hardened':
           if (onToggleRecoveryHardened && actionModal.toggleValue !== undefined)
-            success = await onToggleRecoveryHardened(actionModal.toggleValue, actionPassword, actionMfaCode);
+            success = await onToggleRecoveryHardened(
+              actionModal.toggleValue,
+              actionPassword,
+              actionMfaCode
+            );
           break;
       }
       if (success) {
@@ -190,9 +225,13 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
       : actionModal?.type === 'revoke-webauthn'
         ? `Revoke "${actionModal.credentialName || 'Key'}"`
         : actionModal?.type === 'toggle-recovery-only'
-          ? (actionModal.toggleValue ? 'Enable Recovery Only' : 'Disable Recovery Only')
+          ? actionModal.toggleValue
+            ? 'Enable Recovery Only'
+            : 'Disable Recovery Only'
           : actionModal?.type === 'toggle-hardened'
-            ? (actionModal.toggleValue ? 'Enable Hardened Mode' : 'Disable Hardened Mode')
+            ? actionModal.toggleValue
+              ? 'Enable Hardened Mode'
+              : 'Disable Hardened Mode'
             : 'Disable Email/SMS';
 
   const actionDesc =
@@ -201,13 +240,13 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
       : actionModal?.type === 'revoke-webauthn'
         ? 'This will permanently remove this security key. It will no longer work for authentication.'
         : actionModal?.type === 'toggle-recovery-only'
-          ? (actionModal.toggleValue
+          ? actionModal.toggleValue
             ? 'This method will only be usable for account recovery, not for login or sensitive actions.'
-            : 'This method will be usable for login and sensitive actions again.')
+            : 'This method will be usable for login and sensitive actions again.'
           : actionModal?.type === 'toggle-hardened'
-            ? (actionModal.toggleValue
+            ? actionModal.toggleValue
               ? 'Recovery will require BOTH email and SMS codes simultaneously.'
-              : 'Recovery will accept either an email code or an SMS code individually.')
+              : 'Recovery will accept either an email code or an SMS code individually.'
             : 'This will disable email and SMS verification methods.';
 
   return (
@@ -222,16 +261,22 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
           (tier.level === 'maximum' && hasWebauthn && hasHardwareKeys) ||
           (tier.level === 'strong' && hasWebauthn && hasPlatformKeys) ||
           (tier.level === 'last-resort' && hasEmailOrSms);
-        const isRecoveryOnly = tier.level === 'last-resort'
-          ? recoveryOnlyMethods.includes('email') || recoveryOnlyMethods.includes('sms')
-          : tier.methodKey ? recoveryOnlyMethods.includes(tier.methodKey) : false;
+        const isRecoveryOnly =
+          tier.level === 'last-resort'
+            ? recoveryOnlyMethods.includes('email') || recoveryOnlyMethods.includes('sms')
+            : tier.methodKey
+              ? recoveryOnlyMethods.includes(tier.methodKey)
+              : false;
 
         // Filter WebAuthn credentials by tier
-        const tierCredentials = tier.methodKey === 'webauthn' && isActive
-          ? webauthnCredentials.filter((c) =>
-              tier.level === 'maximum' ? c.credential_type === 'hardware' : c.credential_type === 'platform'
-            )
-          : [];
+        const tierCredentials =
+          tier.methodKey === 'webauthn' && isActive
+            ? webauthnCredentials.filter((c) =>
+                tier.level === 'maximum'
+                  ? c.credential_type === 'hardware'
+                  : c.credential_type === 'platform'
+              )
+            : [];
 
         return (
           <div
@@ -241,12 +286,16 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
             <div className="mfa-tier-header">
               <h4 className="mfa-tier-name">{tier.name}</h4>
               {isActive && !isRecoveryOnly && <span className="mfa-tier-badge">Configured</span>}
-              {isActive && isRecoveryOnly && <span className="mfa-tier-badge mfa-tier-badge-recovery">Recovery Only</span>}
+              {isActive && isRecoveryOnly && (
+                <span className="mfa-tier-badge mfa-tier-badge-recovery">Recovery Only</span>
+              )}
             </div>
             <p className="mfa-tier-desc">{tier.description}</p>
             <div className="mfa-tier-methods">
               {tier.methods.map((m) => (
-                <span key={m} className="mfa-tier-method">{m}</span>
+                <span key={m} className="mfa-tier-method">
+                  {m}
+                </span>
               ))}
             </div>
 
@@ -288,16 +337,25 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
                       <span className="mfa-credential-name">{cred.credential_name}</span>
                       <span className="mfa-credential-meta">
                         Added {new Date(cred.created_at).toLocaleDateString()}
-                        {cred.last_used_at && ` · Last used ${new Date(cred.last_used_at).toLocaleDateString()}`}
+                        {cred.last_used_at &&
+                          ` · Last used ${new Date(cred.last_used_at).toLocaleDateString()}`}
                       </span>
                     </div>
                     {onRevokeWebAuthnKey && (
                       <button
                         type="button"
                         className="btn btn-uniform btn-danger"
-                        disabled={soleRealMFAWithEmailSms && hasWebauthn && !hasTotp && webauthnCredentials.length === 1}
+                        disabled={
+                          soleRealMFAWithEmailSms &&
+                          hasWebauthn &&
+                          !hasTotp &&
+                          webauthnCredentials.length === 1
+                        }
                         title={
-                          soleRealMFAWithEmailSms && hasWebauthn && !hasTotp && webauthnCredentials.length === 1
+                          soleRealMFAWithEmailSms &&
+                          hasWebauthn &&
+                          !hasTotp &&
+                          webauthnCredentials.length === 1
                             ? 'Disable Email/SMS first — this is your only real MFA method'
                             : 'Revoke this key'
                         }
@@ -317,16 +375,21 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
                     )}
                   </div>
                 ))}
-                {soleRealMFAWithEmailSms && hasWebauthn && !hasTotp && webauthnCredentials.length === 1 && (
-                  <span className="mfa-action-hint">
-                    Disable Email/SMS before revoking your only MFA method
-                  </span>
-                )}
+                {soleRealMFAWithEmailSms &&
+                  hasWebauthn &&
+                  !hasTotp &&
+                  webauthnCredentials.length === 1 && (
+                    <span className="mfa-action-hint">
+                      Disable Email/SMS before revoking your only MFA method
+                    </span>
+                  )}
                 {webauthnCredentials.length < 10 && (
                   <button
                     type="button"
                     className="btn btn-uniform btn-secondary mfa-add-key-btn"
-                    onClick={() => onSetupWebAuthn(tier.level === 'maximum' ? 'hardware' : 'platform')}
+                    onClick={() =>
+                      onSetupWebAuthn(tier.level === 'maximum' ? 'hardware' : 'platform')
+                    }
                   >
                     + Add Another Key
                   </button>
@@ -358,17 +421,21 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
                 <div className="mfa-toggle-text">
                   <span className="mfa-recovery-only-label">Recovery only</span>
                   <span className="mfa-recovery-only-hint">
-                    Can verify your identity for account recovery, but won&apos;t be accepted for login or sensitive actions.
-                    Like a spare key that unlocks the door but doesn&apos;t start the engine.
+                    Can verify your identity for account recovery, but won&apos;t be accepted for
+                    login or sensitive actions. Like a spare key that unlocks the door but
+                    doesn&apos;t start the engine.
                   </span>
                 </div>
                 <ToggleSwitch
                   checked={isRecoveryOnly}
                   onChange={(checked) => {
                     // Determine which method to toggle
-                    const method = tier.level === 'last-resort'
-                      ? (hasEmail ? 'email' : 'sms')
-                      : (tier.methodKey || '');
+                    const method =
+                      tier.level === 'last-resort'
+                        ? hasEmail
+                          ? 'email'
+                          : 'sms'
+                        : tier.methodKey || '';
                     setActionModal({
                       type: 'toggle-recovery-only',
                       toggleMethod: method,
@@ -388,8 +455,8 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
                 <div className="mfa-toggle-text">
                   <span className="mfa-recovery-only-label">Hardened mode</span>
                   <span className="mfa-recovery-only-hint">
-                    Require BOTH an email code AND an SMS code for recovery. An attacker must compromise
-                    both your email and your phone — neither alone is sufficient.
+                    Require BOTH an email code AND an SMS code for recovery. An attacker must
+                    compromise both your email and your phone — neither alone is sufficient.
                   </span>
                 </div>
                 <ToggleSwitch
@@ -420,18 +487,31 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
                       type="email"
                       className="mfa-backup-email-input"
                       value={backupEmailDraft}
-                      onChange={(e) => { setBackupEmailDraft(e.target.value); setBackupEmailError(''); }}
+                      onChange={(e) => {
+                        setBackupEmailDraft(e.target.value);
+                        setBackupEmailError('');
+                      }}
                       placeholder="backup@example.com"
                     />
-                    {backupEmailError && <span className="mfa-backup-email-error">{backupEmailError}</span>}
+                    {backupEmailError && (
+                      <span className="mfa-backup-email-error">{backupEmailError}</span>
+                    )}
                     <div className="mfa-backup-email-actions">
-                      <button type="button" className="btn btn-xs btn-primary" onClick={handleSaveBackupEmail}>
+                      <button
+                        type="button"
+                        className="btn btn-xs btn-primary"
+                        onClick={handleSaveBackupEmail}
+                      >
                         Save
                       </button>
                       <button
                         type="button"
                         className="btn btn-xs btn-secondary"
-                        onClick={() => { setEditingBackupEmail(false); setBackupEmailDraft(backupEmail || ''); setBackupEmailError(''); }}
+                        onClick={() => {
+                          setEditingBackupEmail(false);
+                          setBackupEmailDraft(backupEmail || '');
+                          setBackupEmailError('');
+                        }}
                       >
                         Cancel
                       </button>
@@ -442,13 +522,14 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
                     <button
                       type="button"
                       className="btn btn-xs btn-secondary"
-                      onClick={() => { setEditingBackupEmail(true); setBackupEmailDraft(backupEmail || ''); }}
+                      onClick={() => {
+                        setEditingBackupEmail(true);
+                        setBackupEmailDraft(backupEmail || '');
+                      }}
                     >
                       {backupEmail ? 'Change' : 'Add'}
                     </button>
-                    <span className="mfa-backup-email-value">
-                      {backupEmail || 'Not set'}
-                    </span>
+                    <span className="mfa-backup-email-value">{backupEmail || 'Not set'}</span>
                   </div>
                 )}
               </div>
@@ -469,17 +550,31 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
             {!isLocked && !isActive && (
               <div className="mfa-tier-actions mfa-tier-actions-left">
                 {tier.level === 'standard' && (
-                  <button type="button" className="btn btn-uniform btn-primary" onClick={onSetupTOTP}>
+                  <button
+                    type="button"
+                    className="btn btn-uniform btn-primary"
+                    onClick={onSetupTOTP}
+                  >
                     Set Up
                   </button>
                 )}
                 {(tier.level === 'maximum' || tier.level === 'strong') && (
-                  <button type="button" className="btn btn-uniform btn-primary" onClick={() => onSetupWebAuthn(tier.level === 'maximum' ? 'hardware' : 'platform')}>
+                  <button
+                    type="button"
+                    className="btn btn-uniform btn-primary"
+                    onClick={() =>
+                      onSetupWebAuthn(tier.level === 'maximum' ? 'hardware' : 'platform')
+                    }
+                  >
                     Set Up
                   </button>
                 )}
                 {tier.level === 'last-resort' && onSetupEmailSms && (
-                  <button type="button" className="btn btn-uniform btn-primary" onClick={onSetupEmailSms}>
+                  <button
+                    type="button"
+                    className="btn btn-uniform btn-primary"
+                    onClick={onSetupEmailSms}
+                  >
                     Set Up
                   </button>
                 )}
@@ -522,7 +617,12 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
             <div className="mfa-setup-actions">
               <button
                 type="button"
-                className={actionModal.type === 'toggle-recovery-only' || actionModal.type === 'toggle-hardened' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-danger'}
+                className={
+                  actionModal.type === 'toggle-recovery-only' ||
+                  actionModal.type === 'toggle-hardened'
+                    ? 'btn btn-sm btn-primary'
+                    : 'btn btn-sm btn-danger'
+                }
                 onClick={handleAction}
                 disabled={actionLoading || !actionPassword}
               >
@@ -531,7 +631,12 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
               <button
                 type="button"
                 className="btn btn-sm btn-secondary"
-                onClick={() => { setActionModal(null); setActionPassword(''); setActionMfaCode(''); setActionError(''); }}
+                onClick={() => {
+                  setActionModal(null);
+                  setActionPassword('');
+                  setActionMfaCode('');
+                  setActionError('');
+                }}
                 disabled={actionLoading}
               >
                 Cancel

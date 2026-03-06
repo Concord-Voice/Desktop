@@ -76,8 +76,12 @@ const PrivacySecuritySection: React.FC = () => {
   const [mfaBackupRemaining, setMfaBackupRemaining] = useState<number | undefined>();
   const [mfaWebauthnCredentials, setMfaWebauthnCredentials] = useState<WebAuthnCredential[]>([]);
   const [mfaBackupEmail, setMfaBackupEmail] = useState('');
-  const [mfaSetupMethod, setMfaSetupMethod] = useState<'totp' | 'webauthn' | 'email-sms' | null>(null);
-  const [webauthnCredentialType, setWebauthnCredentialType] = useState<'hardware' | 'platform'>('hardware');
+  const [mfaSetupMethod, setMfaSetupMethod] = useState<'totp' | 'webauthn' | 'email-sms' | null>(
+    null
+  );
+  const [webauthnCredentialType, setWebauthnCredentialType] = useState<'hardware' | 'platform'>(
+    'hardware'
+  );
   const [sessionPassword, setSessionPassword] = useState('');
   const [sessionPasswordError, setSessionPasswordError] = useState('');
 
@@ -98,13 +102,16 @@ const PrivacySecuritySection: React.FC = () => {
     setLocalDmLevel(privacySettings.dmPrivacyLevel);
   }, [privacySettings.dmPrivacyLevel]);
 
-  const setDmPrivacyLevel = useCallback((level: DMPrivacyLevel) => {
-    setLocalDmLevel(level);
-    if (dmDebounceRef.current) clearTimeout(dmDebounceRef.current);
-    dmDebounceRef.current = setTimeout(() => {
-      updatePrivacy({ dmPrivacyLevel: level });
-    }, 300);
-  }, [updatePrivacy]);
+  const setDmPrivacyLevel = useCallback(
+    (level: DMPrivacyLevel) => {
+      setLocalDmLevel(level);
+      if (dmDebounceRef.current) clearTimeout(dmDebounceRef.current);
+      dmDebounceRef.current = setTimeout(() => {
+        updatePrivacy({ dmPrivacyLevel: level });
+      }, 300);
+    },
+    [updatePrivacy]
+  );
 
   // Cleanup debounce timer
   useEffect(() => {
@@ -223,7 +230,10 @@ const PrivacySecuritySection: React.FC = () => {
       if (!response.ok) {
         const data = await response.json();
 
-        if (response.status === 403 && (data.error === 'password_required' || data.error === 'auth_required')) {
+        if (
+          response.status === 403 &&
+          (data.error === 'password_required' || data.error === 'auth_required')
+        ) {
           // Server says authentication needed — open auth modal
           setSessionPasswordTarget(sessionId);
           setSessionPassword('');
@@ -326,9 +336,11 @@ const PrivacySecuritySection: React.FC = () => {
         const data = await response.json();
         if (response.status === 403) {
           setModeChangeError(
-            data.error === 'Incorrect password' ? 'Incorrect password'
-            : data.error === 'Invalid MFA code' ? 'Invalid MFA code'
-            : data.error || 'Authentication failed'
+            data.error === 'Incorrect password'
+              ? 'Incorrect password'
+              : data.error === 'Invalid MFA code'
+                ? 'Invalid MFA code'
+                : data.error || 'Authentication failed'
           );
           setIsChangingMode(false);
           return;
@@ -391,9 +403,11 @@ const PrivacySecuritySection: React.FC = () => {
         const data = await response.json();
         if (response.status === 403) {
           setRevokePasswordError(
-            data.error === 'Invalid MFA code' ? 'Invalid MFA code'
-            : data.error === 'Incorrect password' ? 'Incorrect password'
-            : data.error || 'Authentication failed'
+            data.error === 'Invalid MFA code'
+              ? 'Invalid MFA code'
+              : data.error === 'Incorrect password'
+                ? 'Incorrect password'
+                : data.error || 'Authentication failed'
           );
           setIsRevokingAll(false);
           return;
@@ -463,7 +477,10 @@ const PrivacySecuritySection: React.FC = () => {
           <div className="settings-tier-track dm-privacy-track">
             <div className="settings-tier-ticks">
               {[0, 1, 2, 3].map((i) => (
-                <span key={i} className={`settings-tier-tick ${localDmLevel === i ? 'active' : ''}`} />
+                <span
+                  key={i}
+                  className={`settings-tier-tick ${localDmLevel === i ? 'active' : ''}`}
+                />
               ))}
             </div>
             <input
@@ -478,9 +495,12 @@ const PrivacySecuritySection: React.FC = () => {
           </div>
           <div className="settings-tier-description">
             <span>
-              {localDmLevel === 0 ? 'No One'
-                : localDmLevel === 1 ? 'Friends Only'
-                  : localDmLevel === 2 ? 'Friends + Server Members'
+              {localDmLevel === 0
+                ? 'No One'
+                : localDmLevel === 1
+                  ? 'Friends Only'
+                  : localDmLevel === 2
+                    ? 'Friends + Server Members'
                     : 'Allow All'}
             </span>
             <span>
@@ -489,25 +509,33 @@ const PrivacySecuritySection: React.FC = () => {
                 : localDmLevel === 1
                   ? "Inner circle only. If they're not on your friends list, they're talking to a wall."
                   : localDmLevel === 2
-                    ? "The social butterfly. Friends and anyone you share a server with can slide into your DMs."
-                    : "Open season. Anyone on the platform can message you. Bold move."}
+                    ? 'The social butterfly. Friends and anyone you share a server with can slide into your DMs.'
+                    : 'Open season. Anyone on the platform can message you. Bold move.'}
             </span>
           </div>
         </div>
 
-        <div className={`settings-row ${localDmLevel === 0 || localDmLevel === 3 ? 'settings-row-disabled' : ''}`}>
+        <div
+          className={`settings-row ${localDmLevel === 0 || localDmLevel === 3 ? 'settings-row-disabled' : ''}`}
+        >
           <div className="settings-row-info">
             <span className="settings-row-label">Allow Friends-of-Friends</span>
             <span className="settings-row-hint">
               {localDmLevel === 0
-                ? "DMs are disabled — this setting has no effect."
+                ? 'DMs are disabled — this setting has no effect.'
                 : localDmLevel === 3
-                  ? "Everyone can already DM you — friends-of-friends is included."
-                  : "Also allow DMs from people who share a mutual friend with you"}
+                  ? 'Everyone can already DM you — friends-of-friends is included.'
+                  : 'Also allow DMs from people who share a mutual friend with you'}
             </span>
           </div>
           <ToggleSwitch
-            checked={localDmLevel === 3 ? true : localDmLevel === 0 ? false : privacySettings.dmFriendsOfFriends}
+            checked={
+              localDmLevel === 3
+                ? true
+                : localDmLevel === 0
+                  ? false
+                  : privacySettings.dmFriendsOfFriends
+            }
             onChange={(v) => {
               if (localDmLevel !== 0 && localDmLevel !== 3) {
                 updatePrivacy({ dmFriendsOfFriends: v });
@@ -581,18 +609,42 @@ const PrivacySecuritySection: React.FC = () => {
           <div className="mfa-status-bar">
             {mfaWebauthnCredentials.length > 0 && (
               <div className="mfa-status-item">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ flexShrink: 0 }}>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  style={{ flexShrink: 0 }}
+                >
                   <path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
                 </svg>
-                <span>Security Keys: <strong>{mfaWebauthnCredentials.length}</strong> / 10</span>
+                <span>
+                  Security Keys: <strong>{mfaWebauthnCredentials.length}</strong> / 10
+                </span>
               </div>
             )}
             {mfaBackupRemaining !== undefined && (
               <div className="mfa-status-item mfa-status-item-right">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ flexShrink: 0 }}>
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  style={{ flexShrink: 0 }}
+                >
                   <path d="M9 12h6m-3-3v6m-7 4h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
-                <span>Backup Codes: <strong className={mfaBackupRemaining <= 2 ? 'mfa-status-warn' : ''}>{mfaBackupRemaining}</strong> / 8</span>
+                <span>
+                  Backup Codes:{' '}
+                  <strong className={mfaBackupRemaining <= 2 ? 'mfa-status-warn' : ''}>
+                    {mfaBackupRemaining}
+                  </strong>{' '}
+                  / 8
+                </span>
                 <button
                   type="button"
                   className="btn btn-xs btn-reset-danger"
@@ -604,7 +656,9 @@ const PrivacySecuritySection: React.FC = () => {
                     setBackupResetCodes(null);
                   }}
                 >
-                  Reset<br />Codes
+                  Reset
+                  <br />
+                  Codes
                 </button>
               </div>
             )}
@@ -614,7 +668,10 @@ const PrivacySecuritySection: React.FC = () => {
         {mfaSetupMethod === 'email-sms' ? (
           <EmailSmsSetup
             mfaActive={mfaMethods.length > 0}
-            onComplete={() => { setMfaSetupMethod(null); fetchMFAStatus(); }}
+            onComplete={() => {
+              setMfaSetupMethod(null);
+              fetchMFAStatus();
+            }}
             onCancel={() => setMfaSetupMethod(null)}
           />
         ) : mfaSetupMethod ? (
@@ -624,7 +681,10 @@ const PrivacySecuritySection: React.FC = () => {
             mfaActive={mfaMethods.length > 0}
             activeMethods={mfaMethods}
             recoveryOnlyMethods={mfaRecoveryOnly}
-            onComplete={() => { setMfaSetupMethod(null); fetchMFAStatus(); }}
+            onComplete={() => {
+              setMfaSetupMethod(null);
+              fetchMFAStatus();
+            }}
             onCancel={() => setMfaSetupMethod(null)}
           />
         ) : (
@@ -636,7 +696,10 @@ const PrivacySecuritySection: React.FC = () => {
             webauthnCredentials={mfaWebauthnCredentials}
             backupEmail={mfaBackupEmail}
             onSetupTOTP={() => setMfaSetupMethod('totp')}
-            onSetupWebAuthn={(credType) => { setWebauthnCredentialType(credType); setMfaSetupMethod('webauthn'); }}
+            onSetupWebAuthn={(credType) => {
+              setWebauthnCredentialType(credType);
+              setMfaSetupMethod('webauthn');
+            }}
             onSetupEmailSms={() => setMfaSetupMethod('email-sms')}
             onResetTOTP={async (password, code) => {
               const res = await apiFetch('/api/v1/mfa/totp/disable', {
@@ -644,7 +707,10 @@ const PrivacySecuritySection: React.FC = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ password, code }),
               });
-              if (res.ok) { fetchMFAStatus(); return true; }
+              if (res.ok) {
+                fetchMFAStatus();
+                return true;
+              }
               return false;
             }}
             onRevokeWebAuthnKey={async (credentialId, password) => {
@@ -698,7 +764,10 @@ const PrivacySecuritySection: React.FC = () => {
               const res = await apiFetch('/api/v1/mfa/email-sms/disable', {
                 method: 'POST',
               });
-              if (res.ok) { fetchMFAStatus(); return true; }
+              if (res.ok) {
+                fetchMFAStatus();
+                return true;
+              }
               return false;
             }}
             onSetBackupEmail={async (email) => {
@@ -727,7 +796,9 @@ const PrivacySecuritySection: React.FC = () => {
                   return true;
                 }
                 return false;
-              } catch { return false; }
+              } catch {
+                return false;
+              }
             }}
             onToggleRecoveryOnly={async (method, recoveryOnly, password, mfaCode) => {
               const newList = recoveryOnly
@@ -737,7 +808,11 @@ const PrivacySecuritySection: React.FC = () => {
                 const res = await apiFetch('/api/v1/mfa/recovery-only', {
                   method: 'PUT',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ methods: newList, password, mfa_code: mfaCode || undefined }),
+                  body: JSON.stringify({
+                    methods: newList,
+                    password,
+                    mfa_code: mfaCode || undefined,
+                  }),
                 });
                 if (res.ok) {
                   const data = await res.json();
@@ -748,7 +823,9 @@ const PrivacySecuritySection: React.FC = () => {
                   return true;
                 }
                 return false;
-              } catch { return false; }
+              } catch {
+                return false;
+              }
             }}
           />
         )}
@@ -765,7 +842,10 @@ const PrivacySecuritySection: React.FC = () => {
               {backupResetCodes ? (
                 <BackupCodeDisplay
                   codes={backupResetCodes}
-                  onConfirm={() => { setShowBackupReset(false); setBackupResetCodes(null); }}
+                  onConfirm={() => {
+                    setShowBackupReset(false);
+                    setBackupResetCodes(null);
+                  }}
                   disabled={false}
                 />
               ) : (
@@ -958,14 +1038,20 @@ const PrivacySecuritySection: React.FC = () => {
           <div className="revoke-all-modal-content">
             <p className="revoke-all-modal-description">
               You&apos;re about to revoke all of your active session tokens, which will log you out
-              of all sessions, including this one. {hasMFA ? 'Verify your identity to continue.' : 'In order to continue, please input your password.'}
+              of all sessions, including this one.{' '}
+              {hasMFA
+                ? 'Verify your identity to continue.'
+                : 'In order to continue, please input your password.'}
             </p>
             {hasMFA ? (
               <>
                 <MFAVerifyPrompt
                   methods={mfaMethods}
                   recoveryOnlyMethods={mfaRecoveryOnly}
-                  onVerify={(code) => { setRevokeMfaCode(code); setRevokePasswordError(''); }}
+                  onVerify={(code) => {
+                    setRevokeMfaCode(code);
+                    setRevokePasswordError('');
+                  }}
                   disabled={isRevokingAll}
                   error={revokePasswordError || undefined}
                 />
@@ -1016,14 +1102,18 @@ const PrivacySecuritySection: React.FC = () => {
         >
           <div className="revoke-all-modal-content">
             <p className="revoke-all-modal-description">
-              For your security, {hasMFA ? 'verify your identity' : 'please enter your password'} to revoke this session.
+              For your security, {hasMFA ? 'verify your identity' : 'please enter your password'} to
+              revoke this session.
             </p>
             {hasMFA ? (
               <>
                 <MFAVerifyPrompt
                   methods={mfaMethods}
                   recoveryOnlyMethods={mfaRecoveryOnly}
-                  onVerify={(code) => { setSessionMfaCode(code); setSessionPasswordError(''); }}
+                  onVerify={(code) => {
+                    setSessionMfaCode(code);
+                    setSessionPasswordError('');
+                  }}
                   disabled={revokingId === sessionPasswordTarget}
                   error={sessionPasswordError || undefined}
                 />
@@ -1059,13 +1149,17 @@ const PrivacySecuritySection: React.FC = () => {
               <button
                 className="revoke-all-modal-confirm-btn"
                 onClick={() =>
-                  sessionPasswordTarget && handleRevoke(
+                  sessionPasswordTarget &&
+                  handleRevoke(
                     sessionPasswordTarget,
                     hasMFA ? undefined : sessionPassword,
                     hasMFA ? sessionMfaCode : undefined
                   )
                 }
-                disabled={(hasMFA ? !sessionMfaCode : !sessionPassword) || revokingId === sessionPasswordTarget}
+                disabled={
+                  (hasMFA ? !sessionMfaCode : !sessionPassword) ||
+                  revokingId === sessionPasswordTarget
+                }
               >
                 {revokingId === sessionPasswordTarget ? 'Revoking...' : 'Confirm & Revoke'}
               </button>
@@ -1090,7 +1184,10 @@ const PrivacySecuritySection: React.FC = () => {
               <MFAVerifyPrompt
                 methods={mfaMethods}
                 recoveryOnlyMethods={mfaRecoveryOnly}
-                onVerify={(code) => { setModeChangeMfaCode(code); setModeChangeError(''); }}
+                onVerify={(code) => {
+                  setModeChangeMfaCode(code);
+                  setModeChangeError('');
+                }}
                 disabled={isChangingMode}
                 error={modeChangeError || undefined}
                 excludeBackupCodes
@@ -1112,7 +1209,9 @@ const PrivacySecuritySection: React.FC = () => {
                   placeholder="Enter your password"
                   autoFocus
                 />
-                {modeChangeError && <span className="revoke-password-error">{modeChangeError}</span>}
+                {modeChangeError && (
+                  <span className="revoke-password-error">{modeChangeError}</span>
+                )}
               </div>
             )}
             <div className="revoke-all-modal-actions">

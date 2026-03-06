@@ -85,8 +85,7 @@ export const usePrivacyStore = create<PrivacyState>()(
           body.messages_friends_only = updates.messagesFriendsOnly;
         if (updates.messagesServerMembers !== undefined)
           body.messages_server_members = updates.messagesServerMembers;
-        if (updates.dmPrivacyLevel !== undefined)
-          body.dm_privacy_level = updates.dmPrivacyLevel;
+        if (updates.dmPrivacyLevel !== undefined) body.dm_privacy_level = updates.dmPrivacyLevel;
         if (updates.dmFriendsOfFriends !== undefined)
           body.dm_friends_of_friends = updates.dmFriendsOfFriends;
         if (updates.autoAcceptFriendCodes !== undefined)

@@ -116,7 +116,9 @@ const EmailSmsSetup: React.FC<EmailSmsSetupProps> = ({ mfaActive, onComplete, on
             >
               {loading ? 'Generating...' : 'Generate Codes'}
             </button>
-            <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+            <button className="btn btn-secondary" onClick={onCancel}>
+              Cancel
+            </button>
           </div>
         </div>
       )}
@@ -124,8 +126,8 @@ const EmailSmsSetup: React.FC<EmailSmsSetupProps> = ({ mfaActive, onComplete, on
       {step === 'codes' && (
         <div className="mfa-setup-step">
           <p>
-            In production, these codes would be sent to your email and phone.
-            For testing, enter the codes shown below into the verification fields.
+            In production, these codes would be sent to your email and phone. For testing, enter the
+            codes shown below into the verification fields.
           </p>
 
           <div className="mfa-dev-codes">
@@ -147,7 +149,9 @@ const EmailSmsSetup: React.FC<EmailSmsSetupProps> = ({ mfaActive, onComplete, on
             <button className="btn btn-primary" onClick={() => setStep('verify')}>
               Enter Codes
             </button>
-            <button className="btn btn-secondary" onClick={onCancel}>Cancel</button>
+            <button className="btn btn-secondary" onClick={onCancel}>
+              Cancel
+            </button>
           </div>
         </div>
       )}
@@ -193,7 +197,9 @@ const EmailSmsSetup: React.FC<EmailSmsSetupProps> = ({ mfaActive, onComplete, on
             >
               {loading ? 'Verifying...' : 'Verify & Activate'}
             </button>
-            <button className="btn btn-secondary" onClick={() => setStep('codes')}>Back</button>
+            <button className="btn btn-secondary" onClick={() => setStep('codes')}>
+              Back
+            </button>
           </div>
         </div>
       )}
@@ -202,7 +208,9 @@ const EmailSmsSetup: React.FC<EmailSmsSetupProps> = ({ mfaActive, onComplete, on
         <div className="mfa-setup-step mfa-setup-success">
           <h4>Email / SMS MFA Activated!</h4>
           <p>Both email and SMS verification are now available for your account.</p>
-          <button className="btn btn-primary" onClick={onComplete}>Done</button>
+          <button className="btn btn-primary" onClick={onComplete}>
+            Done
+          </button>
         </div>
       )}
     </div>

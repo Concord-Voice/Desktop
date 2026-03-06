@@ -13,7 +13,12 @@ interface MFAChallengeState {
   resolve: ((verified: boolean) => void) | null;
 
   /** Present the MFA challenge modal and return a promise that resolves when verified */
-  showChallenge: (token: string, methods: string[], purpose: 'suspicious_refresh', recoveryOnlyMethods?: string[]) => Promise<boolean>;
+  showChallenge: (
+    token: string,
+    methods: string[],
+    purpose: 'suspicious_refresh',
+    recoveryOnlyMethods?: string[]
+  ) => Promise<boolean>;
   /** Called by the modal after successful MFA verification */
   completeChallenge: (verified: boolean) => void;
   /** Clear the challenge state */
@@ -29,19 +34,37 @@ export const useMFAChallengeStore = create<MFAChallengeState>((set, get) => ({
 
   showChallenge: (token, methods, purpose, recoveryOnlyMethods) => {
     return new Promise<boolean>((resolve) => {
-      set({ challengeToken: token, methods, recoveryOnlyMethods: recoveryOnlyMethods || [], purpose, resolve });
+      set({
+        challengeToken: token,
+        methods,
+        recoveryOnlyMethods: recoveryOnlyMethods || [],
+        purpose,
+        resolve,
+      });
     });
   },
 
   completeChallenge: (verified) => {
     const { resolve } = get();
     if (resolve) resolve(verified);
-    set({ challengeToken: null, methods: [], recoveryOnlyMethods: [], purpose: null, resolve: null });
+    set({
+      challengeToken: null,
+      methods: [],
+      recoveryOnlyMethods: [],
+      purpose: null,
+      resolve: null,
+    });
   },
 
   clearChallenge: () => {
     const { resolve } = get();
     if (resolve) resolve(false);
-    set({ challengeToken: null, methods: [], recoveryOnlyMethods: [], purpose: null, resolve: null });
+    set({
+      challengeToken: null,
+      methods: [],
+      recoveryOnlyMethods: [],
+      purpose: null,
+      resolve: null,
+    });
   },
 }));
