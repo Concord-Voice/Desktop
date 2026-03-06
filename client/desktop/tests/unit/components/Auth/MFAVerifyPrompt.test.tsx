@@ -84,10 +84,11 @@ describe('MFAVerifyPrompt', () => {
   it('calls onVerify when backup code is submitted', () => {
     render(<MFAVerifyPrompt methods={['totp']} onVerify={onVerify} />);
     fireEvent.click(screen.getByText('Use a backup code instead'));
-    fireEvent.change(screen.getByPlaceholderText('XXXXXXXX'), {
+    const input = screen.getByPlaceholderText('XXXXXXXX');
+    fireEvent.change(input, {
       target: { value: 'ABCD1234' },
     });
-    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    fireEvent.submit(input.closest('form')!);
     expect(onVerify).toHaveBeenCalledWith('ABCD1234');
   });
 

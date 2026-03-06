@@ -14,30 +14,6 @@ describe('BackupCodeInput', () => {
     expect(screen.getByPlaceholderText('XXXXXXXX')).toBeInTheDocument();
   });
 
-  it('renders verify button', () => {
-    render(<BackupCodeInput onSubmit={onSubmit} />);
-    expect(screen.getByRole('button', { name: 'Verify' })).toBeInTheDocument();
-  });
-
-  it('verify button is disabled when code is too short', () => {
-    render(<BackupCodeInput onSubmit={onSubmit} />);
-    const btn = screen.getByRole('button', { name: 'Verify' });
-    expect(btn).toBeDisabled();
-
-    fireEvent.change(screen.getByPlaceholderText('XXXXXXXX'), {
-      target: { value: 'ABC' },
-    });
-    expect(btn).toBeDisabled();
-  });
-
-  it('verify button is enabled when code is 8 characters', () => {
-    render(<BackupCodeInput onSubmit={onSubmit} />);
-    fireEvent.change(screen.getByPlaceholderText('XXXXXXXX'), {
-      target: { value: 'ABCD1234' },
-    });
-    expect(screen.getByRole('button', { name: 'Verify' })).not.toBeDisabled();
-  });
-
   it('uppercases input as user types', () => {
     render(<BackupCodeInput onSubmit={onSubmit} />);
     const input = screen.getByPlaceholderText('XXXXXXXX');
@@ -45,12 +21,11 @@ describe('BackupCodeInput', () => {
     expect(input).toHaveValue('ABCD1234');
   });
 
-  it('submits uppercased trimmed code on form submit', () => {
+  it('submits uppercased trimmed code on Enter key', () => {
     render(<BackupCodeInput onSubmit={onSubmit} />);
-    fireEvent.change(screen.getByPlaceholderText('XXXXXXXX'), {
-      target: { value: 'abcd1234' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Verify' }));
+    const input = screen.getByPlaceholderText('XXXXXXXX');
+    fireEvent.change(input, { target: { value: 'abcd1234' } });
+    fireEvent.submit(input.closest('form')!);
     expect(onSubmit).toHaveBeenCalledWith('ABCD1234');
   });
 
@@ -73,10 +48,9 @@ describe('BackupCodeInput', () => {
     expect(screen.getByPlaceholderText('XXXXXXXX')).toHaveClass('error');
   });
 
-  it('disables input and button when disabled', () => {
+  it('disables input when disabled', () => {
     render(<BackupCodeInput onSubmit={onSubmit} disabled />);
     expect(screen.getByPlaceholderText('XXXXXXXX')).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Verify' })).toBeDisabled();
   });
 
   it('has maxLength of 8', () => {
