@@ -23,7 +23,13 @@ const BackupCodeInput: React.FC<BackupCodeInputProps> = ({ onSubmit, disabled = 
       <input
         type="text"
         value={code}
-        onChange={(e) => setCode(e.target.value.toUpperCase())}
+        onChange={(e) => {
+          const val = e.target.value.toUpperCase();
+          setCode(val);
+          if (val.trim().length === 8) {
+            onSubmit(val.trim());
+          }
+        }}
         placeholder="XXXXXXXX"
         maxLength={8}
         disabled={disabled}
@@ -36,15 +42,6 @@ const BackupCodeInput: React.FC<BackupCodeInputProps> = ({ onSubmit, disabled = 
         }}
       />
       {error && <p className="totp-error">{error}</p>}
-      <div className="backup-code-actions">
-        <button
-          type="submit"
-          className="btn btn-primary"
-          disabled={disabled || code.trim().length !== 8}
-        >
-          Verify
-        </button>
-      </div>
     </form>
   );
 };
