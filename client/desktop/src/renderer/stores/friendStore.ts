@@ -179,6 +179,10 @@ export const useFriendStore = create<FriendState>()(
       },
 
       acceptRequest: async (requestId: string) => {
+        // Grab the pending request data before the API call so we can
+        // optimistically add the new friend to the list immediately.
+        const pending = get().pendingRequests.find((r) => r.id === requestId);
+
         const response = await apiFetch(`/api/v1/friends/request/${requestId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
@@ -190,10 +194,28 @@ export const useFriendStore = create<FriendState>()(
           throw new Error(data.error || 'Failed to accept friend request');
         }
 
-        // Remove from pending, server will send WS event to add to friends list
-        set((state) => ({
-          pendingRequests: state.pendingRequests.filter((r) => r.id !== requestId),
-        }));
+        set((state) => {
+          const pendingRequests = state.pendingRequests.filter((r) => r.id !== requestId);
+
+          // Build a Friend from the pending request so the new friend
+          // appears in the list immediately without waiting for a WS event.
+          let { friends } = state;
+          if (pending) {
+            const newFriend: Friend = {
+              id: requestId,
+              userId: pending.fromUserId,
+              username: pending.fromUsername,
+              displayName: pending.fromDisplayName,
+              avatarUrl: pending.fromAvatarUrl,
+              status: 'online',
+            };
+            if (!friends.some((f) => f.userId === newFriend.userId)) {
+              friends = [...friends, newFriend];
+            }
+          }
+
+          return { pendingRequests, friends };
+        });
       },
 
       declineRequest: async (requestId: string) => {
