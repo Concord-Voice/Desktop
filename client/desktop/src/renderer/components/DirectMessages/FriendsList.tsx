@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ChevronDown, ChevronRight, UserPlus, Plus, Check, X, Clock, MessageSquare, UserMinus } from 'lucide-react';
-import { useFriendStore } from '../../stores/friendStore';
-import type { Friend } from '../../stores/friendStore';
+import { useFriendStore, type Friend } from '../../stores/friendStore';
 import ContextMenu from '../ui/ContextMenu';
 import AddFriendModal from './AddFriendModal';
 import './DirectMessages.css';
