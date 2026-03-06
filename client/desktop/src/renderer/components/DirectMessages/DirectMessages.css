@@ -763,3 +763,101 @@
   font-size: calc(12px * var(--font-scale, 1));
   color: var(--text-muted);
 }
+
+/* ─── Friend Request Items ─────────────────────────────────────────── */
+
+.friends-header-badge {
+  margin-left: calc(6px * var(--sp, 1));
+  vertical-align: middle;
+}
+
+.friend-request-item {
+  cursor: default;
+}
+
+.friend-request-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.friend-request-info .member-username {
+  font-size: calc(13px * var(--font-scale, 1));
+}
+
+.friend-request-meta {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--text-muted);
+}
+
+.friend-request-actions {
+  display: flex;
+  align-items: center;
+  gap: calc(4px * var(--sp, 1));
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+.friend-request-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  padding: 0;
+}
+
+.friend-request-accept {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.friend-request-accept:hover:not(:disabled) {
+  background: var(--status-connected);
+  color: var(--bg-primary);
+}
+
+.friend-request-decline {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.friend-request-decline:hover:not(:disabled) {
+  background: var(--status-disconnected);
+  color: var(--bg-primary);
+}
+
+.friend-request-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.friend-request-outgoing {
+  opacity: 0.65;
+}
+
+.friend-request-pending-label {
+  display: flex;
+  align-items: center;
+  gap: calc(4px * var(--sp, 1));
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* Inline spinner for request action buttons */
+.friend-request-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid transparent;
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
