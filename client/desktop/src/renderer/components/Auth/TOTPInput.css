@@ -96,7 +96,9 @@
   background: var(--bg-secondary, #2a2a2a);
   color: var(--text-primary, #fff);
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
   text-align: left;
   width: 100%;
 }

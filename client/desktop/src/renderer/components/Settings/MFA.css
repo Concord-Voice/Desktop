@@ -615,7 +615,10 @@
   line-height: 1.3;
   text-align: center;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s,
+    border-color 0.15s;
 }
 
 .btn-reset-danger:hover {
