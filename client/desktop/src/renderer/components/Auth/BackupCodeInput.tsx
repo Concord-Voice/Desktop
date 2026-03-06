@@ -23,13 +23,7 @@ const BackupCodeInput: React.FC<BackupCodeInputProps> = ({ onSubmit, disabled = 
       <input
         type="text"
         value={code}
-        onChange={(e) => {
-          const val = e.target.value.toUpperCase();
-          setCode(val);
-          if (val.trim().length === 8) {
-            onSubmit(val.trim());
-          }
-        }}
+        onChange={(e) => setCode(e.target.value.toUpperCase())}
         placeholder="XXXXXXXX"
         maxLength={8}
         disabled={disabled}
