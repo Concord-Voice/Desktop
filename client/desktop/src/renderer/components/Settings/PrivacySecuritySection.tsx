@@ -605,65 +605,66 @@ const PrivacySecuritySection: React.FC = () => {
           password and a second factor to sign in.
         </p>
 
-        {mfaMethods.length > 0 && (
-          <div className="mfa-status-bar">
-            {mfaWebauthnCredentials.length > 0 && (
-              <div className="mfa-status-item">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  style={{ flexShrink: 0 }}
-                >
-                  <path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
-                </svg>
-                <span>
-                  Security Keys: <strong>{mfaWebauthnCredentials.length}</strong> / 10
-                </span>
-              </div>
-            )}
-            {mfaBackupRemaining !== undefined && (
-              <div className="mfa-status-item mfa-status-item-right">
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  style={{ flexShrink: 0 }}
-                >
-                  <path d="M9 12h6m-3-3v6m-7 4h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                </svg>
-                <span>
-                  Backup Codes:{' '}
+        <div className="mfa-status-bar">
+          <div className="mfa-status-item">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              style={{ flexShrink: 0 }}
+            >
+              <path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+            </svg>
+            <span>
+              Security Keys: <strong>{mfaWebauthnCredentials.length}</strong> / 10
+            </span>
+          </div>
+          <div className="mfa-status-item mfa-status-item-right">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              style={{ flexShrink: 0 }}
+            >
+              <path d="M9 12h6m-3-3v6m-7 4h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            <span>
+              Backup Codes:{' '}
+              {mfaMethods.length === 0 ? (
+                <em className="mfa-status-muted">Requires MFA</em>
+              ) : (
+                <>
                   <strong className={mfaBackupRemaining <= 2 ? 'mfa-status-warn' : ''}>
                     {mfaBackupRemaining}
                   </strong>{' '}
                   / 8
-                </span>
-                <button
-                  type="button"
-                  className="btn btn-xs btn-reset-danger"
-                  onClick={() => {
-                    setShowBackupReset(true);
-                    setBackupResetPassword('');
-                    setBackupResetMfaCode('');
-                    setBackupResetError('');
-                    setBackupResetCodes(null);
-                  }}
-                >
-                  Reset
-                  <br />
-                  Codes
-                </button>
-              </div>
-            )}
+                </>
+              )}
+            </span>
+            <button
+              type="button"
+              className="btn btn-xs btn-reset-danger"
+              disabled={!mfaBackupRemaining || mfaMethods.length === 0}
+              onClick={() => {
+                setShowBackupReset(true);
+                setBackupResetPassword('');
+                setBackupResetMfaCode('');
+                setBackupResetError('');
+                setBackupResetCodes(null);
+              }}
+            >
+              Reset
+              <br />
+              Codes
+            </button>
           </div>
-        )}
+        </div>
 
         {mfaSetupMethod === 'email-sms' ? (
           <EmailSmsSetup

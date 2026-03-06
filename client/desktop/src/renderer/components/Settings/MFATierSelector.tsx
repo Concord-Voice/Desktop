@@ -291,42 +291,44 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
               )}
             </div>
             <p className="mfa-tier-desc">{tier.description}</p>
-            <div className="mfa-tier-methods">
-              {tier.methods.map((m) => (
-                <span key={m} className="mfa-tier-method">
-                  {m}
-                </span>
-              ))}
-            </div>
-
-            {/* TOTP Reset button */}
-            {tier.level === 'standard' && isActive && onResetTOTP && (
-              <div className="mfa-tier-actions">
-                {soleRealMFAWithEmailSms && hasTotp && !hasWebauthn && (
-                  <span className="mfa-action-hint">
-                    Disable Email/SMS before resetting your only MFA method
+            <div className="mfa-tier-methods-row">
+              <div className="mfa-tier-methods">
+                {tier.methods.map((m) => (
+                  <span key={m} className="mfa-tier-method">
+                    {m}
                   </span>
-                )}
-                <button
-                  type="button"
-                  className="btn btn-uniform btn-danger"
-                  disabled={soleRealMFAWithEmailSms && hasTotp && !hasWebauthn}
-                  title={
-                    soleRealMFAWithEmailSms && hasTotp && !hasWebauthn
-                      ? 'Disable Email/SMS first — this is your only real MFA method'
-                      : 'Reset TOTP enrollment'
-                  }
-                  onClick={() => {
-                    setActionModal({ type: 'reset-totp' });
-                    setActionPassword('');
-                    setActionMfaCode('');
-                    setActionError('');
-                  }}
-                >
-                  Reset
-                </button>
+                ))}
               </div>
-            )}
+
+              {/* TOTP Reset button — inline with methods */}
+              {tier.level === 'standard' && isActive && onResetTOTP && (
+                <div className="mfa-tier-actions-inline">
+                  {soleRealMFAWithEmailSms && hasTotp && !hasWebauthn && (
+                    <span className="mfa-action-hint">
+                      Disable Email/SMS before resetting your only MFA method
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-uniform btn-danger"
+                    disabled={soleRealMFAWithEmailSms && hasTotp && !hasWebauthn}
+                    title={
+                      soleRealMFAWithEmailSms && hasTotp && !hasWebauthn
+                        ? 'Disable Email/SMS first — this is your only real MFA method'
+                        : 'Reset TOTP enrollment'
+                    }
+                    onClick={() => {
+                      setActionModal({ type: 'reset-totp' });
+                      setActionPassword('');
+                      setActionMfaCode('');
+                      setActionError('');
+                    }}
+                  >
+                    Reset
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* WebAuthn credential list with per-key Revoke + Add Key */}
             {tier.methodKey === 'webauthn' && isActive && tierCredentials.length > 0 && (

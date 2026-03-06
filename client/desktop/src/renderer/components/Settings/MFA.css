@@ -58,11 +58,26 @@
   line-height: 1.4;
 }
 
+.mfa-tier-methods-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
 .mfa-tier-methods {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 8px;
+  flex: 1;
+}
+
+.mfa-tier-actions-inline {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
 }
 
 .mfa-tier-method {
@@ -408,6 +423,20 @@
   font-weight: 500;
 }
 
+.mfa-verify-field input {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color, #444);
+  background: var(--bg-secondary, #2b2b2b);
+  color: var(--text-primary, #fff);
+  font-size: 14px;
+}
+
+.mfa-verify-field input:focus {
+  outline: none;
+  border-color: var(--accent-color, #5865f2);
+}
+
 .mfa-manual-entry {
   font-size: 13px;
   color: var(--text-tertiary, #999);
@@ -598,6 +627,12 @@
   color: var(--error-color, #ed4245) !important;
 }
 
+.mfa-status-muted {
+  color: var(--text-tertiary, #999);
+  font-style: italic;
+  font-weight: 400;
+}
+
 .btn-xs {
   padding: 3px 10px;
   font-size: 12px;
@@ -621,10 +656,15 @@
     border-color 0.15s;
 }
 
-.btn-reset-danger:hover {
+.btn-reset-danger:hover:not(:disabled) {
   background: var(--error-color, #ed4245);
   color: #fff;
   border-color: var(--error-color, #ed4245);
+}
+
+.btn-reset-danger:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 /* ── MFA Verify Prompt ───────────────────────────────────────────── */
