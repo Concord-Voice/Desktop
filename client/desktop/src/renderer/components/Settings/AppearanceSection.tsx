@@ -3,6 +3,7 @@ import type { AppearanceSettings, CustomColors } from '../../stores/settingsStor
 import { useDraftAppearance, setDraftAppearanceSetting } from '../../hooks/useDraftSettings';
 import { isValidHex } from '../../utils/colorUtils';
 import ToggleSwitch from './ToggleSwitch';
+import CollapsibleSection from './CollapsibleSection';
 
 const AppearanceSection: React.FC = () => {
   const appearance = useDraftAppearance();
@@ -125,8 +126,7 @@ const AppearanceSection: React.FC = () => {
 
   return (
     <>
-      <div className="settings-section" id="section-color-scheme">
-        <h2 className="settings-section-title">Color Scheme</h2>
+      <CollapsibleSection id="section-color-scheme" title="Color Scheme">
         <p className="settings-section-description">Pick a color palette for the entire app.</p>
         <span className="color-scheme-active-label">
           {appearance.colorScheme === 'custom'
@@ -225,10 +225,9 @@ const AppearanceSection: React.FC = () => {
             ))}
           </div>
         )}
-      </div>
+      </CollapsibleSection>
 
-      <div className="settings-section" id="section-theme">
-        <h2 className="settings-section-title">Theme</h2>
+      <CollapsibleSection id="section-theme" title="Theme">
         <p className="settings-section-description">
           Choose how Concord Voice looks to you. Select a theme or match your system settings.
         </p>
@@ -244,10 +243,9 @@ const AppearanceSection: React.FC = () => {
             </button>
           ))}
         </div>
-      </div>
+      </CollapsibleSection>
 
-      <div className="settings-section" id="section-display">
-        <h2 className="settings-section-title">Display</h2>
+      <CollapsibleSection id="section-display" title="Display">
 
         <div className="form-group">
           <label className="form-label">Font Size</label>
@@ -293,7 +291,7 @@ const AppearanceSection: React.FC = () => {
             onChange={(v) => setDraftAppearanceSetting('reduceAnimations', v)}
           />
         </div>
-      </div>
+      </CollapsibleSection>
     </>
   );
 };

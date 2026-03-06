@@ -12,6 +12,7 @@ import MFASetup from './MFASetup';
 import MFAVerifyPrompt from '../Auth/MFAVerifyPrompt';
 import BackupCodeDisplay from './BackupCodeDisplay';
 import EmailSmsSetup from './EmailSmsSetup';
+import CollapsibleSection from './CollapsibleSection';
 import './MFA.css';
 
 interface Session {
@@ -455,8 +456,7 @@ const PrivacySecuritySection: React.FC = () => {
 
   return (
     <>
-      <div className="settings-section" id="section-privacy-settings">
-        <h2 className="settings-section-title">Privacy</h2>
+      <CollapsibleSection id="section-privacy-settings" title="Privacy">
         <p className="settings-section-description">
           Control who can message you and how others can find you.
         </p>
@@ -596,10 +596,9 @@ const PrivacySecuritySection: React.FC = () => {
             onChange={(v) => updatePrivacy({ searchableByPhone: v })}
           />
         </div>
-      </div>
+      </CollapsibleSection>
 
-      <div className="settings-section" id="section-mfa">
-        <h2 className="settings-section-title">Multi-Factor Authentication</h2>
+      <CollapsibleSection id="section-mfa" title="Multi-Factor Authentication">
         <p className="settings-section-description">
           Add an extra layer of security to your account. When enabled, you&apos;ll need both your
           password and a second factor to sign in.
@@ -896,10 +895,9 @@ const PrivacySecuritySection: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
+      </CollapsibleSection>
 
-      <div className="settings-section" id="section-active-sessions">
-        <h2 className="settings-section-title">Active Sessions</h2>
+      <CollapsibleSection id="section-active-sessions" title="Active Sessions">
         <p className="settings-section-description">
           These are the devices currently logged into your account. Revoke any session you
           don&apos;t recognize.
@@ -1232,11 +1230,10 @@ const PrivacySecuritySection: React.FC = () => {
             </div>
           </div>
         </Modal>
-      </div>
+      </CollapsibleSection>
 
       {pastSessions.length > 0 && (
-        <div className="settings-section" id="section-past-sessions">
-          <h2 className="settings-section-title">Past Sessions</h2>
+        <CollapsibleSection id="section-past-sessions" title="Past Sessions">
           <p className="settings-section-description">
             Sessions that were logged out or revoked in the last 30 days.
           </p>
@@ -1277,7 +1274,7 @@ const PrivacySecuritySection: React.FC = () => {
               </div>
             ))}
           </div>
-        </div>
+        </CollapsibleSection>
       )}
     </>
   );

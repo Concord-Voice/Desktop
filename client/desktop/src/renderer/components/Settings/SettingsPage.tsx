@@ -221,7 +221,11 @@ const SettingsPage: React.FC = () => {
   const scrollToSection = useCallback((sectionId: string) => {
     const el = document.getElementById(`section-${sectionId}`);
     if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Auto-expand collapsed sections when navigating via sidebar
+    if (el instanceof HTMLDetailsElement && !el.open) {
+      el.open = true;
+    }
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
   const renderSection = () => {

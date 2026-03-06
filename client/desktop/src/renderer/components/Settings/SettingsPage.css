@@ -151,6 +151,65 @@
   border-bottom: 1px solid var(--border-color);
 }
 
+/* ─── Collapsible Sections ────────────────────────────────────────────────── */
+
+.settings-collapsible {
+  padding: 0;
+}
+
+.settings-collapsible-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  transition: background 0.15s ease;
+  border-radius: 12px;
+}
+
+.settings-collapsible-header::-webkit-details-marker {
+  display: none;
+}
+
+.settings-collapsible-header::marker {
+  display: none;
+  content: '';
+}
+
+.settings-collapsible-header:hover {
+  background: var(--bg-tertiary);
+}
+
+.settings-collapsible-header .settings-section-title {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.settings-collapsible-chevron {
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.settings-collapsible[open] > .settings-collapsible-header {
+  border-radius: 12px 12px 0 0;
+}
+
+.settings-collapsible[open] > .settings-collapsible-header .settings-collapsible-chevron {
+  transform: rotate(180deg);
+}
+
+.settings-collapsible-body {
+  padding: 0 24px 24px;
+}
+
+[data-reduce-animations='true'] .settings-collapsible-chevron {
+  transition-duration: 0s;
+}
+
 .settings-section-description {
   font-size: calc(13px * var(--font-scale, 1));
   color: var(--text-muted);
