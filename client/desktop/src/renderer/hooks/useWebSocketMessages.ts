@@ -797,11 +797,16 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         const { data } = msg;
         const { useFriendStore } = await import('../stores/friendStore');
         const store = useFriendStore.getState();
-        // Remove the pending request
-        if (data.request_id) {
-          store.removeRequest(data.request_id);
+
+        // Remove the pending request (backend sends "id", not "request_id")
+        const requestId = data.request_id || data.id;
+        if (requestId) {
+          store.removeRequest(requestId);
         }
-        // Add the new friend
+
+        // Add the new friend — handle both nested and flat payload formats.
+        // Backend currently sends flat fields (user_id, username, etc.)
+        // for the user who accepted the request.
         if (data.friend) {
           store.addFriend({
             id: data.friend.id,
@@ -810,6 +815,15 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
             displayName: data.friend.display_name,
             avatarUrl: data.friend.avatar_url,
             status: data.friend.status || 'offline',
+          });
+        } else if (data.user_id && data.username) {
+          store.addFriend({
+            id: requestId || '',
+            userId: data.user_id,
+            username: data.username,
+            displayName: data.display_name,
+            avatarUrl: data.avatar_url,
+            status: 'online',
           });
         }
       }
