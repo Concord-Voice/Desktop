@@ -280,6 +280,67 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
     [selectedThreadId, user, activeConv, addMessage, updateMessageStatus]
   );
 
+  // Edit DM message via REST
+  const handleEditMessage = useCallback(
+    async (messageId: string, newContent: string) => {
+      if (!selectedThreadId) return;
+      try {
+        // Encrypt if conversation is E2EE
+        let sendContent = newContent;
+        const isEncrypted = activeConv?.isEncrypted ?? false;
+        if (isEncrypted && e2eeService.isInitialized) {
+          sendContent = await e2eeService.encryptForChannel(selectedThreadId, newContent);
+        }
+
+        const res = await apiFetch(
+          `/api/v1/dm/conversations/${selectedThreadId}/messages/${messageId}`,
+          {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ content: sendContent }),
+          }
+        );
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || 'Failed to edit message');
+        }
+        const data = await res.json();
+        const updateMessage = useChatStore.getState().updateMessage;
+        updateMessage(selectedThreadId, messageId, {
+          content: isEncrypted ? newContent : data.message.content,
+          is_encrypted: data.message.is_encrypted,
+          key_version: data.message.key_version,
+          edited_at: data.message.edited_at,
+        });
+      } catch (err) {
+        console.error('Failed to edit DM message:', err);
+      }
+    },
+    [selectedThreadId, activeConv]
+  );
+
+  // Delete DM message via REST
+  const handleDeleteMessage = useCallback(
+    async (messageId: string) => {
+      if (!selectedThreadId) return;
+      try {
+        const res = await apiFetch(
+          `/api/v1/dm/conversations/${selectedThreadId}/messages/${messageId}`,
+          { method: 'DELETE' }
+        );
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error || 'Failed to delete message');
+        }
+        const removeMessage = useChatStore.getState().removeMessage;
+        removeMessage(selectedThreadId, messageId);
+      } catch (err) {
+        console.error('Failed to delete DM message:', err);
+      }
+    },
+    [selectedThreadId]
+  );
+
   // Unseen count on leave
   const handleUnseenOnLeave = useCallback(
     (count: number) => {
@@ -336,6 +397,8 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
           isLoading={isLoading}
           hasMore={hasMore}
           onLoadMore={handleLoadMore}
+          onEditMessage={handleEditMessage}
+          onDeleteMessage={handleDeleteMessage}
           onUnseenOnLeave={handleUnseenOnLeave}
         />
       </div>
