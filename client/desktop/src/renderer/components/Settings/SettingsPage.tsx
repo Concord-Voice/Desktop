@@ -250,76 +250,78 @@ const SettingsPage: React.FC = () => {
           <div className="settings-layout">
             {/* Left sidebar: back button, title, and navigation */}
             <nav className="settings-nav">
-              <button
-                className={`settings-back-btn${hasPendingChanges ? ' settings-back-btn--blocked' : ''}`}
-                onClick={() => {
-                  if (!hasPendingChanges) navigate('/app');
-                }}
-                onMouseEnter={() => {
-                  if (hasPendingChanges) {
-                    setBlobBouncing(true);
-                  }
-                }}
-                onMouseLeave={() => {
-                  if (hasPendingChanges) {
-                    setBlobBouncing(false);
-                    setBlobFading(true);
-                    setTimeout(() => setBlobFading(false), 3000);
-                  }
-                }}
-              >
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path
-                    d="M10 12L6 8l4-4"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-                Back to app
-              </button>
+              <div className="settings-nav-scroll">
+                <button
+                  className={`settings-back-btn${hasPendingChanges ? ' settings-back-btn--blocked' : ''}`}
+                  onClick={() => {
+                    if (!hasPendingChanges) navigate('/app');
+                  }}
+                  onMouseEnter={() => {
+                    if (hasPendingChanges) {
+                      setBlobBouncing(true);
+                    }
+                  }}
+                  onMouseLeave={() => {
+                    if (hasPendingChanges) {
+                      setBlobBouncing(false);
+                      setBlobFading(true);
+                      setTimeout(() => setBlobFading(false), 3000);
+                    }
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path
+                      d="M10 12L6 8l4-4"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  Back to app
+                </button>
 
-              <h1 className="settings-page-title">Settings</h1>
+                <h1 className="settings-page-title">Settings</h1>
 
-              {navItems.map((item) => {
-                const isActive = activeSection === item.id;
-                const subs = isActive ? NAV_SUBSECTIONS[item.id] : undefined;
+                {navItems.map((item) => {
+                  const isActive = activeSection === item.id;
+                  const subs = isActive ? NAV_SUBSECTIONS[item.id] : undefined;
 
-                return (
-                  <div key={item.id} className="settings-nav-group">
-                    <button
-                      className={`settings-nav-item ${isActive ? 'active' : ''}`}
-                      onClick={() =>
-                        item.enabled && startTransition(() => setActiveSection(item.id))
-                      }
-                      disabled={!item.enabled}
-                    >
-                      <span className="settings-nav-item-icon">{item.icon}</span>
-                      {item.label}
-                      {!item.enabled && <span className="settings-nav-badge">Soon</span>}
-                    </button>
+                  return (
+                    <div key={item.id} className="settings-nav-group">
+                      <button
+                        className={`settings-nav-item ${isActive ? 'active' : ''}`}
+                        onClick={() =>
+                          item.enabled && startTransition(() => setActiveSection(item.id))
+                        }
+                        disabled={!item.enabled}
+                      >
+                        <span className="settings-nav-item-icon">{item.icon}</span>
+                        {item.label}
+                        {!item.enabled && <span className="settings-nav-badge">Soon</span>}
+                      </button>
 
-                    {subs && subs.length > 0 && (
-                      <div className="settings-nav-tree">
-                        {subs.map((sub, i) => (
-                          <div
-                            key={sub.id}
-                            className={`settings-nav-tree-item-wrapper${i === subs.length - 1 ? ' settings-nav-tree-item-wrapper--last' : ''}`}
-                          >
-                            <button
-                              className={`settings-nav-tree-item${activeSubsection === sub.id ? ' active' : ''}`}
-                              onClick={() => scrollToSection(sub.id)}
+                      {subs && subs.length > 0 && (
+                        <div className="settings-nav-tree">
+                          {subs.map((sub, i) => (
+                            <div
+                              key={sub.id}
+                              className={`settings-nav-tree-item-wrapper${i === subs.length - 1 ? ' settings-nav-tree-item-wrapper--last' : ''}`}
                             >
-                              {sub.label}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                              <button
+                                className={`settings-nav-tree-item${activeSubsection === sub.id ? ' active' : ''}`}
+                                onClick={() => scrollToSection(sub.id)}
+                              >
+                                {sub.label}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
 
               {/* Pending changes blob */}
               {hasPendingChanges && (

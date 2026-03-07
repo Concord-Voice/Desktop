@@ -62,8 +62,17 @@
   flex-direction: column;
   gap: 2px;
   max-height: calc(100vh - 64px);
-  overflow-y: auto;
+  overflow: visible;
   padding-top: 4px;
+}
+
+.settings-nav-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .settings-nav-item {
