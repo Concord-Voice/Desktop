@@ -64,7 +64,9 @@ class PreferencesSyncService {
       } catch {
         // Preferences encrypted with a different key (e.g., after PBKDF2→Argon2id migration).
         // Push current local state to overwrite stale server data.
-        console.warn('[PrefsSync] Cannot decrypt server preferences, re-encrypting with current key');
+        console.warn(
+          '[PrefsSync] Cannot decrypt server preferences, re-encrypting with current key'
+        );
         await this.pushPreferences();
         return;
       }
