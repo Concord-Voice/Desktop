@@ -3,10 +3,22 @@
  * Uses Web Crypto API for secure key generation and management
  */
 
-// Constants for PBKDF2 key derivation (matching backend expectations)
+import { argon2id } from 'hash-wasm';
+
+// Constants for PBKDF2 key derivation (legacy — kept for migration)
 const PBKDF2_ITERATIONS = 600000; // 600k iterations (OWASP 2023)
 const SALT_LENGTH = 16; // 16 bytes
 const DERIVED_KEY_LENGTH = 32; // 32 bytes (256 bits)
+
+// Argon2id parameters — matches server-side (auth/password.go DefaultParams)
+const ARGON2_MEMORY = 64 * 1024; // 64 MB in KiB
+const ARGON2_ITERATIONS = 3;
+const ARGON2_PARALLELISM = 4;
+const ARGON2_HASH_LENGTH = 32; // 256 bits
+
+export type KeyDerivationAlgorithm = 'pbkdf2' | 'argon2id';
+
+const PREFERENCES_DOMAIN_SEPARATOR = 'concord-preferences-v1';
 
 // Constants for RSA key pair
 const RSA_KEY_SIZE = 4096; // 4096-bit RSA keys (NIST secure through 2040+)
@@ -56,6 +68,124 @@ export async function deriveKeyFromPassword(
     },
     false, // not extractable
     ['wrapKey', 'unwrapKey']
+  );
+}
+
+/**
+ * Derive an encryption key from a password using Argon2id (WASM).
+ * Matches server-side parameters (m=64MB, t=3, p=4).
+ * Returns a non-extractable AES-GCM key for wrapping/unwrapping.
+ */
+export async function deriveKeyArgon2id(password: string, salt: Uint8Array): Promise<CryptoKey> {
+  const hash = await argon2id({
+    password,
+    salt,
+    iterations: ARGON2_ITERATIONS,
+    parallelism: ARGON2_PARALLELISM,
+    memorySize: ARGON2_MEMORY,
+    hashLength: ARGON2_HASH_LENGTH,
+    outputType: 'binary',
+  });
+
+  return crypto.subtle.importKey(
+    'raw',
+    hash as BufferSource,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['wrapKey', 'unwrapKey']
+  );
+}
+
+/**
+ * Derive an EXTRACTABLE wrapping key from password using Argon2id.
+ * Used once during login/registration to export raw bytes for safeStorage.
+ */
+export async function deriveKeyArgon2idExportable(
+  password: string,
+  salt: Uint8Array
+): Promise<CryptoKey> {
+  const hash = await argon2id({
+    password,
+    salt,
+    iterations: ARGON2_ITERATIONS,
+    parallelism: ARGON2_PARALLELISM,
+    memorySize: ARGON2_MEMORY,
+    hashLength: ARGON2_HASH_LENGTH,
+    outputType: 'binary',
+  });
+
+  return crypto.subtle.importKey(
+    'raw',
+    hash as BufferSource,
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['wrapKey', 'unwrapKey']
+  );
+}
+
+/**
+ * Derive a domain-separated preferences key using Argon2id.
+ * Non-extractable for runtime use.
+ */
+export async function derivePreferencesKeyArgon2id(
+  password: string,
+  salt: Uint8Array
+): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const separator = encoder.encode(PREFERENCES_DOMAIN_SEPARATOR);
+  const domainSalt = new Uint8Array(salt.length + separator.length);
+  domainSalt.set(salt, 0);
+  domainSalt.set(separator, salt.length);
+
+  const hash = await argon2id({
+    password,
+    salt: domainSalt,
+    iterations: ARGON2_ITERATIONS,
+    parallelism: ARGON2_PARALLELISM,
+    memorySize: ARGON2_MEMORY,
+    hashLength: ARGON2_HASH_LENGTH,
+    outputType: 'binary',
+  });
+
+  return crypto.subtle.importKey(
+    'raw',
+    hash as BufferSource,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+/**
+ * Derive an EXTRACTABLE domain-separated preferences key using Argon2id.
+ * Used once during login/registration to export raw bytes for safeStorage.
+ */
+export async function derivePreferencesKeyArgon2idExportable(
+  password: string,
+  salt: Uint8Array
+): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const separator = encoder.encode(PREFERENCES_DOMAIN_SEPARATOR);
+  const domainSalt = new Uint8Array(salt.length + separator.length);
+  domainSalt.set(salt, 0);
+  domainSalt.set(separator, salt.length);
+
+  const hash = await argon2id({
+    password,
+    salt: domainSalt,
+    iterations: ARGON2_ITERATIONS,
+    parallelism: ARGON2_PARALLELISM,
+    memorySize: ARGON2_MEMORY,
+    hashLength: ARGON2_HASH_LENGTH,
+    outputType: 'binary',
+  });
+
+  return crypto.subtle.importKey(
+    'raw',
+    hash as BufferSource,
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt', 'decrypt']
   );
 }
 
@@ -205,19 +335,16 @@ export interface RegistrationKeys {
   privateKey: CryptoKey;
   wrappedPrivateKey: string; // base64
   keyDerivationSalt: string; // base64
+  keyDerivationAlg: KeyDerivationAlgorithm;
 }
 
 export async function generateRegistrationKeys(password: string): Promise<RegistrationKeys> {
-  // Generate salt
   const salt = generateSalt();
 
-  // Derive wrapping key from password
-  const wrappingKey = await deriveKeyFromPassword(password, salt);
+  // Use Argon2id for all new registrations
+  const wrappingKey = await deriveKeyArgon2id(password, salt);
 
-  // Generate RSA key pair
   const keyPair = await generateKeyPair();
-
-  // Wrap private key
   const wrappedKey = await wrapPrivateKey(keyPair.privateKey, wrappingKey);
 
   return {
@@ -225,6 +352,7 @@ export async function generateRegistrationKeys(password: string): Promise<Regist
     privateKey: keyPair.privateKey,
     wrappedPrivateKey: arrayBufferToBase64(wrappedKey),
     keyDerivationSalt: arrayBufferToBase64(salt.buffer as ArrayBuffer),
+    keyDerivationAlg: 'argon2id',
   };
 }
 
@@ -239,16 +367,17 @@ export async function generateRegistrationKeys(password: string): Promise<Regist
 export async function unwrapLoginKeys(
   password: string,
   wrappedPrivateKeyBase64: string,
-  saltBase64: string
+  saltBase64: string,
+  alg: KeyDerivationAlgorithm = 'pbkdf2'
 ): Promise<CryptoKey> {
-  // Convert from base64
   const salt = new Uint8Array(base64ToArrayBuffer(saltBase64));
   const wrappedKey = base64ToArrayBuffer(wrappedPrivateKeyBase64);
 
-  // Derive unwrapping key from password
-  const unwrappingKey = await deriveKeyFromPassword(password, salt);
+  const unwrappingKey =
+    alg === 'argon2id'
+      ? await deriveKeyArgon2id(password, salt)
+      : await deriveKeyFromPassword(password, salt);
 
-  // Unwrap private key
   return unwrapPrivateKey(wrappedKey, unwrappingKey);
 }
 
@@ -424,10 +553,8 @@ export async function decryptMessage(
 }
 
 // ========================================
-// Encrypted User Preferences
+// Encrypted User Preferences (PBKDF2 — legacy, kept for migration)
 // ========================================
-
-const PREFERENCES_DOMAIN_SEPARATOR = 'concord-preferences-v1';
 
 /**
  * Derive an AES-256-GCM key for encrypting user preferences.

@@ -175,16 +175,20 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
   const completeLoginFromResponse = async (data: any) => {
     console.debug('Login successful, unwrapping private key...');
 
+    const kdAlg = data.e2ee_keys.key_derivation_alg || 'pbkdf2';
     try {
       await unwrapLoginKeys(
         formData.password,
         data.e2ee_keys.wrapped_private_key,
-        data.e2ee_keys.key_derivation_salt
+        data.e2ee_keys.key_derivation_salt,
+        kdAlg
       );
+      // e2eeService.initialize handles PBKDF2→Argon2id migration automatically
       await e2eeService.initialize(
         formData.password,
         data.e2ee_keys.wrapped_private_key,
-        data.e2ee_keys.key_derivation_salt
+        data.e2ee_keys.key_derivation_salt,
+        kdAlg
       );
       console.debug('Private key unwrapped and E2EE service initialized!');
     } catch (unwrapError) {
@@ -207,6 +211,7 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
         body: JSON.stringify({
           wrapped_private_key: newKeys.wrappedPrivateKey,
           key_derivation_salt: newKeys.keyDerivationSalt,
+          key_derivation_alg: newKeys.keyDerivationAlg,
         }),
       });
       if (!replaceRes.ok) throw new Error('Failed to recover encryption keys. Please try again.');
@@ -214,7 +219,8 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
       await e2eeService.initialize(
         formData.password,
         newKeys.wrappedPrivateKey,
-        newKeys.keyDerivationSalt
+        newKeys.keyDerivationSalt,
+        newKeys.keyDerivationAlg
       );
       console.debug('E2EE keys regenerated and service initialized!');
     }
