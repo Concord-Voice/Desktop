@@ -56,9 +56,18 @@ class PreferencesSyncService {
         return;
       }
 
-      const blob = await e2eeService.decryptPreferences<PreferencesBlob>(
-        data.preferences.encrypted_data
-      );
+      let blob: PreferencesBlob;
+      try {
+        blob = await e2eeService.decryptPreferences<PreferencesBlob>(
+          data.preferences.encrypted_data
+        );
+      } catch {
+        // Preferences encrypted with a different key (e.g., after PBKDF2→Argon2id migration).
+        // Push current local state to overwrite stale server data.
+        console.warn('[PrefsSync] Cannot decrypt server preferences, re-encrypting with current key');
+        await this.pushPreferences();
+        return;
+      }
 
       if (blob.v !== 1) {
         console.warn('[PrefsSync] Unknown preferences version:', blob.v);

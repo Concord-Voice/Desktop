@@ -157,6 +157,8 @@ class E2EEService {
       });
       if (res.ok) {
         console.debug('[E2EE] Migrated key derivation from PBKDF2 to Argon2id');
+        // Re-encrypt preferences with new Argon2id key (they were encrypted with PBKDF2 key)
+        await this.migratePreferences(password, oldSalt, argon2PrefsKey);
       } else {
         console.warn('[E2EE] Key migration upload failed, continuing with PBKDF2 keys');
         // Fall back to PBKDF2 keys for this session
@@ -173,6 +175,43 @@ class E2EEService {
 
     // Step 5: Continue session with new Argon2id keys
     await this.finalizeKeys(argon2WrappingKey, argon2PrefsKey, newWrappedKeyBase64);
+  }
+
+  /**
+   * Re-encrypt server preferences from old PBKDF2 key to new Argon2id key.
+   * Best-effort: failure is logged but does not block login.
+   */
+  private async migratePreferences(
+    password: string,
+    oldSalt: Uint8Array,
+    newPrefsKey: CryptoKey
+  ): Promise<void> {
+    try {
+      const res = await apiFetch('/api/v1/users/me/preferences');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.preferences?.encrypted_data) return;
+
+      // Decrypt with old PBKDF2-derived preferences key
+      const oldPrefsKey = await derivePreferencesKeyExportable(password, oldSalt);
+      const plaintext = await decryptBlob(data.preferences.encrypted_data, oldPrefsKey);
+
+      // Re-encrypt with new Argon2id-derived preferences key
+      const newCiphertext = await encryptBlob(plaintext, newPrefsKey);
+
+      // Push re-encrypted preferences back to server
+      await apiFetch('/api/v1/users/me/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          encrypted_data: newCiphertext,
+          version: data.preferences.version,
+        }),
+      });
+      console.debug('[E2EE] Re-encrypted preferences with Argon2id key');
+    } catch (err) {
+      console.warn('[E2EE] Preferences re-encryption failed (non-fatal):', err);
+    }
   }
 
   /**

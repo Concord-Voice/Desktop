@@ -175,6 +175,10 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
   const completeLoginFromResponse = async (data: any) => {
     console.debug('Login successful, unwrapping private key...');
 
+    // Set access token early so e2eeService can make authenticated API calls (e.g., key migration)
+    useAuthStore.getState().setAccessToken(data.access_token);
+    if (data.session_id) useAuthStore.getState().setSessionId(data.session_id);
+
     const kdAlg = data.e2ee_keys.key_derivation_alg || 'pbkdf2';
     try {
       await unwrapLoginKeys(
