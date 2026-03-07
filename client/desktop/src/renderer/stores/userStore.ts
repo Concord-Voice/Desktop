@@ -7,11 +7,13 @@ import { e2eeService } from '../services/e2eeService';
 import { preferencesSyncService } from '../services/preferencesSync';
 import {
   deriveKeyFromPassword,
+  deriveKeyArgon2id,
   unwrapPrivateKey,
   wrapPrivateKey,
   generateSalt,
   base64ToArrayBuffer,
   arrayBufferToBase64,
+  type KeyDerivationAlgorithm,
 } from '../utils/crypto';
 
 export interface UserProfile {
@@ -168,16 +170,21 @@ export const useUserStore = create<UserState>()(
 
           const keysData = await keysRes.json();
           const { wrapped_private_key, key_derivation_salt } = keysData.e2ee_keys;
+          const currentAlg: KeyDerivationAlgorithm =
+            keysData.e2ee_keys.key_derivation_alg || 'pbkdf2';
 
-          // Step 2: Unwrap private key with current password
+          // Step 2: Unwrap private key with current password (using stored algorithm)
           const currentSalt = new Uint8Array(base64ToArrayBuffer(key_derivation_salt));
-          const currentWrappingKey = await deriveKeyFromPassword(currentPassword, currentSalt);
+          const currentWrappingKey =
+            currentAlg === 'argon2id'
+              ? await deriveKeyArgon2id(currentPassword, currentSalt)
+              : await deriveKeyFromPassword(currentPassword, currentSalt);
           const wrappedKeyBuffer = base64ToArrayBuffer(wrapped_private_key);
           const privateKey = await unwrapPrivateKey(wrappedKeyBuffer, currentWrappingKey);
 
-          // Step 3: Re-wrap private key with new password
+          // Step 3: Re-wrap private key with new password (always Argon2id)
           const newSalt = generateSalt();
-          const newWrappingKey = await deriveKeyFromPassword(newPassword, newSalt);
+          const newWrappingKey = await deriveKeyArgon2id(newPassword, newSalt);
           const newWrappedKey = await wrapPrivateKey(privateKey, newWrappingKey);
 
           // Step 4: Send password change with re-wrapped keys
@@ -189,6 +196,7 @@ export const useUserStore = create<UserState>()(
               new_password: newPassword,
               wrapped_private_key: arrayBufferToBase64(newWrappedKey),
               key_derivation_salt: arrayBufferToBase64(newSalt.buffer as ArrayBuffer),
+              key_derivation_alg: 'argon2id',
             }),
           });
 
@@ -209,11 +217,12 @@ export const useUserStore = create<UserState>()(
             return { success: false, error: data.error || 'Failed to change password' };
           }
 
-          // Re-initialize E2EE service with new password so preferences key is updated
+          // Re-initialize E2EE service with new password (always Argon2id after change)
           await e2eeService.initialize(
             newPassword,
             arrayBufferToBase64(newWrappedKey),
-            arrayBufferToBase64(newSalt.buffer as ArrayBuffer)
+            arrayBufferToBase64(newSalt.buffer as ArrayBuffer),
+            'argon2id'
           );
 
           // Re-encrypt and push preferences with the new key

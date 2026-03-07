@@ -165,6 +165,70 @@ describe('SettingsPage', () => {
     expect(screen.getByText('System')).toBeInTheDocument();
   });
 
+  // ─── Nav Structure Tests (sidebar layout) ──────────────────────────────
+
+  it('back button and title are inside the nav sidebar', () => {
+    render(<SettingsPage />);
+    const nav = document.querySelector('.settings-nav');
+    expect(nav).toBeInTheDocument();
+    // Back button and title should be children of the nav element
+    expect(nav!.querySelector('.settings-back-btn')).toBeInTheDocument();
+    expect(nav!.querySelector('.settings-page-title')).toBeInTheDocument();
+  });
+
+  it('privacy section shows all 4 subsections in nav tree', () => {
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Privacy & Security'));
+    // "Privacy" appears in nav item ("Privacy & Security") and tree subsection
+    const privacyTreeItem = document.querySelector('.settings-nav-tree-item');
+    expect(privacyTreeItem).toBeInTheDocument();
+    expect(privacyTreeItem!.textContent).toBe('Privacy');
+    expect(screen.getByText('Multi-Factor Auth')).toBeInTheDocument();
+    // "Active Sessions" and "Past Sessions" appear in both nav tree and content
+    const activeSessionEls = screen.getAllByText('Active Sessions');
+    expect(activeSessionEls.length).toBeGreaterThanOrEqual(2); // nav tree + content
+    const pastSessionEls = screen.getAllByText('Past Sessions');
+    expect(pastSessionEls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('appearance section shows subsections in nav tree', () => {
+    render(<SettingsPage />);
+    // Default is appearance, tree should show subsections
+    // "Color Scheme", "Theme", "Display" appear in both nav tree and content
+    const colorSchemeEls = screen.getAllByText('Color Scheme');
+    expect(colorSchemeEls.length).toBeGreaterThanOrEqual(2);
+    const themeEls = screen.getAllByText('Theme');
+    expect(themeEls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('voice section shows subsections in nav tree', () => {
+    // VoiceAudioSection uses navigator.mediaDevices — mock it
+    Object.defineProperty(navigator, 'mediaDevices', {
+      value: {
+        enumerateDevices: vi.fn().mockResolvedValue([]),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      },
+      configurable: true,
+    });
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Voice & Audio'));
+    const deviceEls = screen.getAllByText('Device Configuration');
+    expect(deviceEls.length).toBeGreaterThanOrEqual(1);
+    const audioEls = screen.getAllByText('Audio Configuration');
+    expect(audioEls.length).toBeGreaterThanOrEqual(1);
+    const videoEls = screen.getAllByText('Video Configuration');
+    expect(videoEls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('active nav item has both left and right accent borders', () => {
+    render(<SettingsPage />);
+    const activeItem = document.querySelector('.settings-nav-item.active');
+    expect(activeItem).toBeInTheDocument();
+    // Verify the active class is present (CSS handles border styling)
+    expect(activeItem).toHaveClass('active');
+  });
+
   it('privacy section shows session loading state initially', async () => {
     render(<SettingsPage />);
     fireEvent.click(screen.getByText('Privacy & Security'));

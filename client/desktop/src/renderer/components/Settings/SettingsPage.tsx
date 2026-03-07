@@ -137,6 +137,8 @@ const NAV_SUBSECTIONS: Record<string, { id: string; label: string }[]> = {
     { id: 'display', label: 'Display' },
   ],
   privacy: [
+    { id: 'privacy-settings', label: 'Privacy' },
+    { id: 'mfa', label: 'Multi-Factor Auth' },
     { id: 'active-sessions', label: 'Active Sessions' },
     { id: 'past-sessions', label: 'Past Sessions' },
   ],
@@ -166,7 +168,12 @@ const SettingsPage: React.FC = () => {
   const [blobFading, setBlobFading] = useState(false);
 
   // IntersectionObserver: track which section is in view and highlight tree nav
+  // We keep a persistent map of all currently-intersecting sections so the callback
+  // (which only receives *changed* entries) can always pick the topmost visible one.
+  const visibleSectionsRef = useRef<Map<string, IntersectionObserverEntry>>(new Map());
+
   useEffect(() => {
+    visibleSectionsRef.current.clear();
     const root = contentRef.current?.closest('.settings-page-content') as HTMLElement | null;
     if (!root) return;
 
@@ -174,20 +181,27 @@ const SettingsPage: React.FC = () => {
     const timer = setTimeout(() => {
       const observer = new IntersectionObserver(
         (entries) => {
-          let bestEntry: IntersectionObserverEntry | null = null;
           for (const entry of entries) {
-            if (
-              entry.isIntersecting &&
-              (!bestEntry || entry.intersectionRatio > bestEntry.intersectionRatio)
-            ) {
-              bestEntry = entry;
+            const id = entry.target.id;
+            if (entry.isIntersecting) {
+              visibleSectionsRef.current.set(id, entry);
+            } else {
+              visibleSectionsRef.current.delete(id);
             }
           }
-          if (bestEntry) {
-            setActiveSubsection(bestEntry.target.id.replace('section-', ''));
+
+          // Pick the topmost visible section (smallest boundingClientRect.top)
+          let best: IntersectionObserverEntry | null = null;
+          for (const entry of visibleSectionsRef.current.values()) {
+            if (!best || entry.boundingClientRect.top < best.boundingClientRect.top) {
+              best = entry;
+            }
+          }
+          if (best) {
+            setActiveSubsection(best.target.id.replace('section-', ''));
           }
         },
-        { root, threshold: [0, 0.25, 0.5, 0.75, 1], rootMargin: '-20% 0px -60% 0px' }
+        { root, threshold: [0, 0.1, 0.25, 0.5], rootMargin: '-10% 0px -50% 0px' }
       );
 
       const sections = root.querySelectorAll('[id^="section-"]');
@@ -207,7 +221,11 @@ const SettingsPage: React.FC = () => {
   const scrollToSection = useCallback((sectionId: string) => {
     const el = document.getElementById(`section-${sectionId}`);
     if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Auto-expand collapsed sections when navigating via sidebar
+    if (el instanceof HTMLDetailsElement && !el.open) {
+      el.open = true;
+    }
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
   const renderSection = () => {
@@ -229,80 +247,81 @@ const SettingsPage: React.FC = () => {
     <div className="view-container settings-fullpage">
       <div className="settings-page-content">
         <div className="settings-page-inner">
-          {/* Back button — blocked when changes are pending */}
-          <button
-            className={`settings-back-btn${hasPendingChanges ? ' settings-back-btn--blocked' : ''}`}
-            onClick={() => {
-              if (!hasPendingChanges) navigate('/app');
-            }}
-            onMouseEnter={() => {
-              if (hasPendingChanges) {
-                setBlobBouncing(true);
-              }
-            }}
-            onMouseLeave={() => {
-              if (hasPendingChanges) {
-                setBlobBouncing(false);
-                setBlobFading(true);
-                setTimeout(() => setBlobFading(false), 3000);
-              }
-            }}
-          >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-              <path
-                d="M10 12L6 8l4-4"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-            Back to app
-          </button>
-
-          <h1 className="settings-page-title">Settings</h1>
-
           <div className="settings-layout">
-            {/* Left navigation with tree subsections */}
+            {/* Left sidebar: back button, title, and navigation */}
             <nav className="settings-nav">
-              {navItems.map((item) => {
-                const isActive = activeSection === item.id;
-                const subs = isActive ? NAV_SUBSECTIONS[item.id] : undefined;
+              <div className="settings-nav-scroll">
+                <button
+                  className={`settings-back-btn${hasPendingChanges ? ' settings-back-btn--blocked' : ''}`}
+                  onClick={() => {
+                    if (!hasPendingChanges) navigate('/app');
+                  }}
+                  onMouseEnter={() => {
+                    if (hasPendingChanges) {
+                      setBlobBouncing(true);
+                    }
+                  }}
+                  onMouseLeave={() => {
+                    if (hasPendingChanges) {
+                      setBlobBouncing(false);
+                      setBlobFading(true);
+                      setTimeout(() => setBlobFading(false), 3000);
+                    }
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path
+                      d="M10 12L6 8l4-4"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  Back to app
+                </button>
 
-                return (
-                  <div key={item.id} className="settings-nav-group">
-                    <button
-                      className={`settings-nav-item ${isActive ? 'active' : ''}`}
-                      onClick={() =>
-                        item.enabled && startTransition(() => setActiveSection(item.id))
-                      }
-                      disabled={!item.enabled}
-                    >
-                      <span className="settings-nav-item-icon">{item.icon}</span>
-                      {item.label}
-                      {!item.enabled && <span className="settings-nav-badge">Soon</span>}
-                    </button>
+                <h1 className="settings-page-title">Settings</h1>
 
-                    {subs && subs.length > 0 && (
-                      <div className="settings-nav-tree">
-                        {subs.map((sub, i) => (
-                          <div
-                            key={sub.id}
-                            className={`settings-nav-tree-item-wrapper${i === subs.length - 1 ? ' settings-nav-tree-item-wrapper--last' : ''}`}
-                          >
-                            <button
-                              className={`settings-nav-tree-item${activeSubsection === sub.id ? ' active' : ''}`}
-                              onClick={() => scrollToSection(sub.id)}
+                {navItems.map((item) => {
+                  const isActive = activeSection === item.id;
+                  const subs = isActive ? NAV_SUBSECTIONS[item.id] : undefined;
+
+                  return (
+                    <div key={item.id} className="settings-nav-group">
+                      <button
+                        className={`settings-nav-item ${isActive ? 'active' : ''}`}
+                        onClick={() =>
+                          item.enabled && startTransition(() => setActiveSection(item.id))
+                        }
+                        disabled={!item.enabled}
+                      >
+                        <span className="settings-nav-item-icon">{item.icon}</span>
+                        {item.label}
+                        {!item.enabled && <span className="settings-nav-badge">Soon</span>}
+                      </button>
+
+                      {subs && subs.length > 0 && (
+                        <div className="settings-nav-tree">
+                          {subs.map((sub, i) => (
+                            <div
+                              key={sub.id}
+                              className={`settings-nav-tree-item-wrapper${i === subs.length - 1 ? ' settings-nav-tree-item-wrapper--last' : ''}`}
                             >
-                              {sub.label}
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                              <button
+                                className={`settings-nav-tree-item${activeSubsection === sub.id ? ' active' : ''}`}
+                                onClick={() => scrollToSection(sub.id)}
+                              >
+                                {sub.label}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
 
               {/* Pending changes blob */}
               {hasPendingChanges && (

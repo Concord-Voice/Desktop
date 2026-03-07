@@ -25,6 +25,7 @@ import {
   useStashAndSwapAudioMode,
 } from '../../hooks/useDraftSettings';
 import ToggleSwitch from './ToggleSwitch';
+import CollapsibleSection from './CollapsibleSection';
 
 // ─── GPU Vendor Icon ────────────────────────────────────────────────────────
 
@@ -380,9 +381,7 @@ const VoiceAudioSection: React.FC = () => {
   return (
     <>
       {/* ═══ Device Configuration ═══ */}
-      <div className="settings-section" id="section-device-config">
-        <h2 className="settings-section-title">Device Configuration</h2>
-
+      <CollapsibleSection id="section-device-config" title="Device Configuration">
         <h3 className="settings-subsection-title">Input</h3>
         <div className="settings-device-row">
           <DeviceSelector kind="audioinput" />
@@ -467,12 +466,10 @@ const VoiceAudioSection: React.FC = () => {
         <div className="settings-device-row">
           <DeviceSelector kind="videoinput" />
         </div>
-      </div>
+      </CollapsibleSection>
 
       {/* ═══ Audio Configuration ═══ */}
-      <div className="settings-section" id="section-audio-config">
-        <h2 className="settings-section-title">Audio Configuration</h2>
-
+      <CollapsibleSection id="section-audio-config" title="Audio Configuration">
         {/* ── Mode Toggle ── */}
         <div className="settings-mode-toggle">
           <span
@@ -911,12 +908,10 @@ const VoiceAudioSection: React.FC = () => {
             </div>
           </>
         )}
-      </div>
+      </CollapsibleSection>
 
       {/* ═══ Video Configuration ═══ */}
-      <div className="settings-section" id="section-video-screen">
-        <h2 className="settings-section-title">Video Configuration</h2>
-
+      <CollapsibleSection id="section-video-screen" title="Video Configuration">
         <div className="settings-mode-toggle">
           <span
             className={`settings-mode-pill ${!videoAdvancedMode ? 'active' : ''}`}
@@ -1528,7 +1523,7 @@ const VoiceAudioSection: React.FC = () => {
             </div>
           </>
         )}
-      </div>
+      </CollapsibleSection>
     </>
   );
 };

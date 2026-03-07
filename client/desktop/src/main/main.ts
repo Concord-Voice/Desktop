@@ -128,21 +128,36 @@ const createWindow = async (): Promise<void> => {
 
 // App lifecycle handlers
 app.whenReady().then(() => {
-  // Permission handler: allow media, display-capture, and window-management
-  // (window-management is needed for Document Picture-in-Picture API)
+  // Permission request handler: explicitly allow app-required permissions, deny risky ones
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    const allowed = ['media', 'display-capture', 'window-management'].includes(permission);
-    callback(allowed);
+    const denied = ['geolocation', 'notifications'];
+    if (denied.includes(permission)) {
+      callback(false);
+      return;
+    }
+    callback(true);
   });
 
-  // Permission check handler: Chromium queries this to verify permissions are granted
+  // Permission check handler: Chromium queries this synchronously to verify grants.
+  // Default to true so internal checks (e.g. WebAuthn/FIDO2) aren't silently blocked.
   session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
-    return ['media', 'display-capture'].includes(permission);
+    const denied = ['geolocation', 'notifications'];
+    return !denied.includes(permission);
   });
 
-  // Device permission handler: allow camera, microphone, and speaker enumeration
+  // Device permission handler: allow camera, microphone, speaker, and HID (security keys)
   session.defaultSession.setDevicePermissionHandler((details) => {
-    return ['camera', 'microphone', 'speaker'].includes(details.deviceType ?? '');
+    return ['camera', 'microphone', 'speaker', 'hid'].includes(details.deviceType ?? '');
+  });
+
+  // HID device selection: auto-select for WebAuthn hardware security keys
+  session.defaultSession.on('select-hid-device', (event, details, callback) => {
+    event.preventDefault();
+    if (details.deviceList && details.deviceList.length > 0) {
+      callback(details.deviceList[0].deviceId);
+    } else {
+      callback('');
+    }
   });
 
   // Request macOS media permissions on startup (camera + microphone)

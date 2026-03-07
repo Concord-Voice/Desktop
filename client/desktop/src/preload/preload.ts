@@ -142,7 +142,14 @@ export interface ElectronAPI {
       wrappedPrivateKeyBase64: string;
     } | null;
   }>;
-  refreshToken: () => Promise<{ status: string; accessToken?: string; sessionId?: string }>;
+  refreshToken: () => Promise<{
+    status: string;
+    accessToken?: string;
+    sessionId?: string;
+    mfaChallengeToken?: string;
+    mfaMethods?: string[];
+    mfaRecoveryOnlyMethods?: string[];
+  }>;
   clearTokens: () => Promise<void>;
   logout: (data?: { accessToken?: string }) => Promise<void>;
   getAuthCapabilities: () => Promise<{ persistAvailable: boolean }>;

@@ -29,7 +29,7 @@
   font-size: calc(14px * var(--font-scale, 1));
   font-family: 'SourceSans', sans-serif;
   padding: 4px 0;
-  margin-bottom: 24px;
+  margin-bottom: 8px;
   transition: color 0.15s ease;
 }
 
@@ -37,11 +37,11 @@
   color: var(--text-primary);
 }
 
-/* Page title */
+/* Page title (inside nav sidebar) */
 .settings-page-title {
   font-family: 'BaronNeue', sans-serif;
-  font-size: calc(28px * var(--font-scale, 1));
-  margin-bottom: 32px;
+  font-size: calc(22px * var(--font-scale, 1));
+  margin-bottom: 16px;
   color: var(--text-primary);
 }
 
@@ -51,16 +51,28 @@
   gap: 32px;
 }
 
-/* Left navigation */
+/* Left navigation (includes back button and title) */
 .settings-nav {
   width: 200px;
   flex-shrink: 0;
   position: sticky;
-  top: 32px;
+  top: 0;
   align-self: flex-start;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  max-height: calc(100vh - 64px);
+  overflow: visible;
+  padding-top: 4px;
+}
+
+.settings-nav-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
 }
 
 .settings-nav-item {
@@ -89,7 +101,9 @@
   color: var(--text-primary);
   background: var(--bg-tertiary);
   border-left: 3px solid var(--accent-primary);
+  border-right: 3px solid var(--accent-primary);
   padding-left: 9px;
+  padding-right: 9px;
 }
 
 .settings-nav-item:disabled {
@@ -144,6 +158,65 @@
   margin-bottom: 20px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border-color);
+}
+
+/* ─── Collapsible Sections ────────────────────────────────────────────────── */
+
+.settings-collapsible {
+  padding: 0;
+}
+
+.settings-collapsible-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  transition: background 0.15s ease;
+  border-radius: 12px;
+}
+
+.settings-collapsible-header::-webkit-details-marker {
+  display: none;
+}
+
+.settings-collapsible-header::marker {
+  display: none;
+  content: '';
+}
+
+.settings-collapsible-header:hover {
+  background: var(--bg-tertiary);
+}
+
+.settings-collapsible-header .settings-section-title {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.settings-collapsible-chevron {
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.settings-collapsible[open] > .settings-collapsible-header {
+  border-radius: 12px 12px 0 0;
+}
+
+.settings-collapsible[open] > .settings-collapsible-header .settings-collapsible-chevron {
+  transform: rotate(180deg);
+}
+
+.settings-collapsible-body {
+  padding: 0 24px 24px;
+}
+
+[data-reduce-animations='true'] .settings-collapsible-chevron {
+  transition-duration: 0s;
 }
 
 .settings-section-description {
@@ -1060,6 +1133,21 @@
   color: var(--text-primary);
   font-size: calc(12px * var(--font-scale, 1));
   letter-spacing: 0.03em;
+}
+
+/*
+ * DM Privacy slider override — 4 stops instead of 7.
+ * For N=4 labels with flex:1, centers are at 12.5%, 37.5%, 62.5%, 87.5%.
+ * The -10px compensates for Chromium's range thumb being 10px inset from edges,
+ * matching the audio quality slider's approach (calc(100%/14 - 10px) for 7 stops).
+ */
+.dm-privacy-track {
+  padding: 0 calc(12.5% - 10px);
+}
+
+.dm-privacy-track .settings-tier-ticks {
+  left: 12.5%;
+  right: 12.5%;
 }
 
 /* ─── Audio Settings Controls ──────────────────────────────────────── */

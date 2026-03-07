@@ -5,7 +5,7 @@
  * WebCrypto CryptoKey objects are opaque (browser keeps material in protected memory).
  *
  * Cached state:
- * - wrappingKey: CryptoKey (PBKDF2-derived, opaque, session lifetime)
+ * - wrappingKey: CryptoKey (derived, opaque, session lifetime)
  * - wrappedPrivateKey: string (encrypted blob, safe in memory)
  * - channelKeyCache: Map of wrapped keys (encrypted, safe in memory)
  *
@@ -13,17 +13,22 @@
  */
 
 import {
+  type KeyDerivationAlgorithm,
   deriveKeyFromPasswordExportable,
+  deriveKeyArgon2idExportable,
   derivePreferencesKeyExportable,
+  derivePreferencesKeyArgon2idExportable,
   encryptBlob,
   decryptBlob,
   unwrapPrivateKey,
+  wrapPrivateKey,
   unwrapChannelKey,
   wrapChannelKey,
   encryptMessage,
   decryptMessage,
   generateChannelKey,
   exportChannelKey,
+  generateSalt,
   importPublicKey,
   arrayBufferToBase64,
   base64ToArrayBuffer,
@@ -60,21 +65,163 @@ class E2EEService {
 
   /**
    * Initialize the E2EE service after login/registration.
-   * Derives PBKDF2 keys as extractable, exports raw bytes for safeStorage,
+   * Derives keys using the specified algorithm, exports raw bytes for safeStorage,
    * then re-imports as non-extractable for runtime security.
+   *
+   * If the user's keys are still PBKDF2-wrapped, this automatically migrates them
+   * to Argon2id: unwrap with PBKDF2, re-derive with Argon2id, re-wrap, and upload.
    */
   async initialize(
     password: string,
     wrappedPrivateKeyBase64: string,
-    saltBase64: string
+    saltBase64: string,
+    keyDerivationAlg: KeyDerivationAlgorithm = 'argon2id'
   ): Promise<void> {
     const saltBytes = new Uint8Array(base64ToArrayBuffer(saltBase64));
 
-    // Derive extractable keys (single PBKDF2 pass each)
-    const exportableWrapping = await deriveKeyFromPasswordExportable(password, saltBytes);
-    const exportablePrefs = await derivePreferencesKeyExportable(password, saltBytes);
+    if (keyDerivationAlg === 'pbkdf2') {
+      // Legacy user — derive with PBKDF2 first, then migrate to Argon2id
+      await this.initializeWithPbkdf2AndMigrate(password, wrappedPrivateKeyBase64, saltBytes);
+    } else {
+      // Already on Argon2id — standard initialization
+      await this.initializeWithArgon2id(password, wrappedPrivateKeyBase64, saltBytes);
+    }
 
-    // Export raw bytes for safeStorage persistence
+    // Start cache cleanup
+    if (this.cacheCleanupInterval) clearInterval(this.cacheCleanupInterval);
+    this.cacheCleanupInterval = setInterval(() => this.cleanupCache(), 60_000);
+  }
+
+  /**
+   * Standard Argon2id initialization path.
+   */
+  private async initializeWithArgon2id(
+    password: string,
+    wrappedPrivateKeyBase64: string,
+    salt: Uint8Array
+  ): Promise<void> {
+    const exportableWrapping = await deriveKeyArgon2idExportable(password, salt);
+    const exportablePrefs = await derivePreferencesKeyArgon2idExportable(password, salt);
+
+    await this.finalizeKeys(exportableWrapping, exportablePrefs, wrappedPrivateKeyBase64);
+  }
+
+  /**
+   * Legacy PBKDF2 initialization with automatic migration to Argon2id.
+   * 1. Derive PBKDF2 keys to unwrap existing private key
+   * 2. Generate new Argon2id salt + keys
+   * 3. Re-wrap private key with Argon2id-derived key
+   * 4. Upload re-wrapped key + new salt + algorithm to server
+   * 5. Continue session with new Argon2id keys
+   */
+  private async initializeWithPbkdf2AndMigrate(
+    password: string,
+    wrappedPrivateKeyBase64: string,
+    oldSalt: Uint8Array
+  ): Promise<void> {
+    // Step 1: Derive PBKDF2 key to unwrap existing private key
+    const pbkdf2Key = await deriveKeyFromPasswordExportable(password, oldSalt);
+    const wrappedKeyBuffer = base64ToArrayBuffer(wrappedPrivateKeyBase64);
+
+    // Unwrap private key using PBKDF2 key (need it extractable for re-wrapping)
+    const privateKey = await crypto.subtle.unwrapKey(
+      'pkcs8',
+      new Uint8Array(wrappedKeyBuffer).slice(12),
+      pbkdf2Key,
+      { name: 'AES-GCM', iv: new Uint8Array(wrappedKeyBuffer).slice(0, 12) },
+      { name: 'RSA-OAEP', hash: 'SHA-256' },
+      true, // extractable — needed to re-wrap with new key
+      ['decrypt']
+    );
+
+    // Step 2: Generate new salt and derive Argon2id keys
+    const newSalt = generateSalt();
+    const argon2WrappingKey = await deriveKeyArgon2idExportable(password, newSalt);
+    const argon2PrefsKey = await derivePreferencesKeyArgon2idExportable(password, newSalt);
+
+    // Step 3: Re-wrap private key with Argon2id-derived key
+    const newWrappedKey = await wrapPrivateKey(privateKey, argon2WrappingKey);
+    const newWrappedKeyBase64 = arrayBufferToBase64(newWrappedKey);
+    const newSaltBase64 = arrayBufferToBase64(newSalt.buffer as ArrayBuffer);
+
+    // Step 4: Upload migrated keys to server
+    try {
+      const res = await apiFetch('/api/v1/users/me/keys', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          wrapped_private_key: newWrappedKeyBase64,
+          key_derivation_salt: newSaltBase64,
+          key_derivation_alg: 'argon2id',
+        }),
+      });
+      if (res.ok) {
+        console.debug('[E2EE] Migrated key derivation from PBKDF2 to Argon2id');
+        // Re-encrypt preferences with new Argon2id key (they were encrypted with PBKDF2 key)
+        await this.migratePreferences(password, oldSalt, argon2PrefsKey);
+      } else {
+        console.warn('[E2EE] Key migration upload failed, continuing with PBKDF2 keys');
+        // Fall back to PBKDF2 keys for this session
+        const pbkdf2Prefs = await derivePreferencesKeyExportable(password, oldSalt);
+        await this.finalizeKeys(pbkdf2Key, pbkdf2Prefs, wrappedPrivateKeyBase64);
+        return;
+      }
+    } catch {
+      console.warn('[E2EE] Key migration network error, continuing with PBKDF2 keys');
+      const pbkdf2Prefs = await derivePreferencesKeyExportable(password, oldSalt);
+      await this.finalizeKeys(pbkdf2Key, pbkdf2Prefs, wrappedPrivateKeyBase64);
+      return;
+    }
+
+    // Step 5: Continue session with new Argon2id keys
+    await this.finalizeKeys(argon2WrappingKey, argon2PrefsKey, newWrappedKeyBase64);
+  }
+
+  /**
+   * Re-encrypt server preferences from old PBKDF2 key to new Argon2id key.
+   * Best-effort: failure is logged but does not block login.
+   */
+  private async migratePreferences(
+    password: string,
+    oldSalt: Uint8Array,
+    newPrefsKey: CryptoKey
+  ): Promise<void> {
+    try {
+      const res = await apiFetch('/api/v1/users/me/preferences');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.preferences?.encrypted_data) return;
+
+      // Decrypt with old PBKDF2-derived preferences key
+      const oldPrefsKey = await derivePreferencesKeyExportable(password, oldSalt);
+      const plaintext = await decryptBlob(data.preferences.encrypted_data, oldPrefsKey);
+
+      // Re-encrypt with new Argon2id-derived preferences key
+      const newCiphertext = await encryptBlob(plaintext, newPrefsKey);
+
+      // Push re-encrypted preferences back to server
+      await apiFetch('/api/v1/users/me/preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          encrypted_data: newCiphertext,
+          version: data.preferences.version,
+        }),
+      });
+      console.debug('[E2EE] Re-encrypted preferences with Argon2id key');
+    } catch (err) {
+      console.warn('[E2EE] Preferences re-encryption failed (non-fatal):', err);
+    }
+  }
+
+  /**
+   * Shared finalization: export raw bytes for safeStorage, re-import as non-extractable.
+   */
+  private async finalizeKeys(
+    exportableWrapping: CryptoKey,
+    exportablePrefs: CryptoKey,
+    wrappedPrivateKeyBase64: string
+  ): Promise<void> {
     const wrappingRaw = await crypto.subtle.exportKey('raw', exportableWrapping);
     const prefsRaw = await crypto.subtle.exportKey('raw', exportablePrefs);
 
@@ -102,10 +249,6 @@ class E2EEService {
       preferencesKeyBase64: arrayBufferToBase64(prefsRaw),
       wrappedPrivateKeyBase64,
     };
-
-    // Start cache cleanup
-    if (this.cacheCleanupInterval) clearInterval(this.cacheCleanupInterval);
-    this.cacheCleanupInterval = setInterval(() => this.cleanupCache(), 60_000);
   }
 
   /**

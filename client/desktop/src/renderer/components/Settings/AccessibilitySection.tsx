@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useDraftTtsSetting, setDraftTtsSetting } from '../../hooks/useDraftSettings';
 import ToggleSwitch from './ToggleSwitch';
+import CollapsibleSection from './CollapsibleSection';
 
 // ─── Text-to-Speech Section ─────────────────────────────────────────────────
 
@@ -37,8 +38,7 @@ const TTSSection: React.FC = () => {
   };
 
   return (
-    <div className="settings-section" id="section-tts">
-      <h2 className="settings-section-title">Text-to-Speech</h2>
+    <CollapsibleSection id="section-tts" title="Text-to-Speech">
       <p className="settings-section-description">
         Read voice text chat messages aloud while you're in a voice channel.
       </p>
@@ -124,7 +124,7 @@ const TTSSection: React.FC = () => {
           Preview
         </button>
       </div>
-    </div>
+    </CollapsibleSection>
   );
 };
 

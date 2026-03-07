@@ -29,6 +29,7 @@ vi.mock('@/renderer/services/preferencesSync', () => ({
 // Mock all crypto functions
 vi.mock('@/renderer/utils/crypto', () => ({
   deriveKeyFromPassword: vi.fn().mockResolvedValue({} as CryptoKey),
+  deriveKeyArgon2id: vi.fn().mockResolvedValue({} as CryptoKey),
   unwrapPrivateKey: vi.fn().mockResolvedValue({} as CryptoKey),
   wrapPrivateKey: vi.fn().mockResolvedValue(new ArrayBuffer(32)),
   generateSalt: vi.fn().mockReturnValue(new Uint8Array(16)),

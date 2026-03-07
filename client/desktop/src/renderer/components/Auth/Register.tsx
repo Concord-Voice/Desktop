@@ -127,6 +127,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
           public_key: publicKeyBase64,
           wrapped_private_key: keys.wrappedPrivateKey,
           key_derivation_salt: keys.keyDerivationSalt,
+          key_derivation_alg: keys.keyDerivationAlg,
         }),
       });
 
@@ -142,7 +143,8 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
       await e2eeService.initialize(
         formData.password,
         keys.wrappedPrivateKey,
-        keys.keyDerivationSalt
+        keys.keyDerivationSalt,
+        keys.keyDerivationAlg
       );
       preferencesSyncService.startWatching();
 

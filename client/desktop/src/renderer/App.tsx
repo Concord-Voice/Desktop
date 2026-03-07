@@ -15,6 +15,7 @@ const ProfilePage = lazy(() => import('./components/Profile/ProfilePage'));
 const SettingsPage = lazy(() => import('./components/Settings/SettingsPage'));
 const PipWindow = lazy(() => import('./components/Voice/PipWindow'));
 import ConnectionLostOverlay from './components/ui/ConnectionLostOverlay';
+import MFAChallengeModal from './components/Auth/MFAChallengeModal';
 import { useAuthStore } from './stores/authStore';
 import { useUserStore } from './stores/userStore';
 import { useVideoSettingsStore } from './stores/videoSettingsStore';
@@ -217,6 +218,7 @@ function App() {
           )}
         </div>
 
+        <MFAChallengeModal />
         <Suspense fallback={null}>
           <Routes>
             <Route
