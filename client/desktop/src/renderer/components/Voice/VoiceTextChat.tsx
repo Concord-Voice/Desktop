@@ -228,6 +228,8 @@ const VoiceTextChat: React.FC = () => {
         const data = await res.json();
         updateMessage(channelId, messageId, {
           content: data.message.content,
+          is_encrypted: data.message.is_encrypted,
+          key_version: data.message.key_version,
           edited_at: data.message.edited_at,
           updated_at: data.message.updated_at,
         });
