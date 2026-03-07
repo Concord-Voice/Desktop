@@ -258,10 +258,17 @@ const ChatView: React.FC = () => {
       if (!activeChannelId) return;
 
       try {
+        // Encrypt if channel is E2EE
+        let sendContent = newContent;
+        const channel = useChannelStore.getState().channels.find((c) => c.id === activeChannelId);
+        if (channel?.is_encrypted && e2eeService.isInitialized) {
+          sendContent = await e2eeService.encryptForChannel(activeChannelId, newContent);
+        }
+
         const res = await apiFetch(`/api/v1/messages/${messageId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: newContent }),
+          body: JSON.stringify({ content: sendContent }),
         });
 
         if (!res.ok) {
@@ -271,7 +278,9 @@ const ChatView: React.FC = () => {
 
         const data = await res.json();
         updateMessage(activeChannelId, messageId, {
-          content: data.message.content,
+          content: channel?.is_encrypted ? newContent : data.message.content,
+          is_encrypted: data.message.is_encrypted,
+          key_version: data.message.key_version,
           edited_at: data.message.edited_at,
           updated_at: data.message.updated_at,
         });
