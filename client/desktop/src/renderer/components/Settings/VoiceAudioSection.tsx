@@ -382,7 +382,6 @@ const VoiceAudioSection: React.FC = () => {
     <>
       {/* ═══ Device Configuration ═══ */}
       <CollapsibleSection id="section-device-config" title="Device Configuration">
-
         <h3 className="settings-subsection-title">Input</h3>
         <div className="settings-device-row">
           <DeviceSelector kind="audioinput" />
@@ -471,7 +470,6 @@ const VoiceAudioSection: React.FC = () => {
 
       {/* ═══ Audio Configuration ═══ */}
       <CollapsibleSection id="section-audio-config" title="Audio Configuration">
-
         {/* ── Mode Toggle ── */}
         <div className="settings-mode-toggle">
           <span
@@ -914,7 +912,6 @@ const VoiceAudioSection: React.FC = () => {
 
       {/* ═══ Video Configuration ═══ */}
       <CollapsibleSection id="section-video-screen" title="Video Configuration">
-
         <div className="settings-mode-toggle">
           <span
             className={`settings-mode-pill ${!videoAdvancedMode ? 'active' : ''}`}

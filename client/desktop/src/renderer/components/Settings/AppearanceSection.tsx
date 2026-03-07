@@ -246,7 +246,6 @@ const AppearanceSection: React.FC = () => {
       </CollapsibleSection>
 
       <CollapsibleSection id="section-display" title="Display">
-
         <div className="form-group">
           <label className="form-label">Font Size</label>
           <div className="font-size-selector">
