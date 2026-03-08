@@ -349,7 +349,14 @@ export class MediaEncryption {
       keyEntry = (await this.deriveRatchetedKey(senderUserId, keyId)) ?? undefined;
     }
     if (!keyEntry) {
-      throw new Error(`E2EE: no decrypt key for sender=${senderUserId} keyId=${keyId}`);
+      // Count available keys for this sender (avoid full iteration in hot path)
+      let availableCount = 0;
+      for (const id of this.decryptKeys.keys()) {
+        if (id.startsWith(`${senderUserId}:`)) availableCount++;
+      }
+      throw new Error(
+        `E2EE: no decrypt key for sender=${senderUserId} keyId=${keyId} (${availableCount} keys held for sender)`
+      );
     }
 
     const plaintext = await crypto.subtle.decrypt(

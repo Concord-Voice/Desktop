@@ -2401,8 +2401,32 @@ class VoiceService {
 
       // Apply E2EE decrypt transform if encrypted
       const producerUserId = senderUserId || result.producerUserId;
-      if (this.isEncrypted && this.mediaEncryption) {
-        this.applyDecryptTransform(consumer, producerUserId);
+      if (this.isEncrypted) {
+        // Lazy re-init: if initEncryption failed at join time but CSK is now available
+        if (!this.mediaEncryption) {
+          const channelId = useVoiceStore.getState().activeChannelId;
+          if (channelId) {
+            try {
+              await this.initEncryption(channelId);
+            } catch {
+              console.warn('E2EE: lazy re-init failed, consumer will receive encrypted frames');
+            }
+          }
+        }
+        if (this.mediaEncryption) {
+          // Fire-and-forget: add decrypt key without blocking the consume queue.
+          // Self-healing recovery in applyDecryptTransform handles missing keys.
+          const channelId = useVoiceStore.getState().activeChannelId;
+          if (channelId) {
+            void this.addDecryptKeyForUser(channelId, producerUserId).catch((err) => {
+              console.warn('E2EE: addDecryptKeyForUser failed, self-healing will retry', {
+                producerUserId,
+                error: err instanceof Error ? err.message : err,
+              });
+            });
+          }
+          this.applyDecryptTransform(consumer, producerUserId);
+        }
       }
 
       // Attach stream to participant
@@ -2573,14 +2597,23 @@ class VoiceService {
     });
 
     // E2EE: periodic epoch sync — recover from missed join/leave events
-    this.socket.on('epoch-sync', ({ epoch }: { epoch: number }) => {
+    this.socket.on('epoch-sync', async ({ epoch }: { epoch: number }) => {
       if (!this.isEncrypted || !this.mediaEncryption) return;
       const localEpoch = this.mediaEncryption.getCurrentKeyId();
       if (epoch > localEpoch) {
+        const gap = epoch - localEpoch;
         console.info(
-          `E2EE epoch sync: local=${localEpoch}, server=${epoch}, catching up ${epoch - localEpoch} steps`
+          `E2EE epoch sync: local=${localEpoch}, server=${epoch}, catching up ${gap} steps`
         );
-        this.mediaEncryption.catchUpToEpoch(epoch);
+        try {
+          await this.mediaEncryption.catchUpToEpoch(epoch);
+        } catch (err) {
+          console.error('E2EE: epoch catch-up failed — decrypt may fail until rejoin', {
+            localEpoch,
+            serverEpoch: epoch,
+            error: err instanceof Error ? err.message : err,
+          });
+        }
       }
     });
 
@@ -2810,35 +2843,95 @@ class VoiceService {
 
   // ─── E2EE ─────────────────────────────────────────────────────
 
-  /** Initialize media encryption for an encrypted channel */
+  /** Initialize media encryption for an encrypted channel (fail-closed with retry) */
   private async initEncryption(channelId: string): Promise<void> {
-    try {
-      const channelCSK = await e2eeService.getChannelKey(channelId);
-      const userId = useUserStore.getState().user?.id;
-      if (!userId) throw new Error('No local userId for E2EE init');
+    const retryDelays = [500, 1000, 2000];
+    let lastError: unknown;
 
-      this.mediaEncryption = new MediaEncryption();
-      await this.mediaEncryption.init(channelCSK, userId);
-    } catch (err) {
-      console.error('Failed to initialize media encryption:', err);
-      this.mediaEncryption = null;
+    for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+      try {
+        const channelCSK = await e2eeService.getChannelKey(channelId);
+        const userId = useUserStore.getState().user?.id;
+        if (!userId) throw new Error('No local userId for E2EE init');
+
+        this.mediaEncryption = new MediaEncryption();
+        await this.mediaEncryption.init(channelCSK, userId);
+        console.info('E2EE: encryption initialized', {
+          channelId,
+          userId,
+          attempt: attempt + 1,
+        });
+        return;
+      } catch (err) {
+        lastError = err;
+        const isPending = err instanceof Error && err.message === 'PENDING_KEY';
+        console.warn('E2EE: initEncryption attempt failed', {
+          channelId,
+          attempt: attempt + 1,
+          isPending,
+          error: err instanceof Error ? err.message : err,
+        });
+
+        if (attempt < retryDelays.length) {
+          // Wait longer for pending keys (distribution in progress)
+          const delay = isPending ? retryDelays[attempt] * 2 : retryDelays[attempt];
+          await new Promise((r) => setTimeout(r, delay));
+        }
+      }
     }
+
+    // All retries exhausted — fail-closed: re-throw so join flow aborts
+    this.mediaEncryption = null;
+    throw lastError instanceof Error
+      ? lastError
+      : new Error(
+          'E2EE: failed to initialize encryption after retries' +
+            (lastError != null ? ` (${String(lastError)})` : '')
+        );
   }
 
-  /** Add a decryption key for a remote user, pre-ratcheted to current epoch */
-  private async addDecryptKeyForUser(channelId: string, userId: string): Promise<void> {
-    if (!this.mediaEncryption) return;
-    try {
-      const channelCSK = await e2eeService.getChannelKey(channelId);
-      const currentEpoch = this.mediaEncryption.getCurrentKeyId();
-      if (currentEpoch > 0) {
-        await this.mediaEncryption.addDecryptKeyAtEpoch(channelCSK, userId, currentEpoch);
-      } else {
-        await this.mediaEncryption.addDecryptKey(channelCSK, userId);
+  /** Add a decryption key for a remote user, pre-ratcheted to current epoch (with retry) */
+  private async addDecryptKeyForUser(channelId: string, userId: string): Promise<boolean> {
+    if (!this.mediaEncryption) return false;
+
+    const retryDelays = [500, 1000, 2000];
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
+      // Re-check: encryption may have been torn down during sleep/await
+      if (!this.mediaEncryption) return false;
+      try {
+        const channelCSK = await e2eeService.getChannelKey(channelId);
+        if (!this.mediaEncryption) return false; // Torn down during await
+        const currentEpoch = this.mediaEncryption.getCurrentKeyId();
+        if (currentEpoch > 0) {
+          await this.mediaEncryption.addDecryptKeyAtEpoch(channelCSK, userId, currentEpoch);
+        } else {
+          await this.mediaEncryption.addDecryptKey(channelCSK, userId);
+        }
+        console.info('E2EE: decrypt key added', {
+          channelId,
+          targetUserId: userId,
+          currentEpoch,
+          attempt: attempt + 1,
+        });
+        return true;
+      } catch (err) {
+        lastError = err;
+        const isPending = err instanceof Error && err.message === 'PENDING_KEY';
+        if (attempt < retryDelays.length) {
+          const delay = isPending ? retryDelays[attempt] * 2 : retryDelays[attempt];
+          await new Promise((r) => setTimeout(r, delay));
+        }
       }
-    } catch (err) {
-      console.error('Failed to add decrypt key for user:', userId, err);
     }
+
+    console.error('E2EE: failed to add decrypt key after retries', {
+      channelId,
+      targetUserId: userId,
+      error: lastError instanceof Error ? lastError.message : lastError,
+    });
+    return false;
   }
 
   /**
@@ -2877,9 +2970,9 @@ class VoiceService {
           .pipeThrough(transform)
           .pipeTo(writable)
           .catch((err: unknown) => {
-            console.warn('E2EE encrypt pipe error:', err);
+            console.error('E2EE: encrypt pipe broken — frames stopped flowing:', err);
           });
-        console.debug('E2EE: encrypt transform applied via createEncodedStreams');
+        console.info('E2EE: encrypt transform applied');
       } catch (err) {
         console.error('E2EE: createEncodedStreams failed on sender:', err);
       }
@@ -2905,6 +2998,16 @@ class VoiceService {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const receiverAny = receiver as any;
 
+    // Self-healing recovery state (captured by transform closure)
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const voiceSvc = this;
+    let recoveryInProgress = false;
+    let lastRecoveryAttempt = 0;
+    const RECOVERY_COOLDOWN_MS = 5000;
+    const RECOVERY_THRESHOLD = 50;
+    const PERSISTENT_FAILURE_THRESHOLD = 500;
+    let firstDecryptLogged = false;
+
     if (typeof receiverAny.createEncodedStreams === 'function') {
       try {
         const { readable, writable } = receiverAny.createEncodedStreams();
@@ -2914,21 +3017,57 @@ class VoiceService {
             try {
               await encryption.decryptFrame(frame, senderUserId);
               controller.enqueue(frame);
+              // Log first successful decrypt per sender
+              if (!firstDecryptLogged) {
+                firstDecryptLogged = true;
+                console.info(`E2EE: first frame decrypted for ${senderUserId}`);
+              }
               // Reset drop counter on success
               if (dropCount > 0) {
-                console.debug(
+                console.info(
                   `E2EE: decrypt recovered after ${dropCount} dropped frames for ${senderUserId}`
                 );
                 dropCount = 0;
               }
             } catch {
-              // Decrypt failed — DROP the frame. Silence (audio) or freeze/black
-              // (video) is far better than feeding ciphertext to the decoder,
-              // which produces garbled noise or corrupted video.
               dropCount++;
               if (dropCount === 1 || dropCount % 100 === 0) {
                 console.warn(
                   `E2EE: dropping undecryptable frame for ${senderUserId} (total dropped: ${dropCount})`
+                );
+              }
+
+              // Self-healing: after threshold, attempt to re-derive decrypt key
+              if (
+                dropCount === RECOVERY_THRESHOLD &&
+                !recoveryInProgress &&
+                Date.now() - lastRecoveryAttempt > RECOVERY_COOLDOWN_MS
+              ) {
+                recoveryInProgress = true;
+                lastRecoveryAttempt = Date.now();
+                const channelId = useVoiceStore.getState().activeChannelId;
+                if (channelId && voiceSvc.mediaEncryption) {
+                  console.info(`E2EE: attempting self-healing key recovery for ${senderUserId}`);
+                  e2eeService.invalidateChannelKey(channelId);
+                  voiceSvc
+                    .addDecryptKeyForUser(channelId, senderUserId)
+                    .then((ok) => {
+                      if (ok) {
+                        console.info(`E2EE: recovery key re-derived for ${senderUserId}`);
+                      }
+                    })
+                    .catch(() => {})
+                    .finally(() => {
+                      recoveryInProgress = false;
+                    });
+                } else {
+                  recoveryInProgress = false;
+                }
+              }
+
+              if (dropCount === PERSISTENT_FAILURE_THRESHOLD) {
+                console.error(
+                  `E2EE: persistent decrypt failure for ${senderUserId} — ${PERSISTENT_FAILURE_THRESHOLD} frames dropped. Rejoin may be required.`
                 );
               }
             }
@@ -2940,7 +3079,7 @@ class VoiceService {
           .catch((err: unknown) => {
             console.warn('E2EE decrypt pipe error:', err);
           });
-        console.debug('E2EE: decrypt transform applied via createEncodedStreams');
+        console.info(`E2EE: decrypt transform applied for ${senderUserId}`);
       } catch (err) {
         console.error('E2EE: createEncodedStreams failed on receiver:', err);
       }

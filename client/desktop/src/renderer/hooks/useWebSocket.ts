@@ -80,52 +80,78 @@ export function useWebSocket() {
     }
   }, []);
 
+  // Track rotation timeouts so they can be cleared on unmount
+  const rotationTimers = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+
   // Rotation coordinator — listens for key rotation events and distributes new keys
   useEffect(() => {
-    const handleKeyRotation = async (event: Event) => {
+    const timers = rotationTimers.current;
+    const handleKeyRotation = (event: Event) => {
       const { channelId, newEpoch } = (event as CustomEvent).detail;
       if (!channelId || !newEpoch || !e2eeService.isInitialized) return;
 
-      try {
-        // Fetch remaining server members and their public keys
-        // Find which server this channel belongs to
-        const channel = useChannelStore.getState().channels.find((c) => c.id === channelId);
-        if (!channel) return;
-
-        const membersRes = await apiFetch(`/api/v1/servers/${channel.server_id}/members`);
-        if (!membersRes.ok) return;
-        const membersData = await membersRes.json();
-        const members = membersData.members || [];
-
-        // Fetch public keys for all members
-        const memberPublicKeys = new Map<string, string>();
-        for (const member of members) {
-          try {
-            const pkRes = await apiFetch(`/api/v1/users/${member.user_id}/public-key`);
-            if (pkRes.ok) {
-              const pkData = await pkRes.json();
-              if (pkData.public_key) {
-                memberPublicKeys.set(member.user_id, pkData.public_key);
-              }
+      // Jitter: 0-2s random delay to avoid N clients racing simultaneously
+      const jitterMs = Math.random() * 2000;
+      const timerId = setTimeout(async () => {
+        timers.delete(timerId);
+        try {
+          // Check if another client already rotated to this epoch
+          const checkRes = await apiFetch(`/api/v1/e2ee/keys/${channelId}`);
+          if (checkRes.ok) {
+            const checkData = await checkRes.json();
+            if (checkData.key?.key_version >= newEpoch) {
+              console.debug('[E2EE] Key rotation already done for', channelId, 'epoch', newEpoch);
+              // Invalidate local cache so we pick up the new key
+              e2eeService.invalidateChannelKey(channelId);
+              return;
             }
-          } catch {
-            // Skip members whose keys we can't fetch
           }
+
+          // Fetch remaining server members and their public keys
+          const channel = useChannelStore.getState().channels.find((c) => c.id === channelId);
+          if (!channel) return;
+
+          const membersRes = await apiFetch(`/api/v1/servers/${channel.server_id}/members`);
+          if (!membersRes.ok) return;
+          const membersData = await membersRes.json();
+          const members = membersData.members || [];
+
+          // Fetch public keys for all members
+          const memberPublicKeys = new Map<string, string>();
+          for (const member of members) {
+            try {
+              const pkRes = await apiFetch(`/api/v1/users/${member.user_id}/public-key`);
+              if (pkRes.ok) {
+                const pkData = await pkRes.json();
+                if (pkData.public_key) {
+                  memberPublicKeys.set(member.user_id, pkData.public_key);
+                }
+              }
+            } catch {
+              // Skip members whose keys we can't fetch
+            }
+          }
+
+          if (memberPublicKeys.size === 0) return;
+
+          // Rotate: generate new key, wrap for all members, distribute
+          await e2eeService.rotateChannelKey(channelId, newEpoch, memberPublicKeys);
+          console.info('[E2EE] Key rotation completed for', channelId, 'epoch', newEpoch);
+        } catch (err) {
+          // Non-fatal: another client may handle the rotation (first-response-wins)
+          console.debug('[E2EE] Key rotation failed (another client may handle it):', err);
         }
-
-        if (memberPublicKeys.size === 0) return;
-
-        // Rotate: generate new key, wrap for all members, distribute
-        await e2eeService.rotateChannelKey(channelId, newEpoch, memberPublicKeys);
-        console.debug('[E2EE] Key rotation completed for', channelId, 'epoch', newEpoch);
-      } catch (err) {
-        // Non-fatal: another client may handle the rotation (first-response-wins)
-        console.debug('[E2EE] Key rotation failed (another client may handle it):', err);
-      }
+      }, jitterMs);
+      timers.add(timerId);
     };
 
     window.addEventListener('e2ee-key-rotation', handleKeyRotation);
-    return () => window.removeEventListener('e2ee-key-rotation', handleKeyRotation);
+    return () => {
+      window.removeEventListener('e2ee-key-rotation', handleKeyRotation);
+      // Clear any pending rotation timers on unmount
+      for (const id of timers) clearTimeout(id);
+      timers.clear();
+    };
   }, []);
 
   // Connect when token is available
