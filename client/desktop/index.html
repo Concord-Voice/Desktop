@@ -7,7 +7,7 @@
           content="default-src 'self';
                    script-src 'self' 'wasm-unsafe-eval';
                    style-src 'self' 'unsafe-inline';
-                   connect-src 'self' ws://localhost:* http://localhost:* wss://localhost:* https://localhost:* ws://127.0.0.1:* http://127.0.0.1:* https://concordvoice.chat wss://concordvoice.chat https://concordvoice.chat:3443 wss://concordvoice.chat:3443;
+                   connect-src 'self' ws://localhost:* http://localhost:* wss://localhost:* https://localhost:* ws://127.0.0.1:* http://127.0.0.1:* https://concordvoice.chat wss://concordvoice.chat https://*.concordvoice.chat wss://*.concordvoice.chat;
                    img-src 'self' data: https://cdn.jsdelivr.net;
                    media-src 'self';
                    base-uri 'self';
