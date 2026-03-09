@@ -11,15 +11,26 @@ const mockApiFetch = vi.fn().mockResolvedValue({
 });
 vi.mock('@/renderer/services/apiClient', () => ({
   apiFetch: (...args: unknown[]) => mockApiFetch(...args),
+  safeJson: async (res: { json: () => Promise<unknown> }) => res.json(),
   API_BASE: 'http://localhost:8080',
 }));
 
 // Mock heavy child components
 vi.mock('@/renderer/components/Chat/MessageList', () => ({
-  default: ({ messages, channelName, isLoading }: { messages: unknown[]; channelName?: string; isLoading: boolean }) => (
+  default: ({
+    messages,
+    channelName,
+    isLoading,
+  }: {
+    messages: unknown[];
+    channelName?: string;
+    isLoading: boolean;
+  }) => (
     <div data-testid="message-list" data-channel={channelName} data-loading={isLoading}>
       {(messages as Array<{ id: string; content: string }>).map((m) => (
-        <div key={m.id} data-testid="message">{m.content}</div>
+        <div key={m.id} data-testid="message">
+          {m.content}
+        </div>
       ))}
     </div>
   ),
@@ -120,7 +131,7 @@ describe('ChatView', () => {
     useChannelStore.setState({ activeChannelId: 'channel-1' });
     render(<ChatView />);
     expect(mockApiFetch).toHaveBeenCalledWith(
-      expect.stringContaining('/api/v1/channels/channel-1/messages'),
+      expect.stringContaining('/api/v1/channels/channel-1/messages')
     );
   });
 
@@ -167,9 +178,7 @@ describe('ChatView', () => {
   it('changes view when channel switches', () => {
     useChannelStore.setState({ activeChannelId: 'channel-1' });
     const { rerender } = render(<ChatView />);
-    expect(mockApiFetch).toHaveBeenCalledWith(
-      expect.stringContaining('channel-1'),
-    );
+    expect(mockApiFetch).toHaveBeenCalledWith(expect.stringContaining('channel-1'));
     // Switch channel
     useChannelStore.setState({
       channels: [mockChannel, { ...mockChannel, id: 'channel-2', name: 'random' }],
@@ -177,8 +186,6 @@ describe('ChatView', () => {
     });
     rerender(<ChatView />);
     // Second channel should also fetch
-    expect(mockApiFetch).toHaveBeenCalledWith(
-      expect.stringContaining('channel-2'),
-    );
+    expect(mockApiFetch).toHaveBeenCalledWith(expect.stringContaining('channel-2'));
   });
 });

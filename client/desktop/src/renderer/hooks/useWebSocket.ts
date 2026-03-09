@@ -18,7 +18,7 @@ import { useChatStore } from '../stores/chatStore';
 import { useChannelStore } from '../stores/channelStore';
 import { getWebSocketService, ConnectionState } from '../services/websocketService';
 import { e2eeService } from '../services/e2eeService';
-import { apiFetch } from '../services/apiClient';
+import { apiFetch, safeJson } from '../services/apiClient';
 import { useConnectionRecovery } from './useConnectionRecovery';
 import { useWebSocketMessages } from './useWebSocketMessages';
 
@@ -53,7 +53,14 @@ export function useWebSocket() {
     });
 
     if (!res.ok) return;
-    const data = await res.json();
+    const data = await safeJson<{
+      revocations?: Array<{
+        channel_id: string;
+        revoked_epoch: number;
+        successor_epoch: number;
+        reason?: string;
+      }>;
+    }>(res);
     const revocations = data.revocations || [];
 
     for (const rev of revocations) {
@@ -98,8 +105,8 @@ export function useWebSocket() {
           // Check if another client already rotated to this epoch
           const checkRes = await apiFetch(`/api/v1/e2ee/keys/${channelId}`);
           if (checkRes.ok) {
-            const checkData = await checkRes.json();
-            if (checkData.key?.key_version >= newEpoch) {
+            const checkData = await safeJson<{ key?: { key_version: number } }>(checkRes);
+            if (checkData.key && checkData.key.key_version >= newEpoch) {
               console.debug('[E2EE] Key rotation already done for', channelId, 'epoch', newEpoch);
               // Invalidate local cache so we pick up the new key
               e2eeService.invalidateChannelKey(channelId);
@@ -113,7 +120,7 @@ export function useWebSocket() {
 
           const membersRes = await apiFetch(`/api/v1/servers/${channel.server_id}/members`);
           if (!membersRes.ok) return;
-          const membersData = await membersRes.json();
+          const membersData = await safeJson<{ members?: Array<{ user_id: string }> }>(membersRes);
           const members = membersData.members || [];
 
           // Fetch public keys for all members
@@ -122,7 +129,7 @@ export function useWebSocket() {
             try {
               const pkRes = await apiFetch(`/api/v1/users/${member.user_id}/public-key`);
               if (pkRes.ok) {
-                const pkData = await pkRes.json();
+                const pkData = await safeJson<{ public_key?: string }>(pkRes);
                 if (pkData.public_key) {
                   memberPublicKeys.set(member.user_id, pkData.public_key);
                 }

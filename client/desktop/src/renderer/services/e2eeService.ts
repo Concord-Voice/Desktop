@@ -33,9 +33,11 @@ import {
   arrayBufferToBase64,
   base64ToArrayBuffer,
 } from '../utils/crypto';
-import { apiFetch } from './apiClient';
+import { apiFetch, safeJson } from './apiClient';
 
-const CHANNEL_KEY_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+// Session lifetime — keys cached until explicit invalidation (rotation) or logout/close.
+// Lazy fetch + hold: each channel's key is fetched on first visit and held for the session.
+const CHANNEL_KEY_CACHE_TTL = Number.MAX_SAFE_INTEGER;
 
 interface CachedWrappedKey {
   wrappedKey: string;
@@ -58,7 +60,6 @@ class E2EEService {
   private versionedKeyCache: Map<string, Map<number, CachedWrappedKey>> = new Map();
   private pendingKeyFetches: Map<string, Promise<CryptoKey>> = new Map();
   private rateLimitedUntil: number = 0; // timestamp when rate limit expires
-  private cacheCleanupInterval: ReturnType<typeof setInterval> | null = null;
 
   /** Cached exported keys for safeStorage persistence (set during initialize) */
   private sessionKeys: E2EESessionKeys | null = null;
@@ -87,9 +88,7 @@ class E2EEService {
       await this.initializeWithArgon2id(password, wrappedPrivateKeyBase64, saltBytes);
     }
 
-    // Start cache cleanup
-    if (this.cacheCleanupInterval) clearInterval(this.cacheCleanupInterval);
-    this.cacheCleanupInterval = setInterval(() => this.cleanupCache(), 60_000);
+    // No periodic cleanup needed — session-scoped cache (keys stay until rotation or logout)
   }
 
   /**
@@ -189,7 +188,9 @@ class E2EEService {
     try {
       const res = await apiFetch('/api/v1/users/me/preferences');
       if (!res.ok) return;
-      const data = await res.json();
+      const data = await safeJson<{ preferences?: { encrypted_data?: string; version?: number } }>(
+        res
+      );
       if (!data.preferences?.encrypted_data) return;
 
       // Decrypt with old PBKDF2-derived preferences key
@@ -277,9 +278,7 @@ class E2EEService {
     this.wrappedPrivateKey = keys.wrappedPrivateKeyBase64;
     this.sessionKeys = keys;
 
-    // Start cache cleanup
-    if (this.cacheCleanupInterval) clearInterval(this.cacheCleanupInterval);
-    this.cacheCleanupInterval = setInterval(() => this.cleanupCache(), 60_000);
+    // No periodic cleanup needed — session-scoped cache (keys stay until rotation or logout)
   }
 
   /**
@@ -355,13 +354,15 @@ class E2EEService {
         this.rateLimitedUntil = Date.now() + retryAfter * 1000;
         throw new Error('Failed to fetch channel key');
       }
-      const data = await res.json().catch(() => ({}));
+      const data = await safeJson<{ pending?: boolean }>(res).catch(
+        () => ({}) as { pending?: boolean }
+      );
       if (data.pending) {
         throw new Error('PENDING_KEY');
       }
       throw new Error('Failed to fetch channel key');
     }
-    const data = await res.json();
+    const data = await safeJson<{ key: { wrapped_key: string; key_version?: number } }>(res);
     const wrappedKey: string = data.key.wrapped_key;
     const keyVersion: number = data.key.key_version || 1;
 
@@ -392,6 +393,14 @@ class E2EEService {
    */
   async decryptForChannel(channelId: string, ciphertext: string): Promise<string> {
     const channelKey = await this.getChannelKey(channelId);
+    return decryptMessage(ciphertext, channelKey);
+  }
+
+  /**
+   * Decrypt a message using a pre-fetched channel key.
+   * Avoids redundant getChannelKey() calls when batch-decrypting.
+   */
+  async decryptWithKey(ciphertext: string, channelKey: CryptoKey): Promise<string> {
     return decryptMessage(ciphertext, channelKey);
   }
 
@@ -449,7 +458,9 @@ class E2EEService {
         return;
       }
 
-      const data = await res.json();
+      const data = await safeJson<{
+        pending_requests?: Array<{ user_id: string; channel_id: string }>;
+      }>(res);
       const requests = data.pending_requests || [];
       console.debug('[E2EE] Pending key requests:', requests.length);
 
@@ -462,7 +473,7 @@ class E2EEService {
             continue;
           }
 
-          const pkData = await pkRes.json();
+          const pkData = await safeJson<{ public_key: string }>(pkRes);
           const wrappedKey = await this.wrapKeyForMember(req.channel_id, pkData.public_key);
 
           // Upload the wrapped key
@@ -554,7 +565,7 @@ class E2EEService {
       }
       throw new Error(`Failed to fetch channel key version ${version}`);
     }
-    const data = await res.json();
+    const data = await safeJson<{ key: { wrapped_key: string; key_version?: number } }>(res);
     const wrappedKey: string = data.key.wrapped_key;
 
     // Cache in versioned cache
@@ -628,7 +639,7 @@ class E2EEService {
     });
 
     if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
+      const data = await safeJson(res).catch(() => ({}));
       console.debug('[E2EE] Key rotation distribution failed:', res.status, data);
       // Non-fatal: another client may have already distributed (first-response-wins)
     }
@@ -648,29 +659,15 @@ class E2EEService {
     this.channelKeyCache.clear();
     this.versionedKeyCache.clear();
     this.pendingKeyFetches.clear();
-    if (this.cacheCleanupInterval) {
-      clearInterval(this.cacheCleanupInterval);
-      this.cacheCleanupInterval = null;
-    }
   }
 
   /**
    * Invalidate cached key for a specific channel (e.g., on key rotation).
+   * Also clears historical versioned keys for the channel.
    */
   invalidateChannelKey(channelId: string): void {
     this.channelKeyCache.delete(channelId);
-  }
-
-  /**
-   * Clean up expired entries from the channel key cache.
-   */
-  private cleanupCache(): void {
-    const now = Date.now();
-    for (const [channelId, cached] of this.channelKeyCache) {
-      if (now - cached.lastUsed > CHANNEL_KEY_CACHE_TTL) {
-        this.channelKeyCache.delete(channelId);
-      }
-    }
+    this.versionedKeyCache.delete(channelId);
   }
 }
 

@@ -6,7 +6,7 @@ import { useDMStore, type DMConversation } from '../../stores/dmStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useUserStore } from '../../stores/userStore';
 import { useDMSubscription } from '../../hooks/useDMSubscription';
-import { apiFetch } from '../../services/apiClient';
+import { apiFetch, safeJson } from '../../services/apiClient';
 import { e2eeService } from '../../services/e2eeService';
 import { getWebSocketService, ConnectionState } from '../../services/websocketService';
 import { getMessageQueue } from '../../services/messageQueue';
@@ -93,16 +93,27 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
         if (aborted) return;
 
         if (!res.ok) {
-          const data = await res.json();
+          const data = await safeJson<{ error?: string }>(res);
           throw new Error(data.error || 'Failed to load messages');
         }
 
-        const data = await res.json();
+        const data = await safeJson<{ messages?: MessageWithStatus[] }>(res);
         if (aborted) return;
         const rawMsgs: MessageWithStatus[] = (data.messages || []).map((m: MessageWithStatus) => ({
           ...m,
           status: 'delivered' as const,
         }));
+
+        // Pre-fetch channel key ONCE to prevent N concurrent getChannelKey() calls
+        let channelKey: CryptoKey | null = null;
+        if (rawMsgs.some((m) => m.is_encrypted) && e2eeService.isInitialized) {
+          try {
+            channelKey = await e2eeService.getChannelKey(selectedThreadId);
+          } catch {
+            // Key not available yet — individual messages will show pending/failed state
+          }
+        }
+        if (aborted) return;
 
         // Decrypt encrypted messages
         const msgs = await Promise.all(
@@ -116,7 +127,9 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
                         m.content,
                         m.key_version
                       )
-                    : await e2eeService.decryptForChannel(selectedThreadId, m.content);
+                    : channelKey
+                      ? await e2eeService.decryptWithKey(m.content, channelKey)
+                      : await e2eeService.decryptForChannel(selectedThreadId, m.content);
                 return { ...m, content: plaintext };
               } catch (err) {
                 const isPending = err instanceof Error && err.message === 'PENDING_KEY';
@@ -179,15 +192,25 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
       );
 
       if (!res.ok) {
-        const data = await res.json();
+        const data = await safeJson<{ error?: string }>(res);
         throw new Error(data.error || 'Failed to load more messages');
       }
 
-      const data = await res.json();
+      const data = await safeJson<{ messages?: MessageWithStatus[] }>(res);
       const rawMsgs: MessageWithStatus[] = (data.messages || []).map((m: MessageWithStatus) => ({
         ...m,
         status: 'delivered' as const,
       }));
+
+      // Pre-fetch channel key ONCE for batch decryption
+      let channelKey: CryptoKey | null = null;
+      if (rawMsgs.some((m) => m.is_encrypted) && e2eeService.isInitialized) {
+        try {
+          channelKey = await e2eeService.getChannelKey(selectedThreadId);
+        } catch {
+          // Key not available — individual messages will show pending/failed
+        }
+      }
 
       const msgs = await Promise.all(
         rawMsgs.map(async (m) => {
@@ -200,7 +223,9 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
                       m.content,
                       m.key_version
                     )
-                  : await e2eeService.decryptForChannel(selectedThreadId, m.content);
+                  : channelKey
+                    ? await e2eeService.decryptWithKey(m.content, channelKey)
+                    : await e2eeService.decryptForChannel(selectedThreadId, m.content);
               return { ...m, content: plaintext };
             } catch (err) {
               const isPending = err instanceof Error && err.message === 'PENDING_KEY';
@@ -301,10 +326,17 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
           }
         );
         if (!res.ok) {
-          const data = await res.json();
+          const data = await safeJson<{ error?: string }>(res);
           throw new Error(data.error || 'Failed to edit message');
         }
-        const data = await res.json();
+        const data = await safeJson<{
+          message: {
+            content: string;
+            is_encrypted: boolean;
+            key_version?: number;
+            edited_at: string;
+          };
+        }>(res);
         const updateMessage = useChatStore.getState().updateMessage;
         updateMessage(selectedThreadId, messageId, {
           content: isEncrypted ? newContent : data.message.content,
@@ -329,11 +361,11 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
           { method: 'DELETE' }
         );
         if (!res.ok) {
-          const data = await res.json();
+          const data = await safeJson<{ error?: string }>(res);
           throw new Error(data.error || 'Failed to delete message');
         }
-        const removeMessage = useChatStore.getState().removeMessage;
-        removeMessage(selectedThreadId, messageId);
+        const deleteMessage = useChatStore.getState().deleteMessage;
+        deleteMessage(selectedThreadId, messageId);
       } catch (err) {
         console.error('Failed to delete DM message:', err);
       }

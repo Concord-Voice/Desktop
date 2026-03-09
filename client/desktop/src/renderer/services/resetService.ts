@@ -12,6 +12,7 @@
  */
 
 import { useAuthStore } from '../stores/authStore';
+import { stopProactiveRefresh } from './apiClient';
 import { useServerStore } from '../stores/serverStore';
 import { useChannelStore } from '../stores/channelStore';
 import { useDMStore } from '../stores/dmStore';
@@ -30,6 +31,9 @@ import { useUserStore } from '../stores/userStore';
  * but user-specific content must be wiped to prevent ghost artifacts.
  */
 export function gracefulReset(): void {
+  // Stop proactive token refresh timer (#240)
+  stopProactiveRefresh();
+
   // Clear content stores (in-memory state)
   useServerStore.getState().clearServers();
   useChannelStore.getState().clearChannels();

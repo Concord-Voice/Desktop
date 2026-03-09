@@ -105,7 +105,7 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
   activeMethods,
   recoveryOnlyMethods = [],
   recoveryHardened = true,
-  backupCodesRemaining,
+  backupCodesRemaining: _backupCodesRemaining,
   webauthnCredentials = [],
   backupEmail,
   onSetupTOTP,
@@ -124,8 +124,6 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
   const hasSms = activeMethods.includes('sms');
   const hasEmailOrSms = hasEmail || hasSms;
   const hasRealMFA = hasTotp || hasWebauthn;
-  const hasAnyMFA = activeMethods.length > 0;
-
   // Count distinct "real" MFA types (not email/sms)
   const realMFATypeCount = (hasTotp ? 1 : 0) + (hasWebauthn ? 1 : 0);
   // Sole-MFA protection: if only one real MFA type and Email/SMS is also on,

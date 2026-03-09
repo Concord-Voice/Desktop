@@ -10,11 +10,12 @@ const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
 // Must import after mocking fetch
-const { apiFetch, API_BASE } = await import('@/renderer/services/apiClient');
+const { apiFetch, API_BASE, _resetRefreshState } = await import('@/renderer/services/apiClient');
 
 describe('apiClient', () => {
   beforeEach(() => {
     resetAllStores();
+    _resetRefreshState();
     vi.clearAllMocks();
   });
 

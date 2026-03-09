@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { apiFetch } from '../services/apiClient';
+import { apiFetch, safeJson } from '../services/apiClient';
 import type { PresenceStatus } from './memberStore';
 
 export interface Friend {
@@ -109,11 +109,11 @@ export const useFriendStore = create<FriendState>()(
         try {
           const response = await apiFetch('/api/v1/friends');
           if (!response.ok) {
-            const data = await response.json();
+            const data = await safeJson<Record<string, any>>(response);
             throw new Error(data.error || 'Failed to load friends');
           }
 
-          const data = await response.json();
+          const data = await safeJson<Record<string, any>>(response);
           const friends: Friend[] = (data.friends || []).map((f: Record<string, unknown>) => ({
             id: f.id,
             userId: f.user_id,
@@ -136,11 +136,11 @@ export const useFriendStore = create<FriendState>()(
         try {
           const response = await apiFetch('/api/v1/friends/requests');
           if (!response.ok) {
-            const data = await response.json();
+            const data = await safeJson<Record<string, any>>(response);
             throw new Error(data.error || 'Failed to load friend requests');
           }
 
-          const data = await response.json();
+          const data = await safeJson<Record<string, any>>(response);
           const requests: FriendRequest[] = (data.requests || []).map(
             (r: Record<string, unknown>) => ({
               id: r.id,
@@ -173,7 +173,7 @@ export const useFriendStore = create<FriendState>()(
         });
 
         if (!response.ok) {
-          const data = await response.json();
+          const data = await safeJson<Record<string, any>>(response);
           throw new Error(data.error || 'Failed to send friend request');
         }
       },
@@ -190,7 +190,7 @@ export const useFriendStore = create<FriendState>()(
         });
 
         if (!response.ok) {
-          const data = await response.json();
+          const data = await safeJson<Record<string, any>>(response);
           throw new Error(data.error || 'Failed to accept friend request');
         }
 
@@ -226,7 +226,7 @@ export const useFriendStore = create<FriendState>()(
         });
 
         if (!response.ok) {
-          const data = await response.json();
+          const data = await safeJson<Record<string, any>>(response);
           throw new Error(data.error || 'Failed to decline friend request');
         }
 
@@ -241,7 +241,7 @@ export const useFriendStore = create<FriendState>()(
         });
 
         if (!response.ok) {
-          const data = await response.json();
+          const data = await safeJson<Record<string, any>>(response);
           throw new Error(data.error || 'Failed to remove friend');
         }
 
@@ -256,7 +256,7 @@ export const useFriendStore = create<FriendState>()(
         });
 
         if (!response.ok) {
-          const data = await response.json();
+          const data = await safeJson<Record<string, any>>(response);
           throw new Error(data.error || 'Failed to block user');
         }
 
@@ -271,7 +271,7 @@ export const useFriendStore = create<FriendState>()(
         try {
           const response = await apiFetch('/api/v1/friends/codes');
           if (!response.ok) return;
-          const data = await response.json();
+          const data = await safeJson<Record<string, any>>(response);
           const codes: FriendCode[] = (data.friend_codes || []).map(
             (fc: Record<string, unknown>) => ({
               id: fc.id as string,
@@ -303,11 +303,11 @@ export const useFriendStore = create<FriendState>()(
         });
 
         if (!response.ok) {
-          const data = await response.json();
+          const data = await safeJson<Record<string, any>>(response);
           throw new Error(data.error || 'Failed to generate friend code');
         }
 
-        const data = await response.json();
+        const data = await safeJson<Record<string, any>>(response);
         const fc = data.friend_code;
         const code: FriendCode = {
           id: fc.id,
@@ -327,7 +327,7 @@ export const useFriendStore = create<FriendState>()(
       revokeFriendCode: async (id: string) => {
         const response = await apiFetch(`/api/v1/friends/codes/${id}`, { method: 'DELETE' });
         if (!response.ok) {
-          const data = await response.json();
+          const data = await safeJson<Record<string, any>>(response);
           throw new Error(data.error || 'Failed to revoke friend code');
         }
         set((state) => ({
@@ -338,10 +338,10 @@ export const useFriendStore = create<FriendState>()(
       previewFriendCode: async (code: string) => {
         const response = await apiFetch(`/api/v1/friends/codes/${code}`);
         if (!response.ok) {
-          const data = await response.json();
+          const data = await safeJson<Record<string, any>>(response);
           throw new Error(data.error || 'Invalid friend code');
         }
-        const data = await response.json();
+        const data = await safeJson<Record<string, any>>(response);
         return {
           userId: data.user_id,
           username: data.username,
@@ -354,10 +354,10 @@ export const useFriendStore = create<FriendState>()(
       claimFriendCode: async (code: string) => {
         const response = await apiFetch(`/api/v1/friends/codes/${code}/claim`, { method: 'POST' });
         if (!response.ok) {
-          const data = await response.json();
+          const data = await safeJson<Record<string, any>>(response);
           throw new Error(data.error || 'Failed to claim friend code');
         }
-        const data = await response.json();
+        const data = await safeJson<Record<string, any>>(response);
         return {
           status: data.status as string,
           friendshipId: data.friendship_id as string,
@@ -373,7 +373,7 @@ export const useFriendStore = create<FriendState>()(
       searchUsers: async (query: string) => {
         const response = await apiFetch(`/api/v1/users/search?q=${encodeURIComponent(query)}`);
         if (!response.ok) return [];
-        const data = await response.json();
+        const data = await safeJson<Record<string, any>>(response);
         return (data.users || []).map((u: Record<string, unknown>) => ({
           id: u.id as string,
           username: u.username as string,

@@ -12,7 +12,13 @@ import {
 
 // We need a fresh E2EEService instance for each test, not the singleton
 // Import the class by re-importing the module
-let E2EEServiceClass: new () => InstanceType<typeof import('@/renderer/services/e2eeService')['e2eeService'] extends infer T ? { new(): T }['prototype'] extends never ? never : any : never>;
+let E2EEServiceClass: new () => InstanceType<
+  (typeof import('@/renderer/services/e2eeService'))['e2eeService'] extends infer T
+    ? { new (): T }['prototype'] extends never
+      ? never
+      : any
+    : never
+>;
 
 // Actually, let's just test the singleton and clear between tests
 import { e2eeService } from '@/renderer/services/e2eeService';
@@ -20,6 +26,7 @@ import { e2eeService } from '@/renderer/services/e2eeService';
 // Mock apiFetch for channel key fetching
 vi.mock('@/renderer/services/apiClient', () => ({
   apiFetch: vi.fn(),
+  safeJson: async (res: { json: () => Promise<unknown> }) => res.json(),
   API_BASE: 'http://localhost:8080',
 }));
 

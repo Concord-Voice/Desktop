@@ -639,7 +639,7 @@ const PrivacySecuritySection: React.FC = () => {
                 <em className="mfa-status-muted">Requires MFA</em>
               ) : (
                 <>
-                  <strong className={mfaBackupRemaining <= 2 ? 'mfa-status-warn' : ''}>
+                  <strong className={(mfaBackupRemaining ?? 0) <= 2 ? 'mfa-status-warn' : ''}>
                     {mfaBackupRemaining}
                   </strong>{' '}
                   / 8

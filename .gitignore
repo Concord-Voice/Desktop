@@ -111,6 +111,7 @@ coverage/
 *.cover
 .nyc_output/
 test-results/
+playwright-report/
 junit.xml
 
 # Docker

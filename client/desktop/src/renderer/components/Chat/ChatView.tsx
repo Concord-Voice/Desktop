@@ -8,7 +8,7 @@ import { useChannelSubscription } from '../../hooks/useChannelSubscription';
 import { useMessaging } from '../../hooks/useMessaging';
 import { useUnreadStore } from '../../stores/unreadStore';
 import { useServerStore } from '../../stores/serverStore';
-import { apiFetch } from '../../services/apiClient';
+import { apiFetch, safeJson } from '../../services/apiClient';
 import { e2eeService } from '../../services/e2eeService';
 import type { MessageWithStatus } from '../../types/chat';
 import './ChatView.css';
@@ -110,16 +110,27 @@ const ChatView: React.FC = () => {
         if (aborted) return;
 
         if (!res.ok) {
-          const data = await res.json();
+          const data = await safeJson<{ error?: string }>(res);
           throw new Error(data.error || 'Failed to load messages');
         }
 
-        const data = await res.json();
+        const data = await safeJson<{ messages?: MessageWithStatus[] }>(res);
         if (aborted) return;
         const rawMsgs: MessageWithStatus[] = (data.messages || []).map((m: MessageWithStatus) => ({
           ...m,
           status: 'delivered' as const,
         }));
+
+        // Pre-fetch channel key ONCE to prevent N concurrent getChannelKey() calls
+        let channelKey: CryptoKey | null = null;
+        if (rawMsgs.some((m) => m.is_encrypted) && e2eeService.isInitialized) {
+          try {
+            channelKey = await e2eeService.getChannelKey(activeChannelId);
+          } catch {
+            // Key not available yet — individual messages will show pending/failed state
+          }
+        }
+        if (aborted) return;
 
         // Decrypt encrypted messages (fail-closed: show placeholder, never raw ciphertext)
         const msgs = await Promise.all(
@@ -133,7 +144,9 @@ const ChatView: React.FC = () => {
                         m.content,
                         m.key_version
                       )
-                    : await e2eeService.decryptForChannel(activeChannelId, m.content);
+                    : channelKey
+                      ? await e2eeService.decryptWithKey(m.content, channelKey)
+                      : await e2eeService.decryptForChannel(activeChannelId, m.content);
                 return { ...m, content: plaintext };
               } catch (err) {
                 const isPending = err instanceof Error && err.message === 'PENDING_KEY';
@@ -193,15 +206,25 @@ const ChatView: React.FC = () => {
       );
 
       if (!res.ok) {
-        const data = await res.json();
+        const data = await safeJson<{ error?: string }>(res);
         throw new Error(data.error || 'Failed to load more messages');
       }
 
-      const data = await res.json();
+      const data = await safeJson<{ messages?: MessageWithStatus[] }>(res);
       const rawMsgs: MessageWithStatus[] = (data.messages || []).map((m: MessageWithStatus) => ({
         ...m,
         status: 'delivered' as const,
       }));
+
+      // Pre-fetch channel key ONCE for batch decryption
+      let channelKey: CryptoKey | null = null;
+      if (rawMsgs.some((m) => m.is_encrypted) && e2eeService.isInitialized) {
+        try {
+          channelKey = await e2eeService.getChannelKey(activeChannelId);
+        } catch {
+          // Key not available — individual messages will show pending/failed
+        }
+      }
 
       // Decrypt encrypted messages (same as initial fetch)
       const msgs = await Promise.all(
@@ -215,7 +238,9 @@ const ChatView: React.FC = () => {
                       m.content,
                       m.key_version
                     )
-                  : await e2eeService.decryptForChannel(activeChannelId, m.content);
+                  : channelKey
+                    ? await e2eeService.decryptWithKey(m.content, channelKey)
+                    : await e2eeService.decryptForChannel(activeChannelId, m.content);
               return { ...m, content: plaintext };
             } catch (err) {
               const isPending = err instanceof Error && err.message === 'PENDING_KEY';
