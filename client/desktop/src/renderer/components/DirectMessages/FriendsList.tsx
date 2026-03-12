@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { useFriendStore, type Friend } from '../../stores/friendStore';
 import ContextMenu from '../ui/ContextMenu';
+import MemberProfileCard, { type ProfileCardMember } from '../Members/MemberProfileCard';
+import { resolveUserAccentColors } from '../../utils/schemeColors';
 import AddFriendModal from './AddFriendModal';
 import './DirectMessages.css';
 
@@ -34,6 +36,10 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
   );
   const [contextMenu, setContextMenu] = useState<{
     friend: Friend;
+    position: { x: number; y: number };
+  } | null>(null);
+  const [selectedFriend, setSelectedFriend] = useState<{
+    userId: string;
     position: { x: number; y: number };
   } | null>(null);
 
@@ -106,6 +112,19 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
     },
     [removeFriend]
   );
+
+  const handleFriendClick = useCallback((e: React.MouseEvent, friend: Friend) => {
+    setSelectedFriend((prev) =>
+      prev?.userId === friend.userId
+        ? null
+        : { userId: friend.userId, position: { x: e.clientX, y: e.clientY } }
+    );
+  }, []);
+
+  // Derive live friend data from the store (avoid stale snapshots)
+  const selectedFriendData = selectedFriend
+    ? friends.find((f) => f.userId === selectedFriend.userId)
+    : null;
 
   const incomingRequests = pendingRequests.filter((r) => r.direction === 'received');
   const outgoingRequests = pendingRequests.filter((r) => r.direction === 'sent');
@@ -249,22 +268,43 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
               </div>
 
               {!isCollapsed &&
-                cat.friends.map((friend) => (
-                  <div
-                    key={friend.id}
-                    className={`friend-item ${friend.status === 'offline' ? 'offline' : ''}`}
-                    onClick={() => onFriendClick?.(friend.userId)}
-                    onContextMenu={(e) => handleFriendContextMenu(e, friend)}
-                  >
-                    <div className="member-avatar">
-                      <span className="member-avatar-initial">
-                        {(friend.displayName || friend.username).charAt(0).toUpperCase()}
+                cat.friends.map((friend) => {
+                  const friendColors = resolveUserAccentColors(friend.colorScheme);
+                  return (
+                    <div
+                      key={friend.id}
+                      className={`friend-item ${friend.status === 'offline' ? 'offline' : ''}`}
+                      onClick={(e) => handleFriendClick(e, friend)}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onContextMenu={(e) => handleFriendContextMenu(e, friend)}
+                    >
+                      <div className="member-avatar">
+                        {friend.avatarUrl ? (
+                          <img
+                            src={friend.avatarUrl}
+                            alt={friend.username}
+                            className="member-avatar-img"
+                          />
+                        ) : (
+                          <span
+                            className="member-avatar-initial"
+                            style={
+                              friendColors
+                                ? { background: friendColors.gradient, color: '#fff' }
+                                : undefined
+                            }
+                          >
+                            {(friend.displayName || friend.username).charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                        <span className={`member-status-dot ${friend.status}`} />
+                      </div>
+                      <span className="member-username">
+                        {friend.displayName || friend.username}
                       </span>
-                      <span className={`member-status-dot ${friend.status}`} />
                     </div>
-                    <span className="member-username">{friend.displayName || friend.username}</span>
-                  </div>
-                ))}
+                  );
+                })}
             </div>
           );
         })
@@ -292,6 +332,24 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
             onClick={() => handleRemoveFriend(contextMenu.friend.userId)}
           />
         </ContextMenu>
+      )}
+
+      {/* Profile Card */}
+      {selectedFriend && selectedFriendData && (
+        <MemberProfileCard
+          member={
+            {
+              user_id: selectedFriendData.userId,
+              username: selectedFriendData.username,
+              display_name: selectedFriendData.displayName,
+              avatar_url: selectedFriendData.avatarUrl,
+              color_scheme: selectedFriendData.colorScheme,
+            } satisfies ProfileCardMember
+          }
+          status={selectedFriendData.status}
+          position={selectedFriend.position}
+          onClose={() => setSelectedFriend(null)}
+        />
       )}
 
       <AddFriendModal isOpen={showAddFriendModal} onClose={() => setShowAddFriendModal(false)} />

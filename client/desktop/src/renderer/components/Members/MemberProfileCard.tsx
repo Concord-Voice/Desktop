@@ -1,16 +1,29 @@
-import React, { useEffect, useRef } from 'react';
-import { ServerMember, PresenceStatus } from '../../stores/memberStore';
+import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
+import type { PresenceStatus } from '../../stores/memberStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 import { useUserThemeScope } from '../../hooks/useUserThemeScope';
 import './MemberProfileCard.css';
 
+/** Flexible member shape that works for both ServerMembers and Friends */
+export interface ProfileCardMember {
+  user_id: string;
+  username: string;
+  display_name?: string;
+  bio?: string;
+  avatar_url?: string;
+  header_image_url?: string;
+  color_scheme?: string;
+  role?: 'owner' | 'admin' | 'member';
+  joined_at?: string;
+}
+
 interface MemberProfileCardProps {
-  member: ServerMember;
-  status: PresenceStatus;
+  member: ProfileCardMember;
+  status?: PresenceStatus;
   lastSeen?: number;
   position: { x: number; y: number };
   onClose: () => void;
-  onViewFullProfile: () => void;
+  onViewFullProfile?: () => void;
 }
 
 const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
@@ -49,9 +62,45 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
     };
   }, [onClose]);
 
-  // Clamp position to viewport
-  const top = Math.min(position.y, window.innerHeight - 320);
-  const left = Math.min(position.x - 290, window.innerWidth - 300);
+  // Measure actual card size and clamp to viewport with padding
+  const PADDING = 8;
+  const [adjustedPos, setAdjustedPos] = useState<{ top: number; left: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (!cardRef.current) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    const cardW = rect.width;
+    const cardH = rect.height;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    // Preferred: position to the left of the click point
+    let left = position.x - cardW - 10;
+    let top = position.y;
+
+    // If it overflows left, flip to the right of the click
+    if (left < PADDING) {
+      left = position.x + 10;
+    }
+    // Clamp right edge
+    if (left + cardW > vw - PADDING) {
+      left = vw - cardW - PADDING;
+    }
+    // Clamp left edge
+    if (left < PADDING) {
+      left = PADDING;
+    }
+    // Clamp bottom edge
+    if (top + cardH > vh - PADDING) {
+      top = vh - cardH - PADDING;
+    }
+    // Clamp top edge
+    if (top < PADDING) {
+      top = PADDING;
+    }
+
+    setAdjustedPos({ top, left });
+  }, [position]);
 
   const formatDate = (dateStr: string): string => {
     const date = new Date(dateStr);
@@ -74,15 +123,19 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
     return `${diffDays}d ago`;
   };
 
+  const effectiveStatus = status ?? 'offline';
+
   const getStatusText = (): string => {
-    if (status === 'online') return 'Online';
-    if (status === 'dnd') return 'Do Not Disturb';
-    if (status === 'invisible') return 'Offline'; // Invisible shows as Offline to others
+    if (effectiveStatus === 'online') return 'Online';
+    if (effectiveStatus === 'dnd') return 'Do Not Disturb';
+    if (effectiveStatus === 'invisible') return 'Offline'; // Invisible shows as Offline to others
     if (lastSeen) return `Last seen ${formatLastSeen(lastSeen)}`;
     return 'Offline';
   };
 
-  const roleLabel = member.role.charAt(0).toUpperCase() + member.role.slice(1);
+  const roleLabel = member.role
+    ? member.role.charAt(0).toUpperCase() + member.role.slice(1)
+    : undefined;
   const userColors = resolveUserAccentColors(member.color_scheme);
   const { scopeProps } = useUserThemeScope(member.color_scheme);
 
@@ -91,7 +144,14 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
       ref={cardRef}
       className="member-profile-card"
       {...scopeProps}
-      style={{ ...scopeProps.style, position: 'fixed', top, left, zIndex: 400 }}
+      style={{
+        ...scopeProps.style,
+        position: 'fixed',
+        top: adjustedPos?.top ?? -9999,
+        left: adjustedPos?.left ?? -9999,
+        zIndex: 400,
+        visibility: adjustedPos ? 'visible' : 'hidden',
+      }}
     >
       <div
         className={`member-profile-banner ${member.header_image_url ? 'has-image' : ''}`}
@@ -122,7 +182,7 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
               {member.username.charAt(0).toUpperCase()}
             </span>
           )}
-          <span className={`member-profile-status ${status}`} />
+          <span className={`member-profile-status ${effectiveStatus}`} />
         </div>
       </div>
 
@@ -133,22 +193,26 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
         <div className="member-profile-separator" />
 
         <div className="member-profile-details">
-          <div className="member-profile-detail-row">
-            <span className="member-profile-detail-label">Role</span>
-            <span className={`member-profile-role-badge role-${member.role}`}>{roleLabel}</span>
-          </div>
+          {member.role && roleLabel && (
+            <div className="member-profile-detail-row">
+              <span className="member-profile-detail-label">Role</span>
+              <span className={`member-profile-role-badge role-${member.role}`}>{roleLabel}</span>
+            </div>
+          )}
 
           <div className="member-profile-detail-row">
             <span className="member-profile-detail-label">Status</span>
-            <span className={`member-profile-detail-value status-${status}`}>
+            <span className={`member-profile-detail-value status-${effectiveStatus}`}>
               {getStatusText()}
             </span>
           </div>
 
-          <div className="member-profile-detail-row">
-            <span className="member-profile-detail-label">Joined</span>
-            <span className="member-profile-detail-value">{formatDate(member.joined_at)}</span>
-          </div>
+          {member.joined_at && (
+            <div className="member-profile-detail-row">
+              <span className="member-profile-detail-label">Joined</span>
+              <span className="member-profile-detail-value">{formatDate(member.joined_at)}</span>
+            </div>
+          )}
         </div>
 
         {member.bio && (
@@ -161,16 +225,20 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
           </>
         )}
 
-        <div className="member-profile-separator" />
-        <button
-          className="member-profile-view-full-btn"
-          onClick={() => {
-            onClose();
-            onViewFullProfile();
-          }}
-        >
-          View Full Profile
-        </button>
+        {onViewFullProfile && (
+          <>
+            <div className="member-profile-separator" />
+            <button
+              className="member-profile-view-full-btn"
+              onClick={() => {
+                onClose();
+                onViewFullProfile();
+              }}
+            >
+              View Full Profile
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

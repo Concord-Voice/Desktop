@@ -63,10 +63,11 @@ const MemberList: React.FC = () => {
   // Presence is handled globally in useWebSocket (presence_snapshot + presence events)
 
   const handleMemberClick = useCallback((e: React.MouseEvent, member: ServerMember) => {
-    setSelectedMember({
-      userId: member.user_id,
-      position: { x: e.clientX, y: e.clientY },
-    });
+    setSelectedMember((prev) =>
+      prev?.userId === member.user_id
+        ? null
+        : { userId: member.user_id, position: { x: e.clientX, y: e.clientY } }
+    );
   }, []);
 
   const handleMemberContextMenu = useCallback((e: React.MouseEvent, member: ServerMember) => {
