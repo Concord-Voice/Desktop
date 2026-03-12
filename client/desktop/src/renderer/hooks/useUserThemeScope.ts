@@ -1,5 +1,4 @@
-import { useMemo } from 'react';
-import type { CSSProperties } from 'react';
+import { useMemo, type CSSProperties } from 'react';
 import { resolveUserThemeScope } from '../utils/schemeColors';
 
 interface ThemeScopeProps {
