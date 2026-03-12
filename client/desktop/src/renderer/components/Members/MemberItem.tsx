@@ -15,6 +15,7 @@ const MemberItem: React.FC<MemberItemProps> = ({ member, status, onClick, onCont
     <div
       className={`member-item ${status}`}
       onClick={(e) => onClick(e, member)}
+      onMouseDown={(e) => e.stopPropagation()}
       onContextMenu={(e) => onContextMenu(e, member)}
       title={member.display_name || member.username}
     >

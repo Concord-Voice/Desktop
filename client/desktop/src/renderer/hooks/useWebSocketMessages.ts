@@ -834,6 +834,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
             username: data.friend.username,
             displayName: data.friend.display_name,
             avatarUrl: data.friend.avatar_url,
+            colorScheme: data.friend.color_scheme,
             status: data.friend.status || 'offline',
           });
         } else if (data.user_id && data.username) {
@@ -843,6 +844,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
             username: data.username,
             displayName: data.display_name,
             avatarUrl: data.avatar_url,
+            colorScheme: data.color_scheme,
             status: 'online',
           });
         }
@@ -872,6 +874,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
             username: data.friend.username,
             displayName: data.friend.display_name,
             avatarUrl: data.friend.avatar_url,
+            colorScheme: data.friend.color_scheme,
             status: data.friend.status || 'offline',
           });
         } else if (data.status === 'pending' && data.request) {

@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Lock } from 'lucide-react';
 import { MessageWithStatus } from '../../types/chat';
-import { useMemberStore, ServerMember } from '../../stores/memberStore';
+import { useMemberStore, type ServerMember } from '../../stores/memberStore';
+import { useFriendStore } from '../../stores/friendStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
-import MemberProfileCard from '../Members/MemberProfileCard';
+import MemberProfileCard, { type ProfileCardMember } from '../Members/MemberProfileCard';
 import UserProfileModal from '../Members/UserProfileModal';
 import DeleteMessageModal from './DeleteMessageModal';
 import MessageContextMenu from './MessageContextMenu';
@@ -113,7 +115,8 @@ const Message: React.FC<MessageProps> = ({
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [selectedMember, setSelectedMember] = useState<{
-    member: ServerMember;
+    member: ProfileCardMember;
+    serverMember: ServerMember | null;
     position: { x: number; y: number };
   } | null>(null);
   const [fullProfileMember, setFullProfileMember] = useState<ServerMember | null>(null);
@@ -134,11 +137,71 @@ const Message: React.FC<MessageProps> = ({
 
   const handleAvatarClick = useCallback(
     (e: React.MouseEvent) => {
-      const member = members.find((m) => m.user_id === message.user_id);
-      if (!member) return;
-      setSelectedMember({ member, position: { x: e.clientX, y: e.clientY } });
+      const position = { x: e.clientX, y: e.clientY };
+
+      // Try server member store first (has full data: role, joined_at, bio, etc.)
+      const serverMember = members.find((m) => m.user_id === message.user_id);
+      if (serverMember) {
+        setSelectedMember({ member: serverMember, serverMember, position });
+        return;
+      }
+
+      // Fall back to friend store (has colorScheme, avatarUrl, displayName)
+      const friend = useFriendStore.getState().friends.find((f) => f.userId === message.user_id);
+      if (friend) {
+        setSelectedMember({
+          member: {
+            user_id: friend.userId,
+            username: friend.username,
+            display_name: friend.displayName,
+            avatar_url: friend.avatarUrl,
+            color_scheme: friend.colorScheme,
+          },
+          serverMember: null,
+          position,
+        });
+        return;
+      }
+
+      // Last resort: construct from message data.
+      // If it's the current user's own avatar, pull color_scheme from settings.
+      let colorScheme: string | undefined;
+      if (message.user_id === currentUserId) {
+        const { colorScheme: scheme, customColors } = useSettingsStore.getState().appearance;
+        const themeMode =
+          useSettingsStore.getState().appearance.theme === 'light' ? 'light' : 'dark';
+        if (scheme === 'custom' && customColors) {
+          colorScheme = JSON.stringify({
+            scheme: 'custom',
+            themeMode,
+            accentPrimary: customColors.accentPrimary,
+            accentSecondary: customColors.accentSecondary,
+          });
+        } else {
+          colorScheme = JSON.stringify({ scheme, themeMode });
+        }
+      }
+
+      setSelectedMember({
+        member: {
+          user_id: message.user_id,
+          username: message.username,
+          display_name: message.display_name,
+          avatar_url: message.avatar_url,
+          color_scheme: colorScheme,
+        },
+        serverMember: null,
+        position,
+      });
     },
-    [members, message.user_id]
+    [
+      members,
+      message.user_id,
+      message.username,
+      message.display_name,
+      message.avatar_url,
+      currentUserId,
+    ]
   );
 
   useEffect(() => {
@@ -398,10 +461,14 @@ const Message: React.FC<MessageProps> = ({
           lastSeen={lastSeenByUser.get(selectedMember.member.user_id)}
           position={selectedMember.position}
           onClose={() => setSelectedMember(null)}
-          onViewFullProfile={() => {
-            setFullProfileMember(selectedMember.member);
-            setSelectedMember(null);
-          }}
+          onViewFullProfile={
+            selectedMember.serverMember
+              ? () => {
+                  setFullProfileMember(selectedMember.serverMember);
+                  setSelectedMember(null);
+                }
+              : undefined
+          }
         />
       )}
 
