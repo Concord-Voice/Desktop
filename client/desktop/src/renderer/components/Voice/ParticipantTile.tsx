@@ -3,6 +3,7 @@ import { MicOff, Monitor } from 'lucide-react';
 import type { VoiceParticipant } from '../../stores/voiceStore';
 import { useMemberStore } from '../../stores/memberStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
+import { useUserThemeScope } from '../../hooks/useUserThemeScope';
 import './ParticipantTile.css';
 
 interface ParticipantTileProps {
@@ -56,6 +57,7 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
     return member?.color_scheme;
   });
   const userColors = useMemo(() => resolveUserAccentColors(memberColorScheme), [memberColorScheme]);
+  const { scopeProps } = useUserThemeScope(memberColorScheme);
   const gradient = useMemo(
     () => userColors?.gradient ?? bannerGradient(participant.userId),
     [userColors, participant.userId]
@@ -67,7 +69,8 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
   return (
     <div
       className={`participant-tile${hasVideo ? ' participant-tile--video' : ''}${compact ? ' participant-tile--compact' : ''}`}
-      style={scaleStyle}
+      {...scopeProps}
+      style={{ ...scopeProps.style, ...scaleStyle }}
     >
       {hasVideo ? (
         /* Video mode — fills the frame, name overlay at bottom */

@@ -6,10 +6,20 @@
  * based on another user's chosen color scheme, without parsing CSS at runtime.
  */
 
+import type { CSSProperties } from 'react';
+import { deriveThemeVariables, type DerivedThemeVariables } from './colorUtils';
+
 export interface SchemeAccentColors {
   accentPrimary: string;
   accentSecondary: string;
   gradient: string;
+}
+
+export interface UserThemeScope {
+  scheme: string;
+  themeMode: 'dark' | 'light';
+  /** Only set for custom schemes — inline CSS variables to override the cascade */
+  customStyles?: CSSProperties;
 }
 
 const SCHEME_ACCENTS: Record<string, [primary: string, secondary: string]> = {
@@ -70,5 +80,78 @@ export function resolveUserAccentColors(
     return PRESET_COLORS[parsed.scheme] ?? null;
   } catch {
     return null;
+  }
+}
+
+/** Known preset scheme names (used to distinguish preset vs unknown) */
+const PRESET_SCHEME_NAMES = new Set(Object.keys(SCHEME_ACCENTS));
+
+/**
+ * Convert DerivedThemeVariables to a React CSSProperties object.
+ * CSS custom properties are valid React inline style keys when cast.
+ */
+function themeVarsToCSSProperties(vars: DerivedThemeVariables): CSSProperties {
+  const style: Record<string, string> = {};
+  for (const [key, value] of Object.entries(vars)) {
+    style[key] = value;
+  }
+  return style as CSSProperties;
+}
+
+/**
+ * Resolve a user's color_scheme JSON into scoped theme data attributes + optional inline styles.
+ *
+ * For preset schemes, returns { scheme, themeMode } which map to existing
+ * [data-scheme='X'][data-theme='Y'] CSS selectors.
+ *
+ * For custom schemes, returns inline CSS variables via customStyles since
+ * there are no CSS rules to match.
+ *
+ * @param colorSchemeJson - The raw JSON string from the user profile, or null/undefined.
+ * @returns Theme scope data for identity component roots.
+ */
+export function resolveUserThemeScope(colorSchemeJson: string | null | undefined): UserThemeScope {
+  const fallback: UserThemeScope = { scheme: 'concord', themeMode: 'dark' };
+
+  if (!colorSchemeJson) return fallback;
+
+  try {
+    const parsed = JSON.parse(colorSchemeJson) as {
+      scheme?: string;
+      themeMode?: 'dark' | 'light';
+      accentPrimary?: string;
+      accentSecondary?: string;
+    };
+
+    if (!parsed.scheme) return fallback;
+
+    const themeMode = parsed.themeMode === 'light' ? 'light' : 'dark';
+
+    // Custom scheme — generate inline CSS variables
+    if (parsed.scheme === 'custom' && parsed.accentPrimary && parsed.accentSecondary) {
+      const isDark = themeMode === 'dark';
+      const vars = deriveThemeVariables(
+        {
+          background: isDark ? '#0d0821' : '#f5f5f7',
+          accentPrimary: parsed.accentPrimary,
+          accentSecondary: parsed.accentSecondary,
+        },
+        isDark
+      );
+      return {
+        scheme: 'custom',
+        themeMode,
+        customStyles: themeVarsToCSSProperties(vars),
+      };
+    }
+
+    // Preset scheme — validate it exists
+    if (PRESET_SCHEME_NAMES.has(parsed.scheme)) {
+      return { scheme: parsed.scheme, themeMode };
+    }
+
+    return fallback;
+  } catch {
+    return fallback;
   }
 }

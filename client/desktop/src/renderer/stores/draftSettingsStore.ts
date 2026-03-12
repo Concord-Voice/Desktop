@@ -1,5 +1,10 @@
 import { create } from 'zustand';
-import { useSettingsStore, type AppearanceSettings, type CustomColors } from './settingsStore';
+import {
+  useSettingsStore,
+  syncColorSchemeToServer,
+  type AppearanceSettings,
+  type CustomColors,
+} from './settingsStore';
 import { useAudioSettingsStore, type AudioSettings } from './audioSettingsStore';
 import { useVideoSettingsStore, type VideoSettings } from './videoSettingsStore';
 import { useTTSSettingsStore, type TTSSettings } from './ttsSettingsStore';
@@ -416,8 +421,15 @@ export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => 
 
     const willRestart = 'hardwareAcceleration' in drafts.video;
 
-    // Appearance — already applied live, but we need to allow server sync
-    // (appearance drafts were written through to real store already)
+    // Appearance — already written through to real store during draft preview.
+    // Sync color scheme to server + memberStore now (subscriber was suppressed).
+    if (
+      'colorScheme' in drafts.appearance ||
+      'customColors' in drafts.appearance ||
+      'theme' in drafts.appearance
+    ) {
+      syncColorSchemeToServer();
+    }
 
     // Audio — push to real store
     if (Object.keys(drafts.audio).length > 0) {

@@ -8,6 +8,7 @@ export interface DMParticipant {
   username: string;
   displayName?: string;
   avatarUrl?: string;
+  colorScheme?: string;
   status?: string;
 }
 
@@ -55,6 +56,11 @@ interface DMState {
   updateLastMessage: (convId: string, message: DMLastMessage) => void;
   incrementUnread: (convId: string) => void;
   clearUnread: (convId: string) => void;
+
+  updateParticipantProfile: (
+    userId: string,
+    updates: Partial<Omit<DMParticipant, 'userId'>>
+  ) => void;
 
   // DM voice
   setDMCallActive: (active: boolean, conversationId?: string | null) => void;
@@ -243,6 +249,19 @@ export const useDMStore = create<DMState>()(
               state.activeConversationId === id ? null : state.activeConversationId,
           })),
 
+        updateParticipantProfile: (
+          userId: string,
+          updates: Partial<Omit<DMParticipant, 'userId'>>
+        ) =>
+          set((state) => ({
+            conversations: state.conversations.map((c) => ({
+              ...c,
+              participants: c.participants.map((p) =>
+                p.userId === userId ? { ...p, ...updates } : p
+              ),
+            })),
+          })),
+
         updateLastMessage: (convId: string, message: DMLastMessage) =>
           set((state) => {
             const updated = state.conversations.map((c) =>
@@ -304,6 +323,7 @@ function mapConversation(c: Record<string, unknown>): DMConversation {
         username: p.username as string,
         displayName: p.display_name as string | undefined,
         avatarUrl: p.avatar_url as string | undefined,
+        colorScheme: p.color_scheme as string | undefined,
         status: p.status as string | undefined,
       }))
     : [];

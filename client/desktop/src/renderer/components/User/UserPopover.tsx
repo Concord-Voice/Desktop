@@ -1,8 +1,10 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { UserProfile, useUserStore } from '../../stores/userStore';
 import { useMemberStore, PresenceStatus } from '../../stores/memberStore';
 import { getWebSocketService } from '../../services/websocketService';
+import { useUserThemeScope } from '../../hooks/useUserThemeScope';
+import { useSettingsStore } from '../../stores/settingsStore';
 import './UserPopover.css';
 
 interface UserPopoverProps {
@@ -40,6 +42,29 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
   const logout = useUserStore((state) => state.logout);
   const selfStatus = useMemberStore((state) => state.selfStatus);
   const setSelfStatus = useMemberStore((state) => state.setSelfStatus);
+
+  // Build color_scheme JSON from the current user's settings for identity scoping
+  const colorScheme = useSettingsStore((s) => s.appearance.colorScheme);
+  const customColors = useSettingsStore((s) => s.appearance.customColors);
+  const theme = useSettingsStore((s) => s.appearance.theme);
+  const selfColorSchemeJson = useMemo(() => {
+    const resolvedTheme =
+      theme === 'system'
+        ? window.matchMedia('(prefers-color-scheme: dark)').matches
+          ? 'dark'
+          : 'light'
+        : theme;
+    if (colorScheme === 'custom' && customColors) {
+      return JSON.stringify({
+        scheme: 'custom',
+        themeMode: resolvedTheme,
+        accentPrimary: customColors.accentPrimary,
+        accentSecondary: customColors.accentSecondary,
+      });
+    }
+    return JSON.stringify({ scheme: colorScheme, themeMode: resolvedTheme });
+  }, [colorScheme, customColors, theme]);
+  const { scopeProps } = useUserThemeScope(selfColorSchemeJson);
 
   // Close on outside click or Escape
   useEffect(() => {
@@ -83,7 +108,7 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
   };
 
   return (
-    <div ref={popoverRef} className="user-popover">
+    <div ref={popoverRef} className="user-popover" {...scopeProps} style={scopeProps.style}>
       {/* User info header */}
       <div className="user-popover-header">
         <div className="user-popover-avatar">

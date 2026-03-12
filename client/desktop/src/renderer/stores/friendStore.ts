@@ -9,6 +9,7 @@ export interface Friend {
   username: string;
   displayName?: string;
   avatarUrl?: string;
+  colorScheme?: string;
   status: PresenceStatus;
 }
 
@@ -88,6 +89,10 @@ interface FriendState {
   addRequest: (request: FriendRequest) => void;
   removeRequest: (requestId: string) => void;
   updateFriendPresence: (userId: string, status: PresenceStatus) => void;
+  updateFriendProfile: (
+    userId: string,
+    updates: Partial<Omit<Friend, 'id' | 'userId' | 'status'>>
+  ) => void;
   refreshFriendCodeUseCounts: () => void;
   clearFriends: () => void;
 }
@@ -120,6 +125,7 @@ export const useFriendStore = create<FriendState>()(
             username: f.username,
             displayName: f.display_name,
             avatarUrl: f.avatar_url,
+            colorScheme: f.color_scheme as string | undefined,
             status: (f.status as PresenceStatus) || 'offline',
           }));
 
@@ -408,6 +414,14 @@ export const useFriendStore = create<FriendState>()(
       updateFriendPresence: (userId: string, status: PresenceStatus) =>
         set((state) => ({
           friends: state.friends.map((f) => (f.userId === userId ? { ...f, status } : f)),
+        })),
+
+      updateFriendProfile: (
+        userId: string,
+        updates: Partial<Omit<Friend, 'id' | 'userId' | 'status'>>
+      ) =>
+        set((state) => ({
+          friends: state.friends.map((f) => (f.userId === userId ? { ...f, ...updates } : f)),
         })),
 
       refreshFriendCodeUseCounts: () => {

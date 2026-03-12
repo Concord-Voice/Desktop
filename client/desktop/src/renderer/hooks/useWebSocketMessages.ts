@@ -206,6 +206,26 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         color_scheme: data.color_scheme || undefined,
       });
 
+      // Update DM participant profiles
+      import('../stores/dmStore').then(({ useDMStore }) => {
+        useDMStore.getState().updateParticipantProfile(userId, {
+          username: data.username,
+          displayName: data.display_name || undefined,
+          avatarUrl: data.avatar_url || undefined,
+          colorScheme: data.color_scheme || undefined,
+        });
+      });
+
+      // Update friend profiles
+      import('../stores/friendStore').then(({ useFriendStore }) => {
+        useFriendStore.getState().updateFriendProfile(userId, {
+          username: data.username,
+          displayName: data.display_name || undefined,
+          avatarUrl: data.avatar_url || undefined,
+          colorScheme: data.color_scheme || undefined,
+        });
+      });
+
       // Update voice participant (active call tiles)
       const voiceState = useVoiceStore.getState();
       if (voiceState.participants[userId]) {
