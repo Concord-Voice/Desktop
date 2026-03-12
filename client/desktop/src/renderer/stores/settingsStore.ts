@@ -7,6 +7,7 @@ import {
   clearCustomThemeVariables,
 } from '../utils/colorUtils';
 import { useUserStore } from './userStore';
+import { useMemberStore } from './memberStore';
 import { draftModeActive } from './draftSettingsStore';
 
 export interface AppearanceSettings {
@@ -217,16 +218,53 @@ useSettingsStore.subscribe(
   }
 );
 
-// Sync color scheme changes to server profile (debounced, skips initial hydration)
+// Sync color scheme + theme mode changes to server profile (debounced, skips initial hydration)
 let colorSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let colorSyncInitial = true;
+
+/**
+ * Build the color_scheme JSON payload, optimistically update memberStore,
+ * and sync to server. Called from both the settings subscriber and
+ * draftSettingsStore.apply() (since the subscriber is suppressed during draft mode).
+ */
+export function syncColorSchemeToServer() {
+  const { colorScheme, customColors, theme } = useSettingsStore.getState().appearance;
+  const themeMode = resolveTheme(theme);
+  let payload: string;
+  if (colorScheme === 'custom' && customColors) {
+    payload = JSON.stringify({
+      scheme: 'custom',
+      themeMode,
+      accentPrimary: customColors.accentPrimary,
+      accentSecondary: customColors.accentSecondary,
+    });
+  } else {
+    payload = JSON.stringify({ scheme: colorScheme, themeMode });
+  }
+
+  // Optimistically update memberStore so identity components reflect the
+  // new scheme immediately (without waiting for the server roundtrip)
+  const selfId = useUserStore.getState().user?.id;
+  if (selfId) {
+    useMemberStore.getState().updateMemberProfile(selfId, { color_scheme: payload });
+  }
+
+  // Server sync
+  useUserStore
+    .getState()
+    .updateProfile({ color_scheme: payload })
+    .catch(() => {
+      // Fire-and-forget — local settings still work if server sync fails
+    });
+}
 
 useSettingsStore.subscribe(
   (state) => ({
     colorScheme: state.appearance.colorScheme,
     customColors: state.appearance.customColors,
+    theme: state.appearance.theme,
   }),
-  ({ colorScheme, customColors }) => {
+  () => {
     // Skip the initial hydration from localStorage
     if (colorSyncInitial) {
       colorSyncInitial = false;
@@ -236,31 +274,14 @@ useSettingsStore.subscribe(
     // Suppress server sync during draft mode — sync happens on Apply
     if (draftModeActive) return;
 
+    // Debounced sync
     if (colorSyncTimer) clearTimeout(colorSyncTimer);
-
-    colorSyncTimer = setTimeout(() => {
-      let payload: string;
-      if (colorScheme === 'custom' && customColors) {
-        payload = JSON.stringify({
-          scheme: 'custom',
-          accentPrimary: customColors.accentPrimary,
-          accentSecondary: customColors.accentSecondary,
-        });
-      } else {
-        payload = JSON.stringify({ scheme: colorScheme });
-      }
-
-      useUserStore
-        .getState()
-        .updateProfile({ color_scheme: payload })
-        .catch(() => {
-          // Fire-and-forget — local settings still work if server sync fails
-        });
-    }, 500);
+    colorSyncTimer = setTimeout(syncColorSchemeToServer, 500);
   },
   {
     equalityFn: (a, b) =>
       a.colorScheme === b.colorScheme &&
+      a.theme === b.theme &&
       JSON.stringify(a.customColors) === JSON.stringify(b.customColors),
     fireImmediately: true,
   }

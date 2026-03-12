@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { ServerMember, PresenceStatus } from '../../stores/memberStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
+import { useUserThemeScope } from '../../hooks/useUserThemeScope';
 import './MemberProfileCard.css';
 
 interface MemberProfileCardProps {
@@ -83,12 +84,14 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
 
   const roleLabel = member.role.charAt(0).toUpperCase() + member.role.slice(1);
   const userColors = resolveUserAccentColors(member.color_scheme);
+  const { scopeProps } = useUserThemeScope(member.color_scheme);
 
   return (
     <div
       ref={cardRef}
       className="member-profile-card"
-      style={{ position: 'fixed', top, left, zIndex: 400 }}
+      {...scopeProps}
+      style={{ ...scopeProps.style, position: 'fixed', top, left, zIndex: 400 }}
     >
       <div
         className={`member-profile-banner ${member.header_image_url ? 'has-image' : ''}`}

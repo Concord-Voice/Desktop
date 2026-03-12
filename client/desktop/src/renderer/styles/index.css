@@ -111,6 +111,62 @@
   --status-disconnected: #e05050;
 }
 
+/* Concord Dark (explicit scheme selector for identity scoping) */
+[data-scheme='concord'] {
+  --bg-primary: #0d0821;
+  --bg-secondary: #151028;
+  --bg-tertiary: #1d1630;
+  --text-primary: #ffffff;
+  --text-secondary: #b8b8c8;
+  --text-muted: #7f7f9e;
+  --accent-primary: #fa709a;
+  --accent-secondary: #ffe13f;
+  --accent-hover: #ff8bb0;
+  --gradient-brand: linear-gradient(90deg, #fa709a 0%, #ffe13f 100%);
+  --success: #43b581;
+  --danger: #f04747;
+  --border-color: #2a2440;
+  --accent-color: var(--accent-primary);
+  --error-color: var(--danger);
+  --success-color: var(--success);
+  --text-tertiary: #5f5f7e;
+  --bg-hover: #1a1230;
+  --bg-active: #241e38;
+  --on-accent: #ffffff;
+  --danger-hover: #d43b3b;
+  --status-connected: #1aaa55;
+  --status-connecting: #e6b432;
+  --status-disconnected: #fa6464;
+}
+
+/* Concord Light (explicit scheme selector for identity scoping) */
+[data-scheme='concord'][data-theme='light'] {
+  --bg-primary: #f5f5f7;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #e8e8ec;
+  --text-primary: #1a1a2e;
+  --text-secondary: #4a4a6a;
+  --text-muted: #8888a8;
+  --accent-primary: #fa709a;
+  --accent-secondary: #ffe13f;
+  --accent-hover: #ff8bb0;
+  --gradient-brand: linear-gradient(90deg, #fa709a 0%, #ffe13f 100%);
+  --success: #2d9f6f;
+  --danger: #e03e3e;
+  --border-color: #d4d4de;
+  --accent-color: var(--accent-primary);
+  --error-color: var(--danger);
+  --success-color: var(--success);
+  --text-tertiary: #6a6a8a;
+  --bg-hover: #dddde2;
+  --bg-active: #d2d2d8;
+  --on-accent: #ffffff;
+  --danger-hover: #c83232;
+  --status-connected: #1a9a4a;
+  --status-connecting: #c89a20;
+  --status-disconnected: #e05050;
+}
+
 /* Morky Dark */
 [data-scheme='morky'] {
   --bg-primary: #0a0a0a;

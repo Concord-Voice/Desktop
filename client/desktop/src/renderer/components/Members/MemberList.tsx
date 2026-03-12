@@ -24,7 +24,7 @@ const MemberList: React.FC = () => {
   const clearMembers = useMemberStore((state) => state.clearMembers);
 
   const [selectedMember, setSelectedMember] = useState<{
-    member: ServerMember;
+    userId: string;
     position: { x: number; y: number };
   } | null>(null);
 
@@ -33,7 +33,16 @@ const MemberList: React.FC = () => {
     position: { x: number; y: number };
   } | null>(null);
 
-  const [fullProfileMember, setFullProfileMember] = useState<ServerMember | null>(null);
+  const [fullProfileUserId, setFullProfileUserId] = useState<string | null>(null);
+
+  // Derive live member data from store (not stale snapshots)
+  const selectedMemberData = selectedMember
+    ? (members.find((m) => m.user_id === selectedMember.userId) ?? null)
+    : null;
+
+  const fullProfileMemberData = fullProfileUserId
+    ? (members.find((m) => m.user_id === fullProfileUserId) ?? null)
+    : null;
 
   // Fetch members when active server changes.
   // Guard prevents StrictMode double-mount from firing duplicate HTTP requests.
@@ -55,7 +64,7 @@ const MemberList: React.FC = () => {
 
   const handleMemberClick = useCallback((e: React.MouseEvent, member: ServerMember) => {
     setSelectedMember({
-      member,
+      userId: member.user_id,
       position: { x: e.clientX, y: e.clientY },
     });
   }, []);
@@ -168,15 +177,15 @@ const MemberList: React.FC = () => {
       )}
 
       {/* Profile Card */}
-      {selectedMember && (
+      {selectedMember && selectedMemberData && (
         <MemberProfileCard
-          member={selectedMember.member}
-          status={getMemberStatus(selectedMember.member.user_id)}
-          lastSeen={lastSeenByUser.get(selectedMember.member.user_id)}
+          member={selectedMemberData}
+          status={getMemberStatus(selectedMemberData.user_id)}
+          lastSeen={lastSeenByUser.get(selectedMemberData.user_id)}
           position={selectedMember.position}
           onClose={() => setSelectedMember(null)}
           onViewFullProfile={() => {
-            setFullProfileMember(selectedMember.member);
+            setFullProfileUserId(selectedMember.userId);
             setSelectedMember(null);
           }}
         />
@@ -191,19 +200,19 @@ const MemberList: React.FC = () => {
           serverId={activeServer.id}
           onClose={() => setContextMenu(null)}
           onViewProfile={() => {
-            setFullProfileMember(contextMenu.member);
+            setFullProfileUserId(contextMenu.member.user_id);
           }}
         />
       )}
 
       {/* Full Profile Modal */}
-      {fullProfileMember && (
+      {fullProfileMemberData && (
         <UserProfileModal
-          isOpen={!!fullProfileMember}
-          onClose={() => setFullProfileMember(null)}
-          member={fullProfileMember}
-          presenceStatus={getMemberStatus(fullProfileMember.user_id)}
-          lastSeen={lastSeenByUser.get(fullProfileMember.user_id)}
+          isOpen={!!fullProfileMemberData}
+          onClose={() => setFullProfileUserId(null)}
+          member={fullProfileMemberData}
+          presenceStatus={getMemberStatus(fullProfileMemberData.user_id)}
+          lastSeen={lastSeenByUser.get(fullProfileMemberData.user_id)}
         />
       )}
     </div>

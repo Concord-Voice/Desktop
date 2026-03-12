@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ServerMember, PresenceStatus } from '../../stores/memberStore';
 import { apiFetch } from '../../services/apiClient';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
+import { useUserThemeScope } from '../../hooks/useUserThemeScope';
 import './UserProfileModal.css';
 
 interface UserProfileModalProps {
@@ -62,6 +63,7 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
   const displayName = member.display_name || member.username;
   const roleLabel = member.role.charAt(0).toUpperCase() + member.role.slice(1);
   const userColors = resolveUserAccentColors(member.color_scheme);
+  const { scopeProps } = useUserThemeScope(member.color_scheme);
 
   // Close on Escape
   useEffect(() => {
@@ -127,7 +129,7 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
   return (
     <div className="user-profile-overlay" ref={overlayRef} onClick={handleOverlayClick}>
-      <div className="user-profile-container">
+      <div className="user-profile-container" {...scopeProps} style={scopeProps.style}>
         {/* Banner + Close Button */}
         <div
           className={`user-profile-modal-banner ${profile?.header_image_url ? 'has-image' : ''}`}
