@@ -26,6 +26,7 @@ import {
 } from '../../hooks/useDraftSettings';
 import ToggleSwitch from './ToggleSwitch';
 import CollapsibleSection from './CollapsibleSection';
+import CustomSelect from '../ui/CustomSelect';
 
 // ─── GPU Vendor Icon ────────────────────────────────────────────────────────
 
@@ -771,20 +772,21 @@ const VoiceAudioSection: React.FC = () => {
                             : 'Packet duration sent to other participants. Currently 60ms \u2014 maximum efficiency, highest latency.'}
                 </span>
               </div>
-              <select
+              <CustomSelect
                 className="settings-select"
-                value={adaptivePtime ? 0 : frameSize}
-                onChange={(e) =>
-                  setDraftAudioSetting('frameSize', Number(e.target.value) as 0 | 10 | 20 | 40 | 60)
+                options={[
+                  { value: '0', label: `Default (${tierConfig.preferredFrameSize} ms)` },
+                  { value: '10', label: '10 ms (lowest latency)' },
+                  { value: '20', label: '20 ms' },
+                  { value: '40', label: '40 ms (efficient)' },
+                  { value: '60', label: '60 ms (most efficient)' },
+                ]}
+                value={String(adaptivePtime ? 0 : frameSize)}
+                onChange={(v) =>
+                  setDraftAudioSetting('frameSize', Number(v) as 0 | 10 | 20 | 40 | 60)
                 }
                 disabled={adaptivePtime}
-              >
-                <option value={0}>Default ({tierConfig.preferredFrameSize} ms)</option>
-                <option value={10}>10 ms (lowest latency)</option>
-                <option value={20}>20 ms</option>
-                <option value={40}>40 ms (efficient)</option>
-                <option value={60}>60 ms (most efficient)</option>
-              </select>
+              />
             </div>
 
             <div className="settings-row">
@@ -811,17 +813,15 @@ const VoiceAudioSection: React.FC = () => {
                     : 'Currently Mono — a single audio channel is encoded and delivered. Recommended for most users, especially with standard single-microphone headsets and desk mics.'}
                 </span>
               </div>
-              <select
+              <CustomSelect
                 className="settings-select"
+                options={[
+                  { value: 'stereo', label: 'Stereo' },
+                  { value: 'mono', label: 'Mono' },
+                ]}
                 value={(stereoOverride ?? tierConfig.opusStereo) ? 'stereo' : 'mono'}
-                onChange={(e) => {
-                  const v = e.target.value === 'stereo';
-                  setDraftAudioSetting('stereoOverride', v);
-                }}
-              >
-                <option value="stereo">Stereo</option>
-                <option value="mono">Mono</option>
-              </select>
+                onChange={(v) => setDraftAudioSetting('stereoOverride', v === 'stereo')}
+              />
             </div>
 
             {/* ── Error Correction & Reliability ── */}
@@ -893,18 +893,17 @@ const VoiceAudioSection: React.FC = () => {
                         : 'Currently High (EF) \u2014 highest priority. (RFC 5127)'}
                 </span>
               </div>
-              <select
+              <CustomSelect
                 className="settings-select"
+                options={[
+                  { value: 'off', label: 'Off (No Tagging)' },
+                  { value: 'low', label: 'Low (DF)' },
+                  { value: 'medium', label: 'Default (AF41)' },
+                  { value: 'high', label: 'High (EF)' },
+                ]}
                 value={audioPriority}
-                onChange={(e) =>
-                  setDraftAudioSetting('audioPriority', e.target.value as AudioPriority)
-                }
-              >
-                <option value="off">Off (No Tagging)</option>
-                <option value="low">Low (DF)</option>
-                <option value="medium">Default (AF41)</option>
-                <option value="high">High (EF)</option>
-              </select>
+                onChange={(v) => setDraftAudioSetting('audioPriority', v as AudioPriority)}
+              />
             </div>
           </>
         )}
@@ -939,17 +938,15 @@ const VoiceAudioSection: React.FC = () => {
                 : `Constrains the camera's capture resolution and frame rate. Currently requesting ${VIDEO_QUALITY_PRESETS[cameraPreset]?.label ?? cameraPreset}.`}
             </span>
           </div>
-          <select
+          <CustomSelect
             className="settings-select"
+            options={Object.entries(VIDEO_QUALITY_PRESETS).map(([key, preset]) => ({
+              value: key,
+              label: preset.label,
+            }))}
             value={cameraPreset}
-            onChange={(e) => setDraftVideoSetting('cameraPreset', e.target.value)}
-          >
-            {Object.entries(VIDEO_QUALITY_PRESETS).map(([key, preset]) => (
-              <option key={key} value={key}>
-                {preset.label}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setDraftVideoSetting('cameraPreset', v)}
+          />
         </div>
 
         {/* ── Screen Share ── */}
@@ -967,29 +964,27 @@ const VoiceAudioSection: React.FC = () => {
                 : `Default capture resolution for screen sharing. Currently ${screenResolution}.`}
             </span>
           </div>
-          <select
+          <CustomSelect
             className="settings-select"
+            options={[
+              { value: 'source', label: 'Native', group: 'Common Resolutions' },
+              ...(bestDisplay.height >= 2160
+                ? [{ value: '4K', label: '4K (3840×2160)', group: 'Common Resolutions' }]
+                : []),
+              ...(bestDisplay.height >= 1440
+                ? [{ value: '1440p', label: '1440p (2560×1440)', group: 'Common Resolutions' }]
+                : []),
+              { value: '1080p', label: '1080p (1920×1080)', group: 'Common Resolutions' },
+              { value: '720p', label: '720p (1280×720)', group: 'Common Resolutions' },
+              ...uniqueDisplayResolutions.map((d) => ({
+                value: `${d.width}x${d.height}`,
+                label: `${d.width}×${d.height}${d.isPrimary ? ' (Primary)' : ''}`,
+                group: 'Your Displays',
+              })),
+            ]}
             value={screenResolution}
-            onChange={(e) => setDraftVideoSetting('screenResolution', e.target.value)}
-          >
-            <optgroup label="Common Resolutions">
-              <option value="source">Native</option>
-              {bestDisplay.height >= 2160 && <option value="4K">4K (3840×2160)</option>}
-              {bestDisplay.height >= 1440 && <option value="1440p">1440p (2560×1440)</option>}
-              <option value="1080p">1080p (1920×1080)</option>
-              <option value="720p">720p (1280×720)</option>
-            </optgroup>
-            {uniqueDisplayResolutions.length > 0 && (
-              <optgroup label="Your Displays">
-                {uniqueDisplayResolutions.map((d) => (
-                  <option key={`${d.width}x${d.height}`} value={`${d.width}x${d.height}`}>
-                    {d.width}×{d.height}
-                    {d.isPrimary ? ' (Primary)' : ''}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
+            onChange={(v) => setDraftVideoSetting('screenResolution', v)}
+          />
         </div>
 
         <div className="settings-row">
@@ -1001,26 +996,31 @@ const VoiceAudioSection: React.FC = () => {
                 : `Default capture frame rate for screen sharing. Currently ${screenFrameRate} FPS.`}
             </span>
           </div>
-          <select
+          <CustomSelect
             className="settings-select"
-            value={screenFrameRate}
-            onChange={(e) => setDraftVideoSetting('screenFrameRate', Number(e.target.value))}
-          >
-            <optgroup label="Common">
-              <option value={0}>Native ({maxRefreshRate} Hz)</option>
-              <option value={60}>60 FPS</option>
-              <option value={30}>30 FPS</option>
-            </optgroup>
-            <optgroup label="Additional">
-              {maxRefreshRate >= 120 && <option value={120}>120 FPS</option>}
-              {maxRefreshRate >= 100 && <option value={100}>100 FPS</option>}
-              {maxRefreshRate >= 90 && <option value={90}>90 FPS</option>}
-              {maxRefreshRate >= 75 && <option value={75}>75 FPS</option>}
-              <option value={24}>24 FPS (Cinematic)</option>
-              <option value={15}>15 FPS</option>
-              <option value={5}>5 FPS (Slideshow)</option>
-            </optgroup>
-          </select>
+            options={[
+              { value: '0', label: `Native (${maxRefreshRate} Hz)`, group: 'Common' },
+              { value: '60', label: '60 FPS', group: 'Common' },
+              { value: '30', label: '30 FPS', group: 'Common' },
+              ...(maxRefreshRate >= 120
+                ? [{ value: '120', label: '120 FPS', group: 'Additional' }]
+                : []),
+              ...(maxRefreshRate >= 100
+                ? [{ value: '100', label: '100 FPS', group: 'Additional' }]
+                : []),
+              ...(maxRefreshRate >= 90
+                ? [{ value: '90', label: '90 FPS', group: 'Additional' }]
+                : []),
+              ...(maxRefreshRate >= 75
+                ? [{ value: '75', label: '75 FPS', group: 'Additional' }]
+                : []),
+              { value: '24', label: '24 FPS (Cinematic)', group: 'Additional' },
+              { value: '15', label: '15 FPS', group: 'Additional' },
+              { value: '5', label: '5 FPS (Slideshow)', group: 'Additional' },
+            ]}
+            value={String(screenFrameRate)}
+            onChange={(v) => setDraftVideoSetting('screenFrameRate', Number(v))}
+          />
         </div>
 
         <div className="settings-row">
@@ -1034,17 +1034,16 @@ const VoiceAudioSection: React.FC = () => {
                   : 'Optimizes encoding for the type of content being shared. Currently Detail \u2014 prioritizes sharp text and edges for code and documents.'}
             </span>
           </div>
-          <select
+          <CustomSelect
             className="settings-select"
+            options={[
+              { value: 'auto', label: 'Auto' },
+              { value: 'motion', label: 'Motion (Video & Animation)' },
+              { value: 'detail', label: 'Detail (Text & Code)' },
+            ]}
             value={screenContentType}
-            onChange={(e) =>
-              setDraftVideoSetting('screenContentType', e.target.value as ScreenContentType)
-            }
-          >
-            <option value="auto">Auto</option>
-            <option value="motion">Motion (Video & Animation)</option>
-            <option value="detail">Detail (Text & Code)</option>
-          </select>
+            onChange={(v) => setDraftVideoSetting('screenContentType', v as ScreenContentType)}
+          />
         </div>
 
         {/* ── Advanced Video Settings ── */}
@@ -1061,20 +1060,18 @@ const VoiceAudioSection: React.FC = () => {
                       : 'How Concord adapts your camera during network congestion. Currently Prefer Sharp Details \u2014 keeps resolution by reducing framerate.'}
                 </span>
               </div>
-              <select
+              <CustomSelect
                 className="settings-select"
+                options={[
+                  { value: 'balanced', label: 'Balanced' },
+                  { value: 'maintain-framerate', label: 'Prefer Smooth Video' },
+                  { value: 'maintain-resolution', label: 'Prefer Sharp Details' },
+                ]}
                 value={degradationPreference}
-                onChange={(e) =>
-                  setDraftVideoSetting(
-                    'degradationPreference',
-                    e.target.value as DegradationPreference
-                  )
+                onChange={(v) =>
+                  setDraftVideoSetting('degradationPreference', v as DegradationPreference)
                 }
-              >
-                <option value="balanced">Balanced</option>
-                <option value="maintain-framerate">Prefer Smooth Video</option>
-                <option value="maintain-resolution">Prefer Sharp Details</option>
-              </select>
+              />
             </div>
 
             <h3 className="settings-subsection-title">Codec & Hardware</h3>
@@ -1296,41 +1293,35 @@ const VoiceAudioSection: React.FC = () => {
                           : 'Preferred codec for camera and screen share encoding. Currently Auto \u2014 Concord selects the best available based on hardware and peer support.'}
                       </span>
                     </div>
-                    <select
+                    <CustomSelect
                       className="settings-select"
+                      options={[
+                        { value: '', label: 'Auto' },
+                        ...sdrCodecs.map((c) => {
+                          const key = codecKey(c);
+                          const name = c.mimeType.replace('video/', '');
+                          const profile = c.profileLabel ? ` (${c.profileLabel})` : '';
+                          return { value: key, label: `${name}${profile}` };
+                        }),
+                        ...hdrCodecs.map((c) => {
+                          const key = codecKey(c);
+                          const name = c.mimeType.replace('video/', '');
+                          const profile = c.profileLabel ? ` (${c.profileLabel})` : '';
+                          return {
+                            value: hdrEncoding ? key : `__disabled_${key}`,
+                            label: `${name}${profile}`,
+                            group: hdrEncoding ? 'HDR' : 'Requires HDR',
+                          };
+                        }),
+                      ]}
                       value={preferredVideoCodec ?? ''}
-                      onChange={(e) =>
-                        setDraftVideoSetting('preferredVideoCodec', e.target.value || null)
+                      onChange={(v) =>
+                        setDraftVideoSetting(
+                          'preferredVideoCodec',
+                          v.startsWith('__disabled_') ? (preferredVideoCodec ?? '') : v || null
+                        )
                       }
-                    >
-                      <option value="">Auto</option>
-                      {sdrCodecs.map((c) => {
-                        const key = codecKey(c);
-                        const name = c.mimeType.replace('video/', '');
-                        const profile = c.profileLabel ? ` (${c.profileLabel})` : '';
-                        return (
-                          <option key={key} value={key}>
-                            {name}
-                            {profile}
-                          </option>
-                        );
-                      })}
-                      {hdrCodecs.length > 0 && (
-                        <optgroup label={hdrEncoding ? 'HDR' : 'Requires HDR'}>
-                          {hdrCodecs.map((c) => {
-                            const key = codecKey(c);
-                            const name = c.mimeType.replace('video/', '');
-                            const profile = c.profileLabel ? ` (${c.profileLabel})` : '';
-                            return (
-                              <option key={key} value={key} disabled={!hdrEncoding}>
-                                {name}
-                                {profile}
-                              </option>
-                            );
-                          })}
-                        </optgroup>
-                      )}
-                    </select>
+                    />
                   </div>
 
                   {info && (
@@ -1451,18 +1442,17 @@ const VoiceAudioSection: React.FC = () => {
                         : 'Currently High (EF) \u2014 highest priority. (RFC 5127)'}
                 </span>
               </div>
-              <select
+              <CustomSelect
                 className="settings-select"
+                options={[
+                  { value: 'off', label: 'Off (No Tagging)' },
+                  { value: 'low', label: 'Low (DF)' },
+                  { value: 'medium', label: 'Default (AF43)' },
+                  { value: 'high', label: 'High (EF)' },
+                ]}
                 value={cameraPriority}
-                onChange={(e) =>
-                  setDraftVideoSetting('cameraPriority', e.target.value as VideoPriority)
-                }
-              >
-                <option value="off">Off (No Tagging)</option>
-                <option value="low">Low (DF)</option>
-                <option value="medium">Default (AF43)</option>
-                <option value="high">High (EF)</option>
-              </select>
+                onChange={(v) => setDraftVideoSetting('cameraPriority', v as VideoPriority)}
+              />
             </div>
 
             <div className="settings-row">
@@ -1481,18 +1471,17 @@ const VoiceAudioSection: React.FC = () => {
                         : 'Currently High (EF) \u2014 highest priority. (RFC 5127)'}
                 </span>
               </div>
-              <select
+              <CustomSelect
                 className="settings-select"
+                options={[
+                  { value: 'off', label: 'Off (No Tagging)' },
+                  { value: 'low', label: 'Low (DF)' },
+                  { value: 'medium', label: 'Default (AF42)' },
+                  { value: 'high', label: 'High (EF)' },
+                ]}
                 value={screenSharePriority}
-                onChange={(e) =>
-                  setDraftVideoSetting('screenSharePriority', e.target.value as VideoPriority)
-                }
-              >
-                <option value="off">Off (No Tagging)</option>
-                <option value="low">Low (DF)</option>
-                <option value="medium">Default (AF42)</option>
-                <option value="high">High (EF)</option>
-              </select>
+                onChange={(v) => setDraftVideoSetting('screenSharePriority', v as VideoPriority)}
+              />
             </div>
 
             <div className="settings-row">
@@ -1506,20 +1495,18 @@ const VoiceAudioSection: React.FC = () => {
                       : 'Sends video at multiple quality levels so viewers on slower connections get a lower-quality stream. Currently Single Quality \u2014 no adaptation, lowest CPU usage.'}
                 </span>
               </div>
-              <select
+              <CustomSelect
                 className="settings-select"
+                options={[
+                  { value: 'L3T3', label: '3 Layers (Default)' },
+                  { value: 'L2T3', label: '2 Layers' },
+                  { value: 'L1T3', label: 'Single Quality' },
+                ]}
                 value={scalabilityMode === 'auto' ? 'L3T3' : scalabilityMode}
-                onChange={(e) =>
-                  setDraftVideoSetting(
-                    'scalabilityMode',
-                    e.target.value as 'L1T3' | 'L2T3' | 'L3T3'
-                  )
+                onChange={(v) =>
+                  setDraftVideoSetting('scalabilityMode', v as 'L1T3' | 'L2T3' | 'L3T3')
                 }
-              >
-                <option value="L3T3">3 Layers (Default)</option>
-                <option value="L2T3">2 Layers</option>
-                <option value="L1T3">Single Quality</option>
-              </select>
+              />
             </div>
           </>
         )}

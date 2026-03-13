@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Hash, Volume2, Pin } from 'lucide-react';
 import { useUnreadStore } from '../../stores/unreadStore';
 import { useServerStore } from '../../stores/serverStore';
+import { usePermissionStore } from '../../stores/permissionStore';
+import { Permissions } from '../../utils/permissions';
 import { apiFetch } from '../../services/apiClient';
 import { Channel } from '../../types/chat';
 import ContextMenu from '../ui/ContextMenu';
@@ -10,23 +12,26 @@ import './ChannelContextMenu.css';
 interface ChannelContextMenuProps {
   channel: Channel;
   position: { x: number; y: number };
-  userRole: 'owner' | 'admin' | 'member';
+  serverId: string;
   onClose: () => void;
   onEditChannel: (channel: Channel) => void;
   onDeleteChannel: (channel: Channel) => void;
+  onChannelPermissions?: (channel: Channel) => void;
 }
 
 const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
   channel,
   position,
-  userRole,
+  serverId,
   onClose,
   onEditChannel,
   onDeleteChannel,
+  onChannelPermissions,
 }) => {
   const [copiedLink, setCopiedLink] = useState(false);
-  const canEdit = userRole === 'owner' || userRole === 'admin';
-  const canDelete = userRole === 'owner' || userRole === 'admin';
+  const hasServerPerm = usePermissionStore((s) => s.hasServerPermission);
+  const canEdit = hasServerPerm(serverId, Permissions.MANAGE_CHANNELS);
+  const canDelete = hasServerPerm(serverId, Permissions.MANAGE_CHANNELS);
 
   const getChannelTypeIcon = (type: Channel['type']) => {
     switch (type) {
@@ -153,6 +158,24 @@ const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
             onClick={() => {
               onEditChannel(channel);
               onClose();
+            }}
+          />
+          <ContextMenu.Item
+            icon={
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path
+                  d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            }
+            label="Channel Permissions"
+            onClick={() => {
+              onClose();
+              onChannelPermissions?.(channel);
             }}
           />
         </>

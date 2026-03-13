@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useDraftTtsSetting, setDraftTtsSetting } from '../../hooks/useDraftSettings';
 import ToggleSwitch from './ToggleSwitch';
 import CollapsibleSection from './CollapsibleSection';
+import CustomSelect from '../ui/CustomSelect';
 
 // ─── Text-to-Speech Section ─────────────────────────────────────────────────
 
@@ -62,18 +63,18 @@ const TTSSection: React.FC = () => {
             {`Select which text-to-speech voice reads messages aloud. Currently using ${ttsVoice ? (voices.find((v) => v.voiceURI === ttsVoice)?.name ?? ttsVoice) : 'System Default'}.`}
           </span>
         </div>
-        <select
+        <CustomSelect
           className="settings-select"
+          options={[
+            { value: '', label: 'System Default' },
+            ...voices.map((v) => ({
+              value: v.voiceURI,
+              label: `${v.name} (${v.lang})`,
+            })),
+          ]}
           value={ttsVoice ?? ''}
-          onChange={(e) => setDraftTtsSetting('ttsVoice', e.target.value || null)}
-        >
-          <option value="">System Default</option>
-          {voices.map((v) => (
-            <option key={v.voiceURI} value={v.voiceURI}>
-              {v.name} ({v.lang})
-            </option>
-          ))}
-        </select>
+          onChange={(v) => setDraftTtsSetting('ttsVoice', v || null)}
+        />
       </div>
 
       <div className="settings-row">

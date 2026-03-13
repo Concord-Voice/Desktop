@@ -1,7 +1,8 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useServerStore } from '../../stores/serverStore';
 import { useUserStore } from '../../stores/userStore';
 import { useMemberStore, ServerMember, PresenceStatus } from '../../stores/memberStore';
+import { usePermissionStore } from '../../stores/permissionStore';
 import MemberItem from './MemberItem';
 import MemberProfileCard from './MemberProfileCard';
 import MemberContextMenu from './MemberContextMenu';
@@ -22,6 +23,8 @@ const MemberList: React.FC = () => {
   const error = useMemberStore((state) => state.error);
   const fetchMembers = useMemberStore((state) => state.fetchMembers);
   const clearMembers = useMemberStore((state) => state.clearMembers);
+  const fetchRoles = usePermissionStore((state) => state.fetchRoles);
+  const serverRoles = usePermissionStore((state) => state.serverRoles);
 
   const [selectedMember, setSelectedMember] = useState<{
     userId: string;
@@ -44,6 +47,12 @@ const MemberList: React.FC = () => {
     ? (members.find((m) => m.user_id === fullProfileUserId) ?? null)
     : null;
 
+  // Track collapsed role groups
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  // Search filter
+  const [searchQuery, setSearchQuery] = useState('');
+
   // Fetch members when active server changes.
   // Guard prevents StrictMode double-mount from firing duplicate HTTP requests.
   const memberFetchRef = useRef<string | null>(null);
@@ -53,12 +62,13 @@ const MemberList: React.FC = () => {
       if (memberFetchRef.current !== activeServerId) {
         memberFetchRef.current = activeServerId;
         fetchMembers(activeServerId);
+        fetchRoles(activeServerId);
       }
     } else {
       memberFetchRef.current = null;
       clearMembers();
     }
-  }, [activeServerId, fetchMembers, clearMembers]);
+  }, [activeServerId, fetchMembers, fetchRoles, clearMembers]);
 
   // Presence is handled globally in useWebSocket (presence_snapshot + presence events)
 
@@ -78,6 +88,18 @@ const MemberList: React.FC = () => {
     });
   }, []);
 
+  const toggleGroup = useCallback((groupKey: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupKey)) {
+        next.delete(groupKey);
+      } else {
+        next.add(groupKey);
+      }
+      return next;
+    });
+  }, []);
+
   // Get status for a member (with fallback)
   // For the self user, use selfStatus as the source of truth
   const getMemberStatus = (userId: string): PresenceStatus => {
@@ -88,45 +110,150 @@ const MemberList: React.FC = () => {
   };
 
   // Sort: online first, dnd second, away third, offline/invisible last, then alphabetical
-  const sortMembers = (list: ServerMember[]) =>
-    [...list].sort((a, b) => {
-      const statusOrder: Record<PresenceStatus, number> = {
-        online: 0,
-        dnd: 1,
-        invisible: 2,
-        offline: 2,
-      };
-      const aStatus = getMemberStatus(a.user_id);
-      const bStatus = getMemberStatus(b.user_id);
-      const aOrder = statusOrder[aStatus];
-      const bOrder = statusOrder[bStatus];
-      if (aOrder !== bOrder) return aOrder - bOrder;
-      return a.username.localeCompare(b.username);
+  const sortMembers = useCallback(
+    (list: ServerMember[]) =>
+      [...list].sort((a, b) => {
+        const statusOrder: Record<PresenceStatus, number> = {
+          online: 0,
+          dnd: 1,
+          invisible: 2,
+          offline: 2,
+        };
+        const aStatus = getMemberStatus(a.user_id);
+        const bStatus = getMemberStatus(b.user_id);
+        const aOrder = statusOrder[aStatus];
+        const bOrder = statusOrder[bStatus];
+        if (aOrder !== bOrder) return aOrder - bOrder;
+        return a.username.localeCompare(b.username);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }),
+    [selfUser, selfStatus, userStatuses, onlineUserIds]
+  );
+
+  // Filter members by search query
+  const filteredMembers = useMemo(() => {
+    if (!searchQuery.trim()) return members;
+    const q = searchQuery.toLowerCase();
+    return members.filter((m) => {
+      if (m.username.toLowerCase().includes(q)) return true;
+      if (m.display_name?.toLowerCase().includes(q)) return true;
+      if (m.roles?.some((r) => r.role_name.toLowerCase().includes(q))) return true;
+      return false;
+    });
+  }, [members, searchQuery]);
+
+  // Build role-based groups using RBAC roles with display_separately
+  const roleGroups = useMemo(() => {
+    const roles = activeServerId ? serverRoles[activeServerId] || [] : [];
+
+    // Get roles with display_separately, sorted by position (highest first)
+    const displayRoles = roles
+      .filter((r) => r.display_separately && !r.is_default)
+      .sort((a, b) => b.position - a.position);
+
+    // Build groups: each member appears in their highest-position display_separately role
+    const assignedUserIds = new Set<string>();
+    const groups: Array<{
+      key: string;
+      label: string;
+      emoji?: string;
+      color?: string;
+      members: ServerMember[];
+    }> = [];
+
+    for (const role of displayRoles) {
+      const roleMembers = filteredMembers.filter((m) => {
+        if (assignedUserIds.has(m.user_id)) return false;
+        return m.roles?.some((r) => r.role_id === role.id);
+      });
+      if (roleMembers.length > 0) {
+        roleMembers.forEach((m) => assignedUserIds.add(m.user_id));
+        groups.push({
+          key: `role-${role.id}`,
+          label: role.name,
+          emoji: role.emoji,
+          color: role.color,
+          members: sortMembers(roleMembers),
+        });
+      }
+    }
+
+    // Remaining members go into Online / Offline groups
+    const remaining = filteredMembers.filter((m) => !assignedUserIds.has(m.user_id));
+    const online = remaining.filter((m) => {
+      const status = getMemberStatus(m.user_id);
+      return status === 'online' || status === 'dnd';
+    });
+    const offline = remaining.filter((m) => {
+      const status = getMemberStatus(m.user_id);
+      return status === 'offline' || status === 'invisible';
     });
 
-  // Group members by role
-  const owners = sortMembers(members.filter((m) => m.role === 'owner'));
-  const admins = sortMembers(members.filter((m) => m.role === 'admin'));
-  const regularMembers = sortMembers(members.filter((m) => m.role === 'member'));
+    if (online.length > 0) {
+      groups.push({
+        key: 'online',
+        label: 'Online',
+        members: sortMembers(online),
+      });
+    }
+    if (offline.length > 0) {
+      groups.push({
+        key: 'offline',
+        label: 'Offline',
+        members: sortMembers(offline),
+      });
+    }
 
-  const renderGroup = (label: string, groupMembers: ServerMember[]) => {
-    if (groupMembers.length === 0) return null;
+    return groups;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredMembers, serverRoles, activeServerId, sortMembers]);
+
+  const renderGroup = (group: {
+    key: string;
+    label: string;
+    emoji?: string;
+    color?: string;
+    members: ServerMember[];
+  }) => {
+    if (group.members.length === 0) return null;
+    const isCollapsed = collapsedGroups.has(group.key);
     return (
-      <div className="member-group" key={label}>
-        <div className="member-group-header">
-          <span>
-            {label} — {groupMembers.length}
+      <div className="member-group" key={group.key}>
+        <button
+          className="member-group-header member-group-header--clickable"
+          onClick={() => toggleGroup(group.key)}
+          type="button"
+        >
+          <svg
+            className={`member-group-chevron${isCollapsed ? ' collapsed' : ''}`}
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            fill="none"
+          >
+            <path
+              d="M2.5 3.5L5 6.5L7.5 3.5"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          <span style={group.color ? { color: group.color } : undefined}>
+            {group.emoji && <span className="member-group-emoji">{group.emoji}</span>}
+            {group.label} &mdash; {group.members.length}
           </span>
-        </div>
-        {groupMembers.map((member) => (
-          <MemberItem
-            key={member.user_id}
-            member={member}
-            status={getMemberStatus(member.user_id)}
-            onClick={handleMemberClick}
-            onContextMenu={handleMemberContextMenu}
-          />
-        ))}
+        </button>
+        {!isCollapsed &&
+          group.members.map((member) => (
+            <MemberItem
+              key={member.user_id}
+              member={member}
+              status={getMemberStatus(member.user_id)}
+              onClick={handleMemberClick}
+              onContextMenu={handleMemberContextMenu}
+            />
+          ))}
       </div>
     );
   };
@@ -136,6 +263,19 @@ const MemberList: React.FC = () => {
       <div className="member-list-header">
         <h3>Members</h3>
       </div>
+
+      {/* Search */}
+      {members.length > 0 && (
+        <div className="member-list-search">
+          <input
+            type="text"
+            className="member-list-search-input"
+            placeholder="Search members..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+      )}
 
       {/* Loading State */}
       {isLoading && members.length === 0 && (
@@ -168,14 +308,15 @@ const MemberList: React.FC = () => {
         </div>
       )}
 
-      {/* Member Groups */}
-      {members.length > 0 && (
-        <>
-          {renderGroup('OWNER', owners)}
-          {renderGroup('ADMINS', admins)}
-          {renderGroup('MEMBERS', regularMembers)}
-        </>
+      {/* Search empty state */}
+      {!isLoading && searchQuery && filteredMembers.length === 0 && members.length > 0 && (
+        <div className="member-list-empty">
+          <p>No members found</p>
+        </div>
       )}
+
+      {/* Member Groups */}
+      {filteredMembers.length > 0 && <>{roleGroups.map((group) => renderGroup(group))}</>}
 
       {/* Profile Card */}
       {selectedMember && selectedMemberData && (
@@ -197,8 +338,8 @@ const MemberList: React.FC = () => {
         <MemberContextMenu
           member={contextMenu.member}
           position={contextMenu.position}
-          currentUserRole={activeServer.role}
           serverId={activeServer.id}
+          ownerUserId={activeServer.owner_id}
           onClose={() => setContextMenu(null)}
           onViewProfile={() => {
             setFullProfileUserId(contextMenu.member.user_id);

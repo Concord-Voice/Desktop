@@ -179,6 +179,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
           avatar_url: data.avatar_url || undefined,
           role: data.role || 'member',
           joined_at: new Date().toISOString(),
+          roles: [],
         });
       }
     });
@@ -272,6 +273,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       useServerStore.getState().updateServer(serverId, {
         name: data.name,
         icon_url: data.icon_url ?? null,
+        banner_url: data.banner_url ?? null,
+        allow_embedded_content: data.allow_embedded_content ?? false,
       });
     });
 

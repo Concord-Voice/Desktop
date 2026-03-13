@@ -1,6 +1,11 @@
 import { render, screen, fireEvent } from '../../../test-utils';
 import MemberContextMenu from '@/renderer/components/Members/MemberContextMenu';
 import { mockMember, mockMember2 } from '../../../mocks/fixtures';
+import { usePermissionStore } from '@/renderer/stores/permissionStore';
+import { ADMIN_PERMISSIONS, BASE_PERMISSIONS } from '@/renderer/utils/permissions';
+
+const SERVER_ID = 'server-1';
+const OWNER_USER_ID = 'user-1'; // mockMember.user_id / mockServer.owner_id
 
 describe('MemberContextMenu', () => {
   const mockOnClose = vi.fn();
@@ -9,8 +14,8 @@ describe('MemberContextMenu', () => {
   const defaultProps = {
     member: mockMember2, // non-owner member
     position: { x: 100, y: 100 },
-    currentUserRole: 'owner' as const,
-    serverId: 'server-1',
+    serverId: SERVER_ID,
+    ownerUserId: OWNER_USER_ID,
     onClose: mockOnClose,
     onViewProfile: mockOnViewProfile,
   };
@@ -18,6 +23,10 @@ describe('MemberContextMenu', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useFakeTimers();
+    // Default: owner-level permissions (can assign roles and ban)
+    usePermissionStore.setState({
+      serverPermissions: { [SERVER_ID]: ADMIN_PERMISSIONS },
+    });
   });
 
   afterEach(() => {
@@ -47,11 +56,13 @@ describe('MemberContextMenu', () => {
   });
 
   it('hides Assign Role for non-owner user', () => {
-    render(<MemberContextMenu {...defaultProps} currentUserRole="member" />);
+    usePermissionStore.setState({ serverPermissions: { [SERVER_ID]: BASE_PERMISSIONS } });
+    render(<MemberContextMenu {...defaultProps} />);
     expect(screen.queryByText('Assign Role')).not.toBeInTheDocument();
   });
 
   it('hides Assign Role when targeting owner', () => {
+    // Target is the owner user — canAssignRole is always false
     render(<MemberContextMenu {...defaultProps} member={mockMember} />);
     expect(screen.queryByText('Assign Role')).not.toBeInTheDocument();
   });
@@ -62,12 +73,14 @@ describe('MemberContextMenu', () => {
   });
 
   it('shows Ban for admin targeting non-owner', () => {
-    render(<MemberContextMenu {...defaultProps} currentUserRole="admin" />);
+    // ADMIN_PERMISSIONS already set in beforeEach
+    render(<MemberContextMenu {...defaultProps} />);
     expect(screen.getByText('Ban')).toBeInTheDocument();
   });
 
   it('hides Ban for regular member', () => {
-    render(<MemberContextMenu {...defaultProps} currentUserRole="member" />);
+    usePermissionStore.setState({ serverPermissions: { [SERVER_ID]: BASE_PERMISSIONS } });
+    render(<MemberContextMenu {...defaultProps} />);
     expect(screen.queryByText('Ban')).not.toBeInTheDocument();
   });
 

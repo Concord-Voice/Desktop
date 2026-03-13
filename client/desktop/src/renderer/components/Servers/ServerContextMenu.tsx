@@ -1,6 +1,9 @@
 import React from 'react';
 import { ServerWithRole } from '../../types/server';
 import { useUnreadStore } from '../../stores/unreadStore';
+import { usePermissionStore } from '../../stores/permissionStore';
+import { useUserStore } from '../../stores/userStore';
+import { Permissions } from '../../utils/permissions';
 import { apiFetch } from '../../services/apiClient';
 import ContextMenu from '../ui/ContextMenu';
 import './ServerContextMenu.css';
@@ -24,8 +27,10 @@ const ServerContextMenu: React.FC<ServerContextMenuProps> = ({
   onLeaveServer,
   onInvite,
 }) => {
-  const canEdit = server.role === 'owner' || server.role === 'admin';
-  const isOwner = server.role === 'owner';
+  const hasServerPerm = usePermissionStore((s) => s.hasServerPermission);
+  const currentUserId = useUserStore((s) => s.user?.id);
+  const canEdit = hasServerPerm(server.id, Permissions.MANAGE_SERVER);
+  const isOwner = currentUserId === server.owner_id;
 
   return (
     <ContextMenu position={position} onClose={onClose}>

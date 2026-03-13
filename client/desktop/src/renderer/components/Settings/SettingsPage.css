@@ -9,11 +9,11 @@
 .settings-page-content {
   flex: 1;
   overflow-y: auto;
-  padding: 32px 48px;
+  padding: 32px clamp(24px, 4vw, 64px);
 }
 
 .settings-page-inner {
-  max-width: 900px;
+  max-width: 1200px;
   margin: 0 auto;
 }
 

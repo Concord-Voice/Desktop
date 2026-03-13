@@ -79,6 +79,12 @@
   margin-bottom: calc(4px * var(--sp, 1));
 }
 
+.message-role-emoji {
+  font-size: calc(14px * var(--font-scale, 1));
+  line-height: 1;
+  flex-shrink: 0;
+}
+
 .message-username {
   font-weight: 600;
   color: var(--text-primary);

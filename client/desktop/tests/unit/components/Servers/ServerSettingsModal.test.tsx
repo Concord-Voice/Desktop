@@ -1,7 +1,9 @@
 import { render, screen, fireEvent } from '../../../test-utils';
 import { useInviteStore } from '@/renderer/stores/inviteStore';
+import { usePermissionStore } from '@/renderer/stores/permissionStore';
 import { mockServer } from '../../../mocks/fixtures';
 import type { ServerWithRole } from '@/renderer/types/server';
+import { MANAGE_SERVER, ADMIN_PERMISSIONS, BASE_PERMISSIONS } from '@/renderer/utils/permissions';
 
 // Mock apiFetch
 const mockApiFetch = vi.fn();
@@ -34,6 +36,10 @@ describe('ServerSettingsModal', () => {
       error: null,
       fetchInvites: vi.fn().mockResolvedValue(undefined),
       createInvite: vi.fn().mockResolvedValue(null),
+    });
+    // Initialize permission store with owner-level permissions for tests
+    usePermissionStore.setState({
+      serverPermissions: { 'server-1': ADMIN_PERMISSIONS | MANAGE_SERVER },
     });
   });
 
@@ -157,6 +163,7 @@ describe('ServerSettingsModal', () => {
   });
 
   it('hides invite section for regular members', () => {
+    usePermissionStore.setState({ serverPermissions: { 'server-1': BASE_PERMISSIONS } });
     const memberServer: ServerWithRole = { ...mockServer, role: 'member' };
     render(<ServerSettingsModal isOpen={true} server={memberServer} onClose={mockOnClose} />);
     expect(screen.queryByText('Invite Code')).not.toBeInTheDocument();

@@ -3,6 +3,7 @@ import { useFormState } from '../../hooks/useFormState';
 import { Hash, Volume2, Pin } from 'lucide-react';
 import EmojiPicker from '../EmojiPicker/LazyEmojiPicker';
 import Modal from '../ui/Modal';
+import CustomSelect from '../ui/CustomSelect';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useChannelStore } from '../../stores/channelStore';
 import { AUDIO_QUALITY_TIERS, type AudioQualityTier } from '../../stores/voiceStore';
@@ -279,20 +280,16 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
             <label htmlFor="edit-channel-group" className="channel-form-label">
               Channel Group
             </label>
-            <select
-              id="edit-channel-group"
-              className="channel-form-input"
+            <CustomSelect
+              options={[
+                { value: '', label: 'Uncategorized' },
+                ...channelGroups.map((g) => ({ value: g.id, label: g.name })),
+              ]}
               value={groupId}
-              onChange={(e) => setGroupId(e.target.value)}
+              onChange={(v) => setGroupId(v)}
               disabled={isSubmitting}
-            >
-              <option value="">Uncategorized</option>
-              {channelGroups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-            </select>
+              className="channel-form-input"
+            />
             <span className="channel-form-hint">Move this channel to a different group</span>
           </div>
         )}

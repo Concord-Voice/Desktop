@@ -4,6 +4,8 @@ import { useChannelStore } from '../../stores/channelStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useUnreadStore } from '../../stores/unreadStore';
 import { useVoiceStore, type ChannelVoiceMember } from '../../stores/voiceStore';
+import { usePermissionStore } from '../../stores/permissionStore';
+import { Permissions, hasPermission } from '../../utils/permissions';
 import { apiFetch } from '../../services/apiClient';
 import { Channel, ChannelGroup } from '../../types/chat';
 import ChannelItem, { type VoiceMemberInfo } from './ChannelItem';
@@ -21,7 +23,6 @@ const ChannelList: React.FC<ChannelListProps> = ({
   onCategoryContextMenu,
 }) => {
   const activeServerId = useServerStore((state) => state.activeServerId);
-  const servers = useServerStore((state) => state.servers);
   const channels = useChannelStore((state) => state.channels);
   const channelGroups = useChannelStore((state) => state.channelGroups);
   const collapsedGroups = useChannelStore((state) => state.collapsedGroups);
@@ -57,8 +58,10 @@ const ChannelList: React.FC<ChannelListProps> = ({
   const lastInsertRef = useRef<typeof dragInsertPos>(null);
   const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
-  const activeServer = servers.find((s) => s.id === activeServerId);
-  const canReorder = activeServer?.role === 'owner' || activeServer?.role === 'admin';
+  const activeServerPerms = usePermissionStore(
+    (s) => (activeServerId ? s.serverPermissions[activeServerId] : undefined) ?? 0n
+  );
+  const canReorder = hasPermission(activeServerPerms, Permissions.MANAGE_CHANNELS);
 
   // Fetch channels when active server changes.
   // Guard prevents StrictMode double-mount from firing duplicate HTTP requests.

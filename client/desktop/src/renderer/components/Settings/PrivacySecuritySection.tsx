@@ -559,6 +559,27 @@ const PrivacySecuritySection: React.FC = () => {
         </div>
 
         <h3 className="settings-subsection-title" style={{ marginTop: 20 }}>
+          Content Safety
+        </h3>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Allow Embedded Content</span>
+            <span className="settings-row-hint">
+              Render link previews, image thumbnails, and other embedded content in messages. When
+              disabled, only the raw message text is shown — no external requests are made,
+              protecting your IP address from off-app tracking beacons. Server moderators with the
+              Manage All Messages permission can also suppress embeds on individual messages
+              regardless of this setting.
+            </span>
+          </div>
+          <ToggleSwitch
+            checked={privacySettings.allowEmbeddedContent}
+            onChange={(v) => updatePrivacy({ allowEmbeddedContent: v })}
+          />
+        </div>
+
+        <h3 className="settings-subsection-title" style={{ marginTop: 20 }}>
           Search Visibility
         </h3>
 

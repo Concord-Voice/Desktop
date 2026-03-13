@@ -1,0 +1,989 @@
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import LoadingSpinner from '../Auth/LoadingSpinner';
+import PermissionGrid from '../Permissions/PermissionGrid';
+import ToggleSwitch from '../Settings/ToggleSwitch';
+import EmojiPicker from '../EmojiPicker/LazyEmojiPicker';
+import { useServerStore } from '../../stores/serverStore';
+import { useInviteStore } from '../../stores/inviteStore';
+import { usePermissionStore } from '../../stores/permissionStore';
+import { useMemberStore } from '../../stores/memberStore';
+import { Permissions, parsePermissions } from '../../utils/permissions';
+import { apiFetch } from '../../services/apiClient';
+import './ServerSettingsPage.css';
+
+type SettingsSection = 'general' | 'roles' | 'members';
+
+interface NavItem {
+  id: SettingsSection;
+  label: string;
+  icon: React.ReactNode;
+  permCheck?: boolean;
+}
+
+const NAV_SUBSECTIONS: Record<string, { id: string; label: string }[]> = {
+  general: [
+    { id: 'server-info', label: 'Server Info' },
+    { id: 'content-safety', label: 'Content Safety' },
+    { id: 'invite-code', label: 'Invite Code' },
+  ],
+  members: [{ id: 'member-list', label: 'Member List' }],
+};
+
+const MAX_ICON_SIZE = 256 * 1024;
+const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+const NAME_MIN = 3;
+const NAME_MAX = 100;
+
+interface FormErrors {
+  name?: string;
+  icon?: string;
+  general?: string;
+}
+
+const ServerSettingsPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { serverId } = useParams<{ serverId: string }>();
+  const servers = useServerStore((s) => s.servers);
+  const server = servers.find((s) => s.id === serverId);
+
+  const [activeSection, setActiveSection] = useState<SettingsSection>('general');
+  const [activeSubsection, setActiveSubsection] = useState<string | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  // General tab state
+  const [name, setName] = useState(server?.name || '');
+  const [iconPreview, setIconPreview] = useState<string | null>(server?.icon_url || null);
+  const [iconDataUrl, setIconDataUrl] = useState<string | null>(server?.icon_url || null);
+  const [iconRemoved, setIconRemoved] = useState(false);
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [isCreatingInvite, setIsCreatingInvite] = useState(false);
+  const [allowEmbeddedContent, setAllowEmbeddedContent] = useState(
+    server?.allow_embedded_content ?? false
+  );
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Roles tab state
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
+  const [editRoleName, setEditRoleName] = useState('');
+  const [editRoleColor, setEditRoleColor] = useState('#99aab5');
+  const [editRoleEmoji, setEditRoleEmoji] = useState('');
+  const [showRoleEmojiPicker, setShowRoleEmojiPicker] = useState(false);
+  const [editRoleDisplaySeparately, setEditRoleDisplaySeparately] = useState(false);
+  const [editRoleMentionable, setEditRoleMentionable] = useState(false);
+  const [editRolePermissions, setEditRolePermissions] = useState<bigint>(0n);
+  const [isRoleSaving, setIsRoleSaving] = useState(false);
+  const roleEmojiPickerRef = useRef<HTMLDivElement>(null);
+
+  // Members tab state
+  const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
+
+  const hasServerPerm = usePermissionStore((s) => s.hasServerPermission);
+  const canManageServer = server ? hasServerPerm(server.id, Permissions.MANAGE_SERVER) : false;
+  const canManageInvites = server ? hasServerPerm(server.id, Permissions.INVITE) : false;
+  const canManageRoles = server ? hasServerPerm(server.id, Permissions.MANAGE_ROLES) : false;
+  const canAssignRoles = server ? hasServerPerm(server.id, Permissions.MANAGE_ROLES_ASSIGN) : false;
+  const invites = useInviteStore((state) => state.invites[serverId || ''] || []);
+  const fetchInvites = useInviteStore((state) => state.fetchInvites);
+  const createInvite = useInviteStore((state) => state.createInvite);
+
+  // Permission store - roles
+  const serverRoles = usePermissionStore((s) => s.serverRoles[serverId || ''] || []);
+  const fetchRoles = usePermissionStore((s) => s.fetchRoles);
+  const createRole = usePermissionStore((s) => s.createRole);
+  const updateRole = usePermissionStore((s) => s.updateRole);
+  const deleteRole = usePermissionStore((s) => s.deleteRole);
+  const assignRole = usePermissionStore((s) => s.assignRole);
+  const unassignRole = usePermissionStore((s) => s.unassignRole);
+
+  // Member store
+  const members = useMemberStore((s) => s.members);
+  const fetchMembers = useMemberStore((s) => s.fetchMembers);
+
+  // Nav items (built dynamically based on permissions)
+  const navItems: NavItem[] = [
+    {
+      id: 'general',
+      label: 'General',
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path
+            d="M9 11.25a2.25 2.25 0 100-4.5 2.25 2.25 0 000 4.5z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          />
+          <path
+            d="M14.7 11.1a1.2 1.2 0 00.24 1.32l.04.04a1.46 1.46 0 11-2.06 2.06l-.04-.04a1.2 1.2 0 00-1.32-.24 1.2 1.2 0 00-.73 1.1v.12a1.46 1.46 0 01-2.91 0v-.06a1.2 1.2 0 00-.79-1.1 1.2 1.2 0 00-1.32.24l-.04.04a1.46 1.46 0 11-2.06-2.06l.04-.04a1.2 1.2 0 00.24-1.32 1.2 1.2 0 00-1.1-.73h-.12a1.46 1.46 0 010-2.91h.06a1.2 1.2 0 001.1-.79 1.2 1.2 0 00-.24-1.32l-.04-.04a1.46 1.46 0 112.06-2.06l.04.04a1.2 1.2 0 001.32.24h.06a1.2 1.2 0 00.73-1.1v-.12a1.46 1.46 0 012.91 0v.06a1.2 1.2 0 00.73 1.1 1.2 1.2 0 001.32-.24l.04-.04a1.46 1.46 0 112.06 2.06l-.04.04a1.2 1.2 0 00-.24 1.32v.06a1.2 1.2 0 001.1.73h.12a1.46 1.46 0 010 2.91h-.06a1.2 1.2 0 00-1.1.73z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+          />
+        </svg>
+      ),
+    },
+    {
+      id: 'roles',
+      label: 'Roles',
+      permCheck: canManageRoles,
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <path
+            d="M9 1.5l1.35 2.74 3.02.44-2.19 2.13.52 3.01L9 8.36 6.3 9.82l.52-3.01-2.19-2.13 3.02-.44L9 1.5z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M5.5 11.5v3.5a1 1 0 001 1h5a1 1 0 001-1v-3.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+      ),
+    },
+    {
+      id: 'members',
+      label: 'Members',
+      permCheck: canAssignRoles,
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+          <circle cx="7" cy="6" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+          <path
+            d="M2 15c0-2.49 2.24-4.5 5-4.5s5 2.01 5 4.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+          <circle cx="13" cy="7" r="2" stroke="currentColor" strokeWidth="1.5" />
+          <path
+            d="M14 10.5c1.66.63 3 2.15 3 3.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+      ),
+    },
+  ];
+
+  const visibleNavItems = navItems.filter((item) => item.permCheck === undefined || item.permCheck);
+
+  // Find first active invite
+  const activeInvite = invites.find((inv) => {
+    if (inv.is_revoked) return false;
+    if (inv.expires_at && new Date(inv.expires_at) < new Date()) return false;
+    if (inv.max_uses !== null && inv.use_count >= inv.max_uses) return false;
+    return true;
+  });
+
+  // Reset form when server changes
+  useEffect(() => {
+    if (server) {
+      setName(server.name);
+      setIconPreview(server.icon_url || null);
+      setIconDataUrl(server.icon_url || null);
+      setIconRemoved(false);
+      setErrors({});
+      setIsSubmitting(false);
+      setSuccessMessage(null);
+      setInviteCopied(false);
+      setIsCreatingInvite(false);
+      setAllowEmbeddedContent(server.allow_embedded_content ?? false);
+      setActiveSection('general');
+      setSelectedRoleId(null);
+      setExpandedMemberId(null);
+    }
+  }, [server?.id]);
+
+  // Fetch invites
+  useEffect(() => {
+    if (server && canManageInvites) {
+      fetchInvites(server.id);
+    }
+  }, [server?.id, canManageInvites, fetchInvites]);
+
+  // Fetch roles when roles tab is active
+  useEffect(() => {
+    if (server && activeSection === 'roles' && canManageRoles) {
+      fetchRoles(server.id);
+    }
+  }, [activeSection, canManageRoles, server?.id, fetchRoles]);
+
+  // Fetch members when members tab is active
+  useEffect(() => {
+    if (server && activeSection === 'members' && canAssignRoles) {
+      fetchMembers(server.id);
+      fetchRoles(server.id);
+    }
+  }, [activeSection, canAssignRoles, server?.id, fetchMembers, fetchRoles]);
+
+  // Load selected role data
+  const selectedRole = serverRoles.find((r) => r?.id === selectedRoleId) || null;
+
+  useEffect(() => {
+    if (selectedRole) {
+      setEditRoleName(selectedRole.name);
+      setEditRoleColor(selectedRole.color || '#99aab5');
+      setEditRoleEmoji(selectedRole.emoji || '');
+      setShowRoleEmojiPicker(false);
+      setEditRoleDisplaySeparately(selectedRole.display_separately);
+      setEditRoleMentionable(selectedRole.mentionable);
+      setEditRolePermissions(parsePermissions(selectedRole.permissions));
+    }
+  }, [selectedRole]);
+
+  // IntersectionObserver for subsection tracking
+  const visibleSectionsRef = useRef<Map<string, IntersectionObserverEntry>>(new Map());
+
+  useEffect(() => {
+    visibleSectionsRef.current.clear();
+    const root = contentRef.current?.closest('.settings-page-content') as HTMLElement | null;
+    if (!root) return;
+
+    const timer = setTimeout(() => {
+      const observer = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            const id = entry.target.id;
+            if (entry.isIntersecting) {
+              visibleSectionsRef.current.set(id, entry);
+            } else {
+              visibleSectionsRef.current.delete(id);
+            }
+          }
+          let best: IntersectionObserverEntry | null = null;
+          for (const entry of visibleSectionsRef.current.values()) {
+            if (!best || entry.boundingClientRect.top < best.boundingClientRect.top) {
+              best = entry;
+            }
+          }
+          if (best) {
+            setActiveSubsection(best.target.id.replace('section-', ''));
+          }
+        },
+        { root, threshold: [0, 0.1, 0.25, 0.5], rootMargin: '-10% 0px -50% 0px' }
+      );
+
+      const sections = root.querySelectorAll('[id^="section-"]');
+      sections.forEach((el) => observer.observe(el));
+      (root as any).__settingsObserver = observer;
+    }, 50);
+
+    return () => {
+      clearTimeout(timer);
+      const obs = (root as any)?.__settingsObserver as IntersectionObserver | undefined;
+      obs?.disconnect();
+    };
+  }, [activeSection]);
+
+  const scrollToSection = useCallback((sectionId: string) => {
+    const el = document.getElementById(`section-${sectionId}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  const handlePermChange = useCallback((newValue: bigint) => {
+    setEditRolePermissions(newValue);
+  }, []);
+
+  // Redirect if server not found
+  if (!server || !serverId) {
+    return (
+      <div className="view-container settings-fullpage">
+        <div className="settings-page-content">
+          <div className="settings-page-inner">
+            <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '40px' }}>
+              Server not found.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Form handlers ───
+
+  const validateForm = (): boolean => {
+    const newErrors: FormErrors = {};
+    const trimmed = name.trim();
+    if (!trimmed) {
+      newErrors.name = 'Server name is required';
+    } else if (trimmed.length < NAME_MIN) {
+      newErrors.name = `Server name must be at least ${NAME_MIN} characters`;
+    } else if (trimmed.length > NAME_MAX) {
+      newErrors.name = `Server name must be at most ${NAME_MAX} characters`;
+    }
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleIconClick = () => fileInputRef.current?.click();
+
+  const handleIconKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleIconClick();
+    }
+  };
+
+  const handleIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setErrors((prev) => ({ ...prev, icon: 'Only PNG, JPEG, GIF, and WebP images are allowed' }));
+      return;
+    }
+    if (file.size > MAX_ICON_SIZE) {
+      setErrors((prev) => ({ ...prev, icon: 'Image must be smaller than 256KB' }));
+      return;
+    }
+    setErrors((prev) => ({ ...prev, icon: undefined }));
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target?.result as string;
+      setIconPreview(dataUrl);
+      setIconDataUrl(dataUrl);
+      setIconRemoved(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleRemoveIcon = () => {
+    setIconPreview(null);
+    setIconDataUrl(null);
+    setIconRemoved(true);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrors({});
+    setSuccessMessage(null);
+    if (!validateForm()) return;
+    setIsSubmitting(true);
+    try {
+      const body: { name: string; icon_url?: string | null; allow_embedded_content?: boolean } = {
+        name: name.trim(),
+      };
+      if (iconRemoved) {
+        body.icon_url = null;
+      } else if (iconDataUrl && iconDataUrl !== server.icon_url) {
+        body.icon_url = iconDataUrl;
+      }
+      if (allowEmbeddedContent !== server.allow_embedded_content) {
+        body.allow_embedded_content = allowEmbeddedContent;
+      }
+      const response = await apiFetch(`/api/v1/servers/${server.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Failed to update server');
+      useServerStore.getState().updateServer(server.id, {
+        name: data.server.name,
+        icon_url: data.server.icon_url,
+        allow_embedded_content: data.server.allow_embedded_content,
+        updated_at: data.server.updated_at,
+      });
+      setSuccessMessage('Server updated successfully!');
+      setIsSubmitting(false);
+    } catch (error) {
+      setErrors({
+        general:
+          error instanceof Error ? error.message : 'Failed to update server. Please try again.',
+      });
+      setIsSubmitting(false);
+    }
+  };
+
+  // ─── Roles handlers ───
+
+  const handleCreateRole = async () => {
+    const existingNames = new Set(serverRoles.map((r) => r.name));
+    let name = 'New Role';
+    let counter = 2;
+    while (existingNames.has(name)) {
+      name = `New Role ${counter++}`;
+    }
+    const newRole = await createRole(server.id, {
+      name,
+      color: '#99aab5',
+      permissions: '0',
+    });
+    if (newRole) setSelectedRoleId(newRole.id);
+  };
+
+  const handleSaveRole = async () => {
+    if (!selectedRoleId) return;
+    setIsRoleSaving(true);
+    await updateRole(server.id, selectedRoleId, {
+      name: editRoleName,
+      color: editRoleColor,
+      emoji: editRoleEmoji || '',
+      permissions: editRolePermissions.toString(),
+      display_separately: editRoleDisplaySeparately,
+      mentionable: editRoleMentionable,
+    });
+    setIsRoleSaving(false);
+  };
+
+  const handleDeleteRole = async () => {
+    if (!selectedRoleId) return;
+    const ok = await deleteRole(server.id, selectedRoleId);
+    if (ok) setSelectedRoleId(null);
+  };
+
+  // ─── Members handlers ───
+
+  const handleToggleRole = async (userId: string, roleId: string, hasRole: boolean) => {
+    if (hasRole) {
+      await unassignRole(server.id, userId, roleId);
+    } else {
+      await assignRole(server.id, userId, roleId);
+    }
+    await fetchMembers(server.id);
+  };
+
+  const assignableRoles = serverRoles.filter((r) => !r.is_default);
+
+  // ─── Section renderers ───
+
+  const renderGeneralSection = () => (
+    <form className="server-settings-form" onSubmit={handleSubmit}>
+      <div className="settings-section" id="section-server-info">
+        <h2 className="settings-section-title">Server Info</h2>
+
+        {/* Icon Upload */}
+        <div className="server-icon-upload">
+          <div
+            className="icon-upload-area"
+            onClick={handleIconClick}
+            onKeyDown={handleIconKeyDown}
+            role="button"
+            tabIndex={0}
+            aria-label="Upload server icon"
+          >
+            {iconPreview ? (
+              <img src={iconPreview} alt="Server icon preview" className="icon-preview" />
+            ) : (
+              <div className="icon-placeholder">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+                <span className="icon-placeholder-text">Upload</span>
+              </div>
+            )}
+          </div>
+          {iconPreview && (
+            <button type="button" className="icon-remove-btn" onClick={handleRemoveIcon}>
+              Remove
+            </button>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            onChange={handleIconChange}
+            hidden
+          />
+          {errors.icon && <span className="form-error">{errors.icon}</span>}
+        </div>
+
+        {/* Server Name */}
+        <div className="form-group">
+          <label className="form-label">Server Name</label>
+          <input
+            type="text"
+            className={`form-input ${errors.name ? 'error' : ''}`}
+            placeholder="My Awesome Server"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (errors.name) setErrors((prev) => ({ ...prev, name: undefined }));
+            }}
+            disabled={isSubmitting}
+            maxLength={NAME_MAX}
+          />
+          {errors.name && <span className="form-error">{errors.name}</span>}
+          <span className="form-hint">
+            {name.trim().length}/{NAME_MAX} characters
+          </span>
+        </div>
+
+        {/* General Error */}
+        {errors.general && (
+          <div className="form-error-banner">
+            <span>{errors.general}</span>
+          </div>
+        )}
+
+        {/* Success Message */}
+        {successMessage && (
+          <div className="form-success-banner">
+            <span>{successMessage}</span>
+          </div>
+        )}
+
+        {/* Save button */}
+        <div className="server-settings-actions">
+          <button
+            type="submit"
+            className="server-settings-submit-btn"
+            disabled={isSubmitting || !!successMessage}
+          >
+            {isSubmitting ? (
+              <>
+                Saving...
+                <LoadingSpinner size="small" inline />
+              </>
+            ) : (
+              'Save Changes'
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Content Safety Section */}
+      <div className="settings-section" id="section-content-safety">
+        <h2 className="settings-section-title">Content Safety</h2>
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Allow Embedded Content</span>
+            <span className="settings-row-hint">
+              {allowEmbeddedContent
+                ? 'Embeds are enabled. Messages may render link previews, images, and other embedded content. Moderators can still suppress embeds on individual messages.'
+                : 'Embeds are blocked server-wide (default). All message embeds are suppressed before reaching any client. Enable to allow link previews and images in messages.'}
+            </span>
+            {!canManageServer && (
+              <span className="settings-row-hint settings-permission-note">
+                Requires Manage Server permission (admin or owner).
+              </span>
+            )}
+          </div>
+          <ToggleSwitch
+            checked={allowEmbeddedContent}
+            onChange={setAllowEmbeddedContent}
+            disabled={isSubmitting || !canManageServer}
+          />
+        </div>
+      </div>
+
+      {/* Invite Code Section */}
+      {canManageInvites && (
+        <div className="settings-section" id="section-invite-code">
+          <h2 className="settings-section-title">Invite Code</h2>
+          {activeInvite ? (
+            <div className="invite-code-row">
+              <code className="invite-code-display">{activeInvite.code}</code>
+              <button
+                type="button"
+                className="invite-copy-btn"
+                onClick={() => {
+                  navigator.clipboard.writeText(activeInvite.code);
+                  setInviteCopied(true);
+                  setTimeout(() => setInviteCopied(false), 2000);
+                }}
+              >
+                {inviteCopied ? 'Copied!' : 'Copy'}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="invite-generate-btn"
+              disabled={isCreatingInvite}
+              onClick={async () => {
+                setIsCreatingInvite(true);
+                await createInvite(server.id);
+                setIsCreatingInvite(false);
+              }}
+            >
+              {isCreatingInvite ? (
+                <>
+                  Generating...
+                  <LoadingSpinner size="small" inline />
+                </>
+              ) : (
+                'Generate Invite Code'
+              )}
+            </button>
+          )}
+          <span className="form-hint">Invites default to 1 use, expire in 24 hours.</span>
+        </div>
+      )}
+    </form>
+  );
+
+  const renderRolesSection = () => (
+    <div className="settings-section" id="section-role-list">
+      <h2 className="settings-section-title">Roles</h2>
+      <div className="roles-layout">
+        <div className="roles-list">
+          {[...serverRoles]
+            .sort((a, b) => b.position - a.position)
+            .map((role) => (
+              <button
+                key={role.id}
+                className={`role-item ${selectedRoleId === role.id ? 'selected' : ''}`}
+                onClick={() => setSelectedRoleId(role.id)}
+              >
+                <span
+                  className="role-color-dot"
+                  style={{ backgroundColor: role.color || '#99aab5' }}
+                />
+                <span style={role.color ? { color: role.color } : undefined}>{role.name}</span>
+              </button>
+            ))}
+          <button className="create-role-btn" onClick={handleCreateRole}>
+            + Create Role
+          </button>
+        </div>
+
+        <div className="role-editor" id="section-role-editor">
+          {selectedRole ? (
+            <>
+              {selectedRole.is_default && (
+                <div className="role-default-note">
+                  This is the default role assigned to all members.
+                </div>
+              )}
+
+              <div className="form-group">
+                <label className="form-label">Role Name</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={editRoleName}
+                  onChange={(e) => setEditRoleName(e.target.value)}
+                  disabled={isRoleSaving}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Role Color</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="color"
+                    value={editRoleColor}
+                    onChange={(e) => setEditRoleColor(e.target.value)}
+                    disabled={isRoleSaving}
+                    style={{
+                      width: '40px',
+                      height: '32px',
+                      border: 'none',
+                      cursor: 'pointer',
+                      background: 'none',
+                    }}
+                  />
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={editRoleColor}
+                    onChange={(e) => setEditRoleColor(e.target.value)}
+                    disabled={isRoleSaving}
+                    style={{ width: '120px' }}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Role Emoji (Optional)</label>
+                <div className="emoji-input-wrapper" ref={roleEmojiPickerRef}>
+                  <div className="emoji-input-container">
+                    <button
+                      type="button"
+                      className={`emoji-picker-button ${editRoleEmoji ? 'has-emoji' : ''}`}
+                      onClick={() => setShowRoleEmojiPicker(!showRoleEmojiPicker)}
+                      disabled={isRoleSaving}
+                      title={editRoleEmoji ? 'Change emoji' : 'Pick an emoji'}
+                    >
+                      {editRoleEmoji ? (
+                        <span className="emoji-picker-button-emoji">{editRoleEmoji}</span>
+                      ) : (
+                        <span className="emoji-picker-button-placeholder">Pick an emoji</span>
+                      )}
+                    </button>
+                    {editRoleEmoji && (
+                      <button
+                        type="button"
+                        className="emoji-clear-btn"
+                        onClick={() => setEditRoleEmoji('')}
+                        disabled={isRoleSaving}
+                        title="Remove emoji"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                  {showRoleEmojiPicker && (
+                    <div className="emoji-picker-container">
+                      <EmojiPicker
+                        mode="inline"
+                        onSelect={(emoji) => {
+                          setEditRoleEmoji(emoji);
+                          setShowRoleEmojiPicker(false);
+                        }}
+                        onClose={() => setShowRoleEmojiPicker(false)}
+                      />
+                    </div>
+                  )}
+                </div>
+                <span className="channel-form-hint">
+                  Shown next to the role name in the member list and next to member names in chat.
+                </span>
+              </div>
+
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <span className="settings-row-label">Display Separately</span>
+                  <span className="settings-row-hint">
+                    Members with this role appear in their own group in the member list.
+                  </span>
+                </div>
+                <ToggleSwitch
+                  checked={editRoleDisplaySeparately}
+                  onChange={setEditRoleDisplaySeparately}
+                  disabled={isRoleSaving}
+                />
+              </div>
+
+              <div className="settings-row">
+                <div className="settings-row-info">
+                  <span className="settings-row-label">Mentionable</span>
+                  <span className="settings-row-hint">
+                    Members with the Mention Roles permission can @mention this role to notify all
+                    who hold it.
+                  </span>
+                </div>
+                <ToggleSwitch
+                  checked={editRoleMentionable}
+                  onChange={setEditRoleMentionable}
+                  disabled={isRoleSaving}
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Permissions</label>
+                <PermissionGrid
+                  value={editRolePermissions}
+                  onChange={handlePermChange}
+                  mode="role"
+                />
+              </div>
+
+              <div className="role-editor-actions">
+                {!selectedRole.is_default && (
+                  <button
+                    type="button"
+                    className="server-settings-cancel-btn"
+                    onClick={handleDeleteRole}
+                    disabled={isRoleSaving}
+                  >
+                    Delete
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="server-settings-submit-btn"
+                  onClick={handleSaveRole}
+                  disabled={isRoleSaving}
+                >
+                  {isRoleSaving ? (
+                    <>
+                      Saving...
+                      <LoadingSpinner size="small" inline />
+                    </>
+                  ) : (
+                    'Save Role'
+                  )}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div style={{ color: 'var(--text-muted)', padding: '40px', textAlign: 'center' }}>
+              Select a role to edit, or create a new one.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderMembersSection = () => (
+    <div className="settings-section" id="section-member-list">
+      <h2 className="settings-section-title">Member List</h2>
+      <div className="members-list">
+        {members.map((member) => {
+          const isExpanded = expandedMemberId === member.user_id;
+          return (
+            <div
+              key={member.user_id}
+              className={`member-row ${isExpanded ? 'expanded' : ''}`}
+              onClick={() => setExpandedMemberId(isExpanded ? null : member.user_id)}
+            >
+              <div className="member-info">
+                {member.avatar_url ? (
+                  <img src={member.avatar_url} alt="" className="member-avatar" />
+                ) : (
+                  <div className="member-avatar" />
+                )}
+                <div>
+                  <span className="member-name">{member.display_name || member.username}</span>
+                  {member.display_name && (
+                    <span className="member-username">@{member.username}</span>
+                  )}
+                </div>
+                <div className="member-roles">
+                  {member.roles
+                    .filter((r) => !serverRoles.find((sr) => sr.id === r.role_id)?.is_default)
+                    .map((r) => (
+                      <span
+                        key={r.role_id}
+                        className="role-badge"
+                        style={{ backgroundColor: r.role_color || '#99aab5' }}
+                      >
+                        {r.role_name}
+                      </span>
+                    ))}
+                </div>
+              </div>
+              {isExpanded && (
+                <div className="member-role-assignment" onClick={(e) => e.stopPropagation()}>
+                  {assignableRoles.map((role) => {
+                    const hasRole = member.roles.some((r) => r.role_id === role.id);
+                    return (
+                      <label key={role.id} className="role-checkbox-row">
+                        <input
+                          type="checkbox"
+                          checked={hasRole}
+                          onChange={() => handleToggleRole(member.user_id, role.id, hasRole)}
+                        />
+                        <span
+                          className="role-color-dot"
+                          style={{ backgroundColor: role.color || '#99aab5' }}
+                        />
+                        {role.name}
+                      </label>
+                    );
+                  })}
+                  {assignableRoles.length === 0 && (
+                    <span
+                      style={{
+                        color: 'var(--text-muted)',
+                        fontSize: 'calc(12px * var(--font-scale, 1))',
+                      }}
+                    >
+                      No roles available to assign. Create roles in the Roles tab first.
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {members.length === 0 && (
+          <div style={{ color: 'var(--text-muted)', padding: '40px', textAlign: 'center' }}>
+            No members found.
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderSection = () => {
+    switch (activeSection) {
+      case 'general':
+        return renderGeneralSection();
+      case 'roles':
+        return canManageRoles ? renderRolesSection() : null;
+      case 'members':
+        return canAssignRoles ? renderMembersSection() : null;
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="view-container settings-fullpage">
+      <div className="settings-page-content">
+        <div className="settings-page-inner">
+          <div className="settings-layout">
+            {/* Left sidebar */}
+            <nav className="settings-nav">
+              <div className="settings-nav-scroll">
+                <button className="settings-back-btn" onClick={() => navigate('/app')}>
+                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                    <path
+                      d="M10 12L6 8l4-4"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  Back to app
+                </button>
+
+                <h1 className="settings-page-title">Server Settings</h1>
+
+                {visibleNavItems.map((item) => {
+                  const isActive = activeSection === item.id;
+                  const subs = isActive ? NAV_SUBSECTIONS[item.id] : undefined;
+
+                  return (
+                    <div key={item.id} className="settings-nav-group">
+                      <button
+                        className={`settings-nav-item ${isActive ? 'active' : ''}`}
+                        onClick={() => setActiveSection(item.id)}
+                      >
+                        <span className="settings-nav-item-icon">{item.icon}</span>
+                        {item.label}
+                      </button>
+
+                      {subs && subs.length > 0 && (
+                        <div className="settings-nav-tree">
+                          {subs.map((sub, i) => (
+                            <div
+                              key={sub.id}
+                              className={`settings-nav-tree-item-wrapper${i === subs.length - 1 ? ' settings-nav-tree-item-wrapper--last' : ''}`}
+                            >
+                              <button
+                                className={`settings-nav-tree-item${activeSubsection === sub.id ? ' active' : ''}`}
+                                onClick={() => scrollToSection(sub.id)}
+                              >
+                                {sub.label}
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </nav>
+
+            {/* Right content */}
+            <div ref={contentRef} className="settings-content">
+              {renderSection()}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ServerSettingsPage;

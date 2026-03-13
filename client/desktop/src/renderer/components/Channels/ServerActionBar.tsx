@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Plus, UserPlus } from 'lucide-react';
+import { Plus, UserPlus, Settings } from 'lucide-react';
 import { useInviteStore } from '../../stores/inviteStore';
+import { usePermissionStore } from '../../stores/permissionStore';
+import { Permissions, hasPermission } from '../../utils/permissions';
 import { ServerWithRole } from '../../types/server';
 import './ServerActionBar.css';
 
@@ -8,12 +10,14 @@ interface ServerActionBarProps {
   server: ServerWithRole;
   onOpenCreateModal: () => void;
   onOpenCreateCategoryModal: () => void;
+  onOpenSettings?: () => void;
 }
 
 const ServerActionBar: React.FC<ServerActionBarProps> = ({
   server,
   onOpenCreateModal,
   onOpenCreateCategoryModal,
+  onOpenSettings,
 }) => {
   const [showPopup, setShowPopup] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -28,9 +32,11 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({
   const fetchInvites = useInviteStore((state) => state.fetchInvites);
   const createInvite = useInviteStore((state) => state.createInvite);
 
-  const canCreateChannel = server.role === 'owner' || server.role === 'admin';
-  const canInvite = server.role === 'owner' || server.role === 'admin';
-  const buttonCount = (canCreateChannel ? 1 : 0) + (canInvite ? 1 : 0);
+  const serverPerms = usePermissionStore((s) => s.serverPermissions[server.id] ?? 0n);
+  const canCreateChannel = hasPermission(serverPerms, Permissions.MANAGE_CHANNELS);
+  const canInvite = hasPermission(serverPerms, Permissions.INVITE);
+  const canManageServer = hasPermission(serverPerms, Permissions.MANAGE_SERVER);
+  const buttonCount = (canCreateChannel ? 1 : 0) + (canInvite ? 1 : 0) + (canManageServer ? 1 : 0);
 
   const activeInvite = invites.find((inv) => {
     if (inv.is_revoked) return false;
@@ -207,6 +213,17 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({
             <span className="invite-popup-hint">Coming soon — requires DM system</span>
           </div>
         </div>
+      )}
+
+      {(canCreateChannel || canInvite) && canManageServer && (
+        <div className="channel-action-divider" />
+      )}
+
+      {canManageServer && (
+        <button className="channel-action-item" onClick={onOpenSettings} title="Server settings">
+          <Settings size={16} />
+          <span>Settings</span>
+        </button>
       )}
     </div>
   );

@@ -7,6 +7,7 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { MessageWithStatus } from '../types/chat';
+import { sanitizeMessageEmbeds, sanitizeMessagesEmbeds } from '../utils/messageSanitizer';
 
 export interface TypingUser {
   userId: string;
@@ -79,18 +80,19 @@ export const useChatStore = create<ChatState>()(
       // Add a new message to a channel
       addMessage: (channelId, message) =>
         set((state) => {
+          const sanitized = sanitizeMessageEmbeds(message);
           const messages = state.messagesByChannel.get(channelId) || [];
 
           // Check if message already exists (deduplication)
-          const existingIndex = messages.findIndex((m) => m.id === message.id);
+          const existingIndex = messages.findIndex((m) => m.id === sanitized.id);
           if (existingIndex >= 0) {
             // Update existing message
             const updatedMessages = [...messages];
-            updatedMessages[existingIndex] = message;
+            updatedMessages[existingIndex] = sanitized;
             state.messagesByChannel.set(channelId, updatedMessages);
           } else {
             // Add new message (append to end, newest last)
-            state.messagesByChannel.set(channelId, [...messages, message]);
+            state.messagesByChannel.set(channelId, [...messages, sanitized]);
           }
 
           return {
@@ -106,7 +108,10 @@ export const useChatStore = create<ChatState>()(
 
           if (index >= 0) {
             const updatedMessages = [...messages];
-            updatedMessages[index] = { ...updatedMessages[index], ...updates };
+            updatedMessages[index] = sanitizeMessageEmbeds({
+              ...updatedMessages[index],
+              ...updates,
+            });
             state.messagesByChannel.set(channelId, updatedMessages);
           }
 
@@ -153,7 +158,7 @@ export const useChatStore = create<ChatState>()(
       // Set all messages for a channel (replace)
       setMessages: (channelId, messages) =>
         set((state) => {
-          state.messagesByChannel.set(channelId, messages);
+          state.messagesByChannel.set(channelId, sanitizeMessagesEmbeds(messages));
           return {
             messagesByChannel: new Map(state.messagesByChannel),
           };
@@ -162,11 +167,12 @@ export const useChatStore = create<ChatState>()(
       // Prepend messages (for pagination - loading older messages)
       prependMessages: (channelId, messages) =>
         set((state) => {
+          const sanitized = sanitizeMessagesEmbeds(messages);
           const existing = state.messagesByChannel.get(channelId) || [];
 
           // Deduplicate by ID
           const existingIds = new Set(existing.map((m) => m.id));
-          const newMessages = messages.filter((m) => !existingIds.has(m.id));
+          const newMessages = sanitized.filter((m) => !existingIds.has(m.id));
 
           state.messagesByChannel.set(channelId, [...newMessages, ...existing]);
 

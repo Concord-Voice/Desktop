@@ -11,6 +11,12 @@ interface MemberItemProps {
 
 const MemberItem: React.FC<MemberItemProps> = ({ member, status, onClick, onContextMenu }) => {
   const memberColors = resolveUserAccentColors(member.color_scheme);
+  const topDisplayRole = member.roles?.length
+    ? ([...member.roles]
+        .filter((r) => r.display_separately)
+        .sort((a, b) => b.position - a.position)[0] ?? null)
+    : null;
+  const roleColor = topDisplayRole?.role_color ?? null;
   return (
     <div
       className={`member-item ${status}`}
@@ -32,7 +38,9 @@ const MemberItem: React.FC<MemberItemProps> = ({ member, status, onClick, onCont
         )}
         <span className={`member-status-dot ${status}`} />
       </div>
-      <span className="member-username">{member.display_name || member.username}</span>
+      <span className="member-username" style={roleColor ? { color: roleColor } : undefined}>
+        {member.display_name || member.username}
+      </span>
     </div>
   );
 };

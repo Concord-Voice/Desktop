@@ -18,6 +18,7 @@ export interface PrivacySettings {
   searchableByUsername: boolean;
   searchableByEmail: boolean;
   searchableByPhone: boolean;
+  allowEmbeddedContent: boolean;
 }
 
 const defaultSettings: PrivacySettings = {
@@ -29,6 +30,7 @@ const defaultSettings: PrivacySettings = {
   searchableByUsername: false,
   searchableByEmail: false,
   searchableByPhone: false,
+  allowEmbeddedContent: false,
 };
 
 interface PrivacyState {
@@ -68,6 +70,7 @@ export const usePrivacyStore = create<PrivacyState>()(
               searchableByUsername: p.searchable_by_username ?? false,
               searchableByEmail: p.searchable_by_email ?? false,
               searchableByPhone: p.searchable_by_phone ?? false,
+              allowEmbeddedContent: p.allow_embedded_content ?? false,
             },
             isLoading: false,
           });
@@ -96,6 +99,8 @@ export const usePrivacyStore = create<PrivacyState>()(
           body.searchable_by_email = updates.searchableByEmail;
         if (updates.searchableByPhone !== undefined)
           body.searchable_by_phone = updates.searchableByPhone;
+        if (updates.allowEmbeddedContent !== undefined)
+          body.allow_embedded_content = updates.allowEmbeddedContent;
 
         const response = await apiFetch('/api/v1/users/me/privacy', {
           method: 'PATCH',
@@ -120,6 +125,7 @@ export const usePrivacyStore = create<PrivacyState>()(
             searchableByUsername: p.searchable_by_username,
             searchableByEmail: p.searchable_by_email,
             searchableByPhone: p.searchable_by_phone,
+            allowEmbeddedContent: p.allow_embedded_content ?? false,
           },
         });
       },

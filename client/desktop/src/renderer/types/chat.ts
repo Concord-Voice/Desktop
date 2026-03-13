@@ -26,6 +26,7 @@ export interface MessageWithStatus extends MessageWithUser {
   error?: string; // Error message if status is 'failed'
   decryptFailed?: boolean; // True if E2EE decryption failed (never show raw ciphertext)
   pendingKeys?: boolean; // True if channel key not yet distributed (waiting for key delivery)
+  embeds_suppressed?: boolean; // True if embeds should not be rendered for this message
 }
 
 export interface Channel {
@@ -39,6 +40,7 @@ export interface Channel {
   audio_quality_tier?: string | null; // Admin override: voice/standard/high/hifi/studio or null (personal)
   group_id?: string | null; // FK to channel_groups; null = uncategorized
   linked_voice_channel_id?: string | null; // Non-null = hidden text chat attached to a voice channel
+  sync_permissions?: boolean;
   position: number;
   created_at: string;
   updated_at: string;

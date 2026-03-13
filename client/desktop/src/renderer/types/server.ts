@@ -2,16 +2,44 @@ export interface Server {
   id: string;
   name: string;
   icon_url?: string;
+  banner_url?: string;
   owner_id: string;
   e2ee_default: boolean;
+  allow_embedded_content: boolean;
   created_at: string;
   updated_at: string;
 }
 
 export interface ServerWithRole extends Server {
-  role: 'owner' | 'admin' | 'member';
+  role: 'owner' | 'admin' | 'member'; // Legacy — kept for backwards compat during transition
   member_count: number;
   online_count: number;
+  permissions?: string; // Stringified bigint of computed server permissions
+}
+
+export interface Role {
+  id: string;
+  server_id: string;
+  name: string;
+  color?: string;
+  emoji?: string;
+  position: number;
+  permissions: string; // Stringified bigint
+  is_default: boolean;
+  display_separately: boolean;
+  mentionable: boolean;
+  require_mfa: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MemberRoleInfo {
+  role_id: string;
+  role_name: string;
+  role_color?: string;
+  role_emoji?: string;
+  position: number;
+  display_separately?: boolean;
 }
 
 export interface CreateServerRequest {
@@ -64,6 +92,7 @@ export interface JoinServerResponse {
 export interface InviteInfoResponse {
   server_name: string;
   server_icon: string | null;
+  server_banner: string | null;
   member_count: number;
   valid: boolean;
 }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Modal from '../ui/Modal';
+import CustomSelect from '../ui/CustomSelect';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useInviteStore } from '../../stores/inviteStore';
 import { ServerWithRole, ServerInviteWithCreator } from '../../types/server';
@@ -179,34 +180,30 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, serve
           <div className="invite-modal-options">
             <div className="invite-option-group">
               <label className="invite-option-label">Expires after</label>
-              <select
-                className="invite-option-select"
-                value={expiresIn}
-                onChange={(e) => setExpiresIn(Number(e.target.value))}
+              <CustomSelect
+                options={EXPIRY_OPTIONS.map((opt) => ({
+                  value: String(opt.value),
+                  label: opt.label,
+                }))}
+                value={String(expiresIn)}
+                onChange={(v) => setExpiresIn(Number(v))}
                 disabled={isGenerating}
-              >
-                {EXPIRY_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+                className="invite-option-select"
+              />
             </div>
 
             <div className="invite-option-group">
               <label className="invite-option-label">Max uses</label>
-              <select
-                className="invite-option-select"
-                value={maxUses}
-                onChange={(e) => setMaxUses(Number(e.target.value))}
+              <CustomSelect
+                options={MAX_USES_OPTIONS.map((opt) => ({
+                  value: String(opt.value),
+                  label: opt.label,
+                }))}
+                value={String(maxUses)}
+                onChange={(v) => setMaxUses(Number(v))}
                 disabled={isGenerating}
-              >
-                {MAX_USES_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+                className="invite-option-select"
+              />
             </div>
           </div>
 

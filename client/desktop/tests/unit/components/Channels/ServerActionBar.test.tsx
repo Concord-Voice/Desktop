@@ -1,8 +1,10 @@
 import { render, screen, fireEvent } from '../../../test-utils';
 import { useInviteStore } from '@/renderer/stores/inviteStore';
+import { usePermissionStore } from '@/renderer/stores/permissionStore';
 import ServerActionBar from '@/renderer/components/Channels/ServerActionBar';
 import { mockServer } from '../../../mocks/fixtures';
 import type { ServerWithRole } from '@/renderer/types/server';
+import { MANAGE_SERVER, BASE_PERMISSIONS, ADMIN_PERMISSIONS } from '@/renderer/utils/permissions';
 
 // Mock navigator.clipboard
 Object.assign(navigator, {
@@ -10,6 +12,9 @@ Object.assign(navigator, {
     writeText: vi.fn().mockResolvedValue(undefined),
   },
 });
+
+// Permission presets matching backend role presets
+const OWNER_PERMS = ADMIN_PERMISSIONS | MANAGE_SERVER;
 
 describe('ServerActionBar', () => {
   const mockOnOpenCreateModal = vi.fn();
@@ -22,6 +27,10 @@ describe('ServerActionBar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useInviteStore.setState({ invites: {}, isLoading: false, error: null });
+    // Default to owner permissions; individual tests override as needed
+    usePermissionStore.setState({
+      serverPermissions: { 'server-1': OWNER_PERMS },
+    });
   });
 
   it('renders Add and Invite buttons for owner', () => {
@@ -31,12 +40,14 @@ describe('ServerActionBar', () => {
   });
 
   it('renders Add and Invite buttons for admin', () => {
+    usePermissionStore.setState({ serverPermissions: { 'server-1': ADMIN_PERMISSIONS } });
     render(<ServerActionBar server={adminServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />);
     expect(screen.getByText('Add')).toBeInTheDocument();
     expect(screen.getByText('Invite')).toBeInTheDocument();
   });
 
   it('renders spacer for regular member (no actions)', () => {
+    usePermissionStore.setState({ serverPermissions: { 'server-1': BASE_PERMISSIONS } });
     const { container } = render(
       <ServerActionBar server={memberServer} onOpenCreateModal={mockOnOpenCreateModal} onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal} />,
     );

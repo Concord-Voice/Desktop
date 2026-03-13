@@ -130,6 +130,15 @@ const Message: React.FC<MessageProps> = ({
   const senderMember = members.find((m) => m.user_id === message.user_id);
   const senderColors = resolveUserAccentColors(senderMember?.color_scheme);
 
+  // Highest display_separately role for the sender (emoji + color only from those roles)
+  const topDisplayRole = senderMember?.roles?.length
+    ? ([...senderMember.roles]
+        .filter((r) => r.display_separately)
+        .sort((a, b) => b.position - a.position)[0] ?? null)
+    : null;
+  const senderRoleEmoji = topDisplayRole?.role_emoji ?? null;
+  const senderRoleColor = topDisplayRole?.role_color ?? null;
+
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     setContextMenu({ x: e.clientX, y: e.clientY });
@@ -299,7 +308,13 @@ const Message: React.FC<MessageProps> = ({
       <div className="message-content-wrapper">
         {showAvatar && (
           <div className="message-header">
-            <span className="message-username">{message.display_name || message.username}</span>
+            {senderRoleEmoji && <span className="message-role-emoji">{senderRoleEmoji}</span>}
+            <span
+              className="message-username"
+              style={senderRoleColor ? { color: senderRoleColor } : undefined}
+            >
+              {message.display_name || message.username}
+            </span>
             <span className="message-timestamp">{formatTimestamp(message.created_at)}</span>
             {message.edited_at && <span className="message-edited">(edited)</span>}
           </div>

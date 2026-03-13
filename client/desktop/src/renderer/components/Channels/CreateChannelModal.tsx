@@ -3,6 +3,7 @@ import { useFormState } from '../../hooks/useFormState';
 import { Hash, Volume2, Pin, Lock } from 'lucide-react';
 import EmojiPicker from '../EmojiPicker/LazyEmojiPicker';
 import Modal from '../ui/Modal';
+import CustomSelect from '../ui/CustomSelect';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useServerStore } from '../../stores/serverStore';
 import { useChannelStore } from '../../stores/channelStore';
@@ -331,22 +332,16 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
             <label htmlFor="channel-group" className="channel-form-label">
               Channel Group
             </label>
-            <select
-              id="channel-group"
-              className="channel-form-input"
+            <CustomSelect
+              options={[
+                { value: '', label: 'Uncategorized' },
+                ...channelGroups.map((g) => ({ value: g.id, label: g.name })),
+              ]}
               value={groupId}
-              onChange={(e) => setGroupId(e.target.value)}
+              onChange={(v) => setGroupId(v)}
               disabled={isSubmitting}
-            >
-              <option key="__uncategorized" value="">
-                Uncategorized
-              </option>
-              {channelGroups.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
-            </select>
+              className="channel-form-input"
+            />
             <span className="channel-form-hint">Organize this channel into a group</span>
           </div>
         )}

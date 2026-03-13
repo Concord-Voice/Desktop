@@ -5,6 +5,7 @@ import {
   type ScreenResolution,
   type ScreenContentType,
 } from '../../stores/videoSettingsStore';
+import CustomSelect from '../ui/CustomSelect';
 import './ScreenSharePicker.css';
 
 interface DesktopSource {
@@ -135,52 +136,49 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
         <div className="screen-picker__quality">
           <div className="screen-picker__quality-row">
             <label className="screen-picker__quality-label">Resolution</label>
-            <select
+            <CustomSelect
               className="screen-picker__quality-select"
+              options={[
+                { value: 'source', label: 'Source Native' },
+                { value: '1080p', label: '1080p' },
+                { value: '720p', label: '720p' },
+              ]}
               value={useVideoSettingsStore.getState().screenResolution}
-              onChange={(e) =>
-                useVideoSettingsStore
-                  .getState()
-                  .setScreenResolution(e.target.value as ScreenResolution)
+              onChange={(v) =>
+                useVideoSettingsStore.getState().setScreenResolution(v as ScreenResolution)
               }
-            >
-              <option value="source">Source Native</option>
-              <option value="1080p">1080p</option>
-              <option value="720p">720p</option>
-            </select>
+            />
           </div>
           <div className="screen-picker__quality-row">
             <label className="screen-picker__quality-label">Frame Rate</label>
-            <select
+            <CustomSelect
               className="screen-picker__quality-select"
-              value={useVideoSettingsStore.getState().screenFrameRate}
-              onChange={(e) =>
-                useVideoSettingsStore
-                  .getState()
-                  .setScreenFrameRate(Number(e.target.value) as 5 | 15 | 30 | 60)
+              options={[
+                { value: '5', label: '5 FPS' },
+                { value: '15', label: '15 FPS' },
+                { value: '30', label: '30 FPS' },
+                { value: '60', label: '60 FPS' },
+              ]}
+              value={String(useVideoSettingsStore.getState().screenFrameRate)}
+              onChange={(v) =>
+                useVideoSettingsStore.getState().setScreenFrameRate(Number(v) as 5 | 15 | 30 | 60)
               }
-            >
-              <option value={5}>5 FPS</option>
-              <option value={15}>15 FPS</option>
-              <option value={30}>30 FPS</option>
-              <option value={60}>60 FPS</option>
-            </select>
+            />
           </div>
           <div className="screen-picker__quality-row">
             <label className="screen-picker__quality-label">Content</label>
-            <select
+            <CustomSelect
               className="screen-picker__quality-select"
+              options={[
+                { value: 'auto', label: 'Auto' },
+                { value: 'motion', label: 'Motion (video)' },
+                { value: 'detail', label: 'Detail (text/code)' },
+              ]}
               value={useVideoSettingsStore.getState().screenContentType}
-              onChange={(e) =>
-                useVideoSettingsStore
-                  .getState()
-                  .setScreenContentType(e.target.value as ScreenContentType)
+              onChange={(v) =>
+                useVideoSettingsStore.getState().setScreenContentType(v as ScreenContentType)
               }
-            >
-              <option value="auto">Auto</option>
-              <option value="motion">Motion (video)</option>
-              <option value="detail">Detail (text/code)</option>
-            </select>
+            />
           </div>
         </div>
 

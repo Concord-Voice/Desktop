@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { apiFetch } from '../services/apiClient';
+import type { MemberRoleInfo } from '../types/server';
 
 export type PresenceStatus = 'online' | 'offline' | 'dnd' | 'invisible';
 
@@ -15,6 +16,7 @@ export interface ServerMember {
   role: 'owner' | 'admin' | 'member';
   joined_at: string;
   last_seen?: number;
+  roles: MemberRoleInfo[];
 }
 
 interface MemberState {

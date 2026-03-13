@@ -1,7 +1,7 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import ServerContextMenu from '../Servers/ServerContextMenu';
-import ServerSettingsModal from '../Servers/ServerSettingsModal';
 import DeleteServerModal from '../Servers/DeleteServerModal';
 import LeaveServerModal from '../Servers/LeaveServerModal';
 import CreateServerModal from '../Servers/CreateServerModal';
@@ -19,6 +19,8 @@ import EditChannelModal from '../Channels/EditChannelModal';
 import EditCategoryModal from '../Channels/EditCategoryModal';
 import DeleteChannelModal from '../Channels/DeleteChannelModal';
 import DeleteCategoryModal from '../Channels/DeleteCategoryModal';
+import ChannelSettingsModal from '../Channels/ChannelSettingsModal';
+import CategorySettingsModal from '../Channels/CategorySettingsModal';
 import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
 import { ChatView } from '../Chat';
 import VoiceView from '../Voice/VoiceView';
@@ -38,12 +40,15 @@ import MemberFlexSpace from '../Layout/MemberFlexSpace';
 
 import { useServerStore } from '../../stores/serverStore';
 import { useChannelStore } from '../../stores/channelStore';
+import { usePermissionStore } from '../../stores/permissionStore';
+import { Permissions, hasPermission } from '../../utils/permissions';
 import { useServerChannelSubscriptions } from '../../hooks/useServerChannelSubscriptions';
 import { ServerWithRole } from '../../types/server';
 import { Channel, ChannelGroup } from '../../types/chat';
 import './MainView.css';
 
 const MainView: React.FC = () => {
+  const navigate = useNavigate();
   // Subscribe to ALL channels in the active server for unread tracking
   useServerChannelSubscriptions();
 
@@ -63,7 +68,6 @@ const MainView: React.FC = () => {
     channel: Channel;
     position: { x: number; y: number };
   } | null>(null);
-  const [editingServer, setEditingServer] = useState<ServerWithRole | null>(null);
   const [deletingServer, setDeletingServer] = useState<ServerWithRole | null>(null);
   const [leavingServer, setLeavingServer] = useState<ServerWithRole | null>(null);
   const [editingChannel, setEditingChannel] = useState<Channel | null>(null);
@@ -75,6 +79,8 @@ const MainView: React.FC = () => {
   const [editingCategory, setEditingCategory] = useState<ChannelGroup | null>(null);
   const [deletingCategory, setDeletingCategory] = useState<ChannelGroup | null>(null);
   const [invitingServer, setInvitingServer] = useState<ServerWithRole | null>(null);
+  const [channelPermissions, setChannelPermissions] = useState<Channel | null>(null);
+  const [categoryPermissions, setCategoryPermissions] = useState<ChannelGroup | null>(null);
   const [e2eeTooltipPos, setE2eeTooltipPos] = useState<{ top: number; left: number } | null>(null);
   const e2eeIndicatorRef = useRef<HTMLSpanElement>(null);
 
@@ -114,6 +120,18 @@ const MainView: React.FC = () => {
   const voiceControlsPinned = useVoiceStore((s) => s.voiceControlsPinned);
   const channelPanelPinned = useLayoutStore((s) => s.channelPanelPinned);
   const getLinkedTextChannel = useChannelStore((s) => s.getLinkedTextChannel);
+  const fetchServerPermissions = usePermissionStore((s) => s.fetchServerPermissions);
+  const activeServerPerms = usePermissionStore(
+    (s) => (activeServerId ? s.serverPermissions[activeServerId] : undefined) ?? 0n
+  );
+  const canManageChannels = hasPermission(activeServerPerms, Permissions.MANAGE_CHANNELS);
+
+  // Fetch permissions when active server changes
+  useEffect(() => {
+    if (activeServerId) {
+      fetchServerPermissions(activeServerId);
+    }
+  }, [activeServerId, fetchServerPermissions]);
 
   const handleCreateServerSuccess = (server: ServerWithRole) => {
     setActiveServer(server.id);
@@ -129,7 +147,7 @@ const MainView: React.FC = () => {
 
   const handleEditServer = (server: ServerWithRole) => {
     setServerContextMenu(null);
-    setEditingServer(server);
+    navigate(`/app/server-settings/${server.id}`);
   };
 
   const handleDeleteServer = (server: ServerWithRole) => {
@@ -253,6 +271,7 @@ const MainView: React.FC = () => {
           server={activeServer}
           onOpenCreateModal={() => setIsCreateChannelModalOpen(true)}
           onOpenCreateCategoryModal={() => setIsCreateCategoryModalOpen(true)}
+          onOpenSettings={() => activeServer && navigate(`/app/server-settings/${activeServer.id}`)}
         />
       )}
       <ChannelList
@@ -405,14 +424,6 @@ const MainView: React.FC = () => {
         />
       )}
 
-      {editingServer && (
-        <ServerSettingsModal
-          isOpen={!!editingServer}
-          server={editingServer}
-          onClose={() => setEditingServer(null)}
-        />
-      )}
-
       {deletingServer && (
         <DeleteServerModal
           isOpen={!!deletingServer}
@@ -433,32 +444,34 @@ const MainView: React.FC = () => {
         <ChannelContextMenu
           channel={channelContextMenu.channel}
           position={channelContextMenu.position}
-          userRole={activeServer.role}
+          serverId={activeServer.id}
           onClose={() => setChannelContextMenu(null)}
           onEditChannel={handleEditChannel}
           onDeleteChannel={(channel) => {
             setChannelContextMenu(null);
             setDeletingChannel(channel);
           }}
+          onChannelPermissions={(channel) => {
+            setChannelContextMenu(null);
+            setChannelPermissions(channel);
+          }}
         />
       )}
 
-      {emptyContextMenu &&
-        activeServer &&
-        (activeServer.role === 'owner' || activeServer.role === 'admin') && (
-          <ChannelListContextMenu
-            position={emptyContextMenu.position}
-            onClose={() => setEmptyContextMenu(null)}
-            onCreateChannel={() => {
-              setEmptyContextMenu(null);
-              setIsCreateChannelModalOpen(true);
-            }}
-            onCreateCategory={() => {
-              setEmptyContextMenu(null);
-              setIsCreateCategoryModalOpen(true);
-            }}
-          />
-        )}
+      {emptyContextMenu && activeServer && canManageChannels && (
+        <ChannelListContextMenu
+          position={emptyContextMenu.position}
+          onClose={() => setEmptyContextMenu(null)}
+          onCreateChannel={() => {
+            setEmptyContextMenu(null);
+            setIsCreateChannelModalOpen(true);
+          }}
+          onCreateCategory={() => {
+            setEmptyContextMenu(null);
+            setIsCreateCategoryModalOpen(true);
+          }}
+        />
+      )}
 
       {invitingServer && (
         <InviteToServerModal
@@ -468,23 +481,25 @@ const MainView: React.FC = () => {
         />
       )}
 
-      {categoryContextMenu &&
-        activeServer &&
-        (activeServer.role === 'owner' || activeServer.role === 'admin') && (
-          <CategoryContextMenu
-            group={categoryContextMenu.group}
-            position={categoryContextMenu.position}
-            onClose={() => setCategoryContextMenu(null)}
-            onEditCategory={(group) => {
-              setCategoryContextMenu(null);
-              setEditingCategory(group);
-            }}
-            onDeleteCategory={(group) => {
-              setCategoryContextMenu(null);
-              setDeletingCategory(group);
-            }}
-          />
-        )}
+      {categoryContextMenu && activeServer && canManageChannels && (
+        <CategoryContextMenu
+          group={categoryContextMenu.group}
+          position={categoryContextMenu.position}
+          onClose={() => setCategoryContextMenu(null)}
+          onEditCategory={(group) => {
+            setCategoryContextMenu(null);
+            setEditingCategory(group);
+          }}
+          onDeleteCategory={(group) => {
+            setCategoryContextMenu(null);
+            setDeletingCategory(group);
+          }}
+          onCategoryPermissions={(group) => {
+            setCategoryContextMenu(null);
+            setCategoryPermissions(group);
+          }}
+        />
+      )}
 
       {editingChannel && (
         <EditChannelModal
@@ -515,6 +530,24 @@ const MainView: React.FC = () => {
           isOpen={!!deletingCategory}
           group={deletingCategory}
           onClose={() => setDeletingCategory(null)}
+        />
+      )}
+
+      {channelPermissions && activeServer && (
+        <ChannelSettingsModal
+          isOpen={!!channelPermissions}
+          channel={channelPermissions}
+          serverId={activeServer.id}
+          onClose={() => setChannelPermissions(null)}
+        />
+      )}
+
+      {categoryPermissions && activeServer && (
+        <CategorySettingsModal
+          isOpen={!!categoryPermissions}
+          category={categoryPermissions}
+          serverId={activeServer.id}
+          onClose={() => setCategoryPermissions(null)}
         />
       )}
 

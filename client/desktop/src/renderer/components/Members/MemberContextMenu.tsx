@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { ServerMember, useMemberStore } from '../../stores/memberStore';
+import { usePermissionStore } from '../../stores/permissionStore';
+import { Permissions } from '../../utils/permissions';
 import { apiFetch } from '../../services/apiClient';
 import ContextMenu from '../ui/ContextMenu';
 
@@ -12,8 +14,8 @@ const AVAILABLE_ROLES: { value: string; label: string }[] = [
 interface MemberContextMenuProps {
   member: ServerMember;
   position: { x: number; y: number };
-  currentUserRole: 'owner' | 'admin' | 'member';
   serverId: string;
+  ownerUserId: string;
   onClose: () => void;
   onViewProfile: () => void;
 }
@@ -21,8 +23,8 @@ interface MemberContextMenuProps {
 const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
   member,
   position,
-  currentUserRole,
   serverId,
+  ownerUserId,
   onClose,
   onViewProfile,
 }) => {
@@ -30,15 +32,14 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
   const [showRolePicker, setShowRolePicker] = useState(false);
   const [rolePickerClosing, setRolePickerClosing] = useState(false);
 
-  const isOwner = currentUserRole === 'owner';
-  const isAdminOrOwner = currentUserRole === 'owner' || currentUserRole === 'admin';
-  const targetIsOwner = member.role === 'owner';
+  const hasServerPerm = usePermissionStore((s) => s.hasServerPermission);
+  const targetIsOwner = member.user_id === ownerUserId;
 
-  // Only the server owner can change roles, and can't change the owner's role
-  const canAssignRole = isOwner && !targetIsOwner;
+  // Can assign roles if user has MANAGE_ROLES_ASSIGN and target is not the owner
+  const canAssignRole = hasServerPerm(serverId, Permissions.MANAGE_ROLES_ASSIGN) && !targetIsOwner;
 
-  // Owner and admin can ban, but not the owner themselves
-  const canBan = isAdminOrOwner && !targetIsOwner;
+  // Can ban if user has BAN permission and target is not the owner
+  const canBan = hasServerPerm(serverId, Permissions.BAN) && !targetIsOwner;
 
   const handleRoleSelect = async (newRole: string) => {
     if (newRole === member.role || isUpdatingRole) return;

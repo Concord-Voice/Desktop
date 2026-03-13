@@ -13,6 +13,7 @@ import MainView from './components/MainView/MainView';
 import DirectMessagesView from './components/DirectMessages/DirectMessagesView';
 const ProfilePage = lazy(() => import('./components/Profile/ProfilePage'));
 const SettingsPage = lazy(() => import('./components/Settings/SettingsPage'));
+const ServerSettingsPage = lazy(() => import('./components/Servers/ServerSettingsPage'));
 const PipWindow = lazy(() => import('./components/Voice/PipWindow'));
 import ConnectionLostOverlay from './components/ui/ConnectionLostOverlay';
 import MFAChallengeModal from './components/Auth/MFAChallengeModal';
@@ -230,6 +231,7 @@ function App() {
               <Route path="/app/dms" element={<DirectMessagesView />} />
               <Route path="/app/profile" element={<ProfilePage />} />
               <Route path="/app/settings" element={<SettingsPage />} />
+              <Route path="/app/server-settings/:serverId" element={<ServerSettingsPage />} />
             </Route>
             {/* PiP windows — separate Electron BrowserWindows, state synced via BroadcastChannel */}
             <Route path="/pip/:pipId" element={<PipWindow />} />

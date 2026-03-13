@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Mic, Speaker, Video } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
+import CustomSelect from '../ui/CustomSelect';
 import './DeviceSelector.css';
 
 type DeviceKind = 'audioinput' | 'audiooutput' | 'videoinput';
@@ -63,28 +64,24 @@ const DeviceSelector: React.FC<DeviceSelectorProps> = ({ kind }) => {
     return () => navigator.mediaDevices.removeEventListener('devicechange', enumerate);
   }, [kind]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setDevice(e.target.value);
-  };
-
   return (
     <div className="device-selector">
       <label className="device-selector__label">
         {ICONS[kind]}
         {LABELS[kind]}
       </label>
-      <select
+      <CustomSelect
         className="device-selector__select"
+        options={[
+          { value: '', label: 'Default' },
+          ...devices.map((d) => ({
+            value: d.deviceId,
+            label: d.label || `${LABELS[kind]} ${d.deviceId.slice(0, 8)}`,
+          })),
+        ]}
         value={currentDeviceId || ''}
-        onChange={handleChange}
-      >
-        <option value="">Default</option>
-        {devices.map((d) => (
-          <option key={d.deviceId} value={d.deviceId}>
-            {d.label || `${LABELS[kind]} ${d.deviceId.slice(0, 8)}`}
-          </option>
-        ))}
-      </select>
+        onChange={(v) => setDevice(v)}
+      />
     </div>
   );
 };

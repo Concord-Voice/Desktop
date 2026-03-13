@@ -4,6 +4,7 @@ import { useAuthStore } from '@/renderer/stores/authStore';
 import { useServerStore } from '@/renderer/stores/serverStore';
 import { useUserStore } from '@/renderer/stores/userStore';
 import { useMemberStore } from '@/renderer/stores/memberStore';
+import { usePermissionStore } from '@/renderer/stores/permissionStore';
 import { mockUser, mockServer, mockMember, mockMember2 } from '../../../mocks/fixtures';
 
 import MemberList from '@/renderer/components/Members/MemberList';
@@ -36,6 +37,8 @@ describe('MemberList', () => {
     useUserStore.setState({ user: mockUser });
     useServerStore.getState().addServer(mockServer);
     useServerStore.getState().setActiveServer(mockServer.id);
+    // No RBAC roles configured — members fall into Online/Offline groups
+    usePermissionStore.setState({ serverPermissions: {}, serverRoles: {} });
     // Default: return members successfully
     mockApiFetch.mockResolvedValue({
       ok: true,
@@ -76,15 +79,13 @@ describe('MemberList', () => {
   });
 
   it('renders members grouped by role', async () => {
-    const admin = { ...mockMember2, role: 'admin' as const, user_id: 'user-3', username: 'adminuser' };
     mockApiFetch.mockResolvedValue({
       ok: true,
-      json: async () => ({ members: [mockMember, mockMember2, admin] }),
+      json: async () => ({ members: [mockMember, mockMember2] }),
     });
     render(<MemberList />);
-    expect(await screen.findByText(/OWNER/)).toBeInTheDocument();
-    expect(screen.getByText(/ADMINS/)).toBeInTheDocument();
-    expect(screen.getByText(/MEMBERS/)).toBeInTheDocument();
+    // Without display_separately RBAC roles, members fall into Online/Offline groups
+    expect(await screen.findByText(/Offline/)).toBeInTheDocument();
   });
 
   it('shows member display name', async () => {
@@ -93,9 +94,7 @@ describe('MemberList', () => {
       json: async () => ({ members: [mockMember] }),
     });
     render(<MemberList />);
-    // Wait for "OWNER" group header which means members loaded
-    await screen.findByText(/OWNER/);
-    expect(screen.getByText('Test User')).toBeInTheDocument();
+    expect(await screen.findByText('Test User')).toBeInTheDocument();
   });
 
   it('renders avatar initial when no avatar URL', async () => {
@@ -104,7 +103,7 @@ describe('MemberList', () => {
       json: async () => ({ members: [mockMember] }),
     });
     render(<MemberList />);
-    await screen.findByText(/OWNER/);
+    await screen.findByText('Test User');
     expect(screen.getByText('T')).toBeInTheDocument();
   });
 

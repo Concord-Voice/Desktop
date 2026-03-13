@@ -8,6 +8,7 @@ import {
 import { usePrivacyStore } from '../../stores/privacyStore';
 import { apiFetch } from '../../services/apiClient';
 import Modal from '../ui/Modal';
+import CustomSelect from '../ui/CustomSelect';
 import './DirectMessages.css';
 
 interface AddFriendModalProps {
@@ -302,23 +303,25 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
           <div className="add-friend-options">
             <div className="add-friend-option-group">
               <label>Expires after</label>
-              <select value={expiresIn} onChange={(e) => setExpiresIn(Number(e.target.value))}>
-                {EXPIRY_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+              <CustomSelect
+                options={EXPIRY_OPTIONS.map((opt) => ({
+                  value: String(opt.value),
+                  label: opt.label,
+                }))}
+                value={String(expiresIn)}
+                onChange={(v) => setExpiresIn(Number(v))}
+              />
             </div>
             <div className="add-friend-option-group">
               <label>Max uses</label>
-              <select value={maxUses} onChange={(e) => setMaxUses(Number(e.target.value))}>
-                {MAX_USES_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+              <CustomSelect
+                options={MAX_USES_OPTIONS.map((opt) => ({
+                  value: String(opt.value),
+                  label: opt.label,
+                }))}
+                value={String(maxUses)}
+                onChange={(v) => setMaxUses(Number(v))}
+              />
             </div>
             <div className="add-friend-option-group">
               <label>Auto-accept</label>
