@@ -371,8 +371,15 @@ export function restoreE2EEKeys(): {
 }
 
 /**
- * Report capabilities to renderer.
+ * Read the persisted API base URL from the token metadata file.
+ * Returns the URL if available, null otherwise.
+ * Used by the SPA loader to fetch client config before the renderer loads.
  */
+export function getPersistedApiBase(): string | null {
+  const meta = readMeta();
+  return meta?.apiBase || null;
+}
+
 export function getCapabilities(): { persistAvailable: boolean } {
   return { persistAvailable: canPersist() };
 }

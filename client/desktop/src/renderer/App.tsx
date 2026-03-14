@@ -16,6 +16,8 @@ const SettingsPage = lazy(() => import('./components/Settings/SettingsPage'));
 const ServerSettingsPage = lazy(() => import('./components/Servers/ServerSettingsPage'));
 const PipWindow = lazy(() => import('./components/Voice/PipWindow'));
 import ConnectionLostOverlay from './components/ui/ConnectionLostOverlay';
+import ForceUpdateOverlay from './components/ui/ForceUpdateOverlay';
+import UpdateBanner from './components/ui/UpdateBanner';
 import MFAChallengeModal from './components/Auth/MFAChallengeModal';
 import { useAuthStore } from './stores/authStore';
 import { useUserStore } from './stores/userStore';
@@ -23,6 +25,7 @@ import { useVideoSettingsStore } from './stores/videoSettingsStore';
 import { useWebSocket } from './hooks/useWebSocket';
 import { e2eeService } from './services/e2eeService';
 import { preferencesSyncService } from './services/preferencesSync';
+import { clientConfigService } from './services/clientConfigService';
 import { detectCodecCapabilities, prewarmWebRTC } from './services/mediaCapabilities';
 // resetService is loaded on-demand via dynamic import() to allow code splitting
 
@@ -197,6 +200,13 @@ function App() {
     }
   }, []);
 
+  // Poll server for client config (feature flags, min version, TURN/media-plane URLs).
+  // Runs at App root so minVersion enforcement works regardless of auth state.
+  useEffect(() => {
+    clientConfigService.start();
+    return () => clientConfigService.stop();
+  }, []);
+
   if (isRestoring) {
     return (
       <div className="app" onContextMenu={(e) => e.preventDefault()}>
@@ -218,7 +228,9 @@ function App() {
             </div>
           )}
         </div>
+        <UpdateBanner />
 
+        <ForceUpdateOverlay />
         <MFAChallengeModal />
         <Suspense fallback={null}>
           <Routes>

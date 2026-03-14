@@ -5,6 +5,7 @@ import AppearanceSection from './AppearanceSection';
 import PrivacySecuritySection from './PrivacySecuritySection';
 import VoiceAudioSection from './VoiceAudioSection';
 import AccessibilitySection from './AccessibilitySection';
+import AboutUpdateSection from './AboutUpdateSection';
 import './SettingsPage.css';
 
 type SettingsSection =
@@ -13,7 +14,8 @@ type SettingsSection =
   | 'account'
   | 'notifications'
   | 'voice'
-  | 'accessibility';
+  | 'accessibility'
+  | 'about';
 
 // ─── Nav Items ──────────────────────────────────────────────────────────────
 
@@ -128,6 +130,17 @@ const navItems: NavItem[] = [
       </svg>
     ),
   },
+  {
+    id: 'about',
+    label: 'About & Updates',
+    enabled: true,
+    icon: (
+      <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
+        <circle cx="9" cy="9" r="7.5" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M9 8v4M9 6h.01" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    ),
+  },
 ];
 
 const NAV_SUBSECTIONS: Record<string, { id: string; label: string }[]> = {
@@ -148,6 +161,10 @@ const NAV_SUBSECTIONS: Record<string, { id: string; label: string }[]> = {
     { id: 'video-screen', label: 'Video Configuration' },
   ],
   accessibility: [{ id: 'tts', label: 'Text-to-Speech' }],
+  about: [
+    { id: 'client-info', label: 'Client Info' },
+    { id: 'update-settings', label: 'Update Settings' },
+  ],
 };
 
 // ─── Settings Page ──────────────────────────────────────────────────────────
@@ -238,6 +255,8 @@ const SettingsPage: React.FC = () => {
         return <VoiceAudioSection />;
       case 'accessibility':
         return <AccessibilitySection />;
+      case 'about':
+        return <AboutUpdateSection />;
       default:
         return null;
     }

@@ -3,6 +3,7 @@ import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
+import { MakerAppImage } from '@reforged/maker-appimage';
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -34,6 +35,12 @@ const config: ForgeConfig = {
         bin: 'concord-voice',
         productName: 'Concord Voice',
         genericName: 'Voice Communication',
+        categories: ['Network', 'Chat'],
+        icon: './build/icon.png',
+      },
+    }),
+    new MakerAppImage({
+      options: {
         categories: ['Network', 'Chat'],
         icon: './build/icon.png',
       },

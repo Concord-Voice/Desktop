@@ -14,6 +14,9 @@ contextBridge.exposeInMainWorld('electron', {
   // App info
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
   getPlatform: () => ipcRenderer.invoke('app:getPlatform'),
+  // Reserved for Tier 3 remote SPA — the remote renderer calls this to verify
+  // compatibility with the shell's IPC contract version before using newer APIs.
+  getIpcContract: () => ipcRenderer.invoke('app:getIpcContract') as Promise<number>,
 
   // Media: screen capture sources for voice/video screen share
   getDesktopSources: () =>
@@ -92,12 +95,85 @@ contextBridge.exposeInMainWorld('electron', {
 
   // Machine ID for token theft detection (#89)
   getMachineId: () => ipcRenderer.invoke('auth:getMachineId') as Promise<string>,
+
+  // System info for About page (#155 Tier 4)
+  getSystemInfo: () =>
+    ipcRenderer.invoke('app:getSystemInfo') as Promise<{
+      platform: string;
+      arch: string;
+      electronVersion: string;
+      chromiumVersion: string;
+      nodeVersion: string;
+    }>,
+
+  // Auto-update (#155)
+  checkForUpdates: () => ipcRenderer.invoke('update:check'),
+  downloadUpdate: () => ipcRenderer.invoke('update:download'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  getAllowPrerelease: () => ipcRenderer.invoke('update:getAllowPrerelease') as Promise<boolean>,
+  setAllowPrerelease: (enabled: boolean) =>
+    ipcRenderer.invoke('update:setAllowPrerelease', enabled),
+  onUpdateAvailable: (
+    callback: (info: { version: string; releaseNotes?: string; releaseDate?: string }) => void
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: { version: string; releaseNotes?: string; releaseDate?: string }
+    ) => callback(data);
+    ipcRenderer.on('update:available', handler);
+    return () => {
+      ipcRenderer.removeListener('update:available', handler);
+    };
+  },
+  onUpdateNotAvailable: (callback: (info: { version: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { version: string }) =>
+      callback(data);
+    ipcRenderer.on('update:not-available', handler);
+    return () => {
+      ipcRenderer.removeListener('update:not-available', handler);
+    };
+  },
+  onUpdateDownloadProgress: (
+    callback: (progress: {
+      percent: number;
+      transferred: number;
+      total: number;
+      bytesPerSecond: number;
+    }) => void
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: { percent: number; transferred: number; total: number; bytesPerSecond: number }
+    ) => callback(data);
+    ipcRenderer.on('update:download-progress', handler);
+    return () => {
+      ipcRenderer.removeListener('update:download-progress', handler);
+    };
+  },
+  onUpdateDownloaded: (callback: (info: { version: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { version: string }) =>
+      callback(data);
+    ipcRenderer.on('update:downloaded', handler);
+    return () => {
+      ipcRenderer.removeListener('update:downloaded', handler);
+    };
+  },
+  onUpdateError: (callback: (error: { message: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { message: string }) =>
+      callback(data);
+    ipcRenderer.on('update:error', handler);
+    return () => {
+      ipcRenderer.removeListener('update:error', handler);
+    };
+  },
 });
 
 // Type definitions for the exposed API
 export interface ElectronAPI {
   getVersion: () => Promise<string>;
   getPlatform: () => Promise<string>;
+  /** Tier 3 remote SPA: query the shell's IPC contract version for compatibility. */
+  getIpcContract: () => Promise<number>;
   getDesktopSources: () => Promise<DesktopSource[]>;
   writeClipboard: (text: string) => Promise<void>;
   getGPUInfo: () => Promise<{ vendor: string; device: string } | null>;
@@ -163,6 +239,36 @@ export interface ElectronAPI {
 
   // Machine ID for token theft detection
   getMachineId: () => Promise<string>;
+
+  // System info for About page (#155 Tier 4)
+  getSystemInfo: () => Promise<{
+    platform: string;
+    arch: string;
+    electronVersion: string;
+    chromiumVersion: string;
+    nodeVersion: string;
+  }>;
+
+  // Auto-update (#155)
+  checkForUpdates: () => Promise<void>;
+  downloadUpdate: () => Promise<string[]>;
+  installUpdate: () => Promise<void>;
+  getAllowPrerelease: () => Promise<boolean>;
+  setAllowPrerelease: (enabled: boolean) => Promise<void>;
+  onUpdateAvailable: (
+    callback: (info: { version: string; releaseNotes?: string; releaseDate?: string }) => void
+  ) => () => void;
+  onUpdateNotAvailable: (callback: (info: { version: string }) => void) => () => void;
+  onUpdateDownloadProgress: (
+    callback: (progress: {
+      percent: number;
+      transferred: number;
+      total: number;
+      bytesPerSecond: number;
+    }) => void
+  ) => () => void;
+  onUpdateDownloaded: (callback: (info: { version: string }) => void) => () => void;
+  onUpdateError: (callback: (error: { message: string }) => void) => () => void;
 }
 
 declare global {

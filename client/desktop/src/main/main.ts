@@ -22,6 +22,17 @@ import {
   restoreE2EEKeys,
 } from './tokenManager';
 import { getMachineId } from './machineId';
+import {
+  initAutoUpdater,
+  stopAutoUpdater,
+  checkForUpdates,
+  downloadUpdate,
+  quitAndInstall,
+  getAllowPrerelease,
+  setAllowPrerelease,
+} from './updater';
+import { resolveSpaSource } from './spaLoader';
+import { IPC_CONTRACT_VERSION } from './ipcContract';
 
 // Hardware acceleration preference — must be checked before app.whenReady()
 const hwAccelPrefPath = path.join(app.getPath('userData'), 'hw-accel.json');
@@ -55,6 +66,7 @@ if (require('electron-squirrel-startup')) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let remoteSpaBaseUrl: string | null = null; // Set when loading remote SPA, used by PiP + navigation guard
 
 const createWindow = async (): Promise<void> => {
   // Create the browser window
@@ -74,11 +86,28 @@ const createWindow = async (): Promise<void> => {
     show: false, // Don't show until ready
   });
 
-  // Load the app — packaged builds always load from built files.
-  // Unpackaged (electron-forge start) tries the Vite dev server.
+  const bundledPath = path.join(__dirname, '../renderer/index.html');
+
   if (app.isPackaged) {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    // Tier 3: Attempt remote SPA loading with compatibility check.
+    // Falls back to bundled renderer on any failure.
+    const decision = await resolveSpaSource();
+    console.log(`[SpaLoader] ${decision.mode}: ${decision.reason}`);
+
+    if (decision.mode === 'remote' && decision.url) {
+      try {
+        remoteSpaBaseUrl = decision.url;
+        await mainWindow.loadURL(decision.url);
+      } catch {
+        console.warn('[SpaLoader] Failed to load remote SPA, falling back to bundled');
+        remoteSpaBaseUrl = null;
+        await mainWindow.loadFile(bundledPath);
+      }
+    } else {
+      await mainWindow.loadFile(bundledPath);
+    }
   } else {
+    // Development: try Vite dev server, fall back to bundled
     const devServerUrl = 'http://localhost:3001';
     const http = await import('http');
     const httpGet = (http.default?.get ?? http.get) as typeof import('http').get;
@@ -94,12 +123,12 @@ const createWindow = async (): Promise<void> => {
           reject(new Error('timeout'));
         });
       });
-      mainWindow.loadURL(devServerUrl);
+      await mainWindow.loadURL(devServerUrl);
       if (process.env.DEVTOOLS !== '0') {
         mainWindow.webContents.openDevTools();
       }
     } catch {
-      mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+      await mainWindow.loadFile(bundledPath);
     }
   }
 
@@ -171,6 +200,7 @@ app.whenReady().then(() => {
   }
 
   createWindow();
+  initAutoUpdater(() => mainWindow);
 
   app.on('activate', () => {
     // On macOS, re-create window when dock icon is clicked
@@ -187,6 +217,11 @@ app.on('window-all-closed', () => {
   }
 });
 
+// Clean up scheduled update checks on quit
+app.on('before-quit', () => {
+  stopAutoUpdater();
+});
+
 // IPC Handlers
 ipcMain.handle('app:getVersion', () => {
   return app.getVersion();
@@ -194,6 +229,10 @@ ipcMain.handle('app:getVersion', () => {
 
 ipcMain.handle('app:getPlatform', () => {
   return process.platform;
+});
+
+ipcMain.handle('app:getIpcContract', () => {
+  return IPC_CONTRACT_VERSION;
 });
 
 // Screen capture sources for voice/video screen share picker (#44)
@@ -287,6 +326,25 @@ ipcMain.handle('app:relaunch', () => {
 ipcMain.handle('app:quit', () => {
   app.quit();
 });
+
+// ─── Auto-Update IPC ──────────────────────────────────────────────────
+
+ipcMain.handle('update:check', () => checkForUpdates());
+ipcMain.handle('update:download', () => downloadUpdate());
+ipcMain.handle('update:install', () => quitAndInstall());
+ipcMain.handle('update:getAllowPrerelease', () => getAllowPrerelease());
+ipcMain.handle('update:setAllowPrerelease', (_event, enabled: boolean) =>
+  setAllowPrerelease(enabled)
+);
+
+// System info for About page (#155 Tier 4)
+ipcMain.handle('app:getSystemInfo', () => ({
+  platform: process.platform,
+  arch: process.arch,
+  electronVersion: process.versions.electron,
+  chromiumVersion: process.versions.chrome,
+  nodeVersion: process.versions.node,
+}));
 
 // ─── Secure Auth Token Management (safeStorage) ──────────────────────
 
@@ -412,6 +470,9 @@ ipcMain.handle(
     // Load PiP route (hash-based routing)
     if (!app.isPackaged) {
       pip.loadURL(`http://localhost:3001#/pip/${opts.id}`);
+    } else if (remoteSpaBaseUrl) {
+      // Tier 3: PiP windows also load from the remote SPA (preserves sub-path)
+      pip.loadURL(`${remoteSpaBaseUrl}#/pip/${opts.id}`);
     } else {
       pip.loadFile(path.join(__dirname, '../renderer/index.html'), {
         hash: `/pip/${opts.id}`,
@@ -461,8 +522,11 @@ app.on('web-contents-created', (_, contents) => {
         event.preventDefault();
       }
     } else {
-      // Packaged release: block all navigation (app loads from file://)
-      event.preventDefault();
+      // Packaged release: block navigation unless it's to the remote SPA origin (Tier 3)
+      const spaOrigin = remoteSpaBaseUrl ? new URL(remoteSpaBaseUrl).origin : null;
+      if (!spaOrigin || parsedUrl.origin !== spaOrigin) {
+        event.preventDefault();
+      }
     }
   });
 });

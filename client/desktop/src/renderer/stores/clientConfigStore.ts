@@ -1,0 +1,39 @@
+import { create } from 'zustand';
+
+// Mirrors the backend ClientConfigResponse from services/control-plane/internal/clientconfig/handlers.go
+
+interface FeatureFlags {
+  voice: boolean;
+  video: boolean;
+  e2ee: boolean;
+}
+
+// Backend uses omitempty on host/realm (may send `turn: {}`), but the
+// clientConfigService always defaults missing fields to '' before calling
+// setConfig, so these are guaranteed strings in the store.
+interface TURNConfig {
+  host: string;
+  realm: string;
+}
+
+interface ClientConfigState {
+  minVersion: string;
+  featureFlags: FeatureFlags;
+  mediaPlaneUrl: string;
+  turn: TURNConfig;
+  spaUrl: string;
+  spaIpcContract: number;
+  lastFetchedAt: number | null;
+  setConfig: (config: Omit<ClientConfigState, 'lastFetchedAt' | 'setConfig'>) => void;
+}
+
+export const useClientConfigStore = create<ClientConfigState>()((set) => ({
+  minVersion: '',
+  featureFlags: { voice: true, video: true, e2ee: true },
+  mediaPlaneUrl: '',
+  turn: { host: '', realm: '' },
+  spaUrl: '',
+  spaIpcContract: 0,
+  lastFetchedAt: null,
+  setConfig: (config) => set({ ...config, lastFetchedAt: Date.now() }),
+}));
