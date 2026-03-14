@@ -41,6 +41,7 @@ const config: ForgeConfig = {
     }),
     new MakerAppImage({
       options: {
+        bin: 'concord-voice',
         categories: ['Network', 'Chat'],
         icon: './build/icon.png',
       },
