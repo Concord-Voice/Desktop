@@ -25,6 +25,7 @@ import { getMachineId } from './machineId';
 import {
   initAutoUpdater,
   stopAutoUpdater,
+  setUpdateFeedUrl,
   checkForUpdates,
   downloadUpdate,
   quitAndInstall,
@@ -363,6 +364,12 @@ ipcMain.handle(
     // (e.g. after HMR or renderer reload) use the fresh token, not a stale
     // 'refresh_failed' from a previous attempt.
     restoreSessionPromise = null;
+
+    // Activate auto-updater now that we have an API base
+    // (first-launch users won't have this until login)
+    if (data.apiBase) {
+      setUpdateFeedUrl(data.apiBase);
+    }
   }
 );
 

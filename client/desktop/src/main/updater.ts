@@ -2,6 +2,7 @@ import { autoUpdater, type UpdateInfo, type ProgressInfo } from 'electron-update
 import { app, type BrowserWindow } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import { getPersistedApiBase } from './tokenManager';
 
 // Check every 4 hours; delay first check 10s so it doesn't block app startup
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -33,6 +34,7 @@ function writeUpdatePrefs(prefs: UpdatePrefs): void {
 
 let checkInterval: ReturnType<typeof setInterval> | null = null;
 let getWindow: (() => BrowserWindow | null) | null = null;
+let handlersRegistered = false;
 
 /** Send an IPC event to the renderer (if the window exists). */
 function sendToRenderer(channel: string, data: unknown): void {
@@ -42,20 +44,10 @@ function sendToRenderer(channel: string, data: unknown): void {
   }
 }
 
-export function initAutoUpdater(mainWindowGetter: () => BrowserWindow | null): void {
-  getWindow = mainWindowGetter;
-
-  if (!app.isPackaged) {
-    console.log('[updater] Skipping auto-update in development');
-    return;
-  }
-
-  // GitHub Releases as update source
-  autoUpdater.setFeedURL({
-    provider: 'github',
-    owner: 'markdrogersjr',
-    repo: 'Concord',
-  });
+/** Configure updater settings and register event handlers (runs exactly once). */
+function ensureUpdaterReady(): void {
+  if (handlersRegistered) return;
+  handlersRegistered = true;
 
   // Privacy-first: require explicit user action to download
   autoUpdater.autoDownload = false;
@@ -104,16 +96,45 @@ export function initAutoUpdater(mainWindowGetter: () => BrowserWindow | null): v
     console.error('[updater] Error:', error.message);
     sendToRenderer('update:error', { message: error.message });
   });
+}
 
-  // ─── Schedule checks ───────────────────────────────────────────────
+/** Start the scheduled update check interval (idempotent). */
+function startScheduledChecks(): void {
+  if (checkInterval) return;
 
-  // Scheduled checks catch errors silently — the autoUpdater 'error' event
-  // already notifies the renderer. Only IPC-initiated checks rethrow.
   const scheduledCheck = () => {
     checkForUpdates().catch(() => {});
   };
   setTimeout(scheduledCheck, STARTUP_CHECK_DELAY_MS);
   checkInterval = setInterval(scheduledCheck, UPDATE_CHECK_INTERVAL_MS);
+}
+
+export function initAutoUpdater(mainWindowGetter: () => BrowserWindow | null): void {
+  getWindow = mainWindowGetter;
+
+  if (!app.isPackaged) {
+    console.log('[updater] Skipping auto-update in development');
+    return;
+  }
+
+  // Always register settings and event handlers so renderer events work
+  // even if the feed URL is set later via setUpdateFeedUrl().
+  ensureUpdaterReady();
+
+  // Privacy-first: update checks go through our server, never GitHub directly.
+  // The server serves release assets from disk via GET /api/v1/updates/*
+  const apiBase = getPersistedApiBase();
+  if (apiBase) {
+    autoUpdater.setFeedURL({
+      provider: 'generic',
+      url: `${apiBase}/api/v1/updates`,
+    });
+    startScheduledChecks();
+  } else {
+    // No persisted API base (first launch, never logged in).
+    // Updates will be enabled after login via setUpdateFeedUrl().
+    console.log('[updater] No API base available, deferring update check until login');
+  }
 }
 
 // ─── Public API (consumed by IPC handlers in main.ts) ─────────────────
@@ -152,6 +173,18 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Set the update feed URL after login (when apiBase becomes available). */
+export function setUpdateFeedUrl(apiBase: string): void {
+  if (!app.isPackaged) return; // No-op in development
+  ensureUpdaterReady();
+  autoUpdater.setFeedURL({
+    provider: 'generic',
+    url: `${apiBase}/api/v1/updates`,
+  });
+  console.log('[updater] Feed URL set to', `${apiBase}/api/v1/updates`);
+  startScheduledChecks();
 }
 
 /** Stop scheduled update checks (called on app quit). */
