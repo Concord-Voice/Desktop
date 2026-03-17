@@ -96,6 +96,11 @@ class VoiceService {
   private device: Device | null = null;
   private sendTransport: mediasoupTypes.Transport | null = null;
   private recvTransport: mediasoupTypes.Transport | null = null;
+  // Split recv transports for E2EE channels — avoids BUNDLE codec collision (#291).
+  // Audio and video get separate recv PeerConnections so payload types can't collide.
+  // Send transport stays single (server allows only 1, and send path has no demux).
+  private recvTransportAudio: mediasoupTypes.Transport | null = null;
+  private recvTransportVideo: mediasoupTypes.Transport | null = null;
 
   // Local producers: source → Producer
   private producers: Map<string, mediasoupTypes.Producer> = new Map();
@@ -115,9 +120,12 @@ class VoiceService {
   private mediaEncryption: MediaEncryption | null = null;
   private isEncrypted = false;
 
-  // Consume queue — serializes consume operations to prevent concurrent SDP
+  // Consume queues — serialized per-transport to prevent concurrent SDP
   // negotiations that cause "Duplicate a=mid value" errors.
+  // E2EE uses per-transport queues; non-E2EE uses consumeQueue only.
   private consumeQueue: Promise<void> = Promise.resolve();
+  private consumeQueueAudio: Promise<void> = Promise.resolve();
+  private consumeQueueVideo: Promise<void> = Promise.resolve();
 
   // Client-side voice activity detection (Web Audio API)
   private vadAudioContext: AudioContext | null = null;
@@ -1289,7 +1297,7 @@ class VoiceService {
 
       // Step 5: Create transports in parallel (no dependency between send/recv)
       this.isEncrypted = channel.is_encrypted;
-      await Promise.all([this.createSendTransport(), this.createRecvTransport()]);
+      await Promise.all([this.createSendTransport(), this.createRecvTransports()]);
 
       // Step 6: Initialize E2EE if channel is encrypted
       if (this.isEncrypted) {
@@ -1358,7 +1366,11 @@ class VoiceService {
             displayName: participant?.displayName,
           });
         } else {
-          await this.consumeProducer(producer.producerId, producer.userId);
+          await this.consumeProducer(
+            producer.producerId,
+            producer.userId,
+            producer.kind as mediasoupTypes.MediaKind
+          );
         }
       }
 
@@ -1433,18 +1445,22 @@ class VoiceService {
     this.consumerMeta.clear();
 
     // 4. Close transports (sync)
-    try {
-      this.sendTransport?.close();
-    } catch {
-      /* ignore */
-    }
-    try {
-      this.recvTransport?.close();
-    } catch {
-      /* ignore */
+    for (const t of [
+      this.sendTransport,
+      this.recvTransport,
+      this.recvTransportAudio,
+      this.recvTransportVideo,
+    ]) {
+      try {
+        t?.close();
+      } catch {
+        /* ignore */
+      }
     }
     this.sendTransport = null;
     this.recvTransport = null;
+    this.recvTransportAudio = null;
+    this.recvTransportVideo = null;
 
     // 5. Stop timers and subscriptions
     this.stopLocalVAD();
@@ -1468,9 +1484,11 @@ class VoiceService {
     }
     this.socket = null;
 
-    // 8. Reset device and consume queue
+    // 8. Reset device and consume queues
     this.device = null;
     this.consumeQueue = Promise.resolve();
+    this.consumeQueueAudio = Promise.resolve();
+    this.consumeQueueVideo = Promise.resolve();
 
     // 9. Reset store
     useVoiceStore.getState().clearAvailableScreenShares();
@@ -2076,7 +2094,7 @@ class VoiceService {
 
     // Remove from available list and consume the producer
     store.removeAvailableScreenShare(producerId);
-    await this.consumeProducer(producerId, userId);
+    await this.consumeProducer(producerId, userId, 'video');
 
     // Find the consumer that was just created for this producer
     let consumerId = '';
@@ -2195,10 +2213,11 @@ class VoiceService {
    * queued operations (including stopSending) have finished before we proceed.
    */
   private async drainSendTransportQueue(): Promise<void> {
-    if (!this.sendTransport || this.sendTransport.closed) return;
+    const transport = this.sendTransport;
+    if (!transport || transport.closed) return;
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (this.sendTransport as any)._awaitQueue.push(async () => {
+      await (transport as any)._awaitQueue.push(async () => {
         /* no-op — just wait for our turn */
       }, 'drainSendTransportQueue');
     } catch {
@@ -2280,6 +2299,8 @@ class VoiceService {
       iceParameters: options.iceParameters,
       iceCandidates: options.iceCandidates,
       dtlsParameters: options.dtlsParameters,
+      // E2EE requires Insertable Streams for encrypt transforms.
+      // The BUNDLE collision on send is harmless (no RTP demuxing on send path).
       ...(this.isEncrypted && {
         additionalSettings: {
           encodedInsertableStreams: true,
@@ -2312,9 +2333,33 @@ class VoiceService {
         }
       }
     );
+
+    // DEBUG: Capture SDP from the send transport's PeerConnection
+    // to identify the source of the payload_type=45 BUNDLE collision
+    if (this.isEncrypted) {
+      this.logTransportSdp(this.sendTransport, 'send');
+    }
   }
 
-  private async createRecvTransport(): Promise<void> {
+  /**
+   * Create recv transport(s). For E2EE channels, creates separate audio and
+   * video transports to avoid BUNDLE payload_type collision (#291). Each
+   * transport gets its own RTCPeerConnection, so audio and video codecs
+   * can never collide within a BUNDLE group.
+   */
+  private async createRecvTransports(): Promise<void> {
+    if (this.isEncrypted) {
+      await Promise.all([
+        this.createRecvTransportForKind('audio'),
+        this.createRecvTransportForKind('video'),
+      ]);
+    } else {
+      await this.createRecvTransportSingle();
+    }
+  }
+
+  /** Create a single recv transport (non-E2EE path — unchanged behavior) */
+  private async createRecvTransportSingle(): Promise<void> {
     const options = await this.emitAsync<TransportOptions>('create-transport', {
       direction: 'recv',
     });
@@ -2324,11 +2369,6 @@ class VoiceService {
       iceParameters: options.iceParameters,
       iceCandidates: options.iceCandidates,
       dtlsParameters: options.dtlsParameters,
-      ...(this.isEncrypted && {
-        additionalSettings: {
-          encodedInsertableStreams: true,
-        } as unknown as Partial<RTCConfiguration>,
-      }),
     });
 
     this.recvTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
@@ -2341,30 +2381,163 @@ class VoiceService {
     });
   }
 
+  /** Create a recv transport for a specific media kind (E2EE path) */
+  private async createRecvTransportForKind(mediaKind: 'audio' | 'video'): Promise<void> {
+    const options = await this.emitAsync<TransportOptions>('create-transport', {
+      direction: 'recv',
+    });
+
+    const transport = this.device!.createRecvTransport({
+      id: options.id,
+      iceParameters: options.iceParameters,
+      iceCandidates: options.iceCandidates,
+      dtlsParameters: options.dtlsParameters,
+      additionalSettings: {
+        encodedInsertableStreams: true,
+      } as unknown as Partial<RTCConfiguration>,
+    });
+
+    if (mediaKind === 'audio') {
+      this.recvTransportAudio = transport;
+    } else {
+      this.recvTransportVideo = transport;
+    }
+
+    transport.on('connect', ({ dtlsParameters }, callback, errback) => {
+      this.emitAsync('connect-transport', {
+        transportId: transport.id,
+        dtlsParameters,
+      })
+        .then(() => callback())
+        .catch(errback);
+    });
+
+    // DEBUG: Capture SDP from E2EE recv transport
+    this.logTransportSdp(transport, `recv-${mediaKind}`);
+  }
+
+  /**
+   * DEBUG: Log the SDP from a transport's underlying PeerConnection.
+   * Helps identify the source of the payload_type=45 BUNDLE collision.
+   */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private logTransportSdp(transport: mediasoupTypes.Transport, label: string): void {
+    try {
+      // Access the internal handler's PeerConnection (mediasoup-client internals)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const handler = (transport as any)._handler;
+      if (!handler || !handler._pc) return;
+      const pc = handler._pc as RTCPeerConnection;
+
+      // Log initial SDP state
+      const logSdp = () => {
+        const local = pc.localDescription;
+        const remote = pc.remoteDescription;
+        if (local) {
+          console.info(`[SDP-DEBUG] ${label} localDescription:`, local.sdp);
+        }
+        if (remote) {
+          console.info(`[SDP-DEBUG] ${label} remoteDescription:`, remote.sdp);
+        }
+      };
+
+      // Log on signaling state changes (captures SDP after each negotiation)
+      pc.addEventListener('signalingstatechange', () => {
+        console.info(`[SDP-DEBUG] ${label} signalingState: ${pc.signalingState}`);
+        if (pc.signalingState === 'stable') {
+          logSdp();
+        }
+      });
+    } catch {
+      // Non-critical debug logging — don't break transport setup
+    }
+  }
+
+  /** Get the recv transport for a given media kind */
+  private getRecvTransport(kind: mediasoupTypes.MediaKind): mediasoupTypes.Transport | null {
+    if (this.isEncrypted) {
+      return kind === 'audio' ? this.recvTransportAudio : this.recvTransportVideo;
+    }
+    return this.recvTransport;
+  }
+
+  /** Get the transport ID to pass to the server for a consume request */
+  private getRecvTransportId(kind: mediasoupTypes.MediaKind): string | undefined {
+    return this.getRecvTransport(kind)?.id;
+  }
+
   // ─── Consumer Management ───────────────────────────────────────────
 
   /**
-   * Queue a consume operation. This serializes all consume calls to prevent
-   * concurrent SDP negotiations that cause "Duplicate a=mid value" errors.
+   * Queue a consume operation. Serializes per-transport for E2EE (each
+   * transport has independent SDP negotiation), single queue for non-E2EE.
    */
-  private async consumeProducer(producerId: string, senderUserId?: string): Promise<void> {
-    this.consumeQueue = this.consumeQueue
-      .then(() => this.consumeProducerImpl(producerId, senderUserId))
-      .catch((err) => {
-        console.error('Consume queue error:', err);
+  private async consumeProducer(
+    producerId: string,
+    senderUserId?: string,
+    kind?: mediasoupTypes.MediaKind
+  ): Promise<void> {
+    // Copilot review fix: validate kind is 'audio' or 'video' for E2EE routing
+    if (this.isEncrypted && kind && kind !== 'audio' && kind !== 'video') {
+      console.warn('[consume] skipped — invalid kind for E2EE routing', { producerId, kind });
+      return;
+    }
+    // Copilot review fix: require kind when E2EE is active
+    if (this.isEncrypted && !kind) {
+      console.warn('[consume] E2EE active but kind not provided — using single queue fallback', {
+        producerId,
       });
-    await this.consumeQueue;
+    }
+    if (this.isEncrypted && kind) {
+      // E2EE: route to per-transport queues so audio/video negotiate in parallel
+      if (kind === 'audio') {
+        this.consumeQueueAudio = this.consumeQueueAudio
+          .then(() => this.consumeProducerImpl(producerId, senderUserId, kind))
+          .catch((err) => console.error('Audio consume queue error:', err));
+        await this.consumeQueueAudio;
+      } else {
+        this.consumeQueueVideo = this.consumeQueueVideo
+          .then(() => this.consumeProducerImpl(producerId, senderUserId, kind))
+          .catch((err) => console.error('Video consume queue error:', err));
+        await this.consumeQueueVideo;
+      }
+    } else {
+      // Non-E2EE or kind unknown: single queue (existing behavior)
+      this.consumeQueue = this.consumeQueue
+        .then(() => this.consumeProducerImpl(producerId, senderUserId, kind))
+        .catch((err) => console.error('Consume queue error:', err));
+      await this.consumeQueue;
+    }
   }
 
-  private async consumeProducerImpl(producerId: string, senderUserId?: string): Promise<void> {
-    if (!this.recvTransport || !this.device) {
-      console.warn('[consume] skipped — no recvTransport or device', { producerId });
+  private async consumeProducerImpl(
+    producerId: string,
+    senderUserId?: string,
+    kind?: mediasoupTypes.MediaKind
+  ): Promise<void> {
+    if (!this.device) {
+      console.warn('[consume] skipped — no device', { producerId });
       return;
     }
 
     try {
-      console.debug('[consume] requesting', { producerId, senderUserId });
-      const result = await this.emitAsync<ConsumeResponse>('consume', { producerId });
+      // For E2EE, tell the server which recv transport to use for this consumer.
+      // Copilot review fix: check transport exists BEFORE making server call
+      // to avoid leaking server-side consumers that the client can't attach.
+      const transportId = kind ? this.getRecvTransportId(kind) : undefined;
+      if (this.isEncrypted && kind && !transportId) {
+        console.warn('[consume] skipped — E2EE recv transport not ready for kind', {
+          producerId,
+          kind,
+        });
+        return;
+      }
+
+      console.debug('[consume] requesting', { producerId, senderUserId, kind, transportId });
+      const result = await this.emitAsync<ConsumeResponse>('consume', {
+        producerId,
+        ...(transportId && { transportId }),
+      });
       if (!result || 'error' in result) {
         console.warn('[consume] server returned error or empty result', { producerId, result });
         return;
@@ -2377,7 +2550,17 @@ class VoiceService {
         producerUserId: result.producerUserId,
       });
 
-      const consumer = await this.recvTransport.consume({
+      // Route to the correct recv transport (split for E2EE, single for non-E2EE)
+      const recvTransport = this.getRecvTransport(result.kind) || this.recvTransport;
+      if (!recvTransport) {
+        console.warn('[consume] skipped — no recvTransport for kind', {
+          producerId,
+          kind: result.kind,
+        });
+        return;
+      }
+
+      const consumer = await recvTransport.consume({
         id: result.id,
         producerId: result.producerId,
         kind: result.kind,
@@ -2480,51 +2663,48 @@ class VoiceService {
   private setupSocketListeners(): void {
     if (!this.socket) return;
 
-    this.socket.on(
-      'new-producer',
-      async ({ producerId, userId, kind: _kind, source, requiresOptIn }) => {
-        const store = useVoiceStore.getState();
+    this.socket.on('new-producer', async ({ producerId, userId, kind, source, requiresOptIn }) => {
+      const store = useVoiceStore.getState();
 
-        // Screen shares use opt-in ("Tune In") model — announce but don't auto-consume
-        if (requiresOptIn && source === 'screen') {
-          const participant = store.participants[userId];
-          store.addAvailableScreenShare({
-            producerId,
-            userId,
-            username: participant?.username || 'Unknown',
-            displayName: participant?.displayName,
-          });
-          store.updateParticipant(userId, { isScreenSharing: true });
+      // Screen shares use opt-in ("Tune In") model — announce but don't auto-consume
+      if (requiresOptIn && source === 'screen') {
+        const participant = store.participants[userId];
+        store.addAvailableScreenShare({
+          producerId,
+          userId,
+          username: participant?.username || 'Unknown',
+          displayName: participant?.displayName,
+        });
+        store.updateParticipant(userId, { isScreenSharing: true });
+        return;
+      }
+
+      // E2EE: ensure decrypt key is ready BEFORE consuming so the first
+      // frames can be decrypted. Socket.IO doesn't await async handlers,
+      // so user-joined's addDecryptKeyForUser may still be in-flight.
+      if (this.isEncrypted && this.mediaEncryption) {
+        const channelId = store.activeChannelId;
+        if (channelId) {
+          await this.addDecryptKeyForUser(channelId, userId);
+        }
+      }
+
+      // Video slot enforcement for camera streams
+      if (source === 'camera') {
+        const videoOnCount = Object.values(store.participants).filter((p) => p.isVideoOn).length;
+        if (videoOnCount >= store.maxVideoSlots) {
+          console.warn(
+            `[new-producer] Video slot limit reached (${store.maxVideoSlots}), skipping camera consume for ${userId}`
+          );
+          store.updateParticipant(userId, { isVideoOn: true }); // Mark them as video-on even if we can't consume
           return;
         }
-
-        // E2EE: ensure decrypt key is ready BEFORE consuming so the first
-        // frames can be decrypted. Socket.IO doesn't await async handlers,
-        // so user-joined's addDecryptKeyForUser may still be in-flight.
-        if (this.isEncrypted && this.mediaEncryption) {
-          const channelId = store.activeChannelId;
-          if (channelId) {
-            await this.addDecryptKeyForUser(channelId, userId);
-          }
-        }
-
-        // Video slot enforcement for camera streams
-        if (source === 'camera') {
-          const videoOnCount = Object.values(store.participants).filter((p) => p.isVideoOn).length;
-          if (videoOnCount >= store.maxVideoSlots) {
-            console.warn(
-              `[new-producer] Video slot limit reached (${store.maxVideoSlots}), skipping camera consume for ${userId}`
-            );
-            store.updateParticipant(userId, { isVideoOn: true }); // Mark them as video-on even if we can't consume
-            return;
-          }
-        }
-
-        await this.consumeProducer(producerId, userId);
-        if (source === 'camera') store.updateParticipant(userId, { isVideoOn: true });
-        if (source === 'screen') store.updateParticipant(userId, { isScreenSharing: true });
       }
-    );
+
+      await this.consumeProducer(producerId, userId, kind as mediasoupTypes.MediaKind);
+      if (source === 'camera') store.updateParticipant(userId, { isVideoOn: true });
+      if (source === 'screen') store.updateParticipant(userId, { isScreenSharing: true });
+    });
 
     this.socket.on('producer-paused', ({ producerId: _producerId, userId }) => {
       useVoiceStore.getState().updateParticipant(userId, { isMuted: true });
@@ -3051,13 +3231,40 @@ class VoiceService {
               }
             } catch (decryptErr) {
               dropCount++;
-              if (dropCount === 1 || dropCount % 100 === 0) {
+              if (dropCount === 1 || dropCount % 20 === 0) {
+                // Verbose: dump trailer bytes and frame metadata for debugging
+                const fd = new Uint8Array(frame.data);
+                const trailerHex =
+                  fd.length >= 16
+                    ? Array.from(fd.slice(-16))
+                        .map((b) => b.toString(16).padStart(2, '0'))
+                        .join(' ')
+                    : 'too-small';
+                const headerHex =
+                  fd.length >= 4
+                    ? Array.from(fd.slice(0, 4))
+                        .map((b) => b.toString(16).padStart(2, '0'))
+                        .join(' ')
+                    : 'too-small';
+                const hasMagic =
+                  fd.length >= 2 && fd[fd.length - 2] === 0xde && fd[fd.length - 1] === 0xad;
+                const keyIdInFrame = hasMagic && fd.length >= 15 ? fd[fd.length - 15] : -1;
+                const headerBytesInFrame = hasMagic && fd.length >= 16 ? fd[fd.length - 16] : -1;
                 console.warn(
                   `E2EE: dropping undecryptable frame for ${senderUserId} (total dropped: ${dropCount})`,
                   {
-                    error: decryptErr instanceof Error ? decryptErr.message : String(decryptErr),
-                    frameSize: frame.data.byteLength,
+                    error:
+                      decryptErr instanceof Error
+                        ? `${decryptErr.name}: ${decryptErr.message}`
+                        : String(decryptErr),
+                    frameSize: fd.length,
                     localEpoch: encryption.getCurrentKeyId(),
+                    hasMagic,
+                    keyIdInFrame,
+                    headerBytesInFrame,
+                    isVideo: 'type' in frame,
+                    trailerHex,
+                    headerHex,
                   }
                 );
               }
@@ -3190,8 +3397,12 @@ class VoiceService {
     // Close transports
     this.sendTransport?.close();
     this.recvTransport?.close();
+    this.recvTransportAudio?.close();
+    this.recvTransportVideo?.close();
     this.sendTransport = null;
     this.recvTransport = null;
+    this.recvTransportAudio = null;
+    this.recvTransportVideo = null;
 
     // Stop local VAD, noise gate, input volume, and live subscriptions
     this.stopLocalVAD();
@@ -3216,9 +3427,11 @@ class VoiceService {
     // Clear screen share opt-in list
     useVoiceStore.getState().clearAvailableScreenShares();
 
-    // Reset consume queue so pending consumes from the old session don't
+    // Reset consume queues so pending consumes from the old session don't
     // interfere with the next join.
     this.consumeQueue = Promise.resolve();
+    this.consumeQueueAudio = Promise.resolve();
+    this.consumeQueueVideo = Promise.resolve();
 
     // Disconnect socket
     this.socket?.disconnect();
