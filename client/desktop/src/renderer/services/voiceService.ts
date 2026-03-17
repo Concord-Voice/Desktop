@@ -557,6 +557,18 @@ class VoiceService {
             networkPriority: prio,
           };
 
+    // E2EE: SVC/simulcast is incompatible with frame-level encryption because
+    // the SFU strips temporal/spatial layers, which modifies the encrypted RTP
+    // payload and invalidates the AES-GCM authentication tag (#291).
+    // Use single-layer encoding when encrypted.
+    if (this.isEncrypted) {
+      const codec = this.findSendCodec('video/VP9') || this.findSendCodec('video/VP8');
+      return {
+        codec: codec || undefined,
+        encodings: [{ ...base, maxBitrate: preset.maxBitrate }],
+      };
+    }
+
     const isSvcCodec = (mime: string) =>
       mime.includes('AV1') ||
       mime.includes('H265') ||
@@ -646,15 +658,24 @@ class VoiceService {
             networkPriority: prio,
           };
 
+    // Dynamic auto-bitrate: calculate based on resolution, FPS, and codec
+    const autoBitrate = this.calculateRecommendedBitrate(vs);
+    const bitrate = userBitrate || autoBitrate;
+
+    // E2EE: SVC/simulcast is incompatible — SFU layer stripping breaks AES-GCM (#291)
+    if (this.isEncrypted) {
+      const codec = this.findSendCodec('video/VP9') || this.findSendCodec('video/VP8');
+      return {
+        codec: codec || undefined,
+        encodings: [{ ...base, maxBitrate: bitrate }],
+      };
+    }
+
     const isSvcCodec = (mime: string) =>
       mime.includes('AV1') ||
       mime.includes('H265') ||
       mime.includes('HEVC') ||
       mime.includes('VP9');
-
-    // Dynamic auto-bitrate: calculate based on resolution, FPS, and codec
-    const autoBitrate = this.calculateRecommendedBitrate(vs);
-    const bitrate = userBitrate || autoBitrate;
 
     // User preference — only if floor-compatible
     if (preferred && this.isInCodecFloor(preferred)) {
