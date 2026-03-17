@@ -4,6 +4,15 @@ import { MakerZIP } from '@electron-forge/maker-zip';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
 import { MakerAppImage } from '@reforged/maker-appimage';
+import fs from 'fs';
+
+// electron-updater needs app-update.yml in Resources. The file is generated
+// by CI (build-desktop.yml) before packaging. Include it only when present
+// so local dev builds don't fail.
+const extraResource: string[] = [];
+if (fs.existsSync('./app-update.yml')) {
+  extraResource.push('./app-update.yml');
+}
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -12,6 +21,7 @@ const config: ForgeConfig = {
     executableName: 'concord-voice',
     icon: './build/icon',
     appBundleId: 'com.concordvoice.desktop',
+    extraResource,
   },
   makers: [
     new MakerSquirrel({
