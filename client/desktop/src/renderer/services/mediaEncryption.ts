@@ -9,7 +9,18 @@
  *   frameKey = HKDF-SHA256(channelCSK, salt="concord-voice-e2ee", info=senderUserId)
  *
  * Frame format (encrypted):
- *   [unencrypted codec header (variable)][AES-GCM ciphertext][16-byte auth tag][1-byte keyId][12-byte IV][0xDE 0xAD magic]
+ *   [unencrypted header (1–10 bytes)][AES-GCM ciphertext + 16-byte auth tag][1-byte headerBytes][1-byte keyId][12-byte IV][0xDE 0xAD magic]
+ *
+ * Trailer (16 bytes total): headerBytes + keyId + IV + magic.
+ * The headerBytes field tells the receiver how many leading bytes were left
+ * unencrypted, so the split point is self-describing and robust against
+ * frame misrouting between consumers in a BUNDLE group.
+ *
+ * AES-GCM is used WITHOUT additionalData (no AAD). This is intentional:
+ * Chromium's SDP BUNDLE can produce payload_type collisions that misroute
+ * frames between audio/video consumers. With AAD tied to headerBytes, a
+ * misrouted frame would always fail authentication. Without AAD the frame
+ * can still decrypt correctly using the sender-encoded headerBytes field.
  *
  * The 2-byte magic trailer (0xDE 0xAD) allows the receiver to distinguish
  * encrypted frames from unencrypted ones. If the encrypt transform fails to
@@ -21,8 +32,8 @@
  *   Receivers keep old keys for 10 seconds (overlap window)
  *   Ratchet: newKey = HKDF(oldKey, "concord-e2ee-ratchet")
  *
- * Uses RTCRtpScriptTransform where supported (Chrome 120+, Electron 40+),
- * falls back to legacy createEncodedStreams for older Chromium.
+ * Uses legacy createEncodedStreams for Electron/Chromium. RTCRtpScriptTransform
+ * (Chrome 120+) is not yet implemented — tracked for future cross-browser support.
  */
 
 const SALT = new TextEncoder().encode('concord-voice-e2ee');
@@ -32,19 +43,39 @@ const RATCHET_INFO = new TextEncoder().encode('concord-e2ee-ratchet');
 // distinguish encrypted frames from unencrypted ones.
 const MAGIC_0 = 0xde;
 const MAGIC_1 = 0xad;
-// Total trailer size: 1-byte keyId + 12-byte IV + 2-byte magic = 15
-const TRAILER_SIZE = 15;
+// Total trailer size: 1-byte headerBytes + 1-byte keyId + 12-byte IV + 2-byte magic = 16
+const TRAILER_SIZE = 16;
 
-// Number of unencrypted header bytes per codec
-// VP8: 1 byte, VP9: 1 byte, H264: varies, Opus: 1 byte (TOC)
+// Reference: ideal unencrypted header bytes per codec (not used directly —
+// getUnencryptedBytes() uses static 1/2 for sender/receiver agreement safety).
+// VP8 keyframe ideally needs 10 bytes, delta 3 bytes (RFC 6386 §9.1),
+// but static 2 bytes is sufficient for the keyframe flag + partition bits.
 export const UNENCRYPTED_BYTES: Record<string, number> = {
   opus: 1,
-  vp8: 1,
+  vp8: 2,
   vp9: 1,
   h264: 2,
   h265: 2,
   av1: 1,
 };
+
+/**
+ * Determine how many leading bytes of the frame payload must be left
+ * unencrypted. The unencrypted prefix preserves codec framing so the
+ * decoder can identify keyframes, Opus modes, etc.
+ *
+ * The sender encodes this value in the frame trailer (1-byte headerBytes
+ * field), so the receiver reads it directly instead of recomputing it.
+ * This makes decryption robust against BUNDLE frame misrouting where
+ * an audio frame may arrive at a video consumer (or vice versa).
+ *
+ * Using 1 byte for audio (Opus TOC) and 2 bytes for video (covers VP8
+ * partition flag + VP9 frame header) is the conservative minimum.
+ */
+function getUnencryptedBytes(frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame): number {
+  const isVideo = 'type' in frame;
+  return isVideo ? 2 : 1;
+}
 
 /** Derive an AES-128-GCM key from a channel CSK + sender userId via HKDF */
 async function deriveFrameKey(channelCSK: CryptoKey, senderUserId: string): Promise<CryptoKey> {
@@ -240,8 +271,10 @@ export class MediaEncryption {
     if (!this.encryptKey) throw new Error('E2EE: no encrypt key');
 
     const data = new Uint8Array(frame.data);
-    const isVideo = 'type' in frame; // RTCEncodedVideoFrame has `type`
-    const headerBytes = isVideo ? 2 : 1; // Conservative default
+    // Determine unencrypted header bytes based on frame type.
+    // VP8 keyframes need 10 bytes, delta frames need 3, audio needs 1.
+    // Per RFC 6386 §9.1 and the official WebRTC Insertable Streams sample.
+    const headerBytes = getUnencryptedBytes(frame);
 
     // Split: header (unencrypted for SFU routing) + payload (encrypted)
     const header = data.slice(0, headerBytes);
@@ -253,18 +286,22 @@ export class MediaEncryption {
     counterView.setUint32(0, this.frameCounter++);
     crypto.getRandomValues(iv.subarray(4));
 
-    // Encrypt payload with AES-128-GCM
+    // Encrypt payload with AES-128-GCM (no AAD — frame misrouting between
+    // consumers in a BUNDLE group can change the receiver's frame.type,
+    // which would cause an AAD mismatch if we authenticated the header).
     const ciphertext = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv, additionalData: header },
+      { name: 'AES-GCM', iv },
       this.encryptKey,
       payload
     );
 
-    // Compose: [header][ciphertext + 16-byte tag][1-byte keyId][12-byte IV][2-byte magic]
-    const result = new Uint8Array(header.length + ciphertext.byteLength + 1 + 12 + 2);
+    // Compose: [header][ciphertext + 16-byte tag][1-byte headerBytes][1-byte keyId][12-byte IV][2-byte magic]
+    const result = new Uint8Array(header.length + ciphertext.byteLength + 1 + 1 + 12 + 2);
     result.set(header);
     result.set(new Uint8Array(ciphertext), header.length);
     let offset = header.length + ciphertext.byteLength;
+    result[offset] = headerBytes; // Encode how many header bytes were used
+    offset += 1;
     result[offset] = this.currentKeyId;
     offset += 1;
     result.set(iv, offset);
@@ -327,21 +364,32 @@ export class MediaEncryption {
     senderUserId: string
   ): Promise<void> {
     const data = new Uint8Array(frame.data);
-    if (data.length < TRAILER_SIZE + 1) return; // Too small to be encrypted
+
+    // Minimum: 1 header + 16 GCM tag + 16 trailer = 33 bytes
+    if (data.length < TRAILER_SIZE + 17) return; // Too small to be encrypted
 
     // Check magic trailer — if absent, frame is not encrypted (pass through)
     if (data[data.length - 1] !== MAGIC_1 || data[data.length - 2] !== MAGIC_0) {
       return; // Unencrypted frame — leave as-is for the decoder
     }
 
-    const isVideo = 'type' in frame;
-    const headerBytes = isVideo ? 2 : 1;
-
-    // Extract components from the end (before magic bytes)
+    // Extract components from the trailer (before magic bytes)
     const iv = data.slice(data.length - 14, data.length - 2);
     const keyId = data[data.length - 15];
+    const headerBytes = data[data.length - 16]; // Sender-encoded header byte count
+
+    // Sanity check: headerBytes should be 1-10
+    if (headerBytes < 1 || headerBytes > 10 || headerBytes >= data.length - TRAILER_SIZE) {
+      return; // Malformed trailer or not our frame — pass through
+    }
+
     const header = data.slice(0, headerBytes);
-    const ciphertext = data.slice(headerBytes, data.length - 15);
+    const ciphertext = data.slice(headerBytes, data.length - TRAILER_SIZE);
+
+    // AES-GCM ciphertext must be at least 16 bytes (the auth tag alone)
+    if (ciphertext.byteLength < 16) {
+      return; // Too small to be valid AES-GCM — false positive magic trailer
+    }
 
     // Find the right decryption key, ratcheting forward if needed
     let keyEntry = this.decryptKeys.get(`${senderUserId}:${keyId}`);
@@ -360,7 +408,7 @@ export class MediaEncryption {
     }
 
     const plaintext = await crypto.subtle.decrypt(
-      { name: 'AES-GCM', iv, additionalData: header },
+      { name: 'AES-GCM', iv },
       keyEntry.key,
       ciphertext
     );

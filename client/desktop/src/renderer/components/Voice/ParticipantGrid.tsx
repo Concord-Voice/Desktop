@@ -38,6 +38,12 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
     const ctx = new AudioContext({ sampleRate: 48000 });
     ctxRef.current = ctx;
 
+    // Ensure AudioContext is running — can start suspended in some Chromium
+    // edge cases even with autoplay-policy=no-user-gesture-required
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch((err) => console.warn('AudioContext resume failed:', err));
+    }
+
     const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
@@ -59,7 +65,17 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
 
     // Play the processed stream through the <audio> element
     el.srcObject = destination.stream;
-    el.play().catch(() => {});
+    el.play().catch((err) => console.warn('Audio element play() rejected:', err));
+
+    // Diagnostic: log AudioContext state and stream health
+    console.debug('[AudioOutput] setup', {
+      ctxState: ctx.state,
+      streamActive: stream.active,
+      trackCount: stream.getAudioTracks().length,
+      trackState: stream.getAudioTracks()[0]?.readyState,
+      trackEnabled: stream.getAudioTracks()[0]?.enabled,
+      outputVolume: useAudioSettingsStore.getState().outputVolume,
+    });
 
     // Set output device (Chrome/Electron setSinkId)
     if (outputDeviceId && 'setSinkId' in el) {

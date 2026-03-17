@@ -89,6 +89,13 @@ const createWindow = async (): Promise<void> => {
 
   const bundledPath = path.join(__dirname, '../renderer/index.html');
 
+  // Register before loading any URL — ready-to-show fires during loadURL
+  // and the listener must be attached first to avoid a race condition where
+  // the event fires before the handler is registered (window never shows).
+  mainWindow.once('ready-to-show', () => {
+    mainWindow?.show();
+  });
+
   if (app.isPackaged) {
     // Tier 3: Attempt remote SPA loading with compatibility check.
     // Falls back to bundled renderer on any failure.
@@ -132,11 +139,6 @@ const createWindow = async (): Promise<void> => {
       await mainWindow.loadFile(bundledPath);
     }
   }
-
-  // Show window when ready to prevent visual flash
-  mainWindow.once('ready-to-show', () => {
-    mainWindow?.show();
-  });
 
   // Open external links in browser (validate protocol to prevent code injection)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

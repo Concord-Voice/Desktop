@@ -2955,14 +2955,34 @@ class VoiceService {
     if (typeof senderAny.createEncodedStreams === 'function') {
       try {
         const { readable, writable } = senderAny.createEncodedStreams();
+        let encryptDropCount = 0;
+        let firstEncryptLogged = false;
         const transform = new TransformStream({
           async transform(frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame, controller) {
             try {
               await encryption.encryptFrame(frame);
               controller.enqueue(frame);
-            } catch {
+              if (!firstEncryptLogged) {
+                firstEncryptLogged = true;
+                console.info('E2EE: first frame encrypted successfully', {
+                  kind: 'type' in frame ? 'video' : 'audio',
+                  dataSize: frame.data.byteLength,
+                });
+              }
+              if (encryptDropCount > 0) {
+                console.info(`E2EE: encrypt recovered after ${encryptDropCount} dropped frames`);
+                encryptDropCount = 0;
+              }
+            } catch (err) {
               // Encrypt failed — DROP the frame to avoid sending unencrypted
               // plaintext on an encrypted channel. Silence/blank is correct.
+              encryptDropCount++;
+              if (encryptDropCount === 1 || encryptDropCount % 100 === 0) {
+                console.warn('E2EE: encrypt frame dropped', {
+                  totalDropped: encryptDropCount,
+                  error: err instanceof Error ? err.message : err,
+                });
+              }
             }
           },
         });
@@ -3029,11 +3049,16 @@ class VoiceService {
                 );
                 dropCount = 0;
               }
-            } catch {
+            } catch (decryptErr) {
               dropCount++;
               if (dropCount === 1 || dropCount % 100 === 0) {
                 console.warn(
-                  `E2EE: dropping undecryptable frame for ${senderUserId} (total dropped: ${dropCount})`
+                  `E2EE: dropping undecryptable frame for ${senderUserId} (total dropped: ${dropCount})`,
+                  {
+                    error: decryptErr instanceof Error ? decryptErr.message : String(decryptErr),
+                    frameSize: frame.data.byteLength,
+                    localEpoch: encryption.getCurrentKeyId(),
+                  }
                 );
               }
 
