@@ -131,6 +131,53 @@ export const useDMStore = create<DMState>()(
           const data = await response.json();
           const conv = mapConversation(data.conversation);
 
+          // Ensure E2EE channel key exists for encrypted conversations
+          if (conv.isEncrypted && e2eeService.isInitialized) {
+            let needsKeyDistribution = false;
+            try {
+              await e2eeService.getChannelKey(conv.id);
+            } catch (err) {
+              // Only distribute keys if the server confirms no key exists (PENDING_KEY).
+              // Transient errors (429, 500, network) should not trigger key creation.
+              needsKeyDistribution = err instanceof Error && err.message === 'PENDING_KEY';
+            }
+
+            if (needsKeyDistribution) {
+              try {
+                // Fetch public keys for all participants in parallel
+                const results = await Promise.allSettled(
+                  conv.participants.map(async (p) => {
+                    const pkRes = await apiFetch(`/api/v1/users/${p.userId}/public-key`);
+                    if (!pkRes.ok) return null;
+                    const pkData = await pkRes.json();
+                    return pkData.public_key
+                      ? { userId: p.userId, publicKey: pkData.public_key as string }
+                      : null;
+                  })
+                );
+                const memberKeys = new Map<string, string>();
+                for (const r of results) {
+                  if (r.status === 'fulfilled' && r.value) {
+                    memberKeys.set(r.value.userId, r.value.publicKey);
+                  }
+                }
+                if (memberKeys.size > 0) {
+                  const wrappedKeys = await e2eeService.createChannelKeys(memberKeys);
+                  const distRes = await apiFetch(`/api/v1/e2ee/keys/${conv.id}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ wrapped_keys: Object.fromEntries(wrappedKeys) }),
+                  });
+                  if (!distRes.ok) {
+                    console.error('Failed to distribute E2EE key for DM:', distRes.status);
+                  }
+                }
+              } catch (err) {
+                console.error('Failed to distribute E2EE key for DM:', err);
+              }
+            }
+          }
+
           // Add to list if not already present
           set((state) => {
             const exists = state.conversations.some((c) => c.id === conv.id);
@@ -160,6 +207,41 @@ export const useDMStore = create<DMState>()(
 
           const data = await response.json();
           const conv = mapConversation(data.conversation);
+
+          // Ensure E2EE channel key exists for encrypted group conversations
+          if (conv.isEncrypted && e2eeService.isInitialized) {
+            try {
+              const results = await Promise.allSettled(
+                conv.participants.map(async (p) => {
+                  const pkRes = await apiFetch(`/api/v1/users/${p.userId}/public-key`);
+                  if (!pkRes.ok) return null;
+                  const pkData = await pkRes.json();
+                  return pkData.public_key
+                    ? { userId: p.userId, publicKey: pkData.public_key as string }
+                    : null;
+                })
+              );
+              const memberKeys = new Map<string, string>();
+              for (const r of results) {
+                if (r.status === 'fulfilled' && r.value) {
+                  memberKeys.set(r.value.userId, r.value.publicKey);
+                }
+              }
+              if (memberKeys.size > 0) {
+                const wrappedKeys = await e2eeService.createChannelKeys(memberKeys);
+                const distRes = await apiFetch(`/api/v1/e2ee/keys/${conv.id}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ wrapped_keys: Object.fromEntries(wrappedKeys) }),
+                });
+                if (!distRes.ok) {
+                  console.error('Failed to distribute E2EE key for group DM:', distRes.status);
+                }
+              }
+            } catch (err) {
+              console.error('Failed to distribute E2EE key for group DM:', err);
+            }
+          }
 
           set((state) => ({
             conversations: [conv, ...state.conversations],
