@@ -35,6 +35,11 @@ import { apiFetch } from './apiClient';
 import { MediaEncryption } from './mediaEncryption';
 import { e2eeService } from './e2eeService';
 
+// Toggle for verbose E2EE/SDP diagnostics — set to true when debugging
+// frame drops, BUNDLE collisions, or key rotation issues. When false,
+// only errors, warnings, and key lifecycle events are logged.
+const E2EE_VERBOSE = false;
+
 // ---------------------------------------------------------------------------
 // Types matching server signaling protocol
 // ---------------------------------------------------------------------------
@@ -557,23 +562,21 @@ class VoiceService {
             networkPriority: prio,
           };
 
-    // E2EE: SVC/simulcast is incompatible with frame-level encryption because
-    // the SFU strips temporal/spatial layers, which modifies the encrypted RTP
-    // payload and invalidates the AES-GCM authentication tag (#291).
-    // Use single-layer encoding when encrypted.
-    if (this.isEncrypted) {
-      const codec = this.findSendCodec('video/VP9') || this.findSendCodec('video/VP8');
-      return {
-        codec: codec || undefined,
-        encodings: [{ ...base, maxBitrate: preset.maxBitrate }],
-      };
-    }
-
     const isSvcCodec = (mime: string) =>
       mime.includes('AV1') ||
       mime.includes('H265') ||
       mime.includes('HEVC') ||
       mime.includes('VP9');
+
+    // E2EE: SVC/simulcast is incompatible with frame-level encryption — the SFU
+    // strips temporal/spatial layers, modifying the encrypted payload and breaking
+    // AES-GCM authentication (#291). Use single-layer encoding. The same codec
+    // preference cascade (user pref → HW accel → AV1 → HEVC → VP9 → H264 → VP8)
+    // is preserved — only the encoding mode changes (no scalabilityMode, no simulcast).
+    const makeSingleLayer = (codec?: mediasoupTypes.RtpCodecCapability) => ({
+      codec,
+      encodings: [{ ...base, maxBitrate: preset.maxBitrate }],
+    });
 
     const makeSvc = (codec: mediasoupTypes.RtpCodecCapability) => ({
       codec,
@@ -588,12 +591,18 @@ class VoiceService {
       ],
     });
 
+    // Pick encoding mode: E2EE → single layer, otherwise SVC or simulcast
+    const makeEncoding = (codec: mediasoupTypes.RtpCodecCapability, svc: boolean) => {
+      if (this.isEncrypted) return makeSingleLayer(codec);
+      return svc ? makeSvc(codec) : makeSimulcast(codec);
+    };
+
     // Check user's preferred codec first — only if floor-compatible
     const preferred = vs.preferredVideoCodec;
     if (preferred && this.isInCodecFloor(preferred)) {
       const codec = this.findSendCodec(preferred);
       if (codec) {
-        return isSvcCodec(preferred) ? makeSvc(codec) : makeSimulcast(codec);
+        return makeEncoding(codec, isSvcCodec(preferred));
       }
     }
 
@@ -618,7 +627,7 @@ class VoiceService {
           (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt)))
         ) {
           const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
-          if (codec) return svc ? makeSvc(codec) : makeSimulcast(codec);
+          if (codec) return makeEncoding(codec, svc);
         }
       }
     }
@@ -627,12 +636,12 @@ class VoiceService {
     for (const { mime, alt, svc } of codecCascade) {
       if (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt))) {
         const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
-        if (codec) return svc ? makeSvc(codec) : makeSimulcast(codec);
+        if (codec) return makeEncoding(codec, svc);
       }
     }
 
     // VP8 last resort — universal support, bypasses floor
-    return makeSimulcast(this.findSendCodec('video/VP8'));
+    return makeSingleLayer(this.findSendCodec('video/VP8'));
   }
 
   /**
@@ -662,29 +671,28 @@ class VoiceService {
     const autoBitrate = this.calculateRecommendedBitrate(vs);
     const bitrate = userBitrate || autoBitrate;
 
-    // E2EE: SVC/simulcast is incompatible — SFU layer stripping breaks AES-GCM (#291)
-    if (this.isEncrypted) {
-      const codec = this.findSendCodec('video/VP9') || this.findSendCodec('video/VP8');
-      return {
-        codec: codec || undefined,
-        encodings: [{ ...base, maxBitrate: bitrate }],
-      };
-    }
-
     const isSvcCodec = (mime: string) =>
       mime.includes('AV1') ||
       mime.includes('H265') ||
       mime.includes('HEVC') ||
       mime.includes('VP9');
 
+    // E2EE: SVC/simulcast is incompatible — SFU layer stripping breaks AES-GCM (#291).
+    // Same codec preference cascade is used; only the encoding mode changes.
+    const makeEncodings = (svc: boolean) => {
+      if (this.isEncrypted) {
+        // Single-layer: no scalabilityMode, no simulcast — SFU forwards byte-for-byte
+        return [{ ...base, maxBitrate: bitrate }];
+      }
+      return svc
+        ? [{ ...base, scalabilityMode: svcMode, maxBitrate: bitrate }]
+        : [{ ...base, maxBitrate: bitrate }];
+    };
+
     // User preference — only if floor-compatible
     if (preferred && this.isInCodecFloor(preferred)) {
       const codec = this.findSendCodec(preferred);
-      if (codec) {
-        return isSvcCodec(preferred)
-          ? { codec, encodings: [{ ...base, scalabilityMode: svcMode, maxBitrate: bitrate }] }
-          : { codec, encodings: [{ ...base, maxBitrate: bitrate }] };
-      }
+      if (codec) return { codec, encodings: makeEncodings(isSvcCodec(preferred)) };
     }
 
     // Priority cascade: AV1 → HEVC → VP9 (HDR if enabled) → VP9 → H264 → VP8
@@ -699,11 +707,6 @@ class VoiceService {
       { mime: 'video/VP9', svc: true },
       { mime: 'video/H264', svc: false },
     ];
-
-    const makeEncodings = (svc: boolean) =>
-      svc
-        ? [{ ...base, scalabilityMode: svcMode, maxBitrate: bitrate }]
-        : [{ ...base, maxBitrate: bitrate }];
 
     // Pass 1: HW-only (when HW accel enabled)
     if (hwAccel) {
@@ -2443,31 +2446,25 @@ class VoiceService {
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private logTransportSdp(transport: mediasoupTypes.Transport, label: string): void {
+    if (!E2EE_VERBOSE) return; // Only log SDP when verbose debugging is enabled
     try {
-      // Access the internal handler's PeerConnection (mediasoup-client internals)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const handler = (transport as any)._handler;
       if (!handler || !handler._pc) return;
       const pc = handler._pc as RTCPeerConnection;
 
-      // Log initial SDP state
       const logSdp = () => {
-        const local = pc.localDescription;
-        const remote = pc.remoteDescription;
-        if (local) {
-          console.info(`[SDP-DEBUG] ${label} localDescription:`, local.sdp);
+        if (pc.localDescription) {
+          console.debug(`[SDP] ${label} local:`, pc.localDescription.sdp);
         }
-        if (remote) {
-          console.info(`[SDP-DEBUG] ${label} remoteDescription:`, remote.sdp);
+        if (pc.remoteDescription) {
+          console.debug(`[SDP] ${label} remote:`, pc.remoteDescription.sdp);
         }
       };
 
-      // Log on signaling state changes (captures SDP after each negotiation)
       pc.addEventListener('signalingstatechange', () => {
-        console.info(`[SDP-DEBUG] ${label} signalingState: ${pc.signalingState}`);
-        if (pc.signalingState === 'stable') {
-          logSdp();
-        }
+        console.debug(`[SDP] ${label} signalingState: ${pc.signalingState}`);
+        if (pc.signalingState === 'stable') logSdp();
       });
     } catch {
       // Non-critical debug logging — don't break transport setup
@@ -2498,12 +2495,12 @@ class VoiceService {
     senderUserId?: string,
     kind?: mediasoupTypes.MediaKind
   ): Promise<void> {
-    // Copilot review fix: validate kind is 'audio' or 'video' for E2EE routing
+    // Validate kind for E2EE transport routing
     if (this.isEncrypted && kind && kind !== 'audio' && kind !== 'video') {
       console.warn('[consume] skipped — invalid kind for E2EE routing', { producerId, kind });
       return;
     }
-    // Copilot review fix: require kind when E2EE is active
+    // Warn if kind is missing in E2EE mode (fallback to single queue)
     if (this.isEncrypted && !kind) {
       console.warn('[consume] E2EE active but kind not provided — using single queue fallback', {
         producerId,
@@ -2543,7 +2540,7 @@ class VoiceService {
 
     try {
       // For E2EE, tell the server which recv transport to use for this consumer.
-      // Copilot review fix: check transport exists BEFORE making server call
+      // Guard: ensure recv transport exists before server call to prevent
       // to avoid leaking server-side consumers that the client can't attach.
       const transportId = kind ? this.getRecvTransportId(kind) : undefined;
       if (this.isEncrypted && kind && !transportId) {
@@ -3057,7 +3054,7 @@ class VoiceService {
 
         this.mediaEncryption = new MediaEncryption();
         await this.mediaEncryption.init(channelCSK, userId);
-        console.info('E2EE: encryption initialized', {
+        console.debug('E2EE: encryption initialized', {
           channelId,
           userId,
           attempt: attempt + 1,
@@ -3110,7 +3107,7 @@ class VoiceService {
         } else {
           await this.mediaEncryption.addDecryptKey(channelCSK, userId);
         }
-        console.info('E2EE: decrypt key added', {
+        console.debug('E2EE: decrypt key added', {
           channelId,
           targetUserId: userId,
           currentEpoch,
@@ -3165,13 +3162,13 @@ class VoiceService {
               controller.enqueue(frame);
               if (!firstEncryptLogged) {
                 firstEncryptLogged = true;
-                console.info('E2EE: first frame encrypted successfully', {
+                console.debug('E2EE: first frame encrypted successfully', {
                   kind: 'type' in frame ? 'video' : 'audio',
                   dataSize: frame.data.byteLength,
                 });
               }
               if (encryptDropCount > 0) {
-                console.info(`E2EE: encrypt recovered after ${encryptDropCount} dropped frames`);
+                console.debug(`E2EE: encrypt recovered after ${encryptDropCount} dropped frames`);
                 encryptDropCount = 0;
               }
             } catch (err) {
@@ -3193,7 +3190,7 @@ class VoiceService {
           .catch((err: unknown) => {
             console.error('E2EE: encrypt pipe broken — frames stopped flowing:', err);
           });
-        console.info('E2EE: encrypt transform applied');
+        console.debug('E2EE: encrypt transform applied');
       } catch (err) {
         console.error('E2EE: createEncodedStreams failed on sender:', err);
       }
@@ -3241,7 +3238,7 @@ class VoiceService {
               // Log first successful decrypt per sender
               if (!firstDecryptLogged) {
                 firstDecryptLogged = true;
-                console.info(`E2EE: first frame decrypted for ${senderUserId}`);
+                console.debug(`E2EE: first frame decrypted for ${senderUserId}`);
               }
               // Reset drop counter on success
               if (dropCount > 0) {
@@ -3252,42 +3249,36 @@ class VoiceService {
               }
             } catch (decryptErr) {
               dropCount++;
-              if (dropCount === 1 || dropCount % 20 === 0) {
-                // Verbose: dump trailer bytes and frame metadata for debugging
-                const fd = new Uint8Array(frame.data);
-                const trailerHex =
-                  fd.length >= 16
-                    ? Array.from(fd.slice(-16))
-                        .map((b) => b.toString(16).padStart(2, '0'))
-                        .join(' ')
-                    : 'too-small';
-                const headerHex =
-                  fd.length >= 4
-                    ? Array.from(fd.slice(0, 4))
-                        .map((b) => b.toString(16).padStart(2, '0'))
-                        .join(' ')
-                    : 'too-small';
-                const hasMagic =
-                  fd.length >= 2 && fd[fd.length - 2] === 0xde && fd[fd.length - 1] === 0xad;
-                const keyIdInFrame = hasMagic && fd.length >= 15 ? fd[fd.length - 15] : -1;
-                const headerBytesInFrame = hasMagic && fd.length >= 16 ? fd[fd.length - 16] : -1;
-                console.warn(
-                  `E2EE: dropping undecryptable frame for ${senderUserId} (total dropped: ${dropCount})`,
-                  {
-                    error:
-                      decryptErr instanceof Error
-                        ? `${decryptErr.name}: ${decryptErr.message}`
-                        : String(decryptErr),
+              if (dropCount === 1 || dropCount % 100 === 0) {
+                const errMsg =
+                  decryptErr instanceof Error
+                    ? `${decryptErr.name}: ${decryptErr.message}`
+                    : String(decryptErr);
+                if (E2EE_VERBOSE) {
+                  // Verbose: full frame metadata + hex dump for deep debugging
+                  const fd = new Uint8Array(frame.data);
+                  const trailerHex =
+                    fd.length >= 16
+                      ? Array.from(fd.slice(-16))
+                          .map((b) => b.toString(16).padStart(2, '0'))
+                          .join(' ')
+                      : 'too-small';
+                  const hasMagic =
+                    fd.length >= 2 && fd[fd.length - 2] === 0xde && fd[fd.length - 1] === 0xad;
+                  console.warn(`E2EE: dropping frame for ${senderUserId} (dropped: ${dropCount})`, {
+                    error: errMsg,
                     frameSize: fd.length,
                     localEpoch: encryption.getCurrentKeyId(),
                     hasMagic,
-                    keyIdInFrame,
-                    headerBytesInFrame,
-                    isVideo: 'type' in frame,
+                    keyId: hasMagic && fd.length >= 15 ? fd[fd.length - 15] : -1,
                     trailerHex,
-                    headerHex,
-                  }
-                );
+                  });
+                } else {
+                  console.warn(
+                    `E2EE: dropping undecryptable frame for ${senderUserId} (dropped: ${dropCount})`,
+                    { error: errMsg, frameSize: frame.data.byteLength }
+                  );
+                }
               }
 
               // Self-healing: after threshold, attempt to re-derive decrypt key
@@ -3300,13 +3291,13 @@ class VoiceService {
                 lastRecoveryAttempt = Date.now();
                 const channelId = useVoiceStore.getState().activeChannelId;
                 if (channelId && voiceSvc.mediaEncryption) {
-                  console.info(`E2EE: attempting self-healing key recovery for ${senderUserId}`);
+                  console.debug(`E2EE: attempting self-healing key recovery for ${senderUserId}`);
                   e2eeService.invalidateChannelKey(channelId);
                   voiceSvc
                     .addDecryptKeyForUser(channelId, senderUserId)
                     .then((ok) => {
                       if (ok) {
-                        console.info(`E2EE: recovery key re-derived for ${senderUserId}`);
+                        console.debug(`E2EE: recovery key re-derived for ${senderUserId}`);
                       }
                     })
                     .catch(() => {})
@@ -3332,7 +3323,7 @@ class VoiceService {
           .catch((err: unknown) => {
             console.warn('E2EE decrypt pipe error:', err);
           });
-        console.info(`E2EE: decrypt transform applied for ${senderUserId}`);
+        console.debug(`E2EE: decrypt transform applied for ${senderUserId}`);
       } catch (err) {
         console.error('E2EE: createEncodedStreams failed on receiver:', err);
       }

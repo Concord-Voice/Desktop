@@ -235,7 +235,6 @@ const VoiceAudioSection: React.FC = () => {
   const screenShareBitrate = useDraftVideoSetting('screenShareBitrate');
   const cameraPriority = useDraftVideoSetting('cameraPriority');
   const degradationPreference = useDraftVideoSetting('degradationPreference');
-  const scalabilityMode = useDraftVideoSetting('scalabilityMode');
   const hardwareAcceleration = useDraftVideoSetting('hardwareAcceleration');
   const hdrEncoding = useDraftVideoSetting('hdrEncoding');
 
@@ -1484,30 +1483,10 @@ const VoiceAudioSection: React.FC = () => {
               />
             </div>
 
-            <div className="settings-row">
-              <div className="settings-row-info">
-                <span className="settings-row-label">Video Quality Layers</span>
-                <span className="settings-row-hint">
-                  {scalabilityMode === 'auto' || scalabilityMode === 'L3T3'
-                    ? 'Sends video at multiple quality levels so viewers on slower connections get a lower-quality stream. Currently 3 Layers \u2014 best adaptability, highest CPU usage.'
-                    : scalabilityMode === 'L2T3'
-                      ? 'Sends video at multiple quality levels so viewers on slower connections get a lower-quality stream. Currently 2 Layers \u2014 moderate adaptability.'
-                      : 'Sends video at multiple quality levels so viewers on slower connections get a lower-quality stream. Currently Single Quality \u2014 no adaptation, lowest CPU usage.'}
-                </span>
-              </div>
-              <CustomSelect
-                className="settings-select"
-                options={[
-                  { value: 'L3T3', label: '3 Layers (Default)' },
-                  { value: 'L2T3', label: '2 Layers' },
-                  { value: 'L1T3', label: 'Single Quality' },
-                ]}
-                value={scalabilityMode === 'auto' ? 'L3T3' : scalabilityMode}
-                onChange={(v) =>
-                  setDraftVideoSetting('scalabilityMode', v as 'L1T3' | 'L2T3' | 'L3T3')
-                }
-              />
-            </div>
+            {/* Video Quality Layers (SVC) removed from UI — E2EE forces
+                single-layer encoding (#291). The scalabilityMode store value
+                is preserved and still applied to non-E2EE channels using
+                whatever value was last persisted (default 'auto' → L3T3). */}
           </>
         )}
       </CollapsibleSection>
