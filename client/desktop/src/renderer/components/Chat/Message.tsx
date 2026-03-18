@@ -146,6 +146,12 @@ const Message: React.FC<MessageProps> = ({
 
   const handleAvatarClick = useCallback(
     (e: React.MouseEvent) => {
+      // Toggle: if card is already open for this user, close it
+      if (selectedMember?.member.user_id === message.user_id) {
+        setSelectedMember(null);
+        return;
+      }
+
       const position = { x: e.clientX, y: e.clientY };
 
       // Try server member store first (has full data: role, joined_at, bio, etc.)
@@ -210,6 +216,7 @@ const Message: React.FC<MessageProps> = ({
       message.display_name,
       message.avatar_url,
       currentUserId,
+      selectedMember,
     ]
   );
 
