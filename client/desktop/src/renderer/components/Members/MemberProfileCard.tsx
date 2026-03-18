@@ -36,7 +36,7 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // Close on outside click or Escape (same pattern as UserPopover)
+  // Close on outside click or Escape
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
@@ -74,9 +74,9 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
     const vw = window.innerWidth;
     const vh = window.innerHeight;
 
-    // Preferred: position to the left of the click point
+    // Preferred: position to the left of the click point, below the cursor
     let left = position.x - cardW - 10;
-    let top = position.y;
+    let top = position.y + 10;
 
     // If it overflows left, flip to the right of the click
     if (left < PADDING) {
