@@ -141,18 +141,18 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
 
   return (
     <div
-        ref={cardRef}
-        className="member-profile-card"
-        {...scopeProps}
-        style={{
-          ...scopeProps.style,
-          position: 'fixed',
-          top: adjustedPos?.top ?? -9999,
-          left: adjustedPos?.left ?? -9999,
-          zIndex: 400,
-          visibility: adjustedPos ? 'visible' : 'hidden',
-        }}
-      >
+      ref={cardRef}
+      className="member-profile-card"
+      {...scopeProps}
+      style={{
+        ...scopeProps.style,
+        position: 'fixed',
+        top: adjustedPos?.top ?? -9999,
+        left: adjustedPos?.left ?? -9999,
+        zIndex: 400,
+        visibility: adjustedPos ? 'visible' : 'hidden',
+      }}
+    >
       <div
         className={`member-profile-banner ${member.header_image_url ? 'has-image' : ''}`}
         style={
