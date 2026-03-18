@@ -63,6 +63,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryS
 
 function AuthenticatedLayout() {
   const accessToken = useAuthStore((state) => state.accessToken);
+  const emailVerified = useAuthStore((state) => state.emailVerified);
   const user = useUserStore((state) => state.user);
   const fetchUser = useUserStore((state) => state.fetchUser);
 
@@ -113,6 +114,12 @@ function AuthenticatedLayout() {
   if (!accessToken) {
     return <Navigate to="/" replace />;
   }
+
+  // Redirect unverified users back to auth flow (which will show email verification)
+  if (!emailVerified) {
+    return <Navigate to="/" replace />;
+  }
+
   return (
     <>
       <Outlet />
@@ -136,6 +143,7 @@ function App() {
   const isPipWindow = window.location.hash.startsWith('#/pip/');
   const [isRestoring, setIsRestoring] = useState(!isPipWindow);
   const accessToken = useAuthStore((state) => state.accessToken);
+  const emailVerified = useAuthStore((state) => state.emailVerified);
 
   // Restore session on startup: ask main process to decrypt the
   // safeStorage-encrypted refresh token and exchange it for a fresh
@@ -236,7 +244,9 @@ function App() {
           <Routes>
             <Route
               path="/"
-              element={accessToken ? <Navigate to="/app/dms" replace /> : <AuthFlow />}
+              element={
+                accessToken && emailVerified ? <Navigate to="/app/dms" replace /> : <AuthFlow />
+              }
             />
             <Route element={<AuthenticatedLayout />}>
               <Route path="/app" element={<MainView />} />

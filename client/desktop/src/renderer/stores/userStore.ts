@@ -20,6 +20,7 @@ export interface UserProfile {
   id: string;
   username: string;
   email?: string;
+  email_verified?: boolean;
   display_name?: string;
   bio?: string;
   avatar_url?: string;
@@ -83,6 +84,18 @@ export const useUserStore = create<UserState>()(
 
           const data = await response.json();
           set({ user: data.user, isLoading: false });
+
+          // Sync email_verified to authStore so route guards reflect DB state
+          if (data.user && typeof data.user.email_verified === 'boolean') {
+            useAuthStore.getState().setEmailVerified(data.user.email_verified);
+            if (!data.user.email_verified && data.user.email) {
+              // Set pending email for unverified users so AuthFlow can route to verification
+              useAuthStore.getState().setPendingVerificationEmail(data.user.email);
+            } else if (data.user.email_verified) {
+              // Clear stale pending email when user is verified
+              useAuthStore.getState().setPendingVerificationEmail(null);
+            }
+          }
         } catch (error) {
           set({
             error: error instanceof Error ? error.message : 'Failed to fetch user',
