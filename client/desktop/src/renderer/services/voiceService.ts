@@ -30,6 +30,7 @@ import {
   useVideoSettingsStore,
   VIDEO_QUALITY_PRESETS,
   type VideoPriority,
+  type ScreenShareOptions,
 } from '../stores/videoSettingsStore';
 import { apiFetch } from './apiClient';
 import { MediaEncryption } from './mediaEncryption';
@@ -1817,15 +1818,19 @@ class VoiceService {
   }
 
   /** Produce screen share — AV1 SVC preferred (best compression for static content), VP9 fallback */
-  async produceScreen(sourceId?: string): Promise<void> {
+  async produceScreen(sourceId?: string, options?: ScreenShareOptions): Promise<void> {
     if (!this.sendTransport || !this.device) {
       console.warn('produceScreen: no sendTransport or device — cannot share screen');
       return;
     }
 
-    // Read screen share quality settings
+    // Read screen share quality settings — prefer per-share options from picker, fall back to persisted store
     const screenSettings = useVideoSettingsStore.getState();
-    const screenFps = screenSettings.screenFrameRate === 0 ? 60 : screenSettings.screenFrameRate; // 0 = Native, use 60 as capture max
+    const resolution = options?.resolution ?? screenSettings.screenResolution;
+    const frameRate = options?.frameRate ?? screenSettings.screenFrameRate;
+    const contentType = options?.contentType ?? screenSettings.screenContentType;
+
+    const screenFps = frameRate === 0 ? 60 : frameRate; // 0 = Native, use 60 as capture max
     const resMap: Record<string, { w: number; h: number }> = {
       source: { w: 3840, h: 2160 },
       '720p': { w: 1280, h: 720 },
@@ -1834,10 +1839,10 @@ class VoiceService {
       '4K': { w: 3840, h: 2160 },
     };
     // Parse custom WxH display resolutions
-    const customParsed = screenSettings.screenResolution.match(/^(\d+)x(\d+)$/);
+    const customParsed = resolution.match(/^(\d+)x(\d+)$/);
     const screenRes = customParsed
       ? { w: Number(customParsed[1]), h: Number(customParsed[2]) }
-      : resMap[screenSettings.screenResolution] || resMap['source'];
+      : resMap[resolution] || resMap['source'];
 
     // Use Electron desktopCapturer if available
     let stream: MediaStream;
@@ -1883,9 +1888,9 @@ class VoiceService {
     const track = videoTracks[0];
 
     // Apply content hint for screen share optimization
-    if (screenSettings.screenContentType === 'motion') {
+    if (contentType === 'motion') {
       track.contentHint = 'motion';
-    } else if (screenSettings.screenContentType === 'detail') {
+    } else if (contentType === 'detail') {
       track.contentHint = 'detail';
     }
     // 'auto' → don't set contentHint, let the browser decide
@@ -2013,14 +2018,14 @@ class VoiceService {
     }
   }
 
-  /** Toggle screen share. Pass sourceId from ScreenSharePicker for Electron. */
-  async toggleScreenShare(sourceId?: string): Promise<void> {
+  /** Toggle screen share. Pass sourceId and options from ScreenSharePicker for Electron. */
+  async toggleScreenShare(sourceId?: string, options?: ScreenShareOptions): Promise<void> {
     const store = useVoiceStore.getState();
     console.debug('toggleScreenShare:', { isScreenSharing: store.isScreenSharing, sourceId });
     if (store.isScreenSharing) {
       await this.closeProducer('screen');
     } else {
-      await this.produceScreen(sourceId);
+      await this.produceScreen(sourceId, options);
     }
   }
 

@@ -61,6 +61,13 @@ export type ScreenContentType = 'auto' | 'motion' | 'detail';
 export type DegradationPreference = 'balanced' | 'maintain-framerate' | 'maintain-resolution';
 export type VideoPriority = 'off' | 'low' | 'medium' | 'high';
 
+/** Per-share screen share options passed from the picker to voiceService. */
+export interface ScreenShareOptions {
+  resolution: ScreenResolution;
+  frameRate: number;
+  contentType: ScreenContentType;
+}
+
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------

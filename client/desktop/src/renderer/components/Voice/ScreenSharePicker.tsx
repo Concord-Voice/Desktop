@@ -4,6 +4,7 @@ import {
   useVideoSettingsStore,
   type ScreenResolution,
   type ScreenContentType,
+  type ScreenShareOptions,
 } from '../../stores/videoSettingsStore';
 import CustomSelect from '../ui/CustomSelect';
 import './ScreenSharePicker.css';
@@ -16,7 +17,7 @@ interface DesktopSource {
 }
 
 interface ScreenSharePickerProps {
-  onSelect: (sourceId: string) => void;
+  onSelect: (sourceId: string, options: ScreenShareOptions) => void;
   onCancel: () => void;
 }
 
@@ -24,6 +25,26 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
   const [sources, setSources] = useState<DesktopSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
+
+  // Read persisted defaults from the video settings store
+  const savedResolution = useVideoSettingsStore((s) => s.screenResolution);
+  const savedFrameRate = useVideoSettingsStore((s) => s.screenFrameRate);
+  const savedContentType = useVideoSettingsStore((s) => s.screenContentType);
+
+  // Local transient state — initialized from saved defaults, not persisted on change
+  const [resolution, setResolution] = useState<ScreenResolution>(savedResolution);
+  const [frameRate, setFrameRate] = useState<number>(savedFrameRate);
+  const [contentType, setContentType] = useState<ScreenContentType>(savedContentType);
+  const [dirty, setDirty] = useState(false);
+
+  // Sync from store until the user makes a local change (handles async rehydration)
+  useEffect(() => {
+    if (!dirty) {
+      setResolution(savedResolution);
+      setFrameRate(savedFrameRate);
+      setContentType(savedContentType);
+    }
+  }, [dirty, savedResolution, savedFrameRate, savedContentType]);
 
   useEffect(() => {
     const fetchSources = async () => {
@@ -58,7 +79,8 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
   const windows = sources.filter((s) => s.id.startsWith('window:'));
 
   const handleConfirm = () => {
-    if (selected) onSelect(selected);
+    if (!selected) return;
+    onSelect(selected, { resolution, frameRate, contentType });
   };
 
   return (
@@ -143,10 +165,11 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
                 { value: '1080p', label: '1080p' },
                 { value: '720p', label: '720p' },
               ]}
-              value={useVideoSettingsStore.getState().screenResolution}
-              onChange={(v) =>
-                useVideoSettingsStore.getState().setScreenResolution(v as ScreenResolution)
-              }
+              value={resolution}
+              onChange={(v) => {
+                setResolution(v as ScreenResolution);
+                setDirty(true);
+              }}
             />
           </div>
           <div className="screen-picker__quality-row">
@@ -159,10 +182,11 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
                 { value: '30', label: '30 FPS' },
                 { value: '60', label: '60 FPS' },
               ]}
-              value={String(useVideoSettingsStore.getState().screenFrameRate)}
-              onChange={(v) =>
-                useVideoSettingsStore.getState().setScreenFrameRate(Number(v) as 5 | 15 | 30 | 60)
-              }
+              value={String(frameRate)}
+              onChange={(v) => {
+                setFrameRate(Number(v));
+                setDirty(true);
+              }}
             />
           </div>
           <div className="screen-picker__quality-row">
@@ -174,10 +198,11 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
                 { value: 'motion', label: 'Motion (video)' },
                 { value: 'detail', label: 'Detail (text/code)' },
               ]}
-              value={useVideoSettingsStore.getState().screenContentType}
-              onChange={(v) =>
-                useVideoSettingsStore.getState().setScreenContentType(v as ScreenContentType)
-              }
+              value={contentType}
+              onChange={(v) => {
+                setContentType(v as ScreenContentType);
+                setDirty(true);
+              }}
             />
           </div>
         </div>

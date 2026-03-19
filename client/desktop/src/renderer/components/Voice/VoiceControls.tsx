@@ -98,11 +98,14 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
     }
   };
 
-  const handleScreenSourceSelected = async (sourceId: string) => {
+  const handleScreenSourceSelected = async (
+    sourceId: string,
+    options?: import('../../stores/videoSettingsStore').ScreenShareOptions
+  ) => {
     setShowScreenPicker(false);
     try {
       const { voiceService } = await import('../../services/voiceService');
-      await voiceService.toggleScreenShare(sourceId);
+      await voiceService.toggleScreenShare(sourceId, options);
     } catch (err) {
       console.error('Failed to start screen share:', err);
     }
