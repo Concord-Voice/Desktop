@@ -1,8 +1,10 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
+import TypingIndicator from './TypingIndicator';
 import { useChannelStore } from '../../stores/channelStore';
 import { useChatStore } from '../../stores/chatStore';
+import { getWebSocketService } from '../../services/websocketService';
 import { useUserStore } from '../../stores/userStore';
 import { useChannelSubscription } from '../../hooks/useChannelSubscription';
 import { useMessaging } from '../../hooks/useMessaging';
@@ -339,6 +341,16 @@ const ChatView: React.FC = () => {
     [activeChannelId, deleteMessage]
   );
 
+  // Send typing indicator via WebSocket
+  const handleTyping = useCallback(
+    (isTyping: boolean) => {
+      if (activeChannelId) {
+        getWebSocketService()?.sendTypingIndicator(activeChannelId, isTyping);
+      }
+    },
+    [activeChannelId]
+  );
+
   if (!activeChannelId) {
     return null;
   }
@@ -386,9 +398,12 @@ const ChatView: React.FC = () => {
         />
       </div>
 
+      <TypingIndicator channelId={activeChannelId} />
+
       <div className="chat-input">
         <MessageInput
           onSendMessage={handleSendMessage}
+          onTyping={handleTyping}
           channelName={activeChannel?.name}
           disabled={!currentUserId}
           isChannelEncrypted={activeChannel?.is_encrypted ?? false}
