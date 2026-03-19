@@ -183,7 +183,7 @@ export class PipSignalingProxy {
     const sanitizedParticipants: Record<string, unknown> = {};
     for (const [key, p] of Object.entries(store.participants)) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      const { videoStream, screenStream, audioStream, ...rest } = p;
+      const { videoStream, screenStream, audioStream, screenAudioStream, ...rest } = p;
       sanitizedParticipants[key] = rest;
     }
 
@@ -346,10 +346,14 @@ export class PipSignalingProxy {
     // the structured clone algorithm which cannot serialize MediaStreams.
     const sanitized: Record<string, unknown> = {};
     for (const [key, p] of Object.entries(participants)) {
-      const { videoStream, screenStream, audioStream, ...rest } = p as Record<string, unknown> & {
+      const { videoStream, screenStream, audioStream, screenAudioStream, ...rest } = p as Record<
+        string,
+        unknown
+      > & {
         videoStream?: unknown;
         screenStream?: unknown;
         audioStream?: unknown;
+        screenAudioStream?: unknown;
       };
       sanitized[key] = rest;
     }

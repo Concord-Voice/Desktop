@@ -202,6 +202,15 @@ export const AudioOutputs: React.FC = () => {
             outputDeviceId={audioOutputDeviceId || undefined}
           />
         ))}
+      {participantList
+        .filter((p) => p.userId !== localUserId && p.screenAudioStream)
+        .map((p) => (
+          <AudioOutput
+            key={`screen-audio-${p.userId}`}
+            stream={p.screenAudioStream!}
+            outputDeviceId={audioOutputDeviceId || undefined}
+          />
+        ))}
     </>
   );
 };

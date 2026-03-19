@@ -122,6 +122,10 @@ class VoiceService {
   private localCameraStream: MediaStream | null = null;
   private localScreenStream: MediaStream | null = null;
 
+  // Pending screen-audio producers from remote users (userId → producerId)
+  // Consumed when the local user tunes into the corresponding screen share
+  private pendingScreenAudioProducers: Map<string, string> = new Map();
+
   // E2EE
   private mediaEncryption: MediaEncryption | null = null;
   private isEncrypted = false;
@@ -504,46 +508,76 @@ class VoiceService {
   }
 
   /**
-   * Calculate recommended bitrate based on resolution, FPS, and codec.
+   * Calculate recommended bitrate from resolution × FPS × codec-aware bits-per-pixel.
+   * Efficient codecs (AV1, HEVC, VP9) use 0.04 bpp; H.264/VP8 use 0.07 bpp.
+   * Clamped to [1.5 Mbps, 30 Mbps] and rounded to nearest 100 kbps.
    */
   private calculateRecommendedBitrate(
-    vs: ReturnType<typeof useVideoSettingsStore.getState>
+    width: number,
+    height: number,
+    fps: number,
+    codecMime?: string | null
   ): number {
+    const isEfficient = codecMime ? /AV1|H265|HEVC|VP9/i.test(codecMime) : false;
+    const bpp = isEfficient ? 0.04 : 0.07;
+    const bps = width * height * fps * bpp;
+    return Math.max(1_500_000, Math.min(30_000_000, Math.round(bps / 100_000) * 100_000));
+  }
+
+  /**
+   * Calculate recommended screen share bitrate using current screen settings.
+   * Resolves 'source' resolution to actual capture dimensions when available.
+   * If codecMime is not provided, infers from active screen codec or preferred codec.
+   */
+  private calculateScreenBitrate(codecMime?: string | null): number {
+    if (!codecMime) {
+      const activeCodec = useVoiceStore.getState().activeScreenCodec;
+      const preferredCodec = useVideoSettingsStore.getState().preferredVideoCodec;
+      codecMime = activeCodec ?? preferredCodec ?? null;
+    }
+    const vs = useVideoSettingsStore.getState();
     const resMap: Record<string, { w: number; h: number }> = {
       '720p': { w: 1280, h: 720 },
       '1080p': { w: 1920, h: 1080 },
       '1440p': { w: 2560, h: 1440 },
       '4K': { w: 3840, h: 2160 },
-      source: { w: 1920, h: 1080 },
+      source: { w: 3840, h: 2160 },
     };
     const parsed = vs.screenResolution.match(/^(\d+)x(\d+)$/);
-    const res = parsed
+    let res = parsed
       ? { w: Number(parsed[1]), h: Number(parsed[2]) }
       : resMap[vs.screenResolution] || resMap['1080p'];
+
+    // For 'source' resolution, use actual capture dimensions if available
+    if (vs.screenResolution === 'source') {
+      const screenTrack = this.localScreenStream?.getVideoTracks()[0];
+      if (screenTrack && screenTrack.readyState === 'live') {
+        const settings = screenTrack.getSettings();
+        if (settings.width && settings.height) {
+          res = { w: settings.width, h: settings.height };
+        }
+      }
+    }
+
     const effectiveFps = vs.screenFrameRate === 0 ? 60 : vs.screenFrameRate;
-    // Effective codec: active (in-use) > preferred > auto-pick (check if any efficient codec is available)
-    const activeCodec = useVoiceStore.getState().activeScreenCodec;
-    const effectiveCodec = activeCodec ?? vs.preferredVideoCodec;
-    const isEfficient = effectiveCodec
-      ? effectiveCodec.includes('AV1') ||
-        effectiveCodec.includes('H265') ||
-        effectiveCodec.includes('HEVC') ||
-        effectiveCodec.includes('VP9')
-      : vs.codecCapabilities.some(
-          (c) =>
-            c.mimeType.includes('AV1') ||
-            c.mimeType.includes('H265') ||
-            c.mimeType.includes('HEVC') ||
-            c.mimeType.includes('VP9')
-        );
-    const bpp = isEfficient ? 0.04 : 0.07;
-    const bps = res.w * res.h * effectiveFps * bpp;
-    return Math.max(1_500_000, Math.min(30_000_000, Math.round(bps / 100_000) * 100_000));
+    return this.calculateRecommendedBitrate(res.w, res.h, effectiveFps, codecMime);
   }
 
   /**
-   * Pick the best codec for camera video.
-   * User preference → AV1 (SVC) → HEVC (SVC) → VP9 (SVC) → H264 (simulcast) → VP8 (simulcast)
+   * Compute videoGoogleStartBitrate (kbps) from target bitrate (bps).
+   * Starting at ~50% of target reduces encoder ramp-up delay vs. the low defaults.
+   * Clamped to [100, 10000] kbps.
+   */
+  private computeStartBitrate(targetBps: number): number {
+    return Math.max(100, Math.min(10_000, Math.round((targetBps * 0.5) / 1000)));
+  }
+
+  /**
+   * Pick the best codec for camera video. Single-layer encoding only (E2EE
+   * requires byte-for-byte SFU forwarding — SVC/simulcast break AES-GCM #291).
+   *
+   * Cascade: user pref → AV1 → HEVC → H264 High → VP9:2 (HDR) → H264 → VP9 → VP8
+   * Two-pass: HW-accelerated first, then SW fallback.
    */
   private pickCameraCodec(): {
     codec?: mediasoupTypes.RtpCodecCapability;
@@ -552,7 +586,6 @@ class VoiceService {
     const vs = useVideoSettingsStore.getState();
     const preset = VIDEO_QUALITY_PRESETS[vs.cameraPreset] || VIDEO_QUALITY_PRESETS['720p30'];
     const prio = vs.cameraPriority;
-    const svcMode = vs.scalabilityMode === 'auto' ? 'L3T3' : vs.scalabilityMode;
 
     // Base encoding params: priority for DSCP marking (skip when 'off')
     const base: Partial<mediasoupTypes.RtpEncodingParameters> =
@@ -563,100 +596,72 @@ class VoiceService {
             networkPriority: prio,
           };
 
-    const isSvcCodec = (mime: string) =>
-      mime.includes('AV1') ||
-      mime.includes('H265') ||
-      mime.includes('HEVC') ||
-      mime.includes('VP9');
-
-    // E2EE: SVC/simulcast is incompatible with frame-level encryption — the SFU
-    // strips temporal/spatial layers, modifying the encrypted payload and breaking
-    // AES-GCM authentication (#291). Use single-layer encoding. The same codec
-    // preference cascade (user pref → HW accel → AV1 → HEVC → VP9 → H264 → VP8)
-    // is preserved — only the encoding mode changes (no scalabilityMode, no simulcast).
-    const makeSingleLayer = (codec?: mediasoupTypes.RtpCodecCapability) => ({
+    const makeResult = (codec?: mediasoupTypes.RtpCodecCapability) => ({
       codec,
       encodings: [{ ...base, maxBitrate: preset.maxBitrate }],
     });
-
-    const makeSvc = (codec: mediasoupTypes.RtpCodecCapability) => ({
-      codec,
-      encodings: [{ ...base, scalabilityMode: svcMode, maxBitrate: preset.maxBitrate }],
-    });
-    const makeSimulcast = (codec?: mediasoupTypes.RtpCodecCapability) => ({
-      codec,
-      encodings: [
-        { ...base, maxBitrate: Math.round(preset.maxBitrate * 0.1), scaleResolutionDownBy: 4 },
-        { ...base, maxBitrate: Math.round(preset.maxBitrate * 0.33), scaleResolutionDownBy: 2 },
-        { ...base, maxBitrate: preset.maxBitrate },
-      ],
-    });
-
-    // Pick encoding mode: E2EE → single layer, otherwise SVC or simulcast
-    const makeEncoding = (codec: mediasoupTypes.RtpCodecCapability, svc: boolean) => {
-      if (this.isEncrypted) return makeSingleLayer(codec);
-      return svc ? makeSvc(codec) : makeSimulcast(codec);
-    };
 
     // Check user's preferred codec first — only if floor-compatible
     const preferred = vs.preferredVideoCodec;
     if (preferred && this.isInCodecFloor(preferred)) {
       const codec = this.findSendCodec(preferred);
-      if (codec) {
-        return makeEncoding(codec, isSvcCodec(preferred));
-      }
+      if (codec) return makeResult(codec);
     }
 
-    // Priority cascade: AV1 → HEVC → VP9 (HDR if enabled) → VP9 → H264 → VP8
+    // Priority cascade: AV1 → HEVC → H264 High → VP9:2 (HDR) → H264 → VP9 → VP8
     // When HW accel is on, first pass tries only HW-accelerated codecs.
     // If no HW codec is floor-compatible, second pass tries all codecs (SW fallback).
     const hwAccel = vs.hardwareAcceleration;
     const hdrEncoding = vs.hdrEncoding;
-    const codecCascade: { mime: string; alt?: string; svc: boolean }[] = [
-      { mime: 'video/AV1', svc: true },
-      { mime: 'video/H265', alt: 'video/HEVC', svc: true },
-      ...(hdrEncoding ? [{ mime: 'video/VP9:2', svc: true }] : []),
-      { mime: 'video/VP9', svc: true },
-      { mime: 'video/H264', svc: false },
+    const codecCascade: { mime: string; alt?: string }[] = [
+      { mime: 'video/AV1' },
+      { mime: 'video/H265', alt: 'video/HEVC' },
+      { mime: 'video/H264:6400' },
+      ...(hdrEncoding ? [{ mime: 'video/VP9:2' }] : []),
+      { mime: 'video/H264' },
+      { mime: 'video/VP9' },
     ];
 
     // Pass 1: HW-only (when HW accel enabled)
     if (hwAccel) {
-      for (const { mime, alt, svc } of codecCascade) {
+      for (const { mime, alt } of codecCascade) {
         if (
           (this.isHwAccelerated(mime) || (alt && this.isHwAccelerated(alt))) &&
           (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt)))
         ) {
           const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
-          if (codec) return makeEncoding(codec, svc);
+          if (codec) return makeResult(codec);
         }
       }
     }
 
     // Pass 2: All codecs (SW fallback, or when HW accel disabled)
-    for (const { mime, alt, svc } of codecCascade) {
+    for (const { mime, alt } of codecCascade) {
       if (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt))) {
         const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
-        if (codec) return makeEncoding(codec, svc);
+        if (codec) return makeResult(codec);
       }
     }
 
     // VP8 last resort — universal support, bypasses floor
-    return makeSingleLayer(this.findSendCodec('video/VP8'));
+    return makeResult(this.findSendCodec('video/VP8'));
   }
 
   /**
-   * Pick the best codec for screen sharing.
-   * User preference → AV1 (SVC) → HEVC (SVC) → VP9 (SVC) → H264 → VP8
+   * Pick the best codec for screen sharing. Single-layer encoding only (E2EE
+   * requires byte-for-byte SFU forwarding — SVC/simulcast break AES-GCM #291).
+   *
+   * Cascade: user pref → AV1 → HEVC → H264 High → VP9:2 (HDR) → H264 → VP9 → VP8
+   * Two-pass: HW-accelerated first, then SW fallback.
    */
   private pickScreenCodec(): {
     codec?: mediasoupTypes.RtpCodecCapability;
     encodings: mediasoupTypes.RtpEncodingParameters[];
+    effectiveBitrate: number;
   } {
     const vs = useVideoSettingsStore.getState();
     const preferred = vs.preferredVideoCodec;
     const prio = vs.screenSharePriority;
-    const svcMode = vs.scalabilityMode === 'auto' ? 'L3T3' : vs.scalabilityMode;
     const userBitrate = vs.screenShareBitrate; // 0 = auto
 
     // Base encoding params: priority for DSCP marking (skip when 'off')
@@ -669,72 +674,58 @@ class VoiceService {
           };
 
     // Dynamic auto-bitrate: calculate based on resolution, FPS, and codec
-    const autoBitrate = this.calculateRecommendedBitrate(vs);
+    const autoBitrate = this.calculateScreenBitrate();
     const bitrate = userBitrate || autoBitrate;
 
-    const isSvcCodec = (mime: string) =>
-      mime.includes('AV1') ||
-      mime.includes('H265') ||
-      mime.includes('HEVC') ||
-      mime.includes('VP9');
-
-    // E2EE: SVC/simulcast is incompatible — SFU layer stripping breaks AES-GCM (#291).
-    // Same codec preference cascade is used; only the encoding mode changes.
-    const makeEncodings = (svc: boolean) => {
-      if (this.isEncrypted) {
-        // Single-layer: no scalabilityMode, no simulcast — SFU forwards byte-for-byte
-        return [{ ...base, maxBitrate: bitrate }];
-      }
-      return svc
-        ? [{ ...base, scalabilityMode: svcMode, maxBitrate: bitrate }]
-        : [{ ...base, maxBitrate: bitrate }];
-    };
+    const makeResult = (codec?: mediasoupTypes.RtpCodecCapability) => ({
+      codec,
+      encodings: [{ ...base, maxBitrate: bitrate }],
+      effectiveBitrate: bitrate,
+    });
 
     // User preference — only if floor-compatible
     if (preferred && this.isInCodecFloor(preferred)) {
       const codec = this.findSendCodec(preferred);
-      if (codec) return { codec, encodings: makeEncodings(isSvcCodec(preferred)) };
+      if (codec) return makeResult(codec);
     }
 
-    // Priority cascade: AV1 → HEVC → VP9 (HDR if enabled) → VP9 → H264 → VP8
+    // Priority cascade: AV1 → HEVC → H264 High → VP9:2 (HDR) → H264 → VP9 → VP8
     // When HW accel is on, first pass tries only HW-accelerated codecs.
     // If no HW codec is floor-compatible, second pass tries all codecs (SW fallback).
     const hwAccel = vs.hardwareAcceleration;
     const hdrEncoding = vs.hdrEncoding;
-    const codecCascade: { mime: string; alt?: string; svc: boolean }[] = [
-      { mime: 'video/AV1', svc: true },
-      { mime: 'video/H265', alt: 'video/HEVC', svc: true },
-      ...(hdrEncoding ? [{ mime: 'video/VP9:2', svc: true }] : []),
-      { mime: 'video/VP9', svc: true },
-      { mime: 'video/H264', svc: false },
+    const codecCascade: { mime: string; alt?: string }[] = [
+      { mime: 'video/AV1' },
+      { mime: 'video/H265', alt: 'video/HEVC' },
+      { mime: 'video/H264:6400' },
+      ...(hdrEncoding ? [{ mime: 'video/VP9:2' }] : []),
+      { mime: 'video/H264' },
+      { mime: 'video/VP9' },
     ];
 
     // Pass 1: HW-only (when HW accel enabled)
     if (hwAccel) {
-      for (const { mime, alt, svc } of codecCascade) {
+      for (const { mime, alt } of codecCascade) {
         if (
           (this.isHwAccelerated(mime) || (alt && this.isHwAccelerated(alt))) &&
           (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt)))
         ) {
           const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
-          if (codec) return { codec, encodings: makeEncodings(svc) };
+          if (codec) return makeResult(codec);
         }
       }
     }
 
     // Pass 2: All codecs (SW fallback, or when HW accel disabled)
-    for (const { mime, alt, svc } of codecCascade) {
+    for (const { mime, alt } of codecCascade) {
       if (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt))) {
         const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
-        if (codec) return { codec, encodings: makeEncodings(svc) };
+        if (codec) return makeResult(codec);
       }
     }
 
     // VP8 last resort — universal support, bypasses floor
-    return {
-      codec: this.findSendCodec('video/VP8'),
-      encodings: [{ ...base, maxBitrate: bitrate }],
-    };
+    return makeResult(this.findSendCodec('video/VP8'));
   }
 
   /**
@@ -892,10 +883,11 @@ class VoiceService {
     if (!producer?.rtpSender) return;
     try {
       const params = producer.rtpSender.getParameters();
-      if (bitrate > 0 && params.encodings?.[0]) {
-        params.encodings[0].maxBitrate = bitrate;
-        producer.rtpSender.setParameters(params).catch(() => {});
-      }
+      if (!params.encodings?.[0]) return;
+      // When bitrate is 0 (auto), recalculate from current screen settings
+      const effectiveBitrate = bitrate > 0 ? bitrate : this.calculateScreenBitrate();
+      params.encodings[0].maxBitrate = effectiveBitrate;
+      producer.rtpSender.setParameters(params).catch(() => {});
     } catch {
       /* rtpSender may not be available */
     }
@@ -1074,12 +1066,13 @@ class VoiceService {
 
     // Pick new codec respecting the floor
     const { codec, encodings } = this.pickCameraCodec();
+    const cameraBitrate = encodings[0]?.maxBitrate ?? 2_500_000;
 
     const newProducer = await this.sendTransport.produce({
       track,
       encodings,
       codec,
-      codecOptions: { videoGoogleStartBitrate: 300 },
+      codecOptions: { videoGoogleStartBitrate: this.computeStartBitrate(cameraBitrate) },
       appData: { source: 'camera' },
     });
 
@@ -1133,13 +1126,13 @@ class VoiceService {
     this.socket?.emit('close-producer', { producerId: oldProducerId });
 
     // Pick new codec respecting the floor
-    const { codec, encodings } = this.pickScreenCodec();
+    const { codec, encodings, effectiveBitrate: screenBitrate } = this.pickScreenCodec();
 
     const newProducer = await this.sendTransport.produce({
       track,
       encodings,
       codec,
-      codecOptions: { videoGoogleStartBitrate: 1000 },
+      codecOptions: { videoGoogleStartBitrate: this.computeStartBitrate(screenBitrate) },
       appData: { source: 'screen' },
     });
 
@@ -1176,6 +1169,36 @@ class VoiceService {
       const uid = useUserStore.getState().user?.id;
       if (uid) s.updateParticipant(uid, { screenStream: undefined, isScreenSharing: false });
     });
+
+    // Re-produce screen audio if it was active
+    const oldAudioProducer = this.producers.get('screen-audio');
+    if (oldAudioProducer && this.localScreenStream) {
+      const audioTrack = this.localScreenStream.getAudioTracks()[0];
+      if (audioTrack && audioTrack.readyState === 'live') {
+        const oldAudioId = oldAudioProducer.id;
+        oldAudioProducer.close();
+        await this.drainSendTransportQueue();
+        this.producers.delete('screen-audio');
+        this.socket?.emit('close-producer', { producerId: oldAudioId });
+
+        try {
+          const newAudioProducer = await this.sendTransport.produce({
+            track: audioTrack,
+            codecOptions: { opusStereo: true, opusDtx: false },
+            appData: { source: 'screen-audio' },
+          });
+          this.producers.set('screen-audio', newAudioProducer);
+          if (this.isEncrypted && this.mediaEncryption) {
+            this.applyEncryptTransform(newAudioProducer);
+          }
+          newAudioProducer.on('transportclose', () => {
+            this.producers.delete('screen-audio');
+          });
+        } catch (err) {
+          console.warn('Failed to re-produce screen audio:', err);
+        }
+      }
+    }
 
     useVoiceStore.getState().setActiveScreenCodec(codec?.mimeType?.toLowerCase() ?? null);
     const hwTag = codec && this.isHwAccelerated(codec.mimeType) ? 'HW' : 'SW';
@@ -1390,6 +1413,10 @@ class VoiceService {
             username: participant?.username || 'Unknown',
             displayName: participant?.displayName,
           });
+        } else if (producer.source === 'screen-audio') {
+          // Screen-audio uses the same opt-in model as screen video —
+          // store mapping, consume only when user tunes in
+          this.pendingScreenAudioProducers.set(producer.userId, producer.producerId);
         } else {
           await this.consumeProducer(
             producer.producerId,
@@ -1468,6 +1495,7 @@ class VoiceService {
     }
     this.consumers.clear();
     this.consumerMeta.clear();
+    this.pendingScreenAudioProducers.clear();
 
     // 4. Close transports (sync)
     for (const t of [
@@ -1755,13 +1783,14 @@ class VoiceService {
       const track = this.localCameraStream.getVideoTracks()[0];
 
       const { codec, encodings } = this.pickCameraCodec();
+      const cameraBitrate = encodings[0]?.maxBitrate ?? 2_500_000;
 
       const producer = await this.sendTransport.produce({
         track,
         encodings,
         codec,
         codecOptions: {
-          videoGoogleStartBitrate: 300,
+          videoGoogleStartBitrate: this.computeStartBitrate(cameraBitrate),
         },
         appData: { source: 'camera' },
       });
@@ -1855,27 +1884,52 @@ class VoiceService {
         chosenId = sources.find((s) => s.id.startsWith('screen:'))?.id || sources[0].id;
       }
       console.debug('produceScreen: capturing desktop source', chosenId);
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: chosenId,
-            maxWidth: screenRes.w,
-            maxHeight: screenRes.h,
-            maxFrameRate: screenFps,
-          },
-        } as unknown as MediaTrackConstraints,
-      });
+
+      // Try video+audio first (audio not available on macOS), fall back to video-only
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: chosenId,
+            },
+          } as unknown as MediaTrackConstraints,
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: chosenId,
+              maxWidth: screenRes.w,
+              maxHeight: screenRes.h,
+              maxFrameRate: screenFps,
+            },
+          } as unknown as MediaTrackConstraints,
+        });
+      } catch {
+        // Audio capture not supported (macOS) — fall back to video-only
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: chosenId,
+              maxWidth: screenRes.w,
+              maxHeight: screenRes.h,
+              maxFrameRate: screenFps,
+            },
+          } as unknown as MediaTrackConstraints,
+        });
+      }
     } else {
       console.debug('produceScreen: using getDisplayMedia fallback');
+      // audio: true shows "Share audio" checkbox in browser picker.
+      // If declined or unsupported, stream simply has no audio tracks.
       stream = await navigator.mediaDevices.getDisplayMedia({
         video: {
           width: { ideal: screenRes.w },
           height: { ideal: screenRes.h },
           frameRate: { ideal: screenFps },
         },
-        audio: false,
+        audio: true,
       });
     }
 
@@ -1895,16 +1949,20 @@ class VoiceService {
     }
     // 'auto' → don't set contentHint, let the browser decide
 
+    // Set localScreenStream early so calculateScreenBitrate() can read
+    // actual capture dimensions via track.getSettings() for 'source' resolution
+    this.localScreenStream = stream;
+
     // Wrap produce in try/catch so we can clean up the stream on failure
     try {
-      const { codec, encodings } = this.pickScreenCodec();
+      const { codec, encodings, effectiveBitrate: screenBitrate } = this.pickScreenCodec();
 
       const producer = await this.sendTransport.produce({
         track,
         encodings,
         codec,
         codecOptions: {
-          videoGoogleStartBitrate: 1000,
+          videoGoogleStartBitrate: this.computeStartBitrate(screenBitrate),
         },
         appData: { source: 'screen' },
       });
@@ -1912,7 +1970,6 @@ class VoiceService {
       // Apply degradation preference on the RTP sender
       this.applyDegradationPreference(producer);
 
-      this.localScreenStream = stream;
       this.producers.set('screen', producer);
 
       // Track active codec for settings UI
@@ -1939,6 +1996,37 @@ class VoiceService {
         this.applyEncryptTransform(producer);
       }
 
+      // Produce screen audio if available (piggybacked on same capture stream)
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length > 0 && this.sendTransport) {
+        try {
+          const audioTrack = audioTracks[0];
+          const audioProducer = await this.sendTransport.produce({
+            track: audioTrack,
+            codecOptions: {
+              opusStereo: true,
+              opusDtx: false,
+            },
+            appData: { source: 'screen-audio' },
+          });
+
+          this.producers.set('screen-audio', audioProducer);
+
+          if (this.isEncrypted && this.mediaEncryption) {
+            this.applyEncryptTransform(audioProducer);
+          }
+
+          audioProducer.on('transportclose', () => {
+            this.producers.delete('screen-audio');
+          });
+
+          console.debug('produceScreen: screen audio producer created', audioProducer.id);
+        } catch (err) {
+          console.warn('Failed to produce screen audio:', err);
+          // Non-fatal — screen share works without audio
+        }
+      }
+
       // Handle user stopping screen share via browser UI
       track.onended = () => {
         this.closeProducer('screen');
@@ -1956,8 +2044,9 @@ class VoiceService {
         if (uid) s.updateParticipant(uid, { screenStream: undefined, isScreenSharing: false });
       });
     } catch (err) {
-      // Clean up stream tracks if produce failed
+      // Clean up stream and reference if produce failed
       stream.getTracks().forEach((t) => t.stop());
+      this.localScreenStream = null;
       throw err;
     }
   }
@@ -2143,6 +2232,12 @@ class VoiceService {
     }
 
     store.updateParticipant(userId, { isScreenSharing: true });
+
+    // Consume paired screen audio if available (keep mapping for re-tune)
+    const audioProducerId = this.pendingScreenAudioProducers.get(userId);
+    if (audioProducerId) {
+      await this.consumeProducer(audioProducerId, userId, 'audio');
+    }
   }
 
   /** Opt-out of a tuned-in screen share */
@@ -2150,7 +2245,11 @@ class VoiceService {
     const store = useVoiceStore.getState();
     const consumerId = store.tunedInScreenShares[producerId];
 
-    // Close the consumer
+    // Identify the producing user from the video consumer's metadata
+    const videoMeta = consumerId ? this.consumerMeta.get(consumerId) : undefined;
+    const screenOwnerUserId = videoMeta?.producerUserId;
+
+    // Close the screen video consumer
     if (consumerId) {
       const consumer = this.consumers.get(consumerId);
       if (consumer) {
@@ -2160,14 +2259,32 @@ class VoiceService {
       }
     }
 
+    // Close the paired screen-audio consumer for this specific user
+    if (screenOwnerUserId) {
+      for (const [cid, meta] of this.consumerMeta) {
+        if (meta.source === 'screen-audio' && meta.producerUserId === screenOwnerUserId) {
+          const consumer = this.consumers.get(cid);
+          if (consumer) {
+            consumer.close();
+            this.consumers.delete(cid);
+            this.consumerMeta.delete(cid);
+            this.socket?.emit('close-consumer', { consumerId: cid });
+          }
+          store.updateParticipant(screenOwnerUserId, { screenAudioStream: undefined });
+          break;
+        }
+      }
+    }
+
     // Find the producing user to update their participant state
     const participants = store.participants;
-    let producerUserId: string | undefined;
-    for (const [uid, p] of Object.entries(participants)) {
-      if (p.screenStream) {
-        // Check if this participant's screen stream matches
-        producerUserId = uid;
-        break;
+    let producerUserId: string | undefined = screenOwnerUserId;
+    if (!producerUserId) {
+      for (const [uid, p] of Object.entries(participants)) {
+        if (p.screenStream) {
+          producerUserId = uid;
+          break;
+        }
       }
     }
 
@@ -2291,16 +2408,27 @@ class VoiceService {
           .updateParticipant(localUserId, { videoStream: undefined, isVideoOn: false });
       }
     } else if (source === 'screen') {
+      // Also close the paired screen-audio producer
+      const audioProducer = this.producers.get('screen-audio');
+      if (audioProducer) {
+        audioProducer.close();
+        await this.drainSendTransportQueue();
+        this.producers.delete('screen-audio');
+        this.socket?.emit('close-producer', { producerId: audioProducer.id });
+      }
+
       if (this.localScreenStream) {
-        this.localScreenStream.getTracks().forEach((t) => t.stop());
+        this.localScreenStream.getTracks().forEach((t) => t.stop()); // Stops both video & audio tracks
         this.localScreenStream = null;
       }
       useVoiceStore.getState().setScreenSharing(false);
       useVoiceStore.getState().setActiveScreenCodec(null);
       if (localUserId) {
-        useVoiceStore
-          .getState()
-          .updateParticipant(localUserId, { screenStream: undefined, isScreenSharing: false });
+        useVoiceStore.getState().updateParticipant(localUserId, {
+          screenStream: undefined,
+          screenAudioStream: undefined,
+          isScreenSharing: false,
+        });
       }
     }
   }
@@ -2648,7 +2776,9 @@ class VoiceService {
         });
       }
 
-      if (result.kind === 'audio') {
+      if (source === 'screen-audio') {
+        store.updateParticipant(result.producerUserId, { screenAudioStream: stream });
+      } else if (result.kind === 'audio') {
         store.updateParticipant(result.producerUserId, { audioStream: stream });
       } else if (source === 'camera') {
         store.updateParticipant(result.producerUserId, { videoStream: stream, isVideoOn: true });
@@ -2699,6 +2829,23 @@ class VoiceService {
           displayName: participant?.displayName,
         });
         store.updateParticipant(userId, { isScreenSharing: true });
+        return;
+      }
+
+      // Screen-audio is paired with screen video — store mapping and auto-consume
+      // if the user is already tuned into this user's screen share
+      if (requiresOptIn && source === 'screen-audio') {
+        this.pendingScreenAudioProducers.set(userId, producerId);
+        // Check if we're already tuned into a screen share from this user
+        const alreadyTunedIn =
+          Object.values(store.tunedInScreenShares).length > 0 &&
+          [...this.consumerMeta.values()].some(
+            (m) => m.source === 'screen' && m.producerUserId === userId
+          );
+        if (alreadyTunedIn) {
+          // Late arrival — consume immediately
+          await this.consumeProducer(producerId, userId, 'audio');
+        }
         return;
       }
 
@@ -2758,6 +2905,9 @@ class VoiceService {
         if (producerId in store.tunedInScreenShares) {
           store.tuneOut(producerId);
         }
+      } else if (source === 'screen-audio') {
+        store.updateParticipant(userId, { screenAudioStream: undefined });
+        this.pendingScreenAudioProducers.delete(userId);
       }
     });
 
@@ -3410,6 +3560,7 @@ class VoiceService {
     }
     this.consumers.clear();
     this.consumerMeta.clear();
+    this.pendingScreenAudioProducers.clear();
 
     // Close transports
     this.sendTransport?.close();

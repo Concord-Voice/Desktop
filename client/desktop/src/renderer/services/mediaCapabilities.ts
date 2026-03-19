@@ -23,7 +23,7 @@ export interface CodecCapability {
   supported: boolean;
   profileId: string | null; // "640034" for H264 High, "2" for VP9 P2, null for VP8/AV1
   profileLabel: string | null; // "High", "Main", "Baseline", "HDR", null for no-profile codecs
-  isHdr: boolean; // true for VP9 P2 (10-bit)
+  isHdr: boolean; // true for HDR-only profiles (VP9 P2). AV1 is HDR-capable but works in SDR too.
 }
 
 // ---------------------------------------------------------------------------
@@ -38,8 +38,15 @@ function parseProfile(
   label: string | null;
   isHdr: boolean;
 } {
-  if (!sdpFmtpLine) return { id: null, label: null, isHdr: false };
   const mime = mimeType.toLowerCase();
+
+  // AV1 Main profile supports 10-bit HDR but also works in SDR — keep isHdr false
+  // so it appears in the SDR codec list. HDR capability is shown via getCodecInfo().hdr.
+  if (mime === 'video/av1') {
+    return { id: null, label: null, isHdr: false };
+  }
+
+  if (!sdpFmtpLine) return { id: null, label: null, isHdr: false };
 
   if (mime === 'video/h264') {
     const match = sdpFmtpLine.match(/profile-level-id=([0-9a-fA-F]{6})/);
@@ -97,8 +104,8 @@ export function getCodecInfo(key: string): CodecInfo {
       quality: 'Excellent',
       efficiency: 'Very High',
       compressionRatio: '~50% better than H.264',
-      hdr: false,
-      notes: 'SVC capable. Best for screen sharing. Requires modern GPU for HW encode.',
+      hdr: true,
+      notes: 'HDR/10-bit capable. Best for screen sharing. Requires modern GPU for HW encode.',
     };
   if (m === 'video/vp9') {
     if (profileId === '2')
@@ -181,6 +188,14 @@ const PROBE_RESOLUTIONS: { width: number; height: number; label: string }[] = [
 
 const PROBE_FRAMERATES = [60, 30, 15];
 
+// Multiple resolutions for HW acceleration probing — some GPU drivers only report
+// powerEfficient at certain resolutions. Try from most-commonly-accelerated to highest.
+const HW_PROBE_CONFIGS = [
+  { width: 1920, height: 1080, bitrate: 4_000_000, framerate: 30 },
+  { width: 1280, height: 720, bitrate: 2_000_000, framerate: 30 },
+  { width: 3840, height: 2160, bitrate: 10_000_000, framerate: 30 },
+];
+
 // ---------------------------------------------------------------------------
 // Cache
 // ---------------------------------------------------------------------------
@@ -255,27 +270,36 @@ export async function detectCodecCapabilities(): Promise<CodecCapability[]> {
     return true;
   });
 
-  // Probe HW acceleration once per mimeType (profile doesn't affect HW detection)
+  // Probe HW acceleration once per mimeType using multiple resolutions.
+  // navigator.mediaCapabilities.encodingInfo() only accepts mimeType-level contentType
+  // (not codec profiles), so per-mimeType is the correct granularity.
+  // Some GPU drivers only report powerEfficient at certain resolutions, so we probe
+  // at 1080p, 720p, and 4K — short-circuiting on the first positive result.
   const hwByMime = new Map<string, boolean>();
   const uniqueMimes = [...new Set(uniqueCodecs.map((c) => c.mimeType))];
   await Promise.all(
     uniqueMimes.map(async (mime) => {
       let powerEfficient = false;
       if ('mediaCapabilities' in navigator) {
-        try {
-          const info = await navigator.mediaCapabilities.encodingInfo({
-            type: 'webrtc',
-            video: {
-              contentType: mime,
-              width: 1280,
-              height: 720,
-              bitrate: 2_000_000,
-              framerate: 30,
-            },
-          } as MediaEncodingConfiguration);
-          powerEfficient = info.powerEfficient ?? false;
-        } catch {
-          // MediaCapabilities may not support WebRTC type on all browsers
+        for (const probe of HW_PROBE_CONFIGS) {
+          try {
+            const info = await navigator.mediaCapabilities.encodingInfo({
+              type: 'webrtc',
+              video: {
+                contentType: mime,
+                width: probe.width,
+                height: probe.height,
+                bitrate: probe.bitrate,
+                framerate: probe.framerate,
+              },
+            } as MediaEncodingConfiguration);
+            if (info.powerEfficient) {
+              powerEfficient = true;
+              break; // HW confirmed — no need to probe further
+            }
+          } catch {
+            // MediaCapabilities may not support WebRTC type on all browsers
+          }
         }
       }
       hwByMime.set(mime, powerEfficient);

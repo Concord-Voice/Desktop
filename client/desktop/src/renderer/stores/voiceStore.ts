@@ -49,6 +49,7 @@ export interface VoiceParticipant {
   audioStream?: MediaStream;
   videoStream?: MediaStream;
   screenStream?: MediaStream;
+  screenAudioStream?: MediaStream;
 }
 
 // ---------------------------------------------------------------------------
