@@ -1904,8 +1904,12 @@ class VoiceService {
             },
           } as unknown as MediaTrackConstraints,
         });
-      } catch {
-        // Audio capture not supported (macOS) — fall back to video-only
+      } catch (audioErr) {
+        // Audio capture failed (expected on macOS, may also be permission/device errors)
+        console.debug(
+          'produceScreen: audio capture unavailable, falling back to video-only',
+          audioErr
+        );
         stream = await navigator.mediaDevices.getUserMedia({
           audio: false,
           video: {

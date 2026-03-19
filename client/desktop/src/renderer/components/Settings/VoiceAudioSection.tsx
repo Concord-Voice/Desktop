@@ -1086,12 +1086,13 @@ const VoiceAudioSection: React.FC = () => {
 
             {codecCapabilities.length > 0 &&
               (() => {
+                // Sort order matches codec cascade: AV1 → HEVC → H264 → VP9 → VP8
                 const codecPriority: Record<string, number> = {
                   AV1: 0,
                   H265: 1,
                   HEVC: 1,
-                  VP9: 2,
-                  H264: 3,
+                  H264: 2,
+                  VP9: 3,
                   VP8: 4,
                 };
                 const codecDisplayName: Record<string, string> = {
@@ -1240,8 +1241,8 @@ const VoiceAudioSection: React.FC = () => {
                   {!systemHdr
                     ? 'No HDR display detected. Connect an HDR-capable display to enable.'
                     : hdrEncoding
-                      ? 'Enabled. VP9 HDR (10-bit) will be prioritized when available.'
-                      : 'Disabled. HDR codec profiles are available but not preferred.'}
+                      ? 'Enabled. HDR codec profiles (VP9 Profile 2) and HDR-capable variants of AV1 and H.264 High will be used when available.'
+                      : 'Disabled. SDR codec profiles are preferred. HDR-only profiles such as VP9 Profile 2 will not be selected.'}
                 </span>
               </div>
               <ToggleSwitch
@@ -1258,12 +1259,13 @@ const VoiceAudioSection: React.FC = () => {
                 'video/h264',
                 'video/av1',
               ]);
+              // Sort order matches codec cascade: AV1 → HEVC → H264 → VP9 → VP8
               const codecPriority: Record<string, number> = {
                 AV1: 0,
                 H265: 1,
                 HEVC: 1,
-                VP9: 2,
-                H264: 3,
+                H264: 2,
+                VP9: 3,
                 VP8: 4,
               };
               const sortByPriority = (a: CodecCapability, b: CodecCapability) =>
