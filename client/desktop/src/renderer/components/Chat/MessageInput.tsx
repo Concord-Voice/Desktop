@@ -1,19 +1,27 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Smile, ImagePlay, Paperclip, Lock, Unlock } from 'lucide-react';
 import MessageInputContextMenu from './MessageInputContextMenu';
+import MentionAutocomplete, { type MentionAutocompleteHandle } from './MentionAutocomplete';
 import EmojiPicker from '../EmojiPicker/LazyEmojiPicker';
 import UserPanel from '../User/UserPanel';
 import { useLayoutStore } from '../../stores/layoutStore';
+import { buildAddendum, encodeMentionMeta, type ParsedMention } from '../../utils/mentions';
 import './MessageInput.css';
 
 export interface MessageInputProps {
-  onSendMessage: (content: string) => void;
+  onSendMessage: (content: string, mentionMeta?: string) => void;
   onTyping?: (isTyping: boolean) => void;
   placeholder?: string;
   maxLength?: number;
   disabled?: boolean;
   channelName?: string;
   isChannelEncrypted?: boolean;
+  /** Server ID for permission-gated mention autocomplete (undefined in DMs) */
+  serverId?: string;
+  /** Channel ID for SBAC override resolution (undefined in DMs) */
+  channelId?: string;
+  /** DM conversation ID — used to source mention candidates from DM participants */
+  conversationId?: string;
 }
 
 const MessageInput: React.FC<MessageInputProps> = ({
@@ -24,16 +32,24 @@ const MessageInput: React.FC<MessageInputProps> = ({
   disabled = false,
   channelName,
   isChannelEncrypted = false,
+  serverId,
+  channelId,
+  conversationId,
 }) => {
   const channelPanelPinned = useLayoutStore((s) => s.channelPanelPinned);
   const [content, setContent] = useState('');
+  const [cursorPos, setCursorPos] = useState(0);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [emojiPickerPos, setEmojiPickerPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [showMentions, setShowMentions] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const emojiBtnRef = useRef<HTMLButtonElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
+  // Track mentions selected via autocomplete (for building the addendum)
+  const selectedMentionsRef = useRef<ParsedMention[]>([]);
+  const mentionAutocompleteRef = useRef<MentionAutocompleteHandle | null>(null);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -172,6 +188,59 @@ const MessageInput: React.FC<MessageInputProps> = ({
     };
   }, [onTyping]);
 
+  // Detect @ trigger for mention autocomplete
+  useEffect(() => {
+    if (!content) {
+      setShowMentions(false);
+      return;
+    }
+    // Check if there's an active @query at cursor position
+    let i = cursorPos - 1;
+    while (i >= 0 && content[i] !== '@' && content[i] !== ' ' && content[i] !== '\n') {
+      i--;
+    }
+    if (
+      i >= 0 &&
+      content[i] === '@' &&
+      (i === 0 || content[i - 1] === ' ' || content[i - 1] === '\n')
+    ) {
+      setShowMentions(true);
+    } else {
+      setShowMentions(false);
+    }
+  }, [content, cursorPos]);
+
+  const handleMentionSelect = useCallback(
+    (mention: ParsedMention, replacementText: string) => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+
+      const before = content.slice(0, mention.start);
+      const after = content.slice(cursorPos);
+      const newContent = before + replacementText + after;
+
+      setContent(newContent);
+      setShowMentions(false);
+
+      // Track the selected mention for building the addendum on send
+      selectedMentionsRef.current.push({
+        ...mention,
+        start: mention.start,
+        end: mention.start + replacementText.trimEnd().length,
+      });
+
+      // Move cursor after the inserted mention
+      requestAnimationFrame(() => {
+        const newCursor = mention.start + replacementText.length;
+        textarea.selectionStart = newCursor;
+        textarea.selectionEnd = newCursor;
+        setCursorPos(newCursor);
+        textarea.focus();
+      });
+    },
+    [content, cursorPos]
+  );
+
   const handleSend = () => {
     const trimmedContent = content.trim();
     if (trimmedContent && trimmedContent.length <= maxLength) {
@@ -185,8 +254,24 @@ const MessageInput: React.FC<MessageInputProps> = ({
         typingTimeoutRef.current = null;
       }
 
-      onSendMessage(trimmedContent);
+      // Build mention addendum from autocomplete-selected mentions.
+      // Prune stale mentions: only include mentions whose @label text still
+      // exists in the final content (user may have edited/deleted mentions).
+      let mentionMeta: string | undefined;
+      if (selectedMentionsRef.current.length > 0) {
+        const validMentions = selectedMentionsRef.current.filter((m) =>
+          trimmedContent.includes(m.raw)
+        );
+        const addendum = buildAddendum(validMentions);
+        if (addendum) {
+          mentionMeta = encodeMentionMeta(addendum);
+        }
+      }
+
+      onSendMessage(trimmedContent, mentionMeta);
       setContent('');
+      setShowMentions(false);
+      selectedMentionsRef.current = [];
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
       }
@@ -194,6 +279,12 @@ const MessageInput: React.FC<MessageInputProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Let mention autocomplete handle keyboard events first
+    if (showMentions && mentionAutocompleteRef.current) {
+      const handled = mentionAutocompleteRef.current.handleKeyDown(e);
+      if (handled) return;
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -203,6 +294,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (e.target.value.length <= maxLength) {
       setContent(e.target.value);
+      setCursorPos(e.target.selectionStart);
     }
 
     // Typing indicator logic
@@ -235,6 +327,14 @@ const MessageInput: React.FC<MessageInputProps> = ({
     }
   };
 
+  // Track cursor position on click/selection
+  const handleSelect = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      setCursorPos(textarea.selectionStart);
+    }
+  }, []);
+
   const charactersRemaining = maxLength - content.length;
   const showCounter = content.length > maxLength * 0.8; // Show when 80% full
 
@@ -255,7 +355,21 @@ const MessageInput: React.FC<MessageInputProps> = ({
         )}
       </div>
 
-      <div className="message-input-wrapper">
+      <div className="message-input-wrapper" style={{ position: 'relative' }}>
+        {showMentions && (
+          <MentionAutocomplete
+            ref={mentionAutocompleteRef}
+            text={content}
+            cursorPosition={cursorPos}
+            serverId={serverId}
+            channelId={channelId}
+            conversationId={conversationId}
+            onSelect={handleMentionSelect}
+            onClose={() => setShowMentions(false)}
+            anchorRef={textareaRef}
+          />
+        )}
+
         <div className="message-input-box" onContextMenu={handleContextMenu}>
           {!channelPanelPinned && (
             <div className="message-input-user-panel">
@@ -269,6 +383,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
             value={content}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
+            onSelect={handleSelect}
             disabled={disabled}
             rows={1}
             aria-label="Message input"

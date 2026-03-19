@@ -399,18 +399,29 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         }
       }
 
+      const isMentioned = data.mentioned === true;
+
       if (serverId && serverId !== activeServerId) {
         // Non-active server: just mark the server icon as having unreads
         useUnreadStore.getState().markServerUnread(serverId);
+        if (isMentioned) {
+          useUnreadStore.getState().markServerMention(serverId);
+        }
       } else if (channelId) {
         // Active server: increment per-channel unread count
         const activeChannelId = useChannelStore.getState().activeChannelId;
         if (channelId !== activeChannelId) {
           useUnreadStore.getState().incrementUnread(channelId);
+          if (isMentioned) {
+            useUnreadStore.getState().incrementMention(channelId);
+          }
           // Also mark the server so the dot persists if the user switches away.
           // The dot won't show while this server is active (ServerList filters it).
           if (serverId) {
             useUnreadStore.getState().markServerUnread(serverId);
+            if (isMentioned) {
+              useUnreadStore.getState().markServerMention(serverId);
+            }
           }
         }
       }
@@ -753,9 +764,13 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
     const unsubDMUnread = wsService.on('dm_unread_notify', (msg: WebSocketMessage) => {
       const { data } = msg;
       const conversationId = data.conversation_id;
+      const isDMMentioned = data.mentioned === true;
 
       if (conversationId) {
         useDMStore.getState().incrementUnread(conversationId);
+        if (isDMMentioned) {
+          useUnreadStore.getState().incrementMention(conversationId);
+        }
         // Also update last message preview if provided
         if (data.last_message) {
           useDMStore.getState().updateLastMessage(conversationId, {

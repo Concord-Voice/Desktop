@@ -48,7 +48,7 @@ describe('MessageInput', () => {
     const textarea = screen.getByRole('textbox');
     await user.type(textarea, 'Hello world');
     await user.keyboard('{Enter}');
-    expect(onSendMessage).toHaveBeenCalledWith('Hello world');
+    expect(onSendMessage).toHaveBeenCalledWith('Hello world', undefined);
   });
 
   it('does not send empty message', async () => {
@@ -114,6 +114,6 @@ describe('MessageInput', () => {
     const textarea = screen.getByRole('textbox');
     await user.type(textarea, '  Hello  ');
     await user.keyboard('{Enter}');
-    expect(onSendMessage).toHaveBeenCalledWith('Hello');
+    expect(onSendMessage).toHaveBeenCalledWith('Hello', undefined);
   });
 });

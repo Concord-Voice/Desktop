@@ -1,7 +1,8 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Lock } from 'lucide-react';
 import { MessageWithStatus } from '../../types/chat';
 import { useMemberStore, type ServerMember } from '../../stores/memberStore';
+import { usePermissionStore } from '../../stores/permissionStore';
 import { useFriendStore } from '../../stores/friendStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
@@ -58,7 +59,86 @@ const EMOJI_REGEX =
  * Renders message text with emoji characters wrapped in <span class="emoji">
  * so they can be styled at a larger font size than surrounding text.
  */
-function renderContent(text: string): React.ReactNode[] {
+// Regex for mention patterns — supports both:
+// - Token format: <@userId>, <@&roleId> (inserted by autocomplete, handles spaces in names)
+// - Plain format: @username, @all, @here (typed manually or legacy)
+const MENTION_REGEX = /<@&?[\w-]+>|@[\w.-]+/g;
+
+// Token pattern matchers for resolving UUIDs to display names
+const USER_TOKEN_RE = /^<@([\w-]+)>$/;
+const ROLE_TOKEN_RE = /^<@&([\w-]+)>$/;
+
+/** Precomputed lookup maps for O(1) mention token resolution. */
+interface MentionLookup {
+  users: Map<string, string>; // userId → display name
+  roles: Map<string, string>; // roleId → role name
+}
+
+/** Resolve a mention token to a display string using precomputed lookup maps. */
+function resolveMentionDisplay(token: string, lookup: MentionLookup): string {
+  // User token: <@userId> → @displayName
+  const userMatch = USER_TOKEN_RE.exec(token);
+  if (userMatch) {
+    const display = lookup.users.get(userMatch[1]);
+    return display ? `@${display}` : token;
+  }
+  // Role token: <@&roleId> → @roleName
+  const roleMatch = ROLE_TOKEN_RE.exec(token);
+  if (roleMatch) {
+    const name = lookup.roles.get(roleMatch[1]);
+    return name ? `@${name}` : token;
+  }
+  // Plain format (@username, @all, @here) — return as-is
+  return token;
+}
+
+function renderContent(text: string, lookup: MentionLookup): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+
+  // Combine emoji and mention patterns into a single pass
+  // Process mentions first, then emoji within non-mention segments
+  const mentionMatches: Array<{ index: number; length: number; text: string }> = [];
+  MENTION_REGEX.lastIndex = 0;
+  let mentionMatch: RegExpExecArray | null;
+  while ((mentionMatch = MENTION_REGEX.exec(text)) !== null) {
+    mentionMatches.push({
+      index: mentionMatch.index,
+      length: mentionMatch[0].length,
+      text: mentionMatch[0],
+    });
+  }
+
+  if (mentionMatches.length === 0) {
+    // No mentions — render with emoji only (existing behavior)
+    return renderEmoji(text);
+  }
+
+  for (const m of mentionMatches) {
+    // Render text before this mention (with emoji)
+    if (m.index > lastIndex) {
+      parts.push(...renderEmoji(text.slice(lastIndex, m.index)));
+    }
+    // Resolve token to display name and render as highlighted span
+    const display = resolveMentionDisplay(m.text, lookup);
+    parts.push(
+      <span key={`mention-${m.index}`} className="mention-highlight">
+        {display}
+      </span>
+    );
+    lastIndex = m.index + m.length;
+  }
+
+  // Render remaining text after last mention
+  if (lastIndex < text.length) {
+    parts.push(...renderEmoji(text.slice(lastIndex)));
+  }
+
+  return parts;
+}
+
+/** Render emoji spans within a text segment (no mention handling). */
+function renderEmoji(text: string): React.ReactNode[] {
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -125,7 +205,24 @@ const Message: React.FC<MessageProps> = ({
   const canModify = isOwnMessage && isServerMessage(message);
 
   const members = useMemberStore((state) => state.members);
+  const allServerRoles = usePermissionStore((state) => state.serverRoles);
   const userStatuses = useMemberStore((state) => state.userStatuses);
+
+  // Precompute O(1) lookup maps for mention token resolution (memoized to avoid
+  // rebuilding on every render in long message lists)
+  const mentionLookup = useMemo(() => {
+    const users = new Map<string, string>();
+    for (const m of members) {
+      users.set(m.user_id, m.display_name || m.username);
+    }
+    const roles = new Map<string, string>();
+    for (const serverRoles of Object.values(allServerRoles)) {
+      for (const r of serverRoles) {
+        roles.set(r.id, r.name);
+      }
+    }
+    return { users, roles };
+  }, [members, allServerRoles]);
   const lastSeenByUser = useMemberStore((state) => state.lastSeenByUser);
   const senderMember = members.find((m) => m.user_id === message.user_id);
   const senderColors = resolveUserAccentColors(senderMember?.color_scheme);
@@ -375,7 +472,7 @@ const Message: React.FC<MessageProps> = ({
                     Unable to decrypt this message
                   </span>
                 ) : (
-                  renderContent(message.content)
+                  renderContent(message.content, mentionLookup)
                 )}
                 {!showAvatar && message.edited_at && (
                   <span className="message-edited-inline">(edited)</span>

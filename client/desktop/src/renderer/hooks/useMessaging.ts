@@ -82,7 +82,8 @@ export function useMessaging() {
       content: string,
       username: string = 'You',
       avatarUrl?: string,
-      displayName?: string
+      displayName?: string,
+      mentionMeta?: string
     ): string => {
       // Check if channel is encrypted
       const channel = useChannelStore.getState().channels.find((c) => c.id === channelId);
@@ -126,7 +127,14 @@ export function useMessaging() {
                 throw new Error('Encryption produced invalid output');
               }
             }
-            wsService.sendMessage(channelId, sendContent, clientMessageId, isEncrypted, keyVersion);
+            wsService.sendMessage(
+              channelId,
+              sendContent,
+              clientMessageId,
+              isEncrypted,
+              keyVersion,
+              mentionMeta
+            );
             messageQueue.markAsSent(clientMessageId);
             messageQueue.remove(clientMessageId);
             updateMessageStatus(channelId, clientMessageId, 'sent');

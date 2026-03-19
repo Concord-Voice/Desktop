@@ -266,14 +266,15 @@ const ChatView: React.FC = () => {
 
   // Send message (optimistic via useMessaging — E2EE handled internally)
   const handleSendMessage = useCallback(
-    (content: string) => {
+    (content: string, mentionMeta?: string) => {
       if (!activeChannelId) return;
       sendMessage(
         activeChannelId,
         content,
         user?.username || 'You',
         user?.avatar_url,
-        user?.display_name
+        user?.display_name,
+        mentionMeta
       );
     },
     [activeChannelId, sendMessage, user?.username, user?.avatar_url, user?.display_name]
@@ -407,6 +408,8 @@ const ChatView: React.FC = () => {
           channelName={activeChannel?.name}
           disabled={!currentUserId}
           isChannelEncrypted={activeChannel?.is_encrypted ?? false}
+          serverId={activeChannel?.server_id}
+          channelId={activeChannelId || undefined}
         />
       </div>
     </div>

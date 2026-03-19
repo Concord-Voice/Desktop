@@ -122,7 +122,7 @@ describe('useMessaging', () => {
 
     // Wait for async doSend
     await vi.waitFor(() => {
-      expect(mockSendMessage).toHaveBeenCalledWith('channel-1', 'Hello world', 'client-msg-1', false, undefined);
+      expect(mockSendMessage).toHaveBeenCalledWith('channel-1', 'Hello world', 'client-msg-1', false, undefined, undefined);
     });
   });
 
@@ -144,6 +144,7 @@ describe('useMessaging', () => {
         'client-msg-1',
         true,
         3,
+        undefined,
       );
     });
   });

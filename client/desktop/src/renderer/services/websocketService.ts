@@ -223,19 +223,21 @@ export class WebSocketService {
     content: string,
     nonce?: string,
     isEncrypted: boolean = false,
-    keyVersion?: number
+    keyVersion?: number,
+    mentionMeta?: string
   ): void {
-    this.send({
-      type: 'message',
-      data: {
-        channel_id: channelId,
-        content,
-        is_encrypted: isEncrypted,
-        key_version: keyVersion,
-        nonce,
-        timestamp: Date.now(),
-      },
-    });
+    const data: Record<string, unknown> = {
+      channel_id: channelId,
+      content,
+      is_encrypted: isEncrypted,
+      key_version: keyVersion,
+      nonce,
+      timestamp: Date.now(),
+    };
+    if (mentionMeta) {
+      data.mention_meta = mentionMeta;
+    }
+    this.send({ type: 'message', data });
   }
 
   /**
@@ -308,19 +310,21 @@ export class WebSocketService {
     content: string,
     nonce?: string,
     isEncrypted: boolean = false,
-    keyVersion?: number
+    keyVersion?: number,
+    mentionMeta?: string
   ): void {
-    this.send({
-      type: 'dm_message',
-      data: {
-        conversation_id: conversationId,
-        content,
-        is_encrypted: isEncrypted,
-        key_version: keyVersion,
-        nonce,
-        timestamp: Date.now(),
-      },
-    });
+    const data: Record<string, unknown> = {
+      conversation_id: conversationId,
+      content,
+      is_encrypted: isEncrypted,
+      key_version: keyVersion,
+      nonce,
+      timestamp: Date.now(),
+    };
+    if (mentionMeta) {
+      data.mention_meta = mentionMeta;
+    }
+    this.send({ type: 'dm_message', data });
   }
 
   /**

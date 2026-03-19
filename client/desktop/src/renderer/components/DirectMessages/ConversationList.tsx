@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { MessageSquare, Users, BookOpen } from 'lucide-react';
 import { useDMStore, type DMConversation } from '../../stores/dmStore';
 import { useUserStore } from '../../stores/userStore';
+import { e2eeService } from '../../services/e2eeService';
 import './DirectMessages.css';
 
 interface ConversationListProps {
@@ -54,9 +55,47 @@ const ConversationList: React.FC<ConversationListProps> = ({
   const openPersonalThread = useDMStore((s) => s.openPersonalThread);
   const currentUserId = useUserStore((s) => s.user?.id) || '';
 
+  // Cache of decrypted last message previews (conversationId → {plaintext, ciphertext})
+  const [decryptedPreviews, setDecryptedPreviews] = useState<
+    Record<string, { text: string; cipher: string }>
+  >({});
+  const decryptingRef = useRef<Set<string>>(new Set());
+
   useEffect(() => {
     fetchConversations();
   }, [fetchConversations]);
+
+  // Decrypt last message previews for encrypted conversations
+  const decryptPreview = useCallback(async (convId: string, ciphertext: string) => {
+    if (decryptingRef.current.has(convId)) return;
+    decryptingRef.current.add(convId);
+    try {
+      if (!e2eeService.isInitialized) return;
+      const plaintext = await e2eeService.decryptForChannel(convId, ciphertext);
+      if (plaintext) {
+        setDecryptedPreviews((prev) => ({
+          ...prev,
+          [convId]: { text: plaintext, cipher: ciphertext },
+        }));
+      }
+    } catch {
+      // Decryption failed — keep showing placeholder
+    } finally {
+      decryptingRef.current.delete(convId);
+    }
+  }, []);
+
+  useEffect(() => {
+    for (const conv of conversations) {
+      if (conv.lastMessage?.isEncrypted && conv.lastMessage.content) {
+        // Re-decrypt if no cache entry or the ciphertext changed (new message)
+        const cached = decryptedPreviews[conv.id];
+        if (!cached || cached.cipher !== conv.lastMessage.content) {
+          decryptPreview(conv.id, conv.lastMessage.content);
+        }
+      }
+    }
+  }, [conversations, decryptedPreviews, decryptPreview]);
 
   // Separate personal thread from regular conversations
   const personalThread = conversations.find((c) => c.isPersonal);
@@ -115,11 +154,15 @@ const ConversationList: React.FC<ConversationListProps> = ({
             : conv.participants.find((p) => p.userId !== currentUserId);
           const status = other?.status || 'offline';
           const lastTime = conv.lastMessage?.createdAt || conv.createdAt;
-          const preview = conv.lastMessage
-            ? conv.lastMessage.isEncrypted && !conv.lastMessage.content
-              ? '[Encrypted message]'
-              : conv.lastMessage.content
-            : '';
+          let preview = '';
+          if (conv.lastMessage) {
+            if (conv.lastMessage.isEncrypted) {
+              // Use decrypted preview if available, otherwise show placeholder
+              preview = decryptedPreviews[conv.id]?.text || 'Encrypted message';
+            } else {
+              preview = conv.lastMessage.content;
+            }
+          }
 
           return (
             <div

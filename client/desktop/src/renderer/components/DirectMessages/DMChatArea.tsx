@@ -250,7 +250,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
 
   // Send DM message
   const handleSendMessage = useCallback(
-    (content: string) => {
+    (content: string, mentionMeta?: string) => {
       if (!selectedThreadId || !user) return;
 
       const wsService = getWebSocketService();
@@ -287,7 +287,14 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
                 throw new Error('Encryption produced invalid output');
               }
             }
-            wsService.sendDMMessage(selectedThreadId, sendContent, clientMessageId, isEncrypted);
+            wsService.sendDMMessage(
+              selectedThreadId,
+              sendContent,
+              clientMessageId,
+              isEncrypted,
+              undefined,
+              mentionMeta
+            );
             messageQueue.markAsSent(clientMessageId);
             messageQueue.remove(clientMessageId);
             updateMessageStatus(selectedThreadId, clientMessageId, 'sent');
@@ -460,6 +467,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
             channelName={threadName}
             disabled={!currentUserId}
             isChannelEncrypted={activeConv?.isEncrypted ?? false}
+            conversationId={selectedThreadId || undefined}
           />
         </div>
       )}

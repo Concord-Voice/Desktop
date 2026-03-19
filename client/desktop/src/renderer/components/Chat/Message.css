@@ -339,3 +339,16 @@
 .message-option-danger:hover {
   background-color: rgba(240, 71, 71, 0.1);
 }
+
+/* @mention highlights */
+.mention-highlight {
+  color: var(--accent-color, #5865f2);
+  background: rgba(88, 101, 242, 0.12);
+  border-radius: 3px;
+  padding: 0 2px;
+  font-weight: 500;
+}
+
+.mention-highlight:hover {
+  background: rgba(88, 101, 242, 0.24);
+}
