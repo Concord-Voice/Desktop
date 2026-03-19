@@ -5,6 +5,7 @@ import { useServerStore } from '@/renderer/stores/serverStore';
 import { useUnreadStore } from '@/renderer/stores/unreadStore';
 import { mockServer, mockServer2 } from '../../../mocks/fixtures';
 import { server as mswServer } from '../../../mocks/server';
+import { http, HttpResponse } from 'msw';
 
 beforeAll(() => mswServer.listen({ onUnhandledRequest: 'bypass' }));
 afterAll(() => mswServer.close());
@@ -19,6 +20,13 @@ describe('ServerList', () => {
   beforeEach(() => {
     resetAllStores();
     vi.clearAllMocks();
+    // Return empty server list from API so manual addServer calls don't
+    // collide with the component's fetchServers() useEffect.
+    mswServer.use(
+      http.get('http://localhost:8080/api/v1/servers', () => {
+        return HttpResponse.json({ servers: [] });
+      }),
+    );
     useAuthStore.getState().setAccessToken('mock-token');
   });
 

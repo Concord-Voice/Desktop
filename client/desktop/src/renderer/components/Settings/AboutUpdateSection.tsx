@@ -127,10 +127,12 @@ const AboutUpdateSection: React.FC = () => {
     setProgress({ percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 });
     try {
       await window.electron?.downloadUpdate();
-    } catch {
-      // Reset — onUpdateError will also fire with details
+    } catch (err) {
+      // The IPC rejection carries the real electron-updater error.
+      // onUpdateError also fires (via a separate IPC channel) with the same info.
+      const msg = err instanceof Error ? err.message : String(err);
       setUpdateStatus('error');
-      setErrorMessage('Failed to start download.');
+      setErrorMessage(msg || 'Download failed.');
       setProgress(null);
     }
   }, []);
