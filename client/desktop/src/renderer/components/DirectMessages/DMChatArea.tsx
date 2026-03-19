@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { MessageSquare } from 'lucide-react';
 import MessageList from '../Chat/MessageList';
 import MessageInput from '../Chat/MessageInput';
+import TypingIndicator from '../Chat/TypingIndicator';
 import { useDMStore, type DMConversation } from '../../stores/dmStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useUserStore } from '../../stores/userStore';
@@ -382,6 +383,16 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
     [selectedThreadId]
   );
 
+  // Send DM typing indicator via WebSocket
+  const handleTyping = useCallback(
+    (isTyping: boolean) => {
+      if (selectedThreadId) {
+        getWebSocketService()?.sendDMTypingIndicator(selectedThreadId, isTyping);
+      }
+    },
+    [selectedThreadId]
+  );
+
   if (!selectedThreadId) {
     return (
       <div className="dm-chat-empty">
@@ -435,6 +446,8 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
         />
       </div>
 
+      <TypingIndicator channelId={selectedThreadId} />
+
       {dmPrivacyLevel === 0 ? (
         <div className="dm-disabled-notice">
           All DMs have been disabled. Change your privacy settings to restore DMs.
@@ -443,6 +456,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
         <div className="chat-input">
           <MessageInput
             onSendMessage={handleSendMessage}
+            onTyping={handleTyping}
             channelName={threadName}
             disabled={!currentUserId}
             isChannelEncrypted={activeConv?.isEncrypted ?? false}
