@@ -96,7 +96,7 @@ const PrivacySecuritySection: React.FC = () => {
 
   // Local DM privacy level for responsive slider (debounces API calls)
   const [localDmLevel, setLocalDmLevel] = useState<DMPrivacyLevel>(privacySettings.dmPrivacyLevel);
-  const dmDebounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const dmDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync local state when store updates (e.g., after fetch)
   useEffect(() => {

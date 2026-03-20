@@ -6,6 +6,8 @@ import { useInviteStore } from '../../stores/inviteStore';
 import { ServerWithRole, ServerInviteWithCreator } from '../../types/server';
 import './InviteToServerModal.css';
 
+const EMPTY_INVITES: ServerInviteWithCreator[] = [];
+
 interface InviteToServerModalProps {
   isOpen: boolean;
   server: ServerWithRole;
@@ -42,7 +44,7 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, serve
 
   const createInvite = useInviteStore((state) => state.createInvite);
   const fetchInvites = useInviteStore((state) => state.fetchInvites);
-  const invites = useInviteStore((state) => state.invites[server.id] || []);
+  const invites = useInviteStore((state) => state.invites[server.id] ?? EMPTY_INVITES);
 
   // Load existing invites when modal opens
   useEffect(() => {

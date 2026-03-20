@@ -8,8 +8,11 @@ import { usePermissionStore } from '../../stores/permissionStore';
 import { useMemberStore } from '../../stores/memberStore';
 import { Permissions, parsePermissions } from '../../utils/permissions';
 import { apiFetch } from '../../services/apiClient';
-import { ServerWithRole } from '../../types/server';
+import type { ServerWithRole, ServerInviteWithCreator, Role } from '../../types/server';
 import './ServerSettingsModal.css';
+
+const EMPTY_INVITES: ServerInviteWithCreator[] = [];
+const EMPTY_ROLES: Role[] = [];
 
 interface ServerSettingsModalProps {
   isOpen: boolean;
@@ -61,12 +64,12 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
   const canManageInvites = hasServerPerm(server.id, Permissions.INVITE);
   const canManageRoles = hasServerPerm(server.id, Permissions.MANAGE_ROLES);
   const canAssignRoles = hasServerPerm(server.id, Permissions.MANAGE_ROLES_ASSIGN);
-  const invites = useInviteStore((state) => state.invites[server.id] || []);
+  const invites = useInviteStore((state) => state.invites[server.id] ?? EMPTY_INVITES);
   const fetchInvites = useInviteStore((state) => state.fetchInvites);
   const createInvite = useInviteStore((state) => state.createInvite);
 
   // Permission store - roles
-  const serverRoles = usePermissionStore((s) => s.serverRoles[server.id] || []);
+  const serverRoles = usePermissionStore((s) => s.serverRoles[server.id] ?? EMPTY_ROLES);
   const fetchRoles = usePermissionStore((s) => s.fetchRoles);
   const createRole = usePermissionStore((s) => s.createRole);
   const updateRole = usePermissionStore((s) => s.updateRole);
