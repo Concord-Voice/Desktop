@@ -83,7 +83,8 @@
     "npm": ">=10.0.0"
   },
   "overrides": {
-    "tar": "^7.5.9",
+    "tar": "^7.5.11",
+    "@tootallnate/once": "^3.0.1",
     "tmp": "^0.2.5",
     "webpack-dev-server": "^5.2.3",
     "serialize-javascript": "^7.0.3",
