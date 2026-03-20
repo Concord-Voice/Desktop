@@ -4,7 +4,10 @@ import { useInviteStore } from '../../stores/inviteStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { Permissions, hasPermission } from '../../utils/permissions';
 import { ServerWithRole } from '../../types/server';
+import type { ServerInviteWithCreator } from '../../types/server';
 import './ServerActionBar.css';
+
+const EMPTY_INVITES: ServerInviteWithCreator[] = [];
 
 interface ServerActionBarProps {
   server: ServerWithRole;
@@ -28,7 +31,7 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({
   const addMenuRef = useRef<HTMLDivElement>(null);
   const addBtnRef = useRef<HTMLButtonElement>(null);
 
-  const invites = useInviteStore((state) => state.invites[server.id] || []);
+  const invites = useInviteStore((state) => state.invites[server.id] ?? EMPTY_INVITES);
   const fetchInvites = useInviteStore((state) => state.fetchInvites);
   const createInvite = useInviteStore((state) => state.createInvite);
 

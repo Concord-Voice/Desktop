@@ -37,11 +37,12 @@
     "lucide-react": "^0.577.0",
     "mediasoup-client": "^3.18.7",
     "qrcode": "^1.5.4",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "react-router-dom": "^6.22.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.13.1",
     "socket.io-client": "^4.8.3",
-    "zustand": "^4.5.0"
+    "use-sync-external-store": "^1.6.0",
+    "zustand": "^5.0.12"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.1",
@@ -57,8 +58,9 @@
     "@testing-library/user-event": "^14.6.1",
     "@types/node": "^25.4.0",
     "@types/qrcode": "^1.5.6",
-    "@types/react": "^18.2.48",
-    "@types/react-dom": "^18.2.18",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/use-sync-external-store": "^1.5.0",
     "@typescript-eslint/eslint-plugin": "^6.19.0",
     "@typescript-eslint/parser": "^6.19.0",
     "@vitejs/plugin-react": "^4.2.1",
