@@ -7,7 +7,7 @@ import eslintConfigPrettier from 'eslint-config-prettier';
 export default [
   // Global ignores (replaces ignorePatterns)
   {
-    ignores: ['dist/', 'node_modules/', '**/*.js', '!eslint.config.mjs'],
+    ignores: ['dist/', 'node_modules/', '*.js'],
   },
 
   // ESLint recommended + typescript-eslint recommended
@@ -30,7 +30,7 @@ export default [
     languageOptions: {
       globals: {
         ...globals.browser,
-        ...globals.es2021,
+        ...globals.es2022,
         ...globals.node,
       },
       parserOptions: {
