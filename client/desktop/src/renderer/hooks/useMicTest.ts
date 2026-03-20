@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useAudioSettingsStore } from '../stores/audioSettingsStore';
 import { useVoiceStore } from '../stores/voiceStore';
+import { ensureOsPermission } from '../stores/osPermissionStore';
 
 interface UseMicTestReturn {
   isTesting: boolean;
@@ -97,6 +98,15 @@ export function useMicTest(): UseMicTestReturn {
     const useProcessing = !adv.musicMode;
 
     try {
+      // JIT permission check (#197): request mic access on macOS before getUserMedia
+      const micStatus = await ensureOsPermission('microphone');
+      if (micStatus !== 'granted') {
+        setError(
+          'Microphone access denied. Grant permission in System Settings > Privacy & Security.'
+        );
+        return;
+      }
+
       // 1. Acquire mic stream
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {

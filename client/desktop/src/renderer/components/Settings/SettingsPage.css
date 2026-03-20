@@ -937,6 +937,98 @@
   cursor: not-allowed;
 }
 
+/* ─── OS Permission Status Badges (#197) ──────────────────────────── */
+
+.os-perm-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.os-perm-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.os-perm-badge--granted {
+  background: color-mix(in srgb, var(--success-color, #22c55e) 15%, transparent);
+  color: var(--success-color, #22c55e);
+}
+
+.os-perm-badge--denied {
+  background: color-mix(in srgb, var(--error-color, #ef4444) 15%, transparent);
+  color: var(--error-color, #ef4444);
+}
+
+.os-perm-badge--pending {
+  background: color-mix(in srgb, var(--text-tertiary, #888) 15%, transparent);
+  color: var(--text-tertiary, #888);
+}
+
+.os-perm-badge--unavailable {
+  background: color-mix(in srgb, var(--text-tertiary, #888) 10%, transparent);
+  color: var(--text-tertiary, #888);
+  font-style: italic;
+}
+
+.os-perm-critical {
+  color: var(--error-color, #ef4444);
+  font-weight: 600;
+  font-size: 0.8em;
+}
+
+.os-perm-warning {
+  color: var(--error-color, #ef4444);
+}
+
+.settings-row--warning {
+  border-left: 3px solid var(--error-color, #ef4444);
+  padding-left: 12px;
+}
+
+.os-perm-actions .btn {
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.15s;
+}
+
+.os-perm-actions .btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.os-perm-actions .btn-sm {
+  padding: 4px 10px;
+}
+
+.os-perm-actions .btn-primary {
+  background: var(--accent-primary, #6366f1);
+  color: #fff;
+}
+
+.os-perm-actions .btn-primary:hover:not(:disabled) {
+  opacity: 0.9;
+}
+
+.os-perm-actions .btn-secondary {
+  background: var(--bg-hover, #333);
+  color: var(--text-primary, #fff);
+}
+
+.os-perm-actions .btn-secondary:hover:not(:disabled) {
+  opacity: 0.8;
+}
+
 /* ─── Audio Quality Tier Slider ────────────────────────────────────── */
 
 .settings-tier-slider-container {

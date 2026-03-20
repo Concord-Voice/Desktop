@@ -166,6 +166,40 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.removeListener('update:error', handler);
     };
   },
+
+  // OS permission management (#197)
+  checkAllPermissions: () =>
+    ipcRenderer.invoke('permission:checkAll') as Promise<
+      Record<string, 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable'>
+    >,
+  checkPermission: (type: string) =>
+    ipcRenderer.invoke('permission:check', type) as Promise<
+      'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable'
+    >,
+  requestPermission: (type: string) =>
+    ipcRenderer.invoke('permission:request', type) as Promise<
+      'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable'
+    >,
+  openPermissionSettings: (type: string) =>
+    ipcRenderer.invoke('permission:openSettings', type) as Promise<void>,
+  onPermissionChanged: (
+    callback: (data: {
+      type: string;
+      status: 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable';
+    }) => void
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: {
+        type: string;
+        status: 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable';
+      }
+    ) => callback(data);
+    ipcRenderer.on('permission:changed', handler);
+    return () => {
+      ipcRenderer.removeListener('permission:changed', handler);
+    };
+  },
 });
 
 // Type definitions for the exposed API
@@ -269,6 +303,24 @@ export interface ElectronAPI {
   ) => () => void;
   onUpdateDownloaded: (callback: (info: { version: string }) => void) => () => void;
   onUpdateError: (callback: (error: { message: string }) => void) => () => void;
+
+  // OS permission management (#197)
+  checkAllPermissions: () => Promise<
+    Record<string, 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable'>
+  >;
+  checkPermission: (
+    type: string
+  ) => Promise<'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable'>;
+  requestPermission: (
+    type: string
+  ) => Promise<'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable'>;
+  openPermissionSettings: (type: string) => Promise<void>;
+  onPermissionChanged: (
+    callback: (data: {
+      type: string;
+      status: 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable';
+    }) => void
+  ) => () => void;
 }
 
 declare global {

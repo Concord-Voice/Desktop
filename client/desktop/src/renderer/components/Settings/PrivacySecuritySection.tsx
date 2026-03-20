@@ -13,6 +13,11 @@ import MFAVerifyPrompt from '../Auth/MFAVerifyPrompt';
 import BackupCodeDisplay from './BackupCodeDisplay';
 import EmailSmsSetup from './EmailSmsSetup';
 import CollapsibleSection from './CollapsibleSection';
+import {
+  useOsPermissionStore,
+  type OsPermissionType,
+  type OsPermissionStatus,
+} from '../../stores/osPermissionStore';
 import './MFA.css';
 
 interface Session {
@@ -36,6 +41,188 @@ interface PastSession {
   last_used: string;
   revoked_at: string;
 }
+
+// ─── System Permissions Sub-section (#197) ─────────────────────────────
+
+const PERMISSION_ROWS: {
+  type: OsPermissionType;
+  label: string;
+  description: string;
+  critical?: boolean;
+}[] = [
+  {
+    type: 'secureStorage',
+    label: 'Secure Storage (Keychain)',
+    description: 'Required to safely store authentication tokens and encryption keys.',
+    critical: true,
+  },
+  {
+    type: 'microphone',
+    label: 'Microphone',
+    description: 'Used for voice channels and calls.',
+  },
+  {
+    type: 'camera',
+    label: 'Camera',
+    description: 'Used for video in voice channels and calls.',
+  },
+  {
+    type: 'screen',
+    label: 'Screen Recording',
+    description: 'Used for screen sharing in voice channels.',
+  },
+  {
+    type: 'notifications',
+    label: 'Notifications',
+    description: 'Used for desktop notifications and incoming call alerts.',
+  },
+];
+
+function permissionStatusBadge(status: OsPermissionStatus): {
+  className: string;
+  label: string;
+} {
+  switch (status) {
+    case 'granted':
+      return { className: 'os-perm-badge os-perm-badge--granted', label: 'Granted' };
+    case 'denied':
+      return { className: 'os-perm-badge os-perm-badge--denied', label: 'Denied' };
+    case 'restricted':
+      return { className: 'os-perm-badge os-perm-badge--denied', label: 'Restricted' };
+    case 'not-determined':
+      return { className: 'os-perm-badge os-perm-badge--pending', label: 'Not Requested' };
+    case 'unavailable':
+      return { className: 'os-perm-badge os-perm-badge--unavailable', label: 'Unavailable' };
+    default:
+      return { className: 'os-perm-badge', label: 'Unknown' };
+  }
+}
+
+const SystemPermissionsSection: React.FC = () => {
+  const fetchAll = useOsPermissionStore((s) => s.fetchAll);
+  const requestOne = useOsPermissionStore((s) => s.requestOne);
+  const openSettings = useOsPermissionStore((s) => s.openSettings);
+  const isLoaded = useOsPermissionStore((s) => s.isLoaded);
+  const [platform, setPlatform] = useState('');
+
+  // Fetch fresh permission statuses when Settings is opened
+  useEffect(() => {
+    fetchAll();
+    window.electron?.getPlatform?.().then(setPlatform);
+  }, [fetchAll]);
+
+  // On non-macOS, mic/camera/screen are always 'granted' (Chromium handles them).
+  // Hide request/fix buttons for those since there's no OS-level gate.
+  const hasMacOsGate = (type: OsPermissionType): boolean => {
+    if (platform !== 'darwin') return false;
+    return type === 'microphone' || type === 'camera' || type === 'screen';
+  };
+
+  const showActionButton = (type: OsPermissionType, status: OsPermissionStatus): boolean => {
+    // secureStorage: show "Fix" if unavailable (all platforms)
+    if (type === 'secureStorage') return status === 'unavailable';
+    // notifications: show "Request" if not-determined (all platforms)
+    if (type === 'notifications') return status === 'not-determined';
+    // mic/camera/screen: only actionable on macOS
+    if (!hasMacOsGate(type)) return false;
+    return status === 'not-determined' || status === 'denied' || status === 'restricted';
+  };
+
+  return (
+    <CollapsibleSection id="section-system-permissions" title="System Permissions" defaultOpen>
+      <p className="settings-section-description">
+        Concord requests system permissions only when needed. If a permission is denied, you can
+        grant it in your operating system&apos;s settings.
+      </p>
+
+      {!isLoaded ? (
+        <div className="settings-row">
+          <span className="settings-row-label">Loading permission statuses...</span>
+        </div>
+      ) : (
+        PERMISSION_ROWS.map((row) => (
+          <PermissionRow
+            key={row.type}
+            type={row.type}
+            label={row.label}
+            description={row.description}
+            critical={row.critical}
+            showAction={showActionButton}
+            onRequest={requestOne}
+            onOpenSettings={openSettings}
+          />
+        ))
+      )}
+    </CollapsibleSection>
+  );
+};
+
+const PermissionRow: React.FC<{
+  type: OsPermissionType;
+  label: string;
+  description: string;
+  critical?: boolean;
+  showAction: (type: OsPermissionType, status: OsPermissionStatus) => boolean;
+  onRequest: (type: OsPermissionType) => Promise<OsPermissionStatus>;
+  onOpenSettings: (type: OsPermissionType) => Promise<void>;
+}> = ({ type, label, description, critical, showAction, onRequest, onOpenSettings }) => {
+  const status = useOsPermissionStore((s) => s[type]);
+  const badge = permissionStatusBadge(status);
+  const [isRequesting, setIsRequesting] = useState(false);
+
+  const handleRequest = async () => {
+    setIsRequesting(true);
+    try {
+      await onRequest(type);
+    } finally {
+      setIsRequesting(false);
+    }
+  };
+
+  const handleOpenSettings = () => {
+    onOpenSettings(type);
+  };
+
+  return (
+    <div
+      className={`settings-row ${critical && status !== 'granted' ? 'settings-row--warning' : ''}`}
+    >
+      <div className="settings-row-info">
+        <span className="settings-row-label">
+          {label}
+          {critical && <span className="os-perm-critical"> (Required)</span>}
+        </span>
+        <span className="settings-row-hint">{description}</span>
+        {critical && status !== 'granted' && (
+          <span className="settings-row-hint os-perm-warning">
+            Secure storage is required for login. Please enable keychain / credential manager
+            access.
+          </span>
+        )}
+      </div>
+      <div className="os-perm-actions">
+        <span className={badge.className}>{badge.label}</span>
+        {showAction(type, status) && (
+          <>
+            {status === 'not-determined' ? (
+              <button
+                className="btn btn-sm btn-primary"
+                onClick={handleRequest}
+                disabled={isRequesting}
+              >
+                {isRequesting ? 'Requesting...' : 'Request'}
+              </button>
+            ) : (
+              <button className="btn btn-sm btn-secondary" onClick={handleOpenSettings}>
+                Fix
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const PrivacySecuritySection: React.FC = () => {
   const accessToken = useAuthStore((s) => s.accessToken);
@@ -618,6 +805,8 @@ const PrivacySecuritySection: React.FC = () => {
           />
         </div>
       </CollapsibleSection>
+
+      <SystemPermissionsSection />
 
       <CollapsibleSection id="section-mfa" title="Multi-Factor Authentication">
         <p className="settings-section-description">

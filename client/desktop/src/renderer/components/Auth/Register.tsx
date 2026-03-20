@@ -98,6 +98,28 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
       return;
     }
 
+    // Fail-closed safeStorage enforcement (#197): block registration if secure storage is unavailable.
+    // When Electron IPC is present, any failure (denied or IPC error) blocks registration.
+    if (window.electron?.checkPermission) {
+      try {
+        const storageStatus = await window.electron.checkPermission('secureStorage');
+        if (storageStatus !== 'granted') {
+          setErrors({
+            general:
+              'Secure storage is unavailable. Concord requires keychain / credential manager access to safely store authentication tokens and encryption keys. Please enable it and restart the app.',
+          });
+          return;
+        }
+      } catch {
+        // Electron IPC present but check failed — fail closed
+        setErrors({
+          general:
+            'Secure storage could not be verified. Please try again, and if the problem persists, restart the app.',
+        });
+        return;
+      }
+    }
+
     setIsSubmitting(true);
 
     try {

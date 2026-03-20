@@ -41,6 +41,18 @@ if (typeof window !== 'undefined') {
     value: {
       getVersion: vi.fn().mockResolvedValue('0.1.0-test'),
       getPlatform: vi.fn().mockResolvedValue('darwin'),
+      // OS permission management (#197)
+      checkAllPermissions: vi.fn().mockResolvedValue({
+        microphone: 'granted',
+        camera: 'granted',
+        screen: 'granted',
+        secureStorage: 'granted',
+        notifications: 'granted',
+      }),
+      checkPermission: vi.fn().mockResolvedValue('granted'),
+      requestPermission: vi.fn().mockResolvedValue('granted'),
+      openPermissionSettings: vi.fn().mockResolvedValue(undefined),
+      onPermissionChanged: vi.fn().mockReturnValue(() => {}),
     },
     writable: true,
   });

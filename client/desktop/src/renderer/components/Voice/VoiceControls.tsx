@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useChannelStore } from '../../stores/channelStore';
+import { useOsPermissionStore } from '../../stores/osPermissionStore';
 // voiceService is loaded on-demand via dynamic import() — see voiceService.ts
 import ScreenSharePicker from './ScreenSharePicker';
 import './VoiceControls.css';
@@ -76,6 +77,20 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   };
 
   const handleToggleVideo = async () => {
+    // JIT permission pre-check (#197): verify camera permission before starting video
+    if (!isVideoOn) {
+      const permStore = useOsPermissionStore.getState();
+      const camStatus = await permStore.checkOne('camera');
+      if (camStatus === 'denied' || camStatus === 'restricted') {
+        useVoiceStore
+          .getState()
+          .setVideoSlotError(
+            'Camera access denied. Grant permission in System Settings > Privacy & Security.'
+          );
+        permStore.openSettings('camera');
+        return;
+      }
+    }
     const { voiceService } = await import('../../services/voiceService');
     await voiceService.toggleVideo();
   };
@@ -86,6 +101,20 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
         const { voiceService } = await import('../../services/voiceService');
         await voiceService.toggleScreenShare();
       } else {
+        // JIT permission pre-check (#197): verify screen recording permission (macOS)
+        const permStore = useOsPermissionStore.getState();
+        const screenStatus = await permStore.checkOne('screen');
+        if (screenStatus === 'denied' || screenStatus === 'restricted') {
+          useVoiceStore
+            .getState()
+            .setVideoSlotError(
+              'Screen recording access denied. On macOS, enable Screen Recording in ' +
+                'System Settings > Privacy & Security, then restart Concord.'
+            );
+          permStore.openSettings('screen');
+          return;
+        }
+
         if (typeof window.electron?.getDesktopSources === 'function') {
           setShowScreenPicker(true);
         } else {

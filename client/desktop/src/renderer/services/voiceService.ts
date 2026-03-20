@@ -35,6 +35,10 @@ import {
 import { apiFetch } from './apiClient';
 import { MediaEncryption } from './mediaEncryption';
 import { e2eeService } from './e2eeService';
+import {
+  useOsPermissionStore,
+  ensureOsPermission as ensureOsPermissionShared,
+} from '../stores/osPermissionStore';
 
 // Toggle for verbose E2EE/SDP diagnostics — set to true when debugging
 // frame drops, BUNDLE collisions, or key rotation issues. When false,
@@ -1556,6 +1560,9 @@ class VoiceService {
    */
   private async acquireMicStream(): Promise<MediaStream | null> {
     try {
+      // JIT permission check (#197): request mic access on macOS before getUserMedia
+      await this.ensureOsPermission('microphone');
+
       const adv = useAudioSettingsStore.getState();
       const useProcessing = !adv.musicMode;
       return await navigator.mediaDevices.getUserMedia({
@@ -1591,6 +1598,9 @@ class VoiceService {
       if (preAcquiredStream) {
         preAcquiredStream.getTracks().forEach((t) => t.stop());
       }
+
+      // JIT permission check (#197): request mic access on macOS before getUserMedia
+      await this.ensureOsPermission('microphone');
 
       const constraints: MediaStreamConstraints = {
         audio: {
@@ -1712,6 +1722,9 @@ class VoiceService {
     }
 
     try {
+      // JIT permission check (#197): request camera access on macOS before getUserMedia
+      await this.ensureOsPermission('camera');
+
       // Read video settings for camera preset
       const videoSettings = useVideoSettingsStore.getState();
       const preset =
@@ -1850,6 +1863,18 @@ class VoiceService {
   async produceScreen(sourceId?: string, options?: ScreenShareOptions): Promise<void> {
     if (!this.sendTransport || !this.device) {
       console.warn('produceScreen: no sendTransport or device — cannot share screen');
+      return;
+    }
+
+    // JIT permission check (#197): on macOS, screen recording requires manual grant in System Settings
+    const screenStatus = await useOsPermissionStore.getState().checkOne('screen');
+    if (screenStatus === 'denied' || screenStatus === 'restricted') {
+      const voiceState = useVoiceStore.getState();
+      voiceState.setVideoSlotError(
+        'Screen recording access denied. On macOS, enable Screen Recording in ' +
+          'System Settings > Privacy & Security, then restart Concord.'
+      );
+      useOsPermissionStore.getState().openSettings('screen');
       return;
     }
 
@@ -3611,6 +3636,38 @@ class VoiceService {
 
     // Reset device
     this.device = null;
+  }
+
+  // ─── OS Permission Helper (#197) ────────────────────────────────────
+
+  /**
+   * Ensure an OS-level permission is granted before proceeding.
+   * On macOS, triggers the system permission prompt if status is 'not-determined'.
+   * Throws a descriptive error if denied/restricted so the caller's catch block
+   * can display a meaningful message.
+   */
+  private async ensureOsPermission(type: 'microphone' | 'camera'): Promise<void> {
+    const status = await ensureOsPermissionShared(type);
+    if (status === 'granted') return;
+
+    const label = type === 'microphone' ? 'Microphone' : 'Camera';
+    if (status === 'denied' || status === 'restricted') {
+      throw new DOMException(
+        `${label} access denied. Grant permission in System Settings > Privacy & Security.`,
+        'NotAllowedError'
+      );
+    }
+    if (status === 'unavailable') {
+      throw new DOMException(
+        `${label} is unavailable on this device or OS configuration.`,
+        'NotAllowedError'
+      );
+    }
+    // Catch-all for unexpected statuses
+    throw new DOMException(
+      `${label} access is not available (status: ${status}).`,
+      'NotAllowedError'
+    );
   }
 }
 

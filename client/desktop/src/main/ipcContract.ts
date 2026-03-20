@@ -17,5 +17,7 @@
  * - v2: Auto-update channels (update:check/download/install/getAllowPrerelease/
  *        setAllowPrerelease), update events (available/not-available/progress/
  *        downloaded/error), app:getSystemInfo, app:getIpcContract
+ * - v3: OS permission management channels (permission:checkAll, permission:check,
+ *        permission:request, permission:openSettings), permission:changed event
  */
-export const IPC_CONTRACT_VERSION = 2;
+export const IPC_CONTRACT_VERSION = 3;

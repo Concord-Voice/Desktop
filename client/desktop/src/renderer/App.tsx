@@ -22,6 +22,7 @@ import MFAChallengeModal from './components/Auth/MFAChallengeModal';
 import { useAuthStore } from './stores/authStore';
 import { useUserStore } from './stores/userStore';
 import { useVideoSettingsStore } from './stores/videoSettingsStore';
+import { useOsPermissionStore, type OsPermissionType } from './stores/osPermissionStore';
 import { useWebSocket } from './hooks/useWebSocket';
 import { e2eeService } from './services/e2eeService';
 import { preferencesSyncService } from './services/preferencesSync';
@@ -206,6 +207,21 @@ function App() {
       window.electron.getVersion().then(setVersion);
       window.electron.getPlatform().then(setPlatform);
     }
+
+    // Initialize OS permission state (non-blocking) and subscribe to changes (#197)
+    let unsubPermission: (() => void) | undefined;
+    if (window.electron) {
+      useOsPermissionStore.getState().fetchAll();
+      // Guard for IPC contract mismatch — older shells may lack v3 permission channels
+      if (typeof window.electron.onPermissionChanged === 'function') {
+        unsubPermission = window.electron.onPermissionChanged((data) => {
+          useOsPermissionStore.getState().updateStatus(data.type as OsPermissionType, data.status);
+        });
+      }
+    }
+    return () => {
+      unsubPermission?.();
+    };
   }, []);
 
   // Poll server for client config (feature flags, min version, TURN/media-plane URLs).

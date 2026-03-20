@@ -7,7 +7,6 @@ import {
   screen,
   session,
   shell,
-  systemPreferences,
 } from 'electron';
 import path from 'path';
 import fs from 'fs';
@@ -34,6 +33,7 @@ import {
 } from './updater';
 import { resolveSpaSource } from './spaLoader';
 import { IPC_CONTRACT_VERSION } from './ipcContract';
+import { registerIpcHandlers as registerPermissionHandlers } from './permissionManager';
 
 // Hardware acceleration preference — must be checked before app.whenReady()
 const hwAccelPrefPath = path.join(app.getPath('userData'), 'hw-accel.json');
@@ -160,9 +160,10 @@ const createWindow = async (): Promise<void> => {
 
 // App lifecycle handlers
 app.whenReady().then(() => {
-  // Permission request handler: explicitly allow app-required permissions, deny risky ones
+  // Permission request handler: explicitly allow app-required permissions, deny risky ones.
+  // Notifications are allowed (JIT-managed by permissionManager #197).
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    const denied = ['geolocation', 'notifications'];
+    const denied = ['geolocation'];
     if (denied.includes(permission)) {
       callback(false);
       return;
@@ -173,7 +174,7 @@ app.whenReady().then(() => {
   // Permission check handler: Chromium queries this synchronously to verify grants.
   // Default to true so internal checks (e.g. WebAuthn/FIDO2) aren't silently blocked.
   session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
-    const denied = ['geolocation', 'notifications'];
+    const denied = ['geolocation'];
     return !denied.includes(permission);
   });
 
@@ -192,15 +193,9 @@ app.whenReady().then(() => {
     }
   });
 
-  // Request macOS media permissions on startup (camera + microphone)
-  if (process.platform === 'darwin') {
-    if (systemPreferences.getMediaAccessStatus('camera') !== 'granted') {
-      systemPreferences.askForMediaAccess('camera');
-    }
-    if (systemPreferences.getMediaAccessStatus('microphone') !== 'granted') {
-      systemPreferences.askForMediaAccess('microphone');
-    }
-  }
+  // OS permission management (#197) — JIT prompting replaces proactive startup requests.
+  // Camera/mic/screen/notifications are requested when the feature is first used.
+  registerPermissionHandlers(() => mainWindow);
 
   createWindow();
   initAutoUpdater(() => mainWindow);
