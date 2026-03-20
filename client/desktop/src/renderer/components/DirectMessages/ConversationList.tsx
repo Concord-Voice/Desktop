@@ -162,6 +162,12 @@ const ConversationList: React.FC<ConversationListProps> = ({
             } else {
               preview = conv.lastMessage.content;
             }
+            // If no text content, show attachment type or generic fallback
+            if (!preview || preview === 'Encrypted message') {
+              if (conv.lastMessage.attachmentType) {
+                preview = conv.lastMessage.attachmentType;
+              }
+            }
           }
 
           return (

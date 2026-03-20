@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import MessageList from './MessageList';
 import MessageInput from './MessageInput';
 import TypingIndicator from './TypingIndicator';
@@ -7,6 +7,7 @@ import { useChatStore } from '../../stores/chatStore';
 import { getWebSocketService } from '../../services/websocketService';
 import { useUserStore } from '../../stores/userStore';
 import { useChannelSubscription } from '../../hooks/useChannelSubscription';
+import { useMessageFetch } from '../../hooks/useMessageFetch';
 import { useMessaging } from '../../hooks/useMessaging';
 import { useUnreadStore } from '../../stores/unreadStore';
 import { useServerStore } from '../../stores/serverStore';
@@ -15,24 +16,20 @@ import { e2eeService } from '../../services/e2eeService';
 import type { MessageWithStatus } from '../../types/chat';
 import './ChatView.css';
 
-const MESSAGES_LIMIT = 50;
-
 const ChatView: React.FC = () => {
   const activeChannelId = useChannelStore((s) => s.activeChannelId);
   const channels = useChannelStore((s) => s.channels);
-  const messagesByChannel = useChatStore((s) => s.messagesByChannel);
-  const setMessages = useChatStore((s) => s.setMessages);
-  const prependMessages = useChatStore((s) => s.prependMessages);
   const updateMessage = useChatStore((s) => s.updateMessage);
   const deleteMessage = useChatStore((s) => s.deleteMessage);
   const user = useUserStore((s) => s.user);
 
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   // Subscribe to active channel for full message delivery
   useChannelSubscription(activeChannelId);
+
+  // Shared fetch/decrypt/paginate logic
+  const { messages, isLoading, hasMore, error, handleLoadMore } = useMessageFetch(activeChannelId, {
+    type: 'channel',
+  });
 
   // Called by MessageList on unmount when the user left with unseen messages
   const handleUnseenOnLeave = useCallback(
@@ -53,216 +50,7 @@ const ChatView: React.FC = () => {
 
   // Active channel info
   const activeChannel = channels.find((c) => c.id === activeChannelId);
-  const messages: MessageWithStatus[] =
-    (activeChannelId && messagesByChannel.get(activeChannelId)) || [];
   const currentUserId = user?.id || '';
-
-  // Track fetch trigger — incremented when keys are delivered to re-decrypt messages
-  const [fetchTrigger, setFetchTrigger] = useState(0);
-
-  // Listen for key delivery events to re-fetch and decrypt messages
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const { channelId } = (e as CustomEvent).detail;
-      if (channelId === activeChannelId) {
-        setFetchTrigger((prev) => prev + 1);
-      }
-    };
-    window.addEventListener('e2ee-key-delivered', handler);
-    return () => window.removeEventListener('e2ee-key-delivered', handler);
-  }, [activeChannelId]);
-
-  // Retry key fetch when messages are stuck in pending state
-  const hasPendingKeys = messages.some((m) => m.pendingKeys);
-  useEffect(() => {
-    if (!hasPendingKeys || !activeChannelId) return;
-
-    const interval = setInterval(() => {
-      // Try to fetch the key — if it's now available, trigger a re-fetch
-      e2eeService
-        .getChannelKey(activeChannelId)
-        .then(() => {
-          // Key is now available — re-fetch messages to decrypt
-          e2eeService.invalidateChannelKey(activeChannelId);
-          setFetchTrigger((prev) => prev + 1);
-        })
-        .catch(() => {
-          // Still pending — will retry
-        });
-    }, 5000);
-
-    return () => clearInterval(interval);
-  }, [activeChannelId, hasPendingKeys]);
-
-  // Fetch message history when channel changes — always re-fetch to catch up
-  // on messages sent while the user was viewing another channel
-  useEffect(() => {
-    if (!activeChannelId) return;
-
-    let aborted = false;
-
-    const fetchMessages = async () => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const res = await apiFetch(
-          `/api/v1/channels/${activeChannelId}/messages?limit=${MESSAGES_LIMIT}`
-        );
-        if (aborted) return;
-
-        if (!res.ok) {
-          const data = await safeJson<{ error?: string }>(res);
-          throw new Error(data.error || 'Failed to load messages');
-        }
-
-        const data = await safeJson<{ messages?: MessageWithStatus[] }>(res);
-        if (aborted) return;
-        const rawMsgs: MessageWithStatus[] = (data.messages || []).map((m: MessageWithStatus) => ({
-          ...m,
-          status: 'delivered' as const,
-        }));
-
-        // Pre-fetch channel key ONCE to prevent N concurrent getChannelKey() calls
-        let channelKey: CryptoKey | null = null;
-        if (rawMsgs.some((m) => m.is_encrypted) && e2eeService.isInitialized) {
-          try {
-            channelKey = await e2eeService.getChannelKey(activeChannelId);
-          } catch {
-            // Key not available yet — individual messages will show pending/failed state
-          }
-        }
-        if (aborted) return;
-
-        // Decrypt encrypted messages (fail-closed: show placeholder, never raw ciphertext)
-        const msgs = await Promise.all(
-          rawMsgs.map(async (m) => {
-            if (m.is_encrypted && activeChannelId && e2eeService.isInitialized) {
-              try {
-                const plaintext =
-                  m.key_version && m.key_version > 1
-                    ? await e2eeService.decryptForChannelWithVersion(
-                        activeChannelId,
-                        m.content,
-                        m.key_version
-                      )
-                    : channelKey
-                      ? await e2eeService.decryptWithKey(m.content, channelKey)
-                      : await e2eeService.decryptForChannel(activeChannelId, m.content);
-                return { ...m, content: plaintext };
-              } catch (err) {
-                const isPending = err instanceof Error && err.message === 'PENDING_KEY';
-                return { ...m, content: '', decryptFailed: !isPending, pendingKeys: isPending };
-              }
-            }
-            return m;
-          })
-        );
-        if (aborted) return;
-
-        // Merge with any optimistic messages the user sent while the fetch
-        // was in flight (e.g. during React StrictMode double-mount or reconnect).
-        const existing = useChatStore.getState().messagesByChannel.get(activeChannelId) || [];
-        const optimistic = existing.filter(
-          (m) => m.clientMessageId && (m.status === 'pending' || m.status === 'sent')
-        );
-        const fetchedIds = new Set(msgs.map((m) => m.id));
-        const kept = optimistic.filter(
-          (m) => !fetchedIds.has(m.id) && !fetchedIds.has(m.clientMessageId!)
-        );
-        // Server returns DESC (newest first); reverse to ASC for chronological display
-        msgs.reverse();
-        setMessages(activeChannelId, kept.length > 0 ? [...msgs, ...kept] : msgs);
-        setHasMore(msgs.length === MESSAGES_LIMIT);
-      } catch (err) {
-        if (!aborted) {
-          setError(err instanceof Error ? err.message : 'Failed to load messages');
-        }
-      } finally {
-        if (!aborted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    fetchMessages();
-
-    return () => {
-      aborted = true;
-    };
-  }, [activeChannelId, setMessages, fetchTrigger]);
-
-  // Load older messages (pagination)
-  const handleLoadMore = useCallback(async () => {
-    if (!activeChannelId || isLoading || !hasMore) return;
-
-    const channelMessages = messagesByChannel.get(activeChannelId);
-    if (!channelMessages || channelMessages.length === 0) return;
-
-    const oldestMessage = channelMessages[0];
-
-    setIsLoading(true);
-    try {
-      const res = await apiFetch(
-        `/api/v1/channels/${activeChannelId}/messages?limit=${MESSAGES_LIMIT}&before=${oldestMessage.id}`
-      );
-
-      if (!res.ok) {
-        const data = await safeJson<{ error?: string }>(res);
-        throw new Error(data.error || 'Failed to load more messages');
-      }
-
-      const data = await safeJson<{ messages?: MessageWithStatus[] }>(res);
-      const rawMsgs: MessageWithStatus[] = (data.messages || []).map((m: MessageWithStatus) => ({
-        ...m,
-        status: 'delivered' as const,
-      }));
-
-      // Pre-fetch channel key ONCE for batch decryption
-      let channelKey: CryptoKey | null = null;
-      if (rawMsgs.some((m) => m.is_encrypted) && e2eeService.isInitialized) {
-        try {
-          channelKey = await e2eeService.getChannelKey(activeChannelId);
-        } catch {
-          // Key not available — individual messages will show pending/failed
-        }
-      }
-
-      // Decrypt encrypted messages (same as initial fetch)
-      const msgs = await Promise.all(
-        rawMsgs.map(async (m) => {
-          if (m.is_encrypted && activeChannelId && e2eeService.isInitialized) {
-            try {
-              const plaintext =
-                m.key_version && m.key_version > 1
-                  ? await e2eeService.decryptForChannelWithVersion(
-                      activeChannelId,
-                      m.content,
-                      m.key_version
-                    )
-                  : channelKey
-                    ? await e2eeService.decryptWithKey(m.content, channelKey)
-                    : await e2eeService.decryptForChannel(activeChannelId, m.content);
-              return { ...m, content: plaintext };
-            } catch (err) {
-              const isPending = err instanceof Error && err.message === 'PENDING_KEY';
-              return { ...m, content: '', decryptFailed: !isPending, pendingKeys: isPending };
-            }
-          }
-          return m;
-        })
-      );
-
-      // Server returns DESC; reverse to ASC so oldest-first prepends correctly
-      msgs.reverse();
-      prependMessages(activeChannelId, msgs);
-      setHasMore(msgs.length === MESSAGES_LIMIT);
-    } catch (err) {
-      console.error('Failed to load more messages:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [activeChannelId, isLoading, hasMore, messagesByChannel, prependMessages]);
 
   // Send message (optimistic via useMessaging — E2EE handled internally)
   const handleSendMessage = useCallback(
@@ -300,11 +88,11 @@ const ChatView: React.FC = () => {
         });
 
         if (!res.ok) {
-          const data = await res.json();
+          const data = await safeJson<{ error?: string }>(res);
           throw new Error(data.error || 'Failed to edit message');
         }
 
-        const data = await res.json();
+        const data = await safeJson<{ message: MessageWithStatus }>(res);
         updateMessage(activeChannelId, messageId, {
           content: channel?.is_encrypted ? newContent : data.message.content,
           is_encrypted: data.message.is_encrypted,
@@ -330,7 +118,7 @@ const ChatView: React.FC = () => {
         });
 
         if (!res.ok) {
-          const data = await res.json();
+          const data = await safeJson<{ error?: string }>(res);
           throw new Error(data.error || 'Failed to delete message');
         }
 

@@ -18,6 +18,8 @@ export interface DMLastMessage {
   username: string;
   createdAt: string;
   isEncrypted: boolean;
+  /** Media type label when message has no text content (e.g. 'Photo', 'Video', 'File'). */
+  attachmentType?: string;
 }
 
 export interface DMConversation {

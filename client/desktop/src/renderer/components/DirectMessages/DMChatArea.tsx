@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useCallback } from 'react';
 import { MessageSquare } from 'lucide-react';
 import MessageList from '../Chat/MessageList';
 import MessageInput from '../Chat/MessageInput';
@@ -7,6 +7,7 @@ import { useDMStore, type DMConversation } from '../../stores/dmStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useUserStore } from '../../stores/userStore';
 import { useDMSubscription } from '../../hooks/useDMSubscription';
+import { useMessageFetch } from '../../hooks/useMessageFetch';
 import { apiFetch, safeJson } from '../../services/apiClient';
 import { e2eeService } from '../../services/e2eeService';
 import { getWebSocketService, ConnectionState } from '../../services/websocketService';
@@ -22,8 +23,6 @@ import './DirectMessages.css';
  *   - Bottom half: text chat (reuse MessageList + MessageInput)
  * If no active call, the text chat takes the full height.
  */
-
-const MESSAGES_LIMIT = 50;
 
 interface DMChatAreaProps {
   selectedThreadId: string | null;
@@ -43,210 +42,32 @@ function getThreadName(conv: DMConversation | undefined, currentUserId: string):
 const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
   const conversations = useDMStore((s) => s.conversations);
   const clearUnread = useDMStore((s) => s.clearUnread);
-  const messagesByChannel = useChatStore((s) => s.messagesByChannel);
-  const setMessages = useChatStore((s) => s.setMessages);
-  const prependMessages = useChatStore((s) => s.prependMessages);
   const addMessage = useChatStore((s) => s.addMessage);
   const updateMessageStatus = useChatStore((s) => s.updateMessageStatus);
   const user = useUserStore((s) => s.user);
   const dmPrivacyLevel = usePrivacyStore((s) => s.settings.dmPrivacyLevel);
 
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [fetchTrigger, setFetchTrigger] = useState(0);
-
   // Subscribe to active DM conversation for real-time messages
   useDMSubscription(selectedThreadId);
 
   const activeConv = conversations.find((c) => c.id === selectedThreadId);
-  const messages: MessageWithStatus[] =
-    (selectedThreadId && messagesByChannel.get(selectedThreadId)) || [];
   const currentUserId = user?.id || '';
   const threadName = getThreadName(activeConv, currentUserId);
 
-  // Listen for key delivery events to re-decrypt messages
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const { channelId } = (e as CustomEvent).detail;
-      if (channelId === selectedThreadId) {
-        setFetchTrigger((prev) => prev + 1);
-      }
-    };
-    window.addEventListener('e2ee-key-delivered', handler);
-    return () => window.removeEventListener('e2ee-key-delivered', handler);
-  }, [selectedThreadId]);
-
-  // Fetch message history when conversation changes
-  useEffect(() => {
+  // Mark conversation as read after messages are fetched
+  const handleFetchComplete = useCallback(() => {
     if (!selectedThreadId) return;
+    apiFetch(`/api/v1/dm/conversations/${selectedThreadId}/read`, { method: 'POST' }).catch(
+      () => {}
+    );
+    clearUnread(selectedThreadId);
+  }, [selectedThreadId, clearUnread]);
 
-    let aborted = false;
-
-    const fetchMessages = async () => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const res = await apiFetch(
-          `/api/v1/dm/conversations/${selectedThreadId}/messages?limit=${MESSAGES_LIMIT}`
-        );
-        if (aborted) return;
-
-        if (!res.ok) {
-          const data = await safeJson<{ error?: string }>(res);
-          throw new Error(data.error || 'Failed to load messages');
-        }
-
-        const data = await safeJson<{ messages?: MessageWithStatus[] }>(res);
-        if (aborted) return;
-        const rawMsgs: MessageWithStatus[] = (data.messages || []).map((m: MessageWithStatus) => ({
-          ...m,
-          status: 'delivered' as const,
-        }));
-
-        // Pre-fetch channel key ONCE to prevent N concurrent getChannelKey() calls
-        let channelKey: CryptoKey | null = null;
-        if (rawMsgs.some((m) => m.is_encrypted) && e2eeService.isInitialized) {
-          try {
-            channelKey = await e2eeService.getChannelKey(selectedThreadId);
-          } catch {
-            // Key not available yet — individual messages will show pending/failed state
-          }
-        }
-        if (aborted) return;
-
-        // Decrypt encrypted messages
-        const msgs = await Promise.all(
-          rawMsgs.map(async (m) => {
-            if (m.is_encrypted && selectedThreadId && e2eeService.isInitialized) {
-              try {
-                const plaintext =
-                  m.key_version && m.key_version > 1
-                    ? await e2eeService.decryptForChannelWithVersion(
-                        selectedThreadId,
-                        m.content,
-                        m.key_version
-                      )
-                    : channelKey
-                      ? await e2eeService.decryptWithKey(m.content, channelKey)
-                      : await e2eeService.decryptForChannel(selectedThreadId, m.content);
-                return { ...m, content: plaintext };
-              } catch (err) {
-                const isPending = err instanceof Error && err.message === 'PENDING_KEY';
-                return { ...m, content: '', decryptFailed: !isPending, pendingKeys: isPending };
-              }
-            }
-            return m;
-          })
-        );
-        if (aborted) return;
-
-        // Merge with any optimistic messages the user sent while the fetch
-        // was in flight (e.g. during React StrictMode double-mount or reconnect).
-        const existing = useChatStore.getState().messagesByChannel.get(selectedThreadId) || [];
-        const optimistic = existing.filter(
-          (m) => m.clientMessageId && (m.status === 'pending' || m.status === 'sent')
-        );
-        const fetchedIds = new Set(msgs.map((m) => m.id));
-        const kept = optimistic.filter(
-          (m) => !fetchedIds.has(m.id) && !fetchedIds.has(m.clientMessageId!)
-        );
-        // Server returns DESC (newest first); reverse to ASC for chronological display
-        msgs.reverse();
-        setMessages(selectedThreadId, kept.length > 0 ? [...msgs, ...kept] : msgs);
-        setHasMore(msgs.length === MESSAGES_LIMIT);
-
-        // Mark conversation as read
-        apiFetch(`/api/v1/dm/conversations/${selectedThreadId}/read`, { method: 'POST' }).catch(
-          () => {}
-        );
-        clearUnread(selectedThreadId);
-      } catch (err) {
-        if (!aborted) {
-          setError(err instanceof Error ? err.message : 'Failed to load messages');
-        }
-      } finally {
-        if (!aborted) setIsLoading(false);
-      }
-    };
-
-    fetchMessages();
-    return () => {
-      aborted = true;
-    };
-  }, [selectedThreadId, setMessages, clearUnread, fetchTrigger]);
-
-  // Load older messages (pagination)
-  const handleLoadMore = useCallback(async () => {
-    if (!selectedThreadId || isLoading || !hasMore) return;
-
-    const channelMessages = messagesByChannel.get(selectedThreadId);
-    if (!channelMessages || channelMessages.length === 0) return;
-
-    const oldestMessage = channelMessages[0];
-
-    setIsLoading(true);
-    try {
-      const res = await apiFetch(
-        `/api/v1/dm/conversations/${selectedThreadId}/messages?limit=${MESSAGES_LIMIT}&before=${oldestMessage.id}`
-      );
-
-      if (!res.ok) {
-        const data = await safeJson<{ error?: string }>(res);
-        throw new Error(data.error || 'Failed to load more messages');
-      }
-
-      const data = await safeJson<{ messages?: MessageWithStatus[] }>(res);
-      const rawMsgs: MessageWithStatus[] = (data.messages || []).map((m: MessageWithStatus) => ({
-        ...m,
-        status: 'delivered' as const,
-      }));
-
-      // Pre-fetch channel key ONCE for batch decryption
-      let channelKey: CryptoKey | null = null;
-      if (rawMsgs.some((m) => m.is_encrypted) && e2eeService.isInitialized) {
-        try {
-          channelKey = await e2eeService.getChannelKey(selectedThreadId);
-        } catch {
-          // Key not available — individual messages will show pending/failed
-        }
-      }
-
-      const msgs = await Promise.all(
-        rawMsgs.map(async (m) => {
-          if (m.is_encrypted && selectedThreadId && e2eeService.isInitialized) {
-            try {
-              const plaintext =
-                m.key_version && m.key_version > 1
-                  ? await e2eeService.decryptForChannelWithVersion(
-                      selectedThreadId,
-                      m.content,
-                      m.key_version
-                    )
-                  : channelKey
-                    ? await e2eeService.decryptWithKey(m.content, channelKey)
-                    : await e2eeService.decryptForChannel(selectedThreadId, m.content);
-              return { ...m, content: plaintext };
-            } catch (err) {
-              const isPending = err instanceof Error && err.message === 'PENDING_KEY';
-              return { ...m, content: '', decryptFailed: !isPending, pendingKeys: isPending };
-            }
-          }
-          return m;
-        })
-      );
-
-      // Server returns DESC; reverse to ASC so oldest-first prepends correctly
-      msgs.reverse();
-      prependMessages(selectedThreadId, msgs);
-      setHasMore(msgs.length === MESSAGES_LIMIT);
-    } catch (err) {
-      console.error('Failed to load more DM messages:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [selectedThreadId, isLoading, hasMore, messagesByChannel, prependMessages]);
+  // Shared fetch/decrypt/paginate logic
+  const { messages, isLoading, hasMore, error, handleLoadMore } = useMessageFetch(
+    selectedThreadId,
+    { type: 'dm', onFetchComplete: handleFetchComplete }
+  );
 
   // Send DM message
   const handleSendMessage = useCallback(

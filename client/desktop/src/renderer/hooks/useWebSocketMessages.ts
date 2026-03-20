@@ -683,6 +683,17 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         updated_at: data.updated_at || new Date().toISOString(),
       };
 
+      // Update conversation list preview (keeps thread list in sync)
+      const lastMessagePreview = {
+        content: data.content || '',
+        userId: data.user_id,
+        username: data.username || 'Unknown',
+        createdAt: data.created_at || new Date().toISOString(),
+        isEncrypted,
+        // Forward attachment type when #178 adds media support
+        ...(data.attachment_type ? { attachmentType: data.attachment_type as string } : {}),
+      };
+
       if (isEncrypted && e2eeService.isInitialized) {
         const decryptPromise =
           dmKeyVersion && dmKeyVersion > 1
@@ -707,6 +718,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       } else {
         addMessage(conversationId, { ...baseMessage, content: data.content });
       }
+
+      useDMStore.getState().updateLastMessage(conversationId, lastMessagePreview);
     });
 
     // DM message ack handler

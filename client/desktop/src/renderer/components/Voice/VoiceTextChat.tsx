@@ -8,13 +8,12 @@ import { useChatStore } from '../../stores/chatStore';
 import { useUserStore } from '../../stores/userStore';
 import { useTTSSettingsStore } from '../../stores/ttsSettingsStore';
 import { useChannelSubscription } from '../../hooks/useChannelSubscription';
+import { useMessageFetch } from '../../hooks/useMessageFetch';
 import { useMessaging } from '../../hooks/useMessaging';
-import { apiFetch } from '../../services/apiClient';
+import { apiFetch, safeJson } from '../../services/apiClient';
 import { e2eeService } from '../../services/e2eeService';
 import type { MessageWithStatus } from '../../types/chat';
 import './VoiceTextChat.css';
-
-const MESSAGES_LIMIT = 50;
 
 const VoiceTextChat: React.FC = () => {
   const activeChannelId = useVoiceStore((s) => s.activeChannelId);
@@ -25,18 +24,12 @@ const VoiceTextChat: React.FC = () => {
   const linkedChannel = activeChannelId ? getLinkedTextChannel(activeChannelId) : undefined;
   const channelId = linkedChannel?.id ?? null;
 
-  const messagesByChannel = useChatStore((s) => s.messagesByChannel);
-  const setMessages = useChatStore((s) => s.setMessages);
-  const prependMessages = useChatStore((s) => s.prependMessages);
   const updateMessage = useChatStore((s) => s.updateMessage);
   const deleteMessage = useChatStore((s) => s.deleteMessage);
   const user = useUserStore((s) => s.user);
 
   const ttsEnabled = useTTSSettingsStore((s) => s.ttsEnabled);
   const [isSpeaking, setIsSpeaking] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Poll speechSynthesis.speaking for TTS indicator
   useEffect(() => {
@@ -50,153 +43,14 @@ const VoiceTextChat: React.FC = () => {
   // Subscribe to the linked text channel for real-time messages
   useChannelSubscription(channelId);
 
+  // Shared fetch/decrypt/paginate logic
+  const { messages, isLoading, hasMore, error, handleLoadMore } = useMessageFetch(channelId, {
+    type: 'channel',
+  });
+
   const { sendMessage } = useMessaging();
 
-  const messages: MessageWithStatus[] = (channelId && messagesByChannel.get(channelId)) || [];
   const currentUserId = user?.id || '';
-
-  // Fetch messages when linked channel becomes available
-  useEffect(() => {
-    if (!channelId) return;
-
-    let aborted = false;
-
-    const fetchMessages = async () => {
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const res = await apiFetch(
-          `/api/v1/channels/${channelId}/messages?limit=${MESSAGES_LIMIT}`
-        );
-        if (aborted) return;
-
-        if (!res.ok) {
-          const data = await res.json();
-          throw new Error(data.error || 'Failed to load messages');
-        }
-
-        const data = await res.json();
-        if (aborted) return;
-        const rawMsgs: MessageWithStatus[] = (data.messages || []).map((m: MessageWithStatus) => ({
-          ...m,
-          status: 'delivered' as const,
-        }));
-
-        // Decrypt if encrypted
-        const msgs = await Promise.all(
-          rawMsgs.map(async (m) => {
-            if (m.is_encrypted && channelId && e2eeService.isInitialized) {
-              try {
-                const plaintext =
-                  m.key_version && m.key_version > 1
-                    ? await e2eeService.decryptForChannelWithVersion(
-                        channelId,
-                        m.content,
-                        m.key_version
-                      )
-                    : await e2eeService.decryptForChannel(channelId, m.content);
-                return { ...m, content: plaintext };
-              } catch (err) {
-                const isPending = err instanceof Error && err.message === 'PENDING_KEY';
-                return { ...m, content: '', decryptFailed: !isPending, pendingKeys: isPending };
-              }
-            }
-            return m;
-          })
-        );
-        if (aborted) return;
-
-        // Merge with any optimistic messages the user sent while the fetch
-        // was in flight (e.g. during React StrictMode double-mount or reconnect).
-        const existing = useChatStore.getState().messagesByChannel.get(channelId) || [];
-        const optimistic = existing.filter(
-          (m) => m.clientMessageId && (m.status === 'pending' || m.status === 'sent')
-        );
-        const fetchedIds = new Set(msgs.map((m) => m.id));
-        const kept = optimistic.filter(
-          (m) => !fetchedIds.has(m.id) && !fetchedIds.has(m.clientMessageId!)
-        );
-        // Sort ASC (oldest first) for chronological display — defensive against server order
-        msgs.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-        const merged = kept.length > 0 ? [...msgs, ...kept] : msgs;
-        merged.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-        setMessages(channelId, merged);
-        setHasMore(msgs.length === MESSAGES_LIMIT);
-      } catch (err) {
-        if (!aborted) {
-          setError(err instanceof Error ? err.message : 'Failed to load messages');
-        }
-      } finally {
-        if (!aborted) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    fetchMessages();
-    return () => {
-      aborted = true;
-    };
-  }, [channelId, setMessages]);
-
-  const handleLoadMore = useCallback(async () => {
-    if (!channelId || isLoading || !hasMore) return;
-
-    const channelMessages = messagesByChannel.get(channelId);
-    if (!channelMessages || channelMessages.length === 0) return;
-
-    const oldestMessage = channelMessages[0];
-    setIsLoading(true);
-
-    try {
-      const res = await apiFetch(
-        `/api/v1/channels/${channelId}/messages?limit=${MESSAGES_LIMIT}&before=${oldestMessage.id}`
-      );
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to load more messages');
-      }
-
-      const data = await res.json();
-      const rawMsgs: MessageWithStatus[] = (data.messages || []).map((m: MessageWithStatus) => ({
-        ...m,
-        status: 'delivered' as const,
-      }));
-
-      const msgs = await Promise.all(
-        rawMsgs.map(async (m) => {
-          if (m.is_encrypted && channelId && e2eeService.isInitialized) {
-            try {
-              const plaintext =
-                m.key_version && m.key_version > 1
-                  ? await e2eeService.decryptForChannelWithVersion(
-                      channelId,
-                      m.content,
-                      m.key_version
-                    )
-                  : await e2eeService.decryptForChannel(channelId, m.content);
-              return { ...m, content: plaintext };
-            } catch (err) {
-              const isPending = err instanceof Error && err.message === 'PENDING_KEY';
-              return { ...m, content: '', decryptFailed: !isPending, pendingKeys: isPending };
-            }
-          }
-          return m;
-        })
-      );
-
-      // Sort ASC (oldest first) for chronological display — defensive against server order
-      msgs.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-      prependMessages(channelId, msgs);
-      setHasMore(msgs.length === MESSAGES_LIMIT);
-    } catch (err) {
-      console.error('Failed to load more messages:', err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [channelId, isLoading, hasMore, messagesByChannel, prependMessages]);
 
   const handleSendMessage = useCallback(
     (content: string) => {
@@ -229,10 +83,10 @@ const VoiceTextChat: React.FC = () => {
           body: JSON.stringify({ content: sendContent }),
         });
         if (!res.ok) {
-          const data = await res.json();
+          const data = await safeJson<{ error?: string }>(res);
           throw new Error(data.error || 'Failed to edit message');
         }
-        const data = await res.json();
+        const data = await safeJson<{ message: MessageWithStatus }>(res);
         updateMessage(channelId, messageId, {
           content: channel?.is_encrypted ? newContent : data.message.content,
           is_encrypted: data.message.is_encrypted,
@@ -255,7 +109,7 @@ const VoiceTextChat: React.FC = () => {
           method: 'DELETE',
         });
         if (!res.ok) {
-          const data = await res.json();
+          const data = await safeJson<{ error?: string }>(res);
           throw new Error(data.error || 'Failed to delete message');
         }
         deleteMessage(channelId, messageId);
