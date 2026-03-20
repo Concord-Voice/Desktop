@@ -5,7 +5,7 @@ interface UnreadState {
   // Channel ID -> unread count (per-channel, active server only)
   unreadCounts: Map<string, number>;
 
-  // Channel ID -> mention count (subset of unreadCounts where user was @mentioned)
+  // Channel or DM conversation ID -> mention count (subset of unreadCounts where user was @mentioned)
   mentionCounts: Map<string, number>;
 
   // Server IDs that have any unread messages (cross-server)
@@ -70,7 +70,13 @@ export const useUnreadStore = create<UnreadState>()(
           return { unreadCounts: nextUnread, mentionCounts: nextMention };
         }),
 
-      clearAll: () => set({ unreadCounts: new Map(), mentionCounts: new Map() }),
+      clearAll: () =>
+        set({
+          unreadCounts: new Map(),
+          mentionCounts: new Map(),
+          serverUnreadSet: new Set(),
+          serverMentionSet: new Set(),
+        }),
 
       incrementMention: (channelId: string) =>
         set((state) => {
