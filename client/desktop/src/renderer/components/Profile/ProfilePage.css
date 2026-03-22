@@ -356,3 +356,28 @@
   padding-top: 16px;
   border-top: 1px solid var(--border-color);
 }
+
+/* Username change cooldown warning */
+.form-hint-warning {
+  color: var(--warning, #f0a030);
+}
+
+/* Username change confirmation dialog */
+.username-change-confirm p {
+  margin: 0 0 12px;
+  color: var(--text-primary);
+  font-size: calc(14px * var(--font-scale, 1));
+  line-height: 1.5;
+}
+
+.username-change-cooldown-notice {
+  color: var(--warning, #f0a030);
+  font-weight: 600;
+}
+
+.username-change-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 16px;
+}

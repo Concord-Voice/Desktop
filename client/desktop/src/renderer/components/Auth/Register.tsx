@@ -60,11 +60,17 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
     }
 
     // Username validation
-    const usernameRegex = /^[a-zA-Z0-9_-]{3,32}$/;
+    const usernameRegex = /^[a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]$/;
     if (!formData.username) {
       newErrors.username = 'Username is required';
+    } else if (formData.username.length < 3 || formData.username.length > 32) {
+      newErrors.username = 'Username must be 3-32 characters';
     } else if (!usernameRegex.test(formData.username)) {
-      newErrors.username = 'Username must be 3-32 characters (letters, numbers, _ -)';
+      newErrors.username =
+        'Letters, numbers, periods, underscores, and hyphens only. Must start and end with a letter or number.';
+    } else if (/[._-]{2,}/.test(formData.username)) {
+      newErrors.username =
+        'Username cannot contain consecutive special characters (periods, underscores, hyphens).';
     }
 
     // Password validation

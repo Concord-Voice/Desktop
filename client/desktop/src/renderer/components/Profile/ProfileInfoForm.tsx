@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useUserStore, UpdateProfileData } from '../../stores/userStore';
 import LoadingSpinner from '../Auth/LoadingSpinner';
+import Modal from '../ui/Modal';
 import {
   MAX_AVATAR_SIZE,
   MAX_HEADER_SIZE,
@@ -33,6 +34,15 @@ const ProfileInfoForm: React.FC = () => {
   const [profileErrors, setProfileErrors] = useState<ProfileFormErrors>({});
   const [isProfileSubmitting, setIsProfileSubmitting] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
+  const [showUsernameConfirm, setShowUsernameConfirm] = useState(false);
+
+  // Username change cooldown
+  const usernameChangeEligibleAt = user?.username_change_eligible_at
+    ? new Date(user.username_change_eligible_at)
+    : null;
+  const isUsernameOnCooldown = usernameChangeEligibleAt
+    ? usernameChangeEligibleAt > new Date()
+    : false;
 
   // Initialize form from user store
   useEffect(() => {
@@ -184,9 +194,12 @@ const ProfileInfoForm: React.FC = () => {
       errors.username = `Username must be at least ${USERNAME_MIN} characters`;
     } else if (trimmedUsername.length > USERNAME_MAX) {
       errors.username = `Username must be at most ${USERNAME_MAX} characters`;
-    } else if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$/.test(trimmedUsername)) {
+    } else if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*[a-zA-Z0-9]$/.test(trimmedUsername)) {
       errors.username =
-        'Letters, numbers, underscores, and hyphens only. Must start and end with a letter or number.';
+        'Letters, numbers, periods, underscores, and hyphens only. Must start and end with a letter or number.';
+    } else if (/[._-]{2,}/.test(trimmedUsername)) {
+      errors.username =
+        'Username cannot contain consecutive special characters (periods, underscores, hyphens).';
     }
 
     if (displayName.length > DISPLAY_NAME_MAX) {
@@ -208,20 +221,14 @@ const ProfileInfoForm: React.FC = () => {
     return Object.keys(errors).length === 0;
   };
 
-  // Profile form submit
-  const handleProfileSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setProfileErrors({});
-    setProfileSuccess(null);
-
-    if (!validateProfileForm()) return;
-
+  // Execute the profile update API call
+  const doProfileUpdate = async () => {
     setIsProfileSubmitting(true);
 
     try {
       const updates: UpdateProfileData = {};
 
-      if (username.trim() !== user?.username) {
+      if (username.trim().toLowerCase() !== user?.username) {
         updates.username = username.trim();
       }
       if (displayName !== (user?.display_name || '')) {
@@ -265,6 +272,29 @@ const ProfileInfoForm: React.FC = () => {
     } finally {
       setIsProfileSubmitting(false);
     }
+  };
+
+  // Profile form submit — shows confirmation if username is changing
+  const handleProfileSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfileErrors({});
+    setProfileSuccess(null);
+
+    if (!validateProfileForm()) return;
+
+    // If username is changing, require explicit confirmation
+    if (username.trim().toLowerCase() !== user?.username) {
+      setShowUsernameConfirm(true);
+      return;
+    }
+
+    await doProfileUpdate();
+  };
+
+  // Confirmed username change — proceed with the update
+  const handleUsernameChangeConfirm = async () => {
+    setShowUsernameConfirm(false);
+    await doProfileUpdate();
   };
 
   // Check if profile form has unsaved changes
@@ -433,13 +463,20 @@ const ProfileInfoForm: React.FC = () => {
             if (profileErrors.username)
               setProfileErrors((prev) => ({ ...prev, username: undefined }));
           }}
-          disabled={isProfileSubmitting}
+          disabled={isProfileSubmitting || isUsernameOnCooldown}
           maxLength={USERNAME_MAX}
         />
         {profileErrors.username && <span className="form-error">{profileErrors.username}</span>}
-        <span className="form-hint">
-          {username.trim().length}/{USERNAME_MAX} characters
-        </span>
+        {isUsernameOnCooldown && usernameChangeEligibleAt ? (
+          <span className="form-hint form-hint-warning">
+            Username changes are limited to once per year. You can change it again on{' '}
+            {formatDate(usernameChangeEligibleAt.toISOString())}.
+          </span>
+        ) : (
+          <span className="form-hint">
+            {username.trim().length}/{USERNAME_MAX} characters. Can be changed once per year.
+          </span>
+        )}
       </div>
 
       {/* Display Name */}
@@ -581,6 +618,40 @@ const ProfileInfoForm: React.FC = () => {
       {user?.created_at && (
         <div className="profile-member-since">Member since {formatDate(user.created_at)}</div>
       )}
+
+      {/* Username change confirmation dialog */}
+      <Modal
+        isOpen={showUsernameConfirm}
+        onClose={() => setShowUsernameConfirm(false)}
+        title="Change Username"
+        width="small"
+      >
+        <div className="username-change-confirm">
+          <p>
+            Are you sure you want to change your username from <strong>{user?.username}</strong> to{' '}
+            <strong>{username.trim()}</strong>?
+          </p>
+          <p className="username-change-cooldown-notice">
+            You will not be able to change your username again for 365 days.
+          </p>
+          <div className="username-change-actions">
+            <button
+              type="button"
+              className="profile-cancel-btn"
+              onClick={() => setShowUsernameConfirm(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="profile-save-btn"
+              onClick={handleUsernameChangeConfirm}
+            >
+              Confirm Change
+            </button>
+          </div>
+        </div>
+      </Modal>
     </form>
   );
 };

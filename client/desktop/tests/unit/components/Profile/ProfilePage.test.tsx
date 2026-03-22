@@ -116,8 +116,10 @@ describe('ProfilePage', () => {
 
   it('shows character count for username', () => {
     render(<ProfilePage />);
-    // "testuser" = 8 chars out of 32
-    expect(screen.getByText('8/32 characters')).toBeInTheDocument();
+    // "testuser" = 8 chars out of 32; hint includes cooldown notice
+    expect(
+      screen.getByText(/8\/32 characters/)
+    ).toBeInTheDocument();
   });
 
   it('shows character count for bio', () => {
