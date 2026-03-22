@@ -80,6 +80,9 @@ contextBridge.exposeInMainWorld('electron', {
       status: string;
       accessToken?: string;
       sessionId?: string;
+      mfaChallengeToken?: string;
+      mfaMethods?: string[];
+      mfaRecoveryOnlyMethods?: string[];
     }>,
   clearTokens: () => ipcRenderer.invoke('auth:clearTokens'),
   logout: (data?: { accessToken?: string }) => ipcRenderer.invoke('auth:logout', data),
@@ -92,6 +95,19 @@ contextBridge.exposeInMainWorld('electron', {
     preferencesKeyBase64: string;
     wrappedPrivateKeyBase64: string;
   }) => ipcRenderer.invoke('auth:storeE2EEKeys', data),
+
+  // Proactive token refresh event (#254): main process pushes new access token
+  // when its timer or sleep/wake handler refreshes proactively.
+  onTokenRefreshed: (callback: (data: { accessToken: string; sessionId?: string }) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: { accessToken: string; sessionId?: string }
+    ) => callback(data);
+    ipcRenderer.on('auth:token-refreshed', handler);
+    return () => {
+      ipcRenderer.removeListener('auth:token-refreshed', handler);
+    };
+  },
 
   // Machine ID for token theft detection (#89)
   getMachineId: () => ipcRenderer.invoke('auth:getMachineId') as Promise<string>,
@@ -270,6 +286,11 @@ export interface ElectronAPI {
     preferencesKeyBase64: string;
     wrappedPrivateKeyBase64: string;
   }) => Promise<void>;
+
+  // Proactive token refresh event (#254)
+  onTokenRefreshed: (
+    callback: (data: { accessToken: string; sessionId?: string }) => void
+  ) => () => void;
 
   // Machine ID for token theft detection
   getMachineId: () => Promise<string>;

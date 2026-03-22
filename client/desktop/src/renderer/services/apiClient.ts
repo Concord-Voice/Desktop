@@ -144,10 +144,22 @@ const _unsubscribeAuthStore = useAuthStore.subscribe((state) => {
   }
 });
 
+// ─── Main Process Proactive Refresh (#254) ───────────────────────────
+// The main process schedules its own proactive timer (immune to Chromium
+// throttling). When it refreshes, it pushes the new token here via IPC.
+let _unsubscribeTokenRefreshed: (() => void) | undefined;
+if (window.electron?.onTokenRefreshed) {
+  _unsubscribeTokenRefreshed = window.electron.onTokenRefreshed((data) => {
+    useAuthStore.getState().setAccessToken(data.accessToken);
+    if (data.sessionId) useAuthStore.getState().setSessionId(data.sessionId);
+  });
+}
+
 // Clean up subscription on Vite HMR to prevent duplicate subscriptions/timers
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     _unsubscribeAuthStore();
+    _unsubscribeTokenRefreshed?.();
     stopProactiveRefresh();
   });
 }

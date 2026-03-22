@@ -21,3 +21,17 @@
  *        permission:request, permission:openSettings), permission:changed event
  */
 export const IPC_CONTRACT_VERSION = 3;
+
+/**
+ * Result shape returned by performRefresh() in the main process and
+ * relayed to the renderer via the auth:refreshToken IPC channel.
+ * Single source of truth — used by tokenManager, preload, and renderer.
+ */
+export interface RefreshResult {
+  status: string;
+  accessToken?: string;
+  sessionId?: string;
+  mfaChallengeToken?: string;
+  mfaMethods?: string[];
+  mfaRecoveryOnlyMethods?: string[];
+}

@@ -17,6 +17,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import { getMachineId } from './machineId';
+import type { RefreshResult } from './ipcContract';
 
 /** Compute the same SHA-256 hex hash the server uses for DB lookups */
 function clientHashToken(token: string): string {
@@ -28,7 +29,19 @@ function clientHashToken(token: string): string {
 let inMemoryRefreshToken: string | null = null;
 let inMemoryRememberMe = true;
 let inMemoryApiBase = '';
-let refreshPromise: Promise<{ status: string; accessToken?: string }> | null = null;
+let refreshPromise: Promise<RefreshResult> | null = null;
+
+// ─── Proactive Refresh State (#254) ──────────────────────────────────
+// Main process timer — immune to Chromium's renderer throttling during
+// minimize/background/sleep. The renderer's own proactive timer remains
+// as a secondary layer.
+
+const PROACTIVE_BUFFER_SECONDS = 60; // Refresh 60s before JWT expiry
+const MIN_PROACTIVE_INTERVAL_MS = 10_000; // Rate limit: max 1 proactive refresh per 10s
+
+let proactiveTimer: ReturnType<typeof setTimeout> | null = null;
+let proactiveRefreshCallback: ((accessToken: string, sessionId?: string) => void) | null = null;
+let lastProactiveRefreshTimestamp = 0;
 
 const TOKEN_FILE = path.join(app.getPath('userData'), 'secure-token.dat');
 const META_FILE = path.join(app.getPath('userData'), 'token-meta.json');
@@ -73,6 +86,139 @@ function deleteFiles(): void {
   } catch {
     /* no-op */
   }
+}
+
+// ─── Proactive Refresh (#254) ────────────────────────────────────────
+
+/**
+ * Decode the `exp` claim from a JWT access token.
+ * JWTs are base64url-encoded — no secret needed to read the payload.
+ */
+function decodeJwtExp(token: string): number | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = Buffer.from(parts[1], 'base64url').toString('utf-8');
+    const claims = JSON.parse(payload) as { exp?: number };
+    return typeof claims.exp === 'number' ? claims.exp : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Schedule a proactive token refresh based on the JWT's exp claim.
+ * Called after every successful refresh (renderer-initiated or proactive).
+ */
+function scheduleProactiveRefresh(accessToken: string): void {
+  if (proactiveTimer) {
+    clearTimeout(proactiveTimer);
+    proactiveTimer = null;
+  }
+
+  const exp = decodeJwtExp(accessToken);
+  if (!exp) return;
+
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const delaySeconds = exp - nowSeconds - PROACTIVE_BUFFER_SECONDS;
+
+  if (delaySeconds <= 0) {
+    // Token already near expiry — refresh immediately (rate-limited)
+    const sinceLastRefresh = Date.now() - lastProactiveRefreshTimestamp;
+    if (sinceLastRefresh < MIN_PROACTIVE_INTERVAL_MS) {
+      // Recently refreshed — schedule after cooldown to avoid tight loop
+      const retryMs = MIN_PROACTIVE_INTERVAL_MS - sinceLastRefresh;
+      console.log(`[TokenManager] Token near expiry, retrying in ${retryMs}ms (rate-limited)`);
+      proactiveTimer = setTimeout(() => {
+        proactiveTimer = null;
+        void doProactiveRefresh();
+      }, retryMs);
+      return;
+    }
+    console.log('[TokenManager] Token near expiry, refreshing immediately');
+    void doProactiveRefresh();
+    return;
+  }
+
+  console.log(
+    `[TokenManager] Proactive refresh scheduled in ${Math.round(delaySeconds / 60)}m ${delaySeconds % 60}s`
+  );
+  proactiveTimer = setTimeout(() => {
+    proactiveTimer = null;
+    void doProactiveRefresh();
+  }, delaySeconds * 1000);
+}
+
+/**
+ * Execute a proactive refresh from the main process timer or powerMonitor resume.
+ * On success, notifies the renderer via the registered callback.
+ * On failure, schedules a retry after the cooldown window so the main process
+ * layer doesn't go silent while the renderer may be throttled.
+ */
+async function doProactiveRefresh(): Promise<void> {
+  lastProactiveRefreshTimestamp = Date.now();
+  const result = await performRefresh();
+  if (result.status === 'ok' && result.accessToken) {
+    console.log('[TokenManager] Proactive refresh succeeded');
+    proactiveRefreshCallback?.(result.accessToken, result.sessionId);
+  } else if (inMemoryRefreshToken && inMemoryApiBase) {
+    // Refresh failed but we still have credentials — schedule a retry
+    console.warn(`[TokenManager] Proactive refresh failed (${result.status}), retrying in 10s`);
+    proactiveTimer = setTimeout(() => {
+      proactiveTimer = null;
+      void doProactiveRefresh();
+    }, MIN_PROACTIVE_INTERVAL_MS);
+  }
+}
+
+/**
+ * Register a callback to notify the renderer when a proactive refresh
+ * (timer or sleep/wake) produces a new access token.
+ * Renderer-initiated refreshes return the token via IPC response instead.
+ */
+export function setProactiveRefreshCallback(
+  cb: (accessToken: string, sessionId?: string) => void
+): void {
+  proactiveRefreshCallback = cb;
+}
+
+/**
+ * Cancel the proactive refresh timer.
+ */
+export function stopProactiveRefresh(): void {
+  if (proactiveTimer) {
+    clearTimeout(proactiveTimer);
+    proactiveTimer = null;
+  }
+}
+
+/**
+ * Handle system resume from sleep — cancel stale timer and refresh with
+ * rate-limit awareness. During sleep, the timer may have drifted past
+ * the token's expiry window.
+ */
+export function onSystemResume(): void {
+  if (!inMemoryRefreshToken || !inMemoryApiBase) return;
+
+  if (proactiveTimer) {
+    clearTimeout(proactiveTimer);
+    proactiveTimer = null;
+  }
+
+  // Respect rate limit — if we just refreshed, defer to cooldown
+  const sinceLastRefresh = Date.now() - lastProactiveRefreshTimestamp;
+  if (sinceLastRefresh < MIN_PROACTIVE_INTERVAL_MS) {
+    const retryMs = MIN_PROACTIVE_INTERVAL_MS - sinceLastRefresh;
+    console.log(`[TokenManager] System resumed, refreshing in ${retryMs}ms (rate-limited)`);
+    proactiveTimer = setTimeout(() => {
+      proactiveTimer = null;
+      void doProactiveRefresh();
+    }, retryMs);
+    return;
+  }
+
+  console.log('[TokenManager] System resumed from sleep, refreshing token');
+  void doProactiveRefresh();
 }
 
 // ─── Public API ──────────────────────────────────────────────────────
@@ -176,11 +322,7 @@ export function restoreRefreshToken():
  * Perform a token refresh via the main process.
  * Deduplicates concurrent calls. Returns only the access token.
  */
-export function performRefresh(): Promise<{
-  status: string;
-  accessToken?: string;
-  sessionId?: string;
-}> {
+export function performRefresh(): Promise<RefreshResult> {
   if (refreshPromise) {
     return refreshPromise;
   }
@@ -277,6 +419,9 @@ export function performRefresh(): Promise<{
         }
       }
 
+      // Schedule next proactive refresh based on new token's exp (#254)
+      scheduleProactiveRefresh(newAccessToken);
+
       return { status: 'ok', accessToken: newAccessToken, sessionId: newSessionId };
     } catch (err) {
       console.error('[TokenManager] Refresh request failed:', err);
@@ -320,6 +465,7 @@ export async function performLogout(accessToken?: string): Promise<void> {
  * Clear all token state — in-memory and on disk.
  */
 export function clearTokens(): void {
+  stopProactiveRefresh();
   inMemoryRefreshToken = null;
   inMemoryRememberMe = true;
   inMemoryApiBase = '';

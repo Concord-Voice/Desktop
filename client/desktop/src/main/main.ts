@@ -4,6 +4,7 @@ import {
   clipboard,
   desktopCapturer,
   ipcMain,
+  powerMonitor,
   screen,
   session,
   shell,
@@ -19,6 +20,8 @@ import {
   getCapabilities,
   storeE2EEKeys,
   restoreE2EEKeys,
+  setProactiveRefreshCallback,
+  onSystemResume,
 } from './tokenManager';
 import { getMachineId } from './machineId';
 import {
@@ -199,6 +202,18 @@ app.whenReady().then(() => {
 
   createWindow();
   initAutoUpdater(() => mainWindow);
+
+  // Proactive token refresh (#254): notify renderer when main process
+  // refreshes the token (timer or sleep/wake), so authStore stays current.
+  setProactiveRefreshCallback((accessToken, sessionId) => {
+    mainWindow?.webContents.send('auth:token-refreshed', { accessToken, sessionId });
+  });
+
+  // Refresh token immediately on system wake — main process timers may have
+  // drifted past the token's expiry window during sleep (#248).
+  powerMonitor.on('resume', () => {
+    onSystemResume();
+  });
 
   app.on('activate', () => {
     // On macOS, re-create window when dock icon is clicked
