@@ -649,6 +649,32 @@ class E2EEService {
   }
 
   /**
+   * Get the password-derived wrapping key (for recovery key wrapping).
+   * Returns null if the service is not initialized.
+   */
+  getWrappingKey(): CryptoKey | null {
+    return this.wrappingKey;
+  }
+
+  /**
+   * Get the wrapped (encrypted) private key blob (base64).
+   * This is the password-wrapped private key stored on the server.
+   */
+  getWrappedPrivateKey(): string {
+    return this.wrappedPrivateKey;
+  }
+
+  /**
+   * Get the preferences key as base64 (for recovery key wrapping).
+   * Returns the exported raw key bytes from the session keys cache.
+   * Returns null if the service is not initialized or session keys are unavailable.
+   */
+  getPreferencesKeyBase64(): string | null {
+    const keys = this.getSessionKeys();
+    return keys?.preferencesKeyBase64 ?? null;
+  }
+
+  /**
    * Clear all keys on logout.
    */
   clearKeys(): void {

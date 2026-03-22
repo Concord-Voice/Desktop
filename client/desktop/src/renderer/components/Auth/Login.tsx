@@ -54,6 +54,7 @@ export interface LoginProps {
   onBack: () => void;
   onSuccess: (data: { accessToken: string; user?: UserProfile; rememberMe: boolean }) => void;
   onSwitchToRegister: () => void;
+  onForgotPassword: () => void;
 }
 
 interface FormData {
@@ -68,7 +69,12 @@ interface FormErrors {
   general?: string;
 }
 
-const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) => {
+const Login: React.FC<LoginProps> = ({
+  onBack,
+  onSuccess,
+  onSwitchToRegister,
+  onForgotPassword,
+}) => {
   const [formData, setFormData] = useState<FormData>({
     email: '',
     password: '',
@@ -561,9 +567,14 @@ const Login: React.FC<LoginProps> = ({ onBack, onSuccess, onSwitchToRegister }) 
               />
               <span>Remember me</span>
             </label>
-            <a href="#" className="forgot-password-link" onClick={(e) => e.preventDefault()}>
+            <button
+              type="button"
+              className="forgot-password-link"
+              onClick={onForgotPassword}
+              disabled={isSubmitting}
+            >
               Forgot password?
-            </a>
+            </button>
           </div>
 
           {/* General Error */}

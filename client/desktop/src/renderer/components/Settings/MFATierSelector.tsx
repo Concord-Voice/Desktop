@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ToggleSwitch from './ToggleSwitch';
 import MFAVerifyPrompt from '../Auth/MFAVerifyPrompt';
+import RecoveryApprovalModal from '../Auth/RecoveryApprovalModal';
+import RecoveryCircle from './RecoveryCircle';
+import { apiFetch } from '../../services/apiClient';
 
 export interface WebAuthnCredential {
   id: string;
@@ -143,6 +146,57 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
   const [actionMfaCode, setActionMfaCode] = useState('');
   const [actionError, setActionError] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+
+  // Recovery key state
+  const [hasRecoveryKey, setHasRecoveryKey] = useState(false);
+  const [recoveryKeyCreatedAt, setRecoveryKeyCreatedAt] = useState<string | null>(null);
+
+  // Recovery circle state
+  const [circleConfig, setCircleConfig] = useState<{
+    has_circle: boolean;
+    threshold_k?: number;
+    total_shares_n?: number;
+    contacts?: Array<{ username: string }>;
+  } | null>(null);
+  const [showCircleSetup, setShowCircleSetup] = useState(false);
+
+  // Trusted devices state
+  const [trustedDevices, setTrustedDevices] = useState<
+    Array<{ id: string; device_name: string; machine_id: string; designated_at: string }>
+  >([]);
+  const [pendingRecoveryRequests, setPendingRecoveryRequests] = useState<
+    Array<{ id: string; ephemeral_public_key: string; created_at: string }>
+  >([]);
+  const [activeRecoveryRequest, setActiveRecoveryRequest] = useState<{
+    id: string;
+    ephemeral_public_key: string;
+    created_at: string;
+  } | null>(null);
+
+  useEffect(() => {
+    apiFetch('/api/v1/mfa/recovery-key')
+      .then((res) => res.json())
+      .then((data) => {
+        setHasRecoveryKey(data.has_recovery_key || false);
+        setRecoveryKeyCreatedAt(data.created_at || null);
+      })
+      .catch(() => {});
+
+    apiFetch('/api/v1/mfa/trusted-devices')
+      .then((res) => res.json())
+      .then((data) => setTrustedDevices(Array.isArray(data.devices) ? data.devices : []))
+      .catch(() => {});
+
+    apiFetch('/api/v1/mfa/recovery-circle')
+      .then((res) => res.json())
+      .then((data) => setCircleConfig(data))
+      .catch(() => {});
+
+    apiFetch('/api/v1/mfa/recovery-requests')
+      .then((res) => res.json())
+      .then((data) => setPendingRecoveryRequests(Array.isArray(data.requests) ? data.requests : []))
+      .catch(() => {});
+  }, []);
 
   // Backup email state
   const [editingBackupEmail, setEditingBackupEmail] = useState(false);
@@ -583,6 +637,179 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
           </div>
         );
       })}
+
+      {/* Recovery Key Section */}
+      {hasRealMFA && (
+        <div
+          className="mfa-tier-section"
+          style={{
+            marginTop: 24,
+            borderTop: '1px solid var(--border-color, #2d3748)',
+            paddingTop: 24,
+          }}
+        >
+          <h4 style={{ color: 'var(--text-primary)', margin: '0 0 8px' }}>Recovery Key</h4>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: '0 0 12px' }}>
+            {hasRecoveryKey
+              ? `Recovery key configured${recoveryKeyCreatedAt ? ` on ${new Date(recoveryKeyCreatedAt).toLocaleDateString()}` : ''}.`
+              : 'No recovery key configured. Without one, losing your password means losing all encrypted message history.'}
+          </p>
+          <button
+            className="btn btn-secondary"
+            disabled
+            title="Recovery key management will be available in a future update"
+          >
+            {hasRecoveryKey ? 'Regenerate Recovery Key' : 'Generate Recovery Key'}
+          </button>
+        </div>
+      )}
+
+      {/* Trusted Devices Section */}
+      {hasRealMFA && (
+        <div
+          className="mfa-tier-section"
+          style={{
+            marginTop: 24,
+            borderTop: '1px solid var(--border-color, #2d3748)',
+            paddingTop: 24,
+          }}
+        >
+          <h4 style={{ color: 'var(--text-primary)', margin: '0 0 8px' }}>Trusted Devices</h4>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: '0 0 12px' }}>
+            Designate this device as trusted to allow account recovery from it.
+          </p>
+          {trustedDevices.length > 0 && (
+            <div style={{ marginBottom: 12 }}>
+              {trustedDevices.map((device) => (
+                <div
+                  key={device.id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '8px 0',
+                    borderBottom: '1px solid var(--border-color, #2d3748)',
+                  }}
+                >
+                  <span style={{ color: 'var(--text-primary)', fontSize: 14 }}>
+                    {device.device_name}
+                  </span>
+                  <span style={{ color: 'var(--text-tertiary, #718096)', fontSize: 12 }}>
+                    {new Date(device.designated_at).toLocaleDateString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <button
+            className="btn btn-secondary"
+            onClick={() => {
+              /* TODO: implement designate device flow */
+            }}
+          >
+            Designate This Device
+          </button>
+
+          {/* Pending Recovery Requests */}
+          {pendingRecoveryRequests.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <h5 style={{ color: 'var(--text-primary)', margin: '0 0 8px' }}>
+                Pending Recovery Requests
+              </h5>
+              {pendingRecoveryRequests.map((req) => (
+                <div
+                  key={req.id}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    padding: '8px 0',
+                  }}
+                >
+                  <span style={{ color: 'var(--text-secondary)', fontSize: 14 }}>
+                    Request from {new Date(req.created_at).toLocaleString()}
+                  </span>
+                  <button
+                    className="btn btn-secondary"
+                    style={{ fontSize: 12, padding: '4px 12px' }}
+                    onClick={() => setActiveRecoveryRequest(req)}
+                  >
+                    Review
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Recovery Circle Section */}
+      {hasRealMFA && (
+        <div
+          className="mfa-tier-section"
+          style={{
+            marginTop: 24,
+            borderTop: '1px solid var(--border-color, #2d3748)',
+            paddingTop: 24,
+          }}
+        >
+          <h4 style={{ color: 'var(--text-primary)', margin: '0 0 8px' }}>Recovery Circle</h4>
+          <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: '0 0 12px' }}>
+            {circleConfig?.has_circle
+              ? `${circleConfig.threshold_k}-of-${circleConfig.total_shares_n} contacts can recover your account.`
+              : "Distribute your recovery among trusted contacts using Shamir's Secret Sharing."}
+          </p>
+          {circleConfig?.has_circle && circleConfig.contacts && (
+            <div style={{ marginBottom: 12 }}>
+              {circleConfig.contacts.map((c, i) => (
+                <span
+                  key={i}
+                  style={{ color: 'var(--text-primary)', fontSize: 13, marginRight: 8 }}
+                >
+                  @{c.username}
+                </span>
+              ))}
+            </div>
+          )}
+          <button className="btn btn-secondary" onClick={() => setShowCircleSetup(true)}>
+            {circleConfig?.has_circle ? 'Reconfigure' : 'Set Up Recovery Circle'}
+          </button>
+        </div>
+      )}
+
+      {showCircleSetup && (
+        <div className="mfa-modal-overlay">
+          <div className="mfa-modal" style={{ maxWidth: 500, maxHeight: '80vh', overflow: 'auto' }}>
+            <RecoveryCircle
+              onComplete={() => {
+                setShowCircleSetup(false);
+                // Refresh circle status
+                apiFetch('/api/v1/mfa/recovery-circle')
+                  .then((res) => res.json())
+                  .then((data) => setCircleConfig(data))
+                  .catch(() => {});
+              }}
+              onCancel={() => setShowCircleSetup(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Recovery Approval Modal */}
+      {activeRecoveryRequest && (
+        <RecoveryApprovalModal
+          requestId={activeRecoveryRequest.id}
+          requesterEphemeralKey={activeRecoveryRequest.ephemeral_public_key}
+          createdAt={activeRecoveryRequest.created_at}
+          onClose={() => {
+            setActiveRecoveryRequest(null);
+            // Remove from pending list after handling
+            setPendingRecoveryRequests((prev) =>
+              prev.filter((r) => r.id !== activeRecoveryRequest.id)
+            );
+          }}
+        />
+      )}
 
       {/* Action confirmation modal */}
       {actionModal && (

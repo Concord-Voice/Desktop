@@ -624,3 +624,334 @@ export async function decryptBlob<T>(ciphertextBase64: string, key: CryptoKey): 
 
   return JSON.parse(new TextDecoder().decode(plaintext)) as T;
 }
+
+// ========================================
+// Recovery Key (Account Recovery System — Issue #200)
+// ========================================
+
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+/**
+ * Encode a Uint8Array as a base58 string (Bitcoin-style alphabet).
+ * Pure math — no external dependencies.
+ */
+export function base58Encode(bytes: Uint8Array): string {
+  // Count leading zero bytes (they map to '1' in base58)
+  let leadingZeros = 0;
+  for (let i = 0; i < bytes.length && bytes[i] === 0; i++) {
+    leadingZeros++;
+  }
+
+  // Convert byte array to a big integer (big-endian)
+  let num = 0n;
+  for (const byte of bytes) {
+    num = num * 256n + BigInt(byte);
+  }
+
+  // Convert big integer to base58
+  let result = '';
+  while (num > 0n) {
+    const remainder = Number(num % 58n);
+    num = num / 58n;
+    result = BASE58_ALPHABET[remainder] + result;
+  }
+
+  // Prepend '1' for each leading zero byte
+  return BASE58_ALPHABET[0].repeat(leadingZeros) + result;
+}
+
+/**
+ * Decode a base58 string back to a Uint8Array.
+ * Throws on invalid characters.
+ */
+export function base58Decode(str: string): Uint8Array {
+  // Count leading '1' characters (they map to 0x00 bytes)
+  let leadingOnes = 0;
+  for (let i = 0; i < str.length && str[i] === '1'; i++) {
+    leadingOnes++;
+  }
+
+  // Convert base58 string to a big integer
+  let num = 0n;
+  for (const char of str) {
+    const index = BASE58_ALPHABET.indexOf(char);
+    if (index === -1) {
+      throw new Error(`Invalid base58 character: ${char}`);
+    }
+    num = num * 58n + BigInt(index);
+  }
+
+  // Convert big integer to byte array (big-endian)
+  const tempBytes: number[] = [];
+  while (num > 0n) {
+    tempBytes.unshift(Number(num % 256n));
+    num = num / 256n;
+  }
+
+  // Prepend zero bytes for leading '1' characters
+  const result = new Uint8Array(leadingOnes + tempBytes.length);
+  // Leading zeros are already 0 in a new Uint8Array
+  result.set(tempBytes, leadingOnes);
+
+  return result;
+}
+
+/**
+ * Generate a human-readable recovery key.
+ * 32 random bytes → base58 → grouped in chunks of 5 separated by dashes.
+ */
+export function generateRecoveryKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const encoded = base58Encode(bytes);
+  // Group into chunks of 5 separated by dashes for readability
+  return encoded.match(/.{1,5}/g)?.join('-') ?? encoded;
+}
+
+/**
+ * Parse a recovery key string back to raw bytes.
+ * Trims whitespace, strips dashes/spaces, decodes base58,
+ * and validates the result is exactly 32 bytes.
+ */
+export function parseRecoveryKey(key: string): Uint8Array {
+  const cleaned = key.trim().replace(/[\s-]/g, '');
+  const bytes = base58Decode(cleaned);
+  if (bytes.length !== 32) {
+    throw new Error(`Invalid recovery key: expected 32 bytes after decoding, got ${bytes.length}`);
+  }
+  return bytes;
+}
+
+/**
+ * Derive an AES-GCM key from raw recovery key bytes using Argon2id.
+ * Same parameters as password derivation but accepts raw bytes instead of a string.
+ */
+async function deriveKeyFromRecoveryBytes(
+  keyBytes: Uint8Array,
+  salt: Uint8Array
+): Promise<CryptoKey> {
+  const hash = await argon2id({
+    password: keyBytes,
+    salt,
+    parallelism: ARGON2_PARALLELISM,
+    iterations: ARGON2_ITERATIONS,
+    memorySize: ARGON2_MEMORY,
+    hashLength: ARGON2_HASH_LENGTH,
+    outputType: 'binary',
+  });
+
+  return crypto.subtle.importKey(
+    'raw',
+    hash as BufferSource,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+/**
+ * Wrap the user's private key with a recovery-key-derived key.
+ *
+ * Since the in-memory private key is non-extractable, we cannot use
+ * crypto.subtle.wrapKey(). Instead we decrypt the password-wrapped blob
+ * to get raw PKCS8 bytes, then re-encrypt with the recovery-derived key.
+ *
+ * @param wrappedPrivateKeyBase64 - The password-wrapped private key blob (IV + ciphertext)
+ * @param passwordWrappingKey - The password-derived AES-GCM wrapping key
+ * @param recoveryKeyBase58 - The base58 recovery key (with or without dashes)
+ * @returns The recovery-wrapped key blob and its salt (both base64)
+ */
+export async function wrapWithRecoveryKey(
+  wrappedPrivateKeyBase64: string,
+  passwordWrappingKey: CryptoKey,
+  recoveryKeyBase58: string
+): Promise<{ wrappedKey: string; salt: string }> {
+  // 1. Decrypt the password-wrapped blob to get raw PKCS8 bytes
+  const wrappedData = base64ToArrayBuffer(wrappedPrivateKeyBase64);
+  const wrappedBytes = new Uint8Array(wrappedData);
+  const iv = wrappedBytes.slice(0, 12);
+  const ciphertext = wrappedBytes.slice(12);
+
+  // Use unwrapKey (which the wrapping key supports) instead of decrypt
+  const privateKeyForExport = await crypto.subtle.unwrapKey(
+    'pkcs8',
+    ciphertext,
+    passwordWrappingKey,
+    { name: 'AES-GCM', iv },
+    { name: 'RSA-OAEP', hash: 'SHA-256' },
+    true, // extractable so we can re-export
+    ['decrypt']
+  );
+  const rawPkcs8 = await crypto.subtle.exportKey('pkcs8', privateKeyForExport);
+
+  // 2. Derive recovery wrapping key
+  const recoveryBytes = parseRecoveryKey(recoveryKeyBase58);
+  const salt = generateSalt(); // 16 bytes
+  const recoveryKey = await deriveKeyFromRecoveryBytes(recoveryBytes, salt);
+
+  // 3. Encrypt PKCS8 bytes with recovery key
+  const recoveryIv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv: recoveryIv },
+    recoveryKey,
+    rawPkcs8
+  );
+
+  // 4. Prepend IV (same format as password wrapping)
+  const result = new Uint8Array(12 + encrypted.byteLength);
+  result.set(recoveryIv, 0);
+  result.set(new Uint8Array(encrypted), 12);
+
+  return {
+    wrappedKey: arrayBufferToBase64(result.buffer as ArrayBuffer),
+    salt: arrayBufferToBase64(salt.buffer as ArrayBuffer),
+  };
+}
+
+/**
+ * Unwrap a private key using a recovery key.
+ * Reverse of wrapWithRecoveryKey — decrypts the recovery-wrapped blob
+ * back to raw PKCS8 bytes.
+ *
+ * @param recoveryWrappedKeyBase64 - The recovery-wrapped key blob (IV + ciphertext)
+ * @param saltBase64 - The salt used during recovery key wrapping
+ * @param recoveryKeyBase58 - The base58 recovery key (with or without dashes)
+ * @returns Raw PKCS8 bytes of the private key
+ */
+export async function unwrapWithRecoveryKey(
+  recoveryWrappedKeyBase64: string,
+  saltBase64: string,
+  recoveryKeyBase58: string
+): Promise<ArrayBuffer> {
+  const recoveryBytes = parseRecoveryKey(recoveryKeyBase58);
+  const salt = new Uint8Array(base64ToArrayBuffer(saltBase64));
+  const recoveryKey = await deriveKeyFromRecoveryBytes(recoveryBytes, salt);
+
+  const wrappedData = base64ToArrayBuffer(recoveryWrappedKeyBase64);
+  const wrappedBytes = new Uint8Array(wrappedData);
+  const iv = wrappedBytes.slice(0, 12);
+  const ciphertext = wrappedBytes.slice(12);
+
+  return crypto.subtle.decrypt({ name: 'AES-GCM', iv }, recoveryKey, ciphertext);
+}
+
+/**
+ * Wrap the preferences key with a recovery-key-derived key.
+ * Uses a SEPARATE salt from the private key wrapping to maintain
+ * cryptographic independence between the two wrapped keys.
+ *
+ * @param prefsKeyBase64 - The preferences key exported as base64 raw bytes
+ * @param recoveryKeyBase58 - The base58 recovery key (with or without dashes)
+ * @returns The recovery-wrapped preferences key and its salt (both base64)
+ */
+export async function wrapPrefsKeyWithRecoveryKey(
+  prefsKeyBase64: string,
+  recoveryKeyBase58: string
+): Promise<{ wrappedKey: string; salt: string }> {
+  const prefsKeyBytes = base64ToArrayBuffer(prefsKeyBase64);
+  const recoveryBytes = parseRecoveryKey(recoveryKeyBase58);
+  const salt = generateSalt();
+  const recoveryKey = await deriveKeyFromRecoveryBytes(recoveryBytes, salt);
+
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    recoveryKey,
+    prefsKeyBytes
+  );
+
+  const result = new Uint8Array(12 + encrypted.byteLength);
+  result.set(iv, 0);
+  result.set(new Uint8Array(encrypted), 12);
+
+  return {
+    wrappedKey: arrayBufferToBase64(result.buffer as ArrayBuffer),
+    salt: arrayBufferToBase64(salt.buffer as ArrayBuffer),
+  };
+}
+
+/**
+ * Unwrap the preferences key using a recovery key.
+ * Reverse of wrapPrefsKeyWithRecoveryKey — decrypts and re-imports
+ * the preferences key as a non-extractable CryptoKey.
+ *
+ * @param recoveryWrappedPrefsBase64 - The recovery-wrapped preferences key blob
+ * @param saltBase64 - The salt used during recovery wrapping
+ * @param recoveryKeyBase58 - The base58 recovery key (with or without dashes)
+ * @returns Non-extractable AES-GCM CryptoKey for encrypt/decrypt
+ */
+export async function unwrapPrefsKeyWithRecoveryKey(
+  recoveryWrappedPrefsBase64: string,
+  saltBase64: string,
+  recoveryKeyBase58: string
+): Promise<CryptoKey> {
+  const recoveryBytes = parseRecoveryKey(recoveryKeyBase58);
+  const salt = new Uint8Array(base64ToArrayBuffer(saltBase64));
+  const recoveryKey = await deriveKeyFromRecoveryBytes(recoveryBytes, salt);
+
+  const wrappedData = base64ToArrayBuffer(recoveryWrappedPrefsBase64);
+  const wrappedBytes = new Uint8Array(wrappedData);
+  const iv = wrappedBytes.slice(0, 12);
+  const ciphertext = wrappedBytes.slice(12);
+
+  const rawPrefsKey = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, recoveryKey, ciphertext);
+
+  return crypto.subtle.importKey('raw', rawPrefsKey, { name: 'AES-GCM', length: 256 }, false, [
+    'encrypt',
+    'decrypt',
+  ]);
+}
+
+// ── ECDH Key Exchange (Phase B: Trusted Device Recovery) ──────────────────
+
+export async function generateECDHKeyPair(): Promise<CryptoKeyPair> {
+  return crypto.subtle.generateKey(
+    { name: 'ECDH', namedCurve: 'P-256' },
+    true, // extractable for transport
+    ['deriveKey']
+  );
+}
+
+export async function exportECDHPublicKey(key: CryptoKey): Promise<string> {
+  const raw = await crypto.subtle.exportKey('raw', key);
+  return arrayBufferToBase64(raw);
+}
+
+export async function importECDHPublicKey(base64: string): Promise<CryptoKey> {
+  const raw = base64ToArrayBuffer(base64);
+  return crypto.subtle.importKey('raw', raw, { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+}
+
+export async function deriveSharedSecret(
+  privateKey: CryptoKey,
+  peerPublicKey: CryptoKey
+): Promise<CryptoKey> {
+  return crypto.subtle.deriveKey(
+    { name: 'ECDH', public: peerPublicKey },
+    privateKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+export async function encryptWithSharedSecret(
+  sharedKey: CryptoKey,
+  data: ArrayBuffer
+): Promise<string> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, sharedKey, data);
+  const result = new Uint8Array(12 + encrypted.byteLength);
+  result.set(iv, 0);
+  result.set(new Uint8Array(encrypted), 12);
+  return arrayBufferToBase64(result.buffer);
+}
+
+export async function decryptWithSharedSecret(
+  sharedKey: CryptoKey,
+  encryptedBase64: string
+): Promise<ArrayBuffer> {
+  const data = new Uint8Array(base64ToArrayBuffer(encryptedBase64));
+  const iv = data.slice(0, 12);
+  const ciphertext = data.slice(12);
+  return crypto.subtle.decrypt({ name: 'AES-GCM', iv }, sharedKey, ciphertext);
+}

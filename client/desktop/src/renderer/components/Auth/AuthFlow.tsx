@@ -7,6 +7,7 @@ import ConnectionSelector from './ConnectionSelector';
 import ServerInput from './ServerInput';
 import Register from './Register';
 import Login from './Login';
+import AccountRecovery from './AccountRecovery';
 import EmailVerification from './EmailVerification';
 import './AuthFlow.css';
 
@@ -16,7 +17,8 @@ type AuthStep =
   | 'hosted-register'
   | 'hosted-login'
   | 'self-hosted-auth'
-  | 'email-verification';
+  | 'email-verification'
+  | 'forgot-password';
 
 const AuthFlow: React.FC = () => {
   const navigate = useNavigate();
@@ -124,6 +126,10 @@ const AuthFlow: React.FC = () => {
     setStep('hosted-register');
   };
 
+  const handleForgotPassword = () => {
+    setStep('forgot-password');
+  };
+
   return (
     <div className="auth-flow">
       {step === 'connection-select' && (
@@ -154,6 +160,7 @@ const AuthFlow: React.FC = () => {
             onBack={handleBack}
             onSuccess={handleLoginSuccess}
             onSwitchToRegister={handleSwitchToRegister}
+            onForgotPassword={handleForgotPassword}
           />
         </div>
       )}
@@ -164,6 +171,15 @@ const AuthFlow: React.FC = () => {
             email={pendingEmail || ''}
             onVerified={handleEmailVerified}
             onBack={handleBack}
+          />
+        </div>
+      )}
+
+      {step === 'forgot-password' && (
+        <div key="forgot-password" className="auth-screen">
+          <AccountRecovery
+            onBack={() => setStep('hosted-login')}
+            onComplete={() => setStep('hosted-login')}
           />
         </div>
       )}

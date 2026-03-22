@@ -4,9 +4,16 @@ import { apiFetch } from '../../services/apiClient';
 import TOTPInput from '../Auth/TOTPInput';
 import MFAVerifyPrompt from '../Auth/MFAVerifyPrompt';
 import BackupCodeDisplay from './BackupCodeDisplay';
+import RecoveryKeyDisplay from './RecoveryKeyDisplay';
+import {
+  generateRecoveryKey,
+  wrapWithRecoveryKey,
+  wrapPrefsKeyWithRecoveryKey,
+} from '../../utils/crypto';
+import { e2eeService } from '../../services/e2eeService';
 
 type SetupMethod = 'totp' | 'webauthn';
-type TOTPStep = 'password' | 'qr' | 'verify' | 'backup' | 'done';
+type TOTPStep = 'password' | 'qr' | 'verify' | 'backup' | 'recovery' | 'done';
 type WebAuthnStep = 'password' | 'registering' | 'done';
 
 interface MFASetupProps {
@@ -40,6 +47,8 @@ const MFASetup: React.FC<MFASetupProps> = ({
   const [otpauthUrl, setOtpauthUrl] = useState('');
   const [totpSecret, setTotpSecret] = useState('');
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
+  const [recoveryKey, setRecoveryKey] = useState('');
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
 
   // WebAuthn state
   const [webauthnStep, setWebauthnStep] = useState<WebAuthnStep>('password');
@@ -111,7 +120,62 @@ const MFASetup: React.FC<MFASetupProps> = ({
         const data = await res.json();
         throw new Error(data.error || 'Confirmation failed');
       }
-      setTotpStep('done');
+
+      // Generate recovery key and wrap the private key
+      setRecoveryLoading(true);
+      try {
+        const newRecoveryKey = generateRecoveryKey();
+        const wrappingKey = e2eeService.getWrappingKey();
+        const wrappedPrivateKey = e2eeService.getWrappedPrivateKey();
+
+        if (wrappingKey && wrappedPrivateKey) {
+          const { wrappedKey: recoveryWrappedKey, salt: recoverySalt } = await wrapWithRecoveryKey(
+            wrappedPrivateKey,
+            wrappingKey,
+            newRecoveryKey
+          );
+
+          // Also wrap preferences key if available
+          const prefsKeyBase64 = e2eeService.getPreferencesKeyBase64();
+          let prefsPayload = {};
+          if (prefsKeyBase64) {
+            const { wrappedKey: recoveryWrappedPrefs, salt: prefsSalt } =
+              await wrapPrefsKeyWithRecoveryKey(prefsKeyBase64, newRecoveryKey);
+            prefsPayload = {
+              recovery_wrapped_prefs_key: recoveryWrappedPrefs,
+              recovery_prefs_key_salt: prefsSalt,
+            };
+          }
+
+          // Upload to server
+          const storeRes = await apiFetch('/api/v1/mfa/recovery-key', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              recovery_wrapped_private_key: recoveryWrappedKey,
+              recovery_key_salt: recoverySalt,
+              ...prefsPayload,
+            }),
+          });
+
+          if (!storeRes.ok) {
+            console.warn('Failed to store recovery key, skipping');
+            setTotpStep('done');
+            return;
+          }
+
+          setRecoveryKey(newRecoveryKey);
+          setTotpStep('recovery');
+        } else {
+          // No wrapping key available (shouldn't happen), skip recovery
+          setTotpStep('done');
+        }
+      } catch (recoveryErr) {
+        console.warn('Recovery key generation failed, skipping:', recoveryErr);
+        setTotpStep('done');
+      } finally {
+        setRecoveryLoading(false);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Confirmation failed');
     } finally {
@@ -307,6 +371,22 @@ const MFASetup: React.FC<MFASetupProps> = ({
               codes={backupCodes}
               onConfirm={handleTOTPConfirm}
               disabled={loading}
+            />
+            {error && <p className="mfa-setup-error">{error}</p>}
+          </div>
+        )}
+
+        {totpStep === 'recovery' && (
+          <div className="mfa-setup-step">
+            <p>
+              Save your recovery key. This is the <strong>only way</strong> to recover your
+              encrypted messages if you lose your password.
+            </p>
+            <RecoveryKeyDisplay
+              recoveryKey={recoveryKey}
+              onConfirm={() => setTotpStep('done')}
+              onSkip={() => setTotpStep('done')}
+              disabled={recoveryLoading}
             />
             {error && <p className="mfa-setup-error">{error}</p>}
           </div>
