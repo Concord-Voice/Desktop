@@ -32,8 +32,12 @@
  *   Receivers keep old keys for 10 seconds (overlap window)
  *   Ratchet: newKey = HKDF(oldKey, "concord-e2ee-ratchet")
  *
- * Uses legacy createEncodedStreams for Electron/Chromium. RTCRtpScriptTransform
- * (Chrome 120+) is not yet implemented — tracked for future cross-browser support.
+ * Dual API support:
+ *   - Modern (Chromium 129+): RTCRtpScriptTransform with Web Worker
+ *   - Legacy (Chromium 86-130): createEncodedStreams on main thread
+ *
+ * The Worker instantiates this class directly. The main thread derives keys
+ * and sends them to the Worker via postMessage (CryptoKey is structured-clonable).
  */
 
 const SALT = new TextEncoder().encode('concord-voice-e2ee');
@@ -78,7 +82,10 @@ function getUnencryptedBytes(frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame)
 }
 
 /** Derive an AES-128-GCM key from a channel CSK + sender userId via HKDF */
-async function deriveFrameKey(channelCSK: CryptoKey, senderUserId: string): Promise<CryptoKey> {
+export async function deriveFrameKey(
+  channelCSK: CryptoKey,
+  senderUserId: string
+): Promise<CryptoKey> {
   // Export the CSK to raw bytes for use as HKDF input key material
   const cskBytes = await crypto.subtle.exportKey('raw', channelCSK);
 
@@ -101,7 +108,7 @@ async function deriveFrameKey(channelCSK: CryptoKey, senderUserId: string): Prom
 }
 
 /** Ratchet a key forward (for epoch rotation) */
-async function ratchetKey(currentKey: CryptoKey): Promise<CryptoKey> {
+export async function ratchetKey(currentKey: CryptoKey): Promise<CryptoKey> {
   const keyBytes = await crypto.subtle.exportKey('raw', currentKey);
   const hkdfKey = await crypto.subtle.importKey('raw', keyBytes, 'HKDF', false, ['deriveKey']);
   return crypto.subtle.deriveKey(
@@ -141,6 +148,26 @@ export class MediaEncryption {
     this.encryptKey = await deriveFrameKey(channelCSK, localUserId);
     this.currentKeyId = 0;
     this.frameCounter = 0;
+  }
+
+  /** Initialize encryption with a pre-derived key (used by Worker) */
+  initFromKey(key: CryptoKey, keyId: number): void {
+    this.encryptKey = key;
+    this.currentKeyId = keyId;
+    this.frameCounter = 0;
+  }
+
+  /** Update the current epoch ID without changing the encrypt key (main-thread sync) */
+  setCurrentKeyId(keyId: number): void {
+    this.currentKeyId = keyId;
+  }
+
+  /** Add a pre-derived decrypt key directly (used by Worker) */
+  addDecryptKeyDirect(senderUserId: string, keyId: number, key: CryptoKey): void {
+    this.decryptKeys.set(`${senderUserId}:${keyId}`, {
+      key,
+      expires: Date.now() + 3600_000,
+    });
   }
 
   /** Add a decryption key for a remote sender */

@@ -33,17 +33,28 @@ import {
   type ScreenShareOptions,
 } from '../stores/videoSettingsStore';
 import { apiFetch } from './apiClient';
-import { MediaEncryption } from './mediaEncryption';
+import { MediaEncryption, deriveFrameKey, ratchetKey } from './mediaEncryption';
 import { e2eeService } from './e2eeService';
 import {
   useOsPermissionStore,
   ensureOsPermission as ensureOsPermissionShared,
 } from '../stores/osPermissionStore';
+import type {
+  E2EEWorkerMessage,
+  E2EEMainMessage,
+  E2EETransformOptions,
+} from '../workers/e2eeProtocol';
 
 // Toggle for verbose E2EE/SDP diagnostics — set to true when debugging
 // frame drops, BUNDLE collisions, or key rotation issues. When false,
 // only errors, warnings, and key lifecycle events are logged.
 const E2EE_VERBOSE = false;
+
+// Detect which Insertable Streams API is available at module load.
+// RTCRtpScriptTransform (Chromium 129+) replaces createEncodedStreams (removed ~Chromium 131-133).
+// When encodedInsertableStreams is set but createEncodedStreams is missing, frames are held
+// in an internal buffer and never reach the decoder — causing complete silence (#295).
+const USE_SCRIPT_TRANSFORM = typeof RTCRtpScriptTransform !== 'undefined';
 
 // ---------------------------------------------------------------------------
 // Types matching server signaling protocol
@@ -133,6 +144,14 @@ class VoiceService {
   // E2EE
   private mediaEncryption: MediaEncryption | null = null;
   private isEncrypted = false;
+  // RTCRtpScriptTransform Worker (Chromium 129+) — owns frame crypto in a dedicated thread
+  private e2eeWorker: Worker | null = null;
+  // Debounced rotation state (extracted from MediaEncryption for Worker path)
+  private rotationTimer: ReturnType<typeof setTimeout> | null = null;
+  private rotationPending = false;
+  private rotationDeadline = 0;
+  private static readonly ROTATION_DEBOUNCE_MS = 2000;
+  private static readonly ROTATION_MAX_CAP_MS = 5000;
 
   // Consume queues — serialized per-transport to prevent concurrent SDP
   // negotiations that cause "Duplicate a=mid value" errors.
@@ -1363,6 +1382,12 @@ class VoiceService {
         // The self-healing ratchet handles frame-level catch-up, but catching
         // up now means the first frame won't need an expensive ratchet chain.
         if (roomJoined.e2eeEpoch && this.mediaEncryption) {
+          if (this.e2eeWorker) {
+            this.e2eeWorker.postMessage({
+              type: 'catchUpToEpoch',
+              targetEpoch: roomJoined.e2eeEpoch,
+            } satisfies E2EEWorkerMessage);
+          }
           await this.mediaEncryption.catchUpToEpoch(roomJoined.e2eeEpoch);
         }
       }
@@ -1529,6 +1554,13 @@ class VoiceService {
     }
 
     // 6. Destroy E2EE
+    this.terminateE2EEWorker();
+    if (this.rotationTimer) {
+      clearTimeout(this.rotationTimer);
+      this.rotationTimer = null;
+    }
+    this.rotationPending = false;
+    this.rotationDeadline = 0;
     this.mediaEncryption?.destroy();
     this.mediaEncryption = null;
     this.isEncrypted = false;
@@ -2485,13 +2517,16 @@ class VoiceService {
       iceParameters: options.iceParameters,
       iceCandidates: options.iceCandidates,
       dtlsParameters: options.dtlsParameters,
-      // E2EE requires Insertable Streams for encrypt transforms.
-      // The BUNDLE collision on send is harmless (no RTP demuxing on send path).
-      ...(this.isEncrypted && {
-        additionalSettings: {
-          encodedInsertableStreams: true,
-        } as unknown as Partial<RTCConfiguration>,
-      }),
+      // E2EE: legacy path needs encodedInsertableStreams for createEncodedStreams().
+      // Modern path (RTCRtpScriptTransform) does NOT need this flag — setting it
+      // without connecting the streams causes frames to be held in an internal
+      // buffer, producing complete silence (#295).
+      ...(this.isEncrypted &&
+        !USE_SCRIPT_TRANSFORM && {
+          additionalSettings: {
+            encodedInsertableStreams: true,
+          } as unknown as Partial<RTCConfiguration>,
+        }),
     });
 
     this.sendTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
@@ -2578,9 +2613,12 @@ class VoiceService {
       iceParameters: options.iceParameters,
       iceCandidates: options.iceCandidates,
       dtlsParameters: options.dtlsParameters,
-      additionalSettings: {
-        encodedInsertableStreams: true,
-      } as unknown as Partial<RTCConfiguration>,
+      // Legacy path only — see send transport comment (#295)
+      ...(!USE_SCRIPT_TRANSFORM && {
+        additionalSettings: {
+          encodedInsertableStreams: true,
+        } as unknown as Partial<RTCConfiguration>,
+      }),
     });
 
     if (mediaKind === 'audio') {
@@ -2958,7 +2996,7 @@ class VoiceService {
         const channelId = useVoiceStore.getState().activeChannelId;
         if (channelId) {
           await this.addDecryptKeyForUser(channelId, userId);
-          this.mediaEncryption.debouncedRotateKeys();
+          this.debouncedRotateE2EEKeys();
         }
       }
 
@@ -2971,7 +3009,7 @@ class VoiceService {
 
       // E2EE: rotate keys when a member leaves (forward secrecy)
       if (this.isEncrypted && this.mediaEncryption) {
-        this.mediaEncryption.debouncedRotateKeys();
+        this.debouncedRotateE2EEKeys();
       }
 
       // Solo bandwidth saving: enter solo mode when everyone else leaves
@@ -2988,6 +3026,12 @@ class VoiceService {
           `E2EE epoch sync: local=${localEpoch}, server=${epoch}, catching up ${gap} steps`
         );
         try {
+          if (this.e2eeWorker) {
+            this.e2eeWorker.postMessage({
+              type: 'catchUpToEpoch',
+              targetEpoch: epoch,
+            } satisfies E2EEWorkerMessage);
+          }
           await this.mediaEncryption.catchUpToEpoch(epoch);
         } catch (err) {
           console.error('E2EE: epoch catch-up failed — decrypt may fail until rejoin', {
@@ -3236,12 +3280,31 @@ class VoiceService {
         const userId = useUserStore.getState().user?.id;
         if (!userId) throw new Error('No local userId for E2EE init');
 
-        this.mediaEncryption = new MediaEncryption();
-        await this.mediaEncryption.init(channelCSK, userId);
+        // Derive the encrypt key on the main thread
+        const encryptKey = await deriveFrameKey(channelCSK, userId);
+
+        if (USE_SCRIPT_TRANSFORM) {
+          // Modern path: create Worker and send key
+          this.initE2EEWorker();
+          this.e2eeWorker!.postMessage({
+            type: 'init',
+            encryptKey,
+            currentKeyId: 0,
+          } satisfies E2EEWorkerMessage);
+          // Keep MediaEncryption for key derivation helpers (addDecryptKey etc.)
+          this.mediaEncryption = new MediaEncryption();
+          this.mediaEncryption.initFromKey(encryptKey, 0);
+        } else {
+          // Legacy path: MediaEncryption on main thread
+          this.mediaEncryption = new MediaEncryption();
+          await this.mediaEncryption.init(channelCSK, userId);
+        }
+
         console.debug('E2EE: encryption initialized', {
           channelId,
           userId,
           attempt: attempt + 1,
+          useScriptTransform: USE_SCRIPT_TRANSFORM,
         });
         return;
       } catch (err) {
@@ -3255,7 +3318,6 @@ class VoiceService {
         });
 
         if (attempt < retryDelays.length) {
-          // Wait longer for pending keys (distribution in progress)
           const delay = isPending ? retryDelays[attempt] * 2 : retryDelays[attempt];
           await new Promise((r) => setTimeout(r, delay));
         }
@@ -3264,12 +3326,97 @@ class VoiceService {
 
     // All retries exhausted — fail-closed: re-throw so join flow aborts
     this.mediaEncryption = null;
+    this.terminateE2EEWorker();
     throw lastError instanceof Error
       ? lastError
       : new Error(
           'E2EE: failed to initialize encryption after retries' +
             (lastError != null ? ` (${String(lastError)})` : '')
         );
+  }
+
+  /** Create the E2EE Worker for RTCRtpScriptTransform */
+  private initE2EEWorker(): void {
+    if (this.e2eeWorker) return;
+    this.e2eeWorker = new Worker(new URL('../workers/e2eeWorker.ts', import.meta.url), {
+      type: 'module',
+    });
+    this.e2eeWorker.onmessage = (event: MessageEvent<E2EEMainMessage>) => {
+      this.handleWorkerMessage(event.data);
+    };
+    this.e2eeWorker.onerror = (err) => {
+      console.error('E2EE Worker error:', err);
+    };
+  }
+
+  /** Terminate and clean up the E2EE Worker */
+  private terminateE2EEWorker(): void {
+    if (this.e2eeWorker) {
+      this.e2eeWorker.postMessage({ type: 'destroy' } satisfies E2EEWorkerMessage);
+      this.e2eeWorker.terminate();
+      this.e2eeWorker = null;
+    }
+  }
+
+  /** Handle messages from the E2EE Worker */
+  private handleWorkerMessage(msg: E2EEMainMessage): void {
+    switch (msg.type) {
+      case 'rotationComplete':
+        // Sync the main-thread epoch tracker with the Worker's authoritative state.
+        // The main-thread MediaEncryption is only used for getCurrentKeyId() calls
+        // (key derivation uses the epoch to pre-ratchet new decrypt keys).
+        this.mediaEncryption?.setCurrentKeyId(msg.newKeyId);
+        break;
+
+      case 'requestRecovery': {
+        const channelId = useVoiceStore.getState().activeChannelId;
+        if (channelId) {
+          console.debug(`E2EE: Worker requested recovery for ${msg.senderUserId}`);
+          e2eeService.invalidateChannelKey(channelId);
+          this.addDecryptKeyForUser(channelId, msg.senderUserId).catch(() => {});
+        }
+        break;
+      }
+
+      case 'log':
+        // Forward Worker logs to renderer console
+        // eslint-disable-next-line no-console
+        console[msg.level](msg.message, msg.data || '');
+        break;
+    }
+  }
+
+  /**
+   * Debounced key rotation: collapses rapid join/leave bursts.
+   * For Worker path: sends rotateKeys to the Worker.
+   * For legacy path: delegates to MediaEncryption.debouncedRotateKeys().
+   */
+  private debouncedRotateE2EEKeys(): void {
+    if (!USE_SCRIPT_TRANSFORM) {
+      // Legacy path: MediaEncryption handles its own debounce
+      this.mediaEncryption?.debouncedRotateKeys();
+      return;
+    }
+
+    // Modern path: debounce on main thread, send to Worker
+    if (!this.e2eeWorker) return;
+    this.rotationPending = true;
+
+    if (!this.rotationDeadline) {
+      this.rotationDeadline = Date.now() + VoiceService.ROTATION_MAX_CAP_MS;
+    }
+
+    if (this.rotationTimer) clearTimeout(this.rotationTimer);
+    const remaining = this.rotationDeadline - Date.now();
+    const delay = remaining <= 0 ? 0 : Math.min(VoiceService.ROTATION_DEBOUNCE_MS, remaining);
+
+    this.rotationTimer = setTimeout(() => {
+      this.rotationTimer = null;
+      this.rotationDeadline = 0;
+      if (!this.rotationPending || !this.e2eeWorker) return;
+      this.rotationPending = false;
+      this.e2eeWorker.postMessage({ type: 'rotateKeys' } satisfies E2EEWorkerMessage);
+    }, delay);
   }
 
   /** Add a decryption key for a remote user, pre-ratcheted to current epoch (with retry) */
@@ -3280,21 +3427,45 @@ class VoiceService {
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
-      // Re-check: encryption may have been torn down during sleep/await
       if (!this.mediaEncryption) return false;
       try {
         const channelCSK = await e2eeService.getChannelKey(channelId);
-        if (!this.mediaEncryption) return false; // Torn down during await
+        if (!this.mediaEncryption) return false;
         const currentEpoch = this.mediaEncryption.getCurrentKeyId();
-        if (currentEpoch > 0) {
-          await this.mediaEncryption.addDecryptKeyAtEpoch(channelCSK, userId, currentEpoch);
-        } else {
-          await this.mediaEncryption.addDecryptKey(channelCSK, userId);
+
+        // Derive the key on the main thread, pre-ratcheted to current epoch
+        if (currentEpoch > 100) {
+          // Epoch exceeds self-healing ratchet limit (deriveRatchetedKey caps at
+          // 100 steps). A keyId=0 fallback would never catch up — fail explicitly
+          // so the caller knows recovery requires a rejoin.
+          throw new Error(
+            `E2EE: epoch ${currentEpoch} exceeds ratchet limit (100), rejoin required`
+          );
         }
+        let key: CryptoKey = await deriveFrameKey(channelCSK, userId);
+        for (let i = 0; i < currentEpoch; i++) {
+          key = await ratchetKey(key);
+        }
+        const keyId = currentEpoch;
+
+        // Store in main-thread MediaEncryption (for legacy path / ID tracking)
+        this.mediaEncryption.addDecryptKeyDirect(userId, keyId, key);
+
+        // Send to Worker (modern path)
+        if (this.e2eeWorker) {
+          this.e2eeWorker.postMessage({
+            type: 'addDecryptKey',
+            senderUserId: userId,
+            keyId,
+            key,
+          } satisfies E2EEWorkerMessage);
+        }
+
         console.debug('E2EE: decrypt key added', {
           channelId,
           targetUserId: userId,
           currentEpoch,
+          keyId,
           attempt: attempt + 1,
         });
         return true;
@@ -3317,19 +3488,31 @@ class VoiceService {
   }
 
   /**
-   * Apply Insertable Streams encrypt transform to a producer.
-   * Tries RTCRtpScriptTransform (modern, Chrome 118+) first,
-   * falls back to createEncodedStreams (legacy, Chrome 86-130).
+   * Apply E2EE encrypt transform to a producer.
+   * Modern path: RTCRtpScriptTransform (Chromium 129+, Worker-based).
+   * Legacy path: createEncodedStreams (Chromium 86-130, main-thread).
    */
   private applyEncryptTransform(producer: mediasoupTypes.Producer): void {
-    if (!this.mediaEncryption) return;
-
     const sender = producer.rtpSender;
     if (!sender) {
       console.warn('E2EE: no rtpSender on producer — frames will not be encrypted');
       return;
     }
 
+    // Modern path: RTCRtpScriptTransform (Chromium 129+)
+    if (USE_SCRIPT_TRANSFORM && this.e2eeWorker) {
+      try {
+        const options: E2EETransformOptions = { role: 'encrypt' };
+        sender.transform = new RTCRtpScriptTransform(this.e2eeWorker, options);
+        console.debug('E2EE: encrypt transform applied (RTCRtpScriptTransform)');
+      } catch (err) {
+        console.error('E2EE: RTCRtpScriptTransform failed on sender:', err);
+      }
+      return;
+    }
+
+    // Legacy path: createEncodedStreams (Chromium 86-130)
+    if (!this.mediaEncryption) return;
     const encryption = this.mediaEncryption;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const senderAny = sender as any;
@@ -3356,8 +3539,6 @@ class VoiceService {
                 encryptDropCount = 0;
               }
             } catch (err) {
-              // Encrypt failed — DROP the frame to avoid sending unencrypted
-              // plaintext on an encrypted channel. Silence/blank is correct.
               encryptDropCount++;
               if (encryptDropCount === 1 || encryptDropCount % 100 === 0) {
                 console.warn('E2EE: encrypt frame dropped', {
@@ -3374,33 +3555,47 @@ class VoiceService {
           .catch((err: unknown) => {
             console.error('E2EE: encrypt pipe broken — frames stopped flowing:', err);
           });
-        console.debug('E2EE: encrypt transform applied');
+        console.debug('E2EE: encrypt transform applied (createEncodedStreams)');
       } catch (err) {
         console.error('E2EE: createEncodedStreams failed on sender:', err);
       }
     } else {
-      console.warn('E2EE: Insertable Streams API not available — frames will not be encrypted');
+      console.warn('E2EE: no Insertable Streams API available — frames will not be encrypted');
     }
   }
 
   /**
-   * Apply Insertable Streams decrypt transform to a consumer.
-   * With magic-byte detection, unencrypted frames pass through safely.
+   * Apply E2EE decrypt transform to a consumer.
+   * Modern path: RTCRtpScriptTransform (Chromium 129+, Worker-based).
+   * Legacy path: createEncodedStreams (Chromium 86-130, main-thread).
    */
   private applyDecryptTransform(consumer: mediasoupTypes.Consumer, senderUserId: string): void {
-    if (!this.mediaEncryption) return;
-
     const receiver = consumer.rtpReceiver;
     if (!receiver) {
       console.warn('E2EE: no rtpReceiver on consumer — frames will not be decrypted');
       return;
     }
 
+    // Modern path: RTCRtpScriptTransform (Chromium 129+)
+    if (USE_SCRIPT_TRANSFORM && this.e2eeWorker) {
+      try {
+        const options: E2EETransformOptions = { role: 'decrypt', senderUserId };
+        receiver.transform = new RTCRtpScriptTransform(this.e2eeWorker, options);
+        console.debug(
+          `E2EE: decrypt transform applied for ${senderUserId} (RTCRtpScriptTransform)`
+        );
+      } catch (err) {
+        console.error('E2EE: RTCRtpScriptTransform failed on receiver:', err);
+      }
+      return;
+    }
+
+    // Legacy path: createEncodedStreams (Chromium 86-130)
+    if (!this.mediaEncryption) return;
     const encryption = this.mediaEncryption;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const receiverAny = receiver as any;
 
-    // Self-healing recovery state (captured by transform closure)
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const voiceSvc = this;
     let recoveryInProgress = false;
@@ -3419,12 +3614,10 @@ class VoiceService {
             try {
               await encryption.decryptFrame(frame, senderUserId);
               controller.enqueue(frame);
-              // Log first successful decrypt per sender
               if (!firstDecryptLogged) {
                 firstDecryptLogged = true;
                 console.debug(`E2EE: first frame decrypted for ${senderUserId}`);
               }
-              // Reset drop counter on success
               if (dropCount > 0) {
                 console.info(
                   `E2EE: decrypt recovered after ${dropCount} dropped frames for ${senderUserId}`
@@ -3439,7 +3632,6 @@ class VoiceService {
                     ? `${decryptErr.name}: ${decryptErr.message}`
                     : String(decryptErr);
                 if (E2EE_VERBOSE) {
-                  // Verbose: full frame metadata + hex dump for deep debugging
                   const fd = new Uint8Array(frame.data);
                   const trailerHex =
                     fd.length >= 16
@@ -3465,7 +3657,6 @@ class VoiceService {
                 }
               }
 
-              // Self-healing: after threshold, attempt to re-derive decrypt key
               if (
                 dropCount === RECOVERY_THRESHOLD &&
                 !recoveryInProgress &&
@@ -3507,12 +3698,12 @@ class VoiceService {
           .catch((err: unknown) => {
             console.warn('E2EE decrypt pipe error:', err);
           });
-        console.debug(`E2EE: decrypt transform applied for ${senderUserId}`);
+        console.debug(`E2EE: decrypt transform applied for ${senderUserId} (createEncodedStreams)`);
       } catch (err) {
         console.error('E2EE: createEncodedStreams failed on receiver:', err);
       }
     } else {
-      console.warn('E2EE: Insertable Streams API not available — frames will not be decrypted');
+      console.warn('E2EE: no Insertable Streams API available — frames will not be decrypted');
     }
   }
 
@@ -3617,6 +3808,11 @@ class VoiceService {
     }
 
     // Destroy E2EE
+    this.terminateE2EEWorker();
+    if (this.rotationTimer) {
+      clearTimeout(this.rotationTimer);
+      this.rotationTimer = null;
+    }
     this.mediaEncryption?.destroy();
     this.mediaEncryption = null;
     this.isEncrypted = false;
