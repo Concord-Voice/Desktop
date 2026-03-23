@@ -1,11 +1,23 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { useFormState } from '../../hooks/useFormState';
+import { useImageUpload } from '../../hooks/useImageUpload';
 import { Lock } from 'lucide-react';
 import Modal from '../ui/Modal';
+import ImageCropEditor from '../ui/ImageCropEditor';
+import IconUploadArea from './IconUploadArea';
+import BannerUploadArea from './BannerUploadArea';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useServerStore } from '../../stores/serverStore';
 import { apiFetch } from '../../services/apiClient';
 import { ServerWithRole } from '../../types/server';
+import {
+  MAX_ICON_SIZE,
+  MAX_BANNER_SIZE,
+  ALLOWED_TYPES,
+  NAME_MIN,
+  NAME_MAX,
+  type ServerFormErrors,
+} from './serverConstants';
 import './CreateServerModal.css';
 
 interface CreateServerModalProps {
@@ -14,21 +26,8 @@ interface CreateServerModalProps {
   onSuccess: (server: ServerWithRole) => void;
 }
 
-interface FormErrors {
-  name?: string;
-  icon?: string;
-  general?: string;
-}
-
-const MAX_ICON_SIZE = 256 * 1024; // 256KB
-const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-const NAME_MIN = 3;
-const NAME_MAX = 100;
-
 const CreateServerModal: React.FC<CreateServerModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const [name, setName] = useState('');
-  const [iconPreview, setIconPreview] = useState<string | null>(null);
-  const [iconDataUrl, setIconDataUrl] = useState<string | null>(null);
   const [e2eeDefault, setE2eeDefault] = useState(true);
   const {
     errors,
@@ -38,13 +37,25 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({ isOpen, onClose, 
     successMessage,
     setSuccessMessage,
     reset: resetFormState,
-  } = useFormState<FormErrors>();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  } = useFormState<ServerFormErrors>();
+
+  const icon = useImageUpload({
+    maxSize: MAX_ICON_SIZE,
+    allowedTypes: ALLOWED_TYPES,
+    onError: (msg) => setErrors((prev) => ({ ...prev, icon: msg })),
+  });
+
+  const banner = useImageUpload({
+    maxSize: MAX_BANNER_SIZE,
+    allowedTypes: ALLOWED_TYPES,
+    onError: (msg) => setErrors((prev) => ({ ...prev, banner: msg })),
+  });
+
   const resetForm = () => {
     setName('');
-    setIconPreview(null);
-    setIconDataUrl(null);
     setE2eeDefault(true);
+    icon.reset();
+    banner.reset();
     resetFormState();
   };
 
@@ -56,7 +67,7 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({ isOpen, onClose, 
   };
 
   const validateForm = (): boolean => {
-    const newErrors: FormErrors = {};
+    const newErrors: ServerFormErrors = {};
     const trimmed = name.trim();
 
     if (!trimmed) {
@@ -71,54 +82,6 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({ isOpen, onClose, 
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleIconClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleIconKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleIconClick();
-    }
-  };
-
-  const handleIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      setErrors((prev) => ({
-        ...prev,
-        icon: 'Only PNG, JPEG, GIF, and WebP images are allowed',
-      }));
-      return;
-    }
-
-    if (file.size > MAX_ICON_SIZE) {
-      setErrors((prev) => ({
-        ...prev,
-        icon: 'Image must be smaller than 256KB',
-      }));
-      return;
-    }
-
-    setErrors((prev) => ({ ...prev, icon: undefined }));
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      setIconPreview(dataUrl);
-      setIconDataUrl(dataUrl);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleRemoveIcon = () => {
-    setIconPreview(null);
-    setIconDataUrl(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrors({});
@@ -129,13 +92,13 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({ isOpen, onClose, 
     setIsSubmitting(true);
 
     try {
-      const body: { name: string; icon_url?: string; e2ee_default: boolean } = {
-        name: name.trim(),
-        e2ee_default: e2eeDefault,
-      };
-      if (iconDataUrl) {
-        body.icon_url = iconDataUrl;
-      }
+      const body: { name: string; icon_url?: string; banner_url?: string; e2ee_default: boolean } =
+        {
+          name: name.trim(),
+          e2ee_default: e2eeDefault,
+        };
+      if (icon.imageUrl) body.icon_url = icon.imageUrl;
+      if (banner.imageUrl) body.banner_url = banner.imageUrl;
 
       const response = await apiFetch('/api/v1/servers', {
         method: 'POST',
@@ -174,48 +137,26 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({ isOpen, onClose, 
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Create a Server" width="medium">
       <form className="create-server-form" onSubmit={handleSubmit}>
-        {/* Icon Upload */}
-        <div className="server-icon-upload">
-          <div
-            className="icon-upload-area"
-            onClick={handleIconClick}
-            onKeyDown={handleIconKeyDown}
-            role="button"
-            tabIndex={0}
-            aria-label="Upload server icon"
-          >
-            {iconPreview ? (
-              <img src={iconPreview} alt="Server icon preview" className="icon-preview" />
-            ) : (
-              <div className="icon-placeholder">
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                  <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.5" />
-                </svg>
-                <span className="icon-placeholder-text">Upload</span>
-              </div>
-            )}
-          </div>
-          {iconPreview && (
-            <button type="button" className="icon-remove-btn" onClick={handleRemoveIcon}>
-              Remove
-            </button>
-          )}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/gif,image/webp"
-            onChange={handleIconChange}
-            hidden
-          />
-          {errors.icon && <span className="form-error">{errors.icon}</span>}
-        </div>
+        <IconUploadArea
+          preview={icon.preview}
+          error={errors.icon}
+          onClick={icon.handleClick}
+          onKeyDown={icon.handleKeyDown}
+          onRemove={icon.handleRemove}
+          onFileChange={icon.handleChange}
+          fileInputRef={icon.fileInputRef}
+        />
+
+        <BannerUploadArea
+          preview={banner.preview}
+          error={errors.banner}
+          onClick={banner.handleClick}
+          onKeyDown={banner.handleKeyDown}
+          onRemove={banner.handleRemove}
+          onFileChange={banner.handleChange}
+          fileInputRef={banner.fileInputRef}
+          hint="PNG, JPEG, GIF, WebP — max 2MB. Optional."
+        />
 
         {/* Server Name */}
         <div className="form-group">
@@ -307,6 +248,26 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({ isOpen, onClose, 
           </button>
         </div>
       </form>
+
+      <ImageCropEditor
+        isOpen={icon.showCrop}
+        onClose={icon.handleCropCancel}
+        onConfirm={icon.handleCropConfirm}
+        imageFile={icon.pendingFile}
+        title="Crop Server Icon"
+        cropShape={{ type: 'circle' }}
+        output={{ width: 512, height: 512, quality: 0.9 }}
+      />
+
+      <ImageCropEditor
+        isOpen={banner.showCrop}
+        onClose={banner.handleCropCancel}
+        onConfirm={banner.handleCropConfirm}
+        imageFile={banner.pendingFile}
+        title="Crop Server Banner"
+        cropShape={{ type: 'rectangle' }}
+        output={{ width: 1200, height: 240, quality: 0.9 }}
+      />
     </Modal>
   );
 };

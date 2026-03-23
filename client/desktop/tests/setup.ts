@@ -5,10 +5,18 @@
   const store = new Map<string, string>();
   const storage = {
     getItem: (key: string) => store.get(key) ?? null,
-    setItem: (key: string, value: string) => { store.set(key, value); },
-    removeItem: (key: string) => { store.delete(key); },
-    clear: () => { store.clear(); },
-    get length() { return store.size; },
+    setItem: (key: string, value: string) => {
+      store.set(key, value);
+    },
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    clear: () => {
+      store.clear();
+    },
+    get length() {
+      return store.size;
+    },
     key: (index: number) => [...store.keys()][index] ?? null,
   };
   Object.defineProperty(globalThis, 'localStorage', {
@@ -78,6 +86,39 @@ if (typeof window !== 'undefined') {
     value: MockResizeObserver,
     writable: true,
   });
+
+  // Mock HTMLCanvasElement — jsdom doesn't support canvas rendering context
+  const noop = () => {};
+  HTMLCanvasElement.prototype.getContext = vi.fn(() => ({
+    clearRect: noop,
+    drawImage: noop,
+    fillRect: noop,
+    strokeRect: noop,
+    beginPath: noop,
+    arc: noop,
+    fill: noop,
+    stroke: noop,
+    save: noop,
+    restore: noop,
+    scale: noop,
+    setTransform: noop,
+    globalCompositeOperation: 'source-over',
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 1,
+  })) as unknown as typeof HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.toBlob = vi.fn(function (_cb: BlobCallback) {
+    _cb(new Blob(['mock'], { type: 'image/png' }));
+  }) as unknown as typeof HTMLCanvasElement.prototype.toBlob;
+  HTMLCanvasElement.prototype.toDataURL = vi.fn(() => 'data:image/png;base64,mock');
+
+  // Mock URL.createObjectURL / revokeObjectURL (jsdom doesn't support blob URLs)
+  if (!URL.createObjectURL) {
+    URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+  }
+  if (!URL.revokeObjectURL) {
+    URL.revokeObjectURL = vi.fn();
+  }
 }
 
 // Suppress React act() warnings in test output

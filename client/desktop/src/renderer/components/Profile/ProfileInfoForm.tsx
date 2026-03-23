@@ -1,7 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useUserStore, UpdateProfileData } from '../../stores/userStore';
+import { useImageUpload } from '../../hooks/useImageUpload';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import Modal from '../ui/Modal';
+import ImageCropEditor from '../ui/ImageCropEditor';
 import {
   MAX_AVATAR_SIZE,
   MAX_HEADER_SIZE,
@@ -17,24 +19,31 @@ import {
 const ProfileInfoForm: React.FC = () => {
   const user = useUserStore((state) => state.user);
   const updateProfile = useUserStore((state) => state.updateProfile);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const headerFileInputRef = useRef<HTMLInputElement>(null);
 
   // Profile form state
   const [username, setUsername] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [bio, setBio] = useState('');
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
-  const [avatarDataUrl, setAvatarDataUrl] = useState<string | null>(null);
-  const [avatarRemoved, setAvatarRemoved] = useState(false);
-  const [headerPreview, setHeaderPreview] = useState<string | null>(null);
-  const [headerDataUrl, setHeaderDataUrl] = useState<string | null>(null);
-  const [headerRemoved, setHeaderRemoved] = useState(false);
   const [links, setLinks] = useState<string[]>([]);
   const [profileErrors, setProfileErrors] = useState<ProfileFormErrors>({});
   const [isProfileSubmitting, setIsProfileSubmitting] = useState(false);
   const [profileSuccess, setProfileSuccess] = useState<string | null>(null);
   const [showUsernameConfirm, setShowUsernameConfirm] = useState(false);
+
+  // Image upload hooks (declared after setProfileErrors to avoid TDZ confusion)
+  const avatar = useImageUpload({
+    maxSize: MAX_AVATAR_SIZE,
+    allowedTypes: ALLOWED_TYPES,
+    onError: (msg) => setProfileErrors((prev) => ({ ...prev, avatar: msg })),
+    initialUrl: user?.avatar_url,
+  });
+
+  const header = useImageUpload({
+    maxSize: MAX_HEADER_SIZE,
+    allowedTypes: ALLOWED_TYPES,
+    onError: (msg) => setProfileErrors((prev) => ({ ...prev, header: msg })),
+    initialUrl: user?.header_image_url,
+  });
 
   // Username change cooldown
   const usernameChangeEligibleAt = user?.username_change_eligible_at
@@ -50,117 +59,11 @@ const ProfileInfoForm: React.FC = () => {
       setUsername(user.username);
       setDisplayName(user.display_name || '');
       setBio(user.bio || '');
-      setAvatarPreview(user.avatar_url || null);
-      setAvatarDataUrl(user.avatar_url || null);
-      setAvatarRemoved(false);
-      setHeaderPreview(user.header_image_url || null);
-      setHeaderDataUrl(user.header_image_url || null);
-      setHeaderRemoved(false);
+      avatar.reset(user.avatar_url || null);
+      header.reset(user.header_image_url || null);
       setLinks(user.links || []);
     }
   }, [user]);
-
-  // Avatar handlers
-  const handleAvatarClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleAvatarKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleAvatarClick();
-    }
-  };
-
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      setProfileErrors((prev) => ({
-        ...prev,
-        avatar: 'Only PNG, JPEG, GIF, and WebP images are allowed',
-      }));
-      return;
-    }
-
-    if (file.size > MAX_AVATAR_SIZE) {
-      setProfileErrors((prev) => ({
-        ...prev,
-        avatar: 'Image must be smaller than 256KB',
-      }));
-      return;
-    }
-
-    setProfileErrors((prev) => ({ ...prev, avatar: undefined }));
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      setAvatarPreview(dataUrl);
-      setAvatarDataUrl(dataUrl);
-      setAvatarRemoved(false);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleRemoveAvatar = () => {
-    setAvatarPreview(null);
-    setAvatarDataUrl(null);
-    setAvatarRemoved(true);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  // Header image handlers
-  const handleHeaderClick = () => {
-    headerFileInputRef.current?.click();
-  };
-
-  const handleHeaderKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleHeaderClick();
-    }
-  };
-
-  const handleHeaderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      setProfileErrors((prev) => ({
-        ...prev,
-        header: 'Only PNG, JPEG, GIF, and WebP images are allowed',
-      }));
-      return;
-    }
-
-    if (file.size > MAX_HEADER_SIZE) {
-      setProfileErrors((prev) => ({
-        ...prev,
-        header: 'Header image must be smaller than 512KB',
-      }));
-      return;
-    }
-
-    setProfileErrors((prev) => ({ ...prev, header: undefined }));
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      setHeaderPreview(dataUrl);
-      setHeaderDataUrl(dataUrl);
-      setHeaderRemoved(false);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleRemoveHeader = () => {
-    setHeaderPreview(null);
-    setHeaderDataUrl(null);
-    setHeaderRemoved(true);
-    if (headerFileInputRef.current) headerFileInputRef.current.value = '';
-  };
 
   // Link handlers
   const handleAddLink = () => {
@@ -237,15 +140,15 @@ const ProfileInfoForm: React.FC = () => {
       if (bio !== (user?.bio || '')) {
         updates.bio = bio.trim() || null;
       }
-      if (avatarRemoved) {
+      if (avatar.removed) {
         updates.avatar_url = ''; // Empty string signals "remove" to backend
-      } else if (avatarDataUrl && avatarDataUrl !== user?.avatar_url) {
-        updates.avatar_url = avatarDataUrl;
+      } else if (avatar.imageUrl && avatar.imageUrl !== user?.avatar_url) {
+        updates.avatar_url = avatar.imageUrl;
       }
-      if (headerRemoved) {
+      if (header.removed) {
         updates.header_image_url = ''; // Empty string signals "remove" to backend
-      } else if (headerDataUrl && headerDataUrl !== user?.header_image_url) {
-        updates.header_image_url = headerDataUrl;
+      } else if (header.imageUrl && header.imageUrl !== user?.header_image_url) {
+        updates.header_image_url = header.imageUrl;
       }
 
       const filteredLinks = links.filter((l) => l.trim());
@@ -262,7 +165,6 @@ const ProfileInfoForm: React.FC = () => {
 
       await updateProfile(updates);
       setProfileSuccess('Profile updated successfully!');
-      setAvatarRemoved(false);
 
       setTimeout(() => setProfileSuccess(null), 3000);
     } catch (error) {
@@ -303,10 +205,10 @@ const ProfileInfoForm: React.FC = () => {
     if (username.trim() !== user.username) return true;
     if (displayName !== (user.display_name || '')) return true;
     if (bio !== (user.bio || '')) return true;
-    if (avatarRemoved) return true;
-    if (avatarDataUrl && avatarDataUrl !== user.avatar_url) return true;
-    if (headerRemoved) return true;
-    if (headerDataUrl && headerDataUrl !== user.header_image_url) return true;
+    if (avatar.removed) return true;
+    if (avatar.imageUrl && avatar.imageUrl !== user.avatar_url) return true;
+    if (header.removed) return true;
+    if (header.imageUrl && header.imageUrl !== user.header_image_url) return true;
     const filteredLinks = links.filter((l) => l.trim());
     const currentLinks = user.links || [];
     if (JSON.stringify(filteredLinks) !== JSON.stringify(currentLinks)) return true;
@@ -319,12 +221,8 @@ const ProfileInfoForm: React.FC = () => {
       setUsername(user.username);
       setDisplayName(user.display_name || '');
       setBio(user.bio || '');
-      setAvatarPreview(user.avatar_url || null);
-      setAvatarDataUrl(user.avatar_url || null);
-      setAvatarRemoved(false);
-      setHeaderPreview(user.header_image_url || null);
-      setHeaderDataUrl(user.header_image_url || null);
-      setHeaderRemoved(false);
+      avatar.reset(user.avatar_url || null);
+      header.reset(user.header_image_url || null);
       setLinks(user.links || []);
       setProfileErrors({});
       setProfileSuccess(null);
@@ -348,14 +246,14 @@ const ProfileInfoForm: React.FC = () => {
       <div className="profile-avatar-section">
         <div
           className="profile-avatar-upload"
-          onClick={handleAvatarClick}
-          onKeyDown={handleAvatarKeyDown}
+          onClick={avatar.handleClick}
+          onKeyDown={avatar.handleKeyDown}
           role="button"
           tabIndex={0}
           aria-label="Upload avatar"
         >
-          {avatarPreview ? (
-            <img src={avatarPreview} alt="Avatar preview" className="profile-avatar-preview" />
+          {avatar.preview ? (
+            <img src={avatar.preview} alt="Avatar preview" className="profile-avatar-preview" />
           ) : user ? (
             <span className="profile-avatar-initial">{user.username.charAt(0).toUpperCase()}</span>
           ) : (
@@ -376,23 +274,23 @@ const ProfileInfoForm: React.FC = () => {
         </div>
         <div className="profile-avatar-actions">
           <span className="profile-avatar-actions-label">
-            Click to upload an avatar (PNG, JPEG, GIF, WebP &mdash; max 256KB)
+            Click to upload an avatar (PNG, JPEG, GIF, WebP &mdash; max 1MB)
           </span>
-          {avatarPreview && (
+          {avatar.preview && (
             <button
               type="button"
               className="profile-avatar-remove-btn"
-              onClick={handleRemoveAvatar}
+              onClick={avatar.handleRemove}
             >
               Remove avatar
             </button>
           )}
         </div>
         <input
-          ref={fileInputRef}
+          ref={avatar.fileInputRef}
           type="file"
           accept="image/png,image/jpeg,image/gif,image/webp"
-          onChange={handleAvatarChange}
+          onChange={avatar.handleChange}
           hidden
         />
       </div>
@@ -403,14 +301,14 @@ const ProfileInfoForm: React.FC = () => {
         <label className="form-label">Profile Banner</label>
         <div
           className="profile-header-upload"
-          onClick={handleHeaderClick}
-          onKeyDown={handleHeaderKeyDown}
+          onClick={header.handleClick}
+          onKeyDown={header.handleKeyDown}
           role="button"
           tabIndex={0}
           aria-label="Upload header image"
         >
-          {headerPreview ? (
-            <img src={headerPreview} alt="Header preview" className="profile-header-preview" />
+          {header.preview ? (
+            <img src={header.preview} alt="Header preview" className="profile-header-preview" />
           ) : (
             <div className="profile-header-placeholder">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -429,23 +327,23 @@ const ProfileInfoForm: React.FC = () => {
         </div>
         <div className="profile-header-actions">
           <span className="profile-avatar-actions-label">
-            PNG, JPEG, GIF, WebP &mdash; max 512KB. Recommended: 600&times;120 or wider.
+            PNG, JPEG, GIF, WebP &mdash; max 2MB. Recommended: 600&times;120 or wider.
           </span>
-          {headerPreview && (
+          {header.preview && (
             <button
               type="button"
               className="profile-avatar-remove-btn"
-              onClick={handleRemoveHeader}
+              onClick={header.handleRemove}
             >
               Remove banner
             </button>
           )}
         </div>
         <input
-          ref={headerFileInputRef}
+          ref={header.fileInputRef}
           type="file"
           accept="image/png,image/jpeg,image/gif,image/webp"
-          onChange={handleHeaderChange}
+          onChange={header.handleChange}
           hidden
         />
       </div>
@@ -652,6 +550,30 @@ const ProfileInfoForm: React.FC = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Avatar Crop Editor */}
+      <ImageCropEditor
+        isOpen={avatar.showCrop}
+        onClose={avatar.handleCropCancel}
+        onConfirm={avatar.handleCropConfirm}
+        imageFile={avatar.pendingFile}
+        title="Crop Avatar"
+        cropShape={{ type: 'circle' }}
+        output={{ width: 512, height: 512, quality: 0.9 }}
+        upload={{ endpoint: '/api/v1/media/upload/avatar' }}
+      />
+
+      {/* Banner Crop Editor */}
+      <ImageCropEditor
+        isOpen={header.showCrop}
+        onClose={header.handleCropCancel}
+        onConfirm={header.handleCropConfirm}
+        imageFile={header.pendingFile}
+        title="Crop Banner"
+        cropShape={{ type: 'rectangle' }}
+        output={{ width: 1200, height: 240, quality: 0.9 }}
+        upload={{ endpoint: '/api/v1/media/upload/banner' }}
+      />
     </form>
   );
 };

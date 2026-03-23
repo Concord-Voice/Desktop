@@ -1,13 +1,11 @@
 @import '../Auth/AuthForm.css';
+@import './CreateServerModal.css';
 
 .server-settings-form {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
-
-/* Reuse icon upload styles from CreateServerModal.css */
-/* They share .server-icon-upload, .icon-upload-area, .icon-preview, etc. */
 
 /* Invite Code Section */
 .invite-section {

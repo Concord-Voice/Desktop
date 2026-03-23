@@ -96,3 +96,11 @@
     transform: translateY(0) scale(1);
   }
 }
+
+/* Respect user preference to reduce animations */
+[data-reduce-animations='true'] .modal-overlay {
+  animation: none;
+}
+[data-reduce-animations='true'] .modal-container {
+  animation: none;
+}

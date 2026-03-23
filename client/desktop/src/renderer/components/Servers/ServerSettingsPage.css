@@ -1,6 +1,7 @@
 /* Server Settings Page — imports shared settings layout + adds server-specific styles */
 @import '../Settings/SettingsPage.css';
 @import '../Auth/AuthForm.css';
+@import './CreateServerModal.css';
 
 /* ─── General Section ─── */
 
@@ -9,9 +10,6 @@
   flex-direction: column;
   gap: 24px;
 }
-
-/* Reuse icon upload styles from CreateServerModal.css */
-/* They share .server-icon-upload, .icon-upload-area, .icon-preview, etc. */
 
 /* ─── Invite Code Section ─── */
 

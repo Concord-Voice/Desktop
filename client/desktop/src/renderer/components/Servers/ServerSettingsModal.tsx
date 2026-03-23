@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Modal from '../ui/Modal';
+import ImageCropEditor from '../ui/ImageCropEditor';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import PermissionGrid from '../Permissions/PermissionGrid';
 import { useServerStore } from '../../stores/serverStore';
@@ -8,6 +9,17 @@ import { usePermissionStore } from '../../stores/permissionStore';
 import { useMemberStore } from '../../stores/memberStore';
 import { Permissions, parsePermissions } from '../../utils/permissions';
 import { apiFetch } from '../../services/apiClient';
+import { useImageUpload } from '../../hooks/useImageUpload';
+import IconUploadArea from './IconUploadArea';
+import BannerUploadArea from './BannerUploadArea';
+import {
+  MAX_ICON_SIZE,
+  MAX_BANNER_SIZE,
+  ALLOWED_TYPES,
+  NAME_MIN,
+  NAME_MAX,
+  type ServerFormErrors,
+} from './serverConstants';
 import type { ServerWithRole, ServerInviteWithCreator, Role } from '../../types/server';
 import './ServerSettingsModal.css';
 
@@ -20,30 +32,29 @@ interface ServerSettingsModalProps {
   onClose: () => void;
 }
 
-interface FormErrors {
-  name?: string;
-  icon?: string;
-  general?: string;
-}
-
 type SettingsTab = 'general' | 'roles' | 'members';
-
-const MAX_ICON_SIZE = 256 * 1024;
-const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-const NAME_MIN = 3;
-const NAME_MAX = 100;
 
 const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, server, onClose }) => {
   const [name, setName] = useState(server.name);
-  const [iconPreview, setIconPreview] = useState<string | null>(server.icon_url || null);
-  const [iconDataUrl, setIconDataUrl] = useState<string | null>(server.icon_url || null);
-  const [iconRemoved, setIconRemoved] = useState(false);
-  const [errors, setErrors] = useState<FormErrors>({});
+  const [errors, setErrors] = useState<ServerFormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [inviteCopied, setInviteCopied] = useState(false);
   const [isCreatingInvite, setIsCreatingInvite] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const icon = useImageUpload({
+    maxSize: MAX_ICON_SIZE,
+    allowedTypes: ALLOWED_TYPES,
+    onError: (msg) => setErrors((prev) => ({ ...prev, icon: msg })),
+    initialUrl: server.icon_url,
+  });
+
+  const banner = useImageUpload({
+    maxSize: MAX_BANNER_SIZE,
+    allowedTypes: ALLOWED_TYPES,
+    onError: (msg) => setErrors((prev) => ({ ...prev, banner: msg })),
+    initialUrl: server.banner_url,
+  });
 
   // Tab state
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
@@ -92,9 +103,8 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
   // Reset form when server changes
   useEffect(() => {
     setName(server.name);
-    setIconPreview(server.icon_url || null);
-    setIconDataUrl(server.icon_url || null);
-    setIconRemoved(false);
+    icon.reset(server.icon_url || null);
+    banner.reset(server.banner_url || null);
     setErrors({});
     setIsSubmitting(false);
     setSuccessMessage(null);
@@ -147,7 +157,7 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
   };
 
   const validateForm = (): boolean => {
-    const newErrors: FormErrors = {};
+    const newErrors: ServerFormErrors = {};
     const trimmed = name.trim();
 
     if (!trimmed) {
@@ -162,56 +172,6 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleIconClick = () => {
-    fileInputRef.current?.click();
-  };
-
-  const handleIconKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleIconClick();
-    }
-  };
-
-  const handleIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!ALLOWED_TYPES.includes(file.type)) {
-      setErrors((prev) => ({
-        ...prev,
-        icon: 'Only PNG, JPEG, GIF, and WebP images are allowed',
-      }));
-      return;
-    }
-
-    if (file.size > MAX_ICON_SIZE) {
-      setErrors((prev) => ({
-        ...prev,
-        icon: 'Image must be smaller than 256KB',
-      }));
-      return;
-    }
-
-    setErrors((prev) => ({ ...prev, icon: undefined }));
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target?.result as string;
-      setIconPreview(dataUrl);
-      setIconDataUrl(dataUrl);
-      setIconRemoved(false);
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleRemoveIcon = () => {
-    setIconPreview(null);
-    setIconDataUrl(null);
-    setIconRemoved(true);
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrors({});
@@ -222,14 +182,20 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
     setIsSubmitting(true);
 
     try {
-      const body: { name: string; icon_url?: string | null } = {
+      const body: { name: string; icon_url?: string | null; banner_url?: string | null } = {
         name: name.trim(),
       };
 
-      if (iconRemoved) {
+      if (icon.removed) {
         body.icon_url = null;
-      } else if (iconDataUrl && iconDataUrl !== server.icon_url) {
-        body.icon_url = iconDataUrl;
+      } else if (icon.imageUrl && icon.imageUrl !== server.icon_url) {
+        body.icon_url = icon.imageUrl;
+      }
+
+      if (banner.removed) {
+        body.banner_url = null;
+      } else if (banner.imageUrl && banner.imageUrl !== server.banner_url) {
+        body.banner_url = banner.imageUrl;
       }
 
       const response = await apiFetch(`/api/v1/servers/${server.id}`, {
@@ -247,6 +213,7 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
       useServerStore.getState().updateServer(server.id, {
         name: data.server.name,
         icon_url: data.server.icon_url,
+        banner_url: data.server.banner_url,
         updated_at: data.server.updated_at,
       });
 
@@ -360,48 +327,27 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
       {/* General Tab */}
       {activeTab === 'general' && (
         <form className="server-settings-form" onSubmit={handleSubmit}>
-          {/* Icon Upload */}
-          <div className="server-icon-upload">
-            <div
-              className="icon-upload-area"
-              onClick={handleIconClick}
-              onKeyDown={handleIconKeyDown}
-              role="button"
-              tabIndex={0}
-              aria-label="Upload server icon"
-            >
-              {iconPreview ? (
-                <img src={iconPreview} alt="Server icon preview" className="icon-preview" />
-              ) : (
-                <div className="icon-placeholder">
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                    <path
-                      d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.5" />
-                  </svg>
-                  <span className="icon-placeholder-text">Upload</span>
-                </div>
-              )}
-            </div>
-            {iconPreview && (
-              <button type="button" className="icon-remove-btn" onClick={handleRemoveIcon}>
-                Remove
-              </button>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/png,image/jpeg,image/gif,image/webp"
-              onChange={handleIconChange}
-              hidden
-            />
-            {errors.icon && <span className="form-error">{errors.icon}</span>}
-          </div>
+          <IconUploadArea
+            preview={icon.preview}
+            error={errors.icon}
+            onClick={icon.handleClick}
+            onKeyDown={icon.handleKeyDown}
+            onRemove={icon.handleRemove}
+            onFileChange={icon.handleChange}
+            fileInputRef={icon.fileInputRef}
+          />
+
+          {/* Banner Upload */}
+          <BannerUploadArea
+            preview={banner.preview}
+            error={errors.banner}
+            onClick={banner.handleClick}
+            onKeyDown={banner.handleKeyDown}
+            onRemove={banner.handleRemove}
+            onFileChange={banner.handleChange}
+            fileInputRef={banner.fileInputRef}
+            hint="PNG, JPEG, GIF, WebP — max 2MB. Optional."
+          />
 
           {/* Server Name */}
           <div className="form-group">
@@ -728,6 +674,35 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
           )}
         </div>
       )}
+      {/* Icon Crop Editor */}
+      <ImageCropEditor
+        isOpen={icon.showCrop}
+        onClose={icon.handleCropCancel}
+        onConfirm={icon.handleCropConfirm}
+        imageFile={icon.pendingFile}
+        title="Crop Server Icon"
+        cropShape={{ type: 'circle' }}
+        output={{ width: 512, height: 512, quality: 0.9 }}
+        upload={{
+          endpoint: '/api/v1/media/upload/server-icon',
+          extraFields: { server_id: server.id },
+        }}
+      />
+
+      {/* Banner Crop Editor */}
+      <ImageCropEditor
+        isOpen={banner.showCrop}
+        onClose={banner.handleCropCancel}
+        onConfirm={banner.handleCropConfirm}
+        imageFile={banner.pendingFile}
+        title="Crop Server Banner"
+        cropShape={{ type: 'rectangle' }}
+        output={{ width: 1200, height: 240, quality: 0.9 }}
+        upload={{
+          endpoint: '/api/v1/media/upload/server-banner',
+          extraFields: { server_id: server.id },
+        }}
+      />
     </Modal>
   );
 };
