@@ -30,21 +30,34 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
   const quietBoost = useAudioSettingsStore((s) => s.quietBoost);
   const quietBoostThreshold = useAudioSettingsStore((s) => s.quietBoostThreshold);
 
-  // Set up the Web Audio processing chain
+  // Set up the Web Audio processing chain.
+  //
+  // Chromium 135+ broke createMediaStreamSource for WebRTC consumer tracks
+  // with encodedInsertableStreams — the source node produces silence even though
+  // the track is live. Raw <audio>.srcObject playback still works (#295).
+  //
+  // Fix: let the <audio> element play the stream, then capture its output via
+  // createMediaElementSource. This routes the element's decoded audio through
+  // the Web Audio chain (volume, boost, analysis) → ctx.destination.
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
 
+    // Play the consumer stream through the <audio> element first
+    el.srcObject = stream;
+    el.play().catch((err) => console.warn('Audio element play() rejected:', err));
+
     const ctx = new AudioContext({ sampleRate: 48000 });
     ctxRef.current = ctx;
 
-    // Ensure AudioContext is running — can start suspended in some Chromium
-    // edge cases even with autoplay-policy=no-user-gesture-required
     if (ctx.state === 'suspended') {
       ctx.resume().catch((err) => console.warn('AudioContext resume failed:', err));
     }
 
-    const source = ctx.createMediaStreamSource(stream);
+    // Capture the audio element's output into the Web Audio graph.
+    // createMediaElementSource redirects playback through the graph —
+    // the element itself goes silent, audio comes out of ctx.destination.
+    const source = ctx.createMediaElementSource(el);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
     analyser.smoothingTimeConstant = 0.3;
@@ -52,22 +65,38 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
     boostGain.gain.value = 1.0;
     const volumeGain = ctx.createGain();
     volumeGain.gain.value = useAudioSettingsStore.getState().outputVolume / 100;
-    const destination = ctx.createMediaStreamDestination();
 
     source.connect(analyser);
     analyser.connect(volumeGain);
     volumeGain.connect(boostGain);
-    boostGain.connect(destination);
+    boostGain.connect(ctx.destination);
 
     analyserRef.current = analyser;
     boostGainRef.current = boostGain;
     volumeGainRef.current = volumeGain;
 
-    // Play the processed stream through the <audio> element
-    el.srcObject = destination.stream;
-    el.play().catch((err) => console.warn('Audio element play() rejected:', err));
+    // Set output device: prefer AudioContext.setSinkId (Chrome 110+),
+    // fall back to routing through a MediaStreamDestination + <audio> with setSinkId
+    if (outputDeviceId) {
+      if ('setSinkId' in ctx) {
+        (ctx as AudioContext & { setSinkId: (id: string) => Promise<void> })
+          .setSinkId(outputDeviceId)
+          .catch((err) => console.warn('Failed to set audio output device:', err));
+      } else if ('setSinkId' in el) {
+        // Fallback: disconnect from ctx.destination, route through a destination node
+        // to a separate <audio> element that supports setSinkId
+        boostGain.disconnect(ctx.destination);
+        const fallbackDest = ctx.createMediaStreamDestination();
+        boostGain.connect(fallbackDest);
+        const fallbackEl = document.createElement('audio');
+        fallbackEl.srcObject = fallbackDest.stream;
+        (fallbackEl as HTMLAudioElement & { setSinkId: (id: string) => Promise<void> })
+          .setSinkId(outputDeviceId)
+          .catch((err) => console.warn('Failed to set fallback audio output device:', err));
+        fallbackEl.play().catch(() => {});
+      }
+    }
 
-    // Diagnostic: log AudioContext state and stream health
     console.debug('[AudioOutput] setup', {
       ctxState: ctx.state,
       streamActive: stream.active,
@@ -76,13 +105,6 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
       trackEnabled: stream.getAudioTracks()[0]?.enabled,
       outputVolume: useAudioSettingsStore.getState().outputVolume,
     });
-
-    // Set output device (Chrome/Electron setSinkId)
-    if (outputDeviceId && 'setSinkId' in el) {
-      (el as HTMLAudioElement & { setSinkId: (id: string) => Promise<void> })
-        .setSinkId(outputDeviceId)
-        .catch((err) => console.warn('Failed to set audio output device:', err));
-    }
 
     return () => {
       if (boostTimerRef.current) {
@@ -178,7 +200,7 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
     };
   }, [quietBoost, quietBoostThreshold]);
 
-  return <audio ref={audioRef} autoPlay />;
+  return <audio ref={audioRef} />;
 };
 
 /**

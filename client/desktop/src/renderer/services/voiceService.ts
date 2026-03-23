@@ -51,10 +51,35 @@ import type {
 const E2EE_VERBOSE = false;
 
 // Detect which Insertable Streams API is available at module load.
-// RTCRtpScriptTransform (Chromium 129+) replaces createEncodedStreams (removed ~Chromium 131-133).
-// When encodedInsertableStreams is set but createEncodedStreams is missing, frames are held
-// in an internal buffer and never reach the decoder — causing complete silence (#295).
-const USE_SCRIPT_TRANSFORM = typeof RTCRtpScriptTransform !== 'undefined';
+//
+// Priority: createEncodedStreams (legacy) > RTCRtpScriptTransform (modern).
+//
+// Reason: encodedInsertableStreams + RTCRtpScriptTransform CONFLICT in Chromium 135 —
+// the internal pipeline created by encodedInsertableStreams blocks the decoder output
+// even when RTCRtpScriptTransform processes frames in the Worker, producing silence.
+// RTCRtpScriptTransform WITHOUT encodedInsertableStreams receives no frames at all.
+// createEncodedStreams + encodedInsertableStreams is the proven path (#295).
+//
+interface RtpSenderWithEncodedStreams {
+  createEncodedStreams?: () => { readable: ReadableStream; writable: WritableStream };
+}
+const HAS_ENCODED_STREAMS =
+  typeof RTCRtpSender !== 'undefined' &&
+  typeof (RTCRtpSender.prototype as RtpSenderWithEncodedStreams).createEncodedStreams ===
+    'function';
+const USE_SCRIPT_TRANSFORM = !HAS_ENCODED_STREAMS && typeof RTCRtpScriptTransform !== 'undefined';
+
+if (E2EE_VERBOSE) {
+  console.debug('E2EE API detection:', {
+    hasEncodedStreams: HAS_ENCODED_STREAMS,
+    hasScriptTransform: typeof RTCRtpScriptTransform !== 'undefined',
+    selectedPath: HAS_ENCODED_STREAMS
+      ? 'createEncodedStreams (legacy)'
+      : USE_SCRIPT_TRANSFORM
+        ? 'RTCRtpScriptTransform (Worker)'
+        : 'NONE — E2EE unavailable',
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Types matching server signaling protocol
@@ -2517,12 +2542,10 @@ class VoiceService {
       iceParameters: options.iceParameters,
       iceCandidates: options.iceCandidates,
       dtlsParameters: options.dtlsParameters,
-      // E2EE: legacy path needs encodedInsertableStreams for createEncodedStreams().
-      // Modern path (RTCRtpScriptTransform) does NOT need this flag — setting it
-      // without connecting the streams causes frames to be held in an internal
-      // buffer, producing complete silence (#295).
+      // E2EE (legacy path): encodedInsertableStreams enables createEncodedStreams().
+      // NOT set for RTCRtpScriptTransform — the two mechanisms conflict (#295).
       ...(this.isEncrypted &&
-        !USE_SCRIPT_TRANSFORM && {
+        HAS_ENCODED_STREAMS && {
           additionalSettings: {
             encodedInsertableStreams: true,
           } as unknown as Partial<RTCConfiguration>,
@@ -2613,8 +2636,8 @@ class VoiceService {
       iceParameters: options.iceParameters,
       iceCandidates: options.iceCandidates,
       dtlsParameters: options.dtlsParameters,
-      // Legacy path only — see send transport comment (#295)
-      ...(!USE_SCRIPT_TRANSFORM && {
+      // E2EE (legacy path only) — see send transport comment (#295)
+      ...(HAS_ENCODED_STREAMS && {
         additionalSettings: {
           encodedInsertableStreams: true,
         } as unknown as Partial<RTCConfiguration>,
