@@ -109,7 +109,9 @@ const ForceUpdateOverlay: React.FC = () => {
       );
     }
 
-    return () => cleanups.forEach((fn) => fn());
+    return () => {
+      for (const fn of cleanups) fn();
+    };
   }, [updateRequired]);
 
   const handleUpdate = useCallback(async () => {

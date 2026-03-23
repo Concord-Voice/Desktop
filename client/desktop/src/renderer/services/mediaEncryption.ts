@@ -132,7 +132,7 @@ export async function ratchetKey(currentKey: CryptoKey): Promise<CryptoKey> {
 export class MediaEncryption {
   private currentKeyId = 0;
   private encryptKey: CryptoKey | null = null;
-  private decryptKeys: Map<string, { key: CryptoKey; expires: number }> = new Map();
+  private readonly decryptKeys: Map<string, { key: CryptoKey; expires: number }> = new Map();
   private frameCounter = 0;
 
   // Debounced key rotation — collapses rapid join/leave bursts into a single

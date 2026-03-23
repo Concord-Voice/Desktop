@@ -27,13 +27,11 @@ const RecoveryCircle: React.FC<RecoveryCircleProps> = ({ onComplete, onCancel })
   }, [fetchFriends]);
 
   const toggleContact = (userId: string) => {
-    setSelectedContacts((prev) =>
-      prev.includes(userId)
-        ? prev.filter((id) => id !== userId)
-        : prev.length < 7
-          ? [...prev, userId]
-          : prev
-    );
+    setSelectedContacts((prev) => {
+      if (prev.includes(userId)) return prev.filter((id) => id !== userId);
+      if (prev.length < 7) return [...prev, userId];
+      return prev;
+    });
   };
 
   const handleSetup = async () => {
@@ -223,10 +221,11 @@ const RecoveryCircle: React.FC<RecoveryCircleProps> = ({ onComplete, onCancel })
         </p>
 
         <div style={{ marginBottom: 16 }}>
-          <label className="form-label">
+          <label htmlFor="recovery-threshold" className="form-label">
             Recovery threshold: {threshold} of {selectedContacts.length || '?'}
           </label>
           <input
+            id="recovery-threshold"
             type="range"
             min={2}
             max={Math.max(2, selectedContacts.length)}

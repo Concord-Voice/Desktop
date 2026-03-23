@@ -54,7 +54,7 @@ function decodeJwtExp(token: string): number | null {
     const parts = token.split('.');
     if (parts.length !== 3) return null;
     // base64url → base64 → decode (with padding)
-    let payload = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    let payload = parts[1].replaceAll('-', '+').replaceAll('_', '/');
     // Pad to multiple of 4 — atob() requires proper padding
     const pad = payload.length % 4;
     if (pad === 2) payload += '==';

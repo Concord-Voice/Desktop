@@ -193,7 +193,7 @@ const MFAVerifyPrompt: React.FC<MFAVerifyPromptProps> = ({
 
   return (
     <div className="mfa-verify-prompt">
-      <label className="mfa-verify-prompt-label">MFA Verification</label>
+      <span className="mfa-verify-prompt-label">MFA Verification</span>
 
       {mode === 'totp' && (
         <>
@@ -277,7 +277,7 @@ const MFAVerifyPrompt: React.FC<MFAVerifyPromptProps> = ({
 // ── base64url helpers ──────────────────────────────────────────────────
 
 function base64urlToBuffer(base64url: string): ArrayBuffer {
-  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const base64 = base64url.replaceAll('-', '+').replaceAll('_', '/');
   const pad = base64.length % 4 === 0 ? '' : '='.repeat(4 - (base64.length % 4));
   const binary = atob(base64 + pad);
   const bytes = new Uint8Array(binary.length);
@@ -291,9 +291,9 @@ function bufferToBase64url(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = '';
   for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
+    binary += String.fromCodePoint(byte);
   }
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll(/=+$/g, '');
 }
 
 export default MFAVerifyPrompt;

@@ -418,8 +418,11 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
           {step === 'email' && (
             <>
               <div className="form-group">
-                <label className="form-label">Email</label>
+                <label htmlFor="recovery-email" className="form-label">
+                  Email
+                </label>
                 <input
+                  id="recovery-email"
                   type="email"
                   className="form-input"
                   placeholder="you@example.com"
@@ -454,13 +457,16 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
           {step === 'verify' && (
             <>
               <div className="form-group">
-                <label className="form-label">Verification Code</label>
+                <label htmlFor="recovery-verify-code" className="form-label">
+                  Verification Code
+                </label>
                 <input
+                  id="recovery-verify-code"
                   type="text"
                   className="form-input"
                   placeholder="000000"
                   value={code}
-                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  onChange={(e) => setCode(e.target.value.replaceAll(/\D/g, '').slice(0, 6))}
                   disabled={loading}
                   autoFocus
                   maxLength={6}
@@ -497,8 +503,11 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
           {step === 'recovery-key' && (
             <>
               <div className="form-group">
-                <label className="form-label">Recovery Key</label>
+                <label htmlFor="recovery-key-input" className="form-label">
+                  Recovery Key
+                </label>
                 <textarea
+                  id="recovery-key-input"
                   className="form-input"
                   placeholder="Enter your recovery key (with or without dashes)"
                   value={recoveryKeyInput}
@@ -704,8 +713,11 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
           {step === 'new-password' && (
             <>
               <div className="form-group">
-                <label className="form-label">New Password</label>
+                <label htmlFor="recovery-new-password" className="form-label">
+                  New Password
+                </label>
                 <input
+                  id="recovery-new-password"
                   type="password"
                   className="form-input"
                   placeholder="At least 12 characters"
@@ -716,8 +728,11 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
                 />
               </div>
               <div className="form-group">
-                <label className="form-label">Confirm Password</label>
+                <label htmlFor="recovery-confirm-password" className="form-label">
+                  Confirm Password
+                </label>
                 <input
+                  id="recovery-confirm-password"
                   type="password"
                   className="form-input"
                   placeholder="Confirm your new password"

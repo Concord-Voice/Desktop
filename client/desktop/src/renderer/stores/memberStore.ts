@@ -77,11 +77,11 @@ export const useMemberStore = create<MemberState>()(
 
           // Populate lastSeenByUser from API response
           const lastSeenMap = new Map<string, number>();
-          members.forEach((m: ServerMember) => {
+          for (const m of members as ServerMember[]) {
             if (m.last_seen) {
               lastSeenMap.set(m.user_id, m.last_seen);
             }
-          });
+          }
 
           set({ members, isLoading: false, lastSeenByUser: lastSeenMap });
         } catch (error) {
@@ -122,11 +122,11 @@ export const useMemberStore = create<MemberState>()(
         const onlineSet = new Set(userIds);
         const existing = get().userStatuses;
         const statusMap = new Map<string, PresenceStatus>();
-        userIds.forEach((id) => {
+        for (const id of userIds) {
           // Preserve existing non-offline status (e.g. dnd, invisible)
           const current = existing.get(id);
           statusMap.set(id, current && current !== 'offline' ? current : 'online');
-        });
+        }
         set({ onlineUserIds: onlineSet, userStatuses: statusMap });
       },
 
@@ -175,13 +175,13 @@ export const useMemberStore = create<MemberState>()(
       setPresenceSnapshot: (users: Array<{ user_id: string; status: string }>) => {
         const onlineSet = new Set<string>();
         const statusMap = new Map<string, PresenceStatus>();
-        users.forEach((u) => {
+        for (const u of users) {
           const status = u.status as PresenceStatus;
           statusMap.set(u.user_id, status);
           if (status === 'online' || status === 'dnd') {
             onlineSet.add(u.user_id);
           }
-        });
+        }
         set({ onlineUserIds: onlineSet, userStatuses: statusMap });
       },
 

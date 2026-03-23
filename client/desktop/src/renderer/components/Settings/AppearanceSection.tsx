@@ -191,9 +191,12 @@ const AppearanceSection: React.FC = () => {
               { key: 'accentSecondary' as const, label: 'Secondary Accent' },
             ].map(({ key, label }) => (
               <div key={key} className="custom-theme-picker-row">
-                <label className="custom-theme-picker-label">{label}</label>
+                <label htmlFor={`custom-theme-${key}`} className="custom-theme-picker-label">
+                  {label}
+                </label>
                 <div className="custom-theme-picker-input-group">
                   <input
+                    id={`custom-theme-${key}`}
                     type="color"
                     value={appearance.customColors![key]}
                     onChange={(e) =>
@@ -247,7 +250,7 @@ const AppearanceSection: React.FC = () => {
 
       <CollapsibleSection id="section-display" title="Display">
         <div className="form-group">
-          <label className="form-label">Font Size</label>
+          <span className="form-label">Font Size</span>
           <div className="font-size-selector">
             {fontSizes.map((fs) => (
               <button

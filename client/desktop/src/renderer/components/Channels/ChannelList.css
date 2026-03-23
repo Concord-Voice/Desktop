@@ -177,6 +177,7 @@
 
 .channel-item.active .channel-name {
   color: var(--text-primary);
+  font-weight: 700;
 }
 
 .channel-custom-emoji {
@@ -193,10 +194,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   flex: 1;
-}
-
-.channel-item.active .channel-name {
-  font-weight: 700;
 }
 
 /* E2EE lock icon */

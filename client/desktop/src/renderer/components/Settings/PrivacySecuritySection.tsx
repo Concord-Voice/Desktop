@@ -523,13 +523,11 @@ const PrivacySecuritySection: React.FC = () => {
       if (!response.ok) {
         const data = await response.json();
         if (response.status === 403) {
-          setModeChangeError(
-            data.error === 'Incorrect password'
-              ? 'Incorrect password'
-              : data.error === 'Invalid MFA code'
-                ? 'Invalid MFA code'
-                : data.error || 'Authentication failed'
-          );
+          let modeErr: string;
+          if (data.error === 'Incorrect password') modeErr = 'Incorrect password';
+          else if (data.error === 'Invalid MFA code') modeErr = 'Invalid MFA code';
+          else modeErr = data.error || 'Authentication failed';
+          setModeChangeError(modeErr);
           setIsChangingMode(false);
           return;
         }
@@ -590,13 +588,11 @@ const PrivacySecuritySection: React.FC = () => {
       if (!response.ok) {
         const data = await response.json();
         if (response.status === 403) {
-          setRevokePasswordError(
-            data.error === 'Invalid MFA code'
-              ? 'Invalid MFA code'
-              : data.error === 'Incorrect password'
-                ? 'Incorrect password'
-                : data.error || 'Authentication failed'
-          );
+          let revokeErr: string;
+          if (data.error === 'Invalid MFA code') revokeErr = 'Invalid MFA code';
+          else if (data.error === 'Incorrect password') revokeErr = 'Incorrect password';
+          else revokeErr = data.error || 'Authentication failed';
+          setRevokePasswordError(revokeErr);
           setIsRevokingAll(false);
           return;
         }
@@ -652,21 +648,23 @@ const PrivacySecuritySection: React.FC = () => {
           <span className="settings-row-label">Who Can DM You</span>
           <div className="settings-tier-labels">
             {(['No One', 'Friends', 'Friends + Server', 'Everyone'] as const).map((label, i) => (
-              <span
+              <button
+                type="button"
                 key={label}
                 className={`settings-tier-label ${localDmLevel === i ? 'active' : ''}`}
+                aria-pressed={localDmLevel === i}
                 onClick={() => setDmPrivacyLevel(i as DMPrivacyLevel)}
               >
                 {label}
-              </span>
+              </button>
             ))}
           </div>
           <div className="settings-tier-track dm-privacy-track">
             <div className="settings-tier-ticks">
-              {[0, 1, 2, 3].map((i) => (
+              {[0, 1, 2, 3].map((level) => (
                 <span
-                  key={i}
-                  className={`settings-tier-tick ${localDmLevel === i ? 'active' : ''}`}
+                  key={`dm-tick-${level}`}
+                  className={`settings-tier-tick ${localDmLevel === level ? 'active' : ''}`}
                 />
               ))}
             </div>
@@ -682,22 +680,23 @@ const PrivacySecuritySection: React.FC = () => {
           </div>
           <div className="settings-tier-description">
             <span>
-              {localDmLevel === 0
-                ? 'No One'
-                : localDmLevel === 1
-                  ? 'Friends Only'
-                  : localDmLevel === 2
-                    ? 'Friends + Server Members'
-                    : 'Allow All'}
+              {(() => {
+                if (localDmLevel === 0) return 'No One';
+                if (localDmLevel === 1) return 'Friends Only';
+                if (localDmLevel === 2) return 'Friends + Server Members';
+                return 'Allow All';
+              })()}
             </span>
             <span>
-              {localDmLevel === 0
-                ? "Hermit mode. Nobody can DM you. You've chosen peace and silence. Existing DMs are frozen solid."
-                : localDmLevel === 1
-                  ? "Inner circle only. If they're not on your friends list, they're talking to a wall."
-                  : localDmLevel === 2
-                    ? 'The social butterfly. Friends and anyone you share a server with can slide into your DMs.'
-                    : 'Open season. Anyone on the platform can message you. Bold move.'}
+              {(() => {
+                if (localDmLevel === 0)
+                  return "Hermit mode. Nobody can DM you. You've chosen peace and silence. Existing DMs are frozen solid.";
+                if (localDmLevel === 1)
+                  return "Inner circle only. If they're not on your friends list, they're talking to a wall.";
+                if (localDmLevel === 2)
+                  return 'The social butterfly. Friends and anyone you share a server with can slide into your DMs.';
+                return 'Open season. Anyone on the platform can message you. Bold move.';
+              })()}
             </span>
           </div>
         </div>
@@ -708,21 +707,20 @@ const PrivacySecuritySection: React.FC = () => {
           <div className="settings-row-info">
             <span className="settings-row-label">Allow Friends-of-Friends</span>
             <span className="settings-row-hint">
-              {localDmLevel === 0
-                ? 'DMs are disabled — this setting has no effect.'
-                : localDmLevel === 3
-                  ? 'Everyone can already DM you — friends-of-friends is included.'
-                  : 'Also allow DMs from people who share a mutual friend with you'}
+              {(() => {
+                if (localDmLevel === 0) return 'DMs are disabled — this setting has no effect.';
+                if (localDmLevel === 3)
+                  return 'Everyone can already DM you — friends-of-friends is included.';
+                return 'Also allow DMs from people who share a mutual friend with you';
+              })()}
             </span>
           </div>
           <ToggleSwitch
-            checked={
-              localDmLevel === 3
-                ? true
-                : localDmLevel === 0
-                  ? false
-                  : privacySettings.dmFriendsOfFriends
-            }
+            checked={(() => {
+              if (localDmLevel === 3) return true;
+              if (localDmLevel === 0) return false;
+              return privacySettings.dmFriendsOfFriends;
+            })()}
             onChange={(v) => {
               if (localDmLevel !== 0 && localDmLevel !== 3) {
                 updatePrivacy({ dmFriendsOfFriends: v });
@@ -875,7 +873,7 @@ const PrivacySecuritySection: React.FC = () => {
           </div>
         </div>
 
-        {mfaSetupMethod === 'email-sms' ? (
+        {mfaSetupMethod === 'email-sms' && (
           <EmailSmsSetup
             mfaActive={mfaMethods.length > 0}
             onComplete={() => {
@@ -884,7 +882,8 @@ const PrivacySecuritySection: React.FC = () => {
             }}
             onCancel={() => setMfaSetupMethod(null)}
           />
-        ) : mfaSetupMethod ? (
+        )}
+        {mfaSetupMethod && mfaSetupMethod !== 'email-sms' && (
           <MFASetup
             method={mfaSetupMethod}
             credentialType={mfaSetupMethod === 'webauthn' ? webauthnCredentialType : undefined}
@@ -897,7 +896,8 @@ const PrivacySecuritySection: React.FC = () => {
             }}
             onCancel={() => setMfaSetupMethod(null)}
           />
-        ) : (
+        )}
+        {!mfaSetupMethod && (
           <MFATierSelector
             activeMethods={mfaMethods}
             recoveryOnlyMethods={mfaRecoveryOnly}
@@ -946,7 +946,7 @@ const PrivacySecuritySection: React.FC = () => {
                   ) {
                     const rpId = new URL(API_BASE).hostname;
                     const toBuffer = (b64url: string): ArrayBuffer => {
-                      const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+                      const b64 = b64url.replaceAll('-', '+').replaceAll('_', '/');
                       const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
                       const bin = atob(b64 + pad);
                       const bytes = new Uint8Array(bin.length);
@@ -1064,8 +1064,9 @@ const PrivacySecuritySection: React.FC = () => {
               ) : (
                 <>
                   <div className="mfa-verify-field">
-                    <label>Password</label>
+                    <label htmlFor="backup-reset-password">Password</label>
                     <input
+                      id="backup-reset-password"
                       type="password"
                       value={backupResetPassword}
                       onChange={(e) => setBackupResetPassword(e.target.value)}

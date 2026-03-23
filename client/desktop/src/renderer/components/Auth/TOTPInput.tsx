@@ -8,6 +8,8 @@ interface TOTPInputProps {
   autoFocus?: boolean;
 }
 
+const DIGIT_KEYS = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'] as const;
+
 const TOTPInput: React.FC<TOTPInputProps> = ({
   onSubmit,
   onBackupCode,
@@ -21,7 +23,7 @@ const TOTPInput: React.FC<TOTPInputProps> = ({
   const handleChange = useCallback(
     (index: number, value: string) => {
       if (disabled) return;
-      const digit = value.replace(/\D/g, '').slice(-1);
+      const digit = value.replaceAll(/\D/g, '').slice(-1);
       const newDigits = [...digits];
       newDigits[index] = digit;
       setDigits(newDigits);
@@ -51,7 +53,7 @@ const TOTPInput: React.FC<TOTPInputProps> = ({
   const handlePaste = useCallback(
     (e: React.ClipboardEvent) => {
       e.preventDefault();
-      const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+      const pasted = e.clipboardData.getData('text').replaceAll(/\D/g, '').slice(0, 6);
       if (!pasted) return;
 
       const newDigits = Array(6).fill('');
@@ -74,7 +76,7 @@ const TOTPInput: React.FC<TOTPInputProps> = ({
       <div className="totp-digits" onPaste={handlePaste}>
         {digits.map((digit, i) => (
           <input
-            key={i}
+            key={DIGIT_KEYS[i]}
             ref={(el) => {
               inputRefs.current[i] = el;
             }}

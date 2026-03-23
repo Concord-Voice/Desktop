@@ -46,7 +46,7 @@ const BackupCodeDisplay: React.FC<BackupCodeDisplayProps> = ({ codes, onConfirm,
 
       <div className="backup-code-grid">
         {codes.map((code, i) => (
-          <div key={i} className="backup-code-item">
+          <div key={code} className="backup-code-item">
             <span className="backup-code-number">{i + 1}.</span>
             <code className="backup-code-value">{code}</code>
           </div>

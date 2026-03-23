@@ -175,11 +175,11 @@ const EmailVerification: React.FC<EmailVerificationProps> = ({ email, onVerified
           onClick={handleResend}
           disabled={resendCooldown > 0 || isResending}
         >
-          {isResending
-            ? 'Sending...'
-            : resendCooldown > 0
-              ? `Send new code (${resendCooldown}s)`
-              : 'Send new code'}
+          {(() => {
+            if (isResending) return 'Sending...';
+            if (resendCooldown > 0) return `Send new code (${resendCooldown}s)`;
+            return 'Send new code';
+          })()}
         </button>
 
         <button

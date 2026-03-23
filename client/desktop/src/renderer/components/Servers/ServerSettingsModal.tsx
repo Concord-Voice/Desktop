@@ -351,8 +351,11 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
 
           {/* Server Name */}
           <div className="form-group">
-            <label className="form-label">Server Name</label>
+            <label htmlFor="modal-server-name" className="form-label">
+              Server Name
+            </label>
             <input
+              id="modal-server-name"
               type="text"
               className={`form-input ${errors.name ? 'error' : ''}`}
               placeholder="My Awesome Server"
@@ -374,7 +377,7 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
           {/* Invite Code Section */}
           {canManageInvites && (
             <div className="invite-section">
-              <label className="form-label">Invite Code</label>
+              <span className="form-label">Invite Code</span>
               {activeInvite ? (
                 <div className="invite-code-row">
                   <code className="invite-code-display">{activeInvite.code}</code>
@@ -489,8 +492,11 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
                 )}
 
                 <div className="form-group">
-                  <label className="form-label">Role Name</label>
+                  <label htmlFor="modal-role-name" className="form-label">
+                    Role Name
+                  </label>
                   <input
+                    id="modal-role-name"
                     type="text"
                     className="form-input"
                     value={editRoleName}
@@ -500,9 +506,12 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Role Color</label>
+                  <label htmlFor="modal-role-color" className="form-label">
+                    Role Color
+                  </label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <input
+                      id="modal-role-color"
                       type="color"
                       value={editRoleColor}
                       onChange={(e) => setEditRoleColor(e.target.value)}
@@ -551,7 +560,7 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Permissions</label>
+                  <span className="form-label">Permissions</span>
                   <PermissionGrid
                     value={editRolePermissions}
                     onChange={handlePermChange}
@@ -606,6 +615,14 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
                 key={member.user_id}
                 className={`member-row ${isExpanded ? 'expanded' : ''}`}
                 onClick={() => setExpandedMemberId(isExpanded ? null : member.user_id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    setExpandedMemberId(isExpanded ? null : member.user_id);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
               >
                 <div className="member-info">
                   {member.avatar_url ? (

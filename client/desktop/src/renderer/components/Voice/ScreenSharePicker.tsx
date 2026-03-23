@@ -157,8 +157,11 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
 
         <div className="screen-picker__quality">
           <div className="screen-picker__quality-row">
-            <label className="screen-picker__quality-label">Resolution</label>
+            <label htmlFor="screen-resolution" className="screen-picker__quality-label">
+              Resolution
+            </label>
             <CustomSelect
+              id="screen-resolution"
               className="screen-picker__quality-select"
               options={[
                 { value: 'source', label: 'Source Native' },
@@ -173,8 +176,11 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
             />
           </div>
           <div className="screen-picker__quality-row">
-            <label className="screen-picker__quality-label">Frame Rate</label>
+            <label htmlFor="screen-framerate" className="screen-picker__quality-label">
+              Frame Rate
+            </label>
             <CustomSelect
+              id="screen-framerate"
               className="screen-picker__quality-select"
               options={[
                 { value: '5', label: '5 FPS' },
@@ -190,8 +196,11 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
             />
           </div>
           <div className="screen-picker__quality-row">
-            <label className="screen-picker__quality-label">Content</label>
+            <label htmlFor="screen-content-type" className="screen-picker__quality-label">
+              Content
+            </label>
             <CustomSelect
+              id="screen-content-type"
               className="screen-picker__quality-select"
               options={[
                 { value: 'auto', label: 'Auto' },

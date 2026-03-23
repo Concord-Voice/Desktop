@@ -88,10 +88,11 @@ const DeleteServerModal: React.FC<DeleteServerModalProps> = ({ isOpen, server, o
         </div>
 
         <div className="delete-server-confirm">
-          <label className="form-label">
+          <label htmlFor="delete-server-confirm" className="form-label">
             Type <strong>{server.name}</strong> to confirm
           </label>
           <input
+            id="delete-server-confirm"
             type="text"
             className="form-input"
             placeholder={server.name}

@@ -68,7 +68,7 @@ export function useMicTest(): UseMicTestReturn {
 
     // Stop mic stream tracks
     if (micStreamRef.current) {
-      micStreamRef.current.getTracks().forEach((t) => t.stop());
+      for (const t of micStreamRef.current.getTracks()) t.stop();
       micStreamRef.current = null;
     }
 

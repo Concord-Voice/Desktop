@@ -60,8 +60,11 @@ const PasswordChangeForm: React.FC = () => {
 
       {/* Current Password */}
       <div className="form-group">
-        <label className="form-label">Current Password</label>
+        <label htmlFor="current-password" className="form-label">
+          Current Password
+        </label>
         <input
+          id="current-password"
           type="password"
           className={`form-input ${passwordErrors.currentPassword ? 'error' : ''}`}
           placeholder="Enter your current password"
@@ -80,8 +83,11 @@ const PasswordChangeForm: React.FC = () => {
 
       {/* New Password */}
       <div className="form-group">
-        <label className="form-label">New Password</label>
+        <label htmlFor="new-password" className="form-label">
+          New Password
+        </label>
         <input
+          id="new-password"
           type="password"
           className={`form-input ${passwordErrors.newPassword ? 'error' : ''}`}
           placeholder="Enter your new password"
@@ -101,8 +107,11 @@ const PasswordChangeForm: React.FC = () => {
 
       {/* Confirm New Password */}
       <div className="form-group">
-        <label className="form-label">Confirm New Password</label>
+        <label htmlFor="confirm-new-password" className="form-label">
+          Confirm New Password
+        </label>
         <input
+          id="confirm-new-password"
           type="password"
           className={`form-input ${passwordErrors.confirmPassword ? 'error' : ''}`}
           placeholder="Confirm your new password"

@@ -224,11 +224,15 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
           </div>
           <h2 className="voice-view__join-title">{channelName}</h2>
           <p className="voice-view__join-subtitle">
-            {isConnecting
-              ? 'Connecting...'
-              : (channelVoiceMembers[channelId]?.length || 0) > 0
-                ? `${channelVoiceMembers[channelId].length} user${channelVoiceMembers[channelId].length === 1 ? '' : 's'} in this channel`
-                : 'No one is in this voice channel yet.'}
+            {(() => {
+              if (isConnecting) return 'Connecting...';
+              const memberCount = channelVoiceMembers[channelId]?.length || 0;
+              if (memberCount > 0) {
+                const plural = memberCount === 1 ? '' : 's';
+                return `${memberCount} user${plural} in this channel`;
+              }
+              return 'No one is in this voice channel yet.';
+            })()}
           </p>
           <button className="voice-view__join-btn" onClick={handleJoin} disabled={isConnecting}>
             {isConnecting ? 'Connecting...' : 'Join Voice'}

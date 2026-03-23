@@ -39,31 +39,31 @@ type ConnectionHandler = (state: ConnectionState) => void;
 
 export class WebSocketService {
   private ws: WebSocket | null = null;
-  private url: string;
+  private readonly url: string;
   private token: string | null = null;
   private state: ConnectionState = ConnectionState.DISCONNECTED;
 
   // Connection management
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
+  private readonly maxReconnectAttempts = 10;
   private reconnectDelay = 1000; // Start with 1 second
-  private maxReconnectDelay = 30000; // Max 30 seconds
+  private readonly maxReconnectDelay = 30000; // Max 30 seconds
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pingInterval: NodeJS.Timeout | null = null;
   private aggressiveReconnect = false;
   private connectAbort: AbortController | null = null;
 
   // Message handlers
-  private messageHandlers = new Map<string, Set<MessageHandler>>();
-  private connectionHandlers = new Set<ConnectionHandler>();
+  private readonly messageHandlers = new Map<string, Set<MessageHandler>>();
+  private readonly connectionHandlers = new Set<ConnectionHandler>();
 
   // Connection info
   private connectionInfo: ConnectionInfo | null = null;
 
   // Subscribed channels, servers, and DM conversations (tracked for resubscription on reconnect)
-  private subscribedChannels = new Set<string>();
-  private subscribedServers = new Set<string>();
-  private subscribedDMs = new Set<string>();
+  private readonly subscribedChannels = new Set<string>();
+  private readonly subscribedServers = new Set<string>();
+  private readonly subscribedDMs = new Set<string>();
 
   constructor(baseUrl: string = WS_BASE) {
     this.url = `${baseUrl}/api/v1/ws`;
@@ -491,13 +491,13 @@ export class WebSocketService {
       // Notify message handlers
       const handlers = this.messageHandlers.get(message.type);
       if (handlers) {
-        handlers.forEach((handler) => {
+        for (const handler of handlers) {
           try {
             handler(message);
           } catch (error) {
             console.error('Error in message handler:', error);
           }
-        });
+        }
       }
     } catch (error) {
       console.error('Failed to parse WebSocket message:', error);
@@ -582,17 +582,17 @@ export class WebSocketService {
 
   private resubscribeChannels(): void {
     // Resubscribe to all channels after reconnect
-    this.subscribedChannels.forEach((channelId) => {
+    for (const channelId of this.subscribedChannels) {
       this.subscribe(channelId);
-    });
+    }
     // Resubscribe to all servers after reconnect
-    this.subscribedServers.forEach((serverId) => {
+    for (const serverId of this.subscribedServers) {
       this.subscribeServer(serverId);
-    });
+    }
     // Resubscribe to all DM conversations after reconnect
-    this.subscribedDMs.forEach((convId) => {
+    for (const convId of this.subscribedDMs) {
       this.subscribeDM(convId);
-    });
+    }
   }
 
   private setState(newState: ConnectionState): void {
@@ -603,13 +603,13 @@ export class WebSocketService {
   }
 
   private notifyConnectionHandlers(): void {
-    this.connectionHandlers.forEach((handler) => {
+    for (const handler of this.connectionHandlers) {
       try {
         handler(this.state);
       } catch (error) {
         console.error('Error in connection handler:', error);
       }
-    });
+    }
   }
 }
 

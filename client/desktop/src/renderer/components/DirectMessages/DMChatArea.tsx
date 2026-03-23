@@ -247,12 +247,16 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
         <div>
           <div className="dm-chat-header-name">{threadName}</div>
           <div className="dm-chat-header-status">
-            {activeConv?.isPersonal
-              ? 'Your personal notes'
-              : activeConv && !activeConv.isGroup
-                ? activeConv.participants.find((p) => p.userId !== currentUserId)?.status ||
+            {(() => {
+              if (activeConv?.isPersonal) return 'Your personal notes';
+              if (activeConv && !activeConv.isGroup) {
+                return (
+                  activeConv.participants.find((p) => p.userId !== currentUserId)?.status ||
                   'offline'
-                : `${activeConv?.participants.length || 0} members`}
+                );
+              }
+              return `${activeConv?.participants.length || 0} members`;
+            })()}
           </div>
         </div>
       </div>

@@ -160,8 +160,11 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({ isOpen, onClose, 
 
         {/* Server Name */}
         <div className="form-group">
-          <label className="form-label">Server Name</label>
+          <label htmlFor="create-server-name" className="form-label">
+            Server Name
+          </label>
           <input
+            id="create-server-name"
             type="text"
             className={`form-input ${errors.name ? 'error' : ''}`}
             placeholder="My Awesome Server"
@@ -182,7 +185,7 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({ isOpen, onClose, 
 
         {/* E2EE Default Toggle */}
         <div className="form-group">
-          <label className="form-label">End-to-End Encryption</label>
+          <span className="form-label">End-to-End Encryption</span>
           <button
             type="button"
             className={`server-e2ee-toggle ${e2eeDefault ? 'enabled' : 'disabled'}`}

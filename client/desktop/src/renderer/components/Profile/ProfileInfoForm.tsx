@@ -244,34 +244,43 @@ const ProfileInfoForm: React.FC = () => {
 
       {/* Avatar */}
       <div className="profile-avatar-section">
-        <div
+        <button
+          type="button"
           className="profile-avatar-upload"
           onClick={avatar.handleClick}
           onKeyDown={avatar.handleKeyDown}
-          role="button"
-          tabIndex={0}
           aria-label="Upload avatar"
         >
-          {avatar.preview ? (
-            <img src={avatar.preview} alt="Avatar preview" className="profile-avatar-preview" />
-          ) : user ? (
-            <span className="profile-avatar-initial">{user.username.charAt(0).toUpperCase()}</span>
-          ) : (
-            <div className="profile-avatar-placeholder">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-                <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.5" />
-              </svg>
-              <span className="profile-avatar-placeholder-text">Upload</span>
-            </div>
-          )}
-        </div>
+          {(() => {
+            if (avatar.preview) {
+              return (
+                <img src={avatar.preview} alt="Avatar preview" className="profile-avatar-preview" />
+              );
+            }
+            if (user) {
+              return (
+                <span className="profile-avatar-initial">
+                  {user.username.charAt(0).toUpperCase()}
+                </span>
+              );
+            }
+            return (
+              <div className="profile-avatar-placeholder">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <circle cx="12" cy="13" r="4" stroke="currentColor" strokeWidth="1.5" />
+                </svg>
+                <span className="profile-avatar-placeholder-text">Upload</span>
+              </div>
+            );
+          })()}
+        </button>
         <div className="profile-avatar-actions">
           <span className="profile-avatar-actions-label">
             Click to upload an avatar (PNG, JPEG, GIF, WebP &mdash; max 1MB)
@@ -298,13 +307,12 @@ const ProfileInfoForm: React.FC = () => {
 
       {/* Header Image */}
       <div className="profile-header-image-section">
-        <label className="form-label">Profile Banner</label>
-        <div
+        <span className="form-label">Profile Banner</span>
+        <button
+          type="button"
           className="profile-header-upload"
           onClick={header.handleClick}
           onKeyDown={header.handleKeyDown}
-          role="button"
-          tabIndex={0}
           aria-label="Upload header image"
         >
           {header.preview ? (
@@ -324,7 +332,7 @@ const ProfileInfoForm: React.FC = () => {
               <span>Click to upload a banner image</span>
             </div>
           )}
-        </div>
+        </button>
         <div className="profile-header-actions">
           <span className="profile-avatar-actions-label">
             PNG, JPEG, GIF, WebP &mdash; max 2MB. Recommended: 600&times;120 or wider.
@@ -351,8 +359,11 @@ const ProfileInfoForm: React.FC = () => {
 
       {/* Username */}
       <div className="form-group">
-        <label className="form-label">Username</label>
+        <label htmlFor="profile-username" className="form-label">
+          Username
+        </label>
         <input
+          id="profile-username"
           type="text"
           className={`form-input ${profileErrors.username ? 'error' : ''}`}
           value={username}
@@ -379,8 +390,11 @@ const ProfileInfoForm: React.FC = () => {
 
       {/* Display Name */}
       <div className="form-group">
-        <label className="form-label">Display Name</label>
+        <label htmlFor="profile-display-name" className="form-label">
+          Display Name
+        </label>
         <input
+          id="profile-display-name"
           type="text"
           className={`form-input ${profileErrors.displayName ? 'error' : ''}`}
           placeholder="How you want to be displayed"
@@ -401,8 +415,11 @@ const ProfileInfoForm: React.FC = () => {
 
       {/* Bio */}
       <div className="form-group">
-        <label className="form-label">About</label>
+        <label htmlFor="profile-bio" className="form-label">
+          About
+        </label>
         <textarea
+          id="profile-bio"
           className={`form-input profile-bio-textarea ${profileErrors.bio ? 'error' : ''}`}
           placeholder="Tell us a bit about yourself"
           value={bio}
@@ -421,41 +438,44 @@ const ProfileInfoForm: React.FC = () => {
 
       {/* Links */}
       <div className="form-group">
-        <label className="form-label">Links</label>
+        <span className="form-label">Links</span>
         <div className="profile-links-list">
-          {links.map((link, index) => (
-            <div key={index} className="profile-link-row">
-              <input
-                type="url"
-                className={`form-input ${profileErrors[`link_${index}`] ? 'error' : ''}`}
-                placeholder="https://example.com"
-                value={link}
-                onChange={(e) => handleLinkChange(index, e.target.value)}
-                disabled={isProfileSubmitting}
-              />
-              <button
-                type="button"
-                className="profile-link-remove"
-                onClick={() => handleRemoveLink(index)}
-                disabled={isProfileSubmitting}
-                aria-label="Remove link"
-              >
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                  <path
-                    d="M10.5 3.5L3.5 10.5M3.5 3.5l7 7"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-              {profileErrors[`link_${index}`] && (
-                <span className="form-error" style={{ position: 'absolute' }}>
-                  {profileErrors[`link_${index}`]}
-                </span>
-              )}
-            </div>
-          ))}
+          {links.map((link, index) => {
+            const linkErrorKey = `link_${index}`;
+            return (
+              <div key={linkErrorKey} className="profile-link-row">
+                <input
+                  type="url"
+                  className={`form-input ${profileErrors[linkErrorKey] ? 'error' : ''}`}
+                  placeholder="https://example.com"
+                  value={link}
+                  onChange={(e) => handleLinkChange(index, e.target.value)}
+                  disabled={isProfileSubmitting}
+                />
+                <button
+                  type="button"
+                  className="profile-link-remove"
+                  onClick={() => handleRemoveLink(index)}
+                  disabled={isProfileSubmitting}
+                  aria-label="Remove link"
+                >
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                    <path
+                      d="M10.5 3.5L3.5 10.5M3.5 3.5l7 7"
+                      stroke="currentColor"
+                      strokeWidth="1.5"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
+                {profileErrors[linkErrorKey] && (
+                  <span className="form-error" style={{ position: 'absolute' }}>
+                    {profileErrors[linkErrorKey]}
+                  </span>
+                )}
+              </div>
+            );
+          })}
           {links.length < MAX_LINKS && (
             <button
               type="button"

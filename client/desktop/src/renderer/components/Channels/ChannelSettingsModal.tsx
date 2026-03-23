@@ -150,27 +150,27 @@ const ChannelSettingsModal: React.FC<ChannelSettingsModalProps> = ({
     const denyCount = countBits(override.deny);
 
     return (
-      <div
-        key={override.id}
-        className={`override-item${isSelected ? ' selected' : ''}`}
-        onClick={() => handleSelectOverride(override)}
-      >
-        <div className="override-target">
-          <div>
-            <div className="override-target-name">{getTargetName(override)}</div>
-            <div className="override-target-type">{override.target_type}</div>
-          </div>
-        </div>
-        <div className="override-summary">
-          {allowCount > 0 && <span className="override-allow-count">{allowCount} allowed</span>}
-          {denyCount > 0 && <span className="override-deny-count">{denyCount} denied</span>}
-        </div>
+      <div key={override.id} className={`override-item${isSelected ? ' selected' : ''}`}>
         <button
+          type="button"
+          className="override-item-select"
+          onClick={() => handleSelectOverride(override)}
+        >
+          <div className="override-target">
+            <div>
+              <div className="override-target-name">{getTargetName(override)}</div>
+              <div className="override-target-type">{override.target_type}</div>
+            </div>
+          </div>
+          <div className="override-summary">
+            {allowCount > 0 && <span className="override-allow-count">{allowCount} allowed</span>}
+            {denyCount > 0 && <span className="override-deny-count">{denyCount} denied</span>}
+          </div>
+        </button>
+        <button
+          type="button"
           className="override-delete-btn"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleDeleteOverride(override.id);
-          }}
+          onClick={() => handleDeleteOverride(override.id)}
           aria-label="Delete override"
         >
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

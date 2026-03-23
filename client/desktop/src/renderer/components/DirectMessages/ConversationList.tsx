@@ -128,17 +128,25 @@ const ConversationList: React.FC<ConversationListProps> = ({
       </div>
 
       {/* Pinned Personal Thread */}
-      <div
+      <button
+        type="button"
         className={`conversation-item personal-thread${
           personalThread && selectedThreadId === personalThread.id ? ' active' : ''
         }`}
         onClick={handleOpenPersonalThread}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleOpenPersonalThread();
+          }
+        }}
+        aria-label="Personal Thread"
       >
         <div className="conversation-avatar personal-thread-avatar">
           <BookOpen size={14} />
         </div>
         <span className="conversation-name personal-thread-name">Personal Thread</span>
-      </div>
+      </button>
       <div className="personal-thread-divider" />
 
       {filtered.length === 0 ? (
@@ -171,10 +179,18 @@ const ConversationList: React.FC<ConversationListProps> = ({
           }
 
           return (
-            <div
+            <button
+              type="button"
               key={conv.id}
               className={`conversation-item${selectedThreadId === conv.id ? ' active' : ''}${conv.unreadCount > 0 ? ' unread' : ''}`}
               onClick={() => onSelectThread(conv.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  onSelectThread(conv.id);
+                }
+              }}
+              aria-label={name}
             >
               <div className={`conversation-avatar${conv.isGroup ? ' group' : ''}`}>
                 {conv.isGroup ? (
@@ -203,7 +219,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
                   </div>
                 </div>
               </div>
-            </div>
+            </button>
           );
         })
       )}

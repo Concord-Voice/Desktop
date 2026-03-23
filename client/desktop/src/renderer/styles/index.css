@@ -973,6 +973,7 @@ body {
   font-size: calc(13px * var(--font-scale, 1));
   color: var(--text-muted);
   font-style: italic;
+  margin-top: calc(8px * var(--sp, 1));
 }
 
 /* Scrollbar */
@@ -1072,9 +1073,4 @@ body {
 /* Tooltip */
 .info-tooltip-popup {
   padding: calc(12px * var(--sp, 1)) calc(14px * var(--sp, 1));
-}
-
-/* Placeholder text spacing */
-.placeholder-text {
-  margin-top: calc(8px * var(--sp, 1));
 }

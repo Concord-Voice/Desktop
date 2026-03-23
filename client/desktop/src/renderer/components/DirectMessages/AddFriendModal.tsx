@@ -302,8 +302,9 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
 
           <div className="add-friend-options">
             <div className="add-friend-option-group">
-              <label>Expires after</label>
+              <label htmlFor="friend-code-expires">Expires after</label>
               <CustomSelect
+                id="friend-code-expires"
                 options={EXPIRY_OPTIONS.map((opt) => ({
                   value: String(opt.value),
                   label: opt.label,
@@ -313,8 +314,9 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
               />
             </div>
             <div className="add-friend-option-group">
-              <label>Max uses</label>
+              <label htmlFor="friend-code-max-uses">Max uses</label>
               <CustomSelect
+                id="friend-code-max-uses"
                 options={MAX_USES_OPTIONS.map((opt) => ({
                   value: String(opt.value),
                   label: opt.label,
@@ -324,7 +326,7 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
               />
             </div>
             <div className="add-friend-option-group">
-              <label>Auto-accept</label>
+              <span>Auto-accept</span>
               <label className="add-friend-toggle">
                 <input
                   type="checkbox"

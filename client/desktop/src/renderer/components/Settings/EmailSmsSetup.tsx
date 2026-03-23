@@ -162,8 +162,9 @@ const EmailSmsSetup: React.FC<EmailSmsSetupProps> = ({ mfaActive, onComplete, on
 
           {devCodes.email !== undefined && (
             <div className="mfa-verify-field">
-              <label>Email code</label>
+              <label htmlFor="mfa-email-code">Email code</label>
               <input
+                id="mfa-email-code"
                 type="text"
                 className="form-input"
                 value={emailCode}
@@ -176,8 +177,9 @@ const EmailSmsSetup: React.FC<EmailSmsSetupProps> = ({ mfaActive, onComplete, on
           )}
           {devCodes.sms !== undefined && (
             <div className="mfa-verify-field">
-              <label>SMS code</label>
+              <label htmlFor="mfa-sms-code">SMS code</label>
               <input
+                id="mfa-sms-code"
                 type="text"
                 className="form-input"
                 value={smsCode}

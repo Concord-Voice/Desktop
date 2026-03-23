@@ -86,7 +86,7 @@ const EmojiGrid: React.FC<EmojiGridProps> = ({
       cells.push(
         <button
           type="button"
-          key={idx}
+          key={entry.n}
           className="emoji-picker-cell"
           onClick={() => onSelect(displayEmoji)}
           onMouseEnter={() => onHover?.(entry)}

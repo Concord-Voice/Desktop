@@ -33,19 +33,18 @@ const DeviceSelector: React.FC<DeviceSelectorProps> = ({ kind }) => {
     setVideoDevice,
   } = useVoiceStore();
 
-  const currentDeviceId =
-    kind === 'audioinput'
-      ? audioInputDeviceId
-      : kind === 'audiooutput'
-        ? audioOutputDeviceId
-        : videoDeviceId;
-
-  const setDevice =
-    kind === 'audioinput'
-      ? setAudioInputDevice
-      : kind === 'audiooutput'
-        ? setAudioOutputDevice
-        : setVideoDevice;
+  const deviceIdByKind = {
+    audioinput: audioInputDeviceId,
+    audiooutput: audioOutputDeviceId,
+    videoinput: videoDeviceId,
+  };
+  const setDeviceByKind = {
+    audioinput: setAudioInputDevice,
+    audiooutput: setAudioOutputDevice,
+    videoinput: setVideoDevice,
+  };
+  const currentDeviceId = deviceIdByKind[kind];
+  const setDevice = setDeviceByKind[kind];
 
   useEffect(() => {
     const enumerate = async () => {
@@ -66,11 +65,12 @@ const DeviceSelector: React.FC<DeviceSelectorProps> = ({ kind }) => {
 
   return (
     <div className="device-selector">
-      <label className="device-selector__label">
+      <label htmlFor={`device-${kind}`} className="device-selector__label">
         {ICONS[kind]}
         {LABELS[kind]}
       </label>
       <CustomSelect
+        id={`device-${kind}`}
         className="device-selector__select"
         options={[
           { value: '', label: 'Default' },

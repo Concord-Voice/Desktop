@@ -347,6 +347,8 @@
   gap: 6px;
   padding: 8px 0 4px 44px;
   width: 100%;
+  border: none;
+  margin: 0;
 }
 
 .role-checkbox-row {

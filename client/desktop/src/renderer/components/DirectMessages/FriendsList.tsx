@@ -159,7 +159,18 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
       {/* Pending Requests Section */}
       {pendingRequests.length > 0 && (
         <div className="friend-category">
-          <div className="friend-category-header" onClick={() => toggleCategory('pending')}>
+          <button
+            type="button"
+            className="friend-category-header"
+            onClick={() => toggleCategory('pending')}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                toggleCategory('pending');
+              }
+            }}
+            aria-expanded={!collapsedCategories.has('pending')}
+          >
             {collapsedCategories.has('pending') ? (
               <ChevronRight size={12} />
             ) : (
@@ -167,7 +178,7 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
             )}
             <span>Pending Requests</span>
             <span className="friend-category-count">{pendingRequests.length}</span>
-          </div>
+          </button>
 
           {!collapsedCategories.has('pending') && (
             <>
@@ -261,20 +272,46 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
           const isCollapsed = collapsedCategories.has(cat.id);
           return (
             <div key={cat.id} className="friend-category">
-              <div className="friend-category-header" onClick={() => toggleCategory(cat.id)}>
+              <button
+                type="button"
+                className="friend-category-header"
+                onClick={() => toggleCategory(cat.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggleCategory(cat.id);
+                  }
+                }}
+                aria-expanded={!isCollapsed}
+              >
                 {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                 <span>{cat.label}</span>
                 <span className="friend-category-count">{cat.friends.length}</span>
-              </div>
+              </button>
 
               {!isCollapsed &&
                 cat.friends.map((friend) => {
                   const friendColors = resolveUserAccentColors(friend.colorScheme);
                   return (
-                    <div
+                    <button
+                      type="button"
                       key={friend.id}
                       className={`friend-item ${friend.status === 'offline' ? 'offline' : ''}`}
                       onClick={(e) => handleFriendClick(e, friend)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          handleFriendClick(
+                            {
+                              clientX: rect.left + rect.width / 2,
+                              clientY: rect.top + rect.height / 2,
+                              currentTarget: e.currentTarget,
+                            } as unknown as React.MouseEvent,
+                            friend
+                          );
+                        }
+                      }}
                       onMouseDown={(e) => e.stopPropagation()}
                       onContextMenu={(e) => handleFriendContextMenu(e, friend)}
                     >
@@ -302,7 +339,7 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
                       <span className="member-username">
                         {friend.displayName || friend.username}
                       </span>
-                    </div>
+                    </button>
                   );
                 })}
             </div>

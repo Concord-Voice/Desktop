@@ -20,7 +20,7 @@ import './TOTPInput.css';
 // Convert base64url-encoded WebAuthn options from the server into ArrayBuffer format
 // that navigator.credentials.get() expects.
 function base64urlToBuffer(base64url: string): ArrayBuffer {
-  const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+  const base64 = base64url.replaceAll('-', '+').replaceAll('_', '/');
   const pad = base64.length % 4 === 0 ? '' : '='.repeat(4 - (base64.length % 4));
   const binary = atob(base64 + pad);
   const bytes = new Uint8Array(binary.length);
@@ -48,6 +48,20 @@ function parseWebAuthnOptions(serverOptions: any): PublicKeyCredentialRequestOpt
     opts.userVerification = pk.userVerification;
   }
   return opts;
+}
+
+/** Check that Electron safeStorage is available, returning an error message or null */
+async function checkSafeStorage(): Promise<string | null> {
+  if (!window.electron?.checkPermission) return null;
+  try {
+    const status = await window.electron.checkPermission('secureStorage');
+    if (status !== 'granted') {
+      return 'Secure storage is unavailable. Concord requires keychain / credential manager access to safely store authentication tokens and encryption keys. Please enable it and restart the app.';
+    }
+    return null;
+  } catch {
+    return 'Secure storage could not be verified. Please try again, and if the problem persists, restart the app.';
+  }
 }
 
 export interface LoginProps {
@@ -99,7 +113,7 @@ const Login: React.FC<LoginProps> = ({
     const newErrors: FormErrors = {};
 
     // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const emailRegex = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
     if (!formData.email) {
       newErrors.email = 'Email is required';
     } else if (!emailRegex.test(formData.email)) {
@@ -123,26 +137,11 @@ const Login: React.FC<LoginProps> = ({
       return;
     }
 
-    // Fail-closed safeStorage enforcement (#197): block login if secure storage is unavailable.
-    // When Electron IPC is present, any failure (denied or IPC error) blocks login.
-    if (window.electron?.checkPermission) {
-      try {
-        const storageStatus = await window.electron.checkPermission('secureStorage');
-        if (storageStatus !== 'granted') {
-          setErrors({
-            general:
-              'Secure storage is unavailable. Concord requires keychain / credential manager access to safely store authentication tokens and encryption keys. Please enable it and restart the app.',
-          });
-          return;
-        }
-      } catch {
-        // Electron IPC present but check failed — fail closed
-        setErrors({
-          general:
-            'Secure storage could not be verified. Please try again, and if the problem persists, restart the app.',
-        });
-        return;
-      }
+    // Fail-closed safeStorage enforcement (#197)
+    const storageError = await checkSafeStorage();
+    if (storageError) {
+      setErrors({ general: storageError });
+      return;
     }
 
     setIsSubmitting(true);
@@ -340,8 +339,8 @@ const Login: React.FC<LoginProps> = ({
     const toBase64url = (buf: ArrayBuffer): string => {
       const bytes = new Uint8Array(buf);
       let binary = '';
-      for (const byte of bytes) binary += String.fromCharCode(byte);
-      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      for (const byte of bytes) binary += String.fromCodePoint(byte);
+      return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replaceAll(/=+$/g, '');
     };
 
     const assertion = {
@@ -383,16 +382,12 @@ const Login: React.FC<LoginProps> = ({
     }
   };
 
-  const mfaSubtitle =
-    mfaMode === 'totp'
-      ? 'Enter the 6-digit code from your authenticator app'
-      : mfaMode === 'backup'
-        ? 'Enter one of your backup codes'
-        : mfaMode === 'webauthn'
-          ? 'Use your security key or biometrics'
-          : mfaMode === 'email-sms'
-            ? 'Enter the verification code sent to you'
-            : 'Select a verification method';
+  let mfaSubtitle: string;
+  if (mfaMode === 'totp') mfaSubtitle = 'Enter the 6-digit code from your authenticator app';
+  else if (mfaMode === 'backup') mfaSubtitle = 'Enter one of your backup codes';
+  else if (mfaMode === 'webauthn') mfaSubtitle = 'Use your security key or biometrics';
+  else if (mfaMode === 'email-sms') mfaSubtitle = 'Enter the verification code sent to you';
+  else mfaSubtitle = 'Select a verification method';
 
   // MFA Step UI
   if (mfaRequired) {
@@ -529,8 +524,11 @@ const Login: React.FC<LoginProps> = ({
         <form className="login-form" onSubmit={handleSubmit}>
           {/* Email */}
           <div className="form-group">
-            <label className="form-label">Email</label>
+            <label htmlFor="login-email" className="form-label">
+              Email
+            </label>
             <input
+              id="login-email"
               type="email"
               className={`form-input ${errors.email ? 'error' : ''}`}
               placeholder="you@example.com"
@@ -544,8 +542,11 @@ const Login: React.FC<LoginProps> = ({
 
           {/* Password */}
           <div className="form-group">
-            <label className="form-label">Password</label>
+            <label htmlFor="login-password" className="form-label">
+              Password
+            </label>
             <input
+              id="login-password"
               type="password"
               className={`form-input ${errors.password ? 'error' : ''}`}
               placeholder="Enter your password"

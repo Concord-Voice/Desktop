@@ -56,9 +56,9 @@ class E2EEService {
   private wrappingKey: CryptoKey | null = null;
   private preferencesKey: CryptoKey | null = null;
   private wrappedPrivateKey: string = '';
-  private channelKeyCache: Map<string, CachedWrappedKey> = new Map();
-  private versionedKeyCache: Map<string, Map<number, CachedWrappedKey>> = new Map();
-  private pendingKeyFetches: Map<string, Promise<CryptoKey>> = new Map();
+  private readonly channelKeyCache: Map<string, CachedWrappedKey> = new Map();
+  private readonly versionedKeyCache: Map<string, Map<number, CachedWrappedKey>> = new Map();
+  private readonly pendingKeyFetches: Map<string, Promise<CryptoKey>> = new Map();
   private rateLimitedUntil: number = 0; // timestamp when rate limit expires
 
   /** Cached exported keys for safeStorage persistence (set during initialize) */
@@ -536,7 +536,7 @@ class E2EEService {
   async getChannelKeyByVersion(channelId: string, version: number): Promise<CryptoKey> {
     // Check if this is the current version — use main cache
     const mainCached = this.channelKeyCache.get(channelId);
-    if (mainCached && mainCached.keyVersion === version) {
+    if (mainCached?.keyVersion === version) {
       mainCached.lastUsed = Date.now();
       const privateKey = await this.derivePrivateKey();
       return unwrapChannelKey(mainCached.wrappedKey, privateKey);

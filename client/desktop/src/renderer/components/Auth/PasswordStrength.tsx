@@ -121,9 +121,9 @@ const PasswordStrength: React.FC<PasswordStrengthProps> = ({ password }) => {
   return (
     <div className="password-strength">
       <div className="strength-bar-container">
-        {[0, 1, 2, 3, 4].map((index) => (
+        {['seg-1', 'seg-2', 'seg-3', 'seg-4', 'seg-5'].map((id, index) => (
           <div
-            key={index}
+            key={id}
             className={`strength-bar-segment ${index < strength.score ? 'active' : ''}`}
             style={{
               backgroundColor: index < strength.score ? strength.color : 'var(--bg-tertiary)',
@@ -141,8 +141,8 @@ const PasswordStrength: React.FC<PasswordStrengthProps> = ({ password }) => {
         </span>
         {strength.feedback.length > 0 && (
           <div className="strength-feedback">
-            {strength.feedback.map((tip, index) => (
-              <span key={index} className="feedback-item">
+            {strength.feedback.map((tip) => (
+              <span key={tip} className="feedback-item">
                 {tip}
               </span>
             ))}

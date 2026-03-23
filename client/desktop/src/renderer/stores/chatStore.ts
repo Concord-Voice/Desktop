@@ -194,7 +194,7 @@ export const useChatStore = create<ChatState>()(
       updateUserInMessages: (userId, updates) =>
         set((state) => {
           let changed = false;
-          state.messagesByChannel.forEach((messages, channelId) => {
+          for (const [channelId, messages] of state.messagesByChannel) {
             const updated = messages.map((m) => {
               if (m.user_id !== userId) return m;
               changed = true;
@@ -210,7 +210,7 @@ export const useChatStore = create<ChatState>()(
               };
             });
             state.messagesByChannel.set(channelId, updated);
-          });
+          }
           if (!changed) return state;
           return { messagesByChannel: new Map(state.messagesByChannel) };
         }),
@@ -264,12 +264,12 @@ export const useChatStore = create<ChatState>()(
           const now = Date.now();
           let hasChanges = false;
 
-          channelTyping.forEach((user, userId) => {
+          for (const [userId, user] of channelTyping) {
             if (now - user.timestamp > maxAge) {
               channelTyping.delete(userId);
               hasChanges = true;
             }
-          });
+          }
 
           if (hasChanges) {
             return {

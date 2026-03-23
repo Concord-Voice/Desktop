@@ -48,12 +48,12 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
   const customColors = useSettingsStore((s) => s.appearance.customColors);
   const theme = useSettingsStore((s) => s.appearance.theme);
   const selfColorSchemeJson = useMemo(() => {
-    const resolvedTheme =
-      theme === 'system'
-        ? window.matchMedia('(prefers-color-scheme: dark)').matches
-          ? 'dark'
-          : 'light'
-        : theme;
+    let resolvedTheme: string;
+    if (theme === 'system') {
+      resolvedTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } else {
+      resolvedTheme = theme;
+    }
     if (colorScheme === 'custom' && customColors) {
       return JSON.stringify({
         scheme: 'custom',

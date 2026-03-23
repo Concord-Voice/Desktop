@@ -392,7 +392,23 @@ const Message: React.FC<MessageProps> = ({
       onContextMenu={handleContextMenu}
     >
       {showAvatar ? (
-        <div className="message-avatar" onClick={handleAvatarClick}>
+        <button
+          type="button"
+          className="message-avatar"
+          onClick={handleAvatarClick}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              const rect = e.currentTarget.getBoundingClientRect();
+              handleAvatarClick({
+                clientX: rect.left + rect.width / 2,
+                clientY: rect.top + rect.height / 2,
+                currentTarget: e.currentTarget,
+              } as unknown as React.MouseEvent);
+            }
+          }}
+          aria-label="View user profile"
+        >
           {message.avatar_url ? (
             <img className="avatar-image" src={message.avatar_url} alt={message.username} />
           ) : (
@@ -403,7 +419,7 @@ const Message: React.FC<MessageProps> = ({
               {getInitials(message.display_name || message.username)}
             </div>
           )}
-        </div>
+        </button>
       ) : (
         <div className="message-gutter">
           <span className="message-gutter-timestamp">{formatShortTime(message.created_at)}</span>
@@ -455,25 +471,31 @@ const Message: React.FC<MessageProps> = ({
                 : 0;
             const emojiClass = getEmojiSizeClass(emojiCount);
             return (
-              <div className={`message-text${emojiClass ? ` ${emojiClass}` : ''}`}>
+              <div className={'message-text' + (emojiClass ? ' ' + emojiClass : '')}>
                 {message.is_encrypted && (
                   <span className="encrypted-indicator" title="End-to-end encrypted">
                     <Lock size={12} />
                   </span>
                 )}
-                {message.pendingKeys ? (
-                  <span className="decrypt-failed pending-keys">
-                    <Lock size={14} />
-                    Waiting for encryption keys...
-                  </span>
-                ) : message.decryptFailed ? (
-                  <span className="decrypt-failed">
-                    <Lock size={14} />
-                    Unable to decrypt this message
-                  </span>
-                ) : (
-                  renderContent(message.content, mentionLookup)
-                )}
+                {(() => {
+                  if (message.pendingKeys) {
+                    return (
+                      <span className="decrypt-failed pending-keys">
+                        <Lock size={14} />
+                        Waiting for encryption keys...
+                      </span>
+                    );
+                  }
+                  if (message.decryptFailed) {
+                    return (
+                      <span className="decrypt-failed">
+                        <Lock size={14} />
+                        Unable to decrypt this message
+                      </span>
+                    );
+                  }
+                  return renderContent(message.content, mentionLookup);
+                })()}
                 {!showAvatar && message.edited_at && (
                   <span className="message-edited-inline">(edited)</span>
                 )}

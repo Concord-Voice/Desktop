@@ -97,7 +97,7 @@ const JoinServerModal: React.FC<JoinServerModalProps> = ({ isOpen, onClose, onSu
 
   const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     // Only allow alphanumeric characters, strip spaces
-    const value = e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, CODE_LENGTH);
+    const value = e.target.value.replaceAll(/[^a-zA-Z0-9]/g, '').slice(0, CODE_LENGTH);
     setCode(value);
     setSuccessMessage(null);
   };
@@ -138,8 +138,11 @@ const JoinServerModal: React.FC<JoinServerModalProps> = ({ isOpen, onClose, onSu
     <Modal isOpen={isOpen} onClose={onClose} title="Join a Server" width="medium">
       <form className="join-server-form" onSubmit={handleSubmit}>
         <div className="form-group">
-          <label className="form-label">Invite Code</label>
+          <label htmlFor="join-server-code" className="form-label">
+            Invite Code
+          </label>
           <input
+            id="join-server-code"
             ref={inputRef}
             type="text"
             className={`form-input join-code-input ${error ? 'error' : ''}`}

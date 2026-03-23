@@ -57,6 +57,7 @@
   overflow: hidden;
   display: flex;
   min-height: 0;
+  transition: width 0.3s ease;
 }
 
 /* Allow the overlay to escape the 0-width column when unpinned */
@@ -80,6 +81,7 @@
   display: flex;
   min-height: 0;
   background-color: var(--bg-secondary);
+  transition: width 0.3s ease;
 }
 
 /* Resizable member/friends panel wrapper */
@@ -90,10 +92,6 @@
 }
 
 /* ─── Channel Panel Transitions ─────────────────────────────────────────── */
-
-.layout-channel-panel {
-  transition: width 0.3s ease;
-}
 
 /* Unpinned overlay mode */
 .channel-panel-overlay {
@@ -125,10 +123,6 @@
 }
 
 /* ─── Member Panel Transitions ──────────────────────────────────────────── */
-
-.layout-member-space {
-  transition: width 0.3s ease;
-}
 
 /* Collapsed avatar strip */
 .member-panel-collapsed {

@@ -13,6 +13,7 @@ interface CustomSelectProps {
   disabled?: boolean;
   className?: string;
   placeholder?: string;
+  id?: string;
 }
 
 const CustomSelect: React.FC<CustomSelectProps> = ({
@@ -22,9 +23,11 @@ const CustomSelect: React.FC<CustomSelectProps> = ({
   disabled = false,
   className = '',
   placeholder,
+  id,
 }) => {
   return (
     <select
+      id={id}
       className={`custom-select ${className}`}
       value={value}
       onChange={(e) => onChange(e.target.value)}

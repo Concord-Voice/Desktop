@@ -235,9 +235,9 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
             <div className="user-profile-modal-section">
               <div className="user-profile-modal-section-title">Links</div>
               <div className="user-profile-modal-links-list">
-                {links.map((link: string, i: number) => (
+                {links.map((link: string, idx: number) => (
                   <a
-                    key={i}
+                    key={`${idx}-${link}`}
                     className="user-profile-modal-link"
                     href={link}
                     target="_blank"

@@ -181,8 +181,11 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, serve
 
           <div className="invite-modal-options">
             <div className="invite-option-group">
-              <label className="invite-option-label">Expires after</label>
+              <label htmlFor="invite-expires" className="invite-option-label">
+                Expires after
+              </label>
               <CustomSelect
+                id="invite-expires"
                 options={EXPIRY_OPTIONS.map((opt) => ({
                   value: String(opt.value),
                   label: opt.label,
@@ -195,8 +198,11 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, serve
             </div>
 
             <div className="invite-option-group">
-              <label className="invite-option-label">Max uses</label>
+              <label htmlFor="invite-max-uses" className="invite-option-label">
+                Max uses
+              </label>
               <CustomSelect
+                id="invite-max-uses"
                 options={MAX_USES_OPTIONS.map((opt) => ({
                   value: String(opt.value),
                   label: opt.label,
@@ -267,16 +273,17 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, serve
             onClick={handleGenerateCode}
             disabled={isGenerating}
           >
-            {isGenerating ? (
-              <>
-                Generating...
-                <LoadingSpinner size="small" inline />
-              </>
-            ) : generatedCode ? (
-              'Generate New Code'
-            ) : (
-              'Generate Invite Code'
-            )}
+            {(() => {
+              if (isGenerating) {
+                return (
+                  <>
+                    Generating...
+                    <LoadingSpinner size="small" inline />
+                  </>
+                );
+              }
+              return generatedCode ? 'Generate New Code' : 'Generate Invite Code';
+            })()}
           </button>
         </div>
 

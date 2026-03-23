@@ -46,8 +46,8 @@ type VoiceService = {
 };
 
 export class PipSignalingProxy {
-  private bc: BroadcastChannel;
-  private voiceService: VoiceService;
+  private readonly bc: BroadcastChannel;
+  private readonly voiceService: VoiceService;
   private disposed = false;
 
   /**
@@ -55,7 +55,7 @@ export class PipSignalingProxy {
    * Key: pipId, Value: array of paused consumer IDs.
    * Used to resume them when the PiP closes.
    */
-  private pausedForPip: Map<string, string[]> = new Map();
+  private readonly pausedForPip: Map<string, string[]> = new Map();
 
   /** Zustand unsubscribe function for state change broadcasting */
   private stateUnsub: (() => void) | null = null;

@@ -499,10 +499,10 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         // Also update DM participant and friend presence
         const dmState = useDMStore.getState();
         const friendState = useFriendStore.getState();
-        users.forEach((u) => {
+        for (const u of users) {
           dmState.updateParticipantProfile(u.user_id, { status: u.status });
           friendState.updateFriendPresence(u.user_id, u.status as PresenceStatus);
-        });
+        }
       } else if (msg.data.online_user_ids) {
         // Backward compatibility: simple list of online user IDs
         const userIds = msg.data.online_user_ids as string[];
@@ -510,10 +510,10 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
         const dmState2 = useDMStore.getState();
         const friendState2 = useFriendStore.getState();
-        userIds.forEach((id) => {
+        for (const id of userIds) {
           dmState2.updateParticipantProfile(id, { status: 'online' });
           friendState2.updateFriendPresence(id, 'online');
-        });
+        }
       }
     });
 

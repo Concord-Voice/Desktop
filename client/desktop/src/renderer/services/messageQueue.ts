@@ -41,7 +41,7 @@ const MAX_RETRIES = 3;
 
 export class MessageQueue {
   private queue: QueuedMessage[] = [];
-  private callbacks: MessageQueueCallbacks = {};
+  private readonly callbacks: MessageQueueCallbacks = {};
   private processingInterval: NodeJS.Timeout | null = null;
 
   constructor(callbacks?: MessageQueueCallbacks) {
@@ -259,7 +259,7 @@ export class MessageQueue {
         .filter((m) => m.status === MessageStatus.DELIVERED || m.status === MessageStatus.FAILED)
         .slice(0, toRemove);
 
-      delivered.forEach((m) => this.remove(m.id));
+      for (const m of delivered) this.remove(m.id);
 
       // If still over limit, remove oldest pending (shouldn't happen normally)
       if (this.queue.length > MAX_QUEUE_SIZE) {

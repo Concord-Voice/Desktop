@@ -83,16 +83,16 @@ const MFAChallengeModal: React.FC = () => {
       const response = pkc.response as AuthenticatorAssertionResponse;
       const assertion = {
         id: pkc.id,
-        rawId: btoa(String.fromCharCode(...new Uint8Array(pkc.rawId))),
+        rawId: btoa(String.fromCodePoint(...new Uint8Array(pkc.rawId))),
         type: pkc.type,
         response: {
           authenticatorData: btoa(
-            String.fromCharCode(...new Uint8Array(response.authenticatorData))
+            String.fromCodePoint(...new Uint8Array(response.authenticatorData))
           ),
-          clientDataJSON: btoa(String.fromCharCode(...new Uint8Array(response.clientDataJSON))),
-          signature: btoa(String.fromCharCode(...new Uint8Array(response.signature))),
+          clientDataJSON: btoa(String.fromCodePoint(...new Uint8Array(response.clientDataJSON))),
+          signature: btoa(String.fromCodePoint(...new Uint8Array(response.signature))),
           userHandle: response.userHandle
-            ? btoa(String.fromCharCode(...new Uint8Array(response.userHandle)))
+            ? btoa(String.fromCodePoint(...new Uint8Array(response.userHandle)))
             : null,
         },
       };
@@ -142,16 +142,12 @@ const MFAChallengeModal: React.FC = () => {
     setError('');
   };
 
-  const subtitle =
-    mode === 'totp'
-      ? 'Enter the 6-digit code from your authenticator app'
-      : mode === 'backup'
-        ? 'Enter one of your backup codes'
-        : mode === 'webauthn'
-          ? 'Use your security key or biometrics'
-          : mode === 'email-sms'
-            ? 'Enter the verification code sent to you'
-            : 'Select a verification method';
+  let subtitle: string;
+  if (mode === 'totp') subtitle = 'Enter the 6-digit code from your authenticator app';
+  else if (mode === 'backup') subtitle = 'Enter one of your backup codes';
+  else if (mode === 'webauthn') subtitle = 'Use your security key or biometrics';
+  else if (mode === 'email-sms') subtitle = 'Enter the verification code sent to you';
+  else subtitle = 'Select a verification method';
 
   return (
     <div className="mfa-modal-overlay">

@@ -157,9 +157,13 @@ const EmojiPicker: React.FC<EmojiPickerProps> = ({
             </>
           ) : (
             <span className="emoji-picker-preview-name">
-              {searchQuery
-                ? `${searchResults.length} result${searchResults.length !== 1 ? 's' : ''}`
-                : categories.find((c) => c.id === activeCategory)?.name || 'Frequently Used'}
+              {(() => {
+                if (searchQuery) {
+                  const plural = searchResults.length === 1 ? '' : 's';
+                  return `${searchResults.length} result${plural}`;
+                }
+                return categories.find((c) => c.id === activeCategory)?.name || 'Frequently Used';
+              })()}
             </span>
           )}
         </div>

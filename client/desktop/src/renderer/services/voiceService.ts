@@ -73,11 +73,11 @@ if (E2EE_VERBOSE) {
   console.debug('E2EE API detection:', {
     hasEncodedStreams: HAS_ENCODED_STREAMS,
     hasScriptTransform: typeof RTCRtpScriptTransform !== 'undefined',
-    selectedPath: HAS_ENCODED_STREAMS
-      ? 'createEncodedStreams (legacy)'
-      : USE_SCRIPT_TRANSFORM
-        ? 'RTCRtpScriptTransform (Worker)'
-        : 'NONE — E2EE unavailable',
+    selectedPath: (() => {
+      if (HAS_ENCODED_STREAMS) return 'createEncodedStreams (legacy)';
+      if (USE_SCRIPT_TRANSFORM) return 'RTCRtpScriptTransform (Worker)';
+      return 'NONE — E2EE unavailable';
+    })(),
   });
 }
 
@@ -149,11 +149,11 @@ class VoiceService {
   private recvTransportVideo: mediasoupTypes.Transport | null = null;
 
   // Local producers: source → Producer
-  private producers: Map<string, mediasoupTypes.Producer> = new Map();
+  private readonly producers: Map<string, mediasoupTypes.Producer> = new Map();
   // Remote consumers: consumerId → Consumer
-  private consumers: Map<string, mediasoupTypes.Consumer> = new Map();
+  private readonly consumers: Map<string, mediasoupTypes.Consumer> = new Map();
   // Consumer metadata for ownership transfer (parallel to consumers Map)
-  private consumerMeta: Map<
+  private readonly consumerMeta: Map<
     string,
     { source: string; producerUserId: string; producerId: string }
   > = new Map();
@@ -164,7 +164,7 @@ class VoiceService {
 
   // Pending screen-audio producers from remote users (userId → producerId)
   // Consumed when the local user tunes into the corresponding screen share
-  private pendingScreenAudioProducers: Map<string, string> = new Map();
+  private readonly pendingScreenAudioProducers: Map<string, string> = new Map();
 
   // E2EE
   private mediaEncryption: MediaEncryption | null = null;
@@ -283,8 +283,8 @@ class VoiceService {
     this.vadSource?.disconnect();
     this.vadSource = null;
     this.vadAnalyser = null;
-    if (this.vadAudioContext && this.vadAudioContext.state !== 'closed') {
-      this.vadAudioContext.close().catch(() => {});
+    if (this.vadAudioContext?.state !== 'closed') {
+      this.vadAudioContext?.close().catch(() => {});
     }
     this.vadAudioContext = null;
   }
@@ -354,8 +354,8 @@ class VoiceService {
       clearInterval(this.noiseGateTimer);
       this.noiseGateTimer = null;
     }
-    if (this.noiseGateCtx && this.noiseGateCtx.state !== 'closed') {
-      this.noiseGateCtx.close().catch(() => {});
+    if (this.noiseGateCtx?.state !== 'closed') {
+      this.noiseGateCtx?.close().catch(() => {});
     }
     this.noiseGateCtx = null;
   }
@@ -407,8 +407,8 @@ class VoiceService {
       this.inputVolumeUnsub();
       this.inputVolumeUnsub = null;
     }
-    if (this.inputVolumeCtx && this.inputVolumeCtx.state !== 'closed') {
-      this.inputVolumeCtx.close().catch(() => {});
+    if (this.inputVolumeCtx?.state !== 'closed') {
+      this.inputVolumeCtx?.close().catch(() => {});
     }
     this.inputVolumeCtx = null;
     this.inputVolumeGain = null;
@@ -471,8 +471,10 @@ class VoiceService {
             if (effectiveHeadroom && lossPercent > 0) {
               // Tier-derived multiplier: low bitrate tiers need proportionally more
               // headroom since FEC eats a larger share of a small budget
-              const K =
-                tierConfig.maxBitrate < 64_000 ? 4 : tierConfig.maxBitrate < 128_000 ? 2.5 : 1.5;
+              let K: number;
+              if (tierConfig.maxBitrate < 64_000) K = 4;
+              else if (tierConfig.maxBitrate < 128_000) K = 2.5;
+              else K = 1.5;
               const headroomPercent = Math.min(50, lossPercent * K);
               params.encodings[0].maxBitrate = Math.round(
                 tierConfig.maxBitrate * (1 + headroomPercent / 100)
@@ -599,7 +601,7 @@ class VoiceService {
     // For 'source' resolution, use actual capture dimensions if available
     if (vs.screenResolution === 'source') {
       const screenTrack = this.localScreenStream?.getVideoTracks()[0];
-      if (screenTrack && screenTrack.readyState === 'live') {
+      if (screenTrack?.readyState === 'live') {
         const settings = screenTrack.getSettings();
         if (settings.width && settings.height) {
           res = { w: settings.width, h: settings.height };
@@ -958,7 +960,7 @@ class VoiceService {
       this.stopNoiseGate();
       this.stopInputVolume();
       if (this.localMicStream) {
-        this.localMicStream.getTracks().forEach((t) => t.stop());
+        for (const t of this.localMicStream.getTracks()) t.stop();
       }
 
       // Re-acquire mic with new constraints
@@ -1001,7 +1003,7 @@ class VoiceService {
 
     try {
       if (this.localCameraStream) {
-        this.localCameraStream.getTracks().forEach((t) => t.stop());
+        for (const t of this.localCameraStream.getTracks()) t.stop();
       }
 
       // Try preferred constraints, fall back to bare minimum on OverconstrainedError
@@ -1058,7 +1060,7 @@ class VoiceService {
   private async liveReproduceCamera(): Promise<void> {
     if (!this.producers.get('camera') || !this.sendTransport) return;
     if (this.localCameraStream) {
-      this.localCameraStream.getTracks().forEach((t) => t.stop());
+      for (const t of this.localCameraStream.getTracks()) t.stop();
       this.localCameraStream = null;
     }
     await this.closeProducer('camera');
@@ -1080,7 +1082,7 @@ class VoiceService {
     const mime = codec.mimeType.toLowerCase();
     if (codec.sdpFmtpLine) {
       if (mime === 'video/h264') {
-        const m = codec.sdpFmtpLine.match(/profile-level-id=([0-9a-fA-F]{6})/i);
+        const m = /profile-level-id=([0-9a-f]{6})/i.exec(codec.sdpFmtpLine);
         if (m) return `${mime}:${m[1].toLowerCase()}`;
       }
       if (mime === 'video/vp9') {
@@ -1134,7 +1136,7 @@ class VoiceService {
     newProducer.on('transportclose', () => {
       this.producers.delete('camera');
       if (this.localCameraStream) {
-        this.localCameraStream.getTracks().forEach((t) => t.stop());
+        for (const t of this.localCameraStream.getTracks()) t.stop();
         this.localCameraStream = null;
       }
       const s = useVoiceStore.getState();
@@ -1144,7 +1146,7 @@ class VoiceService {
     });
 
     useVoiceStore.getState().setActiveCameraCodec(codec?.mimeType?.toLowerCase() ?? null);
-    const hwTag = codec && this.isHwAccelerated(codec.mimeType) ? 'HW' : 'SW';
+    const hwTag = codec?.mimeType && this.isHwAccelerated(codec.mimeType) ? 'HW' : 'SW';
     console.debug(
       `[codec-floor] Fast re-produced camera with ${codec?.mimeType ?? 'default'} (${hwTag})`
     );
@@ -1209,7 +1211,7 @@ class VoiceService {
     newProducer.on('transportclose', () => {
       this.producers.delete('screen');
       if (this.localScreenStream) {
-        this.localScreenStream.getTracks().forEach((t) => t.stop());
+        for (const t of this.localScreenStream.getTracks()) t.stop();
         this.localScreenStream = null;
       }
       const s = useVoiceStore.getState();
@@ -1222,7 +1224,7 @@ class VoiceService {
     const oldAudioProducer = this.producers.get('screen-audio');
     if (oldAudioProducer && this.localScreenStream) {
       const audioTrack = this.localScreenStream.getAudioTracks()[0];
-      if (audioTrack && audioTrack.readyState === 'live') {
+      if (audioTrack?.readyState === 'live') {
         const oldAudioId = oldAudioProducer.id;
         oldAudioProducer.close();
         await this.drainSendTransportQueue();
@@ -1249,7 +1251,7 @@ class VoiceService {
     }
 
     useVoiceStore.getState().setActiveScreenCodec(codec?.mimeType?.toLowerCase() ?? null);
-    const hwTag = codec && this.isHwAccelerated(codec.mimeType) ? 'HW' : 'SW';
+    const hwTag = codec?.mimeType && this.isHwAccelerated(codec.mimeType) ? 'HW' : 'SW';
     console.debug(
       `[codec-floor] Fast re-produced screen with ${codec?.mimeType ?? 'default'} (${hwTag})`
     );
@@ -1301,6 +1303,77 @@ class VoiceService {
   private decoderProfilingTimer: ReturnType<typeof setInterval> | null = null;
 
   // ─── Join / Leave ──────────────────────────────────────────────────
+
+  /** Set up E2EE encryption, decrypt keys, and epoch catch-up for an encrypted channel */
+  private async setupE2EEForChannel(
+    channelId: string,
+    roomJoined: RoomJoinedResponse
+  ): Promise<void> {
+    await this.initEncryption(channelId);
+    for (const p of roomJoined.participants) {
+      await this.addDecryptKeyForUser(channelId, p.userId);
+    }
+    if (roomJoined.e2eeEpoch && this.mediaEncryption) {
+      if (this.e2eeWorker) {
+        this.e2eeWorker.postMessage({
+          type: 'catchUpToEpoch',
+          targetEpoch: roomJoined.e2eeEpoch,
+        } satisfies E2EEWorkerMessage);
+      }
+      await this.mediaEncryption.catchUpToEpoch(roomJoined.e2eeEpoch);
+    }
+  }
+
+  /** Build VoiceParticipant list from room-join response, including video/screen state */
+  private buildParticipantList(roomJoined: RoomJoinedResponse): VoiceParticipant[] {
+    const producersByUser = new Map<string, { isVideoOn: boolean; isScreenSharing: boolean }>();
+    for (const ep of roomJoined.existingProducers) {
+      const entry = producersByUser.get(ep.userId) || { isVideoOn: false, isScreenSharing: false };
+      if (ep.source === 'camera') entry.isVideoOn = true;
+      if (ep.source === 'screen') entry.isScreenSharing = true;
+      producersByUser.set(ep.userId, entry);
+    }
+    return roomJoined.participants.map((p) => {
+      const producerState = producersByUser.get(p.userId);
+      return {
+        userId: p.userId,
+        username: p.username,
+        displayName: p.displayName,
+        avatarUrl: p.avatarUrl,
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: producerState?.isVideoOn ?? false,
+        isScreenSharing: producerState?.isScreenSharing ?? false,
+        isSpeaking: false,
+      };
+    });
+  }
+
+  /** Consume or register existing producers from the room-join response */
+  private async consumeExistingProducers(
+    existingProducers: RoomJoinedResponse['existingProducers']
+  ): Promise<void> {
+    const store = useVoiceStore.getState();
+    for (const producer of existingProducers) {
+      if (producer.source === 'screen') {
+        const participant = store.participants[producer.userId];
+        store.addAvailableScreenShare({
+          producerId: producer.producerId,
+          userId: producer.userId,
+          username: participant?.username || 'Unknown',
+          displayName: participant?.displayName,
+        });
+      } else if (producer.source === 'screen-audio') {
+        this.pendingScreenAudioProducers.set(producer.userId, producer.producerId);
+      } else {
+        await this.consumeProducer(
+          producer.producerId,
+          producer.userId,
+          producer.kind as mediasoupTypes.MediaKind
+        );
+      }
+    }
+  }
 
   /** Authorize and join a voice channel */
   async joinChannel(channelId: string, joinType: 'channel' | 'dm' = 'channel'): Promise<void> {
@@ -1397,88 +1470,19 @@ class VoiceService {
 
       // Step 6: Initialize E2EE if channel is encrypted
       if (this.isEncrypted) {
-        await this.initEncryption(channel.id);
-        // Add decrypt keys for existing participants
-        for (const p of roomJoined.participants) {
-          await this.addDecryptKeyForUser(channel.id, p.userId);
-        }
-        // Catch up to server epoch immediately (existing participants may be
-        // encrypting at a higher keyId due to prior join/leave rotations).
-        // The self-healing ratchet handles frame-level catch-up, but catching
-        // up now means the first frame won't need an expensive ratchet chain.
-        if (roomJoined.e2eeEpoch && this.mediaEncryption) {
-          if (this.e2eeWorker) {
-            this.e2eeWorker.postMessage({
-              type: 'catchUpToEpoch',
-              targetEpoch: roomJoined.e2eeEpoch,
-            } satisfies E2EEWorkerMessage);
-          }
-          await this.mediaEncryption.catchUpToEpoch(roomJoined.e2eeEpoch);
-        }
+        await this.setupE2EEForChannel(channel.id, roomJoined);
       }
 
-      // Step 7: Set participants BEFORE consuming producers so that
-      // updateParticipant calls inside consumeProducerImpl can find them.
-      // Derive initial video/screen state from existingProducers so joiners
-      // immediately see who has camera or screen share active.
-      const producersByUser = new Map<string, { isVideoOn: boolean; isScreenSharing: boolean }>();
-      for (const ep of roomJoined.existingProducers) {
-        const entry = producersByUser.get(ep.userId) || {
-          isVideoOn: false,
-          isScreenSharing: false,
-        };
-        if (ep.source === 'camera') entry.isVideoOn = true;
-        if (ep.source === 'screen') entry.isScreenSharing = true;
-        producersByUser.set(ep.userId, entry);
-      }
+      // Step 7: Set participants before consuming producers
+      store.setParticipants(this.buildParticipantList(roomJoined));
 
-      const participants: VoiceParticipant[] = roomJoined.participants.map((p) => {
-        const producerState = producersByUser.get(p.userId);
-        return {
-          userId: p.userId,
-          username: p.username,
-          displayName: p.displayName,
-          avatarUrl: p.avatarUrl,
-          isMuted: false,
-          isDeafened: false,
-          isVideoOn: producerState?.isVideoOn ?? false,
-          isScreenSharing: producerState?.isScreenSharing ?? false,
-          isSpeaking: false,
-        };
-      });
-      store.setParticipants(participants);
-
-      // Step 8: Produce audio (using pre-acquired mic stream from step 1b)
+      // Step 8: Produce audio (using pre-acquired mic stream)
       const preAcquiredStream = await micPromise;
       await this.produceAudio(undefined, preAcquiredStream);
-
-      // Step 8b: Set up live settings subscriptions for mid-call changes
       this.setupLiveSubscriptions();
 
-      // Step 9: Consume existing producers (participants already in store,
-      // so updateParticipant will attach streams correctly).
-      // Screen shares use opt-in ("Tune In") model — add to available list instead.
-      for (const producer of roomJoined.existingProducers) {
-        if (producer.source === 'screen') {
-          const participant = store.participants[producer.userId];
-          store.addAvailableScreenShare({
-            producerId: producer.producerId,
-            userId: producer.userId,
-            username: participant?.username || 'Unknown',
-            displayName: participant?.displayName,
-          });
-        } else if (producer.source === 'screen-audio') {
-          // Screen-audio uses the same opt-in model as screen video —
-          // store mapping, consume only when user tunes in
-          this.pendingScreenAudioProducers.set(producer.userId, producer.producerId);
-        } else {
-          await this.consumeProducer(
-            producer.producerId,
-            producer.userId,
-            producer.kind as mediasoupTypes.MediaKind
-          );
-        }
-      }
+      // Step 9: Consume existing producers
+      await this.consumeExistingProducers(roomJoined.existingProducers);
 
       store.setConnectionState('connected');
 
@@ -1521,15 +1525,37 @@ class VoiceService {
    * All operations are idempotent — safe to call multiple times.
    */
   emergencyCleanup(): void {
-    // 1. Stop all local media tracks immediately
+    this.cleanupMediaAndTransports();
+    this.cleanupTimersAndE2EE();
+
+    // Disconnect socket (fire-and-forget)
+    try {
+      this.socket?.disconnect();
+    } catch {
+      /* ignore */
+    }
+    this.socket = null;
+
+    // Reset device and consume queues
+    this.device = null;
+    this.consumeQueue = Promise.resolve();
+    this.consumeQueueAudio = Promise.resolve();
+    this.consumeQueueVideo = Promise.resolve();
+
+    // Reset store
+    useVoiceStore.getState().clearAvailableScreenShares();
+    useVoiceStore.getState().reset();
+  }
+
+  /** Stop local streams, close producers/consumers/transports. */
+  private cleanupMediaAndTransports(): void {
     for (const stream of [this.localMicStream, this.localCameraStream, this.localScreenStream]) {
-      if (stream) stream.getTracks().forEach((t) => t.stop());
+      if (stream) for (const t of stream.getTracks()) t.stop();
     }
     this.localMicStream = null;
     this.localCameraStream = null;
     this.localScreenStream = null;
 
-    // 2. Close all producers (sync)
     for (const [, producer] of this.producers) {
       try {
         producer.close();
@@ -1539,7 +1565,6 @@ class VoiceService {
     }
     this.producers.clear();
 
-    // 3. Close all consumers
     for (const [, consumer] of this.consumers) {
       try {
         consumer.close();
@@ -1551,7 +1576,6 @@ class VoiceService {
     this.consumerMeta.clear();
     this.pendingScreenAudioProducers.clear();
 
-    // 4. Close transports (sync)
     for (const t of [
       this.sendTransport,
       this.recvTransport,
@@ -1568,8 +1592,10 @@ class VoiceService {
     this.recvTransport = null;
     this.recvTransportAudio = null;
     this.recvTransportVideo = null;
+  }
 
-    // 5. Stop timers and subscriptions
+  /** Stop timers, subscriptions, and E2EE state. */
+  private cleanupTimersAndE2EE(): void {
     this.stopLocalVAD();
     this.stopPacketLossMonitor();
     this.teardownLiveSubscriptions();
@@ -1577,8 +1603,6 @@ class VoiceService {
       clearInterval(this.decoderProfilingTimer);
       this.decoderProfilingTimer = null;
     }
-
-    // 6. Destroy E2EE
     this.terminateE2EEWorker();
     if (this.rotationTimer) {
       clearTimeout(this.rotationTimer);
@@ -1589,24 +1613,6 @@ class VoiceService {
     this.mediaEncryption?.destroy();
     this.mediaEncryption = null;
     this.isEncrypted = false;
-
-    // 7. Disconnect socket (fire-and-forget)
-    try {
-      this.socket?.disconnect();
-    } catch {
-      /* ignore */
-    }
-    this.socket = null;
-
-    // 8. Reset device and consume queues
-    this.device = null;
-    this.consumeQueue = Promise.resolve();
-    this.consumeQueueAudio = Promise.resolve();
-    this.consumeQueueVideo = Promise.resolve();
-
-    // 9. Reset store
-    useVoiceStore.getState().clearAvailableScreenShares();
-    useVoiceStore.getState().reset();
   }
 
   // ─── Audio Producer ────────────────────────────────────────────────
@@ -1653,7 +1659,7 @@ class VoiceService {
     } else {
       // Stop any pre-acquired stream we're not using (device changed)
       if (preAcquiredStream) {
-        preAcquiredStream.getTracks().forEach((t) => t.stop());
+        for (const t of preAcquiredStream.getTracks()) t.stop();
       }
 
       // JIT permission check (#197): request mic access on macOS before getUserMedia
@@ -1757,7 +1763,7 @@ class VoiceService {
       this.stopNoiseGate();
       this.stopInputVolume();
       if (this.localMicStream) {
-        this.localMicStream.getTracks().forEach((t) => t.stop());
+        for (const t of this.localMicStream.getTracks()) t.stop();
         this.localMicStream = null;
       }
     });
@@ -1891,7 +1897,7 @@ class VoiceService {
       producer.on('transportclose', () => {
         this.producers.delete('camera');
         if (this.localCameraStream) {
-          this.localCameraStream.getTracks().forEach((t) => t.stop());
+          for (const t of this.localCameraStream.getTracks()) t.stop();
           this.localCameraStream = null;
         }
         const s = useVoiceStore.getState();
@@ -1903,15 +1909,17 @@ class VoiceService {
       console.error('Failed to start camera:', err);
       // Clean up any partial stream
       if (this.localCameraStream) {
-        this.localCameraStream.getTracks().forEach((t) => t.stop());
+        for (const t of this.localCameraStream.getTracks()) t.stop();
         this.localCameraStream = null;
       }
-      const errMsg =
-        err instanceof DOMException && err.name === 'NotAllowedError'
-          ? 'Camera access denied. Check your browser or system permissions.'
-          : err instanceof DOMException && err.name === 'NotFoundError'
-            ? 'No camera found. Check that your camera is connected.'
-            : 'Could not start camera. Try a different camera or video preset in Settings.';
+      let errMsg: string;
+      if (err instanceof DOMException && err.name === 'NotAllowedError') {
+        errMsg = 'Camera access denied. Check your browser or system permissions.';
+      } else if (err instanceof DOMException && err.name === 'NotFoundError') {
+        errMsg = 'No camera found. Check that your camera is connected.';
+      } else {
+        errMsg = 'Could not start camera. Try a different camera or video preset in Settings.';
+      }
       voiceState.setVideoSlotError(errMsg);
     }
   }
@@ -2021,7 +2029,7 @@ class VoiceService {
 
     const videoTracks = stream.getVideoTracks();
     if (videoTracks.length === 0) {
-      stream.getTracks().forEach((t) => t.stop());
+      for (const t of stream.getTracks()) t.stop();
       throw new Error('Screen capture returned no video tracks');
     }
 
@@ -2121,7 +2129,7 @@ class VoiceService {
       producer.on('transportclose', () => {
         this.producers.delete('screen');
         if (this.localScreenStream) {
-          this.localScreenStream.getTracks().forEach((t) => t.stop());
+          for (const t of this.localScreenStream.getTracks()) t.stop();
           this.localScreenStream = null;
         }
         const s = useVoiceStore.getState();
@@ -2131,7 +2139,7 @@ class VoiceService {
       });
     } catch (err) {
       // Clean up stream and reference if produce failed
-      stream.getTracks().forEach((t) => t.stop());
+      for (const t of stream.getTracks()) t.stop();
       this.localScreenStream = null;
       throw err;
     }
@@ -2401,7 +2409,7 @@ class VoiceService {
   /** Resume a consumer locally and signal the server to resume forwarding RTP */
   resumeConsumer(consumerId: string): void {
     const consumer = this.consumers.get(consumerId);
-    if (consumer && consumer.paused) {
+    if (consumer?.paused) {
       consumer.resume();
       this.socket?.emit('resume-consumer', { consumerId });
     }
@@ -2478,12 +2486,12 @@ class VoiceService {
       this.stopNoiseGate();
       this.stopInputVolume();
       if (this.localMicStream) {
-        this.localMicStream.getTracks().forEach((t) => t.stop());
+        for (const t of this.localMicStream.getTracks()) t.stop();
         this.localMicStream = null;
       }
     } else if (source === 'camera') {
       if (this.localCameraStream) {
-        this.localCameraStream.getTracks().forEach((t) => t.stop());
+        for (const t of this.localCameraStream.getTracks()) t.stop();
         this.localCameraStream = null;
       }
       useVoiceStore.getState().setVideoOn(false);
@@ -2504,7 +2512,7 @@ class VoiceService {
       }
 
       if (this.localScreenStream) {
-        this.localScreenStream.getTracks().forEach((t) => t.stop()); // Stops both video & audio tracks
+        for (const t of this.localScreenStream.getTracks()) t.stop(); // Stops both video & audio tracks
         this.localScreenStream = null;
       }
       useVoiceStore.getState().setScreenSharing(false);
@@ -3177,6 +3185,70 @@ class VoiceService {
    *   Yellow: lower temporal layer by 1
    *   Red:    lower spatial layer by 1, if already lowest → pause lowest-priority consumer
    */
+  /** Handle RED zone decoder overload: reduce layers or pause lowest-priority consumer */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private handleRedZone(
+    consumer: mediasoupTypes.Consumer,
+    consumerAny: any,
+    currentLayers: { spatialLayer: number; temporalLayer: number } | undefined,
+    rho: number,
+    p95DecodeMs: number,
+    currentFps: number
+  ): void {
+    if ((currentLayers?.spatialLayer ?? 0) > 0) {
+      consumerAny.setPreferredLayers({
+        spatialLayer: currentLayers!.spatialLayer - 1,
+        temporalLayer: currentLayers!.temporalLayer,
+      });
+      console.warn(
+        `IGNIS RED: lowering spatial layer for consumer ${consumer.id}`,
+        `(rho=${rho.toFixed(2)}, decode p95=${p95DecodeMs.toFixed(1)}ms, fps=${currentFps})`
+      );
+      return;
+    }
+
+    if ((currentLayers?.temporalLayer ?? 0) > 0) {
+      consumerAny.setPreferredLayers({
+        spatialLayer: currentLayers!.spatialLayer,
+        temporalLayer: currentLayers!.temporalLayer - 1,
+      });
+      console.warn(
+        `IGNIS RED: lowering temporal layer for consumer ${consumer.id}`,
+        `(rho=${rho.toFixed(2)})`
+      );
+      return;
+    }
+
+    // Already at lowest layers — pause lowest-priority consumer
+    this.pauseLowestPriorityConsumer(consumer);
+  }
+
+  /** Pause a consumer, preferring to pause camera over screen share */
+  private pauseLowestPriorityConsumer(consumer: mediasoupTypes.Consumer): void {
+    const tunedIn = useVoiceStore.getState().tunedInScreenShares;
+    const isScreenShare = Object.values(tunedIn).includes(consumer.id);
+
+    if (!isScreenShare) {
+      consumer.pause();
+      console.warn(`IGNIS RED: pausing camera consumer ${consumer.id} — no layers to reduce`);
+      return;
+    }
+
+    // Try to find a camera consumer to pause instead
+    for (const [, c] of this.consumers) {
+      if (c.kind === 'video' && !c.paused && !Object.values(tunedIn).includes(c.id)) {
+        c.pause();
+        console.warn(
+          `IGNIS RED: pausing camera consumer ${c.id} instead of screen share ${consumer.id}`
+        );
+        return;
+      }
+    }
+
+    consumer.pause();
+    console.warn(`IGNIS RED: pausing screen share consumer ${consumer.id} — no camera to demote`);
+  }
+
   private async profileDecoders(): Promise<void> {
     let worstZone: 'green' | 'yellow' | 'red' = 'green';
 
@@ -3201,78 +3273,24 @@ class VoiceService {
 
           if (!totalDecodeTime || !framesDecoded || framesDecoded === 0 || !currentFps) continue;
 
-          // Average decode time per frame (ms)
           const avgDecodeMs = (totalDecodeTime / framesDecoded) * 1000;
-          // p95 estimate ≈ 1.5× average
           const p95DecodeMs = avgDecodeMs * 1.5;
-          // Load ratio (rho)
           const rho = (p95DecodeMs * currentFps) / 1000;
 
-          // currentLayers / setPreferredLayers are SFU-side extensions not
-          // present in the mediasoup-client type definitions, so cast to any.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const consumerAny = consumer as any;
           const currentLayers: { spatialLayer: number; temporalLayer: number } | undefined =
             consumerAny.currentLayers;
 
           if (rho >= 0.925) {
-            // RED zone — critical decoder load
             worstZone = 'red';
-            if (currentLayers && currentLayers.spatialLayer > 0) {
-              consumerAny.setPreferredLayers({
-                spatialLayer: currentLayers.spatialLayer - 1,
-                temporalLayer: currentLayers.temporalLayer,
-              });
-              console.warn(
-                `IGNIS RED: lowering spatial layer for consumer ${consumer.id}`,
-                `(rho=${rho.toFixed(2)}, decode p95=${p95DecodeMs.toFixed(1)}ms, fps=${currentFps})`
-              );
-            } else if (currentLayers && currentLayers.temporalLayer > 0) {
-              consumerAny.setPreferredLayers({
-                spatialLayer: currentLayers.spatialLayer,
-                temporalLayer: currentLayers.temporalLayer - 1,
-              });
-              console.warn(
-                `IGNIS RED: lowering temporal layer for consumer ${consumer.id}`,
-                `(rho=${rho.toFixed(2)})`
-              );
-            } else {
-              // Already at lowest layers — pause lowest-priority consumer.
-              // Prefer pausing camera consumers over screen share consumers.
-              const tunedIn = useVoiceStore.getState().tunedInScreenShares;
-              const isScreenShare = Object.values(tunedIn).includes(consumer.id);
-              if (isScreenShare) {
-                // Try to find a camera consumer to pause instead
-                let pausedCamera = false;
-                for (const [, c] of this.consumers) {
-                  if (c.kind === 'video' && !c.paused && !Object.values(tunedIn).includes(c.id)) {
-                    c.pause();
-                    console.warn(
-                      `IGNIS RED: pausing camera consumer ${c.id} instead of screen share ${consumer.id}`
-                    );
-                    pausedCamera = true;
-                    break;
-                  }
-                }
-                if (!pausedCamera) {
-                  consumer.pause();
-                  console.warn(
-                    `IGNIS RED: pausing screen share consumer ${consumer.id} — no camera to demote`
-                  );
-                }
-              } else {
-                consumer.pause();
-                console.warn(
-                  `IGNIS RED: pausing camera consumer ${consumer.id} — no layers to reduce`
-                );
-              }
-            }
+            this.handleRedZone(consumer, consumerAny, currentLayers, rho, p95DecodeMs, currentFps);
           } else if (rho >= 0.8) {
-            // YELLOW zone — approaching limit
             if (worstZone !== 'red') worstZone = 'yellow';
-            if (currentLayers && currentLayers.temporalLayer > 0) {
+            if ((currentLayers?.temporalLayer ?? 0) > 0) {
               consumerAny.setPreferredLayers({
-                spatialLayer: currentLayers.spatialLayer,
-                temporalLayer: currentLayers.temporalLayer - 1,
+                spatialLayer: currentLayers!.spatialLayer,
+                temporalLayer: currentLayers!.temporalLayer - 1,
               });
               console.info(
                 `IGNIS YELLOW: lowering temporal layer for consumer ${consumer.id}`,
@@ -3280,7 +3298,6 @@ class VoiceService {
               );
             }
           }
-          // GREEN zone (rho < 0.67) — no intervention needed
         }
       } catch {
         // Stats not available — skip
@@ -3293,42 +3310,44 @@ class VoiceService {
   // ─── E2EE ─────────────────────────────────────────────────────
 
   /** Initialize media encryption for an encrypted channel (fail-closed with retry) */
+  /** Core encryption setup: derive key, create Worker or legacy MediaEncryption */
+  private async initEncryptionCore(channelId: string, attempt: number): Promise<void> {
+    const channelCSK = await e2eeService.getChannelKey(channelId);
+    const userId = useUserStore.getState().user?.id;
+    if (!userId) throw new Error('No local userId for E2EE init');
+
+    const encryptKey = await deriveFrameKey(channelCSK, userId);
+
+    if (USE_SCRIPT_TRANSFORM) {
+      this.initE2EEWorker();
+      this.e2eeWorker!.postMessage({
+        type: 'init',
+        encryptKey,
+        currentKeyId: 0,
+      } satisfies E2EEWorkerMessage);
+      this.mediaEncryption = new MediaEncryption();
+      this.mediaEncryption.initFromKey(encryptKey, 0);
+    } else {
+      this.mediaEncryption = new MediaEncryption();
+      await this.mediaEncryption.init(channelCSK, userId);
+    }
+
+    console.debug('E2EE: encryption initialized', {
+      channelId,
+      userId,
+      attempt: attempt + 1,
+      useScriptTransform: USE_SCRIPT_TRANSFORM,
+    });
+  }
+
+  /** Initialize media encryption for an encrypted channel (fail-closed with retry) */
   private async initEncryption(channelId: string): Promise<void> {
     const retryDelays = [500, 1000, 2000];
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
       try {
-        const channelCSK = await e2eeService.getChannelKey(channelId);
-        const userId = useUserStore.getState().user?.id;
-        if (!userId) throw new Error('No local userId for E2EE init');
-
-        // Derive the encrypt key on the main thread
-        const encryptKey = await deriveFrameKey(channelCSK, userId);
-
-        if (USE_SCRIPT_TRANSFORM) {
-          // Modern path: create Worker and send key
-          this.initE2EEWorker();
-          this.e2eeWorker!.postMessage({
-            type: 'init',
-            encryptKey,
-            currentKeyId: 0,
-          } satisfies E2EEWorkerMessage);
-          // Keep MediaEncryption for key derivation helpers (addDecryptKey etc.)
-          this.mediaEncryption = new MediaEncryption();
-          this.mediaEncryption.initFromKey(encryptKey, 0);
-        } else {
-          // Legacy path: MediaEncryption on main thread
-          this.mediaEncryption = new MediaEncryption();
-          await this.mediaEncryption.init(channelCSK, userId);
-        }
-
-        console.debug('E2EE: encryption initialized', {
-          channelId,
-          userId,
-          attempt: attempt + 1,
-          useScriptTransform: USE_SCRIPT_TRANSFORM,
-        });
+        await this.initEncryptionCore(channelId, attempt);
         return;
       } catch (err) {
         lastError = err;
@@ -3347,7 +3366,7 @@ class VoiceService {
       }
     }
 
-    // All retries exhausted — fail-closed: re-throw so join flow aborts
+    // All retries exhausted — fail-closed
     this.mediaEncryption = null;
     this.terminateE2EEWorker();
     throw lastError instanceof Error
@@ -3443,6 +3462,47 @@ class VoiceService {
   }
 
   /** Add a decryption key for a remote user, pre-ratcheted to current epoch (with retry) */
+  /** Derive and install a decrypt key for a single user at the current epoch */
+  private async deriveAndInstallDecryptKey(
+    channelId: string,
+    userId: string,
+    attempt: number
+  ): Promise<void> {
+    if (!this.mediaEncryption) throw new Error('mediaEncryption destroyed');
+    const channelCSK = await e2eeService.getChannelKey(channelId);
+    if (!this.mediaEncryption) throw new Error('mediaEncryption destroyed');
+    const currentEpoch = this.mediaEncryption.getCurrentKeyId();
+
+    if (currentEpoch > 100) {
+      throw new Error(`E2EE: epoch ${currentEpoch} exceeds ratchet limit (100), rejoin required`);
+    }
+
+    let key: CryptoKey = await deriveFrameKey(channelCSK, userId);
+    for (let i = 0; i < currentEpoch; i++) {
+      key = await ratchetKey(key);
+    }
+
+    this.mediaEncryption.addDecryptKeyDirect(userId, currentEpoch, key);
+
+    if (this.e2eeWorker) {
+      this.e2eeWorker.postMessage({
+        type: 'addDecryptKey',
+        senderUserId: userId,
+        keyId: currentEpoch,
+        key,
+      } satisfies E2EEWorkerMessage);
+    }
+
+    console.debug('E2EE: decrypt key added', {
+      channelId,
+      targetUserId: userId,
+      currentEpoch,
+      keyId: currentEpoch,
+      attempt: attempt + 1,
+    });
+  }
+
+  /** Add a decryption key for a remote user, pre-ratcheted to current epoch (with retry) */
   private async addDecryptKeyForUser(channelId: string, userId: string): Promise<boolean> {
     if (!this.mediaEncryption) return false;
 
@@ -3450,52 +3510,13 @@ class VoiceService {
     let lastError: unknown;
 
     for (let attempt = 0; attempt <= retryDelays.length; attempt++) {
-      if (!this.mediaEncryption) return false;
       try {
-        const channelCSK = await e2eeService.getChannelKey(channelId);
-        if (!this.mediaEncryption) return false;
-        const currentEpoch = this.mediaEncryption.getCurrentKeyId();
-
-        // Derive the key on the main thread, pre-ratcheted to current epoch
-        if (currentEpoch > 100) {
-          // Epoch exceeds self-healing ratchet limit (deriveRatchetedKey caps at
-          // 100 steps). A keyId=0 fallback would never catch up — fail explicitly
-          // so the caller knows recovery requires a rejoin.
-          throw new Error(
-            `E2EE: epoch ${currentEpoch} exceeds ratchet limit (100), rejoin required`
-          );
-        }
-        let key: CryptoKey = await deriveFrameKey(channelCSK, userId);
-        for (let i = 0; i < currentEpoch; i++) {
-          key = await ratchetKey(key);
-        }
-        const keyId = currentEpoch;
-
-        // Store in main-thread MediaEncryption (for legacy path / ID tracking)
-        this.mediaEncryption.addDecryptKeyDirect(userId, keyId, key);
-
-        // Send to Worker (modern path)
-        if (this.e2eeWorker) {
-          this.e2eeWorker.postMessage({
-            type: 'addDecryptKey',
-            senderUserId: userId,
-            keyId,
-            key,
-          } satisfies E2EEWorkerMessage);
-        }
-
-        console.debug('E2EE: decrypt key added', {
-          channelId,
-          targetUserId: userId,
-          currentEpoch,
-          keyId,
-          attempt: attempt + 1,
-        });
+        await this.deriveAndInstallDecryptKey(channelId, userId, attempt);
         return true;
       } catch (err) {
         lastError = err;
-        const isPending = err instanceof Error && err.message === 'PENDING_KEY';
         if (attempt < retryDelays.length) {
+          const isPending = err instanceof Error && err.message === 'PENDING_KEY';
           const delay = isPending ? retryDelays[attempt] * 2 : retryDelays[attempt];
           await new Promise((r) => setTimeout(r, delay));
         }
@@ -3791,7 +3812,7 @@ class VoiceService {
     // Safety net: ensure ALL local media tracks are stopped even if
     // closeProducer missed them (e.g. due to a prior error or race).
     for (const stream of [this.localMicStream, this.localCameraStream, this.localScreenStream]) {
-      if (stream) stream.getTracks().forEach((t) => t.stop());
+      if (stream) for (const t of stream.getTracks()) t.stop();
     }
     this.localMicStream = null;
     this.localCameraStream = null;

@@ -236,7 +236,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
 
         {/* Channel Emoji (Optional) */}
         <div className="channel-form-group">
-          <label className="channel-form-label">Channel Emoji (Optional)</label>
+          <span className="channel-form-label">Channel Emoji (Optional)</span>
           <div className="emoji-input-wrapper" ref={emojiPickerRef}>
             <div className="emoji-input-container">
               <button
@@ -279,9 +279,9 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
 
         {/* Channel Type */}
         <div className="channel-form-group">
-          <label className="channel-form-label">
+          <span className="channel-form-label">
             Channel Type <span className="required">*</span>
-          </label>
+          </span>
           <div className="channel-type-selector">
             <button
               type="button"
@@ -348,7 +348,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
 
         {/* E2EE Toggle */}
         <div className="channel-form-group">
-          <label className="channel-form-label">End-to-End Encryption</label>
+          <span className="channel-form-label">End-to-End Encryption</span>
           <button
             type="button"
             className={`e2ee-toggle-option ${isEncrypted ? 'enabled' : 'disabled'}`}

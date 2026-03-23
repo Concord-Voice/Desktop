@@ -39,15 +39,15 @@ interface ConsumedTrack {
 }
 
 export class PipVoiceClient {
-  private pipId: string;
-  private bc: BroadcastChannel;
+  private readonly pipId: string;
+  private readonly bc: BroadcastChannel;
   private device: Device | null = null;
   private recvTransport: mediasoupTypes.Transport | null = null;
-  private consumers: Map<string, ConsumedTrack> = new Map();
+  private readonly consumers: Map<string, ConsumedTrack> = new Map();
   private disposed = false;
 
   /** Pending RPC response callbacks keyed by request ID */
-  private pending: Map<
+  private readonly pending: Map<
     string,
     {
       resolve: (result: unknown) => void;

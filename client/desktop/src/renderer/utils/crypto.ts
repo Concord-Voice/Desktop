@@ -307,7 +307,7 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   let binary = '';
   for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
+    binary += String.fromCodePoint(bytes[i]);
   }
   return btoa(binary);
 }
@@ -713,7 +713,7 @@ export function generateRecoveryKey(): string {
  * and validates the result is exactly 32 bytes.
  */
 export function parseRecoveryKey(key: string): Uint8Array {
-  const cleaned = key.trim().replace(/[\s-]/g, '');
+  const cleaned = key.trim().replaceAll(/[\s-]/g, '');
   const bytes = base58Decode(cleaned);
   if (bytes.length !== 32) {
     throw new Error(`Invalid recovery key: expected 32 bytes after decoding, got ${bytes.length}`);

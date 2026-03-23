@@ -37,6 +37,14 @@ const ConnectionSelector: React.FC<ConnectionSelectorProps> = ({ onSelect }) => 
             className={`connection-option ${selectedMode === 'hosted-login' ? 'selected' : ''}`}
             onClick={() => handleModeChange('hosted-login')}
           >
+            <input
+              type="radio"
+              name="connection-mode"
+              value="hosted-login"
+              checked={selectedMode === 'hosted-login'}
+              onChange={() => handleModeChange('hosted-login')}
+              className="visually-hidden"
+            />
             <div className="option-radio">
               <div className="radio-outer">
                 {selectedMode === 'hosted-login' && <div className="radio-inner" />}
@@ -56,6 +64,14 @@ const ConnectionSelector: React.FC<ConnectionSelectorProps> = ({ onSelect }) => 
             className={`connection-option ${selectedMode === 'hosted' ? 'selected' : ''}`}
             onClick={() => handleModeChange('hosted')}
           >
+            <input
+              type="radio"
+              name="connection-mode"
+              value="hosted"
+              checked={selectedMode === 'hosted'}
+              onChange={() => handleModeChange('hosted')}
+              className="visually-hidden"
+            />
             <div className="option-radio">
               <div className="radio-outer">
                 {selectedMode === 'hosted' && <div className="radio-inner" />}
@@ -75,6 +91,14 @@ const ConnectionSelector: React.FC<ConnectionSelectorProps> = ({ onSelect }) => 
             className={`connection-option ${selectedMode === 'self-hosted' ? 'selected' : ''}`}
             onClick={() => handleModeChange('self-hosted')}
           >
+            <input
+              type="radio"
+              name="connection-mode"
+              value="self-hosted"
+              checked={selectedMode === 'self-hosted'}
+              onChange={() => handleModeChange('self-hosted')}
+              className="visually-hidden"
+            />
             <div className="option-radio">
               <div className="radio-outer">
                 {selectedMode === 'self-hosted' && <div className="radio-inner" />}

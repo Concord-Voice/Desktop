@@ -10,12 +10,12 @@ try {
   if (stored) {
     const { state } = JSON.parse(stored);
     const theme = state?.appearance?.theme || 'dark';
-    const resolved =
-      theme === 'system'
-        ? window.matchMedia('(prefers-color-scheme: dark)').matches
-          ? 'dark'
-          : 'light'
-        : theme;
+    let resolved: string;
+    if (theme === 'system') {
+      resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } else {
+      resolved = theme;
+    }
     document.documentElement.dataset.theme = resolved;
 
     // Apply compact mode

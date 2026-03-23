@@ -206,7 +206,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
 
         {/* Channel Emoji (Optional) */}
         <div className="channel-form-group">
-          <label className="channel-form-label">Channel Emoji (Optional)</label>
+          <span className="channel-form-label">Channel Emoji (Optional)</span>
           <div className="emoji-input-wrapper" ref={emojiPickerRef}>
             <div className="emoji-input-container">
               <button
@@ -249,24 +249,24 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
 
         {/* Channel Type (read-only) */}
         <div className="channel-form-group">
-          <label className="channel-form-label">Channel Type</label>
+          <span className="channel-form-label">Channel Type</span>
           <div className="channel-type-selector">
             <div className="channel-type-option selected" style={{ cursor: 'default' }}>
               <span className="channel-type-icon">{getChannelTypeIcon(channel.type)}</span>
               <div className="channel-type-info">
                 <span className="channel-type-name">
-                  {channel.type === 'text'
-                    ? 'Text'
-                    : channel.type === 'voice'
-                      ? 'Voice'
-                      : 'Bulletin'}
+                  {(() => {
+                    if (channel.type === 'text') return 'Text';
+                    if (channel.type === 'voice') return 'Voice';
+                    return 'Bulletin';
+                  })()}
                 </span>
                 <span className="channel-type-desc">
-                  {channel.type === 'text'
-                    ? 'Send messages, images, and files'
-                    : channel.type === 'voice'
-                      ? 'Voice and video conversations'
-                      : 'Important announcements only'}
+                  {(() => {
+                    if (channel.type === 'text') return 'Send messages, images, and files';
+                    if (channel.type === 'voice') return 'Voice and video conversations';
+                    return 'Important announcements only';
+                  })()}
                 </span>
               </div>
             </div>
@@ -297,7 +297,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
         {/* Audio Quality Tier (voice channels only) */}
         {channel.type === 'voice' && (
           <div className="channel-form-group">
-            <label className="channel-form-label">Audio Quality</label>
+            <span className="channel-form-label">Audio Quality</span>
             <span className="channel-form-hint" style={{ marginBottom: 8 }}>
               Override personal quality settings for all users in this channel.
             </span>

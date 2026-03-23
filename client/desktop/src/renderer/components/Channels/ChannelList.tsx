@@ -374,8 +374,9 @@ const ChannelList: React.FC<ChannelListProps> = ({
             // Reordering within uncategorized — preserve slot encoding.
             // Determine which slot this drop targets based on the target channel's position.
             let slot = sortedGroups.length; // default: after last category
-            if (targetChannel && targetChannel.position >= 1000) {
-              slot = Math.floor(targetChannel.position / 1000) - 1;
+            const targetPos = targetChannel?.position ?? 0;
+            if (targetPos >= 1000) {
+              slot = Math.floor(targetPos / 1000) - 1;
               slot = Math.max(0, Math.min(slot, sortedGroups.length));
             }
             const slotBase = (slot + 1) * 1000;

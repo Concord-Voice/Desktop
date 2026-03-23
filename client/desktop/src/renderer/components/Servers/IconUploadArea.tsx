@@ -20,12 +20,11 @@ const IconUploadArea: React.FC<IconUploadAreaProps> = ({
   fileInputRef,
 }) => (
   <div className="server-icon-upload">
-    <div
+    <button
+      type="button"
       className="icon-upload-area"
       onClick={onClick}
       onKeyDown={onKeyDown}
-      role="button"
-      tabIndex={0}
       aria-label="Upload server icon"
     >
       {preview ? (
@@ -45,7 +44,7 @@ const IconUploadArea: React.FC<IconUploadAreaProps> = ({
           <span className="icon-placeholder-text">Upload</span>
         </div>
       )}
-    </div>
+    </button>
     {preview && (
       <button type="button" className="icon-remove-btn" onClick={onRemove}>
         Remove

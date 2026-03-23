@@ -52,7 +52,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
     const newErrors: FormErrors = {};
 
     // Email validation
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const emailRegex = /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/;
     if (!formData.email) {
       newErrors.email = 'Email is required';
     } else if (!emailRegex.test(formData.email)) {
@@ -216,8 +216,8 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
     }
   };
 
-  const handleConfirmPasswordBlur = () => {
-    // Only validate if confirmPassword has been filled
+  /** Validate password match when either password field loses focus */
+  const validatePasswordMatch = () => {
     if (formData.confirmPassword.length > 0) {
       if (formData.password !== formData.confirmPassword) {
         setErrors((prev) => ({ ...prev, confirmPassword: 'Passwords do not match' }));
@@ -229,18 +229,8 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
     }
   };
 
-  const handlePasswordBlur = () => {
-    // If confirmPassword has been filled, revalidate match
-    if (formData.confirmPassword.length > 0) {
-      if (formData.password !== formData.confirmPassword) {
-        setErrors((prev) => ({ ...prev, confirmPassword: 'Passwords do not match' }));
-        setPasswordsMatch(false);
-      } else {
-        setErrors((prev) => ({ ...prev, confirmPassword: undefined }));
-        setPasswordsMatch(true);
-      }
-    }
-  };
+  const handleConfirmPasswordBlur = validatePasswordMatch;
+  const handlePasswordBlur = validatePasswordMatch;
 
   return (
     <div className="register-container">
@@ -260,8 +250,11 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
         <form className="register-form" onSubmit={handleSubmit}>
           {/* Email */}
           <div className="form-group">
-            <label className="form-label">Email</label>
+            <label htmlFor="register-email" className="form-label">
+              Email
+            </label>
             <input
+              id="register-email"
               type="email"
               className={`form-input ${errors.email ? 'error' : ''}`}
               placeholder="you@example.com"
@@ -274,8 +267,11 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
 
           {/* Username */}
           <div className="form-group">
-            <label className="form-label">Username</label>
+            <label htmlFor="register-username" className="form-label">
+              Username
+            </label>
             <input
+              id="register-username"
               type="text"
               className={`form-input ${errors.username ? 'error' : ''}`}
               placeholder="your_username"
@@ -291,8 +287,11 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
 
           {/* Password */}
           <div className="form-group">
-            <label className="form-label">Password</label>
+            <label htmlFor="register-password" className="form-label">
+              Password
+            </label>
             <input
+              id="register-password"
               type="password"
               className={`form-input ${errors.password ? 'error' : ''}`}
               placeholder="Create a strong password"
@@ -307,8 +306,11 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
 
           {/* Confirm Password */}
           <div className="form-group">
-            <label className="form-label">Confirm Password</label>
+            <label htmlFor="register-confirm-password" className="form-label">
+              Confirm Password
+            </label>
             <input
+              id="register-confirm-password"
               type="password"
               className={`form-input ${errors.confirmPassword ? 'error' : ''} ${passwordsMatch ? 'success' : ''}`}
               placeholder="Confirm your password"

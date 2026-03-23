@@ -266,8 +266,9 @@ const VoiceAudioSection: React.FC = () => {
   // Display-derived values for screen share options
   const bestDisplay = useMemo(() => {
     if (displayInfo.length === 0) return { width: 1920, height: 1080, refreshRate: 60 };
-    return displayInfo.reduce((best, d) =>
-      d.width * d.height > best.width * best.height ? d : best
+    return displayInfo.reduce(
+      (best, d) => (d.width * d.height > best.width * best.height ? d : best),
+      displayInfo[0]
     );
   }, [displayInfo]);
 
@@ -471,16 +472,34 @@ const VoiceAudioSection: React.FC = () => {
       {/* ═══ Audio Configuration ═══ */}
       <CollapsibleSection id="section-audio-config" title="Audio Configuration">
         {/* ── Mode Toggle ── */}
-        <div className="settings-mode-toggle">
+        <div className="settings-mode-toggle" role="tablist">
           <span
             className={`settings-mode-pill ${!advancedMode ? 'active' : ''}`}
+            role="tab"
+            tabIndex={0}
+            aria-selected={!advancedMode}
             onClick={() => handleAdvancedToggle(false)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleAdvancedToggle(false);
+              }
+            }}
           >
             Basic Settings
           </span>
           <span
             className={`settings-mode-pill ${advancedMode ? 'active' : ''}`}
+            role="tab"
+            tabIndex={0}
+            aria-selected={advancedMode}
             onClick={() => handleAdvancedToggle(true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                handleAdvancedToggle(true);
+              }
+            }}
           >
             Advanced Settings
           </span>
@@ -507,6 +526,9 @@ const VoiceAudioSection: React.FC = () => {
                 <span
                   key={tier}
                   className={`settings-tier-label ${tierIndex === i ? 'active' : ''}`}
+                  role="tab"
+                  tabIndex={0}
+                  aria-selected={tierIndex === i}
                   onClick={() => {
                     setQualityTier(tier);
                     if (!useAudioSettingsStore.getState().advancedMode) {
@@ -520,6 +542,12 @@ const VoiceAudioSection: React.FC = () => {
                       });
                     }
                   }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      e.currentTarget.click();
+                    }
+                  }}
                 >
                   {config.label}
                 </span>
@@ -528,8 +556,11 @@ const VoiceAudioSection: React.FC = () => {
           </div>
           <div className="settings-tier-track">
             <div className="settings-tier-ticks">
-              {TIER_ORDER.map((_, i) => (
-                <span key={i} className={`settings-tier-tick ${tierIndex === i ? 'active' : ''}`} />
+              {TIER_ORDER.map((tier, i) => (
+                <span
+                  key={tier}
+                  className={`settings-tier-tick ${tierIndex === i ? 'active' : ''}`}
+                />
               ))}
             </div>
             <input
@@ -554,8 +585,8 @@ const VoiceAudioSection: React.FC = () => {
           </div>
           {!advancedMode && (
             <div className="settings-tier-description">
-              {TIER_DESCRIPTIONS_BASIC[qualityTier].split('\n').map((line, i) => (
-                <span key={i}>{line}</span>
+              {TIER_DESCRIPTIONS_BASIC[qualityTier].split('\n').map((line) => (
+                <span key={line}>{line}</span>
               ))}
               {AUDIO_QUALITY_TIERS[qualityTier].premium && (
                 <span className="settings-quality-premium-badge">Premium</span>
@@ -571,11 +602,13 @@ const VoiceAudioSection: React.FC = () => {
           <div className="settings-row-info">
             <span className="settings-row-label">Noise Cancellation</span>
             <span className="settings-row-hint">
-              {musicMode
-                ? 'Locked by Music Mode. Noise cancellation is forced off to preserve full-bandwidth audio fidelity.'
-                : noiseCancellation
-                  ? "Enabled. Background noise from your microphone is actively filtered out by the system's noise suppression. May slightly reduce audio fidelity in noisy environments."
-                  : 'Disabled. No noise filtering is applied \u2014 all ambient sound passes through unprocessed.'}
+              {(() => {
+                if (musicMode)
+                  return 'Locked by Music Mode. Noise cancellation is forced off to preserve full-bandwidth audio fidelity.';
+                if (noiseCancellation)
+                  return "Enabled. Background noise from your microphone is actively filtered out by the system's noise suppression. May slightly reduce audio fidelity in noisy environments.";
+                return 'Disabled. No noise filtering is applied \u2014 all ambient sound passes through unprocessed.';
+              })()}
             </span>
           </div>
           <ToggleSwitch
@@ -591,11 +624,13 @@ const VoiceAudioSection: React.FC = () => {
           <div className="settings-row-info">
             <span className="settings-row-label">Echo Cancellation</span>
             <span className="settings-row-hint">
-              {musicMode
-                ? 'Locked by Music Mode. Echo cancellation is forced off to preserve unprocessed audio fidelity.'
-                : echoCancellation
-                  ? 'Enabled. Acoustic echo cancellation prevents your speakers from feeding back into your microphone, allowing speaker use without headphones.'
-                  : 'Disabled. No echo cancellation is applied. Use headphones to prevent feedback loops.'}
+              {(() => {
+                if (musicMode)
+                  return 'Locked by Music Mode. Echo cancellation is forced off to preserve unprocessed audio fidelity.';
+                if (echoCancellation)
+                  return 'Enabled. Acoustic echo cancellation prevents your speakers from feeding back into your microphone, allowing speaker use without headphones.';
+                return 'Disabled. No echo cancellation is applied. Use headphones to prevent feedback loops.';
+              })()}
             </span>
           </div>
           <ToggleSwitch
@@ -611,11 +646,13 @@ const VoiceAudioSection: React.FC = () => {
           <div className="settings-row-info">
             <span className="settings-row-label">Auto Gain Control</span>
             <span className="settings-row-hint">
-              {musicMode
-                ? 'Locked by Music Mode. Automatic gain control is forced off to prevent dynamic compression of your audio signal.'
-                : autoGainControl
-                  ? 'Enabled. Automatically normalizes your microphone volume \u2014 making quiet speech louder and loud speech softer.'
-                  : 'Disabled. Your microphone level is not automatically adjusted. Manual volume control via the input slider is recommended.'}
+              {(() => {
+                if (musicMode)
+                  return 'Locked by Music Mode. Automatic gain control is forced off to prevent dynamic compression of your audio signal.';
+                if (autoGainControl)
+                  return 'Enabled. Automatically normalizes your microphone volume \u2014 making quiet speech louder and loud speech softer.';
+                return 'Disabled. Your microphone level is not automatically adjusted. Manual volume control via the input slider is recommended.';
+              })()}
             </span>
           </div>
           <ToggleSwitch
@@ -647,15 +684,17 @@ const VoiceAudioSection: React.FC = () => {
             <div className="settings-row-info">
               <span className="settings-row-label">Gate Threshold</span>
               <span className="settings-row-hint">
-                {noiseGateLevel >= -25
-                  ? `${noiseGateLevel} dBFS \u2014 Gates everything except loud, close-mic speech. Only passes through someone talking directly into a microphone.`
-                  : noiseGateLevel >= -35
-                    ? `${noiseGateLevel} dBFS \u2014 Gates background noise and quiet sounds. Passes through normal conversational speaking volume.`
-                    : noiseGateLevel >= -50
-                      ? `${noiseGateLevel} dBFS \u2014 Gates ambient room noise. Passes through most intentional speech, including softer voices.`
-                      : noiseGateLevel >= -65
-                        ? `${noiseGateLevel} dBFS \u2014 Gates only faint background hum. Most sounds above a quiet whisper will pass through.`
-                        : `${noiseGateLevel} dBFS \u2014 Gates only near-total silence. Virtually everything audible passes through unaffected.`}
+                {(() => {
+                  if (noiseGateLevel >= -25)
+                    return `${noiseGateLevel} dBFS \u2014 Gates everything except loud, close-mic speech. Only passes through someone talking directly into a microphone.`;
+                  if (noiseGateLevel >= -35)
+                    return `${noiseGateLevel} dBFS \u2014 Gates background noise and quiet sounds. Passes through normal conversational speaking volume.`;
+                  if (noiseGateLevel >= -50)
+                    return `${noiseGateLevel} dBFS \u2014 Gates ambient room noise. Passes through most intentional speech, including softer voices.`;
+                  if (noiseGateLevel >= -65)
+                    return `${noiseGateLevel} dBFS \u2014 Gates only faint background hum. Most sounds above a quiet whisper will pass through.`;
+                  return `${noiseGateLevel} dBFS \u2014 Gates only near-total silence. Virtually everything audible passes through unaffected.`;
+                })()}
               </span>
             </div>
             <div className="settings-slider-wrapper">
@@ -692,15 +731,17 @@ const VoiceAudioSection: React.FC = () => {
             <div className="settings-row-info">
               <span className="settings-row-label">Boost Threshold</span>
               <span className="settings-row-hint">
-                {quietBoostThreshold >= -24
-                  ? `${quietBoostThreshold} dBFS \u2014 Boosts anyone not talking directly at their mic. Like someone speaking to you from across the room.`
-                  : quietBoostThreshold >= -30
-                    ? `${quietBoostThreshold} dBFS \u2014 Boosts participants who sound turned away from their mic. Like someone talking but facing the other direction.`
-                    : quietBoostThreshold >= -38
-                      ? `${quietBoostThreshold} dBFS \u2014 Boosts noticeably quiet participants. Like someone whispering nearby or speaking softly from a distance.`
-                      : quietBoostThreshold >= -45
-                        ? `${quietBoostThreshold} dBFS \u2014 Boosts only very quiet participants. Like someone whispering close to their mic.`
-                        : `${quietBoostThreshold} dBFS \u2014 Boosts only barely-audible participants. Like catching a faint whisper from across a quiet room.`}
+                {(() => {
+                  if (quietBoostThreshold >= -24)
+                    return `${quietBoostThreshold} dBFS \u2014 Boosts anyone not talking directly at their mic. Like someone speaking to you from across the room.`;
+                  if (quietBoostThreshold >= -30)
+                    return `${quietBoostThreshold} dBFS \u2014 Boosts participants who sound turned away from their mic. Like someone talking but facing the other direction.`;
+                  if (quietBoostThreshold >= -38)
+                    return `${quietBoostThreshold} dBFS \u2014 Boosts noticeably quiet participants. Like someone whispering nearby or speaking softly from a distance.`;
+                  if (quietBoostThreshold >= -45)
+                    return `${quietBoostThreshold} dBFS \u2014 Boosts only very quiet participants. Like someone whispering close to their mic.`;
+                  return `${quietBoostThreshold} dBFS \u2014 Boosts only barely-audible participants. Like catching a faint whisper from across a quiet room.`;
+                })()}
               </span>
             </div>
             <div className="settings-slider-wrapper">
@@ -758,17 +799,19 @@ const VoiceAudioSection: React.FC = () => {
               <div className="settings-row-info">
                 <span className="settings-row-label">Frame Size (ptime)</span>
                 <span className="settings-row-hint">
-                  {adaptivePtime
-                    ? 'Locked by Adaptive Frame Size. Manual frame size is overridden while adaptive sizing is active.'
-                    : frameSize === 0
-                      ? `Packet duration sent to other participants. Currently using the tier's preferred size (${tierConfig.preferredFrameSize}ms).`
-                      : frameSize === 10
-                        ? 'Packet duration sent to other participants. Currently 10ms \u2014 lowest latency, highest overhead.'
-                        : frameSize === 20
-                          ? 'Packet duration sent to other participants. Currently 20ms \u2014 standard balance of latency and efficiency.'
-                          : frameSize === 40
-                            ? 'Packet duration sent to other participants. Currently 40ms \u2014 reduced overhead, moderately increased latency.'
-                            : 'Packet duration sent to other participants. Currently 60ms \u2014 maximum efficiency, highest latency.'}
+                  {(() => {
+                    if (adaptivePtime)
+                      return 'Locked by Adaptive Frame Size. Manual frame size is overridden while adaptive sizing is active.';
+                    if (frameSize === 0)
+                      return `Packet duration sent to other participants. Currently using the tier's preferred size (${tierConfig.preferredFrameSize}ms).`;
+                    if (frameSize === 10)
+                      return 'Packet duration sent to other participants. Currently 10ms \u2014 lowest latency, highest overhead.';
+                    if (frameSize === 20)
+                      return 'Packet duration sent to other participants. Currently 20ms \u2014 standard balance of latency and efficiency.';
+                    if (frameSize === 40)
+                      return 'Packet duration sent to other participants. Currently 40ms \u2014 reduced overhead, moderately increased latency.';
+                    return 'Packet duration sent to other participants. Currently 60ms \u2014 maximum efficiency, highest latency.';
+                  })()}
                 </span>
               </div>
               <CustomSelect
@@ -883,13 +926,14 @@ const VoiceAudioSection: React.FC = () => {
                   {
                     'Marks audio traffic with DSCP tags so your network can prioritize it. Not all networks honor DSCP tags; some may ignore or strip them, so this setting may have no effect depending on you or your ISP\u2019s network configurations. '
                   }
-                  {audioPriority === 'off'
-                    ? 'Currently off \u2014 no tagging applied.'
-                    : audioPriority === 'low'
-                      ? 'Currently Low (DF) \u2014 minimal differentiation. (RFC 2474)'
-                      : audioPriority === 'medium'
-                        ? 'Currently Default (AF41) \u2014 recommended for most networks. (RFC 2597)'
-                        : 'Currently High (EF) \u2014 highest priority. (RFC 5127)'}
+                  {(() => {
+                    if (audioPriority === 'off') return 'Currently off \u2014 no tagging applied.';
+                    if (audioPriority === 'low')
+                      return 'Currently Low (DF) \u2014 minimal differentiation. (RFC 2474)';
+                    if (audioPriority === 'medium')
+                      return 'Currently Default (AF41) \u2014 recommended for most networks. (RFC 2597)';
+                    return 'Currently High (EF) \u2014 highest priority. (RFC 5127)';
+                  })()}
                 </span>
               </div>
               <CustomSelect
@@ -910,16 +954,30 @@ const VoiceAudioSection: React.FC = () => {
 
       {/* ═══ Video Configuration ═══ */}
       <CollapsibleSection id="section-video-screen" title="Video Configuration">
-        <div className="settings-mode-toggle">
+        <div className="settings-mode-toggle" role="tablist">
           <span
             className={`settings-mode-pill ${!videoAdvancedMode ? 'active' : ''}`}
+            role="tab"
+            tabIndex={0}
+            aria-selected={!videoAdvancedMode}
             onClick={() => useVideoSettingsStore.getState().setVideoAdvancedMode(false)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ')
+                useVideoSettingsStore.getState().setVideoAdvancedMode(false);
+            }}
           >
             Basic Settings
           </span>
           <span
             className={`settings-mode-pill ${videoAdvancedMode ? 'active' : ''}`}
+            role="tab"
+            tabIndex={0}
+            aria-selected={videoAdvancedMode}
             onClick={() => useVideoSettingsStore.getState().setVideoAdvancedMode(true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ')
+                useVideoSettingsStore.getState().setVideoAdvancedMode(true);
+            }}
           >
             Advanced Settings
           </span>
@@ -1026,11 +1084,13 @@ const VoiceAudioSection: React.FC = () => {
           <div className="settings-row-info">
             <span className="settings-row-label">Content Type</span>
             <span className="settings-row-hint">
-              {screenContentType === 'auto'
-                ? 'Optimizes encoding for the type of content being shared. Currently Auto \u2014 Concord Voice detects motion vs. static content and adjusts accordingly.'
-                : screenContentType === 'motion'
-                  ? 'Optimizes encoding for the type of content being shared. Currently Motion \u2014 prioritizes smooth frame rate for video and animations.'
-                  : 'Optimizes encoding for the type of content being shared. Currently Detail \u2014 prioritizes sharp text and edges for code and documents.'}
+              {(() => {
+                if (screenContentType === 'auto')
+                  return 'Optimizes encoding for the type of content being shared. Currently Auto \u2014 Concord Voice detects motion vs. static content and adjusts accordingly.';
+                if (screenContentType === 'motion')
+                  return 'Optimizes encoding for the type of content being shared. Currently Motion \u2014 prioritizes smooth frame rate for video and animations.';
+                return 'Optimizes encoding for the type of content being shared. Currently Detail \u2014 prioritizes sharp text and edges for code and documents.';
+              })()}
             </span>
           </div>
           <CustomSelect
@@ -1052,11 +1112,13 @@ const VoiceAudioSection: React.FC = () => {
               <div className="settings-row-info">
                 <span className="settings-row-label">Congestion Priority</span>
                 <span className="settings-row-hint">
-                  {degradationPreference === 'balanced'
-                    ? 'How Concord adapts your camera during network congestion. Currently Balanced \u2014 Concord decides whether to reduce resolution or framerate.'
-                    : degradationPreference === 'maintain-framerate'
-                      ? 'How Concord adapts your camera during network congestion. Currently Prefer Smooth Video \u2014 keeps framerate by reducing resolution.'
-                      : 'How Concord adapts your camera during network congestion. Currently Prefer Sharp Details \u2014 keeps resolution by reducing framerate.'}
+                  {(() => {
+                    if (degradationPreference === 'balanced')
+                      return 'How Concord adapts your camera during network congestion. Currently Balanced \u2014 Concord decides whether to reduce resolution or framerate.';
+                    if (degradationPreference === 'maintain-framerate')
+                      return 'How Concord adapts your camera during network congestion. Currently Prefer Smooth Video \u2014 keeps framerate by reducing resolution.';
+                    return 'How Concord adapts your camera during network congestion. Currently Prefer Sharp Details \u2014 keeps resolution by reducing framerate.';
+                  })()}
                 </span>
               </div>
               <CustomSelect
@@ -1169,15 +1231,12 @@ const VoiceAudioSection: React.FC = () => {
                   const isInUse =
                     supported &&
                     (inUseKeys.has(cKey.toLowerCase()) || inUseKeys.has(c.mimeType.toLowerCase()));
-                  const tooltip = !supported
-                    ? 'Not supported'
-                    : isPreferred && isInUse
-                      ? 'Preferred · In Use'
-                      : isInUse
-                        ? 'In Use'
-                        : isPreferred
-                          ? 'Preferred'
-                          : 'Available';
+                  let tooltip: string;
+                  if (!supported) tooltip = 'Not supported';
+                  else if (isPreferred && isInUse) tooltip = 'Preferred · In Use';
+                  else if (isInUse) tooltip = 'In Use';
+                  else if (isPreferred) tooltip = 'Preferred';
+                  else tooltip = 'Available';
                   return (
                     <div
                       key={`${columnKey}-${cKey}`}
@@ -1238,11 +1297,13 @@ const VoiceAudioSection: React.FC = () => {
               <div className="settings-row-info">
                 <span className="settings-row-label">Enable HDR Encoding</span>
                 <span className="settings-row-hint">
-                  {!systemHdr
-                    ? 'No HDR display detected. Connect an HDR-capable display to enable.'
-                    : hdrEncoding
-                      ? 'Enabled. HDR codec profiles (VP9 Profile 2) and HDR-capable variants of AV1 and H.264 High will be used when available.'
-                      : 'Disabled. SDR codec profiles are preferred. HDR-only profiles such as VP9 Profile 2 will not be selected.'}
+                  {(() => {
+                    if (!systemHdr)
+                      return 'No HDR display detected. Connect an HDR-capable display to enable.';
+                    if (hdrEncoding)
+                      return 'Enabled. HDR codec profiles (VP9 Profile 2) and HDR-capable variants of AV1 and H.264 High will be used when available.';
+                    return 'Disabled. SDR codec profiles are preferred. HDR-only profiles such as VP9 Profile 2 will not be selected.';
+                  })()}
                 </span>
               </div>
               <ToggleSwitch
@@ -1434,13 +1495,14 @@ const VoiceAudioSection: React.FC = () => {
                   {
                     'Marks camera traffic with DSCP tags so your network can prioritize it. Not all networks honor DSCP tags; some may ignore or strip them, so this setting may have no effect depending on you or your ISP\u2019s network configurations. '
                   }
-                  {cameraPriority === 'off'
-                    ? 'Currently off \u2014 no tagging applied.'
-                    : cameraPriority === 'low'
-                      ? 'Currently Low (DF) \u2014 minimal differentiation. (RFC 2474)'
-                      : cameraPriority === 'medium'
-                        ? 'Currently Default (AF43) \u2014 recommended for most networks. (RFC 2597)'
-                        : 'Currently High (EF) \u2014 highest priority. (RFC 5127)'}
+                  {(() => {
+                    if (cameraPriority === 'off') return 'Currently off \u2014 no tagging applied.';
+                    if (cameraPriority === 'low')
+                      return 'Currently Low (DF) \u2014 minimal differentiation. (RFC 2474)';
+                    if (cameraPriority === 'medium')
+                      return 'Currently Default (AF43) \u2014 recommended for most networks. (RFC 2597)';
+                    return 'Currently High (EF) \u2014 highest priority. (RFC 5127)';
+                  })()}
                 </span>
               </div>
               <CustomSelect
@@ -1463,13 +1525,15 @@ const VoiceAudioSection: React.FC = () => {
                   {
                     'Marks screen share traffic with DSCP tags so your network can prioritize it. Not all networks honor DSCP tags; some may ignore or strip them, so this setting may have no effect depending on you or your ISP\u2019s network configurations. '
                   }
-                  {screenSharePriority === 'off'
-                    ? 'Currently off \u2014 no tagging applied.'
-                    : screenSharePriority === 'low'
-                      ? 'Currently Low (DF) \u2014 minimal differentiation. (RFC 2474)'
-                      : screenSharePriority === 'medium'
-                        ? 'Currently Default (AF42) \u2014 recommended for most networks. (RFC 2597)'
-                        : 'Currently High (EF) \u2014 highest priority. (RFC 5127)'}
+                  {(() => {
+                    if (screenSharePriority === 'off')
+                      return 'Currently off \u2014 no tagging applied.';
+                    if (screenSharePriority === 'low')
+                      return 'Currently Low (DF) \u2014 minimal differentiation. (RFC 2474)';
+                    if (screenSharePriority === 'medium')
+                      return 'Currently Default (AF42) \u2014 recommended for most networks. (RFC 2597)';
+                    return 'Currently High (EF) \u2014 highest priority. (RFC 5127)';
+                  })()}
                 </span>
               </div>
               <CustomSelect

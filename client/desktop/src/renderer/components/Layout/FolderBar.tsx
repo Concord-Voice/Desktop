@@ -376,12 +376,9 @@ const FolderBar: React.FC = () => {
                 } else if (insertInfo?.folderId === folder.id) {
                   const filtered = currentIds.filter((id) => id !== sourceId);
                   const targetIdx = filtered.indexOf(insertInfo.targetId);
-                  const insertIdx =
-                    targetIdx === -1
-                      ? filtered.length
-                      : insertInfo.side === 'after'
-                        ? targetIdx + 1
-                        : targetIdx;
+                  let insertIdx: number;
+                  if (targetIdx === -1) insertIdx = filtered.length;
+                  else insertIdx = insertInfo.side === 'after' ? targetIdx + 1 : targetIdx;
                   moveServerToFolder(sourceId, folder.id, insertIdx);
                 } else {
                   moveServerToFolder(sourceId, folder.id);

@@ -21,14 +21,21 @@ function DiagnosticDisplay({ diagnostics }: { diagnostics: DiagnosticResults | n
 
   return (
     <div className="connection-lost-diagnostics">
-      {items.map((item) => (
-        <div key={item.label} className="connection-lost-diag-row">
-          <span className="connection-lost-diag-label">{item.label}</span>
-          <span className={`connection-lost-diag-value ${item.value ? 'ok' : 'fail'}`}>
-            {item.value ? 'OK' : item.value === false ? 'Failed' : '--'}
-          </span>
-        </div>
-      ))}
+      {items.map((item) => {
+        let statusText: string;
+        if (item.value) statusText = 'OK';
+        else if (item.value === false) statusText = 'Failed';
+        else statusText = '--';
+
+        return (
+          <div key={item.label} className="connection-lost-diag-row">
+            <span className="connection-lost-diag-label">{item.label}</span>
+            <span className={`connection-lost-diag-value ${item.value ? 'ok' : 'fail'}`}>
+              {statusText}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

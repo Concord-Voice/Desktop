@@ -62,14 +62,16 @@ const WebAuthnPrompt: React.FC<WebAuthnPromptProps> = ({
         onSuccessRef.current(credential);
       } catch (err) {
         if (abortController.signal.aborted) return;
-        const message =
-          err instanceof DOMException && err.name === 'NotAllowedError'
-            ? 'Request cancelled or timed out. Try again.'
-            : err instanceof DOMException && err.name === 'AbortError'
-              ? '' // Silently ignore aborts from cleanup
-              : err instanceof Error
-                ? err.message
-                : 'WebAuthn verification failed';
+        let message: string;
+        if (err instanceof DOMException && err.name === 'NotAllowedError') {
+          message = 'Request cancelled or timed out. Try again.';
+        } else if (err instanceof DOMException && err.name === 'AbortError') {
+          message = ''; // Silently ignore aborts from cleanup
+        } else if (err instanceof Error) {
+          message = err.message;
+        } else {
+          message = 'WebAuthn verification failed';
+        }
         if (message) {
           setStatus('error');
           setErrorMsg(message);

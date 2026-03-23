@@ -284,7 +284,7 @@ const ServerSettingsPage: React.FC = () => {
       );
 
       const sections = root.querySelectorAll('[id^="section-"]');
-      sections.forEach((el) => observer.observe(el));
+      for (const el of sections) observer.observe(el);
       (root as any).__settingsObserver = observer;
     }, 50);
 
@@ -470,8 +470,11 @@ const ServerSettingsPage: React.FC = () => {
 
         {/* Server Name */}
         <div className="form-group">
-          <label className="form-label">Server Name</label>
+          <label htmlFor="server-settings-name" className="form-label">
+            Server Name
+          </label>
           <input
+            id="server-settings-name"
             type="text"
             className={`form-input ${errors.name ? 'error' : ''}`}
             placeholder="My Awesome Server"
@@ -657,8 +660,11 @@ const ServerSettingsPage: React.FC = () => {
               )}
 
               <div className="form-group">
-                <label className="form-label">Role Name</label>
+                <label htmlFor="page-role-name" className="form-label">
+                  Role Name
+                </label>
                 <input
+                  id="page-role-name"
                   type="text"
                   className="form-input"
                   value={editRoleName}
@@ -668,9 +674,12 @@ const ServerSettingsPage: React.FC = () => {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Role Color</label>
+                <label htmlFor="page-role-color" className="form-label">
+                  Role Color
+                </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <input
+                    id="page-role-color"
                     type="color"
                     value={editRoleColor}
                     onChange={(e) => setEditRoleColor(e.target.value)}
@@ -695,7 +704,7 @@ const ServerSettingsPage: React.FC = () => {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Role Emoji (Optional)</label>
+                <span className="form-label">Role Emoji (Optional)</span>
                 <div className="emoji-input-wrapper" ref={roleEmojiPickerRef}>
                   <div className="emoji-input-container">
                     <button
@@ -771,7 +780,7 @@ const ServerSettingsPage: React.FC = () => {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Permissions</label>
+                <span className="form-label">Permissions</span>
                 <PermissionGrid
                   value={editRolePermissions}
                   onChange={handlePermChange}
@@ -828,6 +837,14 @@ const ServerSettingsPage: React.FC = () => {
               key={member.user_id}
               className={`member-row ${isExpanded ? 'expanded' : ''}`}
               onClick={() => setExpandedMemberId(isExpanded ? null : member.user_id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  setExpandedMemberId(isExpanded ? null : member.user_id);
+                }
+              }}
+              role="button"
+              tabIndex={0}
             >
               <div className="member-info">
                 {member.avatar_url ? (

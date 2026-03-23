@@ -100,7 +100,7 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
   // IDs of servers that are inside folders (excluded from top-level bar)
   const folderedIds = useMemo(() => {
     const set = new Set<string>();
-    serverFolders.forEach((f) => f.serverIds.forEach((id) => set.add(id)));
+    for (const f of serverFolders) for (const id of f.serverIds) set.add(id);
     return set;
   }, [serverFolders]);
 
@@ -387,12 +387,12 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
     (e: React.MouseEvent) => {
       if (reduceAnimations) return;
       const scales = new Map<string, number>();
-      iconRefs.current.forEach((el, id) => {
+      for (const [id, el] of iconRefs.current) {
         const rect = el.getBoundingClientRect();
         const centerX = rect.left + rect.width / 2;
         const dist = Math.abs(e.clientX - centerX);
         scales.set(id, getScale(dist));
-      });
+      }
       setMagScales(scales);
     },
     [reduceAnimations]

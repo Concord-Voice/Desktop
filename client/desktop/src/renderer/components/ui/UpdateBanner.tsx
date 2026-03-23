@@ -78,7 +78,9 @@ const UpdateBanner: React.FC = () => {
       }),
     ];
 
-    return () => cleanups.forEach((fn) => fn());
+    return () => {
+      for (const fn of cleanups) fn();
+    };
   }, []);
 
   const handleDownload = useCallback(async () => {
@@ -115,7 +117,7 @@ const UpdateBanner: React.FC = () => {
       <div className="update-banner__text">
         {state === 'available' && `Update available: v${version}`}
         {state === 'downloading' &&
-          `Downloading update\u2026 ${progress ? `${progress.percent.toFixed(0)}%` : ''}`}
+          'Downloading update\u2026 ' + (progress ? progress.percent.toFixed(0) + '%' : '')}
         {state === 'downloaded' && `v${version} ready to install`}
       </div>
 

@@ -167,7 +167,7 @@ const MemberList: React.FC = () => {
         return m.roles?.some((r) => r.role_id === role.id);
       });
       if (roleMembers.length > 0) {
-        roleMembers.forEach((m) => assignedUserIds.add(m.user_id));
+        for (const m of roleMembers) assignedUserIds.add(m.user_id);
         groups.push({
           key: `role-${role.id}`,
           label: role.name,

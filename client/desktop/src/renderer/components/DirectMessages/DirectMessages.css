@@ -61,6 +61,12 @@
   cursor: pointer;
   transition: background-color 0.15s ease;
   gap: calc(10px * var(--sp, 1));
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  width: calc(100% - calc(16px * var(--sp, 1)));
+  text-align: left;
 }
 
 .conversation-item:hover {
@@ -355,6 +361,12 @@
   margin-bottom: calc(4px * var(--sp, 1));
   cursor: pointer;
   border-radius: 4px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  width: 100%;
+  text-align: left;
 }
 
 .friend-category-header:hover {
@@ -384,6 +396,12 @@
   border-radius: 4px;
   cursor: pointer;
   transition: background-color 0.15s ease;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  width: 100%;
+  text-align: left;
 }
 
 .friend-item:hover {

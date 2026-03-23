@@ -18,6 +18,11 @@
 .message-avatar {
   flex-shrink: 0;
   cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
 }
 
 .message-avatar:hover .avatar-image,

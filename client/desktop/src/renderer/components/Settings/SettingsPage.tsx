@@ -223,7 +223,7 @@ const SettingsPage: React.FC = () => {
       );
 
       const sections = root.querySelectorAll('[id^="section-"]');
-      sections.forEach((el) => observer.observe(el));
+      for (const el of sections) observer.observe(el);
 
       // Store observer ref for cleanup
       (root as any).__settingsObserver = observer;

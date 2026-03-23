@@ -35,21 +35,26 @@ const StreamThumbnail: React.FC<{
   }, [stream]);
 
   return (
-    <div className="stream-thumbnail" onClick={onSelect} title={`View ${sharerName}'s screen`}>
-      {isPaused ? (
-        <div className="stream-thumbnail__paused">
-          <span className="stream-thumbnail__paused-text">Paused</span>
-        </div>
-      ) : (
-        <video ref={videoRef} className="stream-thumbnail__video" autoPlay playsInline muted />
-      )}
-      <div className="stream-thumbnail__label">{sharerName}</div>
+    <div className="stream-thumbnail">
       <button
+        type="button"
+        className="stream-thumbnail__select"
+        onClick={onSelect}
+        title={`View ${sharerName}'s screen`}
+      >
+        {isPaused ? (
+          <div className="stream-thumbnail__paused">
+            <span className="stream-thumbnail__paused-text">Paused</span>
+          </div>
+        ) : (
+          <video ref={videoRef} className="stream-thumbnail__video" autoPlay playsInline muted />
+        )}
+        <div className="stream-thumbnail__label">{sharerName}</div>
+      </button>
+      <button
+        type="button"
         className="stream-thumbnail__close"
-        onClick={(e) => {
-          e.stopPropagation();
-          onTuneOut();
-        }}
+        onClick={onTuneOut}
         title="Tune out"
       >
         <X size={12} />

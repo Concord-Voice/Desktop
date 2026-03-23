@@ -235,7 +235,7 @@ export async function enumerateWebcamCapabilities(deviceId: string): Promise<Web
         });
 
         // Clean up the test stream
-        stream.getTracks().forEach((t) => t.stop());
+        for (const t of stream.getTracks()) t.stop();
       } catch {
         // Not supported at this resolution/fps — skip
       }

@@ -22,13 +22,12 @@ const BannerUploadArea: React.FC<BannerUploadAreaProps> = ({
   hint,
 }) => (
   <div className="server-banner-upload">
-    <label className="form-label">Server Banner</label>
-    <div
+    <span className="form-label">Server Banner</span>
+    <button
+      type="button"
       className="banner-upload-area"
       onClick={onClick}
       onKeyDown={onKeyDown}
-      role="button"
-      tabIndex={0}
       aria-label="Upload server banner"
     >
       {preview ? (
@@ -48,7 +47,7 @@ const BannerUploadArea: React.FC<BannerUploadAreaProps> = ({
           <span>Click to upload a banner</span>
         </div>
       )}
-    </div>
+    </button>
     <div className="banner-upload-actions">
       {hint && <span className="banner-upload-hint">{hint}</span>}
       {preview && (

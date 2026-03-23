@@ -278,11 +278,19 @@ const MentionAutocomplete = forwardRef<MentionAutocompleteHandle, MentionAutocom
     if (!query || options.length === 0) return null;
 
     return (
-      <div className="mention-autocomplete" ref={listRef}>
+      <div
+        className="mention-autocomplete"
+        role="listbox"
+        aria-label="Mention suggestions"
+        ref={listRef}
+      >
         {options.map((option, i) => (
           <div
             key={`${option.type}-${option.id || option.label}`}
             className={`mention-option ${i === selectedIndex ? 'selected' : ''}`}
+            role="option"
+            tabIndex={-1}
+            aria-selected={i === selectedIndex}
             onMouseDown={(e) => {
               e.preventDefault(); // Prevent textarea blur
               handleSelect(option);
@@ -290,15 +298,17 @@ const MentionAutocomplete = forwardRef<MentionAutocompleteHandle, MentionAutocom
             onMouseEnter={() => setSelectedIndex(i)}
           >
             <span className="mention-option-icon">
-              {option.type === 'everyone' || option.type === 'here' ? (
-                <Users size={16} />
-              ) : option.type === 'role' ? (
-                <Shield size={16} style={option.color ? { color: option.color } : undefined} />
-              ) : option.avatarUrl ? (
-                <img src={option.avatarUrl} alt="" className="mention-option-avatar" />
-              ) : (
-                <AtSign size={16} />
-              )}
+              {(() => {
+                if (option.type === 'everyone' || option.type === 'here')
+                  return <Users size={16} />;
+                if (option.type === 'role')
+                  return (
+                    <Shield size={16} style={option.color ? { color: option.color } : undefined} />
+                  );
+                if (option.avatarUrl)
+                  return <img src={option.avatarUrl} alt="" className="mention-option-avatar" />;
+                return <AtSign size={16} />;
+              })()}
             </span>
             <span className="mention-option-label">
               {option.type === 'role' && option.color ? (

@@ -108,7 +108,9 @@ const AboutUpdateSection: React.FC = () => {
       }),
     ];
 
-    return () => cleanups.forEach((fn) => fn());
+    return () => {
+      for (const fn of cleanups) fn();
+    };
   }, []);
 
   const handleCheckForUpdates = useCallback(async () => {

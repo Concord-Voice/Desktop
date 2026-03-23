@@ -298,20 +298,18 @@ const FramesPipContent: React.FC<{
     <div className="pip-window">
       <PipHeader pinned={pinned} onTogglePin={onTogglePin} onClose={onClose} />
       <div className="pip-frames-grid">
-        {loading ? (
-          <div className="pip-empty">Connecting...</div>
-        ) : participantList.length === 0 ? (
-          <div className="pip-empty">No participants</div>
-        ) : (
-          participantList.map((p) => (
+        {(() => {
+          if (loading) return <div className="pip-empty">Connecting...</div>;
+          if (participantList.length === 0) return <div className="pip-empty">No participants</div>;
+          return participantList.map((p) => (
             <ParticipantTile
               key={p.userId}
               participant={p}
               compact
               magnificationScale={scales[p.userId]}
             />
-          ))
-        )}
+          ));
+        })()}
       </div>
     </div>
   );
@@ -343,10 +341,11 @@ const ScreenPipContent: React.FC<{
     clientRef.current = client;
 
     client.onStateUpdate = (msg: AnyPipBroadcast) => {
-      if (msg.type === 'producer-closed' && msg.producerId === producerId) {
-        // Screen share ended — close PiP
-        onClose();
-      } else if (msg.type === 'voice-ended') {
+      if (
+        (msg.type === 'producer-closed' && msg.producerId === producerId) ||
+        msg.type === 'voice-ended'
+      ) {
+        // Screen share ended or voice session ended — close PiP
         onClose();
       }
     };
@@ -402,16 +401,24 @@ const ScreenPipContent: React.FC<{
   return (
     <div className="pip-window pip-window--screen">
       <PipHeader pinned={pinned} onTogglePin={onTogglePin} onClose={onClose} />
-      {loading ? (
-        <div className="pip-screen-placeholder">
-          <span className="pip-screen-placeholder__text">Connecting...</span>
-        </div>
-      ) : !hasStream ? (
-        <div className="pip-screen-placeholder">
-          <span className="pip-screen-placeholder__text">Screen share ended</span>
-          <span className="pip-screen-placeholder__sub">The stream is no longer available</span>
-        </div>
-      ) : null}
+      {(() => {
+        if (loading) {
+          return (
+            <div className="pip-screen-placeholder">
+              <span className="pip-screen-placeholder__text">Connecting...</span>
+            </div>
+          );
+        }
+        if (!hasStream) {
+          return (
+            <div className="pip-screen-placeholder">
+              <span className="pip-screen-placeholder__text">Screen share ended</span>
+              <span className="pip-screen-placeholder__sub">The stream is no longer available</span>
+            </div>
+          );
+        }
+        return null;
+      })()}
       <video
         ref={videoRef}
         className="pip-screen-video"
