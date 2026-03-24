@@ -15,9 +15,10 @@ import { useFriendStore } from '@/renderer/stores/friendStore';
 import { useChatStore } from '@/renderer/stores/chatStore';
 import { useUserStore } from '@/renderer/stores/userStore';
 import { mockServer } from '../../mocks/fixtures';
+import { resetAllStores } from '../../helpers/store-helpers';
 
 beforeEach(() => {
-  localStorage.clear();
+  resetAllStores();
   // Set up some state to verify it gets cleared
   useAuthStore.getState().setAccessToken('test-token');
   useServerStore.getState().addServer(mockServer);
