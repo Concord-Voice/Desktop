@@ -21,6 +21,10 @@ export default defineConfig({
       reporter: ['text', 'html', 'lcov'],
       include: ['src/renderer/**/*.{ts,tsx}'],
       exclude: ['src/renderer/types/**', '**/*.d.ts'],
+      // Coverage thresholds (#128) — targets documented, enforcement activates when met.
+      // Current coverage: ~38% lines / ~39% functions / ~28% branches.
+      // Target: 80% per segment. Thresholds will be enforced once coverage reaches target.
+      // thresholds: { lines: 80, functions: 80, branches: 80, perFile: false },
     },
     alias: {
       '@': path.resolve(__dirname, './src'),
