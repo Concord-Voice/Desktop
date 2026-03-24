@@ -21,6 +21,7 @@ import { useConnectionStore } from '../stores/connectionStore';
 import { useDMStore } from '../stores/dmStore';
 import { useFriendStore } from '../stores/friendStore';
 import { speak as ttsSpeak } from '../services/ttsService';
+import { notificationSoundService } from '../services/notificationSoundService';
 
 // Debounce timers for re-fetching voice participants after join/leave events.
 // Coalesces rapid bursts (e.g. 10 users joining) into a single API call.
@@ -105,6 +106,11 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       // NOTE: Unread tracking is handled exclusively by the 'unread_notify' handler
       // (server-level subscription). The 'message' event only arrives for the active
       // channel the user is subscribed to, so no unread increment is needed here.
+
+      // Notification sound for focused-channel messages (from other users)
+      if (data.user_id !== useUserStore.getState().user?.id) {
+        notificationSoundService.play('message', { focused: true });
+      }
     });
 
     // Message update handler
@@ -425,6 +431,13 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
           }
         }
       }
+
+      // Notification sound for unfocused-channel messages
+      if (isMentioned) {
+        notificationSoundService.play('mention');
+      } else {
+        notificationSoundService.play('message');
+      }
     });
 
     // Key needed handler — auto-process pending key requests for new members
@@ -720,6 +733,11 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       }
 
       useDMStore.getState().updateLastMessage(conversationId, lastMessagePreview);
+
+      // Notification sound for DM messages (from other users)
+      if (data.user_id !== useUserStore.getState().user?.id) {
+        notificationSoundService.play('dm', { focused: true });
+      }
     });
 
     // DM message ack handler
@@ -794,6 +812,9 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
             isEncrypted: data.last_message.is_encrypted || false,
           });
         }
+
+        // Notification sound for unfocused DM messages
+        notificationSoundService.play('dm');
       }
     });
 
@@ -849,6 +870,9 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
           direction: 'received',
           createdAt: data.created_at,
         });
+
+        // Notification sound for friend request
+        notificationSoundService.play('friend-request');
       }
     );
 
