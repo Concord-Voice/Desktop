@@ -52,9 +52,9 @@ function parseWebAuthnOptions(serverOptions: any): PublicKeyCredentialRequestOpt
 
 /** Check that Electron safeStorage is available, returning an error message or null */
 async function checkSafeStorage(): Promise<string | null> {
-  if (!window.electron?.checkPermission) return null;
+  if (!globalThis.electron?.checkPermission) return null;
   try {
-    const status = await window.electron.checkPermission('secureStorage');
+    const status = await globalThis.electron.checkPermission('secureStorage');
     if (status !== 'granted') {
       return 'Secure storage is unavailable. Concord requires keychain / credential manager access to safely store authentication tokens and encryption keys. Please enable it and restart the app.';
     }
@@ -226,8 +226,8 @@ const Login: React.FC<LoginProps> = ({
       console.warn('Key unwrap failed, regenerating E2EE keys...', unwrapError);
       const newKeys = await generateRegistrationKeys(formData.password);
 
-      if (window.electron?.storeRefreshToken) {
-        await window.electron.storeRefreshToken({
+      if (globalThis.electron?.storeRefreshToken) {
+        await globalThis.electron.storeRefreshToken({
           refreshToken: data.refresh_token,
           rememberMe: formData.rememberMe,
           apiBase: API_BASE,
@@ -256,8 +256,8 @@ const Login: React.FC<LoginProps> = ({
       console.debug('E2EE keys regenerated and service initialized!');
     }
 
-    if (window.electron?.storeRefreshToken) {
-      await window.electron.storeRefreshToken({
+    if (globalThis.electron?.storeRefreshToken) {
+      await globalThis.electron.storeRefreshToken({
         refreshToken: data.refresh_token,
         rememberMe: data.remember_me ?? formData.rememberMe,
         apiBase: API_BASE,
@@ -267,8 +267,8 @@ const Login: React.FC<LoginProps> = ({
     if (data.session_id) useAuthStore.getState().setSessionId(data.session_id);
 
     const sessionKeys = e2eeService.getSessionKeys();
-    if (sessionKeys && window.electron?.storeE2EEKeys) {
-      await window.electron.storeE2EEKeys(sessionKeys);
+    if (sessionKeys && globalThis.electron?.storeE2EEKeys) {
+      await globalThis.electron.storeE2EEKeys(sessionKeys);
     }
 
     preferencesSyncService.startWatching();
@@ -605,7 +605,7 @@ const Login: React.FC<LoginProps> = ({
 
         <div className="login-footer">
           <p className="footer-text">
-            Don't have an account?{' '}
+            Don&apos;t have an account?{' '}
             <button
               className="switch-to-register-btn"
               onClick={onSwitchToRegister}

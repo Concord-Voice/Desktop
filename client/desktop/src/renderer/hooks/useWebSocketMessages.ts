@@ -7,6 +7,7 @@
 
 import { useEffect } from 'react';
 import { useChatStore } from '../stores/chatStore';
+import type { MessageWithStatus } from '../types/chat';
 import { useChannelStore } from '../stores/channelStore';
 import { useServerStore } from '../stores/serverStore';
 import { useMemberStore, PresenceStatus } from '../stores/memberStore';
@@ -26,6 +27,188 @@ import { notificationSoundService } from '../services/notificationSoundService';
 // Debounce timers for re-fetching voice participants after join/leave events.
 // Coalesces rapid bursts (e.g. 10 users joining) into a single API call.
 const voiceRefetchTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// ── Extracted handlers to reduce cognitive complexity ─────────────────────
+
+/** Lookup table for voice participant state updates (avoids nested switch). */
+const VOICE_PARTICIPANT_UPDATES: Record<string, Record<string, boolean>> = {
+  muted: { isMuted: true },
+  unmuted: { isMuted: false },
+  video_on: { isVideoOn: true },
+  video_off: { isVideoOn: false },
+  screen_on: { isScreenSharing: true },
+  screen_off: { isScreenSharing: false },
+};
+
+/** Returns true if a voice-linked text channel notification should be suppressed. */
+function shouldSuppressLinkedTextNotification(channelId: string): boolean {
+  const channel = useChannelStore.getState().channels.find((c) => c.id === channelId);
+  if (!channel?.linked_voice_channel_id) return false;
+  return useVoiceStore.getState().activeChannelId !== channel.linked_voice_channel_id;
+}
+
+/** Mark a server and optionally its mention state as having unreads. */
+function markServerUnreadWithMention(serverId: string, isMentioned: boolean): void {
+  const unreadStore = useUnreadStore.getState();
+  unreadStore.markServerUnread(serverId);
+  if (isMentioned) unreadStore.markServerMention(serverId);
+}
+
+/** Handle unread notification from server subscription. */
+function handleUnreadNotify(msg: WebSocketMessage): void {
+  const { data } = msg;
+  const channelId = data.channel_id;
+  const serverId = data.server_id;
+
+  if (channelId && shouldSuppressLinkedTextNotification(channelId)) return;
+
+  const isMentioned = data.mentioned === true;
+  const activeServerId = useServerStore.getState().activeServerId;
+
+  if (serverId && serverId !== activeServerId) {
+    markServerUnreadWithMention(serverId, isMentioned);
+    return;
+  }
+
+  if (!channelId) return;
+  const activeChannelId = useChannelStore.getState().activeChannelId;
+  if (channelId === activeChannelId) return;
+
+  useUnreadStore.getState().incrementUnread(channelId);
+  if (isMentioned) useUnreadStore.getState().incrementMention(channelId);
+  if (serverId) markServerUnreadWithMention(serverId, isMentioned);
+
+  // Notification sound for unfocused-channel messages
+  if (isMentioned) {
+    notificationSoundService.play('mention');
+  } else {
+    notificationSoundService.play('message');
+  }
+}
+
+/** Handle voice state updates — sidebar members + active participants. */
+function handleVoiceStateUpdate(msg: WebSocketMessage): void {
+  const { data } = msg;
+  const channelId = data.channel_id as string | undefined;
+  const action = data.action as string | undefined;
+  const userId = data.user_id as string | undefined;
+  const serverId = data.server_id as string | undefined;
+  if (!channelId || !action) return;
+
+  const voiceStore = useVoiceStore.getState();
+
+  // Update channel voice members (sidebar display)
+  if (action === 'joined' && userId) {
+    voiceStore.addChannelVoiceMember(channelId, {
+      userId,
+      username: (data.username as string) || 'Unknown',
+      displayName: data.display_name as string | undefined,
+      isMuted: false,
+    });
+    if (serverId) voiceStore.incrementServerVoiceCount(serverId);
+  } else if (action === 'left' && userId) {
+    voiceStore.removeChannelVoiceMember(channelId, userId);
+    if (serverId) voiceStore.decrementServerVoiceCount(serverId);
+  } else if (action === 'room_empty') {
+    voiceStore.setChannelVoiceMembers(channelId, []);
+  }
+
+  // Debounced re-fetch for authoritative state
+  if (action === 'joined' || action === 'left') {
+    scheduleVoiceRefetch(channelId, voiceStore);
+  }
+
+  // Update detailed participants for the active channel
+  if (voiceStore.activeChannelId === channelId && userId) {
+    const update = VOICE_PARTICIPANT_UPDATES[action];
+    if (update) voiceStore.updateParticipant(userId, update);
+  }
+}
+
+/** Schedule a debounced re-fetch of voice participants for a channel. */
+function scheduleVoiceRefetch(
+  channelId: string,
+  voiceStore: ReturnType<typeof useVoiceStore.getState>
+): void {
+  const existing = voiceRefetchTimers.get(channelId);
+  if (existing) clearTimeout(existing);
+  voiceRefetchTimers.set(
+    channelId,
+    setTimeout(async () => {
+      voiceRefetchTimers.delete(channelId);
+      try {
+        const res = await apiFetch(`/api/v1/channels/${channelId}/voice/participants`);
+        if (!res.ok) return;
+        const json = await res.json();
+        const members = (json.participants || []).map(
+          (p: {
+            user_id: string;
+            username: string;
+            display_name?: string;
+            avatar_url?: string;
+            is_muted?: boolean;
+          }) => ({
+            userId: p.user_id,
+            username: p.username,
+            displayName: p.display_name,
+            avatarUrl: p.avatar_url,
+            isMuted: p.is_muted || false,
+          })
+        );
+        voiceStore.setChannelVoiceMembers(channelId, members);
+      } catch {
+        /* non-critical */
+      }
+    }, 2000)
+  );
+}
+
+/** Decrypt and add a message, handling E2EE with version-aware decryption. */
+// Encryption flag determines decrypt path; splitting would duplicate the 30-line message pipeline
+function addPlaintextMessage(
+  channelId: string,
+  baseMessage: Omit<MessageWithStatus, 'content'>,
+  content: string,
+  addMessage: (channelId: string, msg: MessageWithStatus) => void,
+  onPlaintext?: (text: string) => void
+): void {
+  addMessage(channelId, { ...baseMessage, content });
+  onPlaintext?.(content);
+}
+
+function addEncryptedMessage(
+  channelId: string,
+  baseMessage: Omit<MessageWithStatus, 'content'>,
+  ciphertext: string,
+  keyVersion: number | undefined,
+  addMessage: (channelId: string, msg: MessageWithStatus) => void,
+  onPlaintext?: (text: string) => void
+): void {
+  if (!e2eeService.isInitialized) {
+    addMessage(channelId, { ...baseMessage, content: '', decryptFailed: true });
+    return;
+  }
+
+  const decryptPromise =
+    keyVersion && keyVersion > 1
+      ? e2eeService.decryptForChannelWithVersion(channelId, ciphertext, keyVersion)
+      : e2eeService.decryptForChannel(channelId, ciphertext);
+
+  decryptPromise
+    .then((plaintext) => {
+      addMessage(channelId, { ...baseMessage, content: plaintext });
+      onPlaintext?.(plaintext);
+    })
+    .catch((err) => {
+      const isPending = err instanceof Error && err.message === 'PENDING_KEY';
+      addMessage(channelId, {
+        ...baseMessage,
+        content: '',
+        decryptFailed: !isPending,
+        pendingKeys: isPending,
+      });
+    });
+}
 
 export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketService>) {
   const {
@@ -74,33 +257,17 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         ttsSpeak(text, data.display_name || data.username);
       };
 
-      if (isEncrypted && e2eeService.isInitialized) {
-        // Decrypt asynchronously with version-aware decryption
-        const decryptPromise =
-          keyVersion && keyVersion > 1
-            ? e2eeService.decryptForChannelWithVersion(channelId, data.content, keyVersion)
-            : e2eeService.decryptForChannel(channelId, data.content);
-
-        decryptPromise
-          .then((plaintext) => {
-            addMessage(channelId, { ...baseMessage, content: plaintext });
-            maybeSpeakTTS(plaintext);
-          })
-          .catch((err) => {
-            const isPending = err instanceof Error && err.message === 'PENDING_KEY';
-            addMessage(channelId, {
-              ...baseMessage,
-              content: '',
-              decryptFailed: !isPending,
-              pendingKeys: isPending,
-            });
-          });
-      } else if (isEncrypted) {
-        // E2EE service not initialized — can't decrypt
-        addMessage(channelId, { ...baseMessage, content: '', decryptFailed: true });
+      if (isEncrypted) {
+        addEncryptedMessage(
+          channelId,
+          baseMessage,
+          data.content,
+          keyVersion,
+          addMessage,
+          maybeSpeakTTS
+        );
       } else {
-        addMessage(channelId, { ...baseMessage, content: data.content });
-        maybeSpeakTTS(data.content);
+        addPlaintextMessage(channelId, baseMessage, data.content, addMessage, maybeSpeakTTS);
       }
 
       // NOTE: Unread tracking is handled exclusively by the 'unread_notify' handler
@@ -389,55 +556,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Lightweight unread notification handler — from server subscription
     const unsubUnreadNotify = wsService.on('unread_notify', (msg: WebSocketMessage) => {
-      const { data } = msg;
-      const channelId = data.channel_id;
-      const serverId = data.server_id;
-      const activeServerId = useServerStore.getState().activeServerId;
-
-      // Voice-linked text channels: only notify when user is in the parent voice channel
-      if (channelId) {
-        const channel = useChannelStore.getState().channels.find((c) => c.id === channelId);
-        if (channel?.linked_voice_channel_id) {
-          const voiceActiveChannelId = useVoiceStore.getState().activeChannelId;
-          if (voiceActiveChannelId !== channel.linked_voice_channel_id) {
-            return; // User not in voice — suppress notification entirely
-          }
-        }
-      }
-
-      const isMentioned = data.mentioned === true;
-
-      if (serverId && serverId !== activeServerId) {
-        // Non-active server: just mark the server icon as having unreads
-        useUnreadStore.getState().markServerUnread(serverId);
-        if (isMentioned) {
-          useUnreadStore.getState().markServerMention(serverId);
-        }
-      } else if (channelId) {
-        // Active server: increment per-channel unread count
-        const activeChannelId = useChannelStore.getState().activeChannelId;
-        if (channelId !== activeChannelId) {
-          useUnreadStore.getState().incrementUnread(channelId);
-          if (isMentioned) {
-            useUnreadStore.getState().incrementMention(channelId);
-          }
-          // Also mark the server so the dot persists if the user switches away.
-          // The dot won't show while this server is active (ServerList filters it).
-          if (serverId) {
-            useUnreadStore.getState().markServerUnread(serverId);
-            if (isMentioned) {
-              useUnreadStore.getState().markServerMention(serverId);
-            }
-          }
-        }
-      }
-
-      // Notification sound for unfocused-channel messages
-      if (isMentioned) {
-        notificationSoundService.play('mention');
-      } else {
-        notificationSoundService.play('message');
-      }
+      handleUnreadNotify(msg);
     });
 
     // Key needed handler — auto-process pending key requests for new members
@@ -472,7 +591,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       e2eeService.invalidateChannelKey(channelId);
 
       // Dispatch event for rotation coordinator
-      window.dispatchEvent(
+      globalThis.dispatchEvent(
         new CustomEvent('e2ee-key-rotation', {
           detail: { channelId, newEpoch, removedUserId: data.removed_user_id, reason: data.reason },
         })
@@ -494,7 +613,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       e2eeService.invalidateChannelKey(channelId);
 
       // Dispatch event so ChatView can re-fetch and decrypt messages
-      window.dispatchEvent(new CustomEvent('e2ee-key-delivered', { detail: { channelId } }));
+      globalThis.dispatchEvent(new CustomEvent('e2ee-key-delivered', { detail: { channelId } }));
     });
 
     // Preferences updated handler — another device pushed new preferences
@@ -575,98 +694,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Voice state update handler — from control plane via NATS
     const unsubVoiceState = wsService.on('voice_state_update', (msg: WebSocketMessage) => {
-      const { data } = msg;
-      const channelId = data.channel_id as string | undefined;
-      const action = data.action as string | undefined;
-      const userId = data.user_id as string | undefined;
-      const serverId = data.server_id as string | undefined;
-      if (!channelId || !action) return;
-
-      const voiceStore = useVoiceStore.getState();
-
-      // Update channel voice members (sidebar display) for ALL channels
-      switch (action) {
-        case 'joined':
-          if (userId) {
-            voiceStore.addChannelVoiceMember(channelId, {
-              userId,
-              username: (data.username as string) || 'Unknown',
-              displayName: data.display_name as string | undefined,
-              isMuted: false,
-            });
-            if (serverId) voiceStore.incrementServerVoiceCount(serverId);
-          }
-          break;
-        case 'left':
-          if (userId) {
-            voiceStore.removeChannelVoiceMember(channelId, userId);
-            if (serverId) voiceStore.decrementServerVoiceCount(serverId);
-          }
-          break;
-        case 'room_empty':
-          // Safety net: server confirmed the room is empty — clear all members
-          voiceStore.setChannelVoiceMembers(channelId, []);
-          break;
-      }
-
-      // Re-fetch authoritative voice members to correct any drift
-      if (action === 'joined' || action === 'left') {
-        const existing = voiceRefetchTimers.get(channelId);
-        if (existing) clearTimeout(existing);
-        voiceRefetchTimers.set(
-          channelId,
-          setTimeout(async () => {
-            voiceRefetchTimers.delete(channelId);
-            try {
-              const res = await apiFetch(`/api/v1/channels/${channelId}/voice/participants`);
-              if (!res.ok) return;
-              const json = await res.json();
-              const members = (json.participants || []).map(
-                (p: {
-                  user_id: string;
-                  username: string;
-                  display_name?: string;
-                  avatar_url?: string;
-                  is_muted?: boolean;
-                }) => ({
-                  userId: p.user_id,
-                  username: p.username,
-                  displayName: p.display_name,
-                  avatarUrl: p.avatar_url,
-                  isMuted: p.is_muted || false,
-                })
-              );
-              voiceStore.setChannelVoiceMembers(channelId, members);
-            } catch {
-              /* non-critical */
-            }
-          }, 2000)
-        );
-      }
-
-      // Update detailed participants only for the channel we're connected to
-      if (voiceStore.activeChannelId === channelId && userId) {
-        switch (action) {
-          case 'muted':
-            voiceStore.updateParticipant(userId, { isMuted: true });
-            break;
-          case 'unmuted':
-            voiceStore.updateParticipant(userId, { isMuted: false });
-            break;
-          case 'video_on':
-            voiceStore.updateParticipant(userId, { isVideoOn: true });
-            break;
-          case 'video_off':
-            voiceStore.updateParticipant(userId, { isVideoOn: false });
-            break;
-          case 'screen_on':
-            voiceStore.updateParticipant(userId, { isScreenSharing: true });
-            break;
-          case 'screen_off':
-            voiceStore.updateParticipant(userId, { isScreenSharing: false });
-            break;
-        }
-      }
+      handleVoiceStateUpdate(msg);
     });
 
     // ── DM event handlers ──────────────────────────────────────────────
@@ -707,29 +735,10 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         ...(data.attachment_type ? { attachmentType: data.attachment_type as string } : {}),
       };
 
-      if (isEncrypted && e2eeService.isInitialized) {
-        const decryptPromise =
-          dmKeyVersion && dmKeyVersion > 1
-            ? e2eeService.decryptForChannelWithVersion(conversationId, data.content, dmKeyVersion)
-            : e2eeService.decryptForChannel(conversationId, data.content);
-
-        decryptPromise
-          .then((plaintext) => {
-            addMessage(conversationId, { ...baseMessage, content: plaintext });
-          })
-          .catch((err) => {
-            const isPending = err instanceof Error && err.message === 'PENDING_KEY';
-            addMessage(conversationId, {
-              ...baseMessage,
-              content: '',
-              decryptFailed: !isPending,
-              pendingKeys: isPending,
-            });
-          });
-      } else if (isEncrypted) {
-        addMessage(conversationId, { ...baseMessage, content: '', decryptFailed: true });
+      if (isEncrypted) {
+        addEncryptedMessage(conversationId, baseMessage, data.content, dmKeyVersion, addMessage);
       } else {
-        addMessage(conversationId, { ...baseMessage, content: data.content });
+        addPlaintextMessage(conversationId, baseMessage, data.content, addMessage);
       }
 
       useDMStore.getState().updateLastMessage(conversationId, lastMessagePreview);
@@ -983,7 +992,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       if (data.code === 'epoch_revoked' && data.channel_id) {
         console.warn('[WebSocket] Epoch revoked for channel', data.channel_id, '→ re-fetching key');
         e2eeService.invalidateChannelKey(data.channel_id as string);
-        window.dispatchEvent(
+        globalThis.dispatchEvent(
           new CustomEvent('e2ee-key-rotation', {
             detail: {
               channelId: data.channel_id,

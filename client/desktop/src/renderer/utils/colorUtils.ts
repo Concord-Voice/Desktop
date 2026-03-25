@@ -123,26 +123,20 @@ export function hslToHex(hsl: HSL): string {
   if (h >= 0 && h < 60) {
     r1 = c;
     g1 = x;
-    b1 = 0;
   } else if (h >= 60 && h < 120) {
     r1 = x;
     g1 = c;
-    b1 = 0;
   } else if (h >= 120 && h < 180) {
-    r1 = 0;
     g1 = c;
     b1 = x;
   } else if (h >= 180 && h < 240) {
-    r1 = 0;
     g1 = x;
     b1 = c;
   } else if (h >= 240 && h < 300) {
     r1 = x;
-    g1 = 0;
     b1 = c;
   } else {
     r1 = c;
-    g1 = 0;
     b1 = x;
   }
 

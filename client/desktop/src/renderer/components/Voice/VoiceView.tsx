@@ -101,11 +101,11 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
       useVoiceStore.getState().setLocalStreamPaused(false);
     };
 
-    window.addEventListener('blur', handleBlur);
-    window.addEventListener('focus', handleFocus);
+    globalThis.addEventListener('blur', handleBlur);
+    globalThis.addEventListener('focus', handleFocus);
     return () => {
-      window.removeEventListener('blur', handleBlur);
-      window.removeEventListener('focus', handleFocus);
+      globalThis.removeEventListener('blur', handleBlur);
+      globalThis.removeEventListener('focus', handleFocus);
       // Ensure we unpause if this effect cleans up (e.g. screen share stops)
       useVoiceStore.getState().setLocalStreamPaused(false);
     };
@@ -123,7 +123,7 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
       proxy = new PipSignalingProxy(voiceService as any);
 
       // Listen for PiP window closes to resume paused consumers
-      const cleanup = window.electron?.onPipClosed?.((pipId: string) => {
+      const cleanup = globalThis.electron?.onPipClosed?.((pipId: string) => {
         proxy?.onPipClosed(pipId);
       });
 

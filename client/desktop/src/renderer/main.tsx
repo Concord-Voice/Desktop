@@ -12,7 +12,7 @@ try {
     const theme = state?.appearance?.theme || 'dark';
     let resolved: string;
     if (theme === 'system') {
-      resolved = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      resolved = globalThis.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     } else {
       resolved = theme;
     }

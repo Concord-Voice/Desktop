@@ -12,7 +12,7 @@ let lastSpeakTime = 0;
  * Rate-limited: max 1 utterance per 2 seconds, queue of 3.
  */
 export function speak(text: string, senderName?: string): void {
-  if (!window.speechSynthesis) return;
+  if (!globalThis.speechSynthesis) return;
 
   const { ttsEnabled, ttsVoice, ttsRate, ttsVolume } = useTTSSettingsStore.getState();
   if (!ttsEnabled) return;
@@ -21,7 +21,7 @@ export function speak(text: string, senderName?: string): void {
   const now = Date.now();
   if (now - lastSpeakTime < MIN_INTERVAL_MS) {
     // Check queue size — drop if too many pending
-    if (window.speechSynthesis.pending && getQueueSize() >= MAX_QUEUE_SIZE) {
+    if (globalThis.speechSynthesis.pending && getQueueSize() >= MAX_QUEUE_SIZE) {
       return;
     }
   }
@@ -42,38 +42,38 @@ export function speak(text: string, senderName?: string): void {
 
   // Set voice if specified
   if (ttsVoice) {
-    const voices = window.speechSynthesis.getVoices();
+    const voices = globalThis.speechSynthesis.getVoices();
     const match = voices.find((v) => v.voiceURI === ttsVoice);
     if (match) {
       utterance.voice = match;
     }
   }
 
-  window.speechSynthesis.speak(utterance);
+  globalThis.speechSynthesis.speak(utterance);
 }
 
 /**
  * Stop all current and queued TTS speech.
  */
 export function stop(): void {
-  if (!window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
+  if (!globalThis.speechSynthesis) return;
+  globalThis.speechSynthesis.cancel();
 }
 
 /**
  * Get available TTS voices.
  */
 export function getVoices(): SpeechSynthesisVoice[] {
-  if (!window.speechSynthesis) return [];
-  return window.speechSynthesis.getVoices();
+  if (!globalThis.speechSynthesis) return [];
+  return globalThis.speechSynthesis.getVoices();
 }
 
 /**
  * Check if TTS is currently speaking.
  */
 export function isSpeaking(): boolean {
-  if (!window.speechSynthesis) return false;
-  return window.speechSynthesis.speaking;
+  if (!globalThis.speechSynthesis) return false;
+  return globalThis.speechSynthesis.speaking;
 }
 
 // Approximate queue size (pending + speaking)
@@ -81,7 +81,7 @@ function getQueueSize(): number {
   // SpeechSynthesis doesn't expose exact queue size;
   // we use the pending flag as a proxy
   let count = 0;
-  if (window.speechSynthesis.speaking) count++;
-  if (window.speechSynthesis.pending) count++;
+  if (globalThis.speechSynthesis.speaking) count++;
+  if (globalThis.speechSynthesis.pending) count++;
   return count;
 }

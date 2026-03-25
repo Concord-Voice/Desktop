@@ -53,8 +53,8 @@ const ContextMenuRoot: React.FC<ContextMenuProps> = ({ position, onClose, childr
   useEffect(() => {
     if (menuRef.current) {
       const rect = menuRef.current.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-      const viewportWidth = window.innerWidth;
+      const viewportHeight = globalThis.innerHeight;
+      const viewportWidth = globalThis.innerWidth;
 
       if (rect.bottom > viewportHeight) {
         menuRef.current.style.top = `${position.y - rect.height}px`;
@@ -143,8 +143,8 @@ const SubMenu: React.FC<SubMenuProps> = ({ children, closing }) => {
     if (!subRef.current) return;
     const el = subRef.current;
     const rect = el.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    const vw = globalThis.innerWidth;
+    const vh = globalThis.innerHeight;
 
     // Flip to the left side if overflowing right
     if (rect.right > vw) {

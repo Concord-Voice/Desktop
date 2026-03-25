@@ -87,5 +87,5 @@ export function nuclearReset(): void {
   localStorage.removeItem('concord:tts-settings');
 
   // Clear main process tokens (disk files + in-memory)
-  window.electron?.clearTokens?.();
+  globalThis.electron?.clearTokens?.();
 }

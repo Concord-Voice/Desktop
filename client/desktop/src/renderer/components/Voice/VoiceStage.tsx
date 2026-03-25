@@ -25,9 +25,10 @@ const StageVideo: React.FC<{
     } else {
       el.srcObject = null;
     }
+    const videoEl = videoRef.current;
     return () => {
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
+      if (videoEl) {
+        videoEl.srcObject = null;
       }
     };
   }, [stream]);
@@ -104,8 +105,8 @@ const VoiceStage: React.FC = () => {
       if (e.key === 'ArrowLeft') cycle(-1);
       if (e.key === 'ArrowRight') cycle(1);
     };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    globalThis.addEventListener('keydown', handler);
+    return () => globalThis.removeEventListener('keydown', handler);
   }, [stageLayout, hasMultiple, cycle]);
 
   // ── Empty state ─────────────────────────────────────────────────────
@@ -169,7 +170,7 @@ const VoiceStage: React.FC = () => {
         <span className="voice-stage__sharer-name">{dominantSharerName}&apos;s screen</span>
         {hasMultiple && (
           <span className="voice-stage__count">
-            {tunedInIds.indexOf(dominantScreenShareId!) + 1} / {tunedInIds.length}
+            {tunedInIds.indexOf(dominantScreenShareId ?? '') + 1} / {tunedInIds.length}
           </span>
         )}
       </div>
@@ -186,11 +187,11 @@ const VoiceStage: React.FC = () => {
       )}
 
       {/* PiP button (top-right) — pop out screen share to Electron PiP */}
-      {window.electron?.openPipWindow && dominantScreenShareId && (
+      {globalThis.electron?.openPipWindow && dominantScreenShareId && (
         <button
           className="voice-stage__pip-btn"
           onClick={async () => {
-            await window.electron.openPipWindow({
+            await globalThis.electron.openPipWindow({
               id: `screen-${dominantScreenShareId}`,
               width: 400,
               height: 300,

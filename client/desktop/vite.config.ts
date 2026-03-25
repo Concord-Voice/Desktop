@@ -16,15 +16,15 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
+    testTimeout: 10000,
+    hookTimeout: 10000,
+    teardownTimeout: 5000,
     coverage: {
-      provider: 'v8',
+      provider: 'istanbul',
       reporter: ['text', 'html', 'lcov'],
       include: ['src/renderer/**/*.{ts,tsx}'],
       exclude: ['src/renderer/types/**', '**/*.d.ts'],
-      // Coverage thresholds (#128) — targets documented, enforcement activates when met.
-      // Current coverage: ~38% lines / ~39% functions / ~28% branches.
-      // Target: 80% per segment. Thresholds will be enforced once coverage reaches target.
-      // thresholds: { lines: 80, functions: 80, branches: 80, perFile: false },
+      // Coverage thresholds enforced by SonarQube Quality Gate, not here.
     },
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -44,9 +44,11 @@ export default defineConfig({
       },
       output: {
         manualChunks(id) {
-          if (id.includes('node_modules/react-dom/') ||
-              id.includes('node_modules/react/') ||
-              id.includes('node_modules/react-router-dom/')) {
+          if (
+            id.includes('node_modules/react-dom/') ||
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/react-router-dom/')
+          ) {
             return 'vendor-react';
           }
           if (id.includes('node_modules/zustand/')) {

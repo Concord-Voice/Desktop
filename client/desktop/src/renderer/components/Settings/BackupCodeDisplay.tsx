@@ -11,8 +11,8 @@ const BackupCodeDisplay: React.FC<BackupCodeDisplayProps> = ({ codes, onConfirm,
 
   const handleCopy = async () => {
     const text = codes.map((c, i) => `${i + 1}. ${c}`).join('\n');
-    if (window.electron?.writeClipboard) {
-      window.electron.writeClipboard(text);
+    if (globalThis.electron?.writeClipboard) {
+      globalThis.electron.writeClipboard(text);
     } else {
       await navigator.clipboard.writeText(text);
     }
@@ -68,7 +68,7 @@ const BackupCodeDisplay: React.FC<BackupCodeDisplayProps> = ({ codes, onConfirm,
           checked={saved}
           onChange={(e) => setSaved(e.target.checked)}
           disabled={disabled}
-        />
+        />{' '}
         I have saved my backup codes in a safe place
       </label>
 

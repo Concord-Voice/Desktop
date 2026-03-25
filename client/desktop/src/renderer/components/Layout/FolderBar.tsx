@@ -100,9 +100,9 @@ const FolderBar: React.FC = () => {
         const top = rect.bottom + 6;
         // Center below the button, but clamp to viewport
         let left = rect.left + rect.width / 2 - tooltipWidth / 2;
-        left = Math.max(padding, Math.min(left, window.innerWidth - tooltipWidth - padding));
+        left = Math.max(padding, Math.min(left, globalThis.innerWidth - tooltipWidth - padding));
         // Clamp top to viewport bottom
-        const clampedTop = Math.min(top, window.innerHeight - 30 - padding);
+        const clampedTop = Math.min(top, globalThis.innerHeight - 30 - padding);
         setAddBtnTooltipPos({ top: clampedTop, left });
       }
     }, 400);
@@ -344,6 +344,8 @@ const FolderBar: React.FC = () => {
             <div
               ref={dropdownRef}
               className="folder-dropdown"
+              role="menu"
+              tabIndex={0}
               style={{
                 position: 'fixed',
                 top: dropdownPos.top,

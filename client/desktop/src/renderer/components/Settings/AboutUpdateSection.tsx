@@ -74,35 +74,35 @@ const AboutUpdateSection: React.FC = () => {
 
   // Load client info on mount
   useEffect(() => {
-    window.electron?.getVersion?.().then(setAppVersion);
-    window.electron?.getSystemInfo?.().then(setSystemInfo);
-    window.electron?.getAllowPrerelease?.().then(setAllowPrerelease);
+    globalThis.electron?.getVersion?.().then(setAppVersion);
+    globalThis.electron?.getSystemInfo?.().then(setSystemInfo);
+    globalThis.electron?.getAllowPrerelease?.().then(setAllowPrerelease);
   }, []);
 
   // Subscribe to update events
   useEffect(() => {
-    if (!window.electron?.onUpdateAvailable) return;
+    if (!globalThis.electron?.onUpdateAvailable) return;
 
     const cleanups = [
-      window.electron.onUpdateAvailable((info) => {
+      globalThis.electron.onUpdateAvailable((info) => {
         setUpdateVersion(info.version);
         setUpdateStatus('available');
         setLastChecked(new Date());
       }),
-      window.electron.onUpdateNotAvailable(() => {
+      globalThis.electron.onUpdateNotAvailable(() => {
         setUpdateStatus('up-to-date');
         setLastChecked(new Date());
       }),
-      window.electron.onUpdateDownloadProgress((prog) => {
+      globalThis.electron.onUpdateDownloadProgress((prog) => {
         setUpdateStatus('downloading');
         setProgress(prog);
       }),
-      window.electron.onUpdateDownloaded((info) => {
+      globalThis.electron.onUpdateDownloaded((info) => {
         setUpdateVersion(info.version);
         setUpdateStatus('downloaded');
         setProgress(null);
       }),
-      window.electron.onUpdateError((err) => {
+      globalThis.electron.onUpdateError((err) => {
         setUpdateStatus('error');
         setErrorMessage(err.message);
       }),
@@ -117,7 +117,7 @@ const AboutUpdateSection: React.FC = () => {
     setUpdateStatus('checking');
     setErrorMessage('');
     try {
-      await window.electron?.checkForUpdates();
+      await globalThis.electron?.checkForUpdates();
     } catch {
       setUpdateStatus('error');
       setErrorMessage('Failed to check for updates.');
@@ -128,7 +128,7 @@ const AboutUpdateSection: React.FC = () => {
     setUpdateStatus('downloading');
     setProgress({ percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 });
     try {
-      await window.electron?.downloadUpdate();
+      await globalThis.electron?.downloadUpdate();
     } catch (err) {
       // The IPC rejection carries the real electron-updater error.
       // onUpdateError also fires (via a separate IPC channel) with the same info.
@@ -140,12 +140,12 @@ const AboutUpdateSection: React.FC = () => {
   }, []);
 
   const handleInstall = useCallback(() => {
-    window.electron?.installUpdate();
+    globalThis.electron?.installUpdate();
   }, []);
 
   const handlePrereleaseToggle = useCallback((enabled: boolean) => {
     setAllowPrerelease(enabled);
-    window.electron?.setAllowPrerelease?.(enabled);
+    globalThis.electron?.setAllowPrerelease?.(enabled);
   }, []);
 
   return (

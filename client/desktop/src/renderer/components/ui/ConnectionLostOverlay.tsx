@@ -72,10 +72,10 @@ function PhaseContent({
   }, []);
 
   const handleExit = useCallback(() => {
-    if (window.electron?.quitApp) {
-      window.electron.quitApp();
+    if (globalThis.electron?.quitApp) {
+      globalThis.electron.quitApp();
     } else {
-      window.close();
+      globalThis.close();
     }
   }, []);
 

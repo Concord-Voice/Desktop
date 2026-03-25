@@ -65,7 +65,7 @@ export const useOsPermissionStore = create<OsPermissionStoreState>((set, get) =>
   isLoaded: false,
 
   fetchAll: async () => {
-    if (!window.electron?.checkAllPermissions) {
+    if (!globalThis.electron?.checkAllPermissions) {
       // Non-Electron context (web) — mark as loaded with unavailable statuses
       set({
         microphone: 'unavailable',
@@ -78,7 +78,7 @@ export const useOsPermissionStore = create<OsPermissionStoreState>((set, get) =>
       return;
     }
     try {
-      const state = await window.electron.checkAllPermissions();
+      const state = await globalThis.electron.checkAllPermissions();
       set({
         microphone: (state.microphone as OsPermissionStatus) ?? INITIAL_STATUS,
         camera: (state.camera as OsPermissionStatus) ?? INITIAL_STATUS,
@@ -94,9 +94,9 @@ export const useOsPermissionStore = create<OsPermissionStoreState>((set, get) =>
   },
 
   checkOne: async (type) => {
-    if (!window.electron?.checkPermission) return get()[type];
+    if (!globalThis.electron?.checkPermission) return get()[type];
     try {
-      const status = (await window.electron.checkPermission(type)) as OsPermissionStatus;
+      const status = (await globalThis.electron.checkPermission(type)) as OsPermissionStatus;
       set({ [type]: status });
       return status;
     } catch (err) {
@@ -106,9 +106,9 @@ export const useOsPermissionStore = create<OsPermissionStoreState>((set, get) =>
   },
 
   requestOne: async (type) => {
-    if (!window.electron?.requestPermission) return get()[type];
+    if (!globalThis.electron?.requestPermission) return get()[type];
     try {
-      const status = (await window.electron.requestPermission(type)) as OsPermissionStatus;
+      const status = (await globalThis.electron.requestPermission(type)) as OsPermissionStatus;
       set({ [type]: status });
       return status;
     } catch (err) {
@@ -118,9 +118,9 @@ export const useOsPermissionStore = create<OsPermissionStoreState>((set, get) =>
   },
 
   openSettings: async (type) => {
-    if (!window.electron?.openPermissionSettings) return;
+    if (!globalThis.electron?.openPermissionSettings) return;
     try {
-      await window.electron.openPermissionSettings(type);
+      await globalThis.electron.openPermissionSettings(type);
     } catch (err) {
       console.error(`[osPermissionStore] openSettings(${type}) failed:`, err);
     }

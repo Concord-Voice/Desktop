@@ -119,7 +119,6 @@ const ChannelItem: React.FC<ChannelItemProps> = ({
       {((showLinkedText && linkedText) || voiceMembers.length > 0) && (
         <div
           className={`voice-channel-sub-container ${isGrouped ? 'voice-channel-sub-container--grouped' : ''} ${isActive ? 'voice-channel-sub-container--active' : ''}`}
-          onClick={() => onChannelClick(channel)}
         >
           {showLinkedText && linkedText && (
             <div

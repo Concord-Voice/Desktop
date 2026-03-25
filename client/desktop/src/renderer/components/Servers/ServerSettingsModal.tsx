@@ -113,6 +113,7 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
     setActiveTab('general');
     setSelectedRoleId(null);
     setExpandedMemberId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- banner/icon are local state; including them causes resets on form interaction
   }, [server]);
 
   // Fetch invites when modal opens for owner/admin
@@ -542,7 +543,7 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
                       checked={editRoleDisplaySeparately}
                       onChange={(e) => setEditRoleDisplaySeparately(e.target.checked)}
                       disabled={isRoleSaving}
-                    />
+                    />{' '}
                     Display Separately
                   </label>
                 </div>
@@ -554,7 +555,7 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
                       checked={editRoleMentionable}
                       onChange={(e) => setEditRoleMentionable(e.target.checked)}
                       disabled={isRoleSaving}
-                    />
+                    />{' '}
                     Mentionable
                   </label>
                 </div>

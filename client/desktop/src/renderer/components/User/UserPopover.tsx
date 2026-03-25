@@ -50,7 +50,9 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
   const selfColorSchemeJson = useMemo(() => {
     let resolvedTheme: string;
     if (theme === 'system') {
-      resolvedTheme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      resolvedTheme = globalThis.matchMedia('(prefers-color-scheme: dark)').matches
+        ? 'dark'
+        : 'light';
     } else {
       resolvedTheme = theme;
     }
@@ -224,7 +226,7 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
       {/* Quit app */}
       <button
         className="user-popover-item user-popover-item-danger"
-        onClick={() => window.electron.quitApp()}
+        onClick={() => globalThis.electron.quitApp()}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path

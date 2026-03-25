@@ -41,9 +41,9 @@ const PersistentVoiceBar: React.FC = () => {
 
   // Electron PiP for pop-out controls
   const handlePopOut = useCallback(async () => {
-    if (!window.electron?.openPipWindow) return;
+    if (!globalThis.electron?.openPipWindow) return;
 
-    await window.electron.openPipWindow({
+    await globalThis.electron.openPipWindow({
       id: 'controls-main',
       width: 480,
       height: 80,
@@ -55,7 +55,7 @@ const PersistentVoiceBar: React.FC = () => {
   // Listen for PiP close to restore inline bar
   useEffect(() => {
     if (!voiceControlsPoppedOut) return;
-    const cleanup = window.electron?.onPipClosed?.((closedId: string) => {
+    const cleanup = globalThis.electron?.onPipClosed?.((closedId: string) => {
       if (closedId === 'controls-main') {
         setVoiceControlsPoppedOut(false);
       }
@@ -127,7 +127,9 @@ const PersistentVoiceBar: React.FC = () => {
       {/* Full controls bar */}
       <VoiceControls
         context="persistent"
-        onPopOut={typeof window.electron?.openPipWindow === 'function' ? handlePopOut : undefined}
+        onPopOut={
+          typeof globalThis.electron?.openPipWindow === 'function' ? handlePopOut : undefined
+        }
       />
     </div>
   );

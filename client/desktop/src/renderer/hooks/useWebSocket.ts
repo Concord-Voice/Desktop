@@ -75,7 +75,7 @@ export function useWebSocket() {
       e2eeService.invalidateChannelKey(rev.channel_id);
 
       // Trigger rotation coordinator
-      window.dispatchEvent(
+      globalThis.dispatchEvent(
         new CustomEvent('e2ee-key-rotation', {
           detail: {
             channelId: rev.channel_id,
@@ -143,7 +143,7 @@ export function useWebSocket() {
 
           // Rotate: generate new key, wrap for all members, distribute
           await e2eeService.rotateChannelKey(channelId, newEpoch, memberPublicKeys);
-          console.info('[E2EE] Key rotation completed for', channelId, 'epoch', newEpoch);
+          console.debug('[E2EE] Key rotation completed for', channelId, 'epoch', newEpoch);
         } catch (err) {
           // Non-fatal: another client may handle the rotation (first-response-wins)
           console.debug('[E2EE] Key rotation failed (another client may handle it):', err);
@@ -152,9 +152,9 @@ export function useWebSocket() {
       timers.add(timerId);
     };
 
-    window.addEventListener('e2ee-key-rotation', handleKeyRotation);
+    globalThis.addEventListener('e2ee-key-rotation', handleKeyRotation);
     return () => {
-      window.removeEventListener('e2ee-key-rotation', handleKeyRotation);
+      globalThis.removeEventListener('e2ee-key-rotation', handleKeyRotation);
       // Clear any pending rotation timers on unmount
       for (const id of timers) clearTimeout(id);
       timers.clear();

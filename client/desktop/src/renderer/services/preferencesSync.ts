@@ -28,6 +28,84 @@ interface PreferencesBlob {
   };
 }
 
+/** Diff and apply remote appearance settings to the local settings store. */
+function applyRemoteAppearance(remote: AppearanceSettings): void {
+  const current = useSettingsStore.getState().appearance;
+  const patched = { ...current };
+  let changed = false;
+
+  if (remote.theme !== current.theme) {
+    patched.theme = remote.theme;
+    changed = true;
+  }
+  if (remote.fontSize !== current.fontSize) {
+    patched.fontSize = remote.fontSize;
+    changed = true;
+  }
+  if (remote.compactMode !== current.compactMode) {
+    patched.compactMode = remote.compactMode;
+    changed = true;
+  }
+
+  // Color scheme: handle 'custom' with customColors specially
+  if (remote.colorScheme === 'custom' && remote.customColors) {
+    if (JSON.stringify(remote.customColors) !== JSON.stringify(current.customColors)) {
+      patched.customColors = remote.customColors;
+      patched.colorScheme = 'custom';
+      changed = true;
+    } else if (remote.colorScheme !== current.colorScheme) {
+      patched.colorScheme = remote.colorScheme;
+      changed = true;
+    }
+  } else if (remote.colorScheme !== current.colorScheme) {
+    patched.colorScheme = remote.colorScheme;
+    changed = true;
+  }
+
+  if (changed) {
+    useSettingsStore.setState({ appearance: patched });
+  }
+}
+
+/** Diff and apply remote layout preferences to the local layout store. */
+function applyRemoteLayout(remote: PreferencesBlob['layout']): void {
+  const current = useLayoutStore.getState();
+  const patch: Record<string, unknown> = {};
+
+  // Scalar fields with min/max clamping
+  const clampedFields: { key: keyof typeof remote; min: number; max: number }[] = [
+    { key: 'channelPanelWidth', min: 180, max: 400 },
+    { key: 'memberPanelWidth', min: 160, max: 340 },
+    { key: 'serverBarHeight', min: 36, max: 64 },
+    { key: 'folderBarHeight', min: 24, max: 48 },
+  ];
+  for (const { key, min, max } of clampedFields) {
+    if (remote[key] !== current[key]) {
+      patch[key] = Math.max(min, Math.min(max, remote[key] as number));
+    }
+  }
+
+  // Boolean / enum fields
+  if (remote.channelPanelPinned !== current.channelPanelPinned) {
+    patch.channelPanelPinned = remote.channelPanelPinned;
+  }
+  if (remote.memberPanelMode !== current.memberPanelMode) {
+    patch.memberPanelMode = remote.memberPanelMode;
+  }
+
+  // Deep-compared fields
+  if (JSON.stringify(remote.serverFolders) !== JSON.stringify(current.serverFolders)) {
+    patch.serverFolders = remote.serverFolders;
+  }
+  if (JSON.stringify(remote.serverOrder) !== JSON.stringify(current.serverOrder)) {
+    patch.serverOrder = remote.serverOrder;
+  }
+
+  if (Object.keys(patch).length > 0) {
+    useLayoutStore.setState(patch);
+  }
+}
+
 class PreferencesSyncService {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private unsubscribers: (() => void)[] = [];
@@ -80,81 +158,8 @@ class PreferencesSyncService {
       // Batch all updates into single setState calls to avoid cascading re-renders.
       this.isApplyingRemote = true;
       try {
-        // Batch settings — single state update
-        const currentAppearance = useSettingsStore.getState().appearance;
-        const newAppearance = { ...currentAppearance };
-        let settingsChanged = false;
-
-        if (blob.settings.theme !== currentAppearance.theme) {
-          newAppearance.theme = blob.settings.theme;
-          settingsChanged = true;
-        }
-        if (blob.settings.colorScheme === 'custom' && blob.settings.customColors) {
-          if (
-            JSON.stringify(blob.settings.customColors) !==
-            JSON.stringify(currentAppearance.customColors)
-          ) {
-            newAppearance.customColors = blob.settings.customColors;
-            newAppearance.colorScheme = 'custom';
-            settingsChanged = true;
-          } else if (blob.settings.colorScheme !== currentAppearance.colorScheme) {
-            newAppearance.colorScheme = blob.settings.colorScheme;
-            settingsChanged = true;
-          }
-        } else if (blob.settings.colorScheme !== currentAppearance.colorScheme) {
-          newAppearance.colorScheme = blob.settings.colorScheme;
-          settingsChanged = true;
-        }
-        if (blob.settings.fontSize !== currentAppearance.fontSize) {
-          newAppearance.fontSize = blob.settings.fontSize;
-          settingsChanged = true;
-        }
-        if (blob.settings.compactMode !== currentAppearance.compactMode) {
-          newAppearance.compactMode = blob.settings.compactMode;
-          settingsChanged = true;
-        }
-
-        if (settingsChanged) {
-          useSettingsStore.setState({ appearance: newAppearance });
-        }
-
-        // Batch layout — single state update
-        const currentLayout = useLayoutStore.getState();
-        const layoutPatch: Record<string, unknown> = {};
-
-        if (blob.layout.channelPanelPinned !== currentLayout.channelPanelPinned) {
-          layoutPatch.channelPanelPinned = blob.layout.channelPanelPinned;
-        }
-        if (blob.layout.channelPanelWidth !== currentLayout.channelPanelWidth) {
-          layoutPatch.channelPanelWidth = Math.max(
-            180,
-            Math.min(400, blob.layout.channelPanelWidth)
-          );
-        }
-        if (blob.layout.memberPanelMode !== currentLayout.memberPanelMode) {
-          layoutPatch.memberPanelMode = blob.layout.memberPanelMode;
-        }
-        if (blob.layout.memberPanelWidth !== currentLayout.memberPanelWidth) {
-          layoutPatch.memberPanelWidth = Math.max(160, Math.min(340, blob.layout.memberPanelWidth));
-        }
-        if (blob.layout.serverBarHeight !== currentLayout.serverBarHeight) {
-          layoutPatch.serverBarHeight = Math.max(36, Math.min(64, blob.layout.serverBarHeight));
-        }
-        if (blob.layout.folderBarHeight !== currentLayout.folderBarHeight) {
-          layoutPatch.folderBarHeight = Math.max(24, Math.min(48, blob.layout.folderBarHeight));
-        }
-        if (
-          JSON.stringify(blob.layout.serverFolders) !== JSON.stringify(currentLayout.serverFolders)
-        ) {
-          layoutPatch.serverFolders = blob.layout.serverFolders;
-        }
-        if (JSON.stringify(blob.layout.serverOrder) !== JSON.stringify(currentLayout.serverOrder)) {
-          layoutPatch.serverOrder = blob.layout.serverOrder;
-        }
-
-        if (Object.keys(layoutPatch).length > 0) {
-          useLayoutStore.setState(layoutPatch);
-        }
+        applyRemoteAppearance(blob.settings);
+        applyRemoteLayout(blob.layout);
       } finally {
         // Clear after microtask so synchronous subscription callbacks see the flag
         setTimeout(() => {

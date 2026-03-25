@@ -39,12 +39,12 @@ const PipWindow: React.FC = () => {
   const togglePin = useCallback(() => {
     const next = !pinned;
     setPinned(next);
-    window.electron?.setPipAlwaysOnTop(pipId || '', next);
+    globalThis.electron?.setPipAlwaysOnTop(pipId || '', next);
   }, [pinned, pipId]);
 
   // Close this PiP window
   const handleClose = useCallback(() => {
-    window.electron?.closePipWindow(pipId || '');
+    globalThis.electron?.closePipWindow(pipId || '');
   }, [pipId]);
 
   if (isControlsPip) {
@@ -391,10 +391,12 @@ const ScreenPipContent: React.FC<{
 
     setup();
 
+    const videoEl = videoRef.current;
+    const clientEl = clientRef.current;
     return () => {
-      if (videoRef.current) videoRef.current.srcObject = null;
+      if (videoEl) videoEl.srcObject = null;
       client.dispose().catch(console.error);
-      clientRef.current = null;
+      if (clientEl === clientRef.current) clientRef.current = null;
     };
   }, [pipId, producerId, onClose]);
 

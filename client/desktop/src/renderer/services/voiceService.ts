@@ -63,6 +63,13 @@ const E2EE_VERBOSE = false;
 interface RtpSenderWithEncodedStreams {
   createEncodedStreams?: () => { readable: ReadableStream; writable: WritableStream };
 }
+
+/** SFU-layer-aware consumer — mediasoup-client exposes currentLayers/setPreferredLayers
+ *  on the server but not in the public client type definitions. */
+interface ConsumerWithLayers {
+  currentLayers?: { spatialLayer: number; temporalLayer: number };
+  setPreferredLayers(layers: { spatialLayer: number; temporalLayer: number }): void;
+}
 const HAS_ENCODED_STREAMS =
   typeof RTCRtpSender !== 'undefined' &&
   typeof (RTCRtpSender.prototype as RtpSenderWithEncodedStreams).createEncodedStreams ===
@@ -79,6 +86,44 @@ if (E2EE_VERBOSE) {
       return 'NONE — E2EE unavailable';
     })(),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Helpers to reduce cognitive complexity (extracted from class methods)
+// ---------------------------------------------------------------------------
+
+/** Resolve effective Opus codec settings from advanced settings + tier config. */
+function resolveOpusSettings(
+  adv: ReturnType<typeof useAudioSettingsStore.getState>,
+  tierConfig: (typeof AUDIO_QUALITY_TIERS)[AudioQualityTier]
+) {
+  const effectiveFec = adv.advancedMode ? adv.inlineFec : tierConfig.opusFec;
+
+  const effectiveDtx = adv.advancedMode
+    ? adv.silenceDetection || tierConfig.opusDtx
+    : tierConfig.opusDtx;
+
+  const effectiveStereo =
+    adv.advancedMode && adv.stereoOverride !== null ? adv.stereoOverride : tierConfig.opusStereo;
+
+  let effectiveFrameSize: number;
+  if (adv.adaptivePtime || !adv.advancedMode || adv.frameSize === 0) {
+    effectiveFrameSize = tierConfig.preferredFrameSize;
+  } else {
+    effectiveFrameSize = adv.frameSize;
+  }
+
+  return { effectiveFec, effectiveDtx, effectiveStereo, effectiveFrameSize };
+}
+
+type RtpPriority = 'low' | 'medium' | 'high' | 'very-low';
+
+/** Build DSCP priority params for RTP encoding (empty object when 'off'). */
+function buildPriorityParams(
+  priority: 'off' | RtpPriority
+): Partial<{ priority: RtpPriority; networkPriority: RtpPriority }> {
+  if (priority === 'off') return {};
+  return { priority, networkPriority: priority };
 }
 
 // ---------------------------------------------------------------------------
@@ -899,10 +944,10 @@ class VoiceService {
         if (priority === 'off') {
           // Reset to default (low = DF / best effort)
           params.encodings[0].priority = 'low';
-          (params.encodings[0] as any).networkPriority = 'low';
+          (params.encodings[0] as Record<string, unknown>).networkPriority = 'low';
         } else {
           params.encodings[0].priority = priority;
-          (params.encodings[0] as any).networkPriority = priority;
+          (params.encodings[0] as Record<string, unknown>).networkPriority = priority;
         }
         producer.rtpSender.setParameters(params).catch(() => {});
       }
@@ -921,7 +966,7 @@ class VoiceService {
       const effectivePriority = priority === 'off' ? 'low' : priority;
       for (const enc of params.encodings) {
         enc.priority = effectivePriority;
-        (enc as any).networkPriority = effectivePriority;
+        (enc as Record<string, unknown>).networkPriority = effectivePriority;
       }
       producer.rtpSender.setParameters(params).catch(() => {});
     } catch {
@@ -1287,7 +1332,7 @@ class VoiceService {
           continue;
         }
         const hwLabel = this.isHwAccelerated(bestMime) ? 'HW' : 'SW';
-        console.info(
+        console.debug(
           `[codec-floor] Re-producing ${source}: ${currentMime} → ${bestMime} (${hwLabel})`
         );
         if (source === 'camera') {
@@ -1460,7 +1505,8 @@ class VoiceService {
       await this.device.load({ routerRtpCapabilities: roomJoined.rtpCapabilities });
 
       // Send actual RTP capabilities to server (join-room sent undefined)
-      this.socket!.emit('update-rtp-capabilities', {
+      if (!this.socket) throw new Error('Socket disconnected before RTP capabilities update');
+      this.socket.emit('update-rtp-capabilities', {
         rtpCapabilities: this.device.rtpCapabilities,
       });
 
@@ -1690,39 +1736,12 @@ class VoiceService {
 
     const tier = useVoiceStore.getState().effectiveQualityTier;
     const tierConfig = AUDIO_QUALITY_TIERS[tier];
+    const { effectiveFec, effectiveDtx, effectiveStereo, effectiveFrameSize } = resolveOpusSettings(
+      adv,
+      tierConfig
+    );
+    const audioPrioParams = buildPriorityParams(adv.audioPriority);
 
-    // Resolve effective Opus settings based on basic/advanced mode
-    const effectiveFec = adv.advancedMode ? adv.inlineFec : tierConfig.opusFec;
-
-    // DTX: in basic mode, tier controls; in advanced mode, user overrides
-    const effectiveDtx = adv.advancedMode
-      ? adv.silenceDetection || tierConfig.opusDtx
-      : tierConfig.opusDtx;
-
-    // Stereo: in basic mode, tier controls; in advanced mode, user can override
-    const effectiveStereo =
-      adv.advancedMode && adv.stereoOverride !== null ? adv.stereoOverride : tierConfig.opusStereo;
-
-    // Frame size resolution:
-    //   0 (Default) → use tier's preferredFrameSize
-    //   Explicit value → respect user's choice (advanced mode only)
-    //   adaptivePtime → use tier default as starting target
-    let effectiveFrameSize: number;
-    if (adv.adaptivePtime) {
-      effectiveFrameSize = tierConfig.preferredFrameSize;
-    } else if (!adv.advancedMode || adv.frameSize === 0) {
-      effectiveFrameSize = tierConfig.preferredFrameSize;
-    } else {
-      effectiveFrameSize = adv.frameSize;
-    }
-
-    const audioPrioParams =
-      adv.audioPriority === 'off'
-        ? {}
-        : {
-            priority: adv.audioPriority,
-            networkPriority: adv.audioPriority,
-          };
     const producer = await this.sendTransport.produce({
       track,
       encodings: [
@@ -1883,9 +1902,9 @@ class VoiceService {
       const store = useVoiceStore.getState();
       store.setVideoOn(true);
       const localUserId = useUserStore.getState().user?.id;
-      if (localUserId) {
+      if (localUserId && this.localCameraStream) {
         store.updateParticipant(localUserId, {
-          videoStream: this.localCameraStream!,
+          videoStream: this.localCameraStream,
           isVideoOn: true,
         });
       }
@@ -1965,11 +1984,11 @@ class VoiceService {
 
     // Use Electron desktopCapturer if available
     let stream: MediaStream;
-    if (window.electron?.getDesktopSources) {
+    if (globalThis.electron?.getDesktopSources) {
       // sourceId should come from ScreenSharePicker; fallback to first screen
       let chosenId = sourceId;
       if (!chosenId) {
-        const sources = await window.electron.getDesktopSources();
+        const sources = await globalThis.electron.getDesktopSources();
         if (sources.length === 0) throw new Error('No screen sources available');
         chosenId = sources.find((s) => s.id.startsWith('screen:'))?.id || sources[0].id;
       }
@@ -2073,9 +2092,9 @@ class VoiceService {
       const store = useVoiceStore.getState();
       store.setScreenSharing(true);
       const localUserId = useUserStore.getState().user?.id;
-      if (localUserId) {
+      if (localUserId && this.localScreenStream) {
         store.updateParticipant(localUserId, {
-          screenStream: this.localScreenStream!,
+          screenStream: this.localScreenStream,
           isScreenSharing: true,
         });
       }
@@ -2541,11 +2560,13 @@ class VoiceService {
   // ─── Transport Setup ───────────────────────────────────────────────
 
   private async createSendTransport(): Promise<void> {
+    if (!this.device) throw new Error('Device not initialized before creating send transport');
+
     const options = await this.emitAsync<TransportOptions>('create-transport', {
       direction: 'send',
     });
 
-    this.sendTransport = this.device!.createSendTransport({
+    this.sendTransport = this.device.createSendTransport({
       id: options.id,
       iceParameters: options.iceParameters,
       iceCandidates: options.iceCandidates,
@@ -2560,9 +2581,10 @@ class VoiceService {
         }),
     });
 
+    const sendTransportId = this.sendTransport.id;
     this.sendTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
       this.emitAsync('connect-transport', {
-        transportId: this.sendTransport!.id,
+        transportId: sendTransportId,
         dtlsParameters,
       })
         .then(() => callback())
@@ -2574,7 +2596,7 @@ class VoiceService {
       async ({ kind, rtpParameters, appData }, callback, errback) => {
         try {
           const result = await this.emitAsync<{ id: string }>('produce', {
-            transportId: this.sendTransport!.id,
+            transportId: sendTransportId,
             kind,
             rtpParameters,
             appData,
@@ -2612,20 +2634,23 @@ class VoiceService {
 
   /** Create a single recv transport (non-E2EE path — unchanged behavior) */
   private async createRecvTransportSingle(): Promise<void> {
+    if (!this.device) throw new Error('Device not initialized before creating recv transport');
+
     const options = await this.emitAsync<TransportOptions>('create-transport', {
       direction: 'recv',
     });
 
-    this.recvTransport = this.device!.createRecvTransport({
+    this.recvTransport = this.device.createRecvTransport({
       id: options.id,
       iceParameters: options.iceParameters,
       iceCandidates: options.iceCandidates,
       dtlsParameters: options.dtlsParameters,
     });
 
+    const recvTransportId = this.recvTransport.id;
     this.recvTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
       this.emitAsync('connect-transport', {
-        transportId: this.recvTransport!.id,
+        transportId: recvTransportId,
         dtlsParameters,
       })
         .then(() => callback())
@@ -2635,11 +2660,13 @@ class VoiceService {
 
   /** Create a recv transport for a specific media kind (E2EE path) */
   private async createRecvTransportForKind(mediaKind: 'audio' | 'video'): Promise<void> {
+    if (!this.device) throw new Error('Device not initialized before creating recv transport');
+
     const options = await this.emitAsync<TransportOptions>('create-transport', {
       direction: 'recv',
     });
 
-    const transport = this.device!.createRecvTransport({
+    const transport = this.device.createRecvTransport({
       id: options.id,
       iceParameters: options.iceParameters,
       iceCandidates: options.iceCandidates,
@@ -3053,7 +3080,7 @@ class VoiceService {
       const localEpoch = this.mediaEncryption.getCurrentKeyId();
       if (epoch > localEpoch) {
         const gap = epoch - localEpoch;
-        console.info(
+        console.debug(
           `E2EE epoch sync: local=${localEpoch}, server=${epoch}, catching up ${gap} steps`
         );
         try {
@@ -3186,19 +3213,18 @@ class VoiceService {
    *   Red:    lower spatial layer by 1, if already lowest → pause lowest-priority consumer
    */
   /** Handle RED zone decoder overload: reduce layers or pause lowest-priority consumer */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private handleRedZone(
     consumer: mediasoupTypes.Consumer,
-    consumerAny: any,
+    consumerWithLayers: ConsumerWithLayers,
     currentLayers: { spatialLayer: number; temporalLayer: number } | undefined,
     rho: number,
     p95DecodeMs: number,
     currentFps: number
   ): void {
-    if ((currentLayers?.spatialLayer ?? 0) > 0) {
-      consumerAny.setPreferredLayers({
-        spatialLayer: currentLayers!.spatialLayer - 1,
-        temporalLayer: currentLayers!.temporalLayer,
+    if (currentLayers && currentLayers.spatialLayer > 0) {
+      consumerWithLayers.setPreferredLayers({
+        spatialLayer: currentLayers.spatialLayer - 1,
+        temporalLayer: currentLayers.temporalLayer,
       });
       console.warn(
         `IGNIS RED: lowering spatial layer for consumer ${consumer.id}`,
@@ -3207,10 +3233,10 @@ class VoiceService {
       return;
     }
 
-    if ((currentLayers?.temporalLayer ?? 0) > 0) {
-      consumerAny.setPreferredLayers({
-        spatialLayer: currentLayers!.spatialLayer,
-        temporalLayer: currentLayers!.temporalLayer - 1,
+    if (currentLayers && currentLayers.temporalLayer > 0) {
+      consumerWithLayers.setPreferredLayers({
+        spatialLayer: currentLayers.spatialLayer,
+        temporalLayer: currentLayers.temporalLayer - 1,
       });
       console.warn(
         `IGNIS RED: lowering temporal layer for consumer ${consumer.id}`,
@@ -3277,22 +3303,27 @@ class VoiceService {
           const p95DecodeMs = avgDecodeMs * 1.5;
           const rho = (p95DecodeMs * currentFps) / 1000;
 
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const consumerAny = consumer as any;
-          const currentLayers: { spatialLayer: number; temporalLayer: number } | undefined =
-            consumerAny.currentLayers;
+          const consumerWithLayers = consumer as unknown as ConsumerWithLayers;
+          const currentLayers = consumerWithLayers.currentLayers;
 
           if (rho >= 0.925) {
             worstZone = 'red';
-            this.handleRedZone(consumer, consumerAny, currentLayers, rho, p95DecodeMs, currentFps);
+            this.handleRedZone(
+              consumer,
+              consumerWithLayers,
+              currentLayers,
+              rho,
+              p95DecodeMs,
+              currentFps
+            );
           } else if (rho >= 0.8) {
             if (worstZone !== 'red') worstZone = 'yellow';
-            if ((currentLayers?.temporalLayer ?? 0) > 0) {
-              consumerAny.setPreferredLayers({
-                spatialLayer: currentLayers!.spatialLayer,
-                temporalLayer: currentLayers!.temporalLayer - 1,
+            if (currentLayers && currentLayers.temporalLayer > 0) {
+              consumerWithLayers.setPreferredLayers({
+                spatialLayer: currentLayers.spatialLayer,
+                temporalLayer: currentLayers.temporalLayer - 1,
               });
-              console.info(
+              console.warn(
                 `IGNIS YELLOW: lowering temporal layer for consumer ${consumer.id}`,
                 `(rho=${rho.toFixed(2)}, decode p95=${p95DecodeMs.toFixed(1)}ms, fps=${currentFps})`
               );
@@ -3320,7 +3351,8 @@ class VoiceService {
 
     if (USE_SCRIPT_TRANSFORM) {
       this.initE2EEWorker();
-      this.e2eeWorker!.postMessage({
+      if (!this.e2eeWorker) throw new Error('E2EE Worker failed to initialize');
+      this.e2eeWorker.postMessage({
         type: 'init',
         encryptKey,
         currentKeyId: 0,
@@ -3663,7 +3695,7 @@ class VoiceService {
                 console.debug(`E2EE: first frame decrypted for ${senderUserId}`);
               }
               if (dropCount > 0) {
-                console.info(
+                console.debug(
                   `E2EE: decrypt recovered after ${dropCount} dropped frames for ${senderUserId}`
                 );
                 dropCount = 0;
@@ -3926,7 +3958,7 @@ useAuthStore.subscribe((state, prevState) => {
 // Stop all media when the window is closing (app quit, reload, crash).
 // Ensures the OS releases mic/camera even on unclean shutdown.
 if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
+  globalThis.addEventListener('beforeunload', () => {
     voiceService.emergencyCleanup();
   });
 }

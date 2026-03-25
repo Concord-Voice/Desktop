@@ -132,7 +132,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     let y = rect.top - pickerHeight - 8;
 
     // Viewport clamping
-    x = Math.max(8, Math.min(x, window.innerWidth - pickerWidth - 8));
+    x = Math.max(8, Math.min(x, globalThis.innerWidth - pickerWidth - 8));
     y = Math.max(8, y);
 
     return { x, y };
@@ -172,8 +172,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
   // Re-adjust on window resize so the textarea doesn't retain a stale height
   useEffect(() => {
     const onResize = () => adjustTextareaHeight();
-    window.addEventListener('resize', onResize);
-    return () => window.removeEventListener('resize', onResize);
+    globalThis.addEventListener('resize', onResize);
+    return () => globalThis.removeEventListener('resize', onResize);
   }, [adjustTextareaHeight]);
 
   // Cleanup typing state on unmount

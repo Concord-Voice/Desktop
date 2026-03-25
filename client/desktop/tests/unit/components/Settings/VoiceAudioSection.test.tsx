@@ -1,0 +1,353 @@
+import { render, screen, fireEvent } from '../../../test-utils';
+import { vi } from 'vitest';
+
+const mockSetQualityTier = vi.fn();
+vi.mock('@/renderer/stores/voiceStore', () => ({
+  useVoiceStore: vi.fn((selector) =>
+    selector({
+      qualityTier: 'standard' as const,
+      setQualityTier: mockSetQualityTier,
+      activeCameraCodec: null,
+      activeScreenCodec: null,
+      connectionState: 'disconnected',
+    })
+  ),
+  AUDIO_QUALITY_TIERS: {
+    minimum: {
+      label: 'Minimum',
+      maxBitrate: 16000,
+      opusDtx: true,
+      opusFec: true,
+      preferredFrameSize: 60,
+      premium: false,
+    },
+    low: {
+      label: 'Low',
+      maxBitrate: 32000,
+      opusDtx: true,
+      opusFec: true,
+      preferredFrameSize: 40,
+      premium: false,
+    },
+    moderate: {
+      label: 'Moderate',
+      maxBitrate: 64000,
+      opusDtx: true,
+      opusFec: true,
+      preferredFrameSize: 20,
+      premium: false,
+    },
+    standard: {
+      label: 'Standard',
+      maxBitrate: 96000,
+      opusDtx: true,
+      opusFec: true,
+      preferredFrameSize: 20,
+      premium: false,
+    },
+    high: {
+      label: 'High',
+      maxBitrate: 192000,
+      opusDtx: false,
+      opusFec: true,
+      preferredFrameSize: 10,
+      premium: false,
+    },
+    hifi: {
+      label: 'Hi-Fi',
+      maxBitrate: 256000,
+      opusDtx: false,
+      opusFec: false,
+      preferredFrameSize: 10,
+      premium: true,
+    },
+    studio: {
+      label: 'Studio',
+      maxBitrate: 510000,
+      opusDtx: false,
+      opusFec: false,
+      preferredFrameSize: 10,
+      premium: true,
+    },
+  },
+}));
+vi.mock('@/renderer/stores/audioSettingsStore', () => ({
+  useAudioSettingsStore: Object.assign(
+    vi.fn((s) => s({ advancedMode: false, setAdvancedMode: vi.fn() })),
+    { getState: vi.fn(() => ({ advancedMode: false, setAdvancedMode: vi.fn() })) }
+  ),
+}));
+vi.mock('@/renderer/stores/videoSettingsStore', () => ({
+  useVideoSettingsStore: vi.fn((s) =>
+    s({ codecCapabilities: [], gpuInfo: null, videoAdvancedMode: false, systemHdr: false })
+  ),
+  VIDEO_QUALITY_PRESETS: {},
+}));
+vi.mock('@/renderer/hooks/useDraftSettings', () => ({
+  useDraftAudioSetting: vi.fn(
+    (key: string) =>
+      ({
+        stereoOverride: null,
+        noiseCancellation: true,
+        echoCancellation: true,
+        autoGainControl: true,
+        noiseGateMode: 'auto',
+        noiseGateLevel: -50,
+        inputVolume: 100,
+        outputVolume: 100,
+        quietBoost: false,
+        quietBoostThreshold: -38,
+        musicMode: false,
+        frameSize: 0,
+        silenceDetection: true,
+        inlineFec: true,
+        fecHeadroom: true,
+        opusNack: false,
+        adaptivePtime: true,
+        audioPriority: 'medium',
+      })[key] ?? false
+  ),
+  useDraftVideoSetting: vi.fn(
+    (key: string) =>
+      ({
+        cameraPreset: '720p',
+        screenResolution: '1080p',
+        screenFrameRate: 30,
+        screenContentType: 'detail',
+        preferredVideoCodec: '',
+        screenSharePriority: 'medium',
+        screenShareBitrate: 3000000,
+        cameraPriority: 'medium',
+        degradationPreference: 'balanced',
+        hardwareAcceleration: true,
+        hdrEncoding: false,
+      })[key] ?? false
+  ),
+  setDraftAudioSetting: vi.fn(),
+  setDraftVideoSetting: vi.fn(),
+  batchSetAudioDrafts: vi.fn(),
+  useStashAndSwapAudioMode: vi.fn(() => vi.fn()),
+}));
+const mockStartTest = vi.fn();
+const mockStopTest = vi.fn();
+vi.mock('@/renderer/hooks/useMicTest', () => ({
+  useMicTest: vi.fn(() => ({
+    isTesting: false,
+    dbfsLevel: -80,
+    error: null,
+    startTest: mockStartTest,
+    stopTest: mockStopTest,
+  })),
+}));
+vi.mock('@/renderer/components/Voice/DeviceSelector', () => ({
+  default: ({ kind }: { kind: string }) => (
+    <div data-testid={`device-selector-${kind}`}>DeviceSelector</div>
+  ),
+}));
+vi.mock('@/renderer/services/mediaCapabilities', () => ({
+  codecKey: vi.fn(),
+  codecKeyMime: vi.fn(),
+  getCodecInfo: vi.fn(),
+}));
+vi.mock('@/renderer/components/ui/CustomSelect', () => ({
+  default: ({
+    options,
+    value,
+    onChange,
+    disabled,
+    className,
+  }: {
+    options: { value: string; label: string }[];
+    value: string;
+    onChange: (v: string) => void;
+    disabled?: boolean;
+    className?: string;
+  }) => (
+    <select
+      data-testid="custom-select"
+      className={className}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      disabled={disabled}
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  ),
+}));
+Object.defineProperty(navigator, 'mediaDevices', {
+  value: {
+    enumerateDevices: vi.fn().mockResolvedValue([]),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  },
+  configurable: true,
+});
+
+import VoiceAudioSection from '@/renderer/components/Settings/VoiceAudioSection';
+
+describe('VoiceAudioSection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('renders device configuration section', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Device Configuration')).toBeInTheDocument();
+  });
+  it('renders audio configuration section', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Audio Configuration')).toBeInTheDocument();
+  });
+  it('renders video configuration section', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Video Configuration')).toBeInTheDocument();
+  });
+  it('renders subsection titles', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getAllByText('Input').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Output').length).toBeGreaterThanOrEqual(1);
+  });
+  it('renders device selectors', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByTestId('device-selector-audioinput')).toBeInTheDocument();
+    expect(screen.getByTestId('device-selector-audiooutput')).toBeInTheDocument();
+    expect(screen.getByTestId('device-selector-videoinput')).toBeInTheDocument();
+  });
+  it('renders input volume label', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Input Volume')).toBeInTheDocument();
+  });
+  it('renders output volume label', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Output Volume')).toBeInTheDocument();
+  });
+  it('calls setDraftAudioSetting on input volume change', async () => {
+    const { setDraftAudioSetting } = await import('@/renderer/hooks/useDraftSettings');
+    render(<VoiceAudioSection />);
+    fireEvent.change(document.querySelectorAll('.settings-volume-slider')[0], {
+      target: { value: '150' },
+    });
+    expect(setDraftAudioSetting).toHaveBeenCalledWith('inputVolume', 150);
+  });
+  it('calls setDraftAudioSetting on output volume change', async () => {
+    const { setDraftAudioSetting } = await import('@/renderer/hooks/useDraftSettings');
+    render(<VoiceAudioSection />);
+    fireEvent.change(document.querySelectorAll('.settings-volume-slider')[1], {
+      target: { value: '80' },
+    });
+    expect(setDraftAudioSetting).toHaveBeenCalledWith('outputVolume', 80);
+  });
+  it('renders microphone test button', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Test')).toBeInTheDocument();
+  });
+  it('calls startTest when test button clicked', () => {
+    render(<VoiceAudioSection />);
+    fireEvent.click(screen.getByText('Test'));
+    expect(mockStartTest).toHaveBeenCalled();
+  });
+  it('shows Stop Testing when mic test active', async () => {
+    const { useMicTest } = await import('@/renderer/hooks/useMicTest');
+    (useMicTest as ReturnType<typeof vi.fn>).mockReturnValue({
+      isTesting: true,
+      dbfsLevel: -40,
+      error: null,
+      startTest: mockStartTest,
+      stopTest: mockStopTest,
+    });
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Stop Testing')).toBeInTheDocument();
+  });
+  it('shows meter when mic test active', async () => {
+    const { useMicTest } = await import('@/renderer/hooks/useMicTest');
+    (useMicTest as ReturnType<typeof vi.fn>).mockReturnValue({
+      isTesting: true,
+      dbfsLevel: -40,
+      error: null,
+      startTest: mockStartTest,
+      stopTest: mockStopTest,
+    });
+    render(<VoiceAudioSection />);
+    expect(document.querySelector('.settings-mic-meter-container')).toBeInTheDocument();
+  });
+  it('shows mic test error', async () => {
+    const { useMicTest } = await import('@/renderer/hooks/useMicTest');
+    (useMicTest as ReturnType<typeof vi.fn>).mockReturnValue({
+      isTesting: false,
+      dbfsLevel: -80,
+      error: 'Microphone access denied',
+      startTest: mockStartTest,
+      stopTest: mockStopTest,
+    });
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Microphone access denied')).toBeInTheDocument();
+  });
+  it('disables test button during voice call', async () => {
+    const { useVoiceStore } = await import('@/renderer/stores/voiceStore');
+    (useVoiceStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((s: Function) =>
+      s({
+        qualityTier: 'standard',
+        setQualityTier: mockSetQualityTier,
+        activeCameraCodec: null,
+        activeScreenCodec: null,
+        connectionState: 'connected',
+      })
+    );
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Test')).toBeDisabled();
+  });
+  it('renders quality section', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Quality')).toBeInTheDocument();
+    expect(screen.getByText('Standard')).toBeInTheDocument();
+  });
+  it('renders all quality tier labels', () => {
+    render(<VoiceAudioSection />);
+    for (const l of ['Minimum', 'Low', 'Moderate', 'Standard', 'High', 'Hi-Fi', 'Studio'])
+      expect(screen.getByText(l)).toBeInTheDocument();
+  });
+  it('renders tier slider', () => {
+    render(<VoiceAudioSection />);
+    const s = document.querySelector('.settings-tier-slider');
+    expect(s).toHaveAttribute('min', '0');
+    expect(s).toHaveAttribute('max', '6');
+  });
+  it('renders processing toggles', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Noise Cancellation')).toBeInTheDocument();
+    expect(screen.getByText('Echo Cancellation')).toBeInTheDocument();
+    expect(screen.getByText('Auto Gain Control')).toBeInTheDocument();
+    expect(screen.getByText('Input Noise Gate')).toBeInTheDocument();
+    expect(screen.getByText('Boost Quiet Users')).toBeInTheDocument();
+  });
+  it('renders mode tabs', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getAllByText('Basic Settings').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Advanced Settings').length).toBeGreaterThanOrEqual(1);
+  });
+  it('basic tab is active by default', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getAllByText('Basic Settings')[0]).toHaveAttribute('aria-selected', 'true');
+  });
+  it('advanced tab is inactive by default', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getAllByText('Advanced Settings')[0]).toHaveAttribute('aria-selected', 'false');
+  });
+  it('hides advanced sections in basic mode', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.queryByText('Opus Codec')).not.toBeInTheDocument();
+  });
+  it('shows advanced sections when enabled', async () => {
+    const { useAudioSettingsStore } = await import('@/renderer/stores/audioSettingsStore');
+    (useAudioSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (s: Function) => s({ advancedMode: true, setAdvancedMode: vi.fn() })
+    );
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Opus Codec')).toBeInTheDocument();
+    expect(screen.getByText('Music Mode')).toBeInTheDocument();
+  });
+});

@@ -33,9 +33,9 @@ const VoiceTextChat: React.FC = () => {
 
   // Poll speechSynthesis.speaking for TTS indicator
   useEffect(() => {
-    if (!ttsEnabled || !window.speechSynthesis) return;
+    if (!ttsEnabled || !globalThis.speechSynthesis) return;
     const interval = setInterval(() => {
-      setIsSpeaking(window.speechSynthesis.speaking);
+      setIsSpeaking(globalThis.speechSynthesis.speaking);
     }, 250);
     return () => clearInterval(interval);
   }, [ttsEnabled]);

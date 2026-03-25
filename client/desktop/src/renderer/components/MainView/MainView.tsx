@@ -96,7 +96,7 @@ const MainView: React.FC = () => {
         setE2eeTooltipPos({ top, left: leftAligned });
       } else {
         const rightAligned = rect.left;
-        const maxLeft = window.innerWidth - tooltipWidth - padding;
+        const maxLeft = globalThis.innerWidth - tooltipWidth - padding;
         setE2eeTooltipPos({ top, left: Math.min(rightAligned, maxLeft) });
       }
     }

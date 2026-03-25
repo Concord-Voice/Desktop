@@ -108,6 +108,77 @@ function pickKeys<T extends object>(source: T, keys: (keyof T)[]): Partial<T> {
   return result;
 }
 
+/**
+ * Merge stashed values back into drafts for mode-dependent keys.
+ * If a stashed value matches the snapshot, remove the draft (no change needed).
+ * Otherwise, set the draft to the stashed value.
+ */
+function restoreStashIntoDrafts(
+  newDrafts: Partial<DraftableAudioSettings>,
+  stash: Partial<DraftableAudioSettings>,
+  snapshot: DraftableAudioSettings
+): void {
+  for (const k of AUDIO_MODE_KEYS) {
+    if (!(k in stash)) continue;
+    if (deepEqual(stash[k], snapshot[k])) {
+      delete newDrafts[k];
+    } else {
+      (newDrafts as Record<string, unknown>)[k] = stash[k];
+    }
+  }
+}
+
+/**
+ * Apply tier defaults into drafts when no basic stash exists.
+ */
+function applyTierDefaultsToDrafts(
+  newDrafts: Partial<DraftableAudioSettings>,
+  qualityTier: AudioQualityTier,
+  snapshot: DraftableAudioSettings
+): void {
+  const tc = AUDIO_QUALITY_TIERS[qualityTier];
+  const tierDefaults: Partial<DraftableAudioSettings> = {
+    silenceDetection: tc.opusDtx,
+    inlineFec: tc.opusFec,
+    fecHeadroom: tc.opusFec,
+    frameSize: 0 as 0 | 10 | 20 | 40 | 60,
+    stereoOverride: null,
+  };
+  for (const [k, v] of Object.entries(tierDefaults)) {
+    const key = k as keyof DraftableAudioSettings;
+    if (deepEqual(v, snapshot[key])) {
+      delete newDrafts[key];
+    } else {
+      (newDrafts as Record<string, unknown>)[k] = v;
+    }
+  }
+}
+
+/** Restore appearance settings from a snapshot back to the real store. */
+function restoreAppearanceFromSnapshot(snapshot: SettingsSnapshot): void {
+  const store = useSettingsStore.getState();
+  store.setTheme(snapshot.appearance.theme);
+  store.setColorScheme(snapshot.appearance.colorScheme);
+  store.setFontSize(snapshot.appearance.fontSize);
+  store.setCompactMode(snapshot.appearance.compactMode);
+  store.setReduceAnimations(snapshot.appearance.reduceAnimations);
+  if (snapshot.appearance.customColors) {
+    store.setCustomColors(snapshot.appearance.customColors);
+  }
+}
+
+/** Push draft entries to a real store via setter functions. */
+function pushDraftsToStore(
+  store: Record<string, unknown>,
+  drafts: Record<string, unknown>,
+  skipKeys?: Set<string>
+): void {
+  for (const [key, value] of Object.entries(drafts)) {
+    if (skipKeys?.has(key)) continue;
+    callSetter(store, key, value);
+  }
+}
+
 function takeSnapshot(): SettingsSnapshot {
   const appearance = structuredClone(useSettingsStore.getState().appearance);
   const audioState = useAudioSettingsStore.getState();
@@ -222,15 +293,7 @@ export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => 
     // Restore appearance from snapshot if there are pending appearance drafts
     const { snapshot, drafts } = get();
     if (snapshot && Object.keys(drafts.appearance).length > 0) {
-      const store = useSettingsStore.getState();
-      store.setTheme(snapshot.appearance.theme);
-      store.setColorScheme(snapshot.appearance.colorScheme);
-      store.setFontSize(snapshot.appearance.fontSize);
-      store.setCompactMode(snapshot.appearance.compactMode);
-      store.setReduceAnimations(snapshot.appearance.reduceAnimations);
-      if (snapshot.appearance.customColors) {
-        store.setCustomColors(snapshot.appearance.customColors);
-      }
+      restoreAppearanceFromSnapshot(snapshot);
     }
     draftModeActive = false;
     set({
@@ -353,64 +416,26 @@ export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => 
 
       if (toAdvanced) {
         // Basic → Advanced: stash basic, restore advanced
-        const advancedStash = state.audioAdvancedStash;
-        if (advancedStash) {
-          // Restore advanced stash values
-          for (const k of AUDIO_MODE_KEYS) {
-            if (k in advancedStash) {
-              if (deepEqual(advancedStash[k], snapshot[k])) {
-                delete newDrafts[k];
-              } else {
-                (newDrafts as Record<string, unknown>)[k] = advancedStash[k];
-              }
-            }
-          }
+        if (state.audioAdvancedStash) {
+          restoreStashIntoDrafts(newDrafts, state.audioAdvancedStash, snapshot);
         }
-        // else: keep current values (tier defaults flow through)
-
         return {
           audioBasicStash: currentModeValues,
           drafts: { ...state.drafts, audio: newDrafts },
         };
-      } else {
-        // Advanced → Basic: stash advanced, restore basic
-        const basicStash = state.audioBasicStash;
-        if (basicStash) {
-          // Restore basic stash values
-          for (const k of AUDIO_MODE_KEYS) {
-            if (k in basicStash) {
-              if (deepEqual(basicStash[k], snapshot[k])) {
-                delete newDrafts[k];
-              } else {
-                (newDrafts as Record<string, unknown>)[k] = basicStash[k];
-              }
-            }
-          }
-        } else {
-          // No basic stash — set to tier defaults
-          const tc = AUDIO_QUALITY_TIERS[qualityTier];
-          const tierDefaults: Partial<DraftableAudioSettings> = {
-            silenceDetection: tc.opusDtx,
-            inlineFec: tc.opusFec,
-            fecHeadroom: tc.opusFec,
-            frameSize: 0 as 0 | 10 | 20 | 40 | 60,
-            stereoOverride: null,
-          };
-          for (const [k, v] of Object.entries(tierDefaults)) {
-            const key = k as keyof DraftableAudioSettings;
-            if (deepEqual(v, snapshot[key])) {
-              delete newDrafts[key];
-            } else {
-              (newDrafts as Record<string, unknown>)[k] = v;
-            }
-          }
-        }
-
-        return {
-          audioAdvancedStash: currentModeValues,
-          drafts: { ...state.drafts, audio: newDrafts },
-        };
       }
+
+      // Advanced → Basic: stash advanced, restore basic
+      if (state.audioBasicStash) {
+        restoreStashIntoDrafts(newDrafts, state.audioBasicStash, snapshot);
+      } else {
+        applyTierDefaultsToDrafts(newDrafts, qualityTier, snapshot);
+      }
+
+      return {
+        audioAdvancedStash: currentModeValues,
+        drafts: { ...state.drafts, audio: newDrafts },
+      };
     }),
 
   // ── Apply ────────────────────────────────────────────────────────────────
@@ -433,27 +458,27 @@ export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => 
 
     // Audio — push to real store
     if (Object.keys(drafts.audio).length > 0) {
-      const store = useAudioSettingsStore.getState();
-      for (const [key, value] of Object.entries(drafts.audio)) {
-        callSetter(store as unknown as Record<string, unknown>, key, value);
-      }
+      pushDraftsToStore(
+        useAudioSettingsStore.getState() as unknown as Record<string, unknown>,
+        drafts.audio as Record<string, unknown>
+      );
     }
 
     // Video — push to real store (except hardwareAcceleration IPC handled below)
     if (Object.keys(drafts.video).length > 0) {
-      const store = useVideoSettingsStore.getState();
-      for (const [key, value] of Object.entries(drafts.video)) {
-        if (key === 'hardwareAcceleration') continue; // handled separately
-        callSetter(store as unknown as Record<string, unknown>, key, value);
-      }
+      pushDraftsToStore(
+        useVideoSettingsStore.getState() as unknown as Record<string, unknown>,
+        drafts.video as Record<string, unknown>,
+        new Set(['hardwareAcceleration'])
+      );
     }
 
     // TTS — push to real store
     if (Object.keys(drafts.tts).length > 0) {
-      const store = useTTSSettingsStore.getState();
-      for (const [key, value] of Object.entries(drafts.tts)) {
-        callSetter(store as unknown as Record<string, unknown>, key, value);
-      }
+      pushDraftsToStore(
+        useTTSSettingsStore.getState() as unknown as Record<string, unknown>,
+        drafts.tts as Record<string, unknown>
+      );
     }
 
     // Re-snapshot and clear drafts
@@ -473,8 +498,8 @@ export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => 
     if (willRestart) {
       setTimeout(() => {
         const hwValue = drafts.video.hardwareAcceleration;
-        (window as any).electron?.setHardwareAcceleration?.(hwValue);
-        (window as any).electron?.relaunchApp?.();
+        if (hwValue !== undefined) globalThis.electron?.setHardwareAcceleration?.(hwValue);
+        globalThis.electron?.relaunchApp?.();
       }, 150);
     }
   },
@@ -486,15 +511,7 @@ export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => 
 
     // Restore appearance from snapshot (undo live preview)
     if (snapshot) {
-      const store = useSettingsStore.getState();
-      store.setTheme(snapshot.appearance.theme);
-      store.setColorScheme(snapshot.appearance.colorScheme);
-      store.setFontSize(snapshot.appearance.fontSize);
-      store.setCompactMode(snapshot.appearance.compactMode);
-      store.setReduceAnimations(snapshot.appearance.reduceAnimations);
-      if (snapshot.appearance.customColors) {
-        store.setCustomColors(snapshot.appearance.customColors);
-      }
+      restoreAppearanceFromSnapshot(snapshot);
     }
 
     // Clear all drafts and stashes

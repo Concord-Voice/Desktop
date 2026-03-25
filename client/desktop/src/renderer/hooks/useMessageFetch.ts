@@ -42,8 +42,10 @@ async function decryptMessages(
   const versionedKeys = new Map<number, CryptoKey>();
   const uniqueVersions = new Set(
     rawMsgs
-      .filter((m) => m.is_encrypted && m.key_version && m.key_version > 1)
-      .map((m) => m.key_version!)
+      .filter((m): m is MessageWithStatus & { key_version: number } =>
+        Boolean(m.is_encrypted && m.key_version && m.key_version > 1)
+      )
+      .map((m) => m.key_version)
   );
   await Promise.all(
     [...uniqueVersions].map(async (version) => {
@@ -124,8 +126,8 @@ export function useMessageFetch(channelId: string | null, options: UseMessageFet
         setFetchTrigger((prev) => prev + 1);
       }
     };
-    window.addEventListener('e2ee-key-delivered', handler);
-    return () => window.removeEventListener('e2ee-key-delivered', handler);
+    globalThis.addEventListener('e2ee-key-delivered', handler);
+    return () => globalThis.removeEventListener('e2ee-key-delivered', handler);
   }, [channelId]);
 
   // Retry key fetch when messages are stuck in pending state.
@@ -187,7 +189,7 @@ export function useMessageFetch(channelId: string | null, options: UseMessageFet
         );
         const fetchedIds = new Set(msgs.map((m) => m.id));
         const kept = optimistic.filter(
-          (m) => !fetchedIds.has(m.id) && !fetchedIds.has(m.clientMessageId!)
+          (m) => !fetchedIds.has(m.id) && !fetchedIds.has(m.clientMessageId ?? '')
         );
         // Server returns DESC (newest first); reverse to ASC for chronological display
         msgs.reverse();

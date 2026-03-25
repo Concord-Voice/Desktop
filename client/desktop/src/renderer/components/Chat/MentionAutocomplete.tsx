@@ -52,6 +52,61 @@ export interface MentionAutocompleteHandle {
   handleKeyDown: (e: React.KeyboardEvent) => boolean;
 }
 
+/** Build special mention options (@all, @here) based on permissions and query. */
+function buildSpecialMentions(q: string, canEveryone: boolean, canHere: boolean): MentionOption[] {
+  const results: MentionOption[] = [];
+  if (canEveryone && ('all'.startsWith(q) || 'everyone'.startsWith(q))) {
+    results.push({ type: 'everyone', label: 'all', sublabel: 'Notify everyone in this channel' });
+  }
+  if (canHere && ('here'.startsWith(q) || 'online'.startsWith(q))) {
+    results.push({ type: 'here', label: 'here', sublabel: 'Notify online members' });
+  }
+  return results;
+}
+
+/** Build role mention options based on query and server roles. */
+function buildRoleMentions(
+  q: string,
+  roles: { id: string; name: string; mentionable: boolean; is_default: boolean; color?: string }[]
+): MentionOption[] {
+  const results: MentionOption[] = [];
+  for (const role of roles) {
+    if (!role.mentionable || role.is_default) continue;
+    if (role.name.toLowerCase().startsWith(q)) {
+      results.push({
+        type: 'role',
+        id: role.id,
+        label: role.name,
+        sublabel: 'Role',
+        color: role.color || undefined,
+      });
+    }
+  }
+  return results;
+}
+
+/** Build user mention options from members matching the query. */
+function buildUserMentions(
+  q: string,
+  members: { user_id: string; username: string; display_name?: string; avatar_url?: string }[]
+): MentionOption[] {
+  const results: MentionOption[] = [];
+  for (const member of members) {
+    const username = member.username.toLowerCase();
+    const displayName = member.display_name?.toLowerCase() || '';
+    if (username.startsWith(q) || displayName.startsWith(q)) {
+      results.push({
+        type: 'user',
+        id: member.user_id,
+        label: member.username,
+        sublabel: member.display_name || undefined,
+        avatarUrl: member.avatar_url || undefined,
+      });
+    }
+  }
+  return results;
+}
+
 const MentionAutocomplete = forwardRef<MentionAutocompleteHandle, MentionAutocompleteProps>(
   (
     {
@@ -134,65 +189,19 @@ const MentionAutocomplete = forwardRef<MentionAutocompleteHandle, MentionAutocom
         canMentionUsers: hasPermission(basePerm, MENTION_USERS),
         canMentionRoles: hasPermission(basePerm, MENTION_ROLES),
       };
-    }, [serverId, serverPermissions, channelId, channelOverrides]);
+    }, [serverId, channelId, serverPermissions, channelOverrides]);
 
     // Build filtered options
     const options = useMemo(() => {
       if (!query) return [];
       const q = query.text;
-      const results: MentionOption[] = [];
-
-      // Special mentions (@all, @here) — separate checks since DMs allow @here but not @all
-      if (permissions.canMentionEveryone) {
-        if ('all'.startsWith(q) || 'everyone'.startsWith(q)) {
-          results.push({
-            type: 'everyone',
-            label: 'all',
-            sublabel: 'Notify everyone in this channel',
-          });
-        }
-      }
-      if (permissions.canMentionHere) {
-        if ('here'.startsWith(q) || 'online'.startsWith(q)) {
-          results.push({ type: 'here', label: 'here', sublabel: 'Notify online members' });
-        }
-      }
-
-      // Role mentions
-      if (permissions.canMentionRoles && serverId) {
-        const roles = serverRoles[serverId] || [];
-        for (const role of roles) {
-          if (!role.mentionable) continue;
-          if (role.is_default) continue; // Don't show @all role in autocomplete
-          if (role.name.toLowerCase().startsWith(q)) {
-            results.push({
-              type: 'role',
-              id: role.id,
-              label: role.name,
-              sublabel: 'Role',
-              color: role.color || undefined,
-            });
-          }
-        }
-      }
-
-      // User mentions
-      if (permissions.canMentionUsers) {
-        for (const member of members) {
-          const username = member.username.toLowerCase();
-          const displayName = member.display_name?.toLowerCase() || '';
-          if (username.startsWith(q) || displayName.startsWith(q)) {
-            results.push({
-              type: 'user',
-              id: member.user_id,
-              label: member.username,
-              sublabel: member.display_name || undefined,
-              avatarUrl: member.avatar_url || undefined,
-            });
-          }
-        }
-      }
-
+      const results: MentionOption[] = [
+        ...buildSpecialMentions(q, permissions.canMentionEveryone, permissions.canMentionHere),
+        ...(permissions.canMentionRoles && serverId
+          ? buildRoleMentions(q, serverRoles[serverId] || [])
+          : []),
+        ...(permissions.canMentionUsers ? buildUserMentions(q, members) : []),
+      ];
       return results.slice(0, 15); // Cap at 15 results
     }, [query, permissions, members, serverRoles, serverId]);
 

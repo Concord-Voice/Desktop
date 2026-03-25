@@ -22,8 +22,8 @@ let cachedMachineId: string | null = null;
 
 export async function ensureMachineId(): Promise<string> {
   if (cachedMachineId) return cachedMachineId;
-  if (window.electron?.getMachineId) {
-    cachedMachineId = await window.electron.getMachineId();
+  if (globalThis.electron?.getMachineId) {
+    cachedMachineId = await globalThis.electron.getMachineId();
   }
   return cachedMachineId ?? '';
 }
@@ -148,8 +148,8 @@ const _unsubscribeAuthStore = useAuthStore.subscribe((state) => {
 // The main process schedules its own proactive timer (immune to Chromium
 // throttling). When it refreshes, it pushes the new token here via IPC.
 let _unsubscribeTokenRefreshed: (() => void) | undefined;
-if (window.electron?.onTokenRefreshed) {
-  _unsubscribeTokenRefreshed = window.electron.onTokenRefreshed((data) => {
+if (globalThis.electron?.onTokenRefreshed) {
+  _unsubscribeTokenRefreshed = globalThis.electron.onTokenRefreshed((data) => {
     useAuthStore.getState().setAccessToken(data.accessToken);
     if (data.sessionId) useAuthStore.getState().setSessionId(data.sessionId);
   });
@@ -189,9 +189,9 @@ export async function refreshAccessToken(): Promise<string | null> {
   }
 
   rendererRefreshPromise = (async () => {
-    if (!window.electron?.refreshToken) return null;
+    if (!globalThis.electron?.refreshToken) return null;
 
-    const result = await window.electron.refreshToken();
+    const result = await globalThis.electron.refreshToken();
     if (result.status === 'ok' && result.accessToken) {
       useAuthStore.getState().setAccessToken(result.accessToken);
       if (result.sessionId) useAuthStore.getState().setSessionId(result.sessionId);
@@ -211,7 +211,7 @@ export async function refreshAccessToken(): Promise<string | null> {
         );
       if (verified) {
         // MFA verified — retry the refresh
-        const retryResult = await window.electron.refreshToken();
+        const retryResult = await globalThis.electron.refreshToken();
         if (retryResult.status === 'ok' && retryResult.accessToken) {
           useAuthStore.getState().setAccessToken(retryResult.accessToken);
           if (retryResult.sessionId) useAuthStore.getState().setSessionId(retryResult.sessionId);

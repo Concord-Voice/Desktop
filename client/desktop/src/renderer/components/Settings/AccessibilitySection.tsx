@@ -15,17 +15,17 @@ const TTSSection: React.FC = () => {
 
   useEffect(() => {
     const loadVoices = () => {
-      const available = window.speechSynthesis?.getVoices() ?? [];
+      const available = globalThis.speechSynthesis?.getVoices() ?? [];
       setVoices(available);
     };
     loadVoices();
-    window.speechSynthesis?.addEventListener('voiceschanged', loadVoices);
-    return () => window.speechSynthesis?.removeEventListener('voiceschanged', loadVoices);
+    globalThis.speechSynthesis?.addEventListener('voiceschanged', loadVoices);
+    return () => globalThis.speechSynthesis?.removeEventListener('voiceschanged', loadVoices);
   }, []);
 
   const handlePreview = () => {
-    if (!window.speechSynthesis) return;
-    window.speechSynthesis.cancel();
+    if (!globalThis.speechSynthesis) return;
+    globalThis.speechSynthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(
       'This is a preview of text-to-speech in Concord Voice.'
     );
@@ -35,13 +35,13 @@ const TTSSection: React.FC = () => {
       const match = voices.find((v) => v.voiceURI === ttsVoice);
       if (match) utterance.voice = match;
     }
-    window.speechSynthesis.speak(utterance);
+    globalThis.speechSynthesis.speak(utterance);
   };
 
   return (
     <CollapsibleSection id="section-tts" title="Text-to-Speech">
       <p className="settings-section-description">
-        Read voice text chat messages aloud while you're in a voice channel.
+        Read voice text chat messages aloud while you&apos;re in a voice channel.
       </p>
 
       <div className="settings-row">

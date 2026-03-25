@@ -41,7 +41,7 @@ const ForceUpdateOverlay: React.FC = () => {
 
   // Get current app version on mount
   useEffect(() => {
-    window.electron?.getVersion?.().then(setAppVersion);
+    globalThis.electron?.getVersion?.().then(setAppVersion);
   }, []);
 
   // Brief grace period on mount so the overlay doesn't flash during initial render.
@@ -67,19 +67,19 @@ const ForceUpdateOverlay: React.FC = () => {
 
     const cleanups: (() => void)[] = [];
 
-    if (window.electron?.onUpdateAvailable) {
+    if (globalThis.electron?.onUpdateAvailable) {
       cleanups.push(
-        window.electron.onUpdateAvailable(() => {
+        globalThis.electron.onUpdateAvailable(() => {
           // Auto-download — this is a mandatory update
           setPhase('downloading');
           setProgress(0);
-          window.electron?.downloadUpdate();
+          globalThis.electron?.downloadUpdate();
         })
       );
     }
-    if (window.electron?.onUpdateNotAvailable) {
+    if (globalThis.electron?.onUpdateNotAvailable) {
       cleanups.push(
-        window.electron.onUpdateNotAvailable(() => {
+        globalThis.electron.onUpdateNotAvailable(() => {
           failureCount.current++;
           setPhase('error');
           setErrorMsg(
@@ -88,20 +88,20 @@ const ForceUpdateOverlay: React.FC = () => {
         })
       );
     }
-    if (window.electron?.onUpdateDownloadProgress) {
+    if (globalThis.electron?.onUpdateDownloadProgress) {
       cleanups.push(
-        window.electron.onUpdateDownloadProgress((p) => {
+        globalThis.electron.onUpdateDownloadProgress((p) => {
           setPhase('downloading');
           setProgress(Math.round(p.percent));
         })
       );
     }
-    if (window.electron?.onUpdateDownloaded) {
-      cleanups.push(window.electron.onUpdateDownloaded(() => setPhase('downloaded')));
+    if (globalThis.electron?.onUpdateDownloaded) {
+      cleanups.push(globalThis.electron.onUpdateDownloaded(() => setPhase('downloaded')));
     }
-    if (window.electron?.onUpdateError) {
+    if (globalThis.electron?.onUpdateError) {
       cleanups.push(
-        window.electron.onUpdateError((err) => {
+        globalThis.electron.onUpdateError((err) => {
           failureCount.current++;
           setPhase('error');
           setErrorMsg(err.message || 'An unexpected error occurred.');
@@ -118,7 +118,7 @@ const ForceUpdateOverlay: React.FC = () => {
     setPhase('checking');
     setErrorMsg('');
     try {
-      await window.electron?.checkForUpdates();
+      await globalThis.electron?.checkForUpdates();
     } catch {
       failureCount.current++;
       setPhase('error');
@@ -127,7 +127,7 @@ const ForceUpdateOverlay: React.FC = () => {
   }, []);
 
   const handleInstall = useCallback(() => {
-    window.electron?.installUpdate();
+    globalThis.electron?.installUpdate();
   }, []);
 
   if (!updateRequired || dismissed) return null;

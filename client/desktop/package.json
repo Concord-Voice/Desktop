@@ -61,6 +61,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/use-sync-external-store": "^1.5.0",
     "@vitejs/plugin-react": "^6.0.0",
+    "@vitest/coverage-istanbul": "^4.1.0",
     "@vitest/coverage-v8": "^4.1.0",
     "concurrently": "^9.2.1",
     "electron": "^41.0.2",

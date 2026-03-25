@@ -46,7 +46,7 @@
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 10px;
-  background: var(--success-color, #3ba55d);
+  background: var(--success-color, #2d7d46);
   color: #fff;
   font-weight: 500;
 }
@@ -287,7 +287,7 @@
 /* ── Danger Button ───────────────────────────────────────────── */
 
 .btn-danger {
-  background: var(--error-color, #ed4245);
+  background: var(--error-color, #c0392b);
   color: #fff;
   border: none;
 }
@@ -657,9 +657,9 @@
 }
 
 .btn-reset-danger:hover:not(:disabled) {
-  background: var(--error-color, #ed4245);
+  background: var(--error-color, #c0392b);
   color: #fff;
-  border-color: var(--error-color, #ed4245);
+  border-color: var(--error-color, #c0392b);
 }
 
 .btn-reset-danger:disabled {

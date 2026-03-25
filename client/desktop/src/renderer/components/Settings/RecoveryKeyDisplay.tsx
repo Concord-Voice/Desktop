@@ -17,8 +17,8 @@ const RecoveryKeyDisplay: React.FC<RecoveryKeyDisplayProps> = ({
   const [showSkipWarning, setShowSkipWarning] = useState(false);
 
   const handleCopy = async () => {
-    if (window.electron?.writeClipboard) {
-      window.electron.writeClipboard(recoveryKey);
+    if (globalThis.electron?.writeClipboard) {
+      globalThis.electron.writeClipboard(recoveryKey);
     } else {
       await navigator.clipboard.writeText(recoveryKey);
     }
@@ -123,7 +123,7 @@ const RecoveryKeyDisplay: React.FC<RecoveryKeyDisplayProps> = ({
           checked={saved}
           onChange={(e) => setSaved(e.target.checked)}
           disabled={disabled}
-        />
+        />{' '}
         I have saved my recovery key in a safe place
       </label>
 

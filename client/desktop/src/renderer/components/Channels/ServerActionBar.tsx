@@ -98,8 +98,8 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({
   };
 
   const writeClipboard = async (text: string) => {
-    if (window.electron?.writeClipboard) {
-      await window.electron.writeClipboard(text);
+    if (globalThis.electron?.writeClipboard) {
+      await globalThis.electron.writeClipboard(text);
     } else {
       await navigator.clipboard.writeText(text);
     }

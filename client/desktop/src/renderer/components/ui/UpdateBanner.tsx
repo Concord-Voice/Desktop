@@ -52,26 +52,26 @@ const UpdateBanner: React.FC = () => {
   });
 
   useEffect(() => {
-    if (!window.electron?.onUpdateAvailable) return;
+    if (!globalThis.electron?.onUpdateAvailable) return;
 
     const cleanups = [
-      window.electron.onUpdateAvailable((info) => {
+      globalThis.electron.onUpdateAvailable((info) => {
         setVersion(info.version);
         setState('available');
       }),
-      window.electron.onUpdateDownloadProgress((prog) => {
+      globalThis.electron.onUpdateDownloadProgress((prog) => {
         setState('downloading');
         setProgress(prog);
       }),
-      window.electron.onUpdateDownloaded((info) => {
+      globalThis.electron.onUpdateDownloaded((info) => {
         setVersion(info.version);
         setState('downloaded');
         setProgress(null);
       }),
-      window.electron.onUpdateNotAvailable(() => {
+      globalThis.electron.onUpdateNotAvailable(() => {
         // No action — stays hidden or dismissed
       }),
-      window.electron.onUpdateError(() => {
+      globalThis.electron.onUpdateError(() => {
         // Reset to available so user can retry; main process logs details
         setState((prev) => (prev === 'downloading' ? 'available' : prev));
         setProgress(null);
@@ -87,7 +87,7 @@ const UpdateBanner: React.FC = () => {
     setState('downloading');
     setProgress({ percent: 0, transferred: 0, total: 0, bytesPerSecond: 0 });
     try {
-      await window.electron?.downloadUpdate();
+      await globalThis.electron?.downloadUpdate();
     } catch {
       // Reset to available so user can retry; onUpdateError also fires
       setState('available');
@@ -96,7 +96,7 @@ const UpdateBanner: React.FC = () => {
   }, []);
 
   const handleInstall = useCallback(() => {
-    window.electron?.installUpdate();
+    globalThis.electron?.installUpdate();
   }, []);
 
   const handleDismiss = useCallback(() => {

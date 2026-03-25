@@ -87,9 +87,9 @@ function AuthenticatedLayout() {
   useEffect(() => {
     Promise.all([
       detectCodecCapabilities(),
-      window.electron?.getGPUInfo?.() ?? Promise.resolve(null),
-      window.electron?.getHardwareAcceleration?.() ?? Promise.resolve(null),
-      window.electron?.getDisplayInfo?.() ?? Promise.resolve(null),
+      globalThis.electron?.getGPUInfo?.() ?? Promise.resolve(null),
+      globalThis.electron?.getHardwareAcceleration?.() ?? Promise.resolve(null),
+      globalThis.electron?.getDisplayInfo?.() ?? Promise.resolve(null),
     ]).then(([caps, gpu, hwAccel, displays]) => {
       // Detect HDR: any display with colorDepth > 24 or wide gamut color space
       const systemHdr =
@@ -166,12 +166,12 @@ function App() {
     restoreSessionCalled = true;
 
     const restore = async () => {
-      if (!window.electron?.restoreSession) {
+      if (!globalThis.electron?.restoreSession) {
         setIsRestoring(false);
         return;
       }
 
-      const result = await window.electron.restoreSession();
+      const result = await globalThis.electron.restoreSession();
       if (result.status === 'restored' && result.accessToken) {
         useAuthStore.getState().setAccessToken(result.accessToken);
         if (result.sessionId) useAuthStore.getState().setSessionId(result.sessionId);
@@ -203,18 +203,18 @@ function App() {
 
   useEffect(() => {
     // Get app info from Electron main process
-    if (window.electron) {
-      window.electron.getVersion().then(setVersion);
-      window.electron.getPlatform().then(setPlatform);
+    if (globalThis.electron) {
+      globalThis.electron.getVersion().then(setVersion);
+      globalThis.electron.getPlatform().then(setPlatform);
     }
 
     // Initialize OS permission state (non-blocking) and subscribe to changes (#197)
     let unsubPermission: (() => void) | undefined;
-    if (window.electron) {
+    if (globalThis.electron) {
       useOsPermissionStore.getState().fetchAll();
       // Guard for IPC contract mismatch — older shells may lack v3 permission channels
-      if (typeof window.electron.onPermissionChanged === 'function') {
-        unsubPermission = window.electron.onPermissionChanged((data) => {
+      if (typeof globalThis.electron.onPermissionChanged === 'function') {
+        unsubPermission = globalThis.electron.onPermissionChanged((data) => {
           useOsPermissionStore.getState().updateStatus(data.type as OsPermissionType, data.status);
         });
       }

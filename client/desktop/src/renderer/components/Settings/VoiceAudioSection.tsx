@@ -171,6 +171,20 @@ const GpuVendorIcon: React.FC<{ vendor: string }> = ({ vendor }) => {
   return null;
 };
 
+// ─── Hint text helpers (reduce cognitive complexity of inline IIFEs) ────────
+
+/** Returns hint text for a processing toggle that can be locked by Music Mode. */
+function processingHint(
+  musicMode: boolean,
+  enabled: boolean,
+  lockedText: string,
+  enabledText: string,
+  disabledText: string
+): string {
+  if (musicMode) return lockedText;
+  return enabled ? enabledText : disabledText;
+}
+
 // ─── Voice & Audio Section ──────────────────────────────────────────────────
 
 const TIER_ORDER: AudioQualityTier[] = [
@@ -255,7 +269,7 @@ const VoiceAudioSection: React.FC = () => {
   >([]);
 
   useEffect(() => {
-    window.electron?.getDisplayInfo?.().then((displays) => {
+    globalThis.electron?.getDisplayInfo?.().then((displays) => {
       if (displays) setDisplayInfo(displays);
     });
   }, []);
@@ -602,13 +616,13 @@ const VoiceAudioSection: React.FC = () => {
           <div className="settings-row-info">
             <span className="settings-row-label">Noise Cancellation</span>
             <span className="settings-row-hint">
-              {(() => {
-                if (musicMode)
-                  return 'Locked by Music Mode. Noise cancellation is forced off to preserve full-bandwidth audio fidelity.';
-                if (noiseCancellation)
-                  return "Enabled. Background noise from your microphone is actively filtered out by the system's noise suppression. May slightly reduce audio fidelity in noisy environments.";
-                return 'Disabled. No noise filtering is applied \u2014 all ambient sound passes through unprocessed.';
-              })()}
+              {processingHint(
+                musicMode,
+                noiseCancellation,
+                'Locked by Music Mode. Noise cancellation is forced off to preserve full-bandwidth audio fidelity.',
+                "Enabled. Background noise from your microphone is actively filtered out by the system's noise suppression. May slightly reduce audio fidelity in noisy environments.",
+                'Disabled. No noise filtering is applied \u2014 all ambient sound passes through unprocessed.'
+              )}
             </span>
           </div>
           <ToggleSwitch
@@ -624,13 +638,13 @@ const VoiceAudioSection: React.FC = () => {
           <div className="settings-row-info">
             <span className="settings-row-label">Echo Cancellation</span>
             <span className="settings-row-hint">
-              {(() => {
-                if (musicMode)
-                  return 'Locked by Music Mode. Echo cancellation is forced off to preserve unprocessed audio fidelity.';
-                if (echoCancellation)
-                  return 'Enabled. Acoustic echo cancellation prevents your speakers from feeding back into your microphone, allowing speaker use without headphones.';
-                return 'Disabled. No echo cancellation is applied. Use headphones to prevent feedback loops.';
-              })()}
+              {processingHint(
+                musicMode,
+                echoCancellation,
+                'Locked by Music Mode. Echo cancellation is forced off to preserve unprocessed audio fidelity.',
+                'Enabled. Acoustic echo cancellation prevents your speakers from feeding back into your microphone, allowing speaker use without headphones.',
+                'Disabled. No echo cancellation is applied. Use headphones to prevent feedback loops.'
+              )}
             </span>
           </div>
           <ToggleSwitch
@@ -646,13 +660,13 @@ const VoiceAudioSection: React.FC = () => {
           <div className="settings-row-info">
             <span className="settings-row-label">Auto Gain Control</span>
             <span className="settings-row-hint">
-              {(() => {
-                if (musicMode)
-                  return 'Locked by Music Mode. Automatic gain control is forced off to prevent dynamic compression of your audio signal.';
-                if (autoGainControl)
-                  return 'Enabled. Automatically normalizes your microphone volume \u2014 making quiet speech louder and loud speech softer.';
-                return 'Disabled. Your microphone level is not automatically adjusted. Manual volume control via the input slider is recommended.';
-              })()}
+              {processingHint(
+                musicMode,
+                autoGainControl,
+                'Locked by Music Mode. Automatic gain control is forced off to prevent dynamic compression of your audio signal.',
+                'Enabled. Automatically normalizes your microphone volume \u2014 making quiet speech louder and loud speech softer.',
+                'Disabled. Your microphone level is not automatically adjusted. Manual volume control via the input slider is recommended.'
+              )}
             </span>
           </div>
           <ToggleSwitch
@@ -1284,7 +1298,7 @@ const VoiceAudioSection: React.FC = () => {
                     </div>
                     {hardwareAcceleration && !hwHasSupported && (
                       <div className="settings-hw-fallback-notice">
-                        Hardware acceleration is enabled, but none of your GPU's codecs are
+                        Hardware acceleration is enabled, but none of your GPU&apos;s codecs are
                         currently supported. Concord Voice has automatically failed over to software
                         encoding.
                       </div>
@@ -1397,7 +1411,8 @@ const VoiceAudioSection: React.FC = () => {
                   {preferredVideoCodec && (
                     <div className="settings-codec-preference-notice">
                       Your client will prefer this codec, but will fall back to the next best option
-                      if another participant can't decode it. Active codecs are shown above with a{' '}
+                      if another participant can&apos;t decode it. Active codecs are shown above
+                      with a{' '}
                       <span
                         className="settings-codec-item in-use"
                         style={{
@@ -1409,7 +1424,7 @@ const VoiceAudioSection: React.FC = () => {
                         }}
                       >
                         highlight
-                      </span>
+                      </span>{' '}
                       .
                     </div>
                   )}

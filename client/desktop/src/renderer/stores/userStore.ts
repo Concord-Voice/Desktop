@@ -74,7 +74,7 @@ export const useUserStore = create<UserState>()(
           if (response.status === 401) {
             // Token expired and refresh failed — clear auth
             useAuthStore.getState().clearAccessToken();
-            window.electron?.clearTokens?.();
+            globalThis.electron?.clearTokens?.();
             set({ user: null, isLoading: false, error: null });
             return;
           }
@@ -125,8 +125,8 @@ export const useUserStore = create<UserState>()(
 
         try {
           // Main process handles logout API call (it holds the refresh token)
-          if (window.electron?.logout) {
-            await window.electron.logout({
+          if (globalThis.electron?.logout) {
+            await globalThis.electron.logout({
               accessToken: useAuthStore.getState().accessToken ?? undefined,
             });
           }
@@ -148,7 +148,7 @@ export const useUserStore = create<UserState>()(
 
         if (response.status === 401) {
           useAuthStore.getState().clearAccessToken();
-          window.electron?.clearTokens?.();
+          globalThis.electron?.clearTokens?.();
           set({ user: null, isLoading: false, error: null });
           throw new Error('Session expired');
         }
@@ -221,7 +221,7 @@ export const useUserStore = create<UserState>()(
               return { success: false, error: data.error };
             }
             useAuthStore.getState().clearAccessToken();
-            window.electron?.clearTokens?.();
+            globalThis.electron?.clearTokens?.();
             set({ user: null, isLoading: false, error: null });
             return { success: false, error: 'Session expired' };
           }

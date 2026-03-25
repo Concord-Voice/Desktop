@@ -26,6 +26,30 @@ import { useOsPermissionStore } from '../../stores/osPermissionStore';
 import ScreenSharePicker from './ScreenSharePicker';
 import './VoiceControls.css';
 
+/**
+ * JIT permission pre-check: verify an OS permission before starting a media action.
+ * Returns true if permission was denied (caller should abort).
+ */
+async function checkPermissionOrWarn(
+  permType: 'camera' | 'screen',
+  errorMessage: string
+): Promise<boolean> {
+  const permStore = useOsPermissionStore.getState();
+  const status = await permStore.checkOne(permType);
+  if (status === 'denied' || status === 'restricted') {
+    useVoiceStore.getState().setVideoSlotError(errorMessage);
+    permStore.openSettings(permType);
+    return true;
+  }
+  return false;
+}
+
+/** Lazily import and return the voice service. */
+async function getVoiceService() {
+  const { voiceService } = await import('../../services/voiceService');
+  return voiceService;
+}
+
 interface VoiceControlsProps {
   /** 'voiceView' = inside VoiceView, 'persistent' = navigated-away bar */
   context?: 'voiceView' | 'persistent';
@@ -64,63 +88,45 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   const pipMenuRef = useRef<HTMLDivElement>(null);
 
   // Electron PiP — check if electron API is available
-  const hasElectronPip = !!window.electron?.openPipWindow;
+  const hasElectronPip = !!globalThis.electron?.openPipWindow;
 
   const handleToggleMute = async () => {
-    const { voiceService } = await import('../../services/voiceService');
-    voiceService.toggleMute();
+    (await getVoiceService()).toggleMute();
   };
 
   const handleToggleDeafen = async () => {
-    const { voiceService } = await import('../../services/voiceService');
-    voiceService.toggleDeafen();
+    (await getVoiceService()).toggleDeafen();
   };
 
   const handleToggleVideo = async () => {
-    // JIT permission pre-check (#197): verify camera permission before starting video
     if (!isVideoOn) {
-      const permStore = useOsPermissionStore.getState();
-      const camStatus = await permStore.checkOne('camera');
-      if (camStatus === 'denied' || camStatus === 'restricted') {
-        useVoiceStore
-          .getState()
-          .setVideoSlotError(
-            'Camera access denied. Grant permission in System Settings > Privacy & Security.'
-          );
-        permStore.openSettings('camera');
-        return;
-      }
+      const denied = await checkPermissionOrWarn(
+        'camera',
+        'Camera access denied. Grant permission in System Settings > Privacy & Security.'
+      );
+      if (denied) return;
     }
-    const { voiceService } = await import('../../services/voiceService');
-    await voiceService.toggleVideo();
+    await (await getVoiceService()).toggleVideo();
   };
 
   const handleToggleScreen = async () => {
     try {
       if (isScreenSharing) {
-        const { voiceService } = await import('../../services/voiceService');
-        await voiceService.toggleScreenShare();
-      } else {
-        // JIT permission pre-check (#197): verify screen recording permission (macOS)
-        const permStore = useOsPermissionStore.getState();
-        const screenStatus = await permStore.checkOne('screen');
-        if (screenStatus === 'denied' || screenStatus === 'restricted') {
-          useVoiceStore
-            .getState()
-            .setVideoSlotError(
-              'Screen recording access denied. On macOS, enable Screen Recording in ' +
-                'System Settings > Privacy & Security, then restart Concord.'
-            );
-          permStore.openSettings('screen');
-          return;
-        }
+        await (await getVoiceService()).toggleScreenShare();
+        return;
+      }
 
-        if (typeof window.electron?.getDesktopSources === 'function') {
-          setShowScreenPicker(true);
-        } else {
-          const { voiceService } = await import('../../services/voiceService');
-          await voiceService.toggleScreenShare();
-        }
+      const denied = await checkPermissionOrWarn(
+        'screen',
+        'Screen recording access denied. On macOS, enable Screen Recording in ' +
+          'System Settings > Privacy & Security, then restart Concord.'
+      );
+      if (denied) return;
+
+      if (typeof globalThis.electron?.getDesktopSources === 'function') {
+        setShowScreenPicker(true);
+      } else {
+        await (await getVoiceService()).toggleScreenShare();
       }
     } catch (err) {
       console.error('Failed to toggle screen share:', err);
@@ -133,16 +139,14 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   ) => {
     setShowScreenPicker(false);
     try {
-      const { voiceService } = await import('../../services/voiceService');
-      await voiceService.toggleScreenShare(sourceId, options);
+      await (await getVoiceService()).toggleScreenShare(sourceId, options);
     } catch (err) {
       console.error('Failed to start screen share:', err);
     }
   };
 
   const handleLeave = async () => {
-    const { voiceService } = await import('../../services/voiceService');
-    await voiceService.leaveChannel();
+    await (await getVoiceService()).leaveChannel();
   };
 
   // Auto-dismiss video slot error after 5 seconds
@@ -185,7 +189,7 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
       };
     return {
       position: 'fixed',
-      bottom: window.innerHeight - rect.top,
+      bottom: globalThis.innerHeight - rect.top,
       left: rect.left + rect.width / 2,
       transform: 'translateX(-50%)',
       zIndex: 99999,
@@ -193,9 +197,9 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   };
 
   const handleOpenPip = useCallback(async (mode: 'frames' | 'screen', producerId?: string) => {
-    if (!window.electron?.openPipWindow) return;
+    if (!globalThis.electron?.openPipWindow) return;
     const id = mode === 'frames' ? 'frames-main' : `screen-${producerId || ''}`;
-    await window.electron.openPipWindow({
+    await globalThis.electron.openPipWindow({
       id,
       width: mode === 'frames' ? 320 : 400,
       height: mode === 'frames' ? 240 : 300,

@@ -49,8 +49,8 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
   useEffect(() => {
     const fetchSources = async () => {
       try {
-        if (window.electron?.getDesktopSources) {
-          const result = await window.electron.getDesktopSources();
+        if (globalThis.electron?.getDesktopSources) {
+          const result = await globalThis.electron.getDesktopSources();
           setSources(result);
         }
       } catch (err) {

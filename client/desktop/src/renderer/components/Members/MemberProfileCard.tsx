@@ -71,8 +71,8 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
     const rect = cardRef.current.getBoundingClientRect();
     const cardW = rect.width;
     const cardH = rect.height;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
+    const vw = globalThis.innerWidth;
+    const vh = globalThis.innerHeight;
 
     // Preferred: position to the left of the click point, below the cursor
     let left = position.x - cardW - 10;

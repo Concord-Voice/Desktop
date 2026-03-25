@@ -106,9 +106,9 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
 
     // Fail-closed safeStorage enforcement (#197): block registration if secure storage is unavailable.
     // When Electron IPC is present, any failure (denied or IPC error) blocks registration.
-    if (window.electron?.checkPermission) {
+    if (globalThis.electron?.checkPermission) {
       try {
-        const storageStatus = await window.electron.checkPermission('secureStorage');
+        const storageStatus = await globalThis.electron.checkPermission('secureStorage');
         if (storageStatus !== 'granted') {
           setErrors({
             general:
@@ -177,8 +177,8 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
       preferencesSyncService.startWatching();
 
       // Store refresh token securely in main process, set access token in renderer
-      if (window.electron?.storeRefreshToken) {
-        await window.electron.storeRefreshToken({
+      if (globalThis.electron?.storeRefreshToken) {
+        await globalThis.electron.storeRefreshToken({
           refreshToken: data.refresh_token,
           rememberMe: true, // Registration always remembers
           apiBase: API_BASE,
@@ -189,8 +189,8 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
 
       // Persist E2EE session keys in safeStorage for session restore
       const sessionKeys = e2eeService.getSessionKeys();
-      if (sessionKeys && window.electron?.storeE2EEKeys) {
-        await window.electron.storeE2EEKeys(sessionKeys);
+      if (sessionKeys && globalThis.electron?.storeE2EEKeys) {
+        await globalThis.electron.storeE2EEKeys(sessionKeys);
       }
 
       onSuccess({
@@ -359,7 +359,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
                           </li>
                         </ul>
                         <strong>Privacy First:</strong> Not even Concord Voice can read your
-                        encrypted messages. We can't reset your password if you forget it.
+                        encrypted messages. We can&apos;t reset your password if you forget it.
                       </div>
                     }
                   />

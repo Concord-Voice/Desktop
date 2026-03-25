@@ -108,7 +108,7 @@ const SystemPermissionsSection: React.FC = () => {
   // Fetch fresh permission statuses when Settings is opened
   useEffect(() => {
     fetchAll();
-    window.electron?.getPlatform?.().then(setPlatform);
+    globalThis.electron?.getPlatform?.().then(setPlatform);
   }, [fetchAll]);
 
   // On non-macOS, mic/camera/screen are always 'granted' (Chromium handles them).
@@ -404,46 +404,18 @@ const PrivacySecuritySection: React.FC = () => {
     setRevokingId(sessionId);
 
     try {
-      const fetchOpts: RequestInit = { method: 'DELETE' };
-      if (password || mfaCode) {
-        fetchOpts.headers = { 'Content-Type': 'application/json' };
-        const body: Record<string, string> = {};
-        if (password) body.password = password;
-        if (mfaCode) body.mfa_code = mfaCode;
-        fetchOpts.body = JSON.stringify(body);
-      }
-
+      const fetchOpts = buildAuthFetchOpts('DELETE', password, mfaCode);
       const response = await apiFetch(`/api/v1/sessions/${sessionId}`, fetchOpts);
 
       if (!response.ok) {
         const data = await response.json();
-
-        if (
-          response.status === 403 &&
-          (data.error === 'password_required' || data.error === 'auth_required')
-        ) {
-          // Server says authentication needed — open auth modal
-          setSessionPasswordTarget(sessionId);
-          setSessionPassword('');
-          setSessionMfaCode('');
-          setSessionPasswordError('');
-          setShowSessionPasswordModal(true);
-          setRevokingId(null);
-          return;
+        if (response.status === 403) {
+          const handled = handleRevoke403(data.error, sessionId);
+          if (handled) {
+            setRevokingId(null);
+            return;
+          }
         }
-
-        if (response.status === 403 && data.error === 'Incorrect password') {
-          setSessionPasswordError('Incorrect password');
-          setRevokingId(null);
-          return;
-        }
-
-        if (response.status === 403 && data.error === 'Invalid MFA code') {
-          setSessionPasswordError('Invalid MFA code');
-          setRevokingId(null);
-          return;
-        }
-
         throw new Error(data.error || 'Failed to revoke session');
       }
 
@@ -460,7 +432,6 @@ const PrivacySecuritySection: React.FC = () => {
         return;
       }
 
-      // Remove from active list immediately, then re-fetch for accurate server state
       setSessions((prev) => prev.filter((s) => s.id !== sessionId));
       fetchSessions();
     } catch (err) {
@@ -468,6 +439,35 @@ const PrivacySecuritySection: React.FC = () => {
     } finally {
       setRevokingId(null);
     }
+  };
+
+  /** Build fetch options with optional auth body. */
+  const buildAuthFetchOpts = (method: string, password?: string, mfaCode?: string): RequestInit => {
+    const opts: RequestInit = { method };
+    if (!password && !mfaCode) return opts;
+    opts.headers = { 'Content-Type': 'application/json' };
+    const body: Record<string, string> = {};
+    if (password) body.password = password;
+    if (mfaCode) body.mfa_code = mfaCode;
+    opts.body = JSON.stringify(body);
+    return opts;
+  };
+
+  /** Handle 403 errors from session revocation. Returns true if handled (should abort). */
+  const handleRevoke403 = (errorCode: string, sessionId: string): boolean => {
+    if (errorCode === 'password_required' || errorCode === 'auth_required') {
+      setSessionPasswordTarget(sessionId);
+      setSessionPassword('');
+      setSessionMfaCode('');
+      setSessionPasswordError('');
+      setShowSessionPasswordModal(true);
+      return true;
+    }
+    if (errorCode === 'Incorrect password' || errorCode === 'Invalid MFA code') {
+      setSessionPasswordError(errorCode);
+      return true;
+    }
+    return false;
   };
 
   const openRevokeAllModal = () => {
@@ -508,11 +508,8 @@ const PrivacySecuritySection: React.FC = () => {
 
     try {
       const body: Record<string, string> = { mode: pendingMode };
-      if (hasMFA) {
-        body.mfa_code = modeChangeMfaCode;
-      } else {
-        body.password = modeChangePassword;
-      }
+      if (hasMFA) body.mfa_code = modeChangeMfaCode;
+      else body.password = modeChangePassword;
 
       const response = await apiFetch('/api/v1/sessions/revocation-mode', {
         method: 'PUT',
@@ -523,11 +520,7 @@ const PrivacySecuritySection: React.FC = () => {
       if (!response.ok) {
         const data = await response.json();
         if (response.status === 403) {
-          let modeErr: string;
-          if (data.error === 'Incorrect password') modeErr = 'Incorrect password';
-          else if (data.error === 'Invalid MFA code') modeErr = 'Invalid MFA code';
-          else modeErr = data.error || 'Authentication failed';
-          setModeChangeError(modeErr);
+          setModeChangeError(data.error || 'Authentication failed');
           setIsChangingMode(false);
           return;
         }
@@ -557,27 +550,18 @@ const PrivacySecuritySection: React.FC = () => {
   const handleRevokeAll = async () => {
     if (!accessToken) return;
 
-    if (hasMFA) {
-      if (!revokeMfaCode) {
-        setRevokePasswordError('MFA verification is required');
-        return;
-      }
-    } else {
-      if (!revokePassword) {
-        setRevokePasswordError('Password is required');
-        return;
-      }
+    const requiredField = hasMFA ? revokeMfaCode : revokePassword;
+    if (!requiredField) {
+      setRevokePasswordError(hasMFA ? 'MFA verification is required' : 'Password is required');
+      return;
     }
 
     setIsRevokingAll(true);
 
     try {
       const body: Record<string, unknown> = { include_current: true };
-      if (hasMFA) {
-        body.mfa_code = revokeMfaCode;
-      } else {
-        body.password = revokePassword;
-      }
+      if (hasMFA) body.mfa_code = revokeMfaCode;
+      else body.password = revokePassword;
 
       const response = await apiFetch('/api/v1/sessions/revoke-all', {
         method: 'POST',
@@ -588,11 +572,7 @@ const PrivacySecuritySection: React.FC = () => {
       if (!response.ok) {
         const data = await response.json();
         if (response.status === 403) {
-          let revokeErr: string;
-          if (data.error === 'Invalid MFA code') revokeErr = 'Invalid MFA code';
-          else if (data.error === 'Incorrect password') revokeErr = 'Incorrect password';
-          else revokeErr = data.error || 'Authentication failed';
-          setRevokePasswordError(revokeErr);
+          setRevokePasswordError(data.error || 'Authentication failed');
           setIsRevokingAll(false);
           return;
         }

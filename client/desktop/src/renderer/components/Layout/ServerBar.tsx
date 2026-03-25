@@ -139,11 +139,11 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
     const el = scrollRef.current;
     if (el) {
       el.addEventListener('scroll', checkOverflow);
-      window.addEventListener('resize', checkOverflow);
+      globalThis.addEventListener('resize', checkOverflow);
     }
     return () => {
       el?.removeEventListener('scroll', checkOverflow);
-      window.removeEventListener('resize', checkOverflow);
+      globalThis.removeEventListener('resize', checkOverflow);
     };
   }, [checkOverflow, barServers]);
 
@@ -410,8 +410,8 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
       const padding = 8;
       const top = rect.bottom + 6;
       let left = rect.left + rect.width / 2 - tooltipWidth / 2;
-      left = Math.max(padding, Math.min(left, window.innerWidth - tooltipWidth - padding));
-      const clampedTop = Math.min(top, window.innerHeight - 30 - padding);
+      left = Math.max(padding, Math.min(left, globalThis.innerWidth - tooltipWidth - padding));
+      const clampedTop = Math.min(top, globalThis.innerHeight - 30 - padding);
       setAddBtnTooltipPos({ top: clampedTop, left });
     }
   }, []);
@@ -430,8 +430,8 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
         const tooltipWidth = text.length * 7 + 16; // rough estimate
         const top = rect.bottom + 6;
         let left = rect.left + rect.width / 2 - tooltipWidth / 2;
-        left = Math.max(padding, Math.min(left, window.innerWidth - tooltipWidth - padding));
-        const clampedTop = Math.min(top, window.innerHeight - 30 - padding);
+        left = Math.max(padding, Math.min(left, globalThis.innerWidth - tooltipWidth - padding));
+        const clampedTop = Math.min(top, globalThis.innerHeight - 30 - padding);
         setStickyTooltip({ text, top: clampedTop, left });
       }
     },

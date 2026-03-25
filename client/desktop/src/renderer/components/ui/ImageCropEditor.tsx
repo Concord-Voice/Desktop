@@ -146,7 +146,7 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = globalThis.devicePixelRatio || 1;
     canvas.width = DISPLAY_WIDTH * dpr;
     canvas.height = canvasDisplayHeight * dpr;
     canvas.style.width = `${DISPLAY_WIDTH}px`;
@@ -163,7 +163,7 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const dpr = window.devicePixelRatio || 1;
+    const dpr = globalThis.devicePixelRatio || 1;
     const w = DISPLAY_WIDTH;
     const h = canvasDisplayHeight;
 

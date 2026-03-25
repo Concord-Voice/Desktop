@@ -55,7 +55,7 @@ const defaultAppearance: AppearanceSettings = {
 
 function resolveTheme(theme: AppearanceSettings['theme']): 'dark' | 'light' {
   if (theme === 'system') {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    return globalThis.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
   return theme;
 }
@@ -152,7 +152,7 @@ useSettingsStore.subscribe(
 
     // If 'system', listen for OS theme changes
     if (theme === 'system') {
-      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const mediaQuery = globalThis.matchMedia('(prefers-color-scheme: dark)');
       const handler = () => applyTheme('system');
       mediaQuery.addEventListener('change', handler);
       systemThemeCleanup = () => mediaQuery.removeEventListener('change', handler);
