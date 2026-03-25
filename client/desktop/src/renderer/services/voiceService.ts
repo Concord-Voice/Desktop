@@ -380,8 +380,8 @@ class VoiceService {
       analyser.getByteTimeDomainData(dataArray);
       // Peak amplitude offset from silence (128)
       let peak = 0;
-      for (let i = 0; i < dataArray.length; i++) {
-        const offset = Math.abs(dataArray[i] - 128);
+      for (const sample of dataArray) {
+        const offset = Math.abs(sample - 128);
         if (offset > peak) peak = offset;
       }
 
@@ -1147,7 +1147,7 @@ class VoiceService {
     if (!producer || !this.sendTransport || !this.localCameraStream) return;
 
     const track = this.localCameraStream.getVideoTracks()[0];
-    if (!track || track.readyState !== 'live') {
+    if (track?.readyState !== 'live') {
       await this.liveReproduceCamera();
       return;
     }
@@ -1206,7 +1206,7 @@ class VoiceService {
     if (!oldProducer || !this.sendTransport || !this.localScreenStream) return;
 
     const track = this.localScreenStream.getVideoTracks()[0];
-    if (!track || track.readyState !== 'live') {
+    if (track?.readyState !== 'live') {
       console.warn('[codec-floor] Screen track is dead, cannot re-acquire without user gesture');
       return;
     }
@@ -1838,8 +1838,9 @@ class VoiceService {
               },
             ]
           : []),
-        ...(!isSystemDefault
-          ? [
+        ...(isSystemDefault
+          ? []
+          : [
               {
                 video: {
                   width: { ideal: preset.width },
@@ -1847,8 +1848,7 @@ class VoiceService {
                   frameRate: { ideal: preset.frameRate },
                 },
               },
-            ]
-          : []),
+            ]),
         { video: true },
       ];
 
@@ -1860,7 +1860,7 @@ class VoiceService {
           if (
             err instanceof DOMException &&
             err.name === 'OverconstrainedError' &&
-            constraints !== fallbackChain[fallbackChain.length - 1]
+            constraints !== fallbackChain.at(-1)
           ) {
             console.warn('Camera overconstrained, relaxing constraints:', err);
             continue;
@@ -2242,7 +2242,7 @@ class VoiceService {
   /** Resume a local producer by source name */
   resumeLocalProducer(source: string): void {
     const producer = this.producers.get(source);
-    if (!producer || !producer.paused) return;
+    if (!producer?.paused) return;
     producer.resume();
     this.socket?.emit('resume-producer', { producerId: producer.id });
   }
@@ -2708,7 +2708,7 @@ class VoiceService {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const handler = (transport as any)._handler;
-      if (!handler || !handler._pc) return;
+      if (!handler?._pc) return;
       const pc = handler._pc as RTCPeerConnection;
 
       const logSdp = () => {
@@ -3401,12 +3401,9 @@ class VoiceService {
     // All retries exhausted — fail-closed
     this.mediaEncryption = null;
     this.terminateE2EEWorker();
-    throw lastError instanceof Error
-      ? lastError
-      : new Error(
-          'E2EE: failed to initialize encryption after retries' +
-            (lastError != null ? ` (${String(lastError)})` : '')
-        );
+    if (lastError instanceof Error) throw lastError;
+    const detail = lastError == null ? '' : ` (${String(lastError)})`;
+    throw new Error(`E2EE: failed to initialize encryption after retries${detail}`);
   }
 
   /** Create the E2EE Worker for RTCRtpScriptTransform */
@@ -3672,8 +3669,6 @@ class VoiceService {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const receiverAny = receiver as any;
 
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const voiceSvc = this;
     let recoveryInProgress = false;
     let lastRecoveryAttempt = 0;
     const RECOVERY_COOLDOWN_MS = 5000;
@@ -3686,7 +3681,7 @@ class VoiceService {
         const { readable, writable } = receiverAny.createEncodedStreams();
         let dropCount = 0;
         const transform = new TransformStream({
-          async transform(frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame, controller) {
+          transform: async (frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame, controller) => {
             try {
               await encryption.decryptFrame(frame, senderUserId);
               controller.enqueue(frame);
@@ -3715,14 +3710,13 @@ class VoiceService {
                           .map((b) => b.toString(16).padStart(2, '0'))
                           .join(' ')
                       : 'too-small';
-                  const hasMagic =
-                    fd.length >= 2 && fd[fd.length - 2] === 0xde && fd[fd.length - 1] === 0xad;
+                  const hasMagic = fd.length >= 2 && fd.at(-2) === 0xde && fd.at(-1) === 0xad;
                   console.warn(`E2EE: dropping frame for ${senderUserId} (dropped: ${dropCount})`, {
                     error: errMsg,
                     frameSize: fd.length,
                     localEpoch: encryption.getCurrentKeyId(),
                     hasMagic,
-                    keyId: hasMagic && fd.length >= 15 ? fd[fd.length - 15] : -1,
+                    keyId: hasMagic && fd.length >= 15 ? fd.at(-15) : -1,
                     trailerHex,
                   });
                 } else {
@@ -3741,11 +3735,10 @@ class VoiceService {
                 recoveryInProgress = true;
                 lastRecoveryAttempt = Date.now();
                 const channelId = useVoiceStore.getState().activeChannelId;
-                if (channelId && voiceSvc.mediaEncryption) {
+                if (channelId && this.mediaEncryption) {
                   console.debug(`E2EE: attempting self-healing key recovery for ${senderUserId}`);
                   e2eeService.invalidateChannelKey(channelId);
-                  voiceSvc
-                    .addDecryptKeyForUser(channelId, senderUserId)
+                  this.addDecryptKeyForUser(channelId, senderUserId)
                     .then((ok) => {
                       if (ok) {
                         console.debug(`E2EE: recovery key re-derived for ${senderUserId}`);
@@ -3957,7 +3950,7 @@ useAuthStore.subscribe((state, prevState) => {
 
 // Stop all media when the window is closing (app quit, reload, crash).
 // Ensures the OS releases mic/camera even on unclean shutdown.
-if (typeof window !== 'undefined') {
+if (globalThis.window) {
   globalThis.addEventListener('beforeunload', () => {
     voiceService.emergencyCleanup();
   });

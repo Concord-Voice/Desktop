@@ -232,7 +232,7 @@ export async function wrapPrivateKey(
   result.set(iv, 0);
   result.set(new Uint8Array(wrappedKey), iv.length);
 
-  return result.buffer as ArrayBuffer;
+  return result.buffer;
 }
 
 /**
@@ -319,9 +319,9 @@ export function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
+    bytes[i] = binary.codePointAt(i)!;
   }
-  return bytes.buffer as ArrayBuffer;
+  return bytes.buffer;
 }
 
 /**
@@ -532,7 +532,7 @@ export async function encryptMessage(plaintext: string, channelKey: CryptoKey): 
   result.set(iv, 0);
   result.set(new Uint8Array(ciphertext), iv.length);
 
-  return arrayBufferToBase64(result.buffer as ArrayBuffer);
+  return arrayBufferToBase64(result.buffer);
 }
 
 /**
@@ -609,7 +609,7 @@ export async function encryptBlob<T>(data: T, key: CryptoKey): Promise<string> {
   result.set(iv, 0);
   result.set(new Uint8Array(ciphertext), iv.length);
 
-  return arrayBufferToBase64(result.buffer as ArrayBuffer);
+  return arrayBufferToBase64(result.buffer);
 }
 
 /**
@@ -802,7 +802,7 @@ export async function wrapWithRecoveryKey(
   result.set(new Uint8Array(encrypted), 12);
 
   return {
-    wrappedKey: arrayBufferToBase64(result.buffer as ArrayBuffer),
+    wrappedKey: arrayBufferToBase64(result.buffer),
     salt: arrayBufferToBase64(salt.buffer as ArrayBuffer),
   };
 }
@@ -864,7 +864,7 @@ export async function wrapPrefsKeyWithRecoveryKey(
   result.set(new Uint8Array(encrypted), 12);
 
   return {
-    wrappedKey: arrayBufferToBase64(result.buffer as ArrayBuffer),
+    wrappedKey: arrayBufferToBase64(result.buffer),
     salt: arrayBufferToBase64(salt.buffer as ArrayBuffer),
   };
 }

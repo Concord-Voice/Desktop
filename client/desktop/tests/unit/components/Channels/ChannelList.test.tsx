@@ -1,5 +1,11 @@
 import { render, screen, fireEvent } from '../../../test-utils';
-import ChannelList from '@/renderer/components/Channels/ChannelList';
+import ChannelList, {
+  parseGapSlot,
+  buildGapDropUpdates,
+  buildNormalDropUpdates,
+  resolveTargetGroupId,
+  buildOldGroupUpdates,
+} from '@/renderer/components/Channels/ChannelList';
 import { useChannelStore } from '@/renderer/stores/channelStore';
 import { useServerStore } from '@/renderer/stores/serverStore';
 import { useUnreadStore } from '@/renderer/stores/unreadStore';
@@ -448,5 +454,222 @@ describe('ChannelList', () => {
     useChannelStore.setState({ channels: [], channelGroups: [], isLoading: false, error: null });
     renderChannelList();
     expect(screen.getByText('Use "+ Add" above to create one')).toBeInTheDocument();
+  });
+
+  // ── Voice text chat toggle ──
+
+  it('renders voice text chat indicator for active voice channel', () => {
+    useServerStore.setState({ activeServerId: 'server-1' });
+    useChannelStore.setState({
+      channels: [mockVoiceChannel],
+      channelGroups: [],
+      isLoading: false,
+      error: null,
+      activeChannelId: null,
+    });
+    useVoiceStore.setState({
+      activeChannelId: 'voice-1',
+      connectionState: 'connected',
+      participants: new Map([['user-1', { userId: 'user-1', username: 'testuser' }]]),
+      showVoiceTextChat: false,
+    });
+    renderChannelList();
+    expect(screen.getByText('General Voice')).toBeInTheDocument();
+  });
+
+  // ── Linked text channel ──
+
+  it('renders linked text channel for voice channels', () => {
+    const voiceWithLinked: Channel = {
+      ...mockVoiceChannel,
+      linked_text_channel_id: 'linked-text-1',
+    };
+    const linkedText: Channel = {
+      id: 'linked-text-1',
+      server_id: 'server-1',
+      name: 'general-voice-text',
+      type: 'text',
+      is_encrypted: false,
+      position: 3,
+      created_at: '2025-01-01T00:00:00Z',
+      updated_at: '2025-01-01T00:00:00Z',
+      linked_voice_channel_id: 'voice-1',
+    };
+    useServerStore.setState({ activeServerId: 'server-1' });
+    useChannelStore.setState({
+      channels: [voiceWithLinked, linkedText],
+      channelGroups: [],
+      isLoading: false,
+      error: null,
+    });
+    usePermissionStore.setState({ activeServerPerms: ADMIN_PERMISSIONS });
+    renderChannelList();
+    // Linked text channels are rendered alongside their voice channel
+    expect(screen.getByText('General Voice')).toBeInTheDocument();
+  });
+});
+
+// ── Drag-drop helper function unit tests ──────────────────────────────
+
+describe('parseGapSlot', () => {
+  const groups: ChannelGroup[] = [mockChannelGroup, mockChannelGroup2];
+
+  it('returns groups.length for __gap-bottom', () => {
+    expect(parseGapSlot('__gap-bottom', groups)).toBe(2);
+  });
+
+  it('returns groups.length for __gap-uncategorized', () => {
+    expect(parseGapSlot('__gap-uncategorized', groups)).toBe(2);
+  });
+
+  it('returns category index for __gap-before-{id}', () => {
+    expect(parseGapSlot('__gap-before-group-2', groups)).toBe(1);
+  });
+
+  it('returns 0 for __gap-before- with first group', () => {
+    expect(parseGapSlot('__gap-before-group-1', groups)).toBe(0);
+  });
+
+  it('returns 0 for unknown gap ID', () => {
+    expect(parseGapSlot('unknown', groups)).toBe(0);
+  });
+});
+
+describe('resolveTargetGroupId', () => {
+  const channels: Channel[] = [
+    { ...mockChannel, group_id: 'group-1' },
+    { ...mockVoiceChannel, group_id: null },
+  ];
+  const groups: ChannelGroup[] = [mockChannelGroup];
+
+  it('returns null for gap target type', () => {
+    const result = resolveTargetGroupId(
+      { targetId: '__gap-bottom', side: 'after', targetType: 'gap' },
+      channels,
+      groups
+    );
+    expect(result).toBeNull();
+  });
+
+  it('returns group ID for category target type', () => {
+    const result = resolveTargetGroupId(
+      { targetId: 'group-1', side: 'after', targetType: 'category' },
+      channels,
+      groups
+    );
+    expect(result).toBe('group-1');
+  });
+
+  it('returns undefined for non-existent category', () => {
+    const result = resolveTargetGroupId(
+      { targetId: 'nonexistent', side: 'after', targetType: 'category' },
+      channels,
+      groups
+    );
+    expect(result).toBeUndefined();
+  });
+
+  it('returns channel group_id for channel target type', () => {
+    const result = resolveTargetGroupId(
+      { targetId: mockChannel.id, side: 'after', targetType: 'channel' },
+      channels,
+      groups
+    );
+    expect(result).toBe('group-1');
+  });
+
+  it('returns null for ungrouped channel target', () => {
+    const result = resolveTargetGroupId(
+      { targetId: 'voice-1', side: 'after', targetType: 'channel' },
+      channels,
+      groups
+    );
+    expect(result).toBeNull();
+  });
+
+  it('returns undefined for non-existent channel target', () => {
+    const result = resolveTargetGroupId(
+      { targetId: 'nonexistent', side: 'after', targetType: 'channel' },
+      channels,
+      groups
+    );
+    expect(result).toBeUndefined();
+  });
+});
+
+describe('buildGapDropUpdates', () => {
+  it('places source channel into uncategorized slot', () => {
+    const source: Channel = { ...mockChannel, id: 'src', group_id: 'group-1', position: 0 };
+    const existing: Channel[] = [
+      { ...mockChannel, id: 'existing-1', group_id: null, position: 1000 },
+    ];
+    const updates = buildGapDropUpdates(source, 0, existing, 'src');
+    expect(updates.length).toBeGreaterThanOrEqual(1);
+    expect(updates.every((u) => u.group_id === null)).toBe(true);
+    expect(updates.find((u) => u.channel_id === 'src')).toBeDefined();
+  });
+});
+
+describe('buildNormalDropUpdates', () => {
+  const groups: ChannelGroup[] = [mockChannelGroup];
+
+  it('builds updates for dropping into a group', () => {
+    const source: Channel = { ...mockChannel, id: 'src', group_id: null, position: 1000 };
+    const existing: Channel[] = [
+      { ...mockChannel, id: 'ch-1', group_id: 'group-1', position: 0 },
+      { ...mockChannel, id: 'ch-2', group_id: 'group-1', position: 1 },
+    ];
+    const insertPos = {
+      targetId: 'group-1',
+      side: 'after' as const,
+      targetType: 'category' as const,
+    };
+    const updates = buildNormalDropUpdates(
+      source,
+      'group-1',
+      mockChannelGroup,
+      insertPos,
+      existing,
+      groups,
+      'src'
+    );
+    expect(updates.length).toBe(3); // 2 existing + 1 source
+    expect(updates.every((u) => u.group_id === 'group-1')).toBe(true);
+  });
+
+  it('builds updates for reordering within uncategorized', () => {
+    const source: Channel = { ...mockChannel, id: 'src', group_id: null, position: 1001 };
+    const existing: Channel[] = [{ ...mockChannel, id: 'ch-1', group_id: null, position: 1000 }];
+    const insertPos = { targetId: 'ch-1', side: 'before' as const, targetType: 'channel' as const };
+    const updates = buildNormalDropUpdates(source, null, null, insertPos, existing, groups, 'src');
+    expect(updates.length).toBe(2);
+    expect(updates.every((u) => u.group_id === null)).toBe(true);
+  });
+});
+
+describe('buildOldGroupUpdates', () => {
+  const groups: ChannelGroup[] = [mockChannelGroup];
+
+  it('reindexes grouped channels after source removal', () => {
+    const channels: Channel[] = [
+      { ...mockChannel, id: 'ch-1', group_id: 'group-1', position: 0 },
+      { ...mockChannel, id: 'ch-2', group_id: 'group-1', position: 1 },
+      { ...mockChannel, id: 'src', group_id: 'group-1', position: 2 },
+    ];
+    const updates = buildOldGroupUpdates('group-1', channels, 'src', groups);
+    expect(updates.length).toBe(2); // src excluded
+    expect(updates[0].position).toBe(0);
+    expect(updates[1].position).toBe(1);
+  });
+
+  it('handles uncategorized channels with slot-based positioning', () => {
+    const channels: Channel[] = [
+      { ...mockChannel, id: 'ch-1', group_id: null, position: 1000 },
+      { ...mockChannel, id: 'ch-2', group_id: null, position: 1001 },
+      { ...mockChannel, id: 'src', group_id: null, position: 1002 },
+    ];
+    const updates = buildOldGroupUpdates(null, channels, 'src', groups);
+    expect(updates.length).toBe(2);
+    expect(updates.every((u) => u.group_id === null)).toBe(true);
   });
 });

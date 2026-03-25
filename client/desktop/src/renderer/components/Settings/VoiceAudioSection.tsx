@@ -28,6 +28,9 @@ import ToggleSwitch from './ToggleSwitch';
 import CollapsibleSection from './CollapsibleSection';
 import CustomSelect from '../ui/CustomSelect';
 
+/** Opus frame size in ms (ptime). 0 = "Default" (resolved at runtime). */
+type OpusFrameSize = 0 | 10 | 20 | 40 | 60;
+
 // ─── GPU Vendor Icon ────────────────────────────────────────────────────────
 
 const GpuVendorIcon: React.FC<{ vendor: string }> = ({ vendor }) => {
@@ -314,7 +317,7 @@ const VoiceAudioSection: React.FC = () => {
       '4K': { w: 3840, h: 2160 },
       source: { w: bestDisplay.width, h: bestDisplay.height },
     };
-    const parsed = screenResolution.match(/^(\d+)x(\d+)$/);
+    const parsed = /^(\d+)x(\d+)$/.exec(screenResolution);
     const res = parsed
       ? { w: Number(parsed[1]), h: Number(parsed[2]) }
       : resMap[screenResolution] || resMap['1080p'];
@@ -376,7 +379,7 @@ const VoiceAudioSection: React.FC = () => {
             silenceDetection: tc.opusDtx,
             inlineFec: tc.opusFec,
             fecHeadroom: tc.opusFec,
-            frameSize: 0 as 0 | 10 | 20 | 40 | 60,
+            frameSize: 0 as OpusFrameSize,
             stereoOverride: null,
           });
         }
@@ -488,7 +491,7 @@ const VoiceAudioSection: React.FC = () => {
         {/* ── Mode Toggle ── */}
         <div className="settings-mode-toggle" role="tablist">
           <span
-            className={`settings-mode-pill ${!advancedMode ? 'active' : ''}`}
+            className={`settings-mode-pill ${advancedMode ? '' : 'active'}`}
             role="tab"
             tabIndex={0}
             aria-selected={!advancedMode}
@@ -551,7 +554,7 @@ const VoiceAudioSection: React.FC = () => {
                         silenceDetection: tc.opusDtx,
                         inlineFec: tc.opusFec,
                         fecHeadroom: tc.opusFec,
-                        frameSize: 0 as 0 | 10 | 20 | 40 | 60,
+                        frameSize: 0 as OpusFrameSize,
                         stereoOverride: null,
                       });
                     }
@@ -970,7 +973,7 @@ const VoiceAudioSection: React.FC = () => {
       <CollapsibleSection id="section-video-screen" title="Video Configuration">
         <div className="settings-mode-toggle" role="tablist">
           <span
-            className={`settings-mode-pill ${!videoAdvancedMode ? 'active' : ''}`}
+            className={`settings-mode-pill ${videoAdvancedMode ? '' : 'active'}`}
             role="tab"
             tabIndex={0}
             aria-selected={!videoAdvancedMode}
@@ -1254,10 +1257,10 @@ const VoiceAudioSection: React.FC = () => {
                   return (
                     <div
                       key={`${columnKey}-${cKey}`}
-                      className={`settings-codec-item${isPreferred ? ' preferred' : ''}${isInUse ? ' in-use' : ''}${!supported ? ' unsupported' : ''}`}
+                      className={`settings-codec-item${isPreferred ? ' preferred' : ''}${isInUse ? ' in-use' : ''}${supported ? '' : ' unsupported'}`}
                       data-tooltip={tooltip}
                     >
-                      <span className={`settings-codec-name${!supported ? ' strikethrough' : ''}`}>
+                      <span className={`settings-codec-name${supported ? '' : ' strikethrough'}`}>
                         {displayName(c)}
                       </span>
                     </div>
@@ -1281,10 +1284,10 @@ const VoiceAudioSection: React.FC = () => {
                           )}
                         </div>
                       </div>
-                      <div className={`settings-codec-column${!hwActive ? ' active' : ''}`}>
+                      <div className={`settings-codec-column${hwActive ? '' : ' active'}`}>
                         <span
-                          className={`settings-codec-column-header${!hwActive ? ' active' : ''}`}
-                          {...(!hwActive ? { 'data-tooltip': 'Preferred' } : {})}
+                          className={`settings-codec-column-header${hwActive ? '' : ' active'}`}
+                          {...(hwActive ? {} : { 'data-tooltip': 'Preferred' })}
                         >
                           Software
                         </span>

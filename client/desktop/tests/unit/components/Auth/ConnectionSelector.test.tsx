@@ -52,4 +52,43 @@ describe('ConnectionSelector', () => {
     fireEvent.click(screen.getByText('Continue'));
     expect(mockOnSelect).not.toHaveBeenCalled();
   });
+
+  it('adds selected class to chosen option', () => {
+    const { container } = render(<ConnectionSelector onSelect={mockOnSelect} />);
+    fireEvent.click(screen.getByText('Create New Account'));
+    const options = container.querySelectorAll('.connection-option');
+    const selectedOptions = container.querySelectorAll('.connection-option.selected');
+    expect(options.length).toBe(3);
+    expect(selectedOptions.length).toBe(1);
+  });
+
+  it('switches selection between modes', () => {
+    const { container } = render(<ConnectionSelector onSelect={mockOnSelect} />);
+    fireEvent.click(screen.getByText('Sign In to Existing Account'));
+    expect(container.querySelectorAll('.connection-option.selected')).toHaveLength(1);
+
+    fireEvent.click(screen.getByText('Connect to Self-Hosted Server'));
+    expect(container.querySelectorAll('.connection-option.selected')).toHaveLength(1);
+
+    fireEvent.click(screen.getByText('Continue'));
+    expect(mockOnSelect).toHaveBeenCalledWith('self-hosted');
+  });
+
+  it('renders footer link', () => {
+    render(<ConnectionSelector onSelect={mockOnSelect} />);
+    expect(screen.getByText('Learn about self-hosting')).toBeInTheDocument();
+  });
+
+  it('renders logo image', () => {
+    const { container } = render(<ConnectionSelector onSelect={mockOnSelect} />);
+    const logo = container.querySelector('.connection-logo');
+    expect(logo).toBeInTheDocument();
+    expect(logo?.tagName).toBe('IMG');
+  });
+
+  it('renders three radio inputs', () => {
+    const { container } = render(<ConnectionSelector onSelect={mockOnSelect} />);
+    const radios = container.querySelectorAll('input[type="radio"]');
+    expect(radios).toHaveLength(3);
+  });
 });

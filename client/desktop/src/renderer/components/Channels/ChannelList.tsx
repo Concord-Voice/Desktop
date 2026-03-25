@@ -22,7 +22,7 @@ interface InsertPos {
 }
 
 /** Parse the gap ID to determine a slot index within the sorted category list. */
-function parseGapSlot(gapId: string, sortedGroups: ChannelGroup[]): number {
+export function parseGapSlot(gapId: string, sortedGroups: ChannelGroup[]): number {
   if (gapId === '__gap-bottom' || gapId === '__gap-uncategorized') {
     return sortedGroups.length;
   }
@@ -35,7 +35,7 @@ function parseGapSlot(gapId: string, sortedGroups: ChannelGroup[]): number {
 }
 
 /** Build position updates when a channel is dropped onto a gap zone (uncategorized). */
-function buildGapDropUpdates(
+export function buildGapDropUpdates(
   sourceChannel: Channel,
   gapSlot: number,
   nonLinked: Channel[],
@@ -57,7 +57,7 @@ function buildGapDropUpdates(
 }
 
 /** Build position updates when a channel is dropped into a category or reordered within a group. */
-function buildNormalDropUpdates(
+export function buildNormalDropUpdates(
   sourceChannel: Channel,
   targetGroupId: string | null,
   targetGroup: ChannelGroup | null | undefined,
@@ -103,7 +103,7 @@ function buildNormalDropUpdates(
 }
 
 /** Resolve the target group ID from the drop position. Returns `undefined` if unresolvable. */
-function resolveTargetGroupId(
+export function resolveTargetGroupId(
   insertPos: InsertPos,
   nonLinked: Channel[],
   channelGroups: ChannelGroup[]
@@ -118,7 +118,7 @@ function resolveTargetGroupId(
 }
 
 /** Build position updates for the old group after a channel moves out of it. */
-function buildOldGroupUpdates(
+export function buildOldGroupUpdates(
   oldGroupId: string | null,
   nonLinked: Channel[],
   sourceId: string,
@@ -143,7 +143,7 @@ function buildOldGroupUpdates(
     }
     for (const [s, chans] of slotMap) {
       const base = (s + 1) * 1000;
-      chans
+      [...chans]
         .sort((a, b) => a.position - b.position)
         .forEach((c, i) => {
           updates.push({ channel_id: c.id, group_id: null, position: base + i });
@@ -458,7 +458,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
         });
         document.body.appendChild(clone);
         e.dataTransfer.setDragImage(clone, rect.width / 2, rect.height / 2);
-        requestAnimationFrame(() => document.body.removeChild(clone));
+        requestAnimationFrame(() => clone.remove());
       }
     },
     [canReorder]

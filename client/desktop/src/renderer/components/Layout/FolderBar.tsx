@@ -68,7 +68,7 @@ const FolderBar: React.FC = () => {
     const handler = (e: MouseEvent) => {
       const target = e.target as Node;
       // Don't close if clicking inside the dropdown itself
-      if (dropdownRef.current && dropdownRef.current.contains(target)) return;
+      if (dropdownRef.current?.contains(target)) return;
       // Don't close if clicking on a folder chip (handleFolderClick will toggle)
       for (const chip of chipRefs.current.values()) {
         if (chip.contains(target)) return;
@@ -120,14 +120,14 @@ const FolderBar: React.FC = () => {
     if (renaming?.folderId === folderId) return;
     const isClosing = openFolderId === folderId;
     setOpenFolderId(isClosing ? null : folderId);
-    if (!isClosing) {
+    if (isClosing) {
+      setDropdownPos(null);
+    } else {
       const chipEl = chipRefs.current.get(folderId);
       if (chipEl) {
         const rect = chipEl.getBoundingClientRect();
         setDropdownPos({ top: rect.bottom + 6, left: rect.left });
       }
-    } else {
-      setDropdownPos(null);
     }
   };
 
@@ -454,7 +454,7 @@ const FolderBar: React.FC = () => {
                             clone.offsetWidth / 2,
                             clone.offsetHeight / 2
                           );
-                          requestAnimationFrame(() => document.body.removeChild(clone));
+                          requestAnimationFrame(() => clone.remove());
                         }}
                         onDragOver={(e) => {
                           e.preventDefault();

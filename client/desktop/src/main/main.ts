@@ -9,8 +9,8 @@ import {
   session,
   shell,
 } from 'electron';
-import path from 'path';
-import fs from 'fs';
+import path from 'node:path';
+import fs from 'node:fs';
 import {
   storeRefreshToken,
   restoreRefreshToken,
@@ -49,14 +49,14 @@ function readHwAccelPref(): boolean {
   }
 }
 
-if (!readHwAccelPref()) {
-  app.disableHardwareAcceleration();
-} else {
+if (readHwAccelPref()) {
   // Hardware acceleration flags for video encode/decode (IGNIS insight: fastest preset wins)
   app.commandLine.appendSwitch(
     'enable-features',
     'AcceleratedVideoEncoder,AcceleratedVideoDecodeLinuxGL'
   );
+} else {
+  app.disableHardwareAcceleration();
 }
 
 // Allow autoplay for all media — Concord is a real-time communication app that
@@ -120,8 +120,8 @@ const createWindow = async (): Promise<void> => {
   } else {
     // Development: try Vite dev server, fall back to bundled
     const devServerUrl = 'http://localhost:3001';
-    const http = await import('http');
-    const httpGet = (http.default?.get ?? http.get) as typeof import('http').get;
+    const http = await import('node:http');
+    const httpGet = (http.default?.get ?? http.get) as typeof import('node:http').get;
     try {
       await new Promise<void>((resolve, reject) => {
         const req = httpGet(devServerUrl, { timeout: 1000 }, (res) => {
@@ -518,9 +518,7 @@ ipcMain.handle('pip:setAlwaysOnTop', (_event, opts: { id: string; flag: boolean 
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
 
-if (!gotTheLock) {
-  app.quit();
-} else {
+if (gotTheLock) {
   app.on('second-instance', () => {
     // Someone tried to run a second instance, focus our window
     if (mainWindow) {
@@ -528,6 +526,8 @@ if (!gotTheLock) {
       mainWindow.focus();
     }
   });
+} else {
+  app.quit();
 }
 
 // Security: Disable remote module
@@ -535,17 +535,15 @@ app.on('web-contents-created', (_, contents) => {
   contents.on('will-navigate', (event, navigationUrl) => {
     const parsedUrl = new URL(navigationUrl);
 
-    if (!app.isPackaged) {
-      // In dev, allow localhost navigation (any port) for HMR
-      if (parsedUrl.hostname !== 'localhost') {
-        event.preventDefault();
-      }
-    } else {
+    if (app.isPackaged) {
       // Packaged release: block navigation unless it's to the remote SPA origin (Tier 3)
       const spaOrigin = remoteSpaBaseUrl ? new URL(remoteSpaBaseUrl).origin : null;
       if (!spaOrigin || parsedUrl.origin !== spaOrigin) {
         event.preventDefault();
       }
+    } else if (parsedUrl.hostname !== 'localhost') {
+      // In dev, allow localhost navigation (any port) for HMR
+      event.preventDefault();
     }
   });
 });

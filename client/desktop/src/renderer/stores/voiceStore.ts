@@ -179,6 +179,9 @@ export type VoiceConnectionState =
   | 'reconnecting'
   | 'error';
 
+/** Decoder budget profiling health zone (IGNIS). */
+export type DecoderHealth = 'green' | 'yellow' | 'red';
+
 // ---------------------------------------------------------------------------
 // Voice store
 // ---------------------------------------------------------------------------
@@ -214,7 +217,7 @@ interface VoiceState {
   packetLossWarning: boolean;
 
   // Decoder health (IGNIS profiling)
-  decoderHealth: 'green' | 'yellow' | 'red';
+  decoderHealth: DecoderHealth;
 
   // Available screen shares (opt-in "Tune In" model — not auto-consumed)
   availableScreenShares: AvailableScreenShare[];
@@ -387,14 +390,14 @@ const initialState = {
   isScreenSharing: false,
   participants: {} as Record<string, VoiceParticipant>,
   activeSpeakerId: null as string | null,
-  audioInputDeviceId: (persisted.audioInputDeviceId ?? null) as string | null,
-  audioOutputDeviceId: (persisted.audioOutputDeviceId ?? null) as string | null,
-  videoDeviceId: (persisted.videoDeviceId ?? null) as string | null,
-  qualityTier: (persisted.qualityTier ?? 'standard') as AudioQualityTier,
-  effectiveQualityTier: (persisted.qualityTier ?? 'standard') as AudioQualityTier,
+  audioInputDeviceId: persisted.audioInputDeviceId ?? null,
+  audioOutputDeviceId: persisted.audioOutputDeviceId ?? null,
+  videoDeviceId: persisted.videoDeviceId ?? null,
+  qualityTier: persisted.qualityTier ?? 'standard',
+  effectiveQualityTier: persisted.qualityTier ?? 'standard',
   packetLossPercent: 0,
   packetLossWarning: false,
-  decoderHealth: 'green' as 'green' | 'yellow' | 'red',
+  decoderHealth: 'green' as DecoderHealth,
   availableScreenShares: [] as AvailableScreenShare[],
   channelVoiceMembers: {} as Record<string, ChannelVoiceMember[]>,
   showVoiceTextChat: false,
@@ -402,8 +405,8 @@ const initialState = {
     try {
       const s = localStorage.getItem('concord:voice-text-chat-height');
       if (s) {
-        const n = parseInt(s, 10);
-        if (!isNaN(n) && n >= 150) return n;
+        const n = Number.parseInt(s, 10);
+        if (!Number.isNaN(n) && n >= 150) return n;
       }
     } catch {
       /* ignore */
@@ -413,18 +416,18 @@ const initialState = {
   voiceTextChatLayout: (() => {
     try {
       const s = localStorage.getItem('concord:voice-text-chat-layout');
-      if (s === 'horizontal' || s === 'vertical') return s as 'horizontal' | 'vertical';
+      if (s === 'horizontal' || s === 'vertical') return s;
     } catch {
       /* ignore */
     }
-    return 'horizontal' as const;
+    return 'horizontal';
   })() as 'horizontal' | 'vertical',
   voiceTextChatWidth: (() => {
     try {
       const s = localStorage.getItem('concord:voice-text-chat-width');
       if (s) {
-        const n = parseInt(s, 10);
-        if (!isNaN(n) && n >= 250) return n;
+        const n = Number.parseInt(s, 10);
+        if (!Number.isNaN(n) && n >= 250) return n;
       }
     } catch {
       /* ignore */

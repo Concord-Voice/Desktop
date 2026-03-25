@@ -84,6 +84,10 @@
 }
 
 .forgot-password-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
   font-size: calc(13px * var(--font-scale, 1));
   color: var(--accent-primary);
   text-decoration: none;

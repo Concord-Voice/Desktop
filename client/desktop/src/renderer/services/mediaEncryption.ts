@@ -166,7 +166,7 @@ export class MediaEncryption {
   addDecryptKeyDirect(senderUserId: string, keyId: number, key: CryptoKey): void {
     this.decryptKeys.set(`${senderUserId}:${keyId}`, {
       key,
-      expires: Date.now() + 3600_000,
+      expires: Date.now() + 3_600_000,
     });
   }
 
@@ -175,7 +175,7 @@ export class MediaEncryption {
     const key = await deriveFrameKey(channelCSK, senderUserId);
     this.decryptKeys.set(`${senderUserId}:${keyId}`, {
       key,
-      expires: Date.now() + 3600_000, // 1 hour
+      expires: Date.now() + 3_600_000, // 1 hour
     });
   }
 
@@ -199,7 +199,7 @@ export class MediaEncryption {
     }
     this.decryptKeys.set(`${senderUserId}:${targetEpoch}`, {
       key,
-      expires: Date.now() + 3600_000,
+      expires: Date.now() + 3_600_000,
     });
   }
 
@@ -227,7 +227,7 @@ export class MediaEncryption {
       const newKey = await ratchetKey(entry.key);
       this.decryptKeys.set(`${senderUserId}:${newKeyId}`, {
         key: newKey,
-        expires: Date.now() + 3600_000,
+        expires: Date.now() + 3_600_000,
       });
       // Expire the old key after overlap window
       entry.expires = Date.now() + 10_000;
@@ -309,7 +309,7 @@ export class MediaEncryption {
 
     // Generate IV: 12 bytes = 4-byte counter + 8-byte random
     const iv = new Uint8Array(12);
-    const counterView = new DataView(iv.buffer as ArrayBuffer);
+    const counterView = new DataView(iv.buffer);
     counterView.setUint32(0, this.frameCounter++);
     crypto.getRandomValues(iv.subarray(4));
 
@@ -336,7 +336,7 @@ export class MediaEncryption {
     result[offset] = MAGIC_0;
     result[offset + 1] = MAGIC_1;
 
-    frame.data = result.buffer as ArrayBuffer;
+    frame.data = result.buffer;
   }
 
   /**
@@ -354,7 +354,7 @@ export class MediaEncryption {
 
     for (const [id, entry] of this.decryptKeys) {
       if (!id.startsWith(`${senderUserId}:`)) continue;
-      const kid = parseInt(id.split(':')[1], 10);
+      const kid = Number.parseInt(id.split(':')[1], 10);
       if (kid < targetKeyId && kid > bestKeyId) {
         bestKeyId = kid;
         bestEntry = entry;
@@ -371,7 +371,7 @@ export class MediaEncryption {
       currentKey = await ratchetKey(currentKey);
       this.decryptKeys.set(`${senderUserId}:${i + 1}`, {
         key: currentKey,
-        expires: Date.now() + 3600_000,
+        expires: Date.now() + 3_600_000,
       });
     }
 
@@ -396,14 +396,14 @@ export class MediaEncryption {
     if (data.length < TRAILER_SIZE + 17) return; // Too small to be encrypted
 
     // Check magic trailer — if absent, frame is not encrypted (pass through)
-    if (data[data.length - 1] !== MAGIC_1 || data[data.length - 2] !== MAGIC_0) {
+    if (data.at(-1) !== MAGIC_1 || data.at(-2) !== MAGIC_0) {
       return; // Unencrypted frame — leave as-is for the decoder
     }
 
     // Extract components from the trailer (before magic bytes)
-    const iv = data.slice(data.length - 14, data.length - 2);
-    const keyId = data[data.length - 15];
-    const headerBytes = data[data.length - 16]; // Sender-encoded header byte count
+    const iv = data.slice(-14, -2);
+    const keyId = data.at(-15)!;
+    const headerBytes = data.at(-16)!; // Sender-encoded header byte count
 
     // Sanity check: headerBytes should be 1-10
     if (headerBytes < 1 || headerBytes > 10 || headerBytes >= data.length - TRAILER_SIZE) {
@@ -420,9 +420,7 @@ export class MediaEncryption {
 
     // Find the right decryption key, ratcheting forward if needed
     let keyEntry = this.decryptKeys.get(`${senderUserId}:${keyId}`);
-    if (!keyEntry) {
-      keyEntry = (await this.deriveRatchetedKey(senderUserId, keyId)) ?? undefined;
-    }
+    keyEntry ??= (await this.deriveRatchetedKey(senderUserId, keyId)) ?? undefined;
     if (!keyEntry) {
       // Count available keys for this sender (avoid full iteration in hot path)
       let availableCount = 0;
@@ -444,7 +442,7 @@ export class MediaEncryption {
     const result = new Uint8Array(header.length + plaintext.byteLength);
     result.set(header);
     result.set(new Uint8Array(plaintext), header.length);
-    frame.data = result.buffer as ArrayBuffer;
+    frame.data = result.buffer;
   }
 
   /** Clean up */

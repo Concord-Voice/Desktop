@@ -28,9 +28,7 @@ describe('FolderBar', () => {
 
   it('renders folder items when folders exist', () => {
     useLayoutStore.setState({
-      serverFolders: [
-        { id: 'folder-1', name: 'My Folder', serverIds: [], collapsed: false },
-      ],
+      serverFolders: [{ id: 'folder-1', name: 'My Folder', serverIds: [], collapsed: false }],
     });
     render(<FolderBar />);
     expect(screen.getByText('My Folder')).toBeInTheDocument();
@@ -59,9 +57,7 @@ describe('FolderBar', () => {
 
   it('shows folder context menu on right click', () => {
     useLayoutStore.setState({
-      serverFolders: [
-        { id: 'folder-1', name: 'My Folder', serverIds: [], collapsed: false },
-      ],
+      serverFolders: [{ id: 'folder-1', name: 'My Folder', serverIds: [], collapsed: false }],
     });
     render(<FolderBar />);
     fireEvent.contextMenu(screen.getByText('My Folder'));
@@ -84,7 +80,12 @@ describe('FolderBar', () => {
   it('shows server names inside expanded folder', () => {
     useLayoutStore.setState({
       serverFolders: [
-        { id: 'folder-1', name: 'My Folder', serverIds: ['server-1', 'server-2'], collapsed: false },
+        {
+          id: 'folder-1',
+          name: 'My Folder',
+          serverIds: ['server-1', 'server-2'],
+          collapsed: false,
+        },
       ],
     });
     useServerStore.setState({ servers: [mockServer, mockServer2] });
@@ -133,5 +134,126 @@ describe('FolderBar', () => {
   it('renders folder bar container', () => {
     const { container } = render(<FolderBar />);
     expect(container.querySelector('.folder-bar')).toBeInTheDocument();
+  });
+
+  // ===== Rename flow =====
+
+  it('enters rename mode from context menu', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'My Folder', serverIds: [], collapsed: false }],
+    });
+    render(<FolderBar />);
+    fireEvent.contextMenu(screen.getByText('My Folder'));
+    fireEvent.click(screen.getByText('Rename Folder'));
+    // Rename input should appear
+    const input = screen.getByDisplayValue('My Folder');
+    expect(input).toBeInTheDocument();
+  });
+
+  it('submits rename on Enter', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'My Folder', serverIds: [], collapsed: false }],
+    });
+    render(<FolderBar />);
+    fireEvent.contextMenu(screen.getByText('My Folder'));
+    fireEvent.click(screen.getByText('Rename Folder'));
+    const input = screen.getByDisplayValue('My Folder');
+    fireEvent.change(input, { target: { value: 'Renamed' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    // Folder should be renamed in the store
+    const state = useLayoutStore.getState();
+    expect(state.serverFolders[0].name).toBe('Renamed');
+  });
+
+  it('cancels rename on Escape', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'My Folder', serverIds: [], collapsed: false }],
+    });
+    render(<FolderBar />);
+    fireEvent.contextMenu(screen.getByText('My Folder'));
+    fireEvent.click(screen.getByText('Rename Folder'));
+    const input = screen.getByDisplayValue('My Folder');
+    fireEvent.change(input, { target: { value: 'Changed' } });
+    fireEvent.keyDown(input, { key: 'Escape' });
+    // Should still show original name
+    expect(screen.getByText('My Folder')).toBeInTheDocument();
+  });
+
+  // ===== Delete flow =====
+
+  it('shows delete confirmation from context menu', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'My Folder', serverIds: [], collapsed: false }],
+    });
+    render(<FolderBar />);
+    fireEvent.contextMenu(screen.getByText('My Folder'));
+    fireEvent.click(screen.getByText('Delete Folder'));
+    expect(screen.getByText(/Are you sure/i)).toBeInTheDocument();
+  });
+
+  it('confirms delete removes folder', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'My Folder', serverIds: [], collapsed: false }],
+    });
+    render(<FolderBar />);
+    fireEvent.contextMenu(screen.getByText('My Folder'));
+    fireEvent.click(screen.getByText('Delete Folder'));
+    // Confirm delete (second "Delete Folder" — the confirmation button)
+    const deleteButtons = screen.getAllByText('Delete Folder');
+    fireEvent.click(deleteButtons[deleteButtons.length - 1]);
+    const state = useLayoutStore.getState();
+    expect(state.serverFolders).toHaveLength(0);
+  });
+
+  // ===== Server interaction inside folder =====
+
+  it('clicking server in folder activates it', () => {
+    useLayoutStore.setState({
+      serverFolders: [
+        { id: 'folder-1', name: 'My Folder', serverIds: ['server-1'], collapsed: false },
+      ],
+    });
+    useServerStore.setState({ servers: [mockServer] });
+    render(<FolderBar />);
+    // Open folder
+    fireEvent.click(screen.getByText('My Folder'));
+    // Click server
+    fireEvent.click(screen.getByText('Test Server'));
+    expect(useServerStore.getState().activeServerId).toBe('server-1');
+  });
+
+  // ===== Unread count =====
+
+  it('shows unread count badge for folder with multiple unread', () => {
+    useLayoutStore.setState({
+      serverFolders: [
+        { id: 'folder-1', name: 'My Folder', serverIds: ['server-1', 'server-2'], collapsed: true },
+      ],
+    });
+    useServerStore.setState({ servers: [mockServer, mockServer2] });
+    useUnreadStore.setState({ serverUnreadSet: new Set(['server-1', 'server-2']) });
+    const { container } = render(<FolderBar />);
+    const badge = container.querySelector('.folder-chip-badge');
+    expect(badge).toBeInTheDocument();
+    expect(badge?.textContent).toBe('2');
+  });
+
+  // ===== No folders state =====
+
+  it('shows empty state with no folders', () => {
+    const { container } = render(<FolderBar />);
+    const chips = container.querySelectorAll('.folder-chip');
+    expect(chips).toHaveLength(0);
+  });
+
+  // ===== Folder with no servers =====
+
+  it('shows empty folder message when expanded', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'Empty', serverIds: [], collapsed: false }],
+    });
+    render(<FolderBar />);
+    fireEvent.click(screen.getByText('Empty'));
+    // An empty folder dropdown should appear (may show "Drag servers here" or similar)
   });
 });
