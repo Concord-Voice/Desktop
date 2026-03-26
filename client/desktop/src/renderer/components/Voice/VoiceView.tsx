@@ -2,9 +2,8 @@ import React, { useEffect, useRef, useCallback } from 'react';
 import { Lock, Users, ChevronUp, ChevronDown } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useChannelStore } from '../../stores/channelStore';
-import { PipSignalingProxy } from '../../services/pipSignalingProxy';
 // voiceService is loaded on-demand via dynamic import() — see voiceService.ts
-import { AudioOutputs, UserFrameGrid } from './ParticipantGrid';
+import { UserFrameGrid } from './ParticipantGrid';
 import UserFrameBar from './UserFrameBar';
 import VoiceStage from './VoiceStage';
 import StreamBar from './StreamBar';
@@ -110,35 +109,6 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
       useVoiceStore.getState().setLocalStreamPaused(false);
     };
   }, [isConnected, isScreenSharing, keepActiveWhileUnfocused]);
-
-  // PiP signaling proxy: create when connected, dispose when disconnected.
-  // This enables PiP BrowserWindows to proxy mediasoup signaling through
-  // the main window's Socket.IO connection.
-  useEffect(() => {
-    if (!isConnected) return;
-    let proxy: PipSignalingProxy | null = null;
-
-    import('../../services/voiceService').then(({ voiceService }) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      proxy = new PipSignalingProxy(voiceService as any);
-
-      // Listen for PiP window closes to resume paused consumers
-      const cleanup = globalThis.electron?.onPipClosed?.((pipId: string) => {
-        proxy?.onPipClosed(pipId);
-      });
-
-      // Store cleanup for the effect teardown
-      (proxy as PipSignalingProxy & { _ipcCleanup?: () => void })._ipcCleanup = cleanup;
-    });
-
-    return () => {
-      if (proxy) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (proxy as any)._ipcCleanup?.();
-        proxy.dispose();
-      }
-    };
-  }, [isConnected]);
 
   // Text chat resize (layout-aware: vertical uses X axis, horizontal uses Y axis)
   const handleChatResizeStart = useCallback(
@@ -281,9 +251,6 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
       >
         {/* Voice area — one resizable entity vs text chat */}
         <div className="voice-view__voice-area">
-          {/* Audio outputs (always rendered, hidden) */}
-          <AudioOutputs />
-
           {hasScreenShares ? (
             /* Mode B: Three-section layout */
             <>

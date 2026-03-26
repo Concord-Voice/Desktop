@@ -1,6 +1,8 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
+import { AudioOutputs } from '../Voice/ParticipantGrid';
+import { PipSignalingProxy } from '../../services/pipSignalingProxy';
 import ServerContextMenu from '../Servers/ServerContextMenu';
 import DeleteServerModal from '../Servers/DeleteServerModal';
 import LeaveServerModal from '../Servers/LeaveServerModal';
@@ -199,10 +201,51 @@ const MainView: React.FC = () => {
   );
 
   // ─── Voice & layout detection ───
-  const isInVoice = voiceActiveChannelId && voiceConnectionState === 'connected';
+  // Include 'reconnecting' so AudioOutputs and PiP proxy survive transient
+  // network blips — only tear them down on an explicit disconnect/reset.
+  const isInVoice =
+    voiceActiveChannelId &&
+    (voiceConnectionState === 'connected' || voiceConnectionState === 'reconnecting');
   const isViewingOwnVoiceChannel =
     activeChannel?.type === 'voice' && activeChannel.id === voiceActiveChannelId;
   const showPersistentBar = !!(isInVoice && !isViewingOwnVoiceChannel);
+
+  // PiP signaling proxy: create when connected to voice, dispose when disconnected.
+  // Kept at MainView level so it persists across navigation (VoiceView unmounts on nav).
+  //
+  // The import is async; use a cancellation flag so that if isInVoice flips
+  // false (or MainView unmounts) before the promise resolves, we immediately
+  // dispose the proxy rather than leaking IPC listeners / store subscriptions.
+  useEffect(() => {
+    if (!isInVoice) return;
+    let cancelled = false;
+    let proxy: PipSignalingProxy | null = null;
+
+    import('../../services/voiceService')
+      .then(({ voiceService }) => {
+        if (cancelled) return;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        proxy = new PipSignalingProxy(voiceService as any);
+
+        const cleanup = globalThis.electron?.onPipClosed?.((pipId: string) => {
+          proxy?.onPipClosed(pipId);
+        });
+
+        (proxy as PipSignalingProxy & { _ipcCleanup?: () => void })._ipcCleanup = cleanup;
+      })
+      .catch(() => {
+        /* voiceService import failed — nothing to proxy */
+      });
+
+    return () => {
+      cancelled = true;
+      if (proxy) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (proxy as any)._ipcCleanup?.();
+        proxy.dispose();
+      }
+    };
+  }, [isInVoice]);
 
   // Vertical voice text chat panel — rendered as a side column in MainView
   // instead of inside PersistentVoiceBar
@@ -343,6 +386,10 @@ const MainView: React.FC = () => {
 
           {/* Persistent voice controls bar — shown when in voice but viewing another channel */}
           {showPersistentBar && <PersistentVoiceBar />}
+
+          {/* Persistent audio outputs — kept mounted across navigation so remote audio
+              never cuts out when the user browses text channels, DMs, or settings. */}
+          {isInVoice && <AudioOutputs />}
         </div>
 
         {/* Vertical voice text chat side panel */}

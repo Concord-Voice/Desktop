@@ -1,6 +1,7 @@
 import { render, screen } from '../../../test-utils';
 import { useServerStore } from '@/renderer/stores/serverStore';
 import { useChannelStore } from '@/renderer/stores/channelStore';
+import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { mockServer, mockChannel } from '../../../mocks/fixtures';
 
 // Mock all child components to prevent complex rendering
@@ -36,7 +37,10 @@ vi.mock('@/renderer/components/Layout/FolderBar', () => ({
 }));
 vi.mock('@/renderer/components/Layout/ChannelPanel', () => ({
   default: ({ header, children }: { header: React.ReactNode; children: React.ReactNode }) => (
-    <div>{header}{children}</div>
+    <div>
+      {header}
+      {children}
+    </div>
   ),
 }));
 vi.mock('@/renderer/components/Layout/MemberFlexSpace', () => ({
@@ -44,6 +48,28 @@ vi.mock('@/renderer/components/Layout/MemberFlexSpace', () => ({
 }));
 vi.mock('@/renderer/components/Chat', () => ({
   ChatView: () => <div data-testid="chat-view">ChatView</div>,
+}));
+vi.mock('@/renderer/components/Voice/VoiceView', () => ({
+  default: () => <div data-testid="voice-view">VoiceView</div>,
+}));
+vi.mock('@/renderer/components/Voice/PersistentVoiceBar', () => ({
+  default: () => <div data-testid="persistent-voice-bar">PersistentVoiceBar</div>,
+}));
+vi.mock('@/renderer/components/Voice/VoiceTextChat', () => ({
+  default: () => <div data-testid="voice-text-chat">VoiceTextChat</div>,
+}));
+vi.mock('@/renderer/components/Voice/ParticipantGrid', () => ({
+  AudioOutputs: () => <div data-testid="audio-outputs">AudioOutputs</div>,
+}));
+vi.mock('@/renderer/services/pipSignalingProxy', () => ({
+  // Regular function (not arrow) so `new PipSignalingProxy(...)` works.
+  // Returns the mock object so proxy.dispose() is callable.
+  PipSignalingProxy: vi.fn(function MockPipProxy() {
+    return { dispose: vi.fn(), onPipClosed: vi.fn() };
+  }),
+}));
+vi.mock('@/renderer/services/voiceService', () => ({
+  voiceService: {},
 }));
 vi.mock('@/renderer/components/Channels/ChannelList', () => ({
   default: () => <div>ChannelList</div>,
@@ -90,6 +116,11 @@ describe('MainView', () => {
     useChannelStore.setState({
       channels: [mockChannel],
       activeChannelId: 'channel-1',
+    });
+    // Reset voice state so voice-persistence tests start from a known baseline
+    useVoiceStore.setState({
+      activeChannelId: null,
+      connectionState: 'disconnected',
     });
   });
 
@@ -151,5 +182,83 @@ describe('MainView', () => {
   it('renders the view container with correct class', () => {
     const { container } = render(<MainView />);
     expect(container.querySelector('.main-view')).toBeInTheDocument();
+  });
+
+  // ── Voice persistence ──────────────────────────────────────────────────────
+
+  it('renders AudioOutputs persistently when user is connected to voice', () => {
+    useVoiceStore.setState({
+      activeChannelId: 'voice-ch-1',
+      connectionState: 'connected',
+    });
+    // Active channel is a text channel (user browsed away from voice)
+    useChannelStore.setState({
+      channels: [mockChannel],
+      activeChannelId: 'channel-1',
+    });
+    render(<MainView />);
+    expect(screen.getByTestId('audio-outputs')).toBeInTheDocument();
+  });
+
+  it('does not render AudioOutputs when not connected to voice', () => {
+    useVoiceStore.setState({
+      activeChannelId: null,
+      connectionState: 'disconnected',
+    });
+    render(<MainView />);
+    expect(screen.queryByTestId('audio-outputs')).not.toBeInTheDocument();
+  });
+
+  it('renders AudioOutputs even while viewing the active voice channel', () => {
+    const voiceChannel = { ...mockChannel, id: 'voice-ch-1', type: 'voice' as const };
+    useVoiceStore.setState({
+      activeChannelId: 'voice-ch-1',
+      connectionState: 'connected',
+    });
+    useChannelStore.setState({
+      channels: [voiceChannel],
+      activeChannelId: 'voice-ch-1',
+    });
+    render(<MainView />);
+    expect(screen.getByTestId('audio-outputs')).toBeInTheDocument();
+  });
+
+  it('renders VoiceView when active channel type is voice', () => {
+    const voiceChannel = { ...mockChannel, id: 'voice-ch-1', type: 'voice' as const };
+    useChannelStore.setState({
+      channels: [voiceChannel],
+      activeChannelId: 'voice-ch-1',
+    });
+    render(<MainView />);
+    expect(screen.getByTestId('voice-view')).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-view')).not.toBeInTheDocument();
+  });
+
+  it('renders PersistentVoiceBar when in voice but viewing a different channel', () => {
+    useVoiceStore.setState({
+      activeChannelId: 'voice-ch-1',
+      connectionState: 'connected',
+    });
+    // User is viewing a text channel (not the voice channel)
+    useChannelStore.setState({
+      channels: [mockChannel],
+      activeChannelId: 'channel-1',
+    });
+    render(<MainView />);
+    expect(screen.getByTestId('persistent-voice-bar')).toBeInTheDocument();
+  });
+
+  it('does not render PersistentVoiceBar when viewing own voice channel', () => {
+    const voiceChannel = { ...mockChannel, id: 'voice-ch-1', type: 'voice' as const };
+    useVoiceStore.setState({
+      activeChannelId: 'voice-ch-1',
+      connectionState: 'connected',
+    });
+    useChannelStore.setState({
+      channels: [voiceChannel],
+      activeChannelId: 'voice-ch-1',
+    });
+    render(<MainView />);
+    expect(screen.queryByTestId('persistent-voice-bar')).not.toBeInTheDocument();
   });
 });
