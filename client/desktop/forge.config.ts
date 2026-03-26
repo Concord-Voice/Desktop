@@ -26,7 +26,11 @@ const config: ForgeConfig = {
   makers: [
     new MakerSquirrel({
       name: 'ConcordVoice',
+      setupExe: 'ConcordVoiceSetup.exe',
       setupIcon: './build/icon.ico',
+      description: 'Concord Voice Desktop Client - Privacy-first voice communication',
+      copyright: 'Copyright © 2026 Concord Voice Team. All rights reserved.',
+      owners: 'Concord Voice Team',
     }),
     new MakerZIP({}, ['darwin']),
     new MakerDeb({

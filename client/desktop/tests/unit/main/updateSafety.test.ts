@@ -457,7 +457,29 @@ describe('updateSafety', () => {
       expect(fs.existsSync(path.join(logDir, 'update-2026-03-20.log'))).toBe(true);
     });
 
-    it('preserves log files with many lines (>3)', async () => {
+    it('preserves short update audit logs (not just quit messages)', async () => {
+      const logDir = path.join(tmpDir, 'logs');
+      fs.mkdirSync(logDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(logDir, 'update-2026-03-20.log'),
+        '[2026-03-20T10:00:00.000Z] [INFO] Update available: v1.0.0 → v2.0.0\n'
+      );
+
+      const { finalizeUpdate } = await loadModule();
+      const logger = createMockLogger();
+      logger.getLogDir.mockReturnValue(logDir);
+
+      await finalizeUpdate(logger, {
+        type: 'success',
+        fromVersion: '1.0.0',
+        toVersion: '2.0.0',
+      });
+
+      // Short but substantive — must be preserved for troubleshooting
+      expect(fs.existsSync(path.join(logDir, 'update-2026-03-20.log'))).toBe(true);
+    });
+
+    it('preserves log files with many lines', async () => {
       const logDir = path.join(tmpDir, 'logs');
       fs.mkdirSync(logDir, { recursive: true });
       const lines = Array.from(

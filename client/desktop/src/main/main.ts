@@ -290,11 +290,13 @@ app.on('before-quit', () => {
   stopAutoUpdater();
 });
 
-// Crash-safe logging: flush update log before unhandled exceptions terminate the process (#383)
+// Crash-safe logging: flush update log before unhandled exceptions terminate the process (#383).
+// Registering this listener disables Node's default crash behavior, so we must exit explicitly.
 process.on('uncaughtException', (error) => {
   const ul = getUpdateLogger();
   ul?.error(`Uncaught exception: ${error.message}\n${error.stack ?? ''}`);
   ul?.flush();
+  setImmediate(() => app.exit(1));
 });
 
 // IPC Handlers

@@ -206,6 +206,27 @@ describe('UpdateBanner', () => {
     expect(container.querySelector('.update-banner')).toBeNull();
   });
 
+  it('Retry restores rollback state when checkForUpdates fails', async () => {
+    mockCheckForUpdates.mockRejectedValueOnce(new Error('Network error'));
+    const user = userEvent.setup();
+    render(<UpdateBanner />);
+    eventCallbacks.updateRollback({
+      fromVersion: '1.0.0',
+      toVersion: '1.2.0',
+      message: 'Original rollback message.',
+    });
+    await vi.waitFor(() => {
+      expect(screen.getByText('Retry')).toBeInTheDocument();
+    });
+    await user.click(screen.getByText('Retry'));
+    await vi.waitFor(() => {
+      // Should restore rollback state with error message
+      expect(
+        screen.getByText('Failed to check for updates. Please try again later.')
+      ).toBeInTheDocument();
+    });
+  });
+
   it('rollback banner has rollback CSS class', async () => {
     const { container } = render(<UpdateBanner />);
     eventCallbacks.updateRollback({

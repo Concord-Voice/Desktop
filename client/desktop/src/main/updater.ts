@@ -30,7 +30,9 @@ function writeUpdatePrefs(prefs: UpdatePrefs): void {
   try {
     fs.writeFileSync(prereleasePrefPath, JSON.stringify(prefs), 'utf-8');
   } catch (err) {
-    logger?.error(`Failed to write update prefs: ${(err as Error).message}`);
+    const message = `Failed to write update prefs: ${(err as Error).message}`;
+    if (logger) logger.error(message);
+    else console.error('[updater]', message);
   }
 }
 

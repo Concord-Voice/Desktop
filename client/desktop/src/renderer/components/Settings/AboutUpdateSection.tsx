@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import CollapsibleSection from './CollapsibleSection';
 import ToggleSwitch from './ToggleSwitch';
 import './AboutUpdateSection.css';
@@ -74,6 +74,14 @@ const AboutUpdateSection: React.FC = () => {
 
   const [logPath, setLogPath] = useState<string | null>(null);
   const [logPathCopied, setLogPathCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup copy timer on unmount to avoid state update on unmounted component
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    };
+  }, []);
 
   // Load client info on mount
   useEffect(() => {
@@ -192,10 +200,15 @@ const AboutUpdateSection: React.FC = () => {
                 </span>
                 <button
                   className="about-info-copy-btn"
-                  onClick={() => {
-                    globalThis.electron?.writeClipboard(logPath);
-                    setLogPathCopied(true);
-                    setTimeout(() => setLogPathCopied(false), 2000);
+                  onClick={async () => {
+                    try {
+                      await globalThis.electron?.writeClipboard(logPath);
+                      setLogPathCopied(true);
+                      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+                      copyTimerRef.current = setTimeout(() => setLogPathCopied(false), 2000);
+                    } catch {
+                      // Clipboard write failed — don't show "Copied"
+                    }
                   }}
                 >
                   {logPathCopied ? 'Copied' : 'Copy Path'}

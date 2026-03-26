@@ -114,7 +114,9 @@ const UpdateBanner: React.FC = () => {
     try {
       await globalThis.electron?.checkForUpdates();
     } catch {
-      // onUpdateError will fire via IPC
+      // Restore rollback state so the user gets feedback instead of a silent hidden banner
+      setState('rollback');
+      setRollbackMessage('Failed to check for updates. Please try again later.');
     }
   }, []);
 

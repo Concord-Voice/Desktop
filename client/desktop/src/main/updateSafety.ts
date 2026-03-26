@@ -35,8 +35,6 @@ const SENTINEL_FILENAME = 'update-sentinel.json';
 const CLEANUP_FILENAME = 'update-cleanup.json';
 /** Sentinel older than 1 hour is considered stale (update likely crashed). */
 const STALE_THRESHOLD_MS = 60 * 60 * 1000;
-/** Lines threshold: log files with this many lines or fewer are considered trivial. */
-const TRIVIAL_LOG_MAX_LINES = 3;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -66,19 +64,19 @@ function safeReadJson<T>(filePath: string): T | null {
 }
 
 /**
- * Determine if a log file is trivial (empty or contains only routine quit messages).
- * Substantive log files with errors, warnings, or multi-step sequences are preserved.
+ * Determine if a log file is trivial (empty or contains only the routine
+ * "Application quitting" message). All other content — including short
+ * update audit logs like "Update available" or "Downloaded" — is preserved
+ * for troubleshooting (#383).
  */
 function isLogFileTrivial(filePath: string): boolean {
   try {
-    const content = fs.readFileSync(filePath, 'utf-8');
+    const content = fs.readFileSync(filePath, 'utf-8').trim();
     if (content.length === 0) return true;
 
-    const lines = content.trim().split('\n');
-    if (lines.length > TRIVIAL_LOG_MAX_LINES) return false;
-
-    // Trivial if every line is a routine message (no errors/warnings)
-    return lines.every((line) => !line.includes('[ERROR]') && !line.includes('[WARN]'));
+    // Only prune if every line is a known routine message
+    const lines = content.split('\n');
+    return lines.every((line) => line.includes('Application quitting'));
   } catch {
     return false; // Can't read → don't delete
   }
@@ -285,7 +283,7 @@ export async function finalizeUpdate(
   }
 
   // 4. Purge empty/trivial log files
-  pruneTrivalLogs(logDir, logger);
+  pruneTrivialLogs(logDir, logger);
 
   // 5. Remove stale electron-updater metadata from userData
   purgeUpdaterMetadata(logger);
@@ -344,7 +342,7 @@ export async function runDeferredCleanup(logger: UpdateLogger): Promise<void> {
     purgeDirectory(manifest.cacheDirPath, logger);
   }
   if (manifest.logDir) {
-    pruneTrivalLogs(manifest.logDir, logger);
+    pruneTrivialLogs(manifest.logDir, logger);
   }
   purgeUpdaterMetadata(logger);
 
@@ -363,7 +361,7 @@ function getCacheDir(): string {
 }
 
 /** Remove empty or trivial log files from the log directory. */
-function pruneTrivalLogs(logDir: string, logger: UpdateLogger): void {
+function pruneTrivialLogs(logDir: string, logger: UpdateLogger): void {
   try {
     const entries = fs.readdirSync(logDir);
     for (const entry of entries) {
