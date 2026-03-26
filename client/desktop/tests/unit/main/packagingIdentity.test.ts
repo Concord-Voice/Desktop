@@ -162,6 +162,12 @@ describe('Packaging Identity (#382)', () => {
       expect(squirrel.owners).toBeTruthy();
     });
 
+    it('has loadingGif set for branded installer splash', async () => {
+      const config = await loadForgeConfig();
+      const squirrel = getMakerOptions(config, 'Squirrel');
+      expect(squirrel.loadingGif).toBeTruthy();
+    });
+
     it('has iconUrl set to HTTPS URL', async () => {
       const config = await loadForgeConfig();
       const squirrel = getMakerOptions(config, 'Squirrel');
@@ -294,6 +300,10 @@ describe('Packaging Identity (#382)', () => {
 
     it('icon.png exists (Linux)', () => {
       expect(fs.existsSync(path.join(desktopRoot, 'build', 'icon.png'))).toBe(true);
+    });
+
+    it('splash.gif exists (Windows installer splash)', () => {
+      expect(fs.existsSync(path.join(desktopRoot, 'build', 'splash.gif'))).toBe(true);
     });
   });
 

@@ -36,8 +36,15 @@ const { mockMainWindow, mockWebContents, MockBrowserWindow } = vi.hoisted(() => 
 
 vi.mock('electron', () => ({
   BrowserWindow: MockBrowserWindow,
+  nativeImage: {
+    createFromPath: vi.fn(() => ({
+      isEmpty: vi.fn(() => false),
+      toDataURL: vi.fn(() => 'data:image/png;base64,MOCKICON'),
+    })),
+  },
   app: {
     getPath: vi.fn(() => '/tmp/test-userdata'),
+    getAppPath: vi.fn(() => '/tmp/test-app'),
     getVersion: vi.fn(() => '1.0.0-test'),
     requestSingleInstanceLock: vi.fn(() => true),
     whenReady: vi.fn(() => Promise.resolve()),
@@ -182,6 +189,11 @@ vi.mock('../../../src/main/updateSafety', () => ({
 
 vi.mock('../../../src/main/userDataMigration', () => ({
   migrateUserData: vi.fn(),
+}));
+
+vi.mock('../../../src/main/splashWindow', () => ({
+  showSplash: vi.fn(),
+  closeSplash: vi.fn(),
 }));
 
 vi.mock('../../../src/main/spaLoader', () => ({

@@ -4,6 +4,7 @@ import {
   clipboard,
   desktopCapturer,
   ipcMain,
+  nativeImage,
   powerMonitor,
   screen,
   session,
@@ -47,6 +48,7 @@ import { resolveSpaSource } from './spaLoader';
 import { IPC_CONTRACT_VERSION } from './ipcContract';
 import { registerIpcHandlers as registerPermissionHandlers } from './permissionManager';
 import { migrateUserData } from './userDataMigration';
+import { showSplash, closeSplash } from './splashWindow';
 
 // One-time migration: rename "Concord Voice" → "ConcordVoice" userData directory (#385).
 // Must run before any app.getPath('userData') reads (e.g. hw-accel prefs below).
@@ -110,6 +112,7 @@ const createWindow = async (): Promise<void> => {
   // and the listener must be attached first to avoid a race condition where
   // the event fires before the handler is registered (window never shows).
   mainWindow.once('ready-to-show', () => {
+    closeSplash();
     mainWindow?.show();
   });
 
@@ -244,6 +247,13 @@ app.whenReady().then(() => {
       });
       rollbackResult = sentinelResult;
     }
+  }
+
+  // Show branded splash while the main window loads (#387)
+  if (app.isPackaged) {
+    const iconPath = path.join(app.getAppPath(), 'build', 'icon.png');
+    const icon = nativeImage.createFromPath(iconPath);
+    showSplash(icon.isEmpty() ? undefined : icon.toDataURL());
   }
 
   createWindow();

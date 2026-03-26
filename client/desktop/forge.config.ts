@@ -35,6 +35,7 @@ const config: ForgeConfig = {
       name: 'ConcordVoice',
       setupExe: 'ConcordVoiceSetup.exe',
       setupIcon: './build/icon.ico',
+      loadingGif: './build/splash.gif',
       iconUrl: 'https://concordvoice.com/icon.ico',
       description: 'Concord Voice Desktop Client - Privacy-first voice communication',
       copyright: 'Copyright © 2026 Concord Voice Team. All rights reserved.',
