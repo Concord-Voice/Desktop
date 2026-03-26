@@ -91,6 +91,32 @@ describe('Packaging Identity (#382)', () => {
       const config = await loadForgeConfig();
       expect(config.packagerConfig?.appBundleId).toBe('com.concordvoice.desktop');
     });
+
+    it('has appCopyright set and containing "Concord"', async () => {
+      const config = await loadForgeConfig();
+      expect(config.packagerConfig?.appCopyright).toBeTruthy();
+      expect(config.packagerConfig?.appCopyright).toContain('Concord');
+    });
+
+    it('has appCategoryType set to a macOS UTI category', async () => {
+      const config = await loadForgeConfig();
+      expect(config.packagerConfig?.appCategoryType).toMatch(/^public\.app-category\./);
+    });
+
+    it('has win32metadata.CompanyName set', async () => {
+      const config = await loadForgeConfig();
+      expect(config.packagerConfig?.win32metadata?.CompanyName).toBeTruthy();
+    });
+
+    it('has win32metadata.FileDescription set', async () => {
+      const config = await loadForgeConfig();
+      expect(config.packagerConfig?.win32metadata?.FileDescription).toBeTruthy();
+    });
+
+    it('has win32metadata.ProductName set to "Concord Voice"', async () => {
+      const config = await loadForgeConfig();
+      expect(config.packagerConfig?.win32metadata?.ProductName).toBe('Concord Voice');
+    });
   });
 
   describe('forge.config.ts — MakerSquirrel (Windows)', () => {
@@ -136,6 +162,13 @@ describe('Packaging Identity (#382)', () => {
       expect(squirrel.owners).toBeTruthy();
     });
 
+    it('has iconUrl set to HTTPS URL', async () => {
+      const config = await loadForgeConfig();
+      const squirrel = getMakerOptions(config, 'Squirrel');
+      expect(squirrel.iconUrl).toBeTruthy();
+      expect(squirrel.iconUrl).toMatch(/^https:\/\//);
+    });
+
     it('name is the spaceless form of packagerConfig.name', async () => {
       const config = await loadForgeConfig();
       const squirrel = getMakerOptions(config, 'Squirrel');
@@ -163,6 +196,31 @@ describe('Packaging Identity (#382)', () => {
       const deb = getMakerOptions(config, 'Deb');
       expect(deb.productName).toBe('Concord Voice');
     });
+
+    it('has maintainer set with email', async () => {
+      const config = await loadForgeConfig();
+      const deb = getMakerOptions(config, 'Deb');
+      expect(deb.maintainer).toBeTruthy();
+      expect(deb.maintainer).toContain('@');
+    });
+
+    it('has homepage set to HTTPS URL', async () => {
+      const config = await loadForgeConfig();
+      const deb = getMakerOptions(config, 'Deb');
+      expect(deb.homepage).toMatch(/^https:\/\//);
+    });
+
+    it('has description set', async () => {
+      const config = await loadForgeConfig();
+      const deb = getMakerOptions(config, 'Deb');
+      expect(deb.description).toBeTruthy();
+    });
+
+    it('has section set', async () => {
+      const config = await loadForgeConfig();
+      const deb = getMakerOptions(config, 'Deb');
+      expect(deb.section).toBeTruthy();
+    });
   });
 
   describe('forge.config.ts — MakerRpm (Linux .rpm)', () => {
@@ -184,6 +242,30 @@ describe('Packaging Identity (#382)', () => {
       const rpm = getMakerOptions(config, 'Rpm');
       expect(rpm.productName).toBe('Concord Voice');
     });
+
+    it('has homepage set to HTTPS URL', async () => {
+      const config = await loadForgeConfig();
+      const rpm = getMakerOptions(config, 'Rpm');
+      expect(rpm.homepage).toMatch(/^https:\/\//);
+    });
+
+    it('has license set to BUSL-1.1', async () => {
+      const config = await loadForgeConfig();
+      const rpm = getMakerOptions(config, 'Rpm');
+      expect(rpm.license).toBe('BUSL-1.1');
+    });
+
+    it('has description set', async () => {
+      const config = await loadForgeConfig();
+      const rpm = getMakerOptions(config, 'Rpm');
+      expect(rpm.description).toBeTruthy();
+    });
+
+    it('has group set', async () => {
+      const config = await loadForgeConfig();
+      const rpm = getMakerOptions(config, 'Rpm');
+      expect(rpm.group).toBeTruthy();
+    });
   });
 
   describe('forge.config.ts — MakerAppImage (Linux AppImage)', () => {
@@ -192,6 +274,26 @@ describe('Packaging Identity (#382)', () => {
       const appImage = getMakerOptions(config, 'AppImage');
       expect(appImage).not.toBeNull();
       expect(appImage.bin).toBe(config.packagerConfig?.executableName);
+    });
+
+    it('has productName set', async () => {
+      const config = await loadForgeConfig();
+      const appImage = getMakerOptions(config, 'AppImage');
+      expect(appImage.productName).toBe('Concord Voice');
+    });
+  });
+
+  describe('icon files', () => {
+    it('icon.ico exists (Windows)', () => {
+      expect(fs.existsSync(path.join(desktopRoot, 'build', 'icon.ico'))).toBe(true);
+    });
+
+    it('icon.icns exists (macOS)', () => {
+      expect(fs.existsSync(path.join(desktopRoot, 'build', 'icon.icns'))).toBe(true);
+    });
+
+    it('icon.png exists (Linux)', () => {
+      expect(fs.existsSync(path.join(desktopRoot, 'build', 'icon.png'))).toBe(true);
     });
   });
 
