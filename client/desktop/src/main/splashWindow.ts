@@ -80,12 +80,12 @@ const SPLASH_HTML = `<!DOCTYPE html>
     0%, 100% {
       transform: scale(1);
       opacity: 1;
-      box-shadow: 0 0 0 0 rgba(250, 112, 154, 0);
+      filter: drop-shadow(0 0 0px rgba(250, 112, 154, 0));
     }
     50% {
       transform: scale(1.05);
       opacity: 0.85;
-      box-shadow: 0 0 20px 6px rgba(250, 112, 154, 0.55);
+      filter: drop-shadow(0 0 12px rgba(250, 112, 154, 0.7));
     }
   }
   /* Error modifier — applied via JS when rollback/error is detected */
