@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Download, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Download, RefreshCw, X } from 'lucide-react';
 import './UpdateBanner.css';
 
-type BannerState = 'hidden' | 'available' | 'downloading' | 'downloaded';
+type BannerState = 'hidden' | 'available' | 'downloading' | 'downloaded' | 'rollback';
 
 interface DownloadProgress {
   percent: number;
@@ -39,6 +39,7 @@ function getDismissed(): { version: string; at: number } | null {
 const UpdateBanner: React.FC = () => {
   const [state, setState] = useState<BannerState>('hidden');
   const [version, setVersion] = useState('');
+  const [rollbackMessage, setRollbackMessage] = useState('');
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [dismissedVersion, setDismissedVersion] = useState(() => {
     const dismissed = getDismissed();
@@ -76,6 +77,14 @@ const UpdateBanner: React.FC = () => {
         setState((prev) => (prev === 'downloading' ? 'available' : prev));
         setProgress(null);
       }),
+      ...(globalThis.electron.onUpdateRollback
+        ? [
+            globalThis.electron.onUpdateRollback((data) => {
+              setRollbackMessage(data.message);
+              setState('rollback');
+            }),
+          ]
+        : []),
     ];
 
     return () => {
@@ -99,6 +108,16 @@ const UpdateBanner: React.FC = () => {
     globalThis.electron?.installUpdate();
   }, []);
 
+  const handleCheckAndRetry = useCallback(async () => {
+    setState('hidden');
+    setRollbackMessage('');
+    try {
+      await globalThis.electron?.checkForUpdates();
+    } catch {
+      // onUpdateError will fire via IPC
+    }
+  }, []);
+
   const handleDismiss = useCallback(() => {
     if (version) {
       localStorage.setItem(DISMISSED_KEY, JSON.stringify({ version, at: Date.now() }));
@@ -106,12 +125,15 @@ const UpdateBanner: React.FC = () => {
     }
   }, [version]);
 
-  if (state === 'hidden' || (dismissedVersion && dismissedVersion === version)) return null;
+  if (state === 'hidden') return null;
+  if (state !== 'rollback' && dismissedVersion && dismissedVersion === version) return null;
 
   return (
     <div className={`update-banner update-banner--${state}`}>
       <div className="update-banner__icon">
-        {state === 'downloaded' ? <RefreshCw size={16} /> : <Download size={16} />}
+        {state === 'rollback' && <AlertTriangle size={16} />}
+        {state === 'downloaded' && <RefreshCw size={16} />}
+        {(state === 'available' || state === 'downloading') && <Download size={16} />}
       </div>
 
       <div className="update-banner__text">
@@ -119,6 +141,7 @@ const UpdateBanner: React.FC = () => {
         {state === 'downloading' &&
           'Downloading update\u2026 ' + (progress ? progress.percent.toFixed(0) + '%' : '')}
         {state === 'downloaded' && `v${version} ready to install`}
+        {state === 'rollback' && rollbackMessage}
       </div>
 
       <div className="update-banner__actions">
@@ -132,9 +155,20 @@ const UpdateBanner: React.FC = () => {
             Restart Now
           </button>
         )}
-        <button className="update-banner__btn dismiss" onClick={handleDismiss} aria-label="Dismiss">
-          <X size={14} />
-        </button>
+        {state === 'rollback' && (
+          <button className="update-banner__btn primary" onClick={handleCheckAndRetry}>
+            Retry
+          </button>
+        )}
+        {state !== 'rollback' && (
+          <button
+            className="update-banner__btn dismiss"
+            onClick={handleDismiss}
+            aria-label="Dismiss"
+          >
+            <X size={14} />
+          </button>
+        )}
       </div>
 
       {state === 'downloading' && progress && (

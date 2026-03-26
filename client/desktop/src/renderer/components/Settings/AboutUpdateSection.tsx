@@ -72,11 +72,15 @@ const AboutUpdateSection: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
 
+  const [logPath, setLogPath] = useState<string | null>(null);
+  const [logPathCopied, setLogPathCopied] = useState(false);
+
   // Load client info on mount
   useEffect(() => {
     globalThis.electron?.getVersion?.().then(setAppVersion);
     globalThis.electron?.getSystemInfo?.().then(setSystemInfo);
     globalThis.electron?.getAllowPrerelease?.().then(setAllowPrerelease);
+    globalThis.electron?.getUpdateLogPath?.().then(setLogPath);
   }, []);
 
   // Subscribe to update events
@@ -178,6 +182,26 @@ const AboutUpdateSection: React.FC = () => {
                 <span className="about-info-value">v{systemInfo.nodeVersion}</span>
               </div>
             </>
+          )}
+          {logPath && (
+            <div className="about-info-row">
+              <span className="about-info-label">Update Log</span>
+              <span className="about-info-value about-info-value--log">
+                <span className="about-info-log-path" title={logPath}>
+                  {logPath.split(/[/\\]/).slice(-2).join('/')}
+                </span>
+                <button
+                  className="about-info-copy-btn"
+                  onClick={() => {
+                    globalThis.electron?.writeClipboard(logPath);
+                    setLogPathCopied(true);
+                    setTimeout(() => setLogPathCopied(false), 2000);
+                  }}
+                >
+                  {logPathCopied ? 'Copied' : 'Copy Path'}
+                </button>
+              </span>
+            </div>
           )}
         </div>
 

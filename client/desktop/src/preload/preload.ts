@@ -182,6 +182,19 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.removeListener('update:error', handler);
     };
   },
+  onUpdateRollback: (
+    callback: (data: { fromVersion: string; toVersion: string; message: string }) => void
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: { fromVersion: string; toVersion: string; message: string }
+    ) => callback(data);
+    ipcRenderer.on('update:rollback', handler);
+    return () => {
+      ipcRenderer.removeListener('update:rollback', handler);
+    };
+  },
+  getUpdateLogPath: () => ipcRenderer.invoke('update:getLogPath') as Promise<string | null>,
 
   // OS permission management (#197)
   checkAllPermissions: () =>
@@ -324,6 +337,10 @@ export interface ElectronAPI {
   ) => () => void;
   onUpdateDownloaded: (callback: (info: { version: string }) => void) => () => void;
   onUpdateError: (callback: (error: { message: string }) => void) => () => void;
+  onUpdateRollback: (
+    callback: (data: { fromVersion: string; toVersion: string; message: string }) => void
+  ) => () => void;
+  getUpdateLogPath: () => Promise<string | null>;
 
   // OS permission management (#197)
   checkAllPermissions: () => Promise<

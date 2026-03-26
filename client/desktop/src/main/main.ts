@@ -30,10 +30,19 @@ import {
   setUpdateFeedUrl,
   checkForUpdates,
   downloadUpdate,
-  quitAndInstall,
+  safeQuitAndInstall,
   getAllowPrerelease,
   setAllowPrerelease,
+  getUpdateLogger,
+  getUpdateLogPath,
 } from './updater';
+import {
+  checkUpdateSentinel,
+  finalizeUpdate,
+  finalizeRollback,
+  runDeferredCleanup,
+  type SentinelResult,
+} from './updateSafety';
 import { resolveSpaSource } from './spaLoader';
 import { IPC_CONTRACT_VERSION } from './ipcContract';
 import { registerIpcHandlers as registerPermissionHandlers } from './permissionManager';
@@ -161,6 +170,9 @@ const createWindow = async (): Promise<void> => {
   });
 };
 
+// Track rollback result so we can notify the renderer after window creation
+let rollbackResult: SentinelResult | null = null;
+
 // App lifecycle handlers
 app.whenReady().then(() => {
   // Permission request handler: explicitly allow app-required permissions, deny risky ones.
@@ -200,8 +212,48 @@ app.whenReady().then(() => {
   // Camera/mic/screen/notifications are requested when the feature is first used.
   registerPermissionHandlers(() => mainWindow);
 
-  createWindow();
+  // ─── Update safety: startup validation (#384) ─────────────────────
+  // Must run before createWindow() so we can stash rollback info,
+  // but after initAutoUpdater() so the logger is available.
   initAutoUpdater(() => mainWindow);
+
+  const updateLogger = getUpdateLogger();
+  if (updateLogger) {
+    // Check for deferred cleanup from a previous incomplete finalization
+    runDeferredCleanup(updateLogger).catch(() => {});
+
+    const sentinelResult = checkUpdateSentinel(updateLogger);
+    if (sentinelResult.type === 'success') {
+      updateLogger.info(
+        `Update validated: v${sentinelResult.fromVersion} → v${sentinelResult.toVersion}`
+      );
+      finalizeUpdate(updateLogger, sentinelResult).catch((err) => {
+        updateLogger.error(`Post-update cleanup failed: ${(err as Error).message}`);
+      });
+    } else if (sentinelResult.type === 'rollback') {
+      updateLogger.warn(
+        `Update to v${sentinelResult.toVersion} failed, rolled back to v${sentinelResult.fromVersion}`
+      );
+      finalizeRollback(updateLogger, sentinelResult).catch((err) => {
+        updateLogger.error(`Rollback cleanup failed: ${(err as Error).message}`);
+      });
+      rollbackResult = sentinelResult;
+    }
+  }
+
+  createWindow();
+
+  // Notify renderer of rollback after window is created (#384)
+  if (rollbackResult) {
+    // Delay slightly to ensure renderer IPC listeners are registered
+    setTimeout(() => {
+      mainWindow?.webContents.send('update:rollback', {
+        fromVersion: rollbackResult!.fromVersion,
+        toVersion: rollbackResult!.toVersion,
+        message: `Update to v${rollbackResult!.toVersion} failed. You are still on v${rollbackResult!.fromVersion}.`,
+      });
+    }, 2000);
+  }
 
   // Proactive token refresh (#254): notify renderer when main process
   // refreshes the token (timer or sleep/wake), so authStore stays current.
@@ -230,9 +282,19 @@ app.on('window-all-closed', () => {
   }
 });
 
-// Clean up scheduled update checks on quit
+// Clean up scheduled update checks on quit; flush update log (#383)
 app.on('before-quit', () => {
+  const ul = getUpdateLogger();
+  ul?.info('Application quitting');
+  ul?.flush();
   stopAutoUpdater();
+});
+
+// Crash-safe logging: flush update log before unhandled exceptions terminate the process (#383)
+process.on('uncaughtException', (error) => {
+  const ul = getUpdateLogger();
+  ul?.error(`Uncaught exception: ${error.message}\n${error.stack ?? ''}`);
+  ul?.flush();
 });
 
 // IPC Handlers
@@ -344,11 +406,12 @@ ipcMain.handle('app:quit', () => {
 
 ipcMain.handle('update:check', () => checkForUpdates());
 ipcMain.handle('update:download', () => downloadUpdate());
-ipcMain.handle('update:install', () => quitAndInstall());
+ipcMain.handle('update:install', () => safeQuitAndInstall());
 ipcMain.handle('update:getAllowPrerelease', () => getAllowPrerelease());
 ipcMain.handle('update:setAllowPrerelease', (_event, enabled: boolean) =>
   setAllowPrerelease(enabled)
 );
+ipcMain.handle('update:getLogPath', () => getUpdateLogPath());
 
 // System info for About page (#155 Tier 4)
 ipcMain.handle('app:getSystemInfo', () => ({

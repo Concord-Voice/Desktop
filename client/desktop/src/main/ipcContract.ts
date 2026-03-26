@@ -19,8 +19,10 @@
  *        downloaded/error), app:getSystemInfo, app:getIpcContract
  * - v3: OS permission management channels (permission:checkAll, permission:check,
  *        permission:request, permission:openSettings), permission:changed event
+ * - v4: Update safety (#383, #384): update:getLogPath handler,
+ *        update:rollback event
  */
-export const IPC_CONTRACT_VERSION = 3;
+export const IPC_CONTRACT_VERSION = 4;
 
 /**
  * Result shape returned by performRefresh() in the main process and

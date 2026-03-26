@@ -33,6 +33,39 @@
   user-select: text;
 }
 
+/* ─── Log path row ────────────────────────────────────────────────── */
+
+.about-info-value--log {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.about-info-log-path {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.about-info-copy-btn {
+  border: none;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 600;
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+
+.about-info-copy-btn:hover {
+  background: var(--accent-primary);
+  color: white;
+}
+
 /* ─── Legal ────────────────────────────────────────────────────────── */
 
 .about-legal {

@@ -163,9 +163,18 @@ vi.mock('../../../src/main/updater', () => ({
   setUpdateFeedUrl: vi.fn(),
   checkForUpdates: vi.fn(() => Promise.resolve({ updateAvailable: false })),
   downloadUpdate: vi.fn(() => Promise.resolve()),
-  quitAndInstall: vi.fn(),
+  safeQuitAndInstall: vi.fn(() => Promise.resolve()),
   getAllowPrerelease: vi.fn(() => false),
   setAllowPrerelease: vi.fn(),
+  getUpdateLogger: vi.fn(() => null),
+  getUpdateLogPath: vi.fn(() => '/tmp/test-logs/update-2026-03-25.log'),
+}));
+
+vi.mock('../../../src/main/updateSafety', () => ({
+  checkUpdateSentinel: vi.fn(() => ({ type: 'none' })),
+  finalizeUpdate: vi.fn(() => Promise.resolve()),
+  finalizeRollback: vi.fn(() => Promise.resolve()),
+  runDeferredCleanup: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('../../../src/main/spaLoader', () => ({
@@ -457,10 +466,10 @@ describe('main.ts', () => {
       expect(downloadUpdate).toHaveBeenCalled();
     });
 
-    it('update:install delegates to quitAndInstall', async () => {
+    it('update:install delegates to safeQuitAndInstall', async () => {
       await handlers.get('update:install')!();
-      const { quitAndInstall } = await import('../../../src/main/updater');
-      expect(quitAndInstall).toHaveBeenCalled();
+      const { safeQuitAndInstall } = await import('../../../src/main/updater');
+      expect(safeQuitAndInstall).toHaveBeenCalled();
     });
 
     it('update:getAllowPrerelease returns current setting', async () => {
@@ -810,6 +819,7 @@ describe('main.ts', () => {
         'update:install',
         'update:getAllowPrerelease',
         'update:setAllowPrerelease',
+        'update:getLogPath',
         'pip:open',
         'pip:close',
         'pip:setAlwaysOnTop',

@@ -24,6 +24,15 @@
   color: var(--success-color, #2ecc71);
 }
 
+.update-banner--rollback {
+  background: color-mix(in srgb, #e67e22 15%, var(--bg-secondary));
+  border-bottom-color: #e67e22;
+}
+
+.update-banner--rollback .update-banner__icon {
+  color: #e67e22;
+}
+
 .update-banner__text {
   flex: 1;
   font-weight: 500;
