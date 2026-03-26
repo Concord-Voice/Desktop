@@ -48,7 +48,7 @@ import { resolveSpaSource } from './spaLoader';
 import { IPC_CONTRACT_VERSION } from './ipcContract';
 import { registerIpcHandlers as registerPermissionHandlers } from './permissionManager';
 import { migrateUserData } from './userDataMigration';
-import { showSplash, closeSplash } from './splashWindow';
+import { showSplash, closeSplash, updateSplashError } from './splashWindow';
 
 // One-time migration: rename "Concord Voice" → "ConcordVoice" userData directory (#385).
 // Must run before any app.getPath('userData') reads (e.g. hw-accel prefs below).
@@ -254,6 +254,13 @@ app.whenReady().then(() => {
     const iconPath = path.join(app.getAppPath(), 'build', 'icon.png');
     const icon = nativeImage.createFromPath(iconPath);
     showSplash(icon.isEmpty() ? undefined : icon.toDataURL());
+
+    // If a rollback was detected, show error state on the splash while main window loads
+    if (rollbackResult) {
+      updateSplashError(
+        `Update to v${rollbackResult.toVersion} failed — rolled back to v${rollbackResult.fromVersion}`
+      );
+    }
   }
 
   createWindow();

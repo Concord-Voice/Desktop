@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import { getPersistedApiBase } from './tokenManager';
 import { createUpdateLogger, type UpdateLogger } from './updateLogger';
 import { prepareForUpdate } from './updateSafety';
+import { updateSplashStatus, showSplashProgress, updateSplashError } from './splashWindow';
 
 // Check every 4 hours; delay first check 10s so it doesn't block app startup
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -73,12 +74,14 @@ function ensureUpdaterReady(): void {
     logger!.info(
       `Checking for updates (current: v${app.getVersion()}, ${process.platform}/${process.arch})`
     );
+    updateSplashStatus('Checking the airwaves...');
   });
 
   autoUpdater.on('update-available', (info: UpdateInfo) => {
     logger!.info(
       `Update available: v${app.getVersion()} → v${info.version} (released ${info.releaseDate ?? 'unknown'})`
     );
+    updateSplashStatus(`New flight plan detected: v${info.version}`);
     sendToRenderer('update:available', {
       version: info.version,
       releaseNotes: info.releaseNotes,
@@ -88,12 +91,15 @@ function ensureUpdaterReady(): void {
 
   autoUpdater.on('update-not-available', (info: UpdateInfo) => {
     logger!.info(`Up to date (v${info.version})`);
+    updateSplashStatus('All systems go');
     sendToRenderer('update:not-available', { version: info.version });
   });
 
   autoUpdater.on('download-progress', (progress: ProgressInfo) => {
     const msg = `${progress.percent.toFixed(1)}% (${formatBytes(progress.transferred)}/${formatBytes(progress.total)})`;
     logger!.info(`Download: ${msg}`);
+    showSplashProgress(progress.percent);
+    updateSplashStatus(`Fueling up... ${progress.percent.toFixed(0)}%`);
     sendToRenderer('update:download-progress', {
       percent: progress.percent,
       transferred: progress.transferred,
@@ -105,11 +111,16 @@ function ensureUpdaterReady(): void {
   autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
     pendingUpdateVersion = info.version;
     logger!.info(`Downloaded v${info.version} — ready to install`);
+    showSplashProgress(100);
+    updateSplashStatus('Ready for liftoff');
     sendToRenderer('update:downloaded', { version: info.version });
   });
 
   autoUpdater.on('error', (error: Error) => {
     logger!.error(`Error: ${error.message}${error.stack ? '\n' + error.stack : ''}`);
+    // Themed brief copy intentional — full error reaches the renderer via update:error
+    // and is captured in the update log for diagnostics.
+    updateSplashError('Houston, we have a problem');
     sendToRenderer('update:error', { message: error.message });
   });
 }
