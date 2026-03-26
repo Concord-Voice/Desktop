@@ -46,8 +46,12 @@ function getMakerOptions(config: any, platform: string) {
 
 describe('Packaging Identity (#382)', () => {
   describe('package.json', () => {
-    it('has productName set to "Concord Voice"', () => {
-      expect(pkgJson.productName).toBe('Concord Voice');
+    it('has productName set to "ConcordVoice" (spaceless for directory paths)', () => {
+      expect(pkgJson.productName).toBe('ConcordVoice');
+    });
+
+    it('productName contains no spaces (directory-safe)', () => {
+      expect(pkgJson.productName).not.toContain(' ');
     });
 
     it('has name scoped to @concordvoice/', () => {
@@ -202,9 +206,14 @@ describe('Packaging Identity (#382)', () => {
       expect(bins[0]).toBe('concord-voice');
     });
 
-    it('package.json productName matches packagerConfig.name', async () => {
+    it('productName is the spaceless form of packagerConfig.name', async () => {
       const config = await loadForgeConfig();
-      expect(pkgJson.productName).toBe(config.packagerConfig?.name);
+      expect(pkgJson.productName).toBe(config.packagerConfig?.name?.replaceAll(/\s+/g, ''));
+    });
+
+    it('packagerConfig.name contains a space (display name)', async () => {
+      const config = await loadForgeConfig();
+      expect(config.packagerConfig?.name).toContain(' ');
     });
 
     it('no maker config contains "electron" or "my-app" in identity fields', async () => {

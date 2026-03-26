@@ -46,6 +46,11 @@ import {
 import { resolveSpaSource } from './spaLoader';
 import { IPC_CONTRACT_VERSION } from './ipcContract';
 import { registerIpcHandlers as registerPermissionHandlers } from './permissionManager';
+import { migrateUserData } from './userDataMigration';
+
+// One-time migration: rename "Concord Voice" → "ConcordVoice" userData directory (#385).
+// Must run before any app.getPath('userData') reads (e.g. hw-accel prefs below).
+migrateUserData();
 
 // Hardware acceleration preference — must be checked before app.whenReady()
 const hwAccelPrefPath = path.join(app.getPath('userData'), 'hw-accel.json');

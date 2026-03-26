@@ -105,6 +105,9 @@ vi.mock('node:fs', () => ({
   default: {
     readFileSync: vi.fn(() => JSON.stringify({ enabled: true })),
     writeFileSync: vi.fn(),
+    existsSync: vi.fn(() => false),
+    statSync: vi.fn(() => ({ isDirectory: () => false })),
+    renameSync: vi.fn(),
   },
 }));
 
@@ -177,6 +180,10 @@ vi.mock('../../../src/main/updateSafety', () => ({
   runDeferredCleanup: vi.fn(() => Promise.resolve()),
 }));
 
+vi.mock('../../../src/main/userDataMigration', () => ({
+  migrateUserData: vi.fn(),
+}));
+
 vi.mock('../../../src/main/spaLoader', () => ({
   resolveSpaSource: vi.fn(() => Promise.resolve({ mode: 'bundled', reason: 'test' })),
 }));
@@ -239,6 +246,11 @@ beforeAll(async () => {
 
 describe('main.ts', () => {
   describe('module initialization', () => {
+    it('calls migrateUserData on startup (before app.whenReady)', async () => {
+      const { migrateUserData } = await import('../../../src/main/userDataMigration');
+      expect(migrateUserData).toHaveBeenCalled();
+    });
+
     it('reads hardware acceleration preference on startup', async () => {
       const fs = (await import('node:fs')).default;
       expect(fs.readFileSync).toHaveBeenCalled();
