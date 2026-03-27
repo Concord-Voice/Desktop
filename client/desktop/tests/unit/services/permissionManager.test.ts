@@ -12,8 +12,14 @@ const mockIsEncryptionAvailable = vi.fn().mockReturnValue(true);
 const mockOpenExternal = vi.fn();
 const mockHandle = vi.fn();
 const mockSend = vi.fn();
+const mockIsPackaged = vi.fn().mockReturnValue(true);
 
 vi.mock('electron', () => ({
+  app: {
+    get isPackaged() {
+      return mockIsPackaged();
+    },
+  },
   BrowserWindow: vi.fn(),
   ipcMain: {
     handle: (...args: unknown[]) => mockHandle(...args),
@@ -172,16 +178,51 @@ describe('permissionManager', () => {
   });
 
   describe('requestPermission', () => {
-    it('microphone: asks on macOS', async () => {
+    it('microphone: granted on macOS when already granted', async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
-      mockAskForMediaAccess.mockResolvedValueOnce(true);
+      mockGetMediaAccessStatus.mockReturnValueOnce('granted');
       expect(await requestPermission('microphone')).toBe('granted');
     });
 
-    it('microphone: denied on macOS', async () => {
+    it('microphone: asks via askForMediaAccess in packaged build', async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      mockIsPackaged.mockReturnValue(true);
+      mockGetMediaAccessStatus.mockReturnValueOnce('not-determined');
+      mockAskForMediaAccess.mockResolvedValueOnce(true);
+      expect(await requestPermission('microphone')).toBe('granted');
+      expect(mockAskForMediaAccess).toHaveBeenCalledWith('microphone');
+    });
+
+    it('microphone: denied via askForMediaAccess in packaged build', async () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      mockIsPackaged.mockReturnValue(true);
+      mockGetMediaAccessStatus.mockReturnValueOnce('not-determined');
       mockAskForMediaAccess.mockResolvedValueOnce(false);
       expect(await requestPermission('microphone')).toBe('denied');
+    });
+
+    it('microphone: returns not-determined in dev mode (skips askForMediaAccess)', async () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      mockIsPackaged.mockReturnValue(false);
+      mockGetMediaAccessStatus.mockReturnValueOnce('not-determined');
+      expect(await requestPermission('microphone')).toBe('not-determined');
+      expect(mockAskForMediaAccess).not.toHaveBeenCalled();
+    });
+
+    it('microphone: already denied skips askForMediaAccess', async () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      mockIsPackaged.mockReturnValue(true);
+      mockGetMediaAccessStatus.mockReturnValueOnce('denied');
+      expect(await requestPermission('microphone')).toBe('denied');
+      expect(mockAskForMediaAccess).not.toHaveBeenCalled();
+    });
+
+    it('camera: already denied skips askForMediaAccess', async () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      mockIsPackaged.mockReturnValue(true);
+      mockGetMediaAccessStatus.mockReturnValueOnce('denied');
+      expect(await requestPermission('camera')).toBe('denied');
+      expect(mockAskForMediaAccess).not.toHaveBeenCalled();
     });
 
     it('microphone: granted on Windows', async () => {
@@ -189,10 +230,27 @@ describe('permissionManager', () => {
       expect(await requestPermission('microphone')).toBe('granted');
     });
 
-    it('camera: asks on macOS', async () => {
+    it('camera: granted on macOS when already granted', async () => {
       Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      mockGetMediaAccessStatus.mockReturnValueOnce('granted');
+      expect(await requestPermission('camera')).toBe('granted');
+    });
+
+    it('camera: asks via askForMediaAccess in packaged build', async () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      mockIsPackaged.mockReturnValue(true);
+      mockGetMediaAccessStatus.mockReturnValueOnce('not-determined');
       mockAskForMediaAccess.mockResolvedValueOnce(true);
       expect(await requestPermission('camera')).toBe('granted');
+      expect(mockAskForMediaAccess).toHaveBeenCalledWith('camera');
+    });
+
+    it('camera: returns not-determined in dev mode', async () => {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      mockIsPackaged.mockReturnValue(false);
+      mockGetMediaAccessStatus.mockReturnValueOnce('not-determined');
+      expect(await requestPermission('camera')).toBe('not-determined');
+      expect(mockAskForMediaAccess).not.toHaveBeenCalled();
     });
 
     it('screen: opens settings on macOS', async () => {

@@ -29,14 +29,25 @@ vi.mock('@/renderer/services/apiClient', () => ({
   }),
 }));
 
+const mockPlay = vi.fn();
+vi.mock('@/renderer/services/notificationSoundService', () => ({
+  notificationSoundService: {
+    play: (...args: unknown[]) => mockPlay(...args),
+    init: vi.fn(),
+  },
+}));
+
 import { useWebSocketMessages } from '@/renderer/hooks/useWebSocketMessages';
 
 // Build a mock wsService with on() that captures handlers
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyHandler = (...args: any[]) => void;
+
 function createMockWsService() {
-  const handlers = new Map<string, Function>();
+  const handlers = new Map<string, AnyHandler>();
   return {
     handlers,
-    on: vi.fn((type: string, handler: Function) => {
+    on: vi.fn((type: string, handler: AnyHandler) => {
       handlers.set(type, handler);
       return () => handlers.delete(type);
     }),
@@ -45,6 +56,7 @@ function createMockWsService() {
 
 beforeEach(() => {
   resetAllStores();
+  mockPlay.mockClear();
   useAuthStore.getState().setAccessToken('mock-token');
   useChannelStore.getState().addChannel(mockChannel);
   useChatStore.setState({ isConnected: true });
@@ -151,5 +163,136 @@ describe('useWebSocketMessages', () => {
     unmount();
     // Cleanup functions should have been called, clearing handlers
     expect(ws.handlers.size).toBeLessThan(handlerCount);
+  });
+
+  describe('notification sounds', () => {
+    beforeEach(() => {
+      mockPlay.mockClear();
+    });
+
+    it('plays message sound on incoming channel message from another user', () => {
+      const ws = createMockWsService();
+      // Set current user to user-1 so messages from user-2 trigger sound
+      useAuthStore.getState().setAccessToken('mock-token');
+      renderHook(() => useWebSocketMessages(ws as never));
+
+      const handler = ws.handlers.get('message');
+      if (handler) {
+        act(() => {
+          handler({
+            type: 'message',
+            data: {
+              id: 'msg-sound-1',
+              channel_id: 'channel-1',
+              user_id: 'user-2',
+              content: 'Hello',
+              username: 'other',
+              is_encrypted: false,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            },
+          });
+        });
+        expect(mockPlay).toHaveBeenCalledWith('message', expect.any(Object));
+      }
+    });
+
+    it('plays mention sound on unread_notify with mentioned flag', () => {
+      const ws = createMockWsService();
+      renderHook(() => useWebSocketMessages(ws as never));
+
+      const handler = ws.handlers.get('unread_notify');
+      if (handler) {
+        act(() => {
+          handler({
+            type: 'unread_notify',
+            data: {
+              channel_id: 'channel-1',
+              mentioned: true,
+            },
+          });
+        });
+        expect(mockPlay).toHaveBeenCalledWith('mention');
+      }
+    });
+
+    it('plays message sound on unread_notify without mention', () => {
+      const ws = createMockWsService();
+      renderHook(() => useWebSocketMessages(ws as never));
+
+      const handler = ws.handlers.get('unread_notify');
+      if (handler) {
+        act(() => {
+          handler({
+            type: 'unread_notify',
+            data: {
+              channel_id: 'channel-1',
+              mentioned: false,
+            },
+          });
+        });
+        expect(mockPlay).toHaveBeenCalledWith('message');
+      }
+    });
+
+    it('plays user-join sound on voice_participant_joined', () => {
+      const ws = createMockWsService();
+      renderHook(() => useWebSocketMessages(ws as never));
+
+      const handler = ws.handlers.get('voice_participant_joined');
+      if (handler) {
+        act(() => {
+          handler({
+            type: 'voice_participant_joined',
+            data: {
+              channel_id: 'channel-1',
+              user_id: 'user-2',
+              username: 'other',
+            },
+          });
+        });
+        expect(mockPlay).toHaveBeenCalledWith('user-join');
+      }
+    });
+
+    it('plays user-leave sound on voice_participant_left', () => {
+      const ws = createMockWsService();
+      renderHook(() => useWebSocketMessages(ws as never));
+
+      const handler = ws.handlers.get('voice_participant_left');
+      if (handler) {
+        act(() => {
+          handler({
+            type: 'voice_participant_left',
+            data: {
+              channel_id: 'channel-1',
+              user_id: 'user-2',
+              username: 'other',
+            },
+          });
+        });
+        expect(mockPlay).toHaveBeenCalledWith('user-leave');
+      }
+    });
+
+    it('plays friend-request sound on friend_request_received', () => {
+      const ws = createMockWsService();
+      renderHook(() => useWebSocketMessages(ws as never));
+
+      const handler = ws.handlers.get('friend_request_received');
+      if (handler) {
+        act(() => {
+          handler({
+            type: 'friend_request_received',
+            data: {
+              id: 'fr-1',
+              from_user_id: 'user-2',
+              from_username: 'other',
+            },
+          });
+        });
+        expect(mockPlay).toHaveBeenCalledWith('friend-request');
+      }
+    });
   });
 });

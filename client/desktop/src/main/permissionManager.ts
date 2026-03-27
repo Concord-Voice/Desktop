@@ -12,6 +12,7 @@
  */
 
 import {
+  app,
   BrowserWindow,
   ipcMain,
   Notification,
@@ -145,15 +146,37 @@ export async function requestPermission(type: OsPermissionType): Promise<OsPermi
   switch (type) {
     case 'microphone':
       if (process.platform === 'darwin') {
-        const granted = await systemPreferences.askForMediaAccess('microphone');
-        return granted ? 'granted' : 'denied';
+        const micStatus = systemPreferences.getMediaAccessStatus('microphone');
+        if (micStatus === 'granted') return 'granted';
+        if (micStatus === 'denied' || micStatus === 'restricted') {
+          return mapMacMediaStatus(micStatus);
+        }
+        if (!app.isPackaged) {
+          // Dev mode: askForMediaAccess can SIGABRT when the Electron helper
+          // process lacks NSMicrophoneUsageDescription in its Info.plist.
+          // Return the raw status and let getUserMedia trigger the TCC prompt
+          // (safe after the postinstall plist patch).
+          return mapMacMediaStatus(micStatus);
+        }
+        // Production (packaged): askForMediaAccess works correctly because
+        // forge.config.ts sets the usage descriptions in the signed bundle.
+        const micGranted = await systemPreferences.askForMediaAccess('microphone');
+        return micGranted ? 'granted' : 'denied';
       }
       return 'granted';
 
     case 'camera':
       if (process.platform === 'darwin') {
-        const granted = await systemPreferences.askForMediaAccess('camera');
-        return granted ? 'granted' : 'denied';
+        const camStatus = systemPreferences.getMediaAccessStatus('camera');
+        if (camStatus === 'granted') return 'granted';
+        if (camStatus === 'denied' || camStatus === 'restricted') {
+          return mapMacMediaStatus(camStatus);
+        }
+        if (!app.isPackaged) {
+          return mapMacMediaStatus(camStatus);
+        }
+        const camGranted = await systemPreferences.askForMediaAccess('camera');
+        return camGranted ? 'granted' : 'denied';
       }
       return 'granted';
 

@@ -176,6 +176,11 @@ const createWindow = async (): Promise<void> => {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // Log renderer crashes to diagnose voice join segfaults
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
+    console.error('[MAIN] Renderer process gone:', details.reason, 'exitCode:', details.exitCode);
+  });
 };
 
 // Track rollback result so we can notify the renderer after window creation

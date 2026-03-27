@@ -98,6 +98,9 @@ function handleVoiceStateUpdate(msg: WebSocketMessage): void {
   const voiceStore = useVoiceStore.getState();
 
   // Update channel voice members (sidebar display)
+  const localUserId = useUserStore.getState().user?.id;
+  const isLocalUserInChannel = voiceStore.activeChannelId === channelId;
+
   if (action === 'joined' && userId) {
     voiceStore.addChannelVoiceMember(channelId, {
       userId,
@@ -106,9 +109,15 @@ function handleVoiceStateUpdate(msg: WebSocketMessage): void {
       isMuted: false,
     });
     if (serverId) voiceStore.incrementServerVoiceCount(serverId);
+    if (isLocalUserInChannel && userId !== localUserId) {
+      notificationSoundService.play('user-join');
+    }
   } else if (action === 'left' && userId) {
     voiceStore.removeChannelVoiceMember(channelId, userId);
     if (serverId) voiceStore.decrementServerVoiceCount(serverId);
+    if (isLocalUserInChannel && userId !== localUserId) {
+      notificationSoundService.play('user-leave');
+    }
   } else if (action === 'room_empty') {
     voiceStore.setChannelVoiceMembers(channelId, []);
   }

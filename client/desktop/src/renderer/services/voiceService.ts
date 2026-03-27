@@ -44,6 +44,7 @@ import type {
   E2EEMainMessage,
   E2EETransformOptions,
 } from '../workers/e2eeProtocol';
+import { notificationSoundService } from './notificationSoundService';
 
 // Toggle for verbose E2EE/SDP diagnostics — set to true when debugging
 // frame drops, BUNDLE collisions, or key rotation issues. When false,
@@ -1531,6 +1532,7 @@ class VoiceService {
       await this.consumeExistingProducers(roomJoined.existingProducers);
 
       store.setConnectionState('connected');
+      notificationSoundService.play('voice-join');
 
       // Step 10: Start decoder budget profiling (IGNIS insight)
       // Profiles decode performance and adjusts SVC layers to avoid queue buildup
@@ -1553,6 +1555,8 @@ class VoiceService {
       this.socket.emit('leave-room');
     }
     await this.cleanup();
+
+    notificationSoundService.play('voice-leave');
 
     // Remove local user from channel voice members immediately so the
     // channel sidebar updates without waiting for the server roundtrip.
@@ -1669,8 +1673,15 @@ class VoiceService {
    */
   private async acquireMicStream(): Promise<MediaStream | null> {
     try {
-      // JIT permission check (#197): request mic access on macOS before getUserMedia
-      await this.ensureOsPermission('microphone');
+      // JIT permission check (#197): request mic access on macOS before getUserMedia.
+      // On macOS, the plist patch (scripts/patch-electron-plist.sh) ensures the
+      // helper process has NSMicrophoneUsageDescription, so getUserMedia can safely
+      // trigger the native TCC prompt. We only block if explicitly denied/restricted.
+      const micStatus = await ensureOsPermissionShared('microphone');
+      if (micStatus === 'denied' || micStatus === 'restricted') {
+        console.warn(`[VoiceService] Mic permission ${micStatus}, skipping getUserMedia`);
+        return null;
+      }
 
       const adv = useAudioSettingsStore.getState();
       const useProcessing = !adv.musicMode;
@@ -2176,12 +2187,14 @@ class VoiceService {
       await producer.resume();
       this.socket?.emit('resume-producer', { producerId: producer.id });
       store.setMuted(false);
+      notificationSoundService.play('unmute');
       // Restart VAD when unmuting
       if (this.localMicStream) this.startLocalVAD(this.localMicStream);
     } else {
       await producer.pause();
       this.socket?.emit('pause-producer', { producerId: producer.id });
       store.setMuted(true);
+      notificationSoundService.play('mute');
       // Stop VAD when muted — user shouldn't show as speaking
       this.stopLocalVAD();
     }
@@ -2192,6 +2205,7 @@ class VoiceService {
     const store = useVoiceStore.getState();
     const newDeafened = !store.isDeafened;
     store.setDeafened(newDeafened);
+    notificationSoundService.play(newDeafened ? 'deafen' : 'undeafen');
 
     // Mute/unmute all audio consumers
     for (const [, consumer] of this.consumers) {
@@ -2215,8 +2229,10 @@ class VoiceService {
     const store = useVoiceStore.getState();
     if (store.isVideoOn) {
       await this.closeProducer('camera');
+      notificationSoundService.play('video-off');
     } else {
       await this.produceVideo(store.videoDeviceId || undefined);
+      notificationSoundService.play('video-on');
     }
   }
 
@@ -2226,8 +2242,10 @@ class VoiceService {
     console.debug('toggleScreenShare:', { isScreenSharing: store.isScreenSharing, sourceId });
     if (store.isScreenSharing) {
       await this.closeProducer('screen');
+      notificationSoundService.play('screen-off');
     } else {
       await this.produceScreen(sourceId, options);
+      notificationSoundService.play('screen-on');
     }
   }
 
@@ -2702,7 +2720,6 @@ class VoiceService {
    * DEBUG: Log the SDP from a transport's underlying PeerConnection.
    * Helps identify the source of the payload_type=45 BUNDLE collision.
    */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private logTransportSdp(transport: mediasoupTypes.Transport, label: string): void {
     if (!E2EE_VERBOSE) return; // Only log SDP when verbose debugging is enabled
     try {
@@ -3144,8 +3161,11 @@ class VoiceService {
       if (reason === 'io server disconnect') {
         // Server forcibly disconnected us — full cleanup
         this.emergencyCleanup();
-      } else {
+      } else if (reason !== 'io client disconnect') {
+        // Unexpected disconnect (transport close, ping timeout, etc.)
+        // Don't play for voluntary leaves — leaveChannel already plays voice-leave
         useVoiceStore.getState().setConnectionState('reconnecting');
+        notificationSoundService.play('disconnect');
       }
     });
 
@@ -3913,7 +3933,9 @@ class VoiceService {
    */
   private async ensureOsPermission(type: 'microphone' | 'camera'): Promise<void> {
     const status = await ensureOsPermissionShared(type);
-    if (status === 'granted') return;
+    // Allow 'granted' and 'not-determined' — getUserMedia will trigger the native
+    // TCC prompt for 'not-determined' (safe after plist patch).
+    if (status === 'granted' || status === 'not-determined') return;
 
     const label = type === 'microphone' ? 'Microphone' : 'Camera';
     if (status === 'denied' || status === 'restricted') {

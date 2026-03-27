@@ -14,6 +14,8 @@ export interface NotificationSoundSettings {
   dmSound: boolean;
   /** Play sound for friend requests */
   friendRequestSound: boolean;
+  /** Play sounds for voice channel events (join, leave, mute, etc.) */
+  voiceEventSounds: boolean;
   /** Suppress sound when the window is focused on the channel that received the message */
   suppressWhenFocused: boolean;
 }
@@ -25,6 +27,7 @@ interface NotificationStore extends NotificationSoundSettings {
   setMentionSound: (enabled: boolean) => void;
   setDmSound: (enabled: boolean) => void;
   setFriendRequestSound: (enabled: boolean) => void;
+  setVoiceEventSounds: (enabled: boolean) => void;
   setSuppressWhenFocused: (suppress: boolean) => void;
 }
 
@@ -37,6 +40,7 @@ export const useNotificationStore = create<NotificationStore>()(
       mentionSound: true,
       dmSound: true,
       friendRequestSound: true,
+      voiceEventSounds: true,
       suppressWhenFocused: true,
 
       setEnabled: (enabled) => set({ enabled }),
@@ -45,6 +49,7 @@ export const useNotificationStore = create<NotificationStore>()(
       setMentionSound: (enabled) => set({ mentionSound: enabled }),
       setDmSound: (enabled) => set({ dmSound: enabled }),
       setFriendRequestSound: (enabled) => set({ friendRequestSound: enabled }),
+      setVoiceEventSounds: (enabled) => set({ voiceEventSounds: enabled }),
       setSuppressWhenFocused: (suppress) => set({ suppressWhenFocused: suppress }),
     }),
     {
@@ -56,6 +61,7 @@ export const useNotificationStore = create<NotificationStore>()(
         mentionSound: state.mentionSound,
         dmSound: state.dmSound,
         friendRequestSound: state.friendRequestSound,
+        voiceEventSounds: state.voiceEventSounds,
         suppressWhenFocused: state.suppressWhenFocused,
       }),
     }

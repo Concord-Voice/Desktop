@@ -11,6 +11,7 @@ describe('notificationStore', () => {
       mentionSound: true,
       dmSound: true,
       friendRequestSound: true,
+      voiceEventSounds: true,
       suppressWhenFocused: true,
     });
   });
@@ -23,6 +24,7 @@ describe('notificationStore', () => {
     expect(state.mentionSound).toBe(true);
     expect(state.dmSound).toBe(true);
     expect(state.friendRequestSound).toBe(true);
+    expect(state.voiceEventSounds).toBe(true);
     expect(state.suppressWhenFocused).toBe(true);
   });
 
@@ -59,6 +61,11 @@ describe('notificationStore', () => {
 
     setFriendRequestSound(false);
     expect(useNotificationStore.getState().friendRequestSound).toBe(false);
+  });
+
+  it('toggles voiceEventSounds', () => {
+    useNotificationStore.getState().setVoiceEventSounds(false);
+    expect(useNotificationStore.getState().voiceEventSounds).toBe(false);
   });
 
   it('toggles suppressWhenFocused', () => {

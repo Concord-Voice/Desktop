@@ -29,6 +29,14 @@ const config: ForgeConfig = {
       ProductName: 'Concord Voice',
     },
     extraResource,
+    osxSign: undefined, // allow unsigned dev builds
+    darwinDarkModeSupport: true,
+    extendInfo: {
+      NSMicrophoneUsageDescription:
+        'Concord Voice needs microphone access for voice calls and audio communication.',
+      NSCameraUsageDescription:
+        'Concord Voice needs camera access for video calls.',
+    },
   },
   makers: [
     new MakerSquirrel({
