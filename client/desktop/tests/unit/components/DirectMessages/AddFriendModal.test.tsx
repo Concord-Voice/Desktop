@@ -36,11 +36,6 @@ vi.mock('@/renderer/components/ui/CustomSelect', () => ({
   ),
 }));
 
-// Mock clipboard
-Object.assign(navigator, {
-  clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
-});
-
 import AddFriendModal from '@/renderer/components/DirectMessages/AddFriendModal';
 
 describe('AddFriendModal', () => {

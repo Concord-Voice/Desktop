@@ -29,11 +29,6 @@ vi.mock('@/renderer/components/ui/ImageCropEditor', () => ({
   default: () => null,
 }));
 
-// Mock clipboard
-Object.assign(navigator, {
-  clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
-});
-
 import ServerSettingsModal from '@/renderer/components/Servers/ServerSettingsModal';
 
 const mockRoles: Role[] = [

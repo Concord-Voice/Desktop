@@ -3,6 +3,7 @@ import { render, screen } from '../../../test-utils';
 import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { useUserStore } from '@/renderer/stores/userStore';
 import { useAudioSettingsStore } from '@/renderer/stores/audioSettingsStore';
+import { resetAllStores } from '../../../helpers/store-helpers';
 
 // ── Child component mocks ──────────────────────────────────────────────────────
 vi.mock('@/renderer/components/Voice/ParticipantTile', () => ({
@@ -88,6 +89,7 @@ function makeMockStream(id = 'stream-1'): MediaStream {
 
 describe('AudioOutputs', () => {
   beforeEach(() => {
+    resetAllStores();
     vi.clearAllMocks();
     useVoiceStore.setState({ participants: {}, audioOutputDeviceId: null });
     useUserStore.setState({
@@ -254,6 +256,7 @@ describe('AudioOutputs', () => {
 
 describe('AudioOutput', () => {
   beforeEach(() => {
+    resetAllStores();
     vi.clearAllMocks();
     useAudioSettingsStore.setState({
       outputVolume: 100,
@@ -292,6 +295,7 @@ describe('AudioOutput', () => {
 
 describe('UserFrameGrid', () => {
   beforeEach(() => {
+    resetAllStores();
     vi.clearAllMocks();
     useVoiceStore.setState({ participants: {} });
     useUserStore.setState({

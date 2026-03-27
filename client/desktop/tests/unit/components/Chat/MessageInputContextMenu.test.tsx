@@ -1,14 +1,6 @@
 import { render, screen, fireEvent } from '../../../test-utils';
 import MessageInputContextMenu from '@/renderer/components/Chat/MessageInputContextMenu';
 
-// Mock clipboard
-Object.assign(navigator, {
-  clipboard: {
-    readText: vi.fn().mockResolvedValue('pasted text'),
-    writeText: vi.fn().mockResolvedValue(undefined),
-  },
-});
-
 describe('MessageInputContextMenu', () => {
   const mockOnClose = vi.fn();
   const mockOnPaste = vi.fn();
@@ -20,6 +12,8 @@ describe('MessageInputContextMenu', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Restore default readText return value after vi.clearAllMocks() clears call history
+    vi.mocked(navigator.clipboard.readText).mockResolvedValue('pasted text');
   });
 
   it('renders Paste menu item', () => {
@@ -48,7 +42,7 @@ describe('MessageInputContextMenu', () => {
 
   it('calls onClose even if clipboard read fails', async () => {
     (navigator.clipboard.readText as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error('denied'),
+      new Error('denied')
     );
     render(<MessageInputContextMenu {...defaultProps} />);
     fireEvent.click(screen.getByText('Paste'));

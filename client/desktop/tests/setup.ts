@@ -119,6 +119,17 @@ if (typeof window !== 'undefined') {
   if (!URL.revokeObjectURL) {
     URL.revokeObjectURL = vi.fn();
   }
+
+  // Mock navigator.clipboard — jsdom defines it as a getter-only property so
+  // Object.assign() throws. Use Object.defineProperty to install writable vi.fn()s.
+  Object.defineProperty(navigator, 'clipboard', {
+    value: {
+      writeText: vi.fn().mockResolvedValue(undefined),
+      readText: vi.fn().mockResolvedValue(''),
+    },
+    writable: true,
+    configurable: true,
+  });
 }
 
 // Suppress React act() warnings in test output

@@ -2,7 +2,16 @@ import { render, screen, fireEvent } from '../../../test-utils';
 import BackupCodeDisplay from '@/renderer/components/Settings/BackupCodeDisplay';
 
 describe('BackupCodeDisplay', () => {
-  const mockCodes = ['AAAA1111', 'BBBB2222', 'CCCC3333', 'DDDD4444', 'EEEE5555', 'FFFF6666', 'GGGG7777', 'HHHH8888'];
+  const mockCodes = [
+    'AAAA1111',
+    'BBBB2222',
+    'CCCC3333',
+    'DDDD4444',
+    'EEEE5555',
+    'FFFF6666',
+    'GGGG7777',
+    'HHHH8888',
+  ];
   const onConfirm = vi.fn();
 
   beforeEach(() => {
@@ -42,9 +51,7 @@ describe('BackupCodeDisplay', () => {
 
   it('renders confirmation checkbox', () => {
     render(<BackupCodeDisplay codes={mockCodes} onConfirm={onConfirm} />);
-    expect(
-      screen.getByText('I have saved my backup codes in a safe place')
-    ).toBeInTheDocument();
+    expect(screen.getByText('I have saved my backup codes in a safe place')).toBeInTheDocument();
     expect(screen.getByRole('checkbox')).not.toBeChecked();
   });
 
@@ -75,11 +82,9 @@ describe('BackupCodeDisplay', () => {
   });
 
   it('Copy All copies formatted text to clipboard', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.assign(navigator, { clipboard: { writeText } });
     render(<BackupCodeDisplay codes={mockCodes} onConfirm={onConfirm} />);
     fireEvent.click(screen.getByText('Copy All'));
-    expect(writeText).toHaveBeenCalledWith(
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
       mockCodes.map((c, i) => `${i + 1}. ${c}`).join('\n')
     );
   });

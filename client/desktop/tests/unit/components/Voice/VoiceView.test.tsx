@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent, act } from '../../../test-utils';
+import { resetAllStores } from '../../../helpers/store-helpers';
 import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { useChannelStore } from '@/renderer/stores/channelStore';
 
@@ -68,6 +69,7 @@ function setConnectedState(overrides: Record<string, unknown> = {}) {
 
 describe('VoiceView', () => {
   beforeEach(() => {
+    resetAllStores();
     vi.clearAllMocks();
     // Reset all fields touched by these tests so state never leaks between cases
     useVoiceStore.setState({

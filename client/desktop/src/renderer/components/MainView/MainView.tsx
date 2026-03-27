@@ -204,7 +204,7 @@ const MainView: React.FC = () => {
   // Include 'reconnecting' so AudioOutputs and PiP proxy survive transient
   // network blips — only tear them down on an explicit disconnect/reset.
   const isInVoice =
-    voiceActiveChannelId &&
+    Boolean(voiceActiveChannelId) &&
     (voiceConnectionState === 'connected' || voiceConnectionState === 'reconnecting');
   const isViewingOwnVoiceChannel =
     activeChannel?.type === 'voice' && activeChannel.id === voiceActiveChannelId;
