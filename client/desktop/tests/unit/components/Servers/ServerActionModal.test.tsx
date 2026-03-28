@@ -12,14 +12,24 @@ describe('ServerActionModal', () => {
 
   it('renders nothing when closed', () => {
     const { container } = render(
-      <ServerActionModal isOpen={false} onClose={mockOnClose} onCreateServer={mockOnCreateServer} onJoinServer={mockOnJoinServer} />,
+      <ServerActionModal
+        isOpen={false}
+        onClose={mockOnClose}
+        onCreateServer={mockOnCreateServer}
+        onJoinServer={mockOnJoinServer}
+      />
     );
     expect(container.querySelector('.modal-overlay')).not.toBeInTheDocument();
   });
 
   it('renders create and join options when open', () => {
     render(
-      <ServerActionModal isOpen={true} onClose={mockOnClose} onCreateServer={mockOnCreateServer} onJoinServer={mockOnJoinServer} />,
+      <ServerActionModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onCreateServer={mockOnCreateServer}
+        onJoinServer={mockOnJoinServer}
+      />
     );
     expect(screen.getByText('Create a Server')).toBeInTheDocument();
     expect(screen.getByText('Join a Server')).toBeInTheDocument();
@@ -27,7 +37,12 @@ describe('ServerActionModal', () => {
 
   it('calls onCreateServer and onClose when Create clicked', () => {
     render(
-      <ServerActionModal isOpen={true} onClose={mockOnClose} onCreateServer={mockOnCreateServer} onJoinServer={mockOnJoinServer} />,
+      <ServerActionModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onCreateServer={mockOnCreateServer}
+        onJoinServer={mockOnJoinServer}
+      />
     );
     fireEvent.click(screen.getByText('Create a Server'));
     expect(mockOnClose).toHaveBeenCalled();
@@ -36,7 +51,12 @@ describe('ServerActionModal', () => {
 
   it('calls onJoinServer and onClose when Join clicked', () => {
     render(
-      <ServerActionModal isOpen={true} onClose={mockOnClose} onCreateServer={mockOnCreateServer} onJoinServer={mockOnJoinServer} />,
+      <ServerActionModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onCreateServer={mockOnCreateServer}
+        onJoinServer={mockOnJoinServer}
+      />
     );
     fireEvent.click(screen.getByText('Join a Server'));
     expect(mockOnClose).toHaveBeenCalled();
@@ -45,7 +65,12 @@ describe('ServerActionModal', () => {
 
   it('shows descriptions', () => {
     render(
-      <ServerActionModal isOpen={true} onClose={mockOnClose} onCreateServer={mockOnCreateServer} onJoinServer={mockOnJoinServer} />,
+      <ServerActionModal
+        isOpen={true}
+        onClose={mockOnClose}
+        onCreateServer={mockOnCreateServer}
+        onJoinServer={mockOnJoinServer}
+      />
     );
     expect(screen.getByText('Start a new community from scratch')).toBeInTheDocument();
     expect(screen.getByText(/Enter an invite code/)).toBeInTheDocument();

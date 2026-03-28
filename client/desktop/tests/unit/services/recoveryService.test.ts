@@ -5,7 +5,11 @@ vi.mock('@/renderer/services/apiClient', () => ({
   refreshAccessToken: vi.fn(),
 }));
 
-import { runPreflight, markRendererCrashed, clearCrashFlag } from '@/renderer/services/recoveryService';
+import {
+  runPreflight,
+  markRendererCrashed,
+  clearCrashFlag,
+} from '@/renderer/services/recoveryService';
 import { refreshAccessToken } from '@/renderer/services/apiClient';
 
 const mockRefresh = vi.mocked(refreshAccessToken);
@@ -45,7 +49,8 @@ describe('recoveryService', () => {
     });
 
     it('returns serverReachable=false when health check fails', async () => {
-      global.fetch = vi.fn()
+      global.fetch = vi
+        .fn()
         .mockResolvedValueOnce({ ok: true }) // internet check
         .mockResolvedValueOnce({ ok: false }); // health check
 

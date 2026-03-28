@@ -27,7 +27,16 @@ vi.mock('@/renderer/components/Auth/Register', () => ({
   default: ({ onBack, onSuccess, onSwitchToLogin }: any) => (
     <div data-testid="register">
       <button onClick={onBack}>Back</button>
-      <button onClick={() => onSuccess({ accessToken: 'reg-token', user: { id: 'u1', username: 'newuser', e2ee_preference: false } })}>Register Success</button>
+      <button
+        onClick={() =>
+          onSuccess({
+            accessToken: 'reg-token',
+            user: { id: 'u1', username: 'newuser', e2ee_preference: false },
+          })
+        }
+      >
+        Register Success
+      </button>
       <button onClick={onSwitchToLogin}>Switch to Login</button>
     </div>
   ),
@@ -37,7 +46,17 @@ vi.mock('@/renderer/components/Auth/Login', () => ({
   default: ({ onBack, onSuccess, onSwitchToRegister }: any) => (
     <div data-testid="login">
       <button onClick={onBack}>Back</button>
-      <button onClick={() => onSuccess({ accessToken: 'login-token', user: { id: 'u1', username: 'existing', e2ee_preference: false }, rememberMe: false })}>Login Success</button>
+      <button
+        onClick={() =>
+          onSuccess({
+            accessToken: 'login-token',
+            user: { id: 'u1', username: 'existing', e2ee_preference: false },
+            rememberMe: false,
+          })
+        }
+      >
+        Login Success
+      </button>
       <button onClick={onSwitchToRegister}>Switch to Register</button>
     </div>
   ),

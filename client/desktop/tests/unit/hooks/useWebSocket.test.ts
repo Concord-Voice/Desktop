@@ -19,13 +19,17 @@ const mockWsService = {
   disconnect: vi.fn(),
   on: vi.fn((type: string, handler: Function) => {
     registeredHandlers.set(type, handler);
-    return () => { registeredHandlers.delete(type); };
+    return () => {
+      registeredHandlers.delete(type);
+    };
   }),
   onConnectionChange: vi.fn((handler: Function) => {
     connectionChangeHandler = handler;
     // Immediately call with DISCONNECTED (like the real service)
     handler(ConnectionState.DISCONNECTED);
-    return () => { connectionChangeHandler = null; };
+    return () => {
+      connectionChangeHandler = null;
+    };
   }),
   getConnectionInfo: vi.fn(() => null),
   getState: vi.fn(() => ConnectionState.DISCONNECTED),
@@ -185,7 +189,12 @@ describe('useWebSocket', () => {
       act(() => {
         handler({
           type: 'message_update',
-          data: { channel_id: 'ch-1', id: 'msg-1', content: 'Edited', edited_at: '2025-01-01T00:01:00Z' },
+          data: {
+            channel_id: 'ch-1',
+            id: 'msg-1',
+            content: 'Edited',
+            edited_at: '2025-01-01T00:01:00Z',
+          },
         });
       });
 
@@ -283,7 +292,7 @@ describe('useWebSocket', () => {
         });
       });
 
-      expect(useMemberStore.getState().members.some(m => m.user_id === 'user-2')).toBe(true);
+      expect(useMemberStore.getState().members.some((m) => m.user_id === 'user-2')).toBe(true);
     });
 
     it('ignores events for non-active server', () => {
@@ -307,9 +316,15 @@ describe('useWebSocket', () => {
     it('updates server in store', () => {
       useAuthStore.getState().setAccessToken('test-token');
       useServerStore.getState().addServer({
-        id: 'server-1', name: 'Old Name', owner_id: 'user-1',
-        e2ee_default: false, created_at: '', updated_at: '',
-        role: 'owner', member_count: 1, online_count: 1,
+        id: 'server-1',
+        name: 'Old Name',
+        owner_id: 'user-1',
+        e2ee_default: false,
+        created_at: '',
+        updated_at: '',
+        role: 'owner',
+        member_count: 1,
+        online_count: 1,
       });
       renderHook(() => useWebSocket());
 
@@ -329,9 +344,14 @@ describe('useWebSocket', () => {
     it('updates channel in store', () => {
       useAuthStore.getState().setAccessToken('test-token');
       useChannelStore.getState().addChannel({
-        id: 'ch-1', server_id: 'server-1', name: 'old-name',
-        type: 'text', is_encrypted: false, position: 0,
-        created_at: '', updated_at: '',
+        id: 'ch-1',
+        server_id: 'server-1',
+        name: 'old-name',
+        type: 'text',
+        is_encrypted: false,
+        position: 0,
+        created_at: '',
+        updated_at: '',
       });
       renderHook(() => useWebSocket());
 
@@ -351,9 +371,14 @@ describe('useWebSocket', () => {
     it('removes channel from store', () => {
       useAuthStore.getState().setAccessToken('test-token');
       useChannelStore.getState().addChannel({
-        id: 'ch-1', server_id: 'server-1', name: 'doomed',
-        type: 'text', is_encrypted: false, position: 0,
-        created_at: '', updated_at: '',
+        id: 'ch-1',
+        server_id: 'server-1',
+        name: 'doomed',
+        type: 'text',
+        is_encrypted: false,
+        position: 0,
+        created_at: '',
+        updated_at: '',
       });
       renderHook(() => useWebSocket());
 
@@ -370,9 +395,15 @@ describe('useWebSocket', () => {
     it('removes server from store', () => {
       useAuthStore.getState().setAccessToken('test-token');
       useServerStore.getState().addServer({
-        id: 'server-1', name: 'Doomed', owner_id: 'user-1',
-        e2ee_default: false, created_at: '', updated_at: '',
-        role: 'owner', member_count: 1, online_count: 1,
+        id: 'server-1',
+        name: 'Doomed',
+        owner_id: 'user-1',
+        e2ee_default: false,
+        created_at: '',
+        updated_at: '',
+        role: 'owner',
+        member_count: 1,
+        online_count: 1,
       });
       renderHook(() => useWebSocket());
 
@@ -389,12 +420,20 @@ describe('useWebSocket', () => {
     it('removes server when self is removed', () => {
       useAuthStore.getState().setAccessToken('test-token');
       useUserStore.getState().setUser({
-        id: 'user-1', username: 'me', e2ee_preference: false,
+        id: 'user-1',
+        username: 'me',
+        e2ee_preference: false,
       });
       useServerStore.getState().addServer({
-        id: 'server-1', name: 'Test', owner_id: 'user-2',
-        e2ee_default: false, created_at: '', updated_at: '',
-        role: 'member', member_count: 1, online_count: 1,
+        id: 'server-1',
+        name: 'Test',
+        owner_id: 'user-2',
+        e2ee_default: false,
+        created_at: '',
+        updated_at: '',
+        role: 'member',
+        member_count: 1,
+        online_count: 1,
       });
       renderHook(() => useWebSocket());
 
@@ -412,11 +451,16 @@ describe('useWebSocket', () => {
     it('removes other member from member list', () => {
       useAuthStore.getState().setAccessToken('test-token');
       useUserStore.getState().setUser({
-        id: 'user-1', username: 'me', e2ee_preference: false,
+        id: 'user-1',
+        username: 'me',
+        e2ee_preference: false,
       });
       useServerStore.getState().setActiveServer('server-1');
       useMemberStore.getState().addMember({
-        user_id: 'user-2', username: 'other', role: 'member', joined_at: '',
+        user_id: 'user-2',
+        username: 'other',
+        role: 'member',
+        joined_at: '',
       });
       renderHook(() => useWebSocket());
 
@@ -509,7 +553,9 @@ describe('useWebSocket', () => {
     it('updates user status', () => {
       useAuthStore.getState().setAccessToken('test-token');
       useUserStore.getState().setUser({
-        id: 'self-user', username: 'me', e2ee_preference: false,
+        id: 'self-user',
+        username: 'me',
+        e2ee_preference: false,
       });
       renderHook(() => useWebSocket());
 
@@ -527,7 +573,9 @@ describe('useWebSocket', () => {
     it('skips self user presence updates', () => {
       useAuthStore.getState().setAccessToken('test-token');
       useUserStore.getState().setUser({
-        id: 'self-user', username: 'me', e2ee_preference: false,
+        id: 'self-user',
+        username: 'me',
+        e2ee_preference: false,
       });
       renderHook(() => useWebSocket());
 
@@ -546,7 +594,9 @@ describe('useWebSocket', () => {
     it('records last_seen timestamp for offline transitions', () => {
       useAuthStore.getState().setAccessToken('test-token');
       useUserStore.getState().setUser({
-        id: 'self-user', username: 'me', e2ee_preference: false,
+        id: 'self-user',
+        username: 'me',
+        e2ee_preference: false,
       });
       renderHook(() => useWebSocket());
 
@@ -566,9 +616,15 @@ describe('useWebSocket', () => {
     it('updates server online counts', () => {
       useAuthStore.getState().setAccessToken('test-token');
       useServerStore.getState().addServer({
-        id: 'server-1', name: 'Test', owner_id: 'user-1',
-        e2ee_default: false, created_at: '', updated_at: '',
-        role: 'owner', member_count: 10, online_count: 1,
+        id: 'server-1',
+        name: 'Test',
+        owner_id: 'user-1',
+        e2ee_default: false,
+        created_at: '',
+        updated_at: '',
+        role: 'owner',
+        member_count: 10,
+        online_count: 1,
       });
       renderHook(() => useWebSocket());
 

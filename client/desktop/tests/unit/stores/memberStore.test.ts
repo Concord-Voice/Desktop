@@ -200,9 +200,7 @@ describe('memberStore', () => {
     });
 
     it('does not add offline users to onlineUserIds', () => {
-      useMemberStore.getState().setPresenceSnapshot([
-        { user_id: 'user-1', status: 'offline' },
-      ]);
+      useMemberStore.getState().setPresenceSnapshot([{ user_id: 'user-1', status: 'offline' }]);
       expect(useMemberStore.getState().onlineUserIds.has('user-1')).toBe(false);
       expect(useMemberStore.getState().userStatuses.get('user-1')).toBe('offline');
     });

@@ -98,7 +98,10 @@ describe('Register', () => {
     render(<Register onBack={onBack} onSuccess={onSuccess} onSwitchToLogin={onSwitchToLogin} />);
     await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
     await user.type(screen.getByPlaceholderText('your_username'), 'testuser');
-    await user.type(screen.getByPlaceholderText('Create a strong password'), 'MySecurePassword123!');
+    await user.type(
+      screen.getByPlaceholderText('Create a strong password'),
+      'MySecurePassword123!'
+    );
     await user.type(screen.getByPlaceholderText('Confirm your password'), 'DifferentPassword456!');
     await user.click(screen.getByText('Create Account'));
     expect(screen.getByText('Passwords do not match')).toBeInTheDocument();
@@ -109,7 +112,10 @@ describe('Register', () => {
     render(<Register onBack={onBack} onSuccess={onSuccess} onSwitchToLogin={onSwitchToLogin} />);
     await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
     await user.type(screen.getByPlaceholderText('your_username'), 'testuser');
-    await user.type(screen.getByPlaceholderText('Create a strong password'), 'MySecurePassword123!');
+    await user.type(
+      screen.getByPlaceholderText('Create a strong password'),
+      'MySecurePassword123!'
+    );
     await user.type(screen.getByPlaceholderText('Confirm your password'), 'MySecurePassword123!');
     await user.click(screen.getByText('Create Account'));
     expect(screen.getByText(/must confirm you are at least 16/)).toBeInTheDocument();
@@ -154,7 +160,10 @@ describe('Register', () => {
     render(<Register onBack={onBack} onSuccess={onSuccess} onSwitchToLogin={onSwitchToLogin} />);
     await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
     await user.type(screen.getByPlaceholderText('your_username'), 'testuser');
-    await user.type(screen.getByPlaceholderText('Create a strong password'), 'MySecurePassword123!');
+    await user.type(
+      screen.getByPlaceholderText('Create a strong password'),
+      'MySecurePassword123!'
+    );
     await user.type(screen.getByPlaceholderText('Confirm your password'), 'MySecurePassword123!');
     // Click age confirmation checkbox
     await user.click(screen.getByText(/at least 16 years old/));
@@ -164,7 +173,7 @@ describe('Register', () => {
       expect(onSuccess).toHaveBeenCalledWith(
         expect.objectContaining({
           accessToken: 'mock-access',
-        }),
+        })
       );
     });
   });
@@ -179,7 +188,10 @@ describe('Register', () => {
     render(<Register onBack={onBack} onSuccess={onSuccess} onSwitchToLogin={onSwitchToLogin} />);
     await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
     await user.type(screen.getByPlaceholderText('your_username'), 'testuser');
-    await user.type(screen.getByPlaceholderText('Create a strong password'), 'MySecurePassword123!');
+    await user.type(
+      screen.getByPlaceholderText('Create a strong password'),
+      'MySecurePassword123!'
+    );
     await user.type(screen.getByPlaceholderText('Confirm your password'), 'MySecurePassword123!');
     await user.click(screen.getByText(/at least 16 years old/));
     await user.click(screen.getByText('Create Account'));

@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from '../../../test-utils';
 import { useInviteStore } from '@/renderer/stores/inviteStore';
 import { usePermissionStore } from '@/renderer/stores/permissionStore';
 import { useMemberStore } from '@/renderer/stores/memberStore';
+import { useServerStore } from '@/renderer/stores/serverStore';
 import { mockServer } from '../../../mocks/fixtures';
 import type { ServerWithRole, Role } from '@/renderer/types/server';
 import {
@@ -10,6 +11,7 @@ import {
   BASE_PERMISSIONS,
   MANAGE_ROLES,
   MANAGE_ROLES_ASSIGN,
+  INVITE,
 } from '@/renderer/utils/permissions';
 
 // Mock apiFetch
@@ -328,6 +330,72 @@ describe('ServerSettingsModal', () => {
     expect(screen.getByText('Server name is required')).toBeInTheDocument();
   });
 
+  it('validates server name too short', () => {
+    render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
+    const input = screen.getByPlaceholderText('My Awesome Server');
+    fireEvent.change(input, { target: { value: 'A' } });
+    fireEvent.click(screen.getByText('Save Changes'));
+    expect(screen.getByText(/at least/)).toBeInTheDocument();
+  });
+
+  it('clears name error on input change', () => {
+    render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
+    const input = screen.getByPlaceholderText('My Awesome Server');
+    fireEvent.change(input, { target: { value: '  ' } });
+    fireEvent.click(screen.getByText('Save Changes'));
+    expect(screen.getByText('Server name is required')).toBeInTheDocument();
+    // Type a valid name — error should clear
+    fireEvent.change(input, { target: { value: 'Valid Name' } });
+    expect(screen.queryByText('Server name is required')).not.toBeInTheDocument();
+  });
+
+  it('disables submit button while submitting', async () => {
+    let resolveApi: (value: unknown) => void;
+    mockApiFetch.mockReturnValue(
+      new Promise((resolve) => {
+        resolveApi = resolve;
+      })
+    );
+    render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
+    const input = screen.getByPlaceholderText('My Awesome Server');
+    fireEvent.change(input, { target: { value: 'New Name' } });
+    fireEvent.click(screen.getByText('Save Changes'));
+    // Should show saving state
+    await vi.waitFor(() => {
+      expect(screen.getByText('Saving...')).toBeInTheDocument();
+    });
+    // Resolve
+    resolveApi!({
+      ok: true,
+      json: async () => ({ server: { ...ownerServer, name: 'New Name' } }),
+    });
+  });
+
+  it('does not close modal while submitting', async () => {
+    let resolveApi: (value: unknown) => void;
+    mockApiFetch.mockReturnValue(
+      new Promise((resolve) => {
+        resolveApi = resolve;
+      })
+    );
+    render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
+    const input = screen.getByPlaceholderText('My Awesome Server');
+    fireEvent.change(input, { target: { value: 'New Name' } });
+    fireEvent.click(screen.getByText('Save Changes'));
+    // Try to cancel while submitting
+    await vi.waitFor(() => {
+      expect(screen.getByText('Saving...')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText('Cancel'));
+    // onClose should not be called while submitting
+    expect(mockOnClose).not.toHaveBeenCalled();
+    // Cleanup
+    resolveApi!({
+      ok: true,
+      json: async () => ({ server: { ...ownerServer, name: 'New Name' } }),
+    });
+  });
+
   // ── Tabs ──
 
   it('shows General tab by default', () => {
@@ -479,6 +547,74 @@ describe('ServerSettingsModal', () => {
     });
   });
 
+  it('calls updateRole when Save Role is clicked', async () => {
+    const mockUpdateRole = vi.fn().mockResolvedValue(undefined);
+    usePermissionStore.setState({
+      serverPermissions: { 'server-1': ADMIN_PERMISSIONS | MANAGE_SERVER | MANAGE_ROLES },
+      serverRoles: { 'server-1': mockRoles },
+      fetchRoles: vi.fn().mockResolvedValue(undefined),
+      updateRole: mockUpdateRole,
+    });
+    render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
+    fireEvent.click(screen.getByText('Roles'));
+    fireEvent.click(screen.getByText('Moderator'));
+    // Change role name
+    const nameInput = screen.getByDisplayValue('Moderator') as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: 'Senior Mod' } });
+    fireEvent.click(screen.getByText('Save Role'));
+    await vi.waitFor(() => {
+      expect(mockUpdateRole).toHaveBeenCalledWith(
+        'server-1',
+        'role-mod',
+        expect.objectContaining({
+          name: 'Senior Mod',
+        })
+      );
+    });
+  });
+
+  it('calls deleteRole when Delete is clicked', async () => {
+    const mockDeleteRole = vi.fn().mockResolvedValue(true);
+    usePermissionStore.setState({
+      serverPermissions: { 'server-1': ADMIN_PERMISSIONS | MANAGE_SERVER | MANAGE_ROLES },
+      serverRoles: { 'server-1': mockRoles },
+      fetchRoles: vi.fn().mockResolvedValue(undefined),
+      deleteRole: mockDeleteRole,
+    });
+    render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
+    fireEvent.click(screen.getByText('Roles'));
+    fireEvent.click(screen.getByText('Moderator'));
+    fireEvent.click(screen.getByText('Delete'));
+    await vi.waitFor(() => {
+      expect(mockDeleteRole).toHaveBeenCalledWith('server-1', 'role-mod');
+    });
+  });
+
+  it('loads selected role data into editor fields', () => {
+    usePermissionStore.setState({
+      serverPermissions: { 'server-1': ADMIN_PERMISSIONS | MANAGE_SERVER | MANAGE_ROLES },
+      serverRoles: { 'server-1': mockRoles },
+      fetchRoles: vi.fn().mockResolvedValue(undefined),
+    });
+    render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
+    fireEvent.click(screen.getByText('Roles'));
+    fireEvent.click(screen.getByText('Moderator'));
+    // Check that the name input has the role name
+    expect(screen.getByDisplayValue('Moderator')).toBeInTheDocument();
+    // Check that Display Separately checkbox is checked
+    const displaySepCheckbox = screen
+      .getByText('Display Separately')
+      .closest('label')
+      ?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(displaySepCheckbox.checked).toBe(true);
+    // Check that Mentionable checkbox is checked
+    const mentionableCheckbox = screen
+      .getByText('Mentionable')
+      .closest('label')
+      ?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(mentionableCheckbox.checked).toBe(true);
+  });
+
   // ── Members Tab ──
 
   it('switches to Members tab and shows member list', () => {
@@ -577,5 +713,133 @@ describe('ServerSettingsModal', () => {
     expect(
       screen.getByText('No roles available to assign. Create roles in the Roles tab first.')
     ).toBeInTheDocument();
+  });
+
+  it('collapses member row on second click', () => {
+    usePermissionStore.setState({
+      serverPermissions: {
+        'server-1': ADMIN_PERMISSIONS | MANAGE_SERVER | MANAGE_ROLES | MANAGE_ROLES_ASSIGN,
+      },
+      serverRoles: { 'server-1': mockRoles },
+      fetchRoles: vi.fn().mockResolvedValue(undefined),
+    });
+    useMemberStore.setState({
+      members: [
+        {
+          user_id: 'user-1',
+          username: 'testuser',
+          display_name: 'Test User',
+          avatar_url: null,
+          roles: [],
+        },
+      ],
+      fetchMembers: vi.fn().mockResolvedValue(undefined),
+    });
+    render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
+    fireEvent.click(screen.getByText('Members'));
+    // Expand
+    fireEvent.click(screen.getByText('Test User'));
+    expect(document.querySelector('.member-role-assignment')).toBeInTheDocument();
+    // Collapse
+    fireEvent.click(screen.getByText('Test User'));
+    expect(document.querySelector('.member-role-assignment')).not.toBeInTheDocument();
+  });
+
+  it('shows member username when display name is set', () => {
+    usePermissionStore.setState({
+      serverPermissions: {
+        'server-1': ADMIN_PERMISSIONS | MANAGE_SERVER | MANAGE_ROLES | MANAGE_ROLES_ASSIGN,
+      },
+      serverRoles: { 'server-1': mockRoles },
+      fetchRoles: vi.fn().mockResolvedValue(undefined),
+    });
+    useMemberStore.setState({
+      members: [
+        {
+          user_id: 'user-1',
+          username: 'testuser',
+          display_name: 'Test User',
+          avatar_url: null,
+          roles: [],
+        },
+      ],
+      fetchMembers: vi.fn().mockResolvedValue(undefined),
+    });
+    render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
+    fireEvent.click(screen.getByText('Members'));
+    expect(screen.getByText('@testuser')).toBeInTheDocument();
+  });
+
+  it('shows role badges on members', () => {
+    usePermissionStore.setState({
+      serverPermissions: {
+        'server-1': ADMIN_PERMISSIONS | MANAGE_SERVER | MANAGE_ROLES | MANAGE_ROLES_ASSIGN,
+      },
+      serverRoles: { 'server-1': mockRoles },
+      fetchRoles: vi.fn().mockResolvedValue(undefined),
+    });
+    useMemberStore.setState({
+      members: [
+        {
+          user_id: 'user-1',
+          username: 'testuser',
+          display_name: 'Test User',
+          avatar_url: null,
+          roles: [{ role_id: 'role-mod', role_name: 'Moderator', role_color: '#e74c3c' }],
+        },
+      ],
+      fetchMembers: vi.fn().mockResolvedValue(undefined),
+    });
+    render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
+    fireEvent.click(screen.getByText('Members'));
+    const badge = document.querySelector('.role-badge');
+    expect(badge).toBeInTheDocument();
+    expect(badge?.textContent).toBe('Moderator');
+  });
+
+  // ── Invite hint text ──
+
+  it('shows invite default hint', () => {
+    render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
+    expect(screen.getByText(/Invites default to 1 use, expire in 24 hours/)).toBeInTheDocument();
+  });
+
+  // ── Reset on server change ──
+
+  it('resets form when server prop changes', () => {
+    const { rerender } = render(
+      <ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />
+    );
+    const input = screen.getByPlaceholderText('My Awesome Server') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Changed Name' } });
+    expect(input.value).toBe('Changed Name');
+
+    // Change server prop
+    const newServer = { ...ownerServer, id: 'server-2', name: 'Other Server' };
+    rerender(<ServerSettingsModal isOpen={true} server={newServer} onClose={mockOnClose} />);
+    const newInput = screen.getByPlaceholderText('My Awesome Server') as HTMLInputElement;
+    expect(newInput.value).toBe('Other Server');
+  });
+
+  // ── Banner upload area ──
+
+  it('renders banner upload area in general tab', () => {
+    render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
+    // BannerUploadArea should render with hint text
+    expect(screen.getByText(/PNG, JPEG, GIF, WebP/)).toBeInTheDocument();
+  });
+
+  // ── Permissions section in role editor ──
+
+  it('shows Permissions section in role editor', () => {
+    usePermissionStore.setState({
+      serverPermissions: { 'server-1': ADMIN_PERMISSIONS | MANAGE_SERVER | MANAGE_ROLES },
+      serverRoles: { 'server-1': mockRoles },
+      fetchRoles: vi.fn().mockResolvedValue(undefined),
+    });
+    render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
+    fireEvent.click(screen.getByText('Roles'));
+    fireEvent.click(screen.getByText('Moderator'));
+    expect(screen.getByText('Permissions')).toBeInTheDocument();
   });
 });

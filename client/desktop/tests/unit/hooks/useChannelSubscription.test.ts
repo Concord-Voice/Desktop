@@ -58,10 +58,9 @@ describe('useChannelSubscription', () => {
   });
 
   it('resubscribes when channelId changes', () => {
-    const { rerender } = renderHook(
-      ({ channelId }) => useChannelSubscription(channelId),
-      { initialProps: { channelId: 'channel-1' as string | null } },
-    );
+    const { rerender } = renderHook(({ channelId }) => useChannelSubscription(channelId), {
+      initialProps: { channelId: 'channel-1' as string | null },
+    });
 
     expect(mockSubscribe).toHaveBeenCalledWith('channel-1');
 

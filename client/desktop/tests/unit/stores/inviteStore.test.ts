@@ -27,12 +27,20 @@ describe('inviteStore', () => {
     it('clears all invite data', () => {
       useInviteStore.setState({
         invites: {
-          'server-1': [{
-            id: 'invite-1', server_id: 'server-1', code: 'ABC12345',
-            created_by: 'user-1', creator_username: 'testuser',
-            max_uses: null, use_count: 0, expires_at: null,
-            is_revoked: false, created_at: '2025-01-01T00:00:00Z',
-          }],
+          'server-1': [
+            {
+              id: 'invite-1',
+              server_id: 'server-1',
+              code: 'ABC12345',
+              created_by: 'user-1',
+              creator_username: 'testuser',
+              max_uses: null,
+              use_count: 0,
+              expires_at: null,
+              is_revoked: false,
+              created_at: '2025-01-01T00:00:00Z',
+            },
+          ],
         },
       });
       useInviteStore.getState().clearInvites();
@@ -45,12 +53,20 @@ describe('inviteStore', () => {
       server.use(
         http.get(`${API_BASE}/api/v1/servers/server-1/invites`, () => {
           return HttpResponse.json({
-            invites: [{
-              id: 'inv-1', server_id: 'server-1', code: 'ABC123',
-              created_by: 'user-1', creator_username: 'admin',
-              max_uses: 10, use_count: 2, expires_at: null,
-              is_revoked: false, created_at: '2025-01-01T00:00:00Z',
-            }],
+            invites: [
+              {
+                id: 'inv-1',
+                server_id: 'server-1',
+                code: 'ABC123',
+                created_by: 'user-1',
+                creator_username: 'admin',
+                max_uses: 10,
+                use_count: 2,
+                expires_at: null,
+                is_revoked: false,
+                created_at: '2025-01-01T00:00:00Z',
+              },
+            ],
           });
         })
       );
@@ -97,12 +113,20 @@ describe('inviteStore', () => {
     it('marks invite as revoked in cache', async () => {
       useInviteStore.setState({
         invites: {
-          'server-1': [{
-            id: 'inv-1', server_id: 'server-1', code: 'CODE1',
-            created_by: 'user-1', creator_username: 'admin',
-            max_uses: null, use_count: 0, expires_at: null,
-            is_revoked: false, created_at: '2025-01-01T00:00:00Z',
-          }],
+          'server-1': [
+            {
+              id: 'inv-1',
+              server_id: 'server-1',
+              code: 'CODE1',
+              created_by: 'user-1',
+              creator_username: 'admin',
+              max_uses: null,
+              use_count: 0,
+              expires_at: null,
+              is_revoked: false,
+              created_at: '2025-01-01T00:00:00Z',
+            },
+          ],
         },
       });
       server.use(

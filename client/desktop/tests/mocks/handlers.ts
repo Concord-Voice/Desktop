@@ -1,21 +1,32 @@
 import { http, HttpResponse } from 'msw';
-import { mockUser, mockServer, mockChannel, mockMessage, mockMember, mockMember2, mockE2EEKeys } from './fixtures';
+import {
+  mockUser,
+  mockServer,
+  mockChannel,
+  mockMessage,
+  mockMember,
+  mockMember2,
+  mockE2EEKeys,
+} from './fixtures';
 
 const API_BASE = 'http://localhost:8080';
 
 export const handlers = [
   // --- Auth ---
   http.post(`${API_BASE}/api/v1/auth/register`, () => {
-    return HttpResponse.json({
-      access_token: 'mock-access-token',
-      expires_in: 900,
-      remember_me: true,
-      user: {
-        id: mockUser.id,
-        username: mockUser.username,
-        e2ee_preference: false,
+    return HttpResponse.json(
+      {
+        access_token: 'mock-access-token',
+        expires_in: 900,
+        remember_me: true,
+        user: {
+          id: mockUser.id,
+          username: mockUser.username,
+          e2ee_preference: false,
+        },
       },
-    }, { status: 201 });
+      { status: 201 }
+    );
   }),
 
   http.post(`${API_BASE}/api/v1/auth/login`, () => {
@@ -114,18 +125,21 @@ export const handlers = [
 
   // --- Invites ---
   http.post(`${API_BASE}/api/v1/servers/:id/invites`, () => {
-    return HttpResponse.json({
-      invite: {
-        id: 'invite-1',
-        server_id: 'server-1',
-        code: 'TESTCODE',
-        max_uses: 1,
-        use_count: 0,
-        expires_at: null,
-        is_revoked: false,
-        created_at: '2025-01-01T00:00:00Z',
+    return HttpResponse.json(
+      {
+        invite: {
+          id: 'invite-1',
+          server_id: 'server-1',
+          code: 'TESTCODE',
+          max_uses: 1,
+          use_count: 0,
+          expires_at: null,
+          is_revoked: false,
+          created_at: '2025-01-01T00:00:00Z',
+        },
       },
-    }, { status: 201 });
+      { status: 201 }
+    );
   }),
 
   http.get(`${API_BASE}/api/v1/servers/:id/invites`, () => {

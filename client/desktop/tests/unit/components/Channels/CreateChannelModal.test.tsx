@@ -39,15 +39,13 @@ describe('CreateChannelModal', () => {
 
   it('renders nothing when closed', () => {
     const { container } = render(
-      <CreateChannelModal isOpen={false} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <CreateChannelModal isOpen={false} onClose={mockOnClose} onSuccess={mockOnSuccess} />
     );
     expect(container.querySelector('.modal-overlay')).not.toBeInTheDocument();
   });
 
   it('renders form when open', () => {
-    render(
-      <CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
     expect(screen.getByPlaceholderText('general-chat')).toBeInTheDocument();
     expect(screen.getByText('Text')).toBeInTheDocument();
     expect(screen.getByText('Voice')).toBeInTheDocument();
@@ -55,17 +53,13 @@ describe('CreateChannelModal', () => {
   });
 
   it('shows validation error for empty name', () => {
-    render(
-      <CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
     fireEvent.click(screen.getByText('Create Channel', { selector: 'button[type="submit"]' }));
     expect(screen.getByText('Channel name is required')).toBeInTheDocument();
   });
 
   it('shows validation error for short name', () => {
-    render(
-      <CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
     fireEvent.change(screen.getByPlaceholderText('general-chat'), {
       target: { value: 'ab' },
     });
@@ -81,9 +75,7 @@ describe('CreateChannelModal', () => {
       json: async () => ({ channel: { ...mockChannel, name: 'new-channel' } }),
     } as Response);
 
-    render(
-      <CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 
     fireEvent.change(screen.getByPlaceholderText('general-chat'), {
       target: { value: 'new-channel' },
@@ -109,9 +101,7 @@ describe('CreateChannelModal', () => {
       json: async () => ({ error: 'Duplicate name' }),
     } as Response);
 
-    render(
-      <CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 
     fireEvent.change(screen.getByPlaceholderText('general-chat'), {
       target: { value: 'new-channel' },
@@ -127,9 +117,7 @@ describe('CreateChannelModal', () => {
   });
 
   it('toggles encryption setting', () => {
-    render(
-      <CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
     // Server e2ee_default is false, so initially disabled
     expect(screen.getByText('Encryption Disabled')).toBeInTheDocument();
     const toggleBtn = screen.getByText('Encryption Disabled').closest('button')!;
@@ -138,26 +126,20 @@ describe('CreateChannelModal', () => {
   });
 
   it('selects voice channel type', () => {
-    render(
-      <CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
     const voiceBtn = screen.getByText('Voice').closest('button');
     fireEvent.click(voiceBtn!);
     expect(voiceBtn).toHaveClass('selected');
   });
 
   it('calls onClose when Cancel is clicked', () => {
-    render(
-      <CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
     fireEvent.click(screen.getByText('Cancel'));
     expect(mockOnClose).toHaveBeenCalled();
   });
 
   it('shows character count', () => {
-    render(
-      <CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
     expect(screen.getByText('0/100 characters')).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText('general-chat'), {
       target: { value: 'Test' },

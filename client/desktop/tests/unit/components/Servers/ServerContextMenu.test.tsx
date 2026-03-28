@@ -43,7 +43,7 @@ describe('ServerContextMenu', () => {
         onDeleteServer={mockOnDeleteServer}
         onLeaveServer={mockOnLeaveServer}
         onInvite={mockOnInvite}
-      />,
+      />
     );
   };
 

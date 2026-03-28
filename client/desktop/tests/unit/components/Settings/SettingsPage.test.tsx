@@ -130,7 +130,10 @@ describe('SettingsPage', () => {
 
   it('toggles compact mode', () => {
     render(<SettingsPage />);
-    const toggle = screen.getByText('Compact Mode').closest('.settings-row')?.querySelector('input[type="checkbox"]');
+    const toggle = screen
+      .getByText('Compact Mode')
+      .closest('.settings-row')
+      ?.querySelector('input[type="checkbox"]');
     expect(toggle).toBeInTheDocument();
     fireEvent.click(toggle!);
     expect(useSettingsStore.getState().appearance.compactMode).toBe(true);
@@ -138,7 +141,10 @@ describe('SettingsPage', () => {
 
   it('toggles reduce animations', () => {
     render(<SettingsPage />);
-    const toggle = screen.getByText('Reduce Animations').closest('.settings-row')?.querySelector('input[type="checkbox"]');
+    const toggle = screen
+      .getByText('Reduce Animations')
+      .closest('.settings-row')
+      ?.querySelector('input[type="checkbox"]');
     expect(toggle).toBeInTheDocument();
     fireEvent.click(toggle!);
     expect(useSettingsStore.getState().appearance.reduceAnimations).toBe(true);
@@ -400,5 +406,76 @@ describe('SettingsPage', () => {
     // jsdom converts hex to rgb in inline styles, so check for gradient presence
     expect(customCircle.style.background).toContain('linear-gradient');
     expect(customCircle.style.background).toContain('135deg');
+  });
+
+  // ─── About & Updates section ──────────────────────────────────────────
+
+  it('renders About & Updates nav item', () => {
+    render(<SettingsPage />);
+    expect(screen.getByText('About & Updates')).toBeInTheDocument();
+  });
+
+  it('switches to About section', () => {
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByText('About & Updates'));
+    // About section should render
+    const clientInfoEls = screen.getAllByText('Client Info');
+    expect(clientInfoEls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ─── Accessibility section ──────────────────────────────────────────
+
+  it('switches to Accessibility section', () => {
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Accessibility'));
+    const ttsEls = screen.getAllByText('Text-to-Speech');
+    expect(ttsEls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ─── Layout structure ──────────────────────────────────────────────────
+
+  it('has settings-layout container', () => {
+    render(<SettingsPage />);
+    expect(document.querySelector('.settings-layout')).toBeInTheDocument();
+  });
+
+  it('has settings-content area', () => {
+    render(<SettingsPage />);
+    expect(document.querySelector('.settings-content')).toBeInTheDocument();
+  });
+
+  it('has settings-page-content wrapper', () => {
+    render(<SettingsPage />);
+    expect(document.querySelector('.settings-page-content')).toBeInTheDocument();
+  });
+
+  // ─── Navigation state ──────────────────────────────────────────────────
+
+  it('only one nav item is active at a time', () => {
+    render(<SettingsPage />);
+    const activeItems = document.querySelectorAll('.settings-nav-item.active');
+    expect(activeItems.length).toBe(1);
+  });
+
+  it('clicking a new section changes active state', () => {
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Privacy & Security'));
+    const activeItems = document.querySelectorAll('.settings-nav-item.active');
+    expect(activeItems.length).toBe(1);
+    expect(activeItems[0].textContent).toContain('Privacy & Security');
+  });
+
+  // ─── Disabled items ──────────────────────────────────────────────────
+
+  it('Account nav item is disabled', () => {
+    render(<SettingsPage />);
+    const accountBtn = screen.getByText('Account').closest('button');
+    expect(accountBtn).toBeDisabled();
+  });
+
+  it('Notifications nav item is disabled', () => {
+    render(<SettingsPage />);
+    const notifBtn = screen.getByText('Notifications').closest('button');
+    expect(notifBtn).toBeDisabled();
   });
 });

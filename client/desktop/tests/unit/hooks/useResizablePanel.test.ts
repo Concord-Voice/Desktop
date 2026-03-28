@@ -13,7 +13,7 @@ describe('useResizablePanel', () => {
         minWidth: 200,
         maxWidth: 400,
         side: 'left',
-      }),
+      })
     );
     expect(result.current.width).toBe(250);
   });
@@ -27,7 +27,7 @@ describe('useResizablePanel', () => {
         maxWidth: 400,
         side: 'left',
         storageKey: 'panel-width',
-      }),
+      })
     );
     expect(result.current.width).toBe(300);
   });
@@ -41,7 +41,7 @@ describe('useResizablePanel', () => {
         maxWidth: 400,
         side: 'left',
         storageKey: 'panel-width',
-      }),
+      })
     );
     expect(result.current.width).toBe(250);
   });
@@ -55,7 +55,7 @@ describe('useResizablePanel', () => {
         maxWidth: 400,
         side: 'left',
         storageKey: 'panel-width',
-      }),
+      })
     );
     expect(result.current.width).toBe(250);
   });
@@ -67,7 +67,7 @@ describe('useResizablePanel', () => {
         minWidth: 200,
         maxWidth: 400,
         side: 'left',
-      }),
+      })
     );
     expect(result.current.onMouseDown).toBeInstanceOf(Function);
   });
@@ -79,7 +79,7 @@ describe('useResizablePanel', () => {
         minWidth: 200,
         maxWidth: 400,
         side: 'left',
-      }),
+      })
     );
 
     // Simulate mouse down
@@ -110,7 +110,7 @@ describe('useResizablePanel', () => {
         minWidth: 200,
         maxWidth: 400,
         side: 'right',
-      }),
+      })
     );
 
     act(() => {
@@ -139,7 +139,7 @@ describe('useResizablePanel', () => {
         minWidth: 200,
         maxWidth: 400,
         side: 'left',
-      }),
+      })
     );
 
     act(() => {
@@ -169,7 +169,7 @@ describe('useResizablePanel', () => {
         maxWidth: 400,
         side: 'left',
         storageKey: 'panel-width',
-      }),
+      })
     );
 
     act(() => {

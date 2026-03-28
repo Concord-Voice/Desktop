@@ -147,7 +147,10 @@ describe('WebSocketService', () => {
   describe('message handling', () => {
     it('stores connection info from connected message', async () => {
       const ws = await connectAndWaitForOpen(service);
-      ws.simulateMessage({ type: 'connected', data: { client_id: 'client-123', user_id: 'user-456' } });
+      ws.simulateMessage({
+        type: 'connected',
+        data: { client_id: 'client-123', user_id: 'user-456' },
+      });
 
       const info = service.getConnectionInfo();
       expect(info?.clientId).toBe('client-123');

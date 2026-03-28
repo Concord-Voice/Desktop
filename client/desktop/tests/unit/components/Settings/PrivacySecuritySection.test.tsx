@@ -315,4 +315,308 @@ describe('PrivacySecuritySection', () => {
       expect(screen.getByText('Failed to fetch sessions')).toBeInTheDocument()
     );
   });
+
+  // ── Session revocation mode ──────────────────────────────────────────────
+
+  it('renders revocation mode toggle after loading', async () => {
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Session Revocation')).toBeInTheDocument());
+    expect(screen.getByText('Secure')).toBeInTheDocument();
+    expect(screen.getByText('Simple')).toBeInTheDocument();
+  });
+
+  it('shows Secure mode description when revocationMode is secure', async () => {
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() =>
+      expect(screen.getByText(/Authentication via Password or MFA is required/)).toBeInTheDocument()
+    );
+  });
+
+  // ── Session with multiple sessions and Revoke All ────────────────────────
+
+  it('renders Revoke All Sessions button when sessions exist', async () => {
+    mockApiFetch
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          sessions: [
+            {
+              id: 's1',
+              device_name: 'Desktop',
+              ip_address: '1.2.3.4',
+              user_agent: 'Mozilla/5.0 Electron',
+              expires_at: '2026-12-01T00:00:00Z',
+              created_at: '2026-01-01T00:00:00Z',
+              last_used: new Date().toISOString(),
+              is_current: true,
+            },
+            {
+              id: 's2',
+              device_name: 'Phone',
+              ip_address: '5.6.7.8',
+              user_agent: 'Mozilla/5.0 Chrome',
+              expires_at: '2026-12-01T00:00:00Z',
+              created_at: '2026-02-01T00:00:00Z',
+              last_used: new Date().toISOString(),
+              is_current: false,
+            },
+          ],
+          past_sessions: [],
+          revocation_mode: 'secure',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ methods: [], backup_codes_remaining: 0 }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ credentials: [] }) });
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Revoke All Sessions')).toBeInTheDocument());
+  });
+
+  it('renders Revoke button for non-current sessions', async () => {
+    mockApiFetch
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          sessions: [
+            {
+              id: 's1',
+              device_name: 'Desktop',
+              ip_address: '1.2.3.4',
+              user_agent: 'Mozilla/5.0 Electron',
+              expires_at: '2026-12-01T00:00:00Z',
+              created_at: '2026-01-01T00:00:00Z',
+              last_used: new Date().toISOString(),
+              is_current: true,
+            },
+            {
+              id: 's2',
+              device_name: 'Phone',
+              ip_address: '5.6.7.8',
+              user_agent: 'Mozilla/5.0 Chrome',
+              expires_at: '2026-12-01T00:00:00Z',
+              created_at: '2026-02-01T00:00:00Z',
+              last_used: new Date().toISOString(),
+              is_current: false,
+            },
+          ],
+          past_sessions: [],
+          revocation_mode: 'secure',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ methods: [], backup_codes_remaining: 0 }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ credentials: [] }) });
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => {
+      const revokeButtons = screen.getAllByText('Revoke');
+      expect(revokeButtons.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  it('shows confirmation for revoking current session', async () => {
+    mockApiFetch
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          sessions: [
+            {
+              id: 's1',
+              device_name: 'Desktop',
+              ip_address: '1.2.3.4',
+              user_agent: 'Mozilla/5.0 Electron',
+              expires_at: '2026-12-01T00:00:00Z',
+              created_at: '2026-01-01T00:00:00Z',
+              last_used: new Date().toISOString(),
+              is_current: true,
+            },
+          ],
+          past_sessions: [],
+          revocation_mode: 'secure',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ methods: [], backup_codes_remaining: 0 }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ credentials: [] }) });
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('This Device')).toBeInTheDocument());
+    // Click Revoke on current session — should show confirmation
+    fireEvent.click(screen.getAllByText('Revoke')[0]);
+    await vi.waitFor(() =>
+      expect(screen.getByText(/This is your current active session/)).toBeInTheDocument()
+    );
+  });
+
+  // ── User agent parsing ───────────────────────────────────────────────────
+
+  it('parses Chrome user agent', async () => {
+    mockApiFetch
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          sessions: [
+            {
+              id: 's1',
+              device_name: 'Test',
+              ip_address: '1.2.3.4',
+              user_agent: 'Mozilla/5.0 Chrome/100',
+              expires_at: '2026-12-01T00:00:00Z',
+              created_at: '2026-01-01T00:00:00Z',
+              last_used: new Date().toISOString(),
+              is_current: false,
+            },
+          ],
+          past_sessions: [],
+          revocation_mode: 'secure',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ methods: [], backup_codes_remaining: 0 }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ credentials: [] }) });
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Chrome Browser')).toBeInTheDocument());
+  });
+
+  it('parses Firefox user agent', async () => {
+    mockApiFetch
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          sessions: [
+            {
+              id: 's1',
+              device_name: 'Test',
+              ip_address: '1.2.3.4',
+              user_agent: 'Mozilla/5.0 Firefox/100',
+              expires_at: '2026-12-01T00:00:00Z',
+              created_at: '2026-01-01T00:00:00Z',
+              last_used: new Date().toISOString(),
+              is_current: false,
+            },
+          ],
+          past_sessions: [],
+          revocation_mode: 'secure',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ methods: [], backup_codes_remaining: 0 }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ credentials: [] }) });
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Firefox Browser')).toBeInTheDocument());
+  });
+
+  // ── DM privacy descriptions ──────────────────────────────────────────────
+
+  it('renders DM privacy level description for Friends + Server', async () => {
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() =>
+      expect(screen.getByText('Friends + Server Members')).toBeInTheDocument()
+    );
+  });
+
+  // ── MFA status display ───────────────────────────────────────────────────
+
+  it('shows Requires MFA for backup codes when no MFA active', async () => {
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Requires MFA')).toBeInTheDocument());
+  });
+
+  it('shows backup code count when MFA is active', async () => {
+    mockApiFetch
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ sessions: [], past_sessions: [], revocation_mode: 'secure' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          methods: ['totp'],
+          recovery_only_methods: [],
+          recovery_hardened: false,
+          backup_codes_remaining: 5,
+          backup_email: '',
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ credentials: [] }) });
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('5')).toBeInTheDocument());
+  });
+
+  // ── MFA tier selector rendering ──────────────────────────────────────────
+
+  it('renders MFATierSelector when no setup method is active', async () => {
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByTestId('mfa-tier-selector')).toBeInTheDocument());
+  });
+
+  // ── Permission status badges ─────────────────────────────────────────────
+
+  it('shows permission labels', async () => {
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Microphone')).toBeInTheDocument());
+    expect(screen.getByText('Camera')).toBeInTheDocument();
+    expect(screen.getByText('Screen Recording')).toBeInTheDocument();
+    expect(screen.getByText('Notifications')).toBeInTheDocument();
+    expect(screen.getByText(/Secure Storage/)).toBeInTheDocument();
+  });
+
+  it('shows permission descriptions', async () => {
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() =>
+      expect(screen.getByText('Used for voice channels and calls.')).toBeInTheDocument()
+    );
+    expect(screen.getByText('Used for video in voice channels and calls.')).toBeInTheDocument();
+  });
+
+  // ── Revoke All modal password input ──────────────────────────────────────
+
+  it('opens Revoke All modal when button clicked', async () => {
+    mockApiFetch
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          sessions: [
+            {
+              id: 's1',
+              device_name: 'Desktop',
+              ip_address: '1.2.3.4',
+              user_agent: 'Mozilla/5.0 Electron',
+              expires_at: '2026-12-01T00:00:00Z',
+              created_at: '2026-01-01T00:00:00Z',
+              last_used: new Date().toISOString(),
+              is_current: true,
+            },
+          ],
+          past_sessions: [],
+          revocation_mode: 'secure',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ methods: [], backup_codes_remaining: 0 }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ credentials: [] }) });
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Revoke All Sessions')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Revoke All Sessions'));
+    await vi.waitFor(() =>
+      expect(screen.getByText(/revoke all of your active session tokens/)).toBeInTheDocument()
+    );
+  });
 });

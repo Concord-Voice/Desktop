@@ -60,7 +60,9 @@ describe('ServerInput', () => {
       target: { value: 'http://insecure.example.com' },
     });
     fireEvent.click(screen.getByText('Connect to Server'));
-    expect(screen.getByText('HTTPS is required for security (except localhost)')).toBeInTheDocument();
+    expect(
+      screen.getByText('HTTPS is required for security (except localhost)')
+    ).toBeInTheDocument();
     expect(mockOnConnect).not.toHaveBeenCalled();
   });
 

@@ -4,7 +4,13 @@ import { useChatStore } from '@/renderer/stores/chatStore';
 import { useUnreadStore } from '@/renderer/stores/unreadStore';
 import { useAuthStore } from '@/renderer/stores/authStore';
 import { resetAllStores } from '../../helpers/store-helpers';
-import { mockServer, mockServer2, mockChannel, mockEncryptedChannel, mockMessage } from '../../mocks/fixtures';
+import {
+  mockServer,
+  mockServer2,
+  mockChannel,
+  mockEncryptedChannel,
+  mockMessage,
+} from '../../mocks/fixtures';
 import { server } from '../../mocks/server';
 import { http, HttpResponse } from 'msw';
 
@@ -40,11 +46,7 @@ describe('serverStore', () => {
     });
 
     it('handles empty server list', async () => {
-      server.use(
-        http.get(`${API_BASE}/api/v1/servers`, () =>
-          HttpResponse.json({ servers: [] })
-        )
-      );
+      server.use(http.get(`${API_BASE}/api/v1/servers`, () => HttpResponse.json({ servers: [] })));
       await useServerStore.getState().fetchServers();
       expect(useServerStore.getState().servers).toHaveLength(0);
     });
@@ -75,7 +77,9 @@ describe('serverStore', () => {
       useServerStore.getState().addServer(mockServer);
       useServerStore.getState().addServer(mockServer2);
       useServerStore.getState().updateServer('server-1', { name: 'Renamed' });
-      expect(useServerStore.getState().servers.find(s => s.id === 'server-2')?.name).toBe('Second Server');
+      expect(useServerStore.getState().servers.find((s) => s.id === 'server-2')?.name).toBe(
+        'Second Server'
+      );
     });
   });
 
@@ -96,8 +100,12 @@ describe('serverStore', () => {
       useServerStore.getState().addServer(mockServer);
       useServerStore.getState().addServer(mockServer2);
       useServerStore.getState().updateOnlineCounts({ 'server-1': 10, 'server-2': 20 });
-      expect(useServerStore.getState().servers.find(s => s.id === 'server-1')?.online_count).toBe(10);
-      expect(useServerStore.getState().servers.find(s => s.id === 'server-2')?.online_count).toBe(20);
+      expect(useServerStore.getState().servers.find((s) => s.id === 'server-1')?.online_count).toBe(
+        10
+      );
+      expect(useServerStore.getState().servers.find((s) => s.id === 'server-2')?.online_count).toBe(
+        20
+      );
     });
   });
 

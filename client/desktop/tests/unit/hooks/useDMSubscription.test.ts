@@ -54,10 +54,9 @@ describe('useDMSubscription', () => {
   });
 
   it('re-subscribes when conversationId changes', () => {
-    const { rerender } = renderHook(
-      ({ convId }) => useDMSubscription(convId),
-      { initialProps: { convId: 'conv-1' as string | null } }
-    );
+    const { rerender } = renderHook(({ convId }) => useDMSubscription(convId), {
+      initialProps: { convId: 'conv-1' as string | null },
+    });
 
     expect(mockSubscribeDM).toHaveBeenCalledWith('conv-1');
 

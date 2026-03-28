@@ -7,7 +7,9 @@ import { mockUser } from '../../../mocks/fixtures';
 // Mock UserPopover
 vi.mock('@/renderer/components/User/UserPopover', () => ({
   default: ({ onClose }: { onClose: () => void }) => (
-    <div data-testid="user-popover"><button onClick={onClose}>Close</button></div>
+    <div data-testid="user-popover">
+      <button onClick={onClose}>Close</button>
+    </div>
   ),
 }));
 

@@ -14,7 +14,8 @@ beforeAll(() => mswServer.listen({ onUnhandledRequest: 'bypass' }));
 afterAll(() => mswServer.close());
 afterEach(() => mswServer.resetHandlers());
 
-const getConfirmBtn = () => document.querySelector<HTMLButtonElement>('button.delete-server-confirm-btn')!;
+const getConfirmBtn = () =>
+  document.querySelector<HTMLButtonElement>('button.delete-server-confirm-btn')!;
 
 describe('LeaveServerModal', () => {
   const memberServer = { ...mockServer, role: 'member' as const };
@@ -30,15 +31,13 @@ describe('LeaveServerModal', () => {
 
   it('renders nothing when closed', () => {
     const { container } = render(
-      <LeaveServerModal isOpen={false} server={memberServer} onClose={mockOnClose} />,
+      <LeaveServerModal isOpen={false} server={memberServer} onClose={mockOnClose} />
     );
     expect(container.querySelector('.modal-overlay')).not.toBeInTheDocument();
   });
 
   it('renders warning about leaving', () => {
-    render(
-      <LeaveServerModal isOpen={true} server={memberServer} onClose={mockOnClose} />,
-    );
+    render(<LeaveServerModal isOpen={true} server={memberServer} onClose={mockOnClose} />);
     expect(screen.getByText(/Test Server/)).toBeInTheDocument();
     expect(screen.getByText(/lose access/)).toBeInTheDocument();
   });
@@ -46,13 +45,11 @@ describe('LeaveServerModal', () => {
   it('leaves server on confirmation', async () => {
     mswServer.use(
       http.delete(`${API_BASE}/api/v1/servers/server-1/members/user-1`, () =>
-        HttpResponse.json({ message: 'Left' }),
-      ),
+        HttpResponse.json({ message: 'Left' })
+      )
     );
 
-    render(
-      <LeaveServerModal isOpen={true} server={memberServer} onClose={mockOnClose} />,
-    );
+    render(<LeaveServerModal isOpen={true} server={memberServer} onClose={mockOnClose} />);
 
     fireEvent.click(getConfirmBtn());
 
@@ -65,13 +62,11 @@ describe('LeaveServerModal', () => {
   it('shows error on API failure', async () => {
     mswServer.use(
       http.delete(`${API_BASE}/api/v1/servers/server-1/members/user-1`, () =>
-        HttpResponse.json({ error: 'Cannot leave' }, { status: 400 }),
-      ),
+        HttpResponse.json({ error: 'Cannot leave' }, { status: 400 })
+      )
     );
 
-    render(
-      <LeaveServerModal isOpen={true} server={memberServer} onClose={mockOnClose} />,
-    );
+    render(<LeaveServerModal isOpen={true} server={memberServer} onClose={mockOnClose} />);
 
     fireEvent.click(getConfirmBtn());
 
@@ -81,9 +76,7 @@ describe('LeaveServerModal', () => {
   });
 
   it('calls onClose when Cancel is clicked', () => {
-    render(
-      <LeaveServerModal isOpen={true} server={memberServer} onClose={mockOnClose} />,
-    );
+    render(<LeaveServerModal isOpen={true} server={memberServer} onClose={mockOnClose} />);
     fireEvent.click(screen.getByText('Cancel'));
     expect(mockOnClose).toHaveBeenCalled();
   });

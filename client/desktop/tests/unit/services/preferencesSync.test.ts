@@ -31,13 +31,23 @@ describe('preferencesSyncService', () => {
     resetAllStores();
     // resetAllStores doesn't reset settings/layout stores — do it explicitly
     useSettingsStore.setState({
-      appearance: { theme: 'dark', colorScheme: 'concord', fontSize: 'default', compactMode: false, reduceAnimations: false },
+      appearance: {
+        theme: 'dark',
+        colorScheme: 'concord',
+        fontSize: 'default',
+        compactMode: false,
+        reduceAnimations: false,
+      },
     });
     useLayoutStore.setState({
-      channelPanelPinned: true, channelPanelWidth: 240,
-      memberPanelMode: 'expanded', memberPanelWidth: 260,
-      serverBarHeight: 48, folderBarHeight: 32,
-      serverFolders: [], serverOrder: [],
+      channelPanelPinned: true,
+      channelPanelWidth: 240,
+      memberPanelMode: 'expanded',
+      memberPanelWidth: 260,
+      serverBarHeight: 48,
+      folderBarHeight: 32,
+      serverFolders: [],
+      serverOrder: [],
     });
     useAuthStore.getState().setAccessToken('mock-token');
     vi.mocked(e2eeService.encryptPreferences).mockResolvedValue('encrypted-blob');
@@ -96,9 +106,7 @@ describe('preferencesSyncService', () => {
         http.get(`${API_BASE}/api/v1/users/me/preferences`, () =>
           HttpResponse.json({ preferences: null })
         ),
-        http.put(`${API_BASE}/api/v1/users/me/preferences`, () =>
-          HttpResponse.json({ version: 1 })
-        )
+        http.put(`${API_BASE}/api/v1/users/me/preferences`, () => HttpResponse.json({ version: 1 }))
       );
 
       await preferencesSyncService.fetchAndApply();

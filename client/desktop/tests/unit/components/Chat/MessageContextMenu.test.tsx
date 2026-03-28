@@ -26,7 +26,7 @@ describe('MessageContextMenu', () => {
         onClose={mockOnClose}
         onEdit={mockOnEdit}
         onDelete={mockOnDelete}
-      />,
+      />
     );
   };
 

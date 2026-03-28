@@ -17,7 +17,7 @@ describe('ContextMenu', () => {
     render(
       <ContextMenu position={{ x: 100, y: 200 }} onClose={mockOnClose}>
         <ContextMenu.Item label="Test Item" onClick={() => {}} />
-      </ContextMenu>,
+      </ContextMenu>
     );
     expect(screen.getByText('Test Item')).toBeInTheDocument();
   });
@@ -26,7 +26,7 @@ describe('ContextMenu', () => {
     render(
       <ContextMenu position={{ x: 0, y: 0 }} onClose={mockOnClose}>
         <ContextMenu.Header>My Header</ContextMenu.Header>
-      </ContextMenu>,
+      </ContextMenu>
     );
     expect(screen.getByText('My Header')).toBeInTheDocument();
   });
@@ -35,7 +35,7 @@ describe('ContextMenu', () => {
     const { container } = render(
       <ContextMenu position={{ x: 0, y: 0 }} onClose={mockOnClose}>
         <ContextMenu.Separator />
-      </ContextMenu>,
+      </ContextMenu>
     );
     expect(container.querySelector('.ctx-menu-separator')).toBeInTheDocument();
   });
@@ -43,8 +43,12 @@ describe('ContextMenu', () => {
   it('renders Item with icon', () => {
     render(
       <ContextMenu position={{ x: 0, y: 0 }} onClose={mockOnClose}>
-        <ContextMenu.Item icon={<span data-testid="icon">I</span>} label="With Icon" onClick={() => {}} />
-      </ContextMenu>,
+        <ContextMenu.Item
+          icon={<span data-testid="icon">I</span>}
+          label="With Icon"
+          onClick={() => {}}
+        />
+      </ContextMenu>
     );
     expect(screen.getByTestId('icon')).toBeInTheDocument();
     expect(screen.getByText('With Icon')).toBeInTheDocument();
@@ -55,7 +59,7 @@ describe('ContextMenu', () => {
     render(
       <ContextMenu position={{ x: 0, y: 0 }} onClose={mockOnClose}>
         <ContextMenu.Item label="Click Me" onClick={onClick} />
-      </ContextMenu>,
+      </ContextMenu>
     );
     fireEvent.click(screen.getByText('Click Me'));
     expect(onClick).toHaveBeenCalledTimes(1);
@@ -66,7 +70,7 @@ describe('ContextMenu', () => {
     render(
       <ContextMenu position={{ x: 0, y: 0 }} onClose={mockOnClose}>
         <ContextMenu.Item label="Disabled" onClick={onClick} disabled />
-      </ContextMenu>,
+      </ContextMenu>
     );
     fireEvent.click(screen.getByText('Disabled'));
     expect(onClick).not.toHaveBeenCalled();
@@ -76,7 +80,7 @@ describe('ContextMenu', () => {
     render(
       <ContextMenu position={{ x: 0, y: 0 }} onClose={mockOnClose}>
         <ContextMenu.Item label="Danger" onClick={() => {}} danger />
-      </ContextMenu>,
+      </ContextMenu>
     );
     expect(screen.getByText('Danger').closest('button')).toHaveClass('ctx-menu-item-danger');
   });
@@ -85,10 +89,12 @@ describe('ContextMenu', () => {
     render(
       <ContextMenu position={{ x: 0, y: 0 }} onClose={mockOnClose}>
         <ContextMenu.Item label="Item" onClick={() => {}} />
-      </ContextMenu>,
+      </ContextMenu>
     );
     fireEvent.keyDown(document, { key: 'Escape' });
-    act(() => { vi.advanceTimersByTime(200); });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
     expect(mockOnClose).toHaveBeenCalled();
   });
 
@@ -96,10 +102,12 @@ describe('ContextMenu', () => {
     render(
       <ContextMenu position={{ x: 0, y: 0 }} onClose={mockOnClose}>
         <ContextMenu.Item label="Item" onClick={() => {}} />
-      </ContextMenu>,
+      </ContextMenu>
     );
     fireEvent.mouseDown(document.body);
-    act(() => { vi.advanceTimersByTime(200); });
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
     expect(mockOnClose).toHaveBeenCalled();
   });
 
@@ -110,7 +118,7 @@ describe('ContextMenu', () => {
         <ContextMenu.SubMenu>
           <ContextMenu.Item label="Sub Item" onClick={() => {}} />
         </ContextMenu.SubMenu>
-      </ContextMenu>,
+      </ContextMenu>
     );
     expect(screen.getByText('Sub Item')).toBeInTheDocument();
   });

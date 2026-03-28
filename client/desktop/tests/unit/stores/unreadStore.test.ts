@@ -8,7 +8,10 @@ describe('unreadStore', () => {
 
   describe('setInitialUnreads', () => {
     it('sets initial counts from a map', () => {
-      const counts = new Map([['channel-1', 5], ['channel-2', 3]]);
+      const counts = new Map([
+        ['channel-1', 5],
+        ['channel-2', 3],
+      ]);
       useUnreadStore.getState().setInitialUnreads(counts);
       expect(useUnreadStore.getState().unreadCounts.get('channel-1')).toBe(5);
       expect(useUnreadStore.getState().unreadCounts.get('channel-2')).toBe(3);

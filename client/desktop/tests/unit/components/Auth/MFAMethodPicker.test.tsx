@@ -83,9 +83,7 @@ describe('MFAMethodPicker', () => {
   });
 
   it('renders title', () => {
-    render(
-      <MFAMethodPicker methods={['totp']} currentMethod="totp" onSelect={onSelect} />
-    );
+    render(<MFAMethodPicker methods={['totp']} currentMethod="totp" onSelect={onSelect} />);
     expect(screen.getByText('Choose verification method')).toBeInTheDocument();
   });
 
@@ -99,17 +97,13 @@ describe('MFAMethodPicker', () => {
   });
 
   it('does not render unavailable methods', () => {
-    render(
-      <MFAMethodPicker methods={['totp']} currentMethod="totp" onSelect={onSelect} />
-    );
+    render(<MFAMethodPicker methods={['totp']} currentMethod="totp" onSelect={onSelect} />);
     expect(screen.queryByText('Security Key / Biometrics')).not.toBeInTheDocument();
     expect(screen.queryByText('Email / SMS Code')).not.toBeInTheDocument();
   });
 
   it('highlights current method with active class', () => {
-    render(
-      <MFAMethodPicker methods={['totp']} currentMethod="totp" onSelect={onSelect} />
-    );
+    render(<MFAMethodPicker methods={['totp']} currentMethod="totp" onSelect={onSelect} />);
     const totpBtn = screen.getByText('Authenticator App').closest('button')!;
     expect(totpBtn).toHaveClass('mfa-method-picker-active');
   });
@@ -138,9 +132,7 @@ describe('MFAMethodPicker', () => {
   });
 
   it('does not render cancel button when onCancel is not provided', () => {
-    render(
-      <MFAMethodPicker methods={['totp']} currentMethod="totp" onSelect={onSelect} />
-    );
+    render(<MFAMethodPicker methods={['totp']} currentMethod="totp" onSelect={onSelect} />);
     expect(screen.queryByText('Cancel')).not.toBeInTheDocument();
   });
 

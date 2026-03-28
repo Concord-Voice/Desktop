@@ -176,12 +176,12 @@ describe('isValidHex', () => {
   });
 
   it('rejects invalid formats', () => {
-    expect(isValidHex('fa709a')).toBe(false);   // no #
-    expect(isValidHex('#fff')).toBe(false);      // shorthand
-    expect(isValidHex('#gggggg')).toBe(false);   // invalid chars
-    expect(isValidHex('')).toBe(false);           // empty
-    expect(isValidHex('#12345')).toBe(false);    // too short
-    expect(isValidHex('#1234567')).toBe(false);  // too long
+    expect(isValidHex('fa709a')).toBe(false); // no #
+    expect(isValidHex('#fff')).toBe(false); // shorthand
+    expect(isValidHex('#gggggg')).toBe(false); // invalid chars
+    expect(isValidHex('')).toBe(false); // empty
+    expect(isValidHex('#12345')).toBe(false); // too short
+    expect(isValidHex('#1234567')).toBe(false); // too long
   });
 });
 

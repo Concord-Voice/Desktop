@@ -434,4 +434,119 @@ describe('VoiceAudioSection', () => {
     render(<VoiceAudioSection />);
     expect(screen.getByText('Boost Quiet Users')).toBeInTheDocument();
   });
+
+  // ===== Quality tier description =====
+
+  it('renders quality tier description in basic mode', () => {
+    render(<VoiceAudioSection />);
+    // Standard tier description (first line after split on \n) should be visible
+    expect(screen.getByText(/96 kbps/)).toBeInTheDocument();
+  });
+
+  it('renders kbps label', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('96 kbps')).toBeInTheDocument();
+  });
+
+  it('renders premium badge description text', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText(/Higher quality uses more bandwidth/)).toBeInTheDocument();
+  });
+
+  // ===== Slider interaction =====
+
+  it('fires setQualityTier when tier slider changes', async () => {
+    render(<VoiceAudioSection />);
+    const slider = document.querySelector('.settings-tier-slider') as HTMLInputElement;
+    expect(slider).toBeInTheDocument();
+    fireEvent.change(slider, { target: { value: '0' } });
+    expect(mockSetQualityTier).toHaveBeenCalledWith('minimum');
+  });
+
+  // ===== Mode toggle keyboard interaction =====
+
+  it('renders Advanced Settings tab as keyboard-accessible', () => {
+    render(<VoiceAudioSection />);
+    const advTab = screen.getAllByText('Advanced Settings')[0];
+    expect(advTab).toHaveAttribute('role', 'tab');
+    expect(advTab).toHaveAttribute('tabIndex', '0');
+  });
+
+  // ===== Volume slider rendering =====
+
+  it('renders volume percentages', () => {
+    render(<VoiceAudioSection />);
+    // Both input and output volume are 100%
+    expect(screen.getAllByText('100%').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('renders Input Volume hint text', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText(/Scales your microphone level/)).toBeInTheDocument();
+  });
+
+  it('renders Output Volume hint text', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText(/Scales all incoming audio/)).toBeInTheDocument();
+  });
+
+  // ===== Camera section =====
+
+  it('renders Camera subsection title', () => {
+    render(<VoiceAudioSection />);
+    // 'Camera' appears in both Device Configuration and Video Configuration
+    expect(screen.getAllByText('Camera').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('renders video input device selector', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByTestId('device-selector-videoinput')).toBeInTheDocument();
+  });
+
+  // ===== Processing hints =====
+
+  it('renders noise cancellation hint text', () => {
+    render(<VoiceAudioSection />);
+    expect(
+      screen.getByText(/Background noise from your microphone is actively filtered/)
+    ).toBeInTheDocument();
+  });
+
+  it('renders echo cancellation hint text', () => {
+    render(<VoiceAudioSection />);
+    expect(
+      screen.getByText(/Acoustic echo cancellation prevents your speakers from feeding back/)
+    ).toBeInTheDocument();
+  });
+
+  it('renders auto gain control hint text', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText(/Automatically normalizes your microphone volume/)).toBeInTheDocument();
+  });
+
+  // ===== Screen share section =====
+
+  it('renders screen resolution label', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Resolution')).toBeInTheDocument();
+  });
+
+  it('renders frame rate label', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Frame Rate')).toBeInTheDocument();
+  });
+
+  it('renders content type label', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Content Type')).toBeInTheDocument();
+  });
+
+  it('renders camera preset label', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Camera Preset')).toBeInTheDocument();
+  });
+
+  // Note: stopTest interaction test omitted — same vi.mock() module cache issue
+  // documented in the existing advanced mode tests. The "shows Stop Testing when
+  // mic test active" test above validates the state-driven UI change.
 });

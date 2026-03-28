@@ -24,7 +24,7 @@ describe('useImageUpload', () => {
 
   it('initializes with initialUrl when provided', () => {
     const { result } = renderHook(() =>
-      useImageUpload({ ...defaultOptions, initialUrl: '/api/v1/media/avatars/123' }),
+      useImageUpload({ ...defaultOptions, initialUrl: '/api/v1/media/avatars/123' })
     );
     expect(result.current.preview).toBe('/api/v1/media/avatars/123');
     expect(result.current.imageUrl).toBe('/api/v1/media/avatars/123');
@@ -41,7 +41,7 @@ describe('useImageUpload', () => {
       act(() => result.current.handleChange(event));
 
       expect(defaultOptions.onError).toHaveBeenCalledWith(
-        'Only PNG, JPEG, GIF, and WebP images are allowed',
+        'Only PNG, JPEG, GIF, and WebP images are allowed'
       );
       expect(result.current.showCrop).toBe(false);
     });
@@ -106,7 +106,7 @@ describe('useImageUpload', () => {
   describe('handleCropCancel', () => {
     it('clears pending state without changing preview', () => {
       const { result } = renderHook(() =>
-        useImageUpload({ ...defaultOptions, initialUrl: '/existing.png' }),
+        useImageUpload({ ...defaultOptions, initialUrl: '/existing.png' })
       );
 
       // Open crop
@@ -114,7 +114,7 @@ describe('useImageUpload', () => {
       act(() =>
         result.current.handleChange({
           target: { files: [file] },
-        } as unknown as React.ChangeEvent<HTMLInputElement>),
+        } as unknown as React.ChangeEvent<HTMLInputElement>)
       );
       expect(result.current.showCrop).toBe(true);
 
@@ -130,7 +130,7 @@ describe('useImageUpload', () => {
   describe('handleRemove', () => {
     it('clears preview and imageUrl, sets removed flag', () => {
       const { result } = renderHook(() =>
-        useImageUpload({ ...defaultOptions, initialUrl: '/existing.png' }),
+        useImageUpload({ ...defaultOptions, initialUrl: '/existing.png' })
       );
 
       act(() => result.current.handleRemove());
@@ -161,7 +161,7 @@ describe('useImageUpload', () => {
 
     it('resets to null when called without argument', () => {
       const { result } = renderHook(() =>
-        useImageUpload({ ...defaultOptions, initialUrl: '/existing.png' }),
+        useImageUpload({ ...defaultOptions, initialUrl: '/existing.png' })
       );
 
       act(() => result.current.reset());
@@ -219,7 +219,7 @@ describe('useImageUpload', () => {
         ...defaultOptions,
         maxSize: 2 * 1024 * 1024,
         onError,
-      }),
+      })
     );
 
     const largeFile = new File(['data'], 'big.png', { type: 'image/png' });
@@ -228,7 +228,7 @@ describe('useImageUpload', () => {
     act(() =>
       result.current.handleChange({
         target: { files: [largeFile] },
-      } as unknown as React.ChangeEvent<HTMLInputElement>),
+      } as unknown as React.ChangeEvent<HTMLInputElement>)
     );
 
     expect(onError).toHaveBeenCalledWith('Image must be smaller than 2MB');

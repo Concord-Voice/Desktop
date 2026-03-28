@@ -25,18 +25,22 @@ describe('ServerList', () => {
     mswServer.use(
       http.get('http://localhost:8080/api/v1/servers', () => {
         return HttpResponse.json({ servers: [] });
-      }),
+      })
     );
     useAuthStore.getState().setAccessToken('mock-token');
   });
 
   it('renders add server button', () => {
-    render(<ServerList onOpenActionModal={mockOnOpenActionModal} onContextMenu={mockOnContextMenu} />);
+    render(
+      <ServerList onOpenActionModal={mockOnOpenActionModal} onContextMenu={mockOnContextMenu} />
+    );
     expect(screen.getByLabelText('Add a Server')).toBeInTheDocument();
   });
 
   it('calls onOpenActionModal when add button clicked', () => {
-    render(<ServerList onOpenActionModal={mockOnOpenActionModal} onContextMenu={mockOnContextMenu} />);
+    render(
+      <ServerList onOpenActionModal={mockOnOpenActionModal} onContextMenu={mockOnContextMenu} />
+    );
     fireEvent.click(screen.getByLabelText('Add a Server'));
     expect(mockOnOpenActionModal).toHaveBeenCalled();
   });
@@ -44,22 +48,30 @@ describe('ServerList', () => {
   it('renders server icons', () => {
     useServerStore.getState().addServer(mockServer);
     useServerStore.getState().addServer(mockServer2);
-    render(<ServerList onOpenActionModal={mockOnOpenActionModal} onContextMenu={mockOnContextMenu} />);
+    render(
+      <ServerList onOpenActionModal={mockOnOpenActionModal} onContextMenu={mockOnContextMenu} />
+    );
     expect(screen.getByLabelText('Test Server server')).toBeInTheDocument();
     expect(screen.getByLabelText('Second Server server')).toBeInTheDocument();
   });
 
   it('renders server initials when no icon', () => {
     useServerStore.getState().addServer(mockServer);
-    render(<ServerList onOpenActionModal={mockOnOpenActionModal} onContextMenu={mockOnContextMenu} />);
+    render(
+      <ServerList onOpenActionModal={mockOnOpenActionModal} onContextMenu={mockOnContextMenu} />
+    );
     expect(screen.getByText('T')).toBeInTheDocument();
   });
 
   it('marks active server', () => {
     useServerStore.getState().addServer(mockServer);
     useServerStore.getState().setActiveServer(mockServer.id);
-    render(<ServerList onOpenActionModal={mockOnOpenActionModal} onContextMenu={mockOnContextMenu} />);
-    expect(screen.getByLabelText('Test Server server').closest('.server-icon-btn')).toHaveClass('active');
+    render(
+      <ServerList onOpenActionModal={mockOnOpenActionModal} onContextMenu={mockOnContextMenu} />
+    );
+    expect(screen.getByLabelText('Test Server server').closest('.server-icon-btn')).toHaveClass(
+      'active'
+    );
   });
 
   it('shows unread indicator for non-active servers', () => {
@@ -68,15 +80,19 @@ describe('ServerList', () => {
     useServerStore.getState().setActiveServer(mockServer.id);
     useUnreadStore.getState().markServerUnread(mockServer2.id);
     const { container } = render(
-      <ServerList onOpenActionModal={mockOnOpenActionModal} onContextMenu={mockOnContextMenu} />,
+      <ServerList onOpenActionModal={mockOnOpenActionModal} onContextMenu={mockOnContextMenu} />
     );
-    const server2Wrapper = screen.getByLabelText('Second Server server').closest('.server-icon-wrapper');
+    const server2Wrapper = screen
+      .getByLabelText('Second Server server')
+      .closest('.server-icon-wrapper');
     expect(server2Wrapper?.querySelector('.server-unread-pill')).toBeInTheDocument();
   });
 
   it('sets active server on click', () => {
     useServerStore.getState().addServer(mockServer);
-    render(<ServerList onOpenActionModal={mockOnOpenActionModal} onContextMenu={mockOnContextMenu} />);
+    render(
+      <ServerList onOpenActionModal={mockOnOpenActionModal} onContextMenu={mockOnContextMenu} />
+    );
     fireEvent.click(screen.getByLabelText('Test Server server'));
     expect(useServerStore.getState().activeServerId).toBe('server-1');
   });

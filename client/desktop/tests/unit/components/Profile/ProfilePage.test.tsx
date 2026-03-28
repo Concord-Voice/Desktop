@@ -117,9 +117,7 @@ describe('ProfilePage', () => {
   it('shows character count for username', () => {
     render(<ProfilePage />);
     // "testuser" = 8 chars out of 32; hint includes cooldown notice
-    expect(
-      screen.getByText(/8\/32 characters/)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/8\/32 characters/)).toBeInTheDocument();
   });
 
   it('shows character count for bio', () => {
@@ -317,7 +315,13 @@ describe('ProfilePage', () => {
         ...mockUser,
         display_name: 'Test Display',
         bio: 'Test bio here',
-        links: ['https://a.com', 'https://b.com', 'https://c.com', 'https://d.com', 'https://e.com'],
+        links: [
+          'https://a.com',
+          'https://b.com',
+          'https://c.com',
+          'https://d.com',
+          'https://e.com',
+        ],
       },
     });
     render(<ProfilePage />);

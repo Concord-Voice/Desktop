@@ -27,7 +27,7 @@ describe('ChannelPanel', () => {
     render(
       <ChannelPanel header={<div>Test Header</div>}>
         <div>Test Content</div>
-      </ChannelPanel>,
+      </ChannelPanel>
     );
     expect(screen.getByText('Test Header')).toBeInTheDocument();
     expect(screen.getByText('Test Content')).toBeInTheDocument();
@@ -37,7 +37,7 @@ describe('ChannelPanel', () => {
     render(
       <ChannelPanel header={<div>Header</div>}>
         <div>Content</div>
-      </ChannelPanel>,
+      </ChannelPanel>
     );
     expect(screen.getByTestId('user-panel')).toBeInTheDocument();
   });
@@ -46,7 +46,7 @@ describe('ChannelPanel', () => {
     const { container } = render(
       <ChannelPanel header={<div>Header</div>}>
         <div>Content</div>
-      </ChannelPanel>,
+      </ChannelPanel>
     );
     expect(container.querySelector('.channels-sidebar')).toBeInTheDocument();
   });
@@ -55,7 +55,7 @@ describe('ChannelPanel', () => {
     render(
       <ChannelPanel header={<div>Header</div>}>
         <div>Content</div>
-      </ChannelPanel>,
+      </ChannelPanel>
     );
     expect(screen.getByLabelText('Unpin channel panel')).toBeInTheDocument();
   });
@@ -64,7 +64,7 @@ describe('ChannelPanel', () => {
     render(
       <ChannelPanel header={<div>Header</div>} forcePin>
         <div>Content</div>
-      </ChannelPanel>,
+      </ChannelPanel>
     );
     expect(screen.queryByLabelText('Unpin channel panel')).not.toBeInTheDocument();
   });
@@ -77,7 +77,7 @@ describe('ChannelPanel', () => {
     const { container } = render(
       <ChannelPanel header={<div>Header</div>}>
         <div>Content</div>
-      </ChannelPanel>,
+      </ChannelPanel>
     );
     expect(container.querySelector('.channel-panel-overlay')).toBeInTheDocument();
   });
@@ -90,7 +90,7 @@ describe('ChannelPanel', () => {
     render(
       <ChannelPanel header={<div>Header</div>}>
         <div>Content</div>
-      </ChannelPanel>,
+      </ChannelPanel>
     );
     expect(screen.getByLabelText('Pin channel panel')).toBeInTheDocument();
   });
@@ -100,7 +100,7 @@ describe('ChannelPanel', () => {
     render(
       <ChannelPanel header={<div>Header</div>}>
         <div>Content</div>
-      </ChannelPanel>,
+      </ChannelPanel>
     );
     fireEvent.click(screen.getByLabelText('Unpin channel panel'));
     expect(useLayoutStore.getState().channelPanelPinned).toBe(false);
@@ -111,7 +111,7 @@ describe('ChannelPanel', () => {
     render(
       <ChannelPanel header={<div>Header</div>}>
         <div>Content</div>
-      </ChannelPanel>,
+      </ChannelPanel>
     );
     fireEvent.click(screen.getByLabelText('Pin channel panel'));
     expect(useLayoutStore.getState().channelPanelPinned).toBe(true);
@@ -122,7 +122,7 @@ describe('ChannelPanel', () => {
     const { container } = render(
       <ChannelPanel header={<div>Header</div>}>
         <div>Content</div>
-      </ChannelPanel>,
+      </ChannelPanel>
     );
     const overlay = container.querySelector('.channel-panel-overlay');
     expect(overlay?.classList.contains('slide-in')).toBe(true);
@@ -133,7 +133,7 @@ describe('ChannelPanel', () => {
     const { container } = render(
       <ChannelPanel header={<div>Header</div>}>
         <div>Content</div>
-      </ChannelPanel>,
+      </ChannelPanel>
     );
     const overlay = container.querySelector('.channel-panel-overlay');
     expect(overlay?.classList.contains('slide-out')).toBe(true);
@@ -144,7 +144,7 @@ describe('ChannelPanel', () => {
     const { container } = render(
       <ChannelPanel header={<div>Header</div>}>
         <div>Content</div>
-      </ChannelPanel>,
+      </ChannelPanel>
     );
     expect(container.querySelector('.layout-resize-handle')).toBeInTheDocument();
   });
@@ -154,7 +154,7 @@ describe('ChannelPanel', () => {
     const { container } = render(
       <ChannelPanel header={<div>Header</div>}>
         <div>Content</div>
-      </ChannelPanel>,
+      </ChannelPanel>
     );
     expect(container.querySelector('.channels-sidebar-header')).toBeInTheDocument();
   });

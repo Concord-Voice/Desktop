@@ -205,7 +205,6 @@ describe('AccessibilitySection', () => {
     expect(screen.getByText(/Currently using English US/)).toBeInTheDocument();
   });
 
-
   it('displays current speed value', () => {
     render(<AccessibilitySection />);
     expect(screen.getByText('1.0x')).toBeInTheDocument();

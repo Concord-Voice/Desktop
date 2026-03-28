@@ -126,10 +126,7 @@ export async function createChannel(page: Page, name: string): Promise<void> {
  * Clean up: delete a server directly via API.
  * Used for test teardown.
  */
-export async function deleteServerViaAPI(
-  accessToken: string,
-  serverId: string
-): Promise<void> {
+export async function deleteServerViaAPI(accessToken: string, serverId: string): Promise<void> {
   await fetch(`${API_BASE}/api/v1/servers/${serverId}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${accessToken}` },

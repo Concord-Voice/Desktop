@@ -23,32 +23,26 @@ describe('CreateServerModal', () => {
 
   it('renders nothing when closed', () => {
     const { container } = render(
-      <CreateServerModal isOpen={false} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <CreateServerModal isOpen={false} onClose={mockOnClose} onSuccess={mockOnSuccess} />
     );
     expect(container.querySelector('.modal-overlay')).not.toBeInTheDocument();
   });
 
   it('renders form when open', () => {
-    render(
-      <CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
     expect(screen.getByText('Create a Server')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('My Awesome Server')).toBeInTheDocument();
     expect(screen.getByText('Create Server')).toBeInTheDocument();
   });
 
   it('shows validation error for empty name', async () => {
-    render(
-      <CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
     fireEvent.click(screen.getByText('Create Server'));
     expect(screen.getByText('Server name is required')).toBeInTheDocument();
   });
 
   it('shows validation error for short name', () => {
-    render(
-      <CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
     fireEvent.change(screen.getByPlaceholderText('My Awesome Server'), {
       target: { value: 'ab' },
     });
@@ -74,9 +68,7 @@ describe('CreateServerModal', () => {
       }),
     } as Response);
 
-    render(
-      <CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 
     fireEvent.change(screen.getByPlaceholderText('My Awesome Server'), {
       target: { value: 'My Server' },
@@ -109,9 +101,7 @@ describe('CreateServerModal', () => {
       json: async () => ({ error: 'Name taken' }),
     } as Response);
 
-    render(
-      <CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 
     fireEvent.change(screen.getByPlaceholderText('My Awesome Server'), {
       target: { value: 'My Server' },
@@ -127,26 +117,20 @@ describe('CreateServerModal', () => {
   });
 
   it('toggles E2EE default setting', () => {
-    render(
-      <CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
     expect(screen.getByText('E2EE Enabled by Default')).toBeInTheDocument();
     fireEvent.click(screen.getByText('E2EE Enabled by Default'));
     expect(screen.getByText('E2EE Disabled by Default')).toBeInTheDocument();
   });
 
   it('calls onClose when Cancel is clicked', () => {
-    render(
-      <CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
     fireEvent.click(screen.getByText('Cancel'));
     expect(mockOnClose).toHaveBeenCalled();
   });
 
   it('shows character count', () => {
-    render(
-      <CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
-    );
+    render(<CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
     expect(screen.getByText('0/100 characters')).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText('My Awesome Server'), {
       target: { value: 'Test' },

@@ -28,8 +28,7 @@ vi.mock('@/renderer/services/e2eeService', () => ({
     getChannelKeyByVersion: (...args: unknown[]) => mockGetChannelKeyByVersion(...args),
     decryptWithKey: (...args: unknown[]) => mockDecryptWithKey(...args),
     decryptForChannel: (...args: unknown[]) => mockDecryptForChannel(...args),
-    decryptForChannelWithVersion: (...args: unknown[]) =>
-      mockDecryptForChannelWithVersion(...args),
+    decryptForChannelWithVersion: (...args: unknown[]) => mockDecryptForChannelWithVersion(...args),
     invalidateChannelKey: (...args: unknown[]) => mockInvalidateChannelKey(...args),
   },
 }));
@@ -64,9 +63,7 @@ describe('useMessageFetch', () => {
     ];
     mockFetchResponse(msgs);
 
-    const { result } = renderHook(() =>
-      useMessageFetch('channel-1', { type: 'channel' })
-    );
+    const { result } = renderHook(() => useMessageFetch('channel-1', { type: 'channel' }));
 
     expect(result.current.isLoading).toBe(true);
 
@@ -168,9 +165,7 @@ describe('useMessageFetch', () => {
 
     // Server returns the same message with the server-assigned ID
     // AND the clientMessageId matches
-    mockFetchResponse([
-      { ...mockMessage, id: 'server-msg-1', clientMessageId: 'client-msg-1' },
-    ]);
+    mockFetchResponse([{ ...mockMessage, id: 'server-msg-1', clientMessageId: 'client-msg-1' }]);
 
     renderHook(() => useMessageFetch('channel-1', { type: 'channel' }));
 
@@ -186,9 +181,7 @@ describe('useMessageFetch', () => {
   it('sets error state on fetch failure', async () => {
     mockFetchResponse([], false);
 
-    const { result } = renderHook(() =>
-      useMessageFetch('channel-1', { type: 'channel' })
-    );
+    const { result } = renderHook(() => useMessageFetch('channel-1', { type: 'channel' }));
 
     await waitFor(() => {
       expect(result.current.isLoading).toBe(false);
@@ -255,9 +248,7 @@ describe('useMessageFetch', () => {
     });
 
     // Should have called with before= parameter
-    expect(mockApiFetch).toHaveBeenLastCalledWith(
-      expect.stringContaining('before=')
-    );
+    expect(mockApiFetch).toHaveBeenLastCalledWith(expect.stringContaining('before='));
   });
 
   // --- onFetchComplete callback ---
@@ -266,9 +257,7 @@ describe('useMessageFetch', () => {
     mockFetchResponse([mockMessage]);
     const onFetchComplete = vi.fn();
 
-    renderHook(() =>
-      useMessageFetch('channel-1', { type: 'channel', onFetchComplete })
-    );
+    renderHook(() => useMessageFetch('channel-1', { type: 'channel', onFetchComplete }));
 
     await waitFor(() => {
       expect(onFetchComplete).toHaveBeenCalledTimes(1);
@@ -278,9 +267,7 @@ describe('useMessageFetch', () => {
   // --- Null channelId ---
 
   it('does not fetch when channelId is null', async () => {
-    const { result } = renderHook(() =>
-      useMessageFetch(null, { type: 'channel' })
-    );
+    const { result } = renderHook(() => useMessageFetch(null, { type: 'channel' }));
 
     expect(result.current.messages).toEqual([]);
     expect(result.current.isLoading).toBe(false);

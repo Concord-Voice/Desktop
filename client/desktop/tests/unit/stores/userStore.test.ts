@@ -107,9 +107,9 @@ describe('userStore', () => {
           HttpResponse.json({ error: 'Invalid avatar' }, { status: 400 })
         )
       );
-      await expect(
-        useUserStore.getState().updateProfile({ avatar_url: 'bad' })
-      ).rejects.toThrow('Invalid avatar');
+      await expect(useUserStore.getState().updateProfile({ avatar_url: 'bad' })).rejects.toThrow(
+        'Invalid avatar'
+      );
     });
 
     it('clears auth on 401', async () => {
@@ -118,9 +118,9 @@ describe('userStore', () => {
           HttpResponse.json({ error: 'Unauthorized' }, { status: 401 })
         )
       );
-      await expect(
-        useUserStore.getState().updateProfile({ display_name: 'x' })
-      ).rejects.toThrow('Session expired');
+      await expect(useUserStore.getState().updateProfile({ display_name: 'x' })).rejects.toThrow(
+        'Session expired'
+      );
       expect(useAuthStore.getState().accessToken).toBeNull();
     });
   });

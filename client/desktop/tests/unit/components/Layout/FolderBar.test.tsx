@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from '../../../test-utils';
 import { useServerStore } from '@/renderer/stores/serverStore';
 import { useLayoutStore } from '@/renderer/stores/layoutStore';
 import { useUnreadStore } from '@/renderer/stores/unreadStore';
+import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { mockServer, mockServer2 } from '../../../mocks/fixtures';
 import FolderBar from '@/renderer/components/Layout/FolderBar';
 
@@ -255,5 +256,208 @@ describe('FolderBar', () => {
     render(<FolderBar />);
     fireEvent.click(screen.getByText('Empty'));
     // An empty folder dropdown should appear (may show "Drag servers here" or similar)
+    expect(screen.getByText('Drag servers here')).toBeInTheDocument();
+  });
+
+  // ===== Drag-and-drop (folder chip level) =====
+
+  it('applies drag-over class on dragEnter', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'Target Folder', serverIds: [], collapsed: false }],
+    });
+    render(<FolderBar />);
+    const chip = document.querySelector('.folder-chip')!;
+    fireEvent.dragEnter(chip, {
+      dataTransfer: { getData: () => '' },
+    });
+    expect(chip.classList.contains('drag-over')).toBe(true);
+  });
+
+  it('removes drag-over class on dragLeave', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'Target Folder', serverIds: [], collapsed: false }],
+    });
+    render(<FolderBar />);
+    const chip = document.querySelector('.folder-chip')!;
+    fireEvent.dragEnter(chip, {
+      dataTransfer: { getData: () => '' },
+    });
+    expect(chip.classList.contains('drag-over')).toBe(true);
+    fireEvent.dragLeave(chip);
+    expect(chip.classList.contains('drag-over')).toBe(false);
+  });
+
+  it('handles drop on folder chip', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'Target', serverIds: [], collapsed: false }],
+    });
+    useServerStore.setState({ servers: [mockServer] });
+    render(<FolderBar />);
+    const chip = document.querySelector('.folder-chip')!;
+    fireEvent.drop(chip, {
+      dataTransfer: {
+        getData: () => 'server-1',
+      },
+    });
+    const state = useLayoutStore.getState();
+    expect(state.serverFolders[0].serverIds).toContain('server-1');
+  });
+
+  // ===== Delete confirmation details =====
+
+  it('shows server count in delete confirmation for non-empty folder', () => {
+    useLayoutStore.setState({
+      serverFolders: [
+        {
+          id: 'folder-1',
+          name: 'My Folder',
+          serverIds: ['server-1', 'server-2'],
+          collapsed: false,
+        },
+      ],
+    });
+    render(<FolderBar />);
+    fireEvent.contextMenu(screen.getByText('My Folder'));
+    fireEvent.click(screen.getByText('Delete Folder'));
+    expect(screen.getByText(/2 servers/)).toBeInTheDocument();
+    expect(screen.getByText(/moved back to the server bar/)).toBeInTheDocument();
+  });
+
+  it('shows "empty" message in delete confirmation for empty folder', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'Empty Folder', serverIds: [], collapsed: false }],
+    });
+    render(<FolderBar />);
+    fireEvent.contextMenu(screen.getByText('Empty Folder'));
+    fireEvent.click(screen.getByText('Delete Folder'));
+    expect(screen.getByText(/This folder is empty/)).toBeInTheDocument();
+  });
+
+  it('cancel button in delete confirmation closes modal', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'My Folder', serverIds: [], collapsed: false }],
+    });
+    render(<FolderBar />);
+    fireEvent.contextMenu(screen.getByText('My Folder'));
+    fireEvent.click(screen.getByText('Delete Folder'));
+    expect(screen.getByText(/Are you sure/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Cancel'));
+    expect(screen.queryByText(/Are you sure/i)).not.toBeInTheDocument();
+  });
+
+  // ===== Rename submits on blur =====
+
+  it('submits rename on blur', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'My Folder', serverIds: [], collapsed: false }],
+    });
+    render(<FolderBar />);
+    fireEvent.contextMenu(screen.getByText('My Folder'));
+    fireEvent.click(screen.getByText('Rename Folder'));
+    const input = screen.getByDisplayValue('My Folder');
+    fireEvent.change(input, { target: { value: 'Blurred Name' } });
+    fireEvent.blur(input);
+    const state = useLayoutStore.getState();
+    expect(state.serverFolders[0].name).toBe('Blurred Name');
+  });
+
+  it('does not rename to empty string', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'My Folder', serverIds: [], collapsed: false }],
+    });
+    render(<FolderBar />);
+    fireEvent.contextMenu(screen.getByText('My Folder'));
+    fireEvent.click(screen.getByText('Rename Folder'));
+    const input = screen.getByDisplayValue('My Folder');
+    fireEvent.change(input, { target: { value: '   ' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    // Should keep original name since trimmed is empty
+    const state = useLayoutStore.getState();
+    expect(state.serverFolders[0].name).toBe('My Folder');
+  });
+
+  // ===== Rename input has maxLength =====
+
+  it('rename input has maxLength of 32', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'My Folder', serverIds: [], collapsed: false }],
+    });
+    render(<FolderBar />);
+    fireEvent.contextMenu(screen.getByText('My Folder'));
+    fireEvent.click(screen.getByText('Rename Folder'));
+    const input = screen.getByDisplayValue('My Folder') as HTMLInputElement;
+    expect(input.maxLength).toBe(32);
+  });
+
+  // ===== No unread badge when count is 0 =====
+
+  it('does not show unread badge when no servers are unread', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'Clean', serverIds: ['server-1'], collapsed: false }],
+    });
+    useServerStore.setState({ servers: [mockServer] });
+    useUnreadStore.setState({ serverUnreadSet: new Set() });
+    const { container } = render(<FolderBar />);
+    const badge = container.querySelector('.folder-chip-badge');
+    expect(badge).not.toBeInTheDocument();
+  });
+
+  // ===== Server icon in dropdown =====
+
+  it('shows server icon when icon_url is present', () => {
+    const serverWithIcon = { ...mockServer, icon_url: 'https://example.com/icon.png' };
+    useLayoutStore.setState({
+      serverFolders: [
+        { id: 'folder-1', name: 'My Folder', serverIds: ['server-1'], collapsed: false },
+      ],
+    });
+    useServerStore.setState({ servers: [serverWithIcon] });
+    render(<FolderBar />);
+    fireEvent.click(screen.getByText('My Folder'));
+    const img = document.querySelector('.folder-dropdown-item-icon img');
+    expect(img).toBeInTheDocument();
+    expect(img).toHaveAttribute('src', 'https://example.com/icon.png');
+  });
+
+  it('shows server initial when no icon_url', () => {
+    useLayoutStore.setState({
+      serverFolders: [
+        { id: 'folder-1', name: 'My Folder', serverIds: ['server-1'], collapsed: false },
+      ],
+    });
+    useServerStore.setState({ servers: [mockServer] });
+    render(<FolderBar />);
+    fireEvent.click(screen.getByText('My Folder'));
+    const initial = document.querySelector('.folder-dropdown-item-initial');
+    expect(initial).toBeInTheDocument();
+    expect(initial?.textContent).toBe('T');
+  });
+
+  // ===== Folder scale from height =====
+
+  it('applies folder scale CSS custom property', () => {
+    useLayoutStore.setState({ folderBarHeight: 36 });
+    const { container } = render(<FolderBar />);
+    const folderBar = container.querySelector('.folder-bar') as HTMLElement;
+    expect(folderBar.style.getPropertyValue('--folder-scale')).toBeTruthy();
+  });
+
+  // ===== Clicking inside rename prevents folder toggle =====
+
+  it('does not toggle folder when clicking rename input', () => {
+    useLayoutStore.setState({
+      serverFolders: [
+        { id: 'folder-1', name: 'My Folder', serverIds: ['server-1'], collapsed: false },
+      ],
+    });
+    useServerStore.setState({ servers: [mockServer] });
+    render(<FolderBar />);
+    fireEvent.contextMenu(screen.getByText('My Folder'));
+    fireEvent.click(screen.getByText('Rename Folder'));
+    const input = screen.getByDisplayValue('My Folder');
+    // Click the input — should not open the dropdown
+    fireEvent.click(input);
+    // Server name should not appear since dropdown should not open
+    expect(screen.queryByText('Test Server')).not.toBeInTheDocument();
   });
 });

@@ -112,7 +112,10 @@ describe('layoutStore', () => {
     it('creates a folder with initial servers', () => {
       useLayoutStore.setState({ serverOrder: ['server-1', 'server-2', 'server-3'] });
       useLayoutStore.getState().createFolder('Work', ['server-1', 'server-2']);
-      expect(useLayoutStore.getState().serverFolders[0].serverIds).toEqual(['server-1', 'server-2']);
+      expect(useLayoutStore.getState().serverFolders[0].serverIds).toEqual([
+        'server-1',
+        'server-2',
+      ]);
       // Foldered servers are removed from top-level order
       expect(useLayoutStore.getState().serverOrder).toEqual(['server-3']);
     });
@@ -146,7 +149,11 @@ describe('layoutStore', () => {
       const folderId = useLayoutStore.getState().serverFolders[0].id;
       useLayoutStore.setState({ serverOrder: ['server-1'] });
       useLayoutStore.getState().moveServerToFolder('server-1', folderId, 1);
-      expect(useLayoutStore.getState().serverFolders[0].serverIds).toEqual(['server-a', 'server-1', 'server-b']);
+      expect(useLayoutStore.getState().serverFolders[0].serverIds).toEqual([
+        'server-a',
+        'server-1',
+        'server-b',
+      ]);
     });
 
     it('removes server from folder', () => {
@@ -159,8 +166,14 @@ describe('layoutStore', () => {
     it('reorders servers within a folder', () => {
       useLayoutStore.getState().createFolder('Gaming', ['server-1', 'server-2', 'server-3']);
       const folderId = useLayoutStore.getState().serverFolders[0].id;
-      useLayoutStore.getState().reorderFolderServers(folderId, ['server-3', 'server-1', 'server-2']);
-      expect(useLayoutStore.getState().serverFolders[0].serverIds).toEqual(['server-3', 'server-1', 'server-2']);
+      useLayoutStore
+        .getState()
+        .reorderFolderServers(folderId, ['server-3', 'server-1', 'server-2']);
+      expect(useLayoutStore.getState().serverFolders[0].serverIds).toEqual([
+        'server-3',
+        'server-1',
+        'server-2',
+      ]);
     });
   });
 

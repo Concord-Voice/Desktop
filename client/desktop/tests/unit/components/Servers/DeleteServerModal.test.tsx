@@ -13,7 +13,8 @@ beforeAll(() => mswServer.listen({ onUnhandledRequest: 'bypass' }));
 afterAll(() => mswServer.close());
 afterEach(() => mswServer.resetHandlers());
 
-const getConfirmBtn = () => document.querySelector<HTMLButtonElement>('button.delete-server-confirm-btn')!;
+const getConfirmBtn = () =>
+  document.querySelector<HTMLButtonElement>('button.delete-server-confirm-btn')!;
 
 describe('DeleteServerModal', () => {
   const mockOnClose = vi.fn();
@@ -27,23 +28,19 @@ describe('DeleteServerModal', () => {
 
   it('renders nothing when closed', () => {
     const { container } = render(
-      <DeleteServerModal isOpen={false} server={mockServer} onClose={mockOnClose} />,
+      <DeleteServerModal isOpen={false} server={mockServer} onClose={mockOnClose} />
     );
     expect(container.querySelector('.modal-overlay')).not.toBeInTheDocument();
   });
 
   it('renders warning message with server name', () => {
-    render(
-      <DeleteServerModal isOpen={true} server={mockServer} onClose={mockOnClose} />,
-    );
+    render(<DeleteServerModal isOpen={true} server={mockServer} onClose={mockOnClose} />);
     expect(screen.getByText(/cannot be undone/)).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Test Server')).toBeInTheDocument();
   });
 
   it('disables delete button until name is confirmed', () => {
-    render(
-      <DeleteServerModal isOpen={true} server={mockServer} onClose={mockOnClose} />,
-    );
+    render(<DeleteServerModal isOpen={true} server={mockServer} onClose={mockOnClose} />);
     expect(getConfirmBtn()).toBeDisabled();
 
     fireEvent.change(screen.getByPlaceholderText('Test Server'), {
@@ -53,9 +50,7 @@ describe('DeleteServerModal', () => {
   });
 
   it('does not delete with wrong confirmation name', () => {
-    render(
-      <DeleteServerModal isOpen={true} server={mockServer} onClose={mockOnClose} />,
-    );
+    render(<DeleteServerModal isOpen={true} server={mockServer} onClose={mockOnClose} />);
     fireEvent.change(screen.getByPlaceholderText('Test Server'), {
       target: { value: 'Wrong Name' },
     });
@@ -65,13 +60,11 @@ describe('DeleteServerModal', () => {
   it('deletes server on confirmation', async () => {
     mswServer.use(
       http.delete(`${API_BASE}/api/v1/servers/server-1`, () =>
-        HttpResponse.json({ message: 'Deleted' }),
-      ),
+        HttpResponse.json({ message: 'Deleted' })
+      )
     );
 
-    render(
-      <DeleteServerModal isOpen={true} server={mockServer} onClose={mockOnClose} />,
-    );
+    render(<DeleteServerModal isOpen={true} server={mockServer} onClose={mockOnClose} />);
 
     fireEvent.change(screen.getByPlaceholderText('Test Server'), {
       target: { value: 'Test Server' },
@@ -87,13 +80,11 @@ describe('DeleteServerModal', () => {
   it('shows error on API failure', async () => {
     mswServer.use(
       http.delete(`${API_BASE}/api/v1/servers/server-1`, () =>
-        HttpResponse.json({ error: 'Forbidden' }, { status: 403 }),
-      ),
+        HttpResponse.json({ error: 'Forbidden' }, { status: 403 })
+      )
     );
 
-    render(
-      <DeleteServerModal isOpen={true} server={mockServer} onClose={mockOnClose} />,
-    );
+    render(<DeleteServerModal isOpen={true} server={mockServer} onClose={mockOnClose} />);
 
     fireEvent.change(screen.getByPlaceholderText('Test Server'), {
       target: { value: 'Test Server' },
@@ -106,9 +97,7 @@ describe('DeleteServerModal', () => {
   });
 
   it('calls onClose when Cancel is clicked', () => {
-    render(
-      <DeleteServerModal isOpen={true} server={mockServer} onClose={mockOnClose} />,
-    );
+    render(<DeleteServerModal isOpen={true} server={mockServer} onClose={mockOnClose} />);
     fireEvent.click(screen.getByText('Cancel'));
     expect(mockOnClose).toHaveBeenCalled();
   });

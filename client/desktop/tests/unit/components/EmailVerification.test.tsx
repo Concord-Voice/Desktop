@@ -23,11 +23,7 @@ describe('EmailVerification', () => {
 
   it('renders with masked email', () => {
     render(
-      <EmailVerification
-        email="test@example.com"
-        onVerified={mockOnVerified}
-        onBack={mockOnBack}
-      />
+      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
     );
 
     expect(screen.getByText('Verify your email')).toBeInTheDocument();
@@ -36,11 +32,7 @@ describe('EmailVerification', () => {
 
   it('renders 6 digit input fields', () => {
     render(
-      <EmailVerification
-        email="test@example.com"
-        onVerified={mockOnVerified}
-        onBack={mockOnBack}
-      />
+      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
     );
 
     const inputs = screen.getAllByRole('textbox');
@@ -49,11 +41,7 @@ describe('EmailVerification', () => {
 
   it('shows resend button enabled on mount (no initial cooldown)', () => {
     render(
-      <EmailVerification
-        email="test@example.com"
-        onVerified={mockOnVerified}
-        onBack={mockOnBack}
-      />
+      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
     );
 
     const resendButton = screen.getByText(/Send new code/);
@@ -63,11 +51,7 @@ describe('EmailVerification', () => {
 
   it('shows change email form when clicked', () => {
     render(
-      <EmailVerification
-        email="test@example.com"
-        onVerified={mockOnVerified}
-        onBack={mockOnBack}
-      />
+      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
     );
 
     fireEvent.click(screen.getByText('Change email'));
@@ -76,11 +60,7 @@ describe('EmailVerification', () => {
 
   it('calls onBack when back button clicked', () => {
     render(
-      <EmailVerification
-        email="test@example.com"
-        onVerified={mockOnVerified}
-        onBack={mockOnBack}
-      />
+      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
     );
 
     fireEvent.click(screen.getByText('← Back to registration'));
@@ -90,19 +70,16 @@ describe('EmailVerification', () => {
   it('submits code and calls onVerified on success', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({
-        message: 'Email verified successfully',
-        access_token: 'new-verified-token',
-        expires_in: 900,
-      }),
+      json: () =>
+        Promise.resolve({
+          message: 'Email verified successfully',
+          access_token: 'new-verified-token',
+          expires_in: 900,
+        }),
     });
 
     render(
-      <EmailVerification
-        email="test@example.com"
-        onVerified={mockOnVerified}
-        onBack={mockOnBack}
-      />
+      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
     );
 
     // Type all 6 digits (simulates auto-submit)
@@ -130,18 +107,15 @@ describe('EmailVerification', () => {
   it('shows error on invalid code', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
-      json: () => Promise.resolve({
-        error: 'Invalid verification code',
-        attempts_remaining: 4,
-      }),
+      json: () =>
+        Promise.resolve({
+          error: 'Invalid verification code',
+          attempts_remaining: 4,
+        }),
     });
 
     render(
-      <EmailVerification
-        email="test@example.com"
-        onVerified={mockOnVerified}
-        onBack={mockOnBack}
-      />
+      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
     );
 
     const inputs = screen.getAllByRole('textbox');

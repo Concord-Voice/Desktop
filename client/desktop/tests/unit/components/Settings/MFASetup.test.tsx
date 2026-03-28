@@ -122,6 +122,7 @@ vi.mock('@/renderer/components/Settings/RecoveryKeyDisplay', () => ({
   ),
 }));
 
+import { e2eeService as mockE2eeService } from '@/renderer/services/e2eeService';
 import MFASetup from '@/renderer/components/Settings/MFASetup';
 
 describe('MFASetup', () => {
@@ -131,6 +132,8 @@ describe('MFASetup', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
+
+  // ── TOTP Flow ──────────────────────────────────────────────────────────
 
   describe('TOTP Flow', () => {
     it('renders TOTP setup wizard title', () => {
@@ -184,6 +187,22 @@ describe('MFASetup', () => {
       expect(screen.getByText('Continue')).not.toBeDisabled();
     });
 
+    it('disables Continue when mfaActive and no mfa code provided', async () => {
+      const user = userEvent.setup();
+      render(
+        <MFASetup
+          method="totp"
+          mfaActive
+          activeMethods={['totp']}
+          onComplete={onComplete}
+          onCancel={onCancel}
+        />
+      );
+      await user.type(screen.getByPlaceholderText('Your password'), 'mypassword');
+      // mfaActive but no mfaCode entered yet
+      expect(screen.getByText('Continue')).toBeDisabled();
+    });
+
     it('calls onCancel when cancel button is clicked', async () => {
       const user = userEvent.setup();
       render(<MFASetup method="totp" onComplete={onComplete} onCancel={onCancel} />);
@@ -210,6 +229,39 @@ describe('MFASetup', () => {
           '/api/v1/mfa/totp/setup',
           expect.objectContaining({ method: 'POST' })
         );
+      });
+    });
+
+    it('includes mfa_code in setup request when mfaActive', async () => {
+      mockApiFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          otpauth_url: 'otpauth://totp/test',
+          secret: 'SECRET',
+        }),
+      });
+
+      const user = userEvent.setup();
+      render(
+        <MFASetup
+          method="totp"
+          mfaActive
+          activeMethods={['totp']}
+          onComplete={onComplete}
+          onCancel={onCancel}
+        />
+      );
+      await user.type(screen.getByPlaceholderText('Your password'), 'mypassword');
+
+      // Simulate MFA code entry via the mock prompt
+      const mfaInput = screen.getByTestId('mfa-verify-input');
+      await user.type(mfaInput, '654321');
+
+      await user.click(screen.getByText('Continue'));
+
+      await vi.waitFor(() => {
+        const body = JSON.parse((mockApiFetch.mock.calls[0][1] as { body: string }).body);
+        expect(body.mfa_code).toBe('654321');
       });
     });
 
@@ -269,6 +321,68 @@ describe('MFASetup', () => {
 
       await vi.waitFor(() => {
         expect(screen.getByText('Incorrect password')).toBeInTheDocument();
+      });
+    });
+
+    it('shows error on TOTP verify failure', async () => {
+      // First call: setup succeeds
+      mockApiFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ otpauth_url: 'otpauth://totp/test', secret: 'TESTSECRET' }),
+      });
+
+      const user = userEvent.setup();
+      render(<MFASetup method="totp" onComplete={onComplete} onCancel={onCancel} />);
+      await user.type(screen.getByPlaceholderText('Your password'), 'mypassword');
+      await user.click(screen.getByText('Continue'));
+
+      await vi.waitFor(() => expect(screen.getByTestId('totp-input')).toBeInTheDocument());
+
+      // Second call: verify fails
+      mockApiFetch.mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: 'Invalid TOTP code' }),
+      });
+
+      await user.click(screen.getByTestId('totp-submit'));
+
+      await vi.waitFor(() => {
+        expect(screen.getByTestId('totp-error')).toHaveTextContent('Invalid TOTP code');
+      });
+    });
+
+    it('shows error on confirm-setup failure', async () => {
+      // Setup
+      mockApiFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ otpauth_url: 'otpauth://totp/test', secret: 'S' }),
+      });
+
+      const user = userEvent.setup();
+      render(<MFASetup method="totp" onComplete={onComplete} onCancel={onCancel} />);
+      await user.type(screen.getByPlaceholderText('Your password'), 'pw');
+      await user.click(screen.getByText('Continue'));
+
+      await vi.waitFor(() => expect(screen.getByTestId('totp-input')).toBeInTheDocument());
+
+      // Verify
+      mockApiFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ backup_codes: ['CODE1'] }),
+      });
+      await user.click(screen.getByTestId('totp-submit'));
+
+      await vi.waitFor(() => expect(screen.getByTestId('backup-code-display')).toBeInTheDocument());
+
+      // Confirm fails
+      mockApiFetch.mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: 'Session expired' }),
+      });
+      await user.click(screen.getByTestId('backup-confirm'));
+
+      await vi.waitFor(() => {
+        expect(screen.getByText('Session expired')).toBeInTheDocument();
       });
     });
 
@@ -372,7 +486,161 @@ describe('MFASetup', () => {
         expect(screen.getByText('MFA Activated!')).toBeInTheDocument();
       });
     });
+
+    it('skips to done when wrapping key is null (no recovery key possible)', async () => {
+      mockE2eeService.getWrappingKey.mockReturnValueOnce(null);
+
+      mockApiFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ otpauth_url: 'otpauth://totp/test', secret: 'S' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ backup_codes: ['CODE1'] }),
+        })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+
+      const user = userEvent.setup();
+      render(<MFASetup method="totp" onComplete={onComplete} onCancel={onCancel} />);
+      await user.type(screen.getByPlaceholderText('Your password'), 'pw');
+      await user.click(screen.getByText('Continue'));
+
+      await vi.waitFor(() => expect(screen.getByTestId('totp-submit')).toBeInTheDocument());
+      await user.click(screen.getByTestId('totp-submit'));
+
+      await vi.waitFor(() => expect(screen.getByTestId('backup-confirm')).toBeInTheDocument());
+      await user.click(screen.getByTestId('backup-confirm'));
+
+      await vi.waitFor(() => {
+        expect(screen.getByText('MFA Activated!')).toBeInTheDocument();
+      });
+    });
+
+    it('skips to done when recovery key store fails', async () => {
+      mockApiFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ otpauth_url: 'otpauth://totp/test', secret: 'S' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ backup_codes: ['CODE1'] }),
+        })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+        // Recovery key store fails
+        .mockResolvedValueOnce({ ok: false, json: async () => ({ error: 'storage error' }) });
+
+      const user = userEvent.setup();
+      render(<MFASetup method="totp" onComplete={onComplete} onCancel={onCancel} />);
+      await user.type(screen.getByPlaceholderText('Your password'), 'pw');
+      await user.click(screen.getByText('Continue'));
+
+      await vi.waitFor(() => expect(screen.getByTestId('totp-submit')).toBeInTheDocument());
+      await user.click(screen.getByTestId('totp-submit'));
+
+      await vi.waitFor(() => expect(screen.getByTestId('backup-confirm')).toBeInTheDocument());
+      await user.click(screen.getByTestId('backup-confirm'));
+
+      // Should skip recovery and go straight to done
+      await vi.waitFor(() => {
+        expect(screen.getByText('MFA Activated!')).toBeInTheDocument();
+      });
+    });
+
+    it('wraps prefs key when available', async () => {
+      mockApiFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ otpauth_url: 'otpauth://totp/test', secret: 'S' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ backup_codes: ['CODE1'] }),
+        })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+
+      const user = userEvent.setup();
+      render(<MFASetup method="totp" onComplete={onComplete} onCancel={onCancel} />);
+      await user.type(screen.getByPlaceholderText('Your password'), 'pw');
+      await user.click(screen.getByText('Continue'));
+
+      await vi.waitFor(() => expect(screen.getByTestId('totp-submit')).toBeInTheDocument());
+      await user.click(screen.getByTestId('totp-submit'));
+
+      await vi.waitFor(() => expect(screen.getByTestId('backup-confirm')).toBeInTheDocument());
+      await user.click(screen.getByTestId('backup-confirm'));
+
+      // Check that PUT to recovery-key includes prefs payload
+      await vi.waitFor(() => {
+        const putCall = mockApiFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === '/api/v1/mfa/recovery-key'
+        );
+        expect(putCall).toBeDefined();
+        const body = JSON.parse((putCall![1] as { body: string }).body);
+        expect(body.recovery_wrapped_prefs_key).toBe('mock-wrapped-prefs');
+        expect(body.recovery_prefs_key_salt).toBe('mock-prefs-salt');
+      });
+    });
+
+    it('omits prefs payload when prefs key is null', async () => {
+      mockE2eeService.getPreferencesKeyBase64.mockReturnValueOnce(null);
+
+      mockApiFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ otpauth_url: 'otpauth://totp/test', secret: 'S' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ backup_codes: ['CODE1'] }),
+        })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+
+      const user = userEvent.setup();
+      render(<MFASetup method="totp" onComplete={onComplete} onCancel={onCancel} />);
+      await user.type(screen.getByPlaceholderText('Your password'), 'pw');
+      await user.click(screen.getByText('Continue'));
+
+      await vi.waitFor(() => expect(screen.getByTestId('totp-submit')).toBeInTheDocument());
+      await user.click(screen.getByTestId('totp-submit'));
+
+      await vi.waitFor(() => expect(screen.getByTestId('backup-confirm')).toBeInTheDocument());
+      await user.click(screen.getByTestId('backup-confirm'));
+
+      await vi.waitFor(() => {
+        const putCall = mockApiFetch.mock.calls.find(
+          (call: unknown[]) => call[0] === '/api/v1/mfa/recovery-key'
+        );
+        if (putCall) {
+          const body = JSON.parse((putCall[1] as { body: string }).body);
+          expect(body.recovery_wrapped_prefs_key).toBeUndefined();
+        }
+      });
+    });
+
+    it('sets error field to password when error message includes password', async () => {
+      mockApiFetch.mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: 'Invalid password provided' }),
+      });
+
+      const user = userEvent.setup();
+      render(<MFASetup method="totp" onComplete={onComplete} onCancel={onCancel} />);
+      await user.type(screen.getByPlaceholderText('Your password'), 'wrong');
+      await user.click(screen.getByText('Continue'));
+
+      await vi.waitFor(() => {
+        // The password input should have error class
+        const passwordInput = screen.getByPlaceholderText('Your password');
+        expect(passwordInput.className).toContain('error');
+      });
+    });
   });
+
+  // ── WebAuthn Flow ──────────────────────────────────────────────────────
 
   describe('WebAuthn Flow', () => {
     it('renders WebAuthn setup wizard title for hardware key', () => {
@@ -479,6 +747,66 @@ describe('MFASetup', () => {
       await vi.waitFor(() => {
         expect(screen.getByText('Incorrect password')).toBeInTheDocument();
       });
+    });
+
+    it('transitions to registering step and shows waiting message on success begin', async () => {
+      mockApiFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          publicKey: {
+            challenge: 'dGVzdC1jaGFsbGVuZ2U',
+            rp: { name: 'Concord', id: 'localhost' },
+            user: { id: 'dXNlci0x', name: 'test@example.com', displayName: 'Test' },
+            pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+          },
+        }),
+      });
+
+      // navigator.credentials.create never resolves (simulates waiting for key)
+      Object.defineProperty(navigator, 'credentials', {
+        value: {
+          create: vi.fn().mockReturnValue(new Promise(() => {})),
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      const user = userEvent.setup();
+      render(<MFASetup method="webauthn" onComplete={onComplete} onCancel={onCancel} />);
+      await user.type(screen.getByPlaceholderText('Your password'), 'mypassword');
+      await user.click(screen.getByText('Register Key'));
+
+      await vi.waitFor(() => {
+        expect(screen.getByText('Waiting for your security key...')).toBeInTheDocument();
+      });
+    });
+
+    it('shows Registering... text while loading', async () => {
+      mockApiFetch.mockReturnValue(new Promise(() => {})); // never resolves
+
+      const user = userEvent.setup();
+      render(<MFASetup method="webauthn" onComplete={onComplete} onCancel={onCancel} />);
+      await user.type(screen.getByPlaceholderText('Your password'), 'mypassword');
+      await user.click(screen.getByText('Register Key'));
+
+      await vi.waitFor(() => {
+        expect(screen.getByText('Registering...')).toBeInTheDocument();
+      });
+    });
+
+    it('disables Register Key when mfaActive and no mfa code', async () => {
+      const user = userEvent.setup();
+      render(
+        <MFASetup
+          method="webauthn"
+          mfaActive
+          activeMethods={['totp']}
+          onComplete={onComplete}
+          onCancel={onCancel}
+        />
+      );
+      await user.type(screen.getByPlaceholderText('Your password'), 'mypassword');
+      expect(screen.getByText('Register Key')).toBeDisabled();
     });
   });
 });

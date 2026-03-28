@@ -91,7 +91,9 @@ describe('privacyStore', () => {
       })
     );
 
-    await usePrivacyStore.getState().updatePrivacy({ dmPrivacyLevel: 3, searchableByUsername: true });
+    await usePrivacyStore
+      .getState()
+      .updatePrivacy({ dmPrivacyLevel: 3, searchableByUsername: true });
     const { settings } = usePrivacyStore.getState();
     expect(settings.dmPrivacyLevel).toBe(3);
     expect(settings.searchableByUsername).toBe(true);

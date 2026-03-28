@@ -62,9 +62,7 @@ afterEach(() => {
 
 describe('useConnectionRecovery', () => {
   it('starts grace period on RECONNECTING from stable', () => {
-    const { result } = renderHook(() =>
-      useConnectionRecovery(mockWsService as never, vi.fn())
-    );
+    const { result } = renderHook(() => useConnectionRecovery(mockWsService as never, vi.fn()));
 
     result.current('RECONNECTING' as never);
 
@@ -78,9 +76,7 @@ describe('useConnectionRecovery', () => {
       connectionState: 'connected',
     });
 
-    const { result } = renderHook(() =>
-      useConnectionRecovery(mockWsService as never, vi.fn())
-    );
+    const { result } = renderHook(() => useConnectionRecovery(mockWsService as never, vi.fn()));
 
     result.current('RECONNECTING' as never);
 
@@ -90,9 +86,7 @@ describe('useConnectionRecovery', () => {
   it('does not start grace period if already in recovery', () => {
     useConnectionStore.getState().enterRecoveryA();
 
-    const { result } = renderHook(() =>
-      useConnectionRecovery(mockWsService as never, vi.fn())
-    );
+    const { result } = renderHook(() => useConnectionRecovery(mockWsService as never, vi.fn()));
 
     result.current('RECONNECTING' as never);
 
@@ -103,9 +97,7 @@ describe('useConnectionRecovery', () => {
   it('resets on CONNECTED during grace_period', () => {
     useConnectionStore.getState().startGracePeriod();
 
-    const { result } = renderHook(() =>
-      useConnectionRecovery(mockWsService as never, vi.fn())
-    );
+    const { result } = renderHook(() => useConnectionRecovery(mockWsService as never, vi.fn()));
 
     result.current('CONNECTED' as never);
 

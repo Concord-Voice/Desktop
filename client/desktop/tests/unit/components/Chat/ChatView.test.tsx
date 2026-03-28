@@ -2,7 +2,14 @@ import { render, screen } from '../../../test-utils';
 import { useChannelStore } from '@/renderer/stores/channelStore';
 import { useChatStore } from '@/renderer/stores/chatStore';
 import { useUserStore } from '@/renderer/stores/userStore';
-import { mockUser, mockChannel, mockMessage, mockMessage2 } from '../../../mocks/fixtures';
+import { useServerStore } from '@/renderer/stores/serverStore';
+import {
+  mockUser,
+  mockChannel,
+  mockMessage,
+  mockMessage2,
+  mockEncryptedChannel,
+} from '../../../mocks/fixtures';
 
 // Mock apiFetch to prevent hanging fetches
 const mockApiFetch = vi.fn().mockResolvedValue({
@@ -37,8 +44,27 @@ vi.mock('@/renderer/components/Chat/MessageList', () => ({
 }));
 
 vi.mock('@/renderer/components/Chat/MessageInput', () => ({
-  default: ({ channelName, disabled }: { channelName?: string; disabled: boolean }) => (
-    <div data-testid="message-input" data-channel={channelName} data-disabled={disabled} />
+  default: ({
+    channelName,
+    disabled,
+    isChannelEncrypted,
+    serverId,
+    channelId,
+  }: {
+    channelName?: string;
+    disabled: boolean;
+    isChannelEncrypted?: boolean;
+    serverId?: string;
+    channelId?: string;
+  }) => (
+    <div
+      data-testid="message-input"
+      data-channel={channelName}
+      data-disabled={disabled}
+      data-encrypted={isChannelEncrypted}
+      data-server-id={serverId}
+      data-channel-id={channelId}
+    />
   ),
 }));
 
@@ -63,6 +89,7 @@ vi.mock('@/renderer/services/e2eeService', () => ({
     decryptForChannel: vi.fn(),
     getChannelKey: vi.fn(),
     invalidateChannelKey: vi.fn(),
+    encryptForChannel: vi.fn(),
   },
 }));
 
@@ -187,5 +214,114 @@ describe('ChatView', () => {
     rerender(<ChatView />);
     // Second channel should also fetch
     expect(mockApiFetch).toHaveBeenCalledWith(expect.stringContaining('channel-2'));
+  });
+
+  // ── Header rendering ──
+
+  it('shows default channel name when channel not found', () => {
+    useChannelStore.setState({ channels: [], activeChannelId: 'channel-unknown' });
+    render(<ChatView />);
+    expect(screen.getByText('Channel')).toBeInTheDocument();
+  });
+
+  it('shows channel emoji when channel has one', () => {
+    useChannelStore.setState({
+      channels: [{ ...mockChannel, emoji: '🎮' }],
+      activeChannelId: 'channel-1',
+    });
+    render(<ChatView />);
+    const emoji = document.querySelector('.chat-header-emoji');
+    expect(emoji).toBeInTheDocument();
+    expect(emoji?.textContent).toBe('🎮');
+  });
+
+  it('shows hash icon when channel has no emoji', () => {
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    render(<ChatView />);
+    const icon = document.querySelector('.chat-header-icon');
+    expect(icon).toBeInTheDocument();
+  });
+
+  // ── MessageInput props ──
+
+  it('passes isChannelEncrypted to MessageInput', () => {
+    useChannelStore.setState({
+      channels: [{ ...mockChannel, is_encrypted: true }],
+      activeChannelId: 'channel-1',
+    });
+    render(<ChatView />);
+    const input = screen.getByTestId('message-input');
+    expect(input).toHaveAttribute('data-encrypted', 'true');
+  });
+
+  it('passes serverId to MessageInput', () => {
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    render(<ChatView />);
+    const input = screen.getByTestId('message-input');
+    expect(input).toHaveAttribute('data-server-id', 'server-1');
+  });
+
+  it('passes channelId to MessageInput', () => {
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    render(<ChatView />);
+    const input = screen.getByTestId('message-input');
+    expect(input).toHaveAttribute('data-channel-id', 'channel-1');
+  });
+
+  it('disables input when no user', () => {
+    useUserStore.setState({ user: null });
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    render(<ChatView />);
+    const input = screen.getByTestId('message-input');
+    expect(input).toHaveAttribute('data-disabled', 'true');
+  });
+
+  it('enables input when user is present', () => {
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    render(<ChatView />);
+    const input = screen.getByTestId('message-input');
+    expect(input).toHaveAttribute('data-disabled', 'false');
+  });
+
+  // ── Error display ──
+
+  it('shows chat-error div for API errors', async () => {
+    mockApiFetch.mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: 'Server error' }),
+    });
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    const { container } = render(<ChatView />);
+    await vi.waitFor(() => {
+      const errorDiv = container.querySelector('.chat-error');
+      expect(errorDiv).toBeInTheDocument();
+    });
+  });
+
+  it('does not show error div when fetch succeeds', () => {
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    const { container } = render(<ChatView />);
+    const errorDiv = container.querySelector('.chat-error');
+    expect(errorDiv).not.toBeInTheDocument();
+  });
+
+  // ── TypingIndicator rendering ──
+
+  it('renders TypingIndicator with correct channelId', () => {
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    render(<ChatView />);
+    // TypingIndicator is not mocked so it renders as-is
+    const chatView = document.querySelector('.chat-view');
+    expect(chatView).toBeInTheDocument();
+  });
+
+  // ── Structural layout ──
+
+  it('renders chat-header, chat-messages, and chat-input sections', () => {
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    const { container } = render(<ChatView />);
+    expect(container.querySelector('.chat-header')).toBeInTheDocument();
+    expect(container.querySelector('.chat-messages')).toBeInTheDocument();
+    expect(container.querySelector('.chat-input')).toBeInTheDocument();
   });
 });

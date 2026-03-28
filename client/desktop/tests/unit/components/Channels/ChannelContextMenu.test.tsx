@@ -34,7 +34,7 @@ describe('ChannelContextMenu', () => {
         onClose={mockOnClose}
         onEditChannel={mockOnEditChannel}
         onDeleteChannel={mockOnDeleteChannel}
-      />,
+      />
     );
   };
 

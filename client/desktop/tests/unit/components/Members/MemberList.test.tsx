@@ -19,13 +19,19 @@ vi.mock('@/renderer/services/apiClient', () => ({
 // Mock MemberProfileCard and MemberContextMenu to avoid complex rendering
 vi.mock('@/renderer/components/Members/MemberProfileCard', () => ({
   default: ({ member, onClose }: { member: { username: string }; onClose: () => void }) => (
-    <div data-testid="profile-card">{member.username}<button onClick={onClose}>Close</button></div>
+    <div data-testid="profile-card">
+      {member.username}
+      <button onClick={onClose}>Close</button>
+    </div>
   ),
 }));
 
 vi.mock('@/renderer/components/Members/MemberContextMenu', () => ({
   default: ({ member, onClose }: { member: { username: string }; onClose: () => void }) => (
-    <div data-testid="context-menu">{member.username}<button onClick={onClose}>Close</button></div>
+    <div data-testid="context-menu">
+      {member.username}
+      <button onClick={onClose}>Close</button>
+    </div>
   ),
 }));
 

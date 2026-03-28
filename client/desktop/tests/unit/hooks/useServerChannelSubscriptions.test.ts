@@ -81,7 +81,9 @@ describe('useServerChannelSubscriptions', () => {
     renderHook(() => useServerChannelSubscriptions());
     // Should fetch server unreads but not per-channel (server-1/unread pattern)
     expect(mockApiFetch).toHaveBeenCalledWith('/api/v1/servers/unread-status');
-    expect(mockApiFetch).not.toHaveBeenCalledWith(expect.stringMatching(/\/servers\/server-\d+\/unread/));
+    expect(mockApiFetch).not.toHaveBeenCalledWith(
+      expect.stringMatching(/\/servers\/server-\d+\/unread/)
+    );
   });
 
   it('does not unsubscribe on unmount (subscriptions are long-lived)', () => {

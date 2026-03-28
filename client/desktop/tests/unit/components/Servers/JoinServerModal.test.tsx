@@ -27,7 +27,7 @@ describe('JoinServerModal', () => {
 
   it('renders nothing when closed', () => {
     const { container } = render(
-      <JoinServerModal isOpen={false} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <JoinServerModal isOpen={false} onClose={mockOnClose} onSuccess={mockOnSuccess} />
     );
     expect(container.querySelector('.modal-overlay')).not.toBeInTheDocument();
   });

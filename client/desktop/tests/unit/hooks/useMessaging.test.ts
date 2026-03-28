@@ -122,12 +122,21 @@ describe('useMessaging', () => {
 
     // Wait for async doSend
     await vi.waitFor(() => {
-      expect(mockSendMessage).toHaveBeenCalledWith('channel-1', 'Hello world', 'client-msg-1', false, undefined, undefined);
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        'channel-1',
+        'Hello world',
+        'client-msg-1',
+        false,
+        undefined,
+        undefined
+      );
     });
   });
 
   it('sendMessage encrypts for E2EE channels', async () => {
-    mockEncryptForChannel.mockResolvedValue('encrypted-base64-content-that-is-long-enough-for-validation');
+    mockEncryptForChannel.mockResolvedValue(
+      'encrypted-base64-content-that-is-long-enough-for-validation'
+    );
     mockGetCurrentKeyVersion.mockReturnValue(3);
 
     const { result } = renderHook(() => useMessaging());
@@ -144,7 +153,7 @@ describe('useMessaging', () => {
         'client-msg-1',
         true,
         3,
-        undefined,
+        undefined
       );
     });
   });
@@ -159,7 +168,10 @@ describe('useMessaging', () => {
     });
 
     await vi.waitFor(() => {
-      expect(mockMarkAsFailed).toHaveBeenCalledWith('client-msg-1', 'Encryption failed — message not sent');
+      expect(mockMarkAsFailed).toHaveBeenCalledWith(
+        'client-msg-1',
+        'Encryption failed — message not sent'
+      );
     });
   });
 

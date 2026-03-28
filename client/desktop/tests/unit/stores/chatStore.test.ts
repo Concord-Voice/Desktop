@@ -117,7 +117,11 @@ describe('chatStore', () => {
       // Force old timestamp
       const channel = useChatStore.getState().typingByChannel.get('channel-1');
       if (channel) {
-        channel.set('user-2', { userId: 'user-2', username: 'testuser2', timestamp: Date.now() - 10000 });
+        channel.set('user-2', {
+          userId: 'user-2',
+          username: 'testuser2',
+          timestamp: Date.now() - 10000,
+        });
       }
       useChatStore.getState().clearOldTypingIndicators('channel-1');
       const typing = useChatStore.getState().getTypingUsers('channel-1');
@@ -145,7 +149,9 @@ describe('chatStore', () => {
   describe('updateMessageStatus', () => {
     it('updates pending message to sent with server id', () => {
       useChatStore.getState().addMessage('channel-1', mockPendingMessage);
-      useChatStore.getState().updateMessageStatus('channel-1', 'client-msg-1', 'sent', 'server-msg-1');
+      useChatStore
+        .getState()
+        .updateMessageStatus('channel-1', 'client-msg-1', 'sent', 'server-msg-1');
       const msgs = useChatStore.getState().messagesByChannel.get('channel-1');
       expect(msgs![0].status).toBe('sent');
       expect(msgs![0].id).toBe('server-msg-1');

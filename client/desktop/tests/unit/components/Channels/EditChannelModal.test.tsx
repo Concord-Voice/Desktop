@@ -28,14 +28,24 @@ describe('EditChannelModal', () => {
 
   it('renders nothing when closed', () => {
     const { container } = render(
-      <EditChannelModal isOpen={false} channel={mockChannel} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <EditChannelModal
+        isOpen={false}
+        channel={mockChannel}
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+      />
     );
     expect(container.querySelector('.modal-overlay')).not.toBeInTheDocument();
   });
 
   it('renders form with current channel data', () => {
     render(
-      <EditChannelModal isOpen={true} channel={mockChannel} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <EditChannelModal
+        isOpen={true}
+        channel={mockChannel}
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+      />
     );
     expect(screen.getByText('Edit Channel')).toBeInTheDocument();
     expect(screen.getByDisplayValue('general')).toBeInTheDocument();
@@ -43,7 +53,12 @@ describe('EditChannelModal', () => {
 
   it('disables Save when no changes made', () => {
     render(
-      <EditChannelModal isOpen={true} channel={mockChannel} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <EditChannelModal
+        isOpen={true}
+        channel={mockChannel}
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+      />
     );
     const saveBtn = screen.getByText('Save Changes');
     expect(saveBtn).toBeDisabled();
@@ -51,7 +66,12 @@ describe('EditChannelModal', () => {
 
   it('enables Save when name changes', () => {
     render(
-      <EditChannelModal isOpen={true} channel={mockChannel} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <EditChannelModal
+        isOpen={true}
+        channel={mockChannel}
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+      />
     );
     fireEvent.change(screen.getByDisplayValue('general'), {
       target: { value: 'updated-channel' },
@@ -69,7 +89,12 @@ describe('EditChannelModal', () => {
     } as Response);
 
     render(
-      <EditChannelModal isOpen={true} channel={mockChannel} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <EditChannelModal
+        isOpen={true}
+        channel={mockChannel}
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+      />
     );
 
     fireEvent.change(screen.getByDisplayValue('general'), {
@@ -96,7 +121,12 @@ describe('EditChannelModal', () => {
     } as Response);
 
     render(
-      <EditChannelModal isOpen={true} channel={mockChannel} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <EditChannelModal
+        isOpen={true}
+        channel={mockChannel}
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+      />
     );
 
     fireEvent.change(screen.getByDisplayValue('general'), {
@@ -114,7 +144,12 @@ describe('EditChannelModal', () => {
 
   it('validates short name', () => {
     render(
-      <EditChannelModal isOpen={true} channel={mockChannel} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <EditChannelModal
+        isOpen={true}
+        channel={mockChannel}
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+      />
     );
     fireEvent.change(screen.getByDisplayValue('general'), {
       target: { value: 'ab' },
@@ -125,7 +160,12 @@ describe('EditChannelModal', () => {
 
   it('calls onClose when Cancel is clicked', () => {
     render(
-      <EditChannelModal isOpen={true} channel={mockChannel} onClose={mockOnClose} onSuccess={mockOnSuccess} />,
+      <EditChannelModal
+        isOpen={true}
+        channel={mockChannel}
+        onClose={mockOnClose}
+        onSuccess={mockOnSuccess}
+      />
     );
     fireEvent.click(screen.getByText('Cancel'));
     expect(mockOnClose).toHaveBeenCalled();
