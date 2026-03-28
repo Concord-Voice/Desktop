@@ -1,4 +1,4 @@
-# Concord Desktop Client
+# Concord Voice Desktop Client
 
 Electron-based desktop application for Concord voice communication platform.
 
@@ -132,7 +132,7 @@ This will create platform-specific installers in the `out/` directory.
 - Channel groups with drag-and-drop ordering
 - Custom context menus
 - Profile popovers
-- **19 Zustand stores** for state management
+- **24 Zustand stores** (Zustand 5.0.12) for state management
 
 ### Security ✅
 - Electron hardening: safeStorage, ASAR, sandbox, context isolation

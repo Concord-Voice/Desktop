@@ -1,14 +1,14 @@
 # State Management Architecture
 
-**Framework:** Zustand v4.5+
-**Last Updated:** 2026-03-03
+**Framework:** Zustand v5.0.12
+**Last Updated:** 2026-03-27
 **Decision:** Zustand chosen over Redux after cost-benefit analysis (see below)
 
 ---
 
 ## Overview
 
-Concord uses [Zustand](https://github.com/pmndrs/zustand) for state management across all frontend stores. Zustand was chosen for its simplicity, TypeScript integration, small bundle size (45KB vs Redux's 200KB), and superior developer experience.
+Concord Voice uses [Zustand](https://github.com/pmndrs/zustand) for state management across all frontend stores. Zustand was chosen for its simplicity, TypeScript integration, small bundle size (45KB vs Redux's 200KB), and superior developer experience.
 
 ### Why Zustand over Redux?
 
@@ -52,8 +52,13 @@ Full analysis was performed during Phase 1A architecture decisions (internal).
 | **dmStore** | DM conversations, participants | ❌ | 1C |
 | **friendStore** | Friend list, friend requests | ❌ | 1C |
 | **privacyStore** | Privacy settings, friend codes | ❌ | 1C |
+| **clientConfigStore** | Server-provided client configuration | ❌ | 2A |
+| **mfaChallengeStore** | MFA challenge state during auth flows | ❌ | 2A |
+| **notificationStore** | Desktop notification preferences and queue | ✅ | 2A |
+| **osPermissionStore** | OS-level permission states (mic, camera, screen) | ❌ | 2A |
+| **permissionStore** | RBAC permission state for current server/channel | ❌ | 2A |
 
-**Total: 19 Zustand stores** across Phases 1A–1C
+**Total: 24 Zustand stores** across Phases 1A–2A
 
 ---
 
@@ -565,7 +570,7 @@ Or use the `userStore.logout()` action which does this automatically.
 - **Savings:** 155KB (77% smaller)
 
 **Memory Usage:**
-- Zustand: ~4MB (all 19 stores loaded)
+- Zustand: ~4MB (all 24 stores loaded)
 - Redux: ~12MB (estimated with DevTools + middleware)
 - **Savings:** ~8MB
 
@@ -589,6 +594,7 @@ Or use the `userStore.logout()` action which does this automatically.
 
 **2026-02-18:** Initial documentation, 4 core stores documented, DevTools + persist middleware enabled
 **2026-03-03:** Updated store inventory to 19 stores (Phase 1A–1C complete), removed dead reference to analysis doc
+**2026-03-27:** Updated to Zustand 5.0.12, added 5 Phase 2A stores (clientConfigStore, mfaChallengeStore, notificationStore, osPermissionStore, permissionStore), total now 24
 
 ---
 

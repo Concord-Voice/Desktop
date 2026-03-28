@@ -1,8 +1,8 @@
 # Desktop Client Tests
 
-Test suite for the Concord Desktop Client (Electron/React/TypeScript).
+Test suite for the Concord Voice Desktop Client (Electron/React/TypeScript).
 
-**Coverage:** 70.28% lines — 783 tests across 69 files
+**195 test files** across unit, component, hook, service, and E2E categories.
 
 ## Structure
 
@@ -11,7 +11,7 @@ tests/
 ├── setup.ts                        # Global test setup (jest-dom, crypto polyfill, window.electron mock)
 ├── test-utils.tsx                  # Custom render() with BrowserRouter, re-exports Testing Library
 ├── helpers/
-│   ├── store-helpers.ts            # resetAllStores() for all 10 Zustand stores
+│   ├── store-helpers.ts            # resetAllStores() for all 24 Zustand stores
 │   └── crypto-helpers.ts           # mockE2EEService() stubs
 ├── mocks/
 │   ├── fixtures.ts                 # Typed mock data: mockUser, mockServer, mockChannel, mockMessage, mockMember
@@ -128,6 +128,8 @@ Zustand stores are tested directly — call actions, assert state changes. MSW i
 
 ## CI/CD
 
-> **Note:** The GitHub Actions CI workflow is currently disabled due to billing issues. Tests are enforced locally via pre-commit hooks (`./scripts/install-git-hooks.sh`). Re-enable CI when billing is resolved.
+Tests run in GitHub Actions via `.github/workflows/build.yml` on every push to `main` and all PRs. The workflow runs desktop tests in parallel with control-plane and media-plane checks, then uploads coverage to SonarQube for Quality Gate enforcement.
 
-Coverage target: **70%+** (current actual: 70.28%).
+Pre-commit hooks (`./scripts/install-git-hooks.sh`) provide local linting and type-checking before push.
+
+Coverage target: **80%+** on new code (enforced by SonarQube Quality Gate).
