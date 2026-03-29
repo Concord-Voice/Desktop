@@ -16,7 +16,7 @@ function maskEmail(email: string): string {
   const [local, domain] = email.split('@');
   if (!domain) return email;
   if (local.length <= 2) return `${local[0]}***@${domain}`;
-  return `${local[0]}${'*'.repeat(Math.min(local.length - 2, 6))}${local[local.length - 1]}@${domain}`;
+  return `${local[0]}${'*'.repeat(Math.min(local.length - 2, 6))}${local.at(-1)}@${domain}`;
 }
 
 const RESEND_COOLDOWN = 60; // seconds

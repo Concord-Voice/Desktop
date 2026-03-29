@@ -49,7 +49,7 @@ function parseProfile(
   if (!sdpFmtpLine) return { id: null, label: null, isHdr: false };
 
   if (mime === 'video/h264') {
-    const match = sdpFmtpLine.match(/profile-level-id=([0-9a-fA-F]{6})/);
+    const match = /profile-level-id=([0-9a-fA-F]{6})/.exec(sdpFmtpLine);
     if (!match) return { id: null, label: null, isHdr: false };
     const plid = match[1].toLowerCase();
     const profile = plid.substring(0, 4);
@@ -62,7 +62,7 @@ function parseProfile(
   }
 
   if (mime === 'video/vp9') {
-    const match = sdpFmtpLine.match(/profile-id=(\d+)/);
+    const match = /profile-id=(\d+)/.exec(sdpFmtpLine);
     if (!match) return { id: '0', label: null, isHdr: false };
     const pid = match[1];
     return { id: pid, label: pid === '2' ? 'HDR' : null, isHdr: pid === '2' };

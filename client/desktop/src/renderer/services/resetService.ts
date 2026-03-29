@@ -65,7 +65,7 @@ export function gracefulReset(): void {
  */
 export function softRestart(): void {
   gracefulReset();
-  window.location.reload();
+  globalThis.location.reload();
 }
 
 /**

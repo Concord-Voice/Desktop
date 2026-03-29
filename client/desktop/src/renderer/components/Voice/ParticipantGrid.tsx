@@ -62,7 +62,7 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
     analyser.fftSize = 256;
     analyser.smoothingTimeConstant = 0.3;
     const boostGain = ctx.createGain();
-    boostGain.gain.value = 1.0;
+    boostGain.gain.value = 1;
     const volumeGain = ctx.createGain();
     volumeGain.gain.value = useAudioSettingsStore.getState().outputVolume / 100;
 
@@ -146,7 +146,7 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
     if (!quietBoost || !ctx || !analyser || !boostGain || ctx.state === 'closed') {
       // Boost disabled — reset gain to unity
       if (boostGain && ctx && ctx.state !== 'closed') {
-        boostGain.gain.setTargetAtTime(1.0, ctx.currentTime, 0.05);
+        boostGain.gain.setTargetAtTime(1, ctx.currentTime, 0.05);
       }
       return;
     }
@@ -168,7 +168,7 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
 
       // Average level across frequency bins (0–255 range)
       let sum = 0;
-      for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+      for (const val of dataArray) sum += val;
       const avgByte = sum / dataArray.length;
 
       // Convert byte average to linear amplitude (0–1 range, where 255 = 1.0)
@@ -178,7 +178,7 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
       const silenceFloor = Math.pow(10, -60 / 20); // ~0.001
       if (measuredLinear <= silenceFloor) {
         // Silence — release boost slowly
-        boostGainRef.current.gain.setTargetAtTime(1.0, ctxRef.current.currentTime, 0.3);
+        boostGainRef.current.gain.setTargetAtTime(1, ctxRef.current.currentTime, 0.3);
         return;
       }
 
@@ -188,7 +188,7 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
         boostGainRef.current.gain.setTargetAtTime(multiplier, ctxRef.current.currentTime, 0.08); // 80ms attack
       } else {
         // At or above threshold — no boost needed
-        boostGainRef.current.gain.setTargetAtTime(1.0, ctxRef.current.currentTime, 0.3); // 300ms release
+        boostGainRef.current.gain.setTargetAtTime(1, ctxRef.current.currentTime, 0.3); // 300ms release
       }
     }, 20); // 50 Hz poll
 

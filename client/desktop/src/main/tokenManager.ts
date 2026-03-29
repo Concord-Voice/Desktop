@@ -13,9 +13,9 @@
  */
 
 import { app, safeStorage, net } from 'electron';
-import path from 'path';
-import fs from 'fs';
-import crypto from 'crypto';
+import path from 'node:path';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
 import { getMachineId } from './machineId';
 import type { RefreshResult } from './ipcContract';
 

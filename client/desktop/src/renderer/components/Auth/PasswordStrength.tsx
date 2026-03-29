@@ -71,7 +71,7 @@ function calculateStrength(password: string): StrengthResult {
     { pattern: /password|letmein|welcome/i, message: 'Avoid common words' },
     { pattern: /(.)\1{2,}/, message: 'Avoid repeated characters' },
     { pattern: /^[a-z]+$/i, message: 'Add numbers or symbols' },
-    { pattern: /^[0-9]+$/, message: 'Add letters' },
+    { pattern: /^\d+$/, message: 'Add letters' },
   ];
 
   for (const { pattern, message } of commonPatterns) {

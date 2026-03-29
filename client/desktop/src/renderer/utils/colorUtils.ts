@@ -76,9 +76,9 @@ const THEME_VARIABLE_KEYS: (keyof DerivedThemeVariables)[] = [
 
 export function hexToHsl(hex: string): HSL {
   const h = hex.replace('#', '');
-  const r = parseInt(h.substring(0, 2), 16) / 255;
-  const g = parseInt(h.substring(2, 4), 16) / 255;
-  const b = parseInt(h.substring(4, 6), 16) / 255;
+  const r = Number.parseInt(h.substring(0, 2), 16) / 255;
+  const g = Number.parseInt(h.substring(2, 4), 16) / 255;
+  const b = Number.parseInt(h.substring(4, 6), 16) / 255;
 
   const max = Math.max(r, g, b);
   const min = Math.min(r, g, b);
@@ -166,9 +166,9 @@ export function darken(hex: string, amount: number): string {
 
 export function relativeLuminance(hex: string): number {
   const h = hex.replace('#', '');
-  const r = parseInt(h.substring(0, 2), 16) / 255;
-  const g = parseInt(h.substring(2, 4), 16) / 255;
-  const b = parseInt(h.substring(4, 6), 16) / 255;
+  const r = Number.parseInt(h.substring(0, 2), 16) / 255;
+  const g = Number.parseInt(h.substring(2, 4), 16) / 255;
+  const b = Number.parseInt(h.substring(4, 6), 16) / 255;
 
   const linearize = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 

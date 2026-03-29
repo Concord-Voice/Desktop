@@ -149,8 +149,8 @@ export function useMicTest(): UseMicTestReturn {
           if (!noiseGateAnalyserRef.current) return;
           noiseGateAnalyserRef.current.getByteTimeDomainData(dataArray);
           let peak = 0;
-          for (let i = 0; i < dataArray.length; i++) {
-            const offset = Math.abs(dataArray[i] - 128);
+          for (const sample of dataArray) {
+            const offset = Math.abs(sample - 128);
             if (offset > peak) peak = offset;
           }
           const thresholdAmplitude = 128 * Math.pow(10, noiseGateThresholdRef.current / 20);
@@ -193,8 +193,8 @@ export function useMicTest(): UseMicTestReturn {
         if (!meterAnalyserRef.current) return;
         meterAnalyserRef.current.getFloatTimeDomainData(meterData);
         let peak = 0;
-        for (let i = 0; i < meterData.length; i++) {
-          const abs = Math.abs(meterData[i]);
+        for (const sample of meterData) {
+          const abs = Math.abs(sample);
           if (abs > peak) peak = abs;
         }
         const dbfs = peak > 0 ? Math.max(-80, 20 * Math.log10(peak)) : -80;

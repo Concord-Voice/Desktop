@@ -20,8 +20,8 @@ export function useResizablePanel({
     if (storageKey) {
       const saved = localStorage.getItem(storageKey);
       if (saved) {
-        const parsed = parseInt(saved, 10);
-        if (!isNaN(parsed) && parsed >= minWidth && parsed <= maxWidth) return parsed;
+        const parsed = Number.parseInt(saved, 10);
+        if (!Number.isNaN(parsed) && parsed >= minWidth && parsed <= maxWidth) return parsed;
       }
     }
     return defaultWidth;

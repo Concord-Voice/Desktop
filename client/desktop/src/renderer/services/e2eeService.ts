@@ -350,7 +350,7 @@ class E2EEService {
     const res = await apiFetch(`/api/v1/e2ee/keys/${channelId}`);
     if (!res.ok) {
       if (res.status === 429) {
-        const retryAfter = parseInt(res.headers.get('Retry-After') || '30', 10);
+        const retryAfter = Number.parseInt(res.headers.get('Retry-After') || '30', 10);
         this.rateLimitedUntil = Date.now() + retryAfter * 1000;
         throw new Error('Failed to fetch channel key');
       }
@@ -560,7 +560,7 @@ class E2EEService {
     const res = await apiFetch(`/api/v1/e2ee/keys/${channelId}?version=${version}`);
     if (!res.ok) {
       if (res.status === 429) {
-        const retryAfter = parseInt(res.headers.get('Retry-After') || '30', 10);
+        const retryAfter = Number.parseInt(res.headers.get('Retry-After') || '30', 10);
         this.rateLimitedUntil = Date.now() + retryAfter * 1000;
       }
       throw new Error(`Failed to fetch channel key version ${version}`);

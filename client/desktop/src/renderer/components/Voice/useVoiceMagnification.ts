@@ -33,8 +33,8 @@ export function useVoiceMagnification(
       const next: Record<string, number> = {};
 
       for (const [userId, p] of Object.entries(participants)) {
-        const target = p.isSpeaking ? VOICE_MAX_SCALE : 1.0;
-        const prev = current[userId] ?? 1.0;
+        const target = p.isSpeaking ? VOICE_MAX_SCALE : 1;
+        const prev = current[userId] ?? 1;
 
         if (Math.abs(prev - target) < 0.001) {
           next[userId] = target;

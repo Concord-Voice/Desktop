@@ -91,7 +91,7 @@ const TTSSection: React.FC = () => {
             type="range"
             className="settings-slider"
             min={0.5}
-            max={2.0}
+            max={2}
             step={0.1}
             value={ttsRate}
             onChange={(e) => setDraftTtsSetting('ttsRate', Number(e.target.value))}

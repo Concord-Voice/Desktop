@@ -38,7 +38,7 @@ const AuthFlow: React.FC = () => {
       setStep('email-verification');
     }
   }, [accessToken, emailVerified, pendingEmail]);
-  const [_selectedMode, setSelectedMode] = useState<ConnectionMode | null>(null);
+  const [, setSelectedMode] = useState<ConnectionMode | null>(null);
   const [serverUrl, setServerUrl] = useState<string>('');
 
   const handleConnectionSelect = (mode: ConnectionMode) => {

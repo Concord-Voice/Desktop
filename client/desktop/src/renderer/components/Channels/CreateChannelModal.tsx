@@ -32,7 +32,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState('');
   const [type, setType] = useState<'text' | 'voice' | 'bulletin'>('text');
-  const [groupId, setGroupId] = useState<string | ''>('');
+  const [groupId, setGroupId] = useState<string>('');
   const [isEncrypted, setIsEncrypted] = useState(false);
   const {
     errors,

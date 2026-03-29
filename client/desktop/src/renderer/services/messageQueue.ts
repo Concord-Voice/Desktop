@@ -288,9 +288,7 @@ export class MessageQueue {
 let messageQueue: MessageQueue | null = null;
 
 export const getMessageQueue = (callbacks?: MessageQueueCallbacks): MessageQueue => {
-  if (!messageQueue) {
-    messageQueue = new MessageQueue(callbacks);
-  }
+  messageQueue ??= new MessageQueue(callbacks);
   return messageQueue;
 };
 

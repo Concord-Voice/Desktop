@@ -141,7 +141,7 @@ function App() {
   const [platform, setPlatform] = useState<string>('');
   // PiP windows don't need auth — they communicate via BroadcastChannel.
   // Skip session restore entirely to avoid unnecessary token rotations.
-  const isPipWindow = window.location.hash.startsWith('#/pip/');
+  const isPipWindow = globalThis.location.hash.startsWith('#/pip/');
   const [isRestoring, setIsRestoring] = useState(!isPipWindow);
   const accessToken = useAuthStore((state) => state.accessToken);
   const emailVerified = useAuthStore((state) => state.emailVerified);

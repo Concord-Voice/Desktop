@@ -43,7 +43,7 @@ export function getRecentEmojis(): string[] {
     const raw = localStorage.getItem(RECENT_KEY);
     if (!raw) return [];
     const entries: RecentEntry[] = JSON.parse(raw);
-    return entries.sort((a, b) => b.lastUsed - a.lastUsed).map((e) => e.emoji);
+    return [...entries].sort((a, b) => b.lastUsed - a.lastUsed).map((e) => e.emoji);
   } catch {
     return [];
   }

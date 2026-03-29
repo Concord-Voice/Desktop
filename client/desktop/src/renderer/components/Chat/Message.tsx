@@ -19,7 +19,7 @@ import './Message.css';
  */
 function getEmojiOnlyCount(text: string): number {
   if (!text || text.length === 0) return 0;
-  const stripped = text.replace(EMOJI_REGEX, '').replace(/[\s\u{FE0F}\u{200D}]/gu, '');
+  const stripped = text.replaceAll(EMOJI_REGEX, '').replaceAll(/[\s\u{FE0F}\u{200D}]/gu, '');
   if (stripped.length > 0) return 0;
   const matches = text.match(EMOJI_REGEX);
   return matches ? matches.length : 0;

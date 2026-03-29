@@ -17,7 +17,7 @@ const TOTPInput: React.FC<TOTPInputProps> = ({
   error,
   autoFocus = true,
 }) => {
-  const [digits, setDigits] = useState<string[]>(Array(6).fill(''));
+  const [digits, setDigits] = useState<string[]>(new Array(6).fill(''));
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const handleChange = useCallback(
@@ -56,7 +56,7 @@ const TOTPInput: React.FC<TOTPInputProps> = ({
       const pasted = e.clipboardData.getData('text').replaceAll(/\D/g, '').slice(0, 6);
       if (!pasted) return;
 
-      const newDigits = Array(6).fill('');
+      const newDigits = new Array(6).fill('');
       for (let i = 0; i < pasted.length; i++) {
         newDigits[i] = pasted[i];
       }

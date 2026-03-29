@@ -104,10 +104,9 @@ export function useImageUpload({
     clearFileInput();
   }, [clearFileInput]);
 
-  const reset = useCallback((newInitialUrl?: string | null) => {
-    const url = newInitialUrl ?? null;
-    setPreview(url);
-    setImageUrl(url);
+  const reset = useCallback((newInitialUrl: string | null = null) => {
+    setPreview(newInitialUrl);
+    setImageUrl(newInitialUrl);
     setRemoved(false);
     setPendingFile(null);
     setShowCrop(false);

@@ -9,9 +9,9 @@
  */
 
 import { app } from 'electron';
-import path from 'path';
-import fs from 'fs';
-import { randomUUID } from 'crypto';
+import path from 'node:path';
+import fs from 'node:fs';
+import { randomUUID } from 'node:crypto';
 
 const MACHINE_ID_FILE = path.join(app.getPath('userData'), 'machine-id.json');
 

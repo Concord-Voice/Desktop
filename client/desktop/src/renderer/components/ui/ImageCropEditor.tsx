@@ -295,7 +295,7 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
   // Zoom slider
   const handleZoomSlider = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
-      const next = parseFloat(e.target.value);
+      const next = Number.parseFloat(e.target.value);
       setZoom(next);
       setOffset((o) => clampOffset(o.x, o.y, next));
     },

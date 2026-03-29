@@ -210,7 +210,8 @@ function callSetter(store: Record<string, unknown>, field: string, value: unknow
 // Module-level flag for suppressing server sync during draft mode
 // ---------------------------------------------------------------------------
 
-export let draftModeActive = false;
+let _draftModeActive = false;
+export const isDraftModeActive = () => _draftModeActive;
 
 // ---------------------------------------------------------------------------
 // Store
@@ -280,7 +281,7 @@ export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => 
   // ── Lifecycle ────────────────────────────────────────────────────────────
 
   initialize: () => {
-    draftModeActive = true;
+    _draftModeActive = true;
     set({
       snapshot: takeSnapshot(),
       drafts: emptyDrafts(),
@@ -295,7 +296,7 @@ export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => 
     if (snapshot && Object.keys(drafts.appearance).length > 0) {
       restoreAppearanceFromSnapshot(snapshot);
     }
-    draftModeActive = false;
+    _draftModeActive = false;
     set({
       snapshot: null,
       drafts: emptyDrafts(),
@@ -483,7 +484,7 @@ export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => 
 
     // Re-snapshot and clear drafts
     // Temporarily allow server sync to fire for appearance changes
-    draftModeActive = false;
+    _draftModeActive = false;
 
     set({
       snapshot: takeSnapshot(),
@@ -492,7 +493,7 @@ export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => 
     });
 
     // Re-enable draft mode (settings page is still open)
-    draftModeActive = true;
+    _draftModeActive = true;
 
     // Hardware acceleration restart — must happen AFTER all stores are saved
     if (willRestart) {

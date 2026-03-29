@@ -180,8 +180,8 @@ export function encodeMentionMeta(addendum: MentionAddendum): string {
   const packed = encode(addendum);
   // Convert Uint8Array to base64
   let binary = '';
-  for (let i = 0; i < packed.length; i++) {
-    binary += String.fromCodePoint(packed[i]);
+  for (const byte of packed) {
+    binary += String.fromCodePoint(byte);
   }
   return btoa(binary);
 }

@@ -617,9 +617,7 @@ export class WebSocketService {
 let wsService: WebSocketService | null = null;
 
 export const getWebSocketService = (baseUrl?: string): WebSocketService => {
-  if (!wsService) {
-    wsService = new WebSocketService(baseUrl);
-  }
+  wsService ??= new WebSocketService(baseUrl);
   return wsService;
 };
 

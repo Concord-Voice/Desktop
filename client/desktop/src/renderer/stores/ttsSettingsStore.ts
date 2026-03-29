@@ -23,13 +23,13 @@ export const useTTSSettingsStore = create<TTSSettingsState>()(
       ttsEnabled: false,
       ttsSendEnabled: false,
       ttsVoice: null,
-      ttsRate: 1.0,
-      ttsVolume: 1.0,
+      ttsRate: 1,
+      ttsVolume: 1,
 
       setTtsEnabled: (ttsEnabled) => set({ ttsEnabled }),
       setTtsSendEnabled: (ttsSendEnabled) => set({ ttsSendEnabled }),
       setTtsVoice: (ttsVoice) => set({ ttsVoice }),
-      setTtsRate: (ttsRate) => set({ ttsRate: Math.max(0.5, Math.min(2.0, ttsRate)) }),
+      setTtsRate: (ttsRate) => set({ ttsRate: Math.max(0.5, Math.min(2, ttsRate)) }),
       setTtsVolume: (ttsVolume) => set({ ttsVolume: Math.max(0, Math.min(1, ttsVolume)) }),
     }),
     { name: 'concord:tts-settings' }
