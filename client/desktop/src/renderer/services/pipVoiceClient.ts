@@ -30,6 +30,10 @@ import {
 import type { RtpCapabilities } from 'mediasoup-client/types';
 
 const RPC_TIMEOUT = 10_000;
+/** Shorter timeout for the initial request-state RPC (retried on failure) */
+const INIT_RPC_TIMEOUT = 3_000;
+const INIT_MAX_RETRIES = 3;
+const INIT_RETRY_DELAY = 1_000;
 
 interface ConsumedTrack {
   consumer: mediasoupTypes.Consumer;
@@ -72,8 +76,25 @@ export class PipVoiceClient {
    * Returns the initial voice state for the PiP UI.
    */
   async init(): Promise<VoiceStateResult> {
-    // 1. Request voice state from main window
-    const state = await this.rpc<VoiceStateResult>('request-state', {});
+    // 1. Request voice state from main window (with retry — the PipSignalingProxy
+    // may not exist yet if the async import in MainView hasn't resolved)
+    let state: VoiceStateResult | null = null;
+    for (let attempt = 1; attempt <= INIT_MAX_RETRIES; attempt++) {
+      try {
+        state = await this.rpc<VoiceStateResult>('request-state', {}, INIT_RPC_TIMEOUT);
+        break;
+      } catch (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        const isTimeout = error.message.includes('RPC timeout');
+        // Only retry on transient timeouts (proxy not ready yet).
+        // Surface other errors (e.g. explicit error responses) immediately.
+        if (!isTimeout || attempt === INIT_MAX_RETRIES || this.disposed) throw error;
+        console.debug(`[PipVoiceClient] request-state attempt ${attempt} timed out, retrying...`);
+        await new Promise((r) => setTimeout(r, INIT_RETRY_DELAY));
+      }
+    }
+
+    if (!state) throw new Error('Failed to get voice state after retries');
 
     if (!state.routerRtpCapabilities) {
       throw new Error('No router RTP capabilities available');
@@ -275,7 +296,7 @@ export class PipVoiceClient {
 
   // ── RPC helper ──────────────────────────────────────────────────
 
-  private rpc<T>(method: string, params: unknown): Promise<T> {
+  private rpc<T>(method: string, params: unknown, timeout = RPC_TIMEOUT): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       if (this.disposed) {
         return reject(new Error('PipVoiceClient disposed'));
@@ -286,7 +307,7 @@ export class PipVoiceClient {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new Error(`RPC timeout: ${method}`));
-      }, RPC_TIMEOUT);
+      }, timeout);
 
       this.pending.set(id, {
         resolve: resolve as (result: unknown) => void,

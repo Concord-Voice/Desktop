@@ -1970,18 +1970,6 @@ class VoiceService {
       return;
     }
 
-    // JIT permission check (#197): on macOS, screen recording requires manual grant in System Settings
-    const screenStatus = await useOsPermissionStore.getState().checkOne('screen');
-    if (screenStatus === 'denied' || screenStatus === 'restricted') {
-      const voiceState = useVoiceStore.getState();
-      voiceState.setVideoSlotError(
-        'Screen recording access denied. On macOS, enable Screen Recording in ' +
-          'System Settings > Privacy & Security, then restart Concord.'
-      );
-      useOsPermissionStore.getState().openSettings('screen');
-      return;
-    }
-
     // Read screen share quality settings — prefer per-share options from picker, fall back to persisted store
     const screenSettings = useVideoSettingsStore.getState();
     const resolution = options?.resolution ?? screenSettings.screenResolution;
@@ -2002,68 +1990,86 @@ class VoiceService {
       ? { w: Number(customParsed[1]), h: Number(customParsed[2]) }
       : resMap[resolution] || resMap['source'];
 
-    // Use Electron desktopCapturer if available
+    // Capture screen — uses Electron desktopCapturer when available, else getDisplayMedia.
+    // Permission errors are caught here instead of pre-checked, because Electron's
+    // systemPreferences.getMediaAccessStatus('screen') can return stale cached results
+    // on macOS after the user toggles the permission in System Settings.
     let stream: MediaStream;
-    if (globalThis.electron?.getDesktopSources) {
-      // sourceId should come from ScreenSharePicker; fallback to first screen
-      let chosenId = sourceId;
-      if (!chosenId) {
-        const sources = await globalThis.electron.getDesktopSources();
-        if (sources.length === 0) throw new Error('No screen sources available');
-        chosenId = sources.find((s) => s.id.startsWith('screen:'))?.id || sources[0].id;
-      }
-      console.debug('produceScreen: capturing desktop source', chosenId);
+    try {
+      if (globalThis.electron?.getDesktopSources) {
+        // sourceId should come from ScreenSharePicker; fallback to first screen
+        let chosenId = sourceId;
+        if (!chosenId) {
+          const sources = await globalThis.electron.getDesktopSources();
+          if (sources.length === 0) throw new Error('No screen sources available');
+          chosenId = sources.find((s) => s.id.startsWith('screen:'))?.id || sources[0].id;
+        }
+        console.debug('produceScreen: capturing desktop source', chosenId);
 
-      // Try video+audio first (audio not available on macOS), fall back to video-only
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            mandatory: {
-              chromeMediaSource: 'desktop',
-              chromeMediaSourceId: chosenId,
-            },
-          } as unknown as MediaTrackConstraints,
+        // Try video+audio first (audio not available on macOS), fall back to video-only
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              mandatory: {
+                chromeMediaSource: 'desktop',
+                chromeMediaSourceId: chosenId,
+              },
+            } as unknown as MediaTrackConstraints,
+            video: {
+              mandatory: {
+                chromeMediaSource: 'desktop',
+                chromeMediaSourceId: chosenId,
+                maxWidth: screenRes.w,
+                maxHeight: screenRes.h,
+                maxFrameRate: screenFps,
+              },
+            } as unknown as MediaTrackConstraints,
+          });
+        } catch (audioErr) {
+          // Audio capture failed (expected on macOS, may also be permission/device errors)
+          console.debug(
+            'produceScreen: audio capture unavailable, falling back to video-only',
+            audioErr
+          );
+          stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+              mandatory: {
+                chromeMediaSource: 'desktop',
+                chromeMediaSourceId: chosenId,
+                maxWidth: screenRes.w,
+                maxHeight: screenRes.h,
+                maxFrameRate: screenFps,
+              },
+            } as unknown as MediaTrackConstraints,
+          });
+        }
+      } else {
+        console.debug('produceScreen: using getDisplayMedia fallback');
+        // audio: true shows "Share audio" checkbox in browser picker.
+        // If declined or unsupported, stream simply has no audio tracks.
+        stream = await navigator.mediaDevices.getDisplayMedia({
           video: {
-            mandatory: {
-              chromeMediaSource: 'desktop',
-              chromeMediaSourceId: chosenId,
-              maxWidth: screenRes.w,
-              maxHeight: screenRes.h,
-              maxFrameRate: screenFps,
-            },
-          } as unknown as MediaTrackConstraints,
-        });
-      } catch (audioErr) {
-        // Audio capture failed (expected on macOS, may also be permission/device errors)
-        console.debug(
-          'produceScreen: audio capture unavailable, falling back to video-only',
-          audioErr
-        );
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: {
-            mandatory: {
-              chromeMediaSource: 'desktop',
-              chromeMediaSourceId: chosenId,
-              maxWidth: screenRes.w,
-              maxHeight: screenRes.h,
-              maxFrameRate: screenFps,
-            },
-          } as unknown as MediaTrackConstraints,
+            width: { ideal: screenRes.w },
+            height: { ideal: screenRes.h },
+            frameRate: { ideal: screenFps },
+          },
+          audio: true,
         });
       }
-    } else {
-      console.debug('produceScreen: using getDisplayMedia fallback');
-      // audio: true shows "Share audio" checkbox in browser picker.
-      // If declined or unsupported, stream simply has no audio tracks.
-      stream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          width: { ideal: screenRes.w },
-          height: { ideal: screenRes.h },
-          frameRate: { ideal: screenFps },
-        },
-        audio: true,
-      });
+    } catch (captureErr) {
+      // Handle permission denial at the OS level (media APIs throw DOMException)
+      if (captureErr instanceof DOMException && captureErr.name === 'NotAllowedError') {
+        useVoiceStore
+          .getState()
+          .setVideoSlotError(
+            'Screen recording access denied. On macOS, enable Screen Recording in ' +
+              'System Settings > Privacy & Security, then restart Concord.'
+          );
+        useOsPermissionStore.getState().openSettings('screen');
+        return;
+      }
+      throw captureErr;
     }
 
     const videoTracks = stream.getVideoTracks();

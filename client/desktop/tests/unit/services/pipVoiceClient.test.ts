@@ -193,6 +193,76 @@ describe('PipVoiceClient', () => {
 
       await expect(client.init()).rejects.toThrow('No router RTP capabilities available');
     });
+
+    it('retries request-state RPC on timeout and succeeds on later attempt', async () => {
+      client = new PipVoiceClient('test-pip');
+      let callCount = 0;
+
+      // First two calls timeout (no response), third succeeds
+      const ch = MockBroadcastChannel.instances.find((c) => c.name === 'concord-pip')!;
+      ch.autoResponder = (data: unknown) => {
+        const msg = data as { kind?: string; id?: string; method?: string };
+        if (msg.kind !== 'rpc-request' || !msg.id) return undefined;
+        callCount++;
+        if (msg.method === 'request-state' && callCount <= 2) {
+          return undefined; // No response → will timeout
+        }
+        const responses: Record<string, unknown> = { ...defaultRpcResponses };
+        const result = responses[msg.method ?? ''];
+        if (result === undefined) return { kind: 'rpc-response', id: msg.id, error: 'no mock' };
+        return { kind: 'rpc-response', id: msg.id, result };
+      };
+
+      // Advance timers to trigger the 3s init timeout + 1s retry delays
+      const initPromise = client.init();
+      // First attempt times out after 3s
+      await vi.advanceTimersByTimeAsync(3_100);
+      // Retry delay 1s
+      await vi.advanceTimersByTimeAsync(1_100);
+      // Second attempt times out after 3s
+      await vi.advanceTimersByTimeAsync(3_100);
+      // Retry delay 1s
+      await vi.advanceTimersByTimeAsync(1_100);
+      // Third attempt should succeed (auto-responder responds synchronously)
+
+      const state = await initPromise;
+      expect(state.participants['user-1'].username).toBe('alice');
+      expect(callCount).toBeGreaterThanOrEqual(3);
+    });
+
+    it('throws after exhausting all retry attempts', async () => {
+      client = new PipVoiceClient('test-pip');
+      // No auto-responder — all attempts will timeout
+
+      const initPromise = client.init().catch((err: Error) => err);
+
+      // Advance through all 3 attempts (3s timeout each + 1s delay between)
+      for (let i = 0; i < 3; i++) {
+        await vi.advanceTimersByTimeAsync(3_100);
+        if (i < 2) await vi.advanceTimersByTimeAsync(1_100);
+      }
+
+      const result = await initPromise;
+      expect(result).toBeInstanceOf(Error);
+      expect((result as Error).message).toContain('RPC timeout');
+    });
+
+    it('does not retry on non-timeout errors (fails immediately)', async () => {
+      client = new PipVoiceClient('test-pip');
+
+      // Auto-responder returns an explicit error (not a timeout)
+      const ch = MockBroadcastChannel.instances.find((c) => c.name === 'concord-pip');
+      if (ch) {
+        ch.autoResponder = (data: unknown) => {
+          const msg = data as { kind?: string; id?: string; method?: string };
+          if (msg.kind !== 'rpc-request') return undefined;
+          return { kind: 'rpc-response', id: msg.id, error: 'proxy error' };
+        };
+      }
+
+      // Should fail immediately without retrying
+      await expect(client.init()).rejects.toThrow('proxy error');
+    });
   });
 
   // ── consume() ───────────────────────────────────────────────────────
@@ -417,11 +487,8 @@ describe('PipVoiceClient', () => {
 
     it('handles RPC error responses', async () => {
       client = new PipVoiceClient('test-pip');
-      setupAutoResponder({
-        'request-state': undefined, // Will cause error response
-      });
 
-      // Override to return error
+      // All RPCs return error — init() retries then throws after exhausting attempts
       const ch = MockBroadcastChannel.instances.find((c) => c.name === 'concord-pip');
       if (ch) {
         ch.autoResponder = (data: unknown) => {
@@ -431,7 +498,14 @@ describe('PipVoiceClient', () => {
         };
       }
 
-      await expect(client.init()).rejects.toThrow('test error');
+      const initPromise = client.init().catch((err: Error) => err);
+      // Advance through retry delays (errors are immediate, but retries use 1s setTimeout)
+      await vi.advanceTimersByTimeAsync(1_100);
+      await vi.advanceTimersByTimeAsync(1_100);
+
+      const result = await initPromise;
+      expect(result).toBeInstanceOf(Error);
+      expect((result as Error).message).toBe('test error');
     });
   });
 });

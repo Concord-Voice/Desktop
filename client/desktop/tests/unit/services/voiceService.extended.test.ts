@@ -1353,19 +1353,19 @@ describe('VoiceService Extended', () => {
   // ===== produceScreen edge cases =====
 
   describe('produceScreen edge cases', () => {
-    it('blocks when screen permission denied', async () => {
-      const { sendTransport } = await joinVoiceChannel();
-      mockCheckOne.mockResolvedValue('denied');
+    it('shows permission error when capture throws NotAllowedError', async () => {
+      await joinVoiceChannel();
+      const err = new DOMException('Permission denied', 'NotAllowedError');
+      mockGetDisplayMedia.mockRejectedValue(err);
       await voiceService.produceScreen();
       expect(useVoiceStore.getState().videoSlotError).toContain('Screen recording access denied');
       expect(mockOpenSettings).toHaveBeenCalledWith('screen');
     });
 
-    it('blocks when screen permission restricted', async () => {
-      const { sendTransport } = await joinVoiceChannel();
-      mockCheckOne.mockResolvedValue('restricted');
-      await voiceService.produceScreen();
-      expect(useVoiceStore.getState().videoSlotError).toContain('Screen recording access denied');
+    it('rethrows non-permission capture errors', async () => {
+      await joinVoiceChannel();
+      mockGetDisplayMedia.mockRejectedValue(new Error('Hardware failure'));
+      await expect(voiceService.produceScreen()).rejects.toThrow('Hardware failure');
     });
 
     it('throws when no video tracks from capture', async () => {
