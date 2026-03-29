@@ -105,7 +105,7 @@ export class PipSignalingProxy {
 
   // ── Incoming message handler ────────────────────────────────────
 
-  private handleMessage = (event: MessageEvent<PipChannelMessage>) => {
+  private readonly handleMessage = (event: MessageEvent<PipChannelMessage>) => {
     const msg = event.data;
     if (this.disposed) return;
 

@@ -269,7 +269,7 @@ export class PipVoiceClient {
 
   // ── BroadcastChannel message handling ───────────────────────────
 
-  private handleMessage = (event: MessageEvent<PipChannelMessage>) => {
+  private readonly handleMessage = (event: MessageEvent<PipChannelMessage>) => {
     const msg = event.data;
 
     // Handle RPC responses
