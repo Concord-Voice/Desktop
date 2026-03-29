@@ -62,10 +62,10 @@ const JoinServerModal: React.FC<JoinServerModalProps> = ({ isOpen, onClose, onSu
         const info = await getInviteInfo(code);
         setIsLoadingPreview(false);
         if (info) {
-          if (!info.valid) {
-            setError('This invite is no longer valid (expired, revoked, or used up)');
-          } else {
+          if (info.valid) {
             setPreview(info);
+          } else {
+            setError('This invite is no longer valid (expired, revoked, or used up)');
           }
         } else {
           // Check if this might be a friend code instead

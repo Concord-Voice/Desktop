@@ -164,7 +164,7 @@ const EmailVerification: React.FC<EmailVerificationProps> = ({ email, onVerified
 
       {attemptsRemaining !== null && attemptsRemaining > 0 && (
         <p className="email-verification-attempts">
-          {attemptsRemaining} attempt{attemptsRemaining !== 1 ? 's' : ''} remaining
+          {attemptsRemaining} attempt{attemptsRemaining === 1 ? '' : 's'} remaining
         </p>
       )}
 

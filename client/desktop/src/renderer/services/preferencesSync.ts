@@ -259,11 +259,11 @@ class PreferencesSyncService {
         body: JSON.stringify({ encrypted_data: encrypted }),
       });
 
-      if (!res.ok) {
-        console.warn('[PrefsSync] Push failed:', res.status);
-      } else {
+      if (res.ok) {
         const data = await res.json();
         console.debug('[PrefsSync] Pushed preferences v' + data.version);
+      } else {
+        console.warn('[PrefsSync] Push failed:', res.status);
       }
     } catch (err) {
       console.warn('[PrefsSync] Push error:', err);

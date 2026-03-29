@@ -43,7 +43,7 @@ const formatLastSeen = (timestamp: number): string => {
 const formatLinkDisplay = (url: string): string => {
   try {
     const parsed = new URL(url);
-    return parsed.hostname + (parsed.pathname !== '/' ? parsed.pathname : '');
+    return parsed.hostname + (parsed.pathname === '/' ? '' : parsed.pathname);
   } catch {
     return url;
   }

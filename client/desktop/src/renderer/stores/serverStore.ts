@@ -75,7 +75,7 @@ export const useServerStore = create<ServerState>()(
         updateOnlineCounts: (counts: Record<string, number>) => {
           set((state) => ({
             servers: state.servers.map((s) =>
-              counts[s.id] !== undefined ? { ...s, online_count: counts[s.id] } : s
+              counts[s.id] === undefined ? s : { ...s, online_count: counts[s.id] }
             ),
           }));
         },

@@ -64,7 +64,7 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
   );
 
   const scaleStyle =
-    magnificationScale !== 1 ? { transform: `scale(${magnificationScale})`, zIndex: 2 } : undefined;
+    magnificationScale === 1 ? undefined : { transform: `scale(${magnificationScale})`, zIndex: 2 };
 
   return (
     <div

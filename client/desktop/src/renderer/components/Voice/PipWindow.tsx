@@ -216,7 +216,7 @@ const ControlsPipContent: React.FC<{
       </div>
       {state.participantCount > 0 && (
         <div className="pip-controls-status">
-          {state.participantCount} participant{state.participantCount !== 1 ? 's' : ''}
+          {state.participantCount} participant{state.participantCount === 1 ? '' : 's'}
         </div>
       )}
     </div>

@@ -102,7 +102,7 @@ function AuthenticatedLayout() {
         codecCapabilities: caps,
         gpuInfo: gpu ?? current.gpuInfo,
         systemHdr,
-        ...(hwAccel != null ? { hardwareAcceleration: hwAccel } : {}),
+        ...(hwAccel == null ? {} : { hardwareAcceleration: hwAccel }),
       });
 
       // Auto-enable HDR encoding on first detection if user hasn't explicitly toggled it

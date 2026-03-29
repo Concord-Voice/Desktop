@@ -219,12 +219,12 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
   /** Validate password match when either password field loses focus */
   const validatePasswordMatch = () => {
     if (formData.confirmPassword.length > 0) {
-      if (formData.password !== formData.confirmPassword) {
-        setErrors((prev) => ({ ...prev, confirmPassword: 'Passwords do not match' }));
-        setPasswordsMatch(false);
-      } else {
+      if (formData.password === formData.confirmPassword) {
         setErrors((prev) => ({ ...prev, confirmPassword: undefined }));
         setPasswordsMatch(true);
+      } else {
+        setErrors((prev) => ({ ...prev, confirmPassword: 'Passwords do not match' }));
+        setPasswordsMatch(false);
       }
     }
   };

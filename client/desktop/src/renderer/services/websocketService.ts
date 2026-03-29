@@ -516,11 +516,11 @@ export class WebSocketService {
     this.ws = null;
 
     // Only reconnect if not manually disconnected
-    if (event.code !== 1000) {
+    if (event.code === 1000) {
+      this.setState(ConnectionState.DISCONNECTED);
+    } else {
       this.setState(ConnectionState.RECONNECTING);
       this.scheduleReconnect();
-    } else {
-      this.setState(ConnectionState.DISCONNECTED);
     }
   }
 

@@ -135,11 +135,7 @@ const SystemPermissionsSection: React.FC = () => {
         grant it in your operating system&apos;s settings.
       </p>
 
-      {!isLoaded ? (
-        <div className="settings-row">
-          <span className="settings-row-label">Loading permission statuses...</span>
-        </div>
-      ) : (
+      {isLoaded ? (
         PERMISSION_ROWS.map((row) => (
           <PermissionRow
             key={row.type}
@@ -152,6 +148,10 @@ const SystemPermissionsSection: React.FC = () => {
             onOpenSettings={openSettings}
           />
         ))
+      ) : (
+        <div className="settings-row">
+          <span className="settings-row-label">Loading permission statuses...</span>
+        </div>
       )}
     </CollapsibleSection>
   );

@@ -263,13 +263,13 @@ export function storeRefreshToken(data: {
     // Verify disk round-trip: read back and compare
     const readBack = fs.readFileSync(TOKEN_FILE);
     const decrypted = safeStorage.decryptString(readBack);
-    if (decrypted !== data.refreshToken) {
-      console.error(
-        `[TokenManager] DISK ROUND-TRIP MISMATCH! Stored …${suffix}, read back …${decrypted.slice(-8)}`
-      );
-    } else {
+    if (decrypted === data.refreshToken) {
       console.log(
         `[TokenManager] storeRefreshToken: persisted to disk ✓ (token …${suffix}, hash=${hash}, rememberMe=true)`
+      );
+    } else {
+      console.error(
+        `[TokenManager] DISK ROUND-TRIP MISMATCH! Stored …${suffix}, read back …${decrypted.slice(-8)}`
       );
     }
   } catch (err) {

@@ -388,7 +388,7 @@ const Message: React.FC<MessageProps> = ({
 
   return (
     <div
-      className={`message ${isOwnMessage ? 'own-message' : ''} ${!showAvatar ? 'message-grouped' : ''}`}
+      className={`message ${isOwnMessage ? 'own-message' : ''} ${showAvatar ? '' : 'message-grouped'}`}
       onContextMenu={handleContextMenu}
     >
       {showAvatar ? (

@@ -58,7 +58,9 @@ export const useChannelStore = create<ChannelState>()(
           }
 
           // Clear active channel immediately when switching servers
-          if (serverId !== currentServerId) {
+          if (serverId === currentServerId) {
+            set({ isLoading: true, error: null });
+          } else {
             set({
               activeChannelId: null,
               currentServerId: serverId,
@@ -66,8 +68,6 @@ export const useChannelStore = create<ChannelState>()(
               isLoading: true,
               error: null,
             });
-          } else {
-            set({ isLoading: true, error: null });
           }
 
           try {
