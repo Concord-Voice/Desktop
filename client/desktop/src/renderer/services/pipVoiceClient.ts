@@ -207,14 +207,16 @@ export class PipVoiceClient {
    */
   async dispose(): Promise<void> {
     if (this.disposed) return;
-    this.disposed = true;
 
-    // Signal pre-close so main window can start resuming
+    // Signal pre-close so main window can start resuming (before setting
+    // disposed flag, since rpc() rejects when disposed is true)
     try {
       await this.rpc('pip-closing', {});
     } catch {
       /* best effort */
     }
+
+    this.disposed = true;
 
     // Close all consumers
     for (const [, track] of this.consumers) {

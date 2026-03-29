@@ -175,4 +175,107 @@ describe('PersistentVoiceBar', () => {
     const drawer = container.querySelector('.persistent-voice-bar__chat-drawer');
     expect(drawer).toHaveStyle({ height: '300px' });
   });
+
+  // ── Pop-out / PiP ───────────────────────────────────────────────────────
+
+  describe('pop-out / PiP', () => {
+    let savedElectron: any;
+
+    beforeEach(() => {
+      savedElectron = globalThis.electron;
+    });
+
+    afterEach(() => {
+      globalThis.electron = savedElectron;
+    });
+
+    it('passes onPopOut to VoiceControls when electron.openPipWindow is available', () => {
+      globalThis.electron = {
+        ...savedElectron,
+        openPipWindow: vi.fn().mockResolvedValue(undefined),
+        onPipClosed: vi.fn().mockReturnValue(() => {}),
+      } as any;
+
+      setBarState();
+      render(<PersistentVoiceBar />);
+
+      const controls = screen.getByTestId('voice-controls');
+      expect(controls).toHaveAttribute('data-has-popout', 'true');
+    });
+
+    it('does not pass onPopOut when electron.openPipWindow is unavailable', () => {
+      // Default setup.ts electron mock has no openPipWindow
+      setBarState();
+      render(<PersistentVoiceBar />);
+
+      const controls = screen.getByTestId('voice-controls');
+      expect(controls).toHaveAttribute('data-has-popout', 'false');
+    });
+
+    it('handlePopOut calls openPipWindow and sets voiceControlsPoppedOut', async () => {
+      const mockOpenPip = vi.fn().mockResolvedValue(undefined);
+      globalThis.electron = {
+        ...savedElectron,
+        openPipWindow: mockOpenPip,
+        onPipClosed: vi.fn().mockReturnValue(() => {}),
+      } as any;
+
+      setBarState();
+      render(<PersistentVoiceBar />);
+
+      const popOutBtn = screen.getByText('Pop Out');
+      await popOutBtn.click();
+
+      expect(mockOpenPip).toHaveBeenCalledWith({
+        id: 'controls-main',
+        width: 480,
+        height: 80,
+        title: 'Concord Voice Controls',
+      });
+
+      await vi.waitFor(() => {
+        expect(useVoiceStore.getState().voiceControlsPoppedOut).toBe(true);
+      });
+    });
+
+    it('onPipClosed restores inline bar when controls-main PiP closes', async () => {
+      const closedCallbacks: ((id: string) => void)[] = [];
+      globalThis.electron = {
+        ...savedElectron,
+        openPipWindow: vi.fn().mockResolvedValue(undefined),
+        onPipClosed: vi.fn().mockImplementation((cb: (id: string) => void) => {
+          closedCallbacks.push(cb);
+          return () => {};
+        }),
+      } as any;
+
+      setBarState({ voiceControlsPoppedOut: true });
+      render(<PersistentVoiceBar />);
+
+      closedCallbacks.forEach((cb) => cb('controls-main'));
+
+      await vi.waitFor(() => {
+        expect(useVoiceStore.getState().voiceControlsPoppedOut).toBe(false);
+      });
+    });
+
+    it('onPipClosed ignores other PiP IDs', () => {
+      const closedCallbacks: ((id: string) => void)[] = [];
+      globalThis.electron = {
+        ...savedElectron,
+        openPipWindow: vi.fn().mockResolvedValue(undefined),
+        onPipClosed: vi.fn().mockImplementation((cb: (id: string) => void) => {
+          closedCallbacks.push(cb);
+          return () => {};
+        }),
+      } as any;
+
+      setBarState({ voiceControlsPoppedOut: true });
+      render(<PersistentVoiceBar />);
+
+      closedCallbacks.forEach((cb) => cb('frames-123'));
+
+      expect(useVoiceStore.getState().voiceControlsPoppedOut).toBe(true);
+    });
+  });
 });

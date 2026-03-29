@@ -212,6 +212,13 @@ class VoiceService {
   // Consumed when the local user tunes into the corresponding screen share
   private readonly pendingScreenAudioProducers: Map<string, string> = new Map();
 
+  // Original router RTP capabilities from the SFU (stored for PiP Device.load())
+  private routerRtpCapabilities: mediasoupTypes.RtpCapabilities | null = null;
+
+  // PiP producer lifecycle callbacks — wired by MainView when proxy is active
+  onProducerAdded: ((producerId: string, userId: string, source: string) => void) | null = null;
+  onProducerClosed: ((producerId: string, userId: string) => void) | null = null;
+
   // E2EE
   private mediaEncryption: MediaEncryption | null = null;
   private isEncrypted = false;
@@ -1503,6 +1510,7 @@ class VoiceService {
 
       // Step 4: Load device with router capabilities
       this.device = new Device();
+      this.routerRtpCapabilities = roomJoined.rtpCapabilities;
       await this.device.load({ routerRtpCapabilities: roomJoined.rtpCapabilities });
 
       // Send actual RTP capabilities to server (join-room sent undefined)
@@ -1586,8 +1594,9 @@ class VoiceService {
     }
     this.socket = null;
 
-    // Reset device and consume queues
+    // Reset device, router caps, and consume queues
     this.device = null;
+    this.routerRtpCapabilities = null;
     this.consumeQueue = Promise.resolve();
     this.consumeQueueAudio = Promise.resolve();
     this.consumeQueueVideo = Promise.resolve();
@@ -2463,8 +2472,8 @@ class VoiceService {
   }
 
   /** Get the router's RTP capabilities (needed for PiP voice client Device.load()) */
-  getRouterRtpCapabilities(): unknown {
-    return this.device?.rtpCapabilities ?? null;
+  getRouterRtpCapabilities(): mediasoupTypes.RtpCapabilities | null {
+    return this.routerRtpCapabilities;
   }
 
   /** Get all consumer metadata entries (used by PiP signaling proxy for ownership transfer) */
@@ -3016,6 +3025,9 @@ class VoiceService {
       await this.consumeProducer(producerId, userId, kind as mediasoupTypes.MediaKind);
       if (source === 'camera') store.updateParticipant(userId, { isVideoOn: true });
       if (source === 'screen') store.updateParticipant(userId, { isScreenSharing: true });
+
+      // Notify PiP proxy so open PiP windows can consume the new producer
+      this.onProducerAdded?.(producerId, userId, source);
     });
 
     this.socket.on('producer-paused', ({ producerId: _producerId, userId }) => {
@@ -3051,6 +3063,9 @@ class VoiceService {
         store.updateParticipant(userId, { screenAudioStream: undefined });
         this.pendingScreenAudioProducers.delete(userId);
       }
+
+      // Notify PiP proxy so open PiP windows can close their consumers
+      this.onProducerClosed?.(producerId, userId);
     });
 
     this.socket.on('user-joined', async ({ userId, username, displayName, avatarUrl }) => {
@@ -3919,8 +3934,9 @@ class VoiceService {
     this.socket?.disconnect();
     this.socket = null;
 
-    // Reset device
+    // Reset device and router capabilities
     this.device = null;
+    this.routerRtpCapabilities = null;
   }
 
   // ─── OS Permission Helper (#197) ────────────────────────────────────

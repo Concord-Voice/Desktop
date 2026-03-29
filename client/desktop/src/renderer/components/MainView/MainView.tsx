@@ -220,12 +220,25 @@ const MainView: React.FC = () => {
     if (!isInVoice) return;
     let cancelled = false;
     let proxy: PipSignalingProxy | null = null;
+    // Capture voiceService ref synchronously for cleanup (avoids async race)
+    let capturedVoiceService:
+      | (typeof import('../../services/voiceService'))['voiceService']
+      | null = null;
 
     import('../../services/voiceService')
       .then(({ voiceService }) => {
         if (cancelled) return;
+        capturedVoiceService = voiceService;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         proxy = new PipSignalingProxy(voiceService as any);
+
+        // Wire producer lifecycle events so PiP windows learn about new/removed producers
+        voiceService.onProducerAdded = (pid: string, uid: string, src: string) => {
+          proxy?.broadcastProducerAdded(pid, uid, src);
+        };
+        voiceService.onProducerClosed = (pid: string, uid: string) => {
+          proxy?.broadcastProducerClosed(pid, uid);
+        };
 
         const cleanup = globalThis.electron?.onPipClosed?.((pipId: string) => {
           proxy?.onPipClosed(pipId);
@@ -243,6 +256,11 @@ const MainView: React.FC = () => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (proxy as any)._ipcCleanup?.();
         proxy.dispose();
+      }
+      // Clear producer lifecycle callbacks synchronously to avoid race
+      if (capturedVoiceService) {
+        capturedVoiceService.onProducerAdded = null;
+        capturedVoiceService.onProducerClosed = null;
       }
     };
   }, [isInVoice]);

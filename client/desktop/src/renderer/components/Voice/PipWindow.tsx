@@ -96,6 +96,7 @@ const ControlsPipContent: React.FC<{
   onClose: () => void;
 }> = ({ pipId, pinned, onTogglePin, onClose }) => {
   const clientRef = useRef<PipVoiceClient | null>(null);
+  const localUserIdRef = useRef<string>('');
   const [state, setState] = useState<{
     isMuted: boolean;
     isDeafened: boolean;
@@ -118,11 +119,12 @@ const ControlsPipContent: React.FC<{
     client.onStateUpdate = (msg: AnyPipBroadcast) => {
       if (msg.type === 'state-update') {
         const participants = Object.values(msg.participants);
-        // Infer local user state from participants (first participant is usually local,
-        // but we check all and use the one flagged as local if available)
-        const localP = participants.find(
-          (p) => (p as VoiceParticipant & { isLocal?: boolean }).isLocal
-        );
+        // Update ref from broadcast in case init() hasn't resolved yet
+        if (!localUserIdRef.current && msg.localUserId) {
+          localUserIdRef.current = msg.localUserId;
+        }
+        const effectiveLocalUserId = localUserIdRef.current || msg.localUserId;
+        const localP = participants.find((p) => p.userId === effectiveLocalUserId);
         if (localP) {
           setState({
             isMuted: localP.isMuted,
@@ -146,8 +148,16 @@ const ControlsPipContent: React.FC<{
     client
       .init()
       .then((voiceState: VoiceStateResult) => {
+        localUserIdRef.current = voiceState.localUserId;
         const participants = Object.values(voiceState.participants);
-        setState((prev) => ({ ...prev, participantCount: participants.length }));
+        const localP = participants.find((p) => p.userId === voiceState.localUserId);
+        setState({
+          isMuted: localP?.isMuted ?? false,
+          isDeafened: localP?.isDeafened ?? false,
+          isVideoOn: localP?.isVideoOn ?? false,
+          isScreenSharing: localP?.isScreenSharing ?? false,
+          participantCount: participants.length,
+        });
       })
       .catch(console.error);
 
@@ -228,14 +238,58 @@ const FramesPipContent: React.FC<{
   const [participants, setParticipants] = useState<Record<string, VoiceParticipant>>({});
   const [loading, setLoading] = useState(true);
   const clientRef = useRef<PipVoiceClient | null>(null);
+  /** Serial consume queue — mediasoup requires sequential SDP negotiations */
+  const consumeQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  /** Consume a producer and attach the resulting stream to participant state. */
+  const consumeAndAttach = useCallback(
+    async (client: PipVoiceClient, producerId: string, source: string, userId: string) => {
+      const stream = await client.consume(producerId, source, userId);
+      if (!stream) return;
+      setParticipants((prev) => {
+        const p = prev[userId];
+        if (!p) return prev;
+        return {
+          ...prev,
+          [userId]: {
+            ...p,
+            ...(source === 'mic' ? { audioStream: stream } : { videoStream: stream }),
+          },
+        };
+      });
+    },
+    []
+  );
 
   useEffect(() => {
     const client = new PipVoiceClient(pipId);
     clientRef.current = client;
+    consumeQueueRef.current = Promise.resolve();
 
     client.onStateUpdate = (msg: AnyPipBroadcast) => {
       if (msg.type === 'state-update') {
         setParticipants(msg.participants);
+      } else if (msg.type === 'producer-added') {
+        if (msg.source === 'mic' || msg.source === 'camera') {
+          // Queue sequentially — concurrent consume calls break SDP negotiation
+          consumeQueueRef.current = consumeQueueRef.current.then(() =>
+            consumeAndAttach(client, msg.producerId, msg.source, msg.userId)
+          );
+        }
+      } else if (msg.type === 'producer-closed') {
+        setParticipants((prev) => {
+          const p = prev[msg.userId];
+          if (!p) return prev;
+          return {
+            ...prev,
+            [msg.userId]: {
+              ...p,
+              audioStream: undefined,
+              videoStream: undefined,
+              screenStream: undefined,
+            },
+          };
+        });
       } else if (msg.type === 'voice-ended') {
         onClose();
       }
@@ -249,28 +303,7 @@ const FramesPipContent: React.FC<{
         // Consume all active mic and camera producers
         for (const producer of voiceState.activeProducers) {
           if (producer.source === 'mic' || producer.source === 'camera') {
-            const stream = await client.consume(
-              producer.producerId,
-              producer.source,
-              producer.userId
-            );
-
-            if (stream) {
-              // Attach stream to participant for rendering
-              setParticipants((prev) => {
-                const p = prev[producer.userId];
-                if (!p) return prev;
-                return {
-                  ...prev,
-                  [producer.userId]: {
-                    ...p,
-                    ...(producer.source === 'mic'
-                      ? { audioStream: stream }
-                      : { videoStream: stream }),
-                  },
-                };
-              });
-            }
+            await consumeAndAttach(client, producer.producerId, producer.source, producer.userId);
           }
         }
 

@@ -28,12 +28,13 @@ import type {
   ConsumeResult,
 } from './pipSignalingTypes';
 import { useVoiceStore } from '../stores/voiceStore';
+import { useUserStore } from '../stores/userStore';
 import type { RtpCapabilities } from 'mediasoup-client/types';
 
 // Type for voiceService — imported lazily to avoid circular deps
 type VoiceService = {
   forwardToServer<T>(event: string, data?: unknown): Promise<T>;
-  getRouterRtpCapabilities(): unknown;
+  getRouterRtpCapabilities(): RtpCapabilities | null;
   getConsumerIdsBySource(source?: string): string[];
   getConsumerMeta(): Map<string, { source: string; producerUserId: string; producerId: string }>;
   pauseConsumer(consumerId: string): void;
@@ -78,7 +79,8 @@ export class PipSignalingProxy {
   }
 
   dispose(): void {
-    this.disposed = true;
+    if (this.disposed) return;
+
     this.stateUnsub?.();
     this.stateUnsub = null;
 
@@ -94,9 +96,10 @@ export class PipSignalingProxy {
     }
     this.pausedForPip.clear();
 
-    // Notify PiP windows that voice has ended
+    // Notify PiP windows that voice has ended (before setting disposed flag)
     this.broadcast({ kind: 'broadcast', type: 'voice-ended' } satisfies VoiceEndedBroadcast);
 
+    this.disposed = true;
     this.bc.close();
   }
 
@@ -159,7 +162,7 @@ export class PipSignalingProxy {
 
   private async handleRequestState(req: AnyPipRpcRequest): Promise<void> {
     const store = useVoiceStore.getState();
-    const rtpCaps = this.voiceService.getRouterRtpCapabilities() as RtpCapabilities | null;
+    const rtpCaps = this.voiceService.getRouterRtpCapabilities();
     const meta = this.voiceService.getConsumerMeta();
 
     // Build active producers list from consumer metadata.
@@ -187,11 +190,14 @@ export class PipSignalingProxy {
       sanitizedParticipants[key] = rest;
     }
 
+    const localUserId = useUserStore.getState().user?.id ?? '';
+
     const result: VoiceStateResult = {
       participants: sanitizedParticipants as VoiceStateResult['participants'],
       tunedInScreenShares: store.tunedInScreenShares,
       routerRtpCapabilities: rtpCaps,
       activeProducers,
+      localUserId,
     };
     this.respond(req.id, result);
   }
@@ -357,12 +363,15 @@ export class PipSignalingProxy {
       };
       sanitized[key] = rest;
     }
+    const localUserId = useUserStore.getState().user?.id ?? '';
+
     this.broadcast({
       kind: 'broadcast',
       type: 'state-update',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       participants: sanitized as any,
       tunedInScreenShares,
+      localUserId,
     } satisfies StateUpdateBroadcast);
   }
 

@@ -100,6 +100,8 @@ export interface VoiceStateResult {
     userId: string;
     source: string; // 'mic' | 'camera' | 'screen'
   }>;
+  /** The local user's ID so PiP windows can identify which participant is "self" */
+  localUserId: string;
 }
 
 /** Execute a voice action (mute, deafen, leave, etc.) */
@@ -142,6 +144,7 @@ export interface StateUpdateBroadcast {
   type: 'state-update';
   participants: Record<string, VoiceParticipant>;
   tunedInScreenShares: Record<string, string>;
+  localUserId: string;
 }
 
 /** New producer available to consume */
