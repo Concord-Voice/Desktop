@@ -50,18 +50,19 @@ function PhaseContent({
 }>) {
   const handleRetry = useCallback(async () => {
     const store = useConnectionStore.getState();
-    store.incrementRecoveryAttempts();
     store.enterPreflight();
     const { runPreflight } = await import('../../services/recoveryService');
     const diag = await runPreflight();
     store.setDiagnostics(diag);
 
     if (diag.sessionRevoked) {
+      store.incrementRecoveryAttempts();
       store.enterFatal();
       return;
     }
 
     if (!diag.serverReachable || !diag.tokenValid) {
+      store.incrementRecoveryAttempts();
       store.enterRecoveryA();
       return;
     }
@@ -74,10 +75,13 @@ function PhaseContent({
     const freshToken = useAuthStore.getState().accessToken;
 
     if (!freshToken) {
+      store.incrementRecoveryAttempts();
       store.enterFatal();
       return;
     }
 
+    // Success path: reset() clears recoveryAttempts — only increment on failure
+    // branches above so the counter reflects consecutive failed retries.
     wsService.disconnect();
     wsService.resetReconnectState();
     store.reset();

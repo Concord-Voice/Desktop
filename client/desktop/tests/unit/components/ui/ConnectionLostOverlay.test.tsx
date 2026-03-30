@@ -277,7 +277,30 @@ describe('ConnectionLostOverlay', () => {
       expect(mockConnect).not.toHaveBeenCalled();
     });
 
-    it('increments recovery attempts on each retry', async () => {
+    it('increments recovery attempts on failed retry (server unreachable)', async () => {
+      mockRunPreflight.mockResolvedValue({
+        internet: true,
+        serverReachable: false,
+        tokenValid: false,
+        sessionRevoked: false,
+        rendererStable: true,
+      });
+
+      useConnectionStore.setState({
+        phase: 'recovery_a',
+        diagnostics: null,
+        recoveryAttempts: 0,
+      });
+      render(<ConnectionLostOverlay />);
+      fireEvent.click(screen.getByText('Retry'));
+
+      await waitFor(() => {
+        expect(useConnectionStore.getState().recoveryAttempts).toBe(1);
+        expect(useConnectionStore.getState().phase).toBe('recovery_a');
+      });
+    });
+
+    it('does not increment recovery attempts on successful reconnect', async () => {
       mockRunPreflight.mockResolvedValue({
         internet: true,
         serverReachable: true,
@@ -290,13 +313,15 @@ describe('ConnectionLostOverlay', () => {
       useConnectionStore.setState({
         phase: 'recovery_a',
         diagnostics: null,
-        recoveryAttempts: 0,
+        recoveryAttempts: 2,
       });
       render(<ConnectionLostOverlay />);
       fireEvent.click(screen.getByText('Retry'));
 
       await waitFor(() => {
-        expect(useConnectionStore.getState().recoveryAttempts).toBe(1);
+        // reset() clears recoveryAttempts on success path
+        expect(useConnectionStore.getState().recoveryAttempts).toBe(0);
+        expect(useConnectionStore.getState().phase).toBe('stable');
       });
     });
   });
