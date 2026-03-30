@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import CollapsibleSection from './CollapsibleSection';
 import ToggleSwitch from './ToggleSwitch';
+import { SPA_VERSION } from '../../config';
 import './AboutUpdateSection.css';
 
 type UpdateStatus =
@@ -168,6 +169,10 @@ const AboutUpdateSection: React.FC = () => {
           <div className="about-info-row">
             <span className="about-info-label">App Version</span>
             <span className="about-info-value">v{appVersion || '...'}</span>
+          </div>
+          <div className="about-info-row">
+            <span className="about-info-label">SPA Build</span>
+            <span className="about-info-value">{SPA_VERSION}</span>
           </div>
           {systemInfo && (
             <>

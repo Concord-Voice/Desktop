@@ -14,3 +14,7 @@ const portSuffix = isDefaultPort ? '' : `:${API_PORT}`;
 
 export const API_BASE = `${protocol}://${SERVER_HOST}${portSuffix}`;
 export const WS_BASE = `${wsProtocol}://${SERVER_HOST}${portSuffix}`;
+
+// SPA build identifier — set by deploy-spa.yml at build time (git SHA short hash).
+// 'bundled' when built as part of a desktop release (no VITE_SPA_VERSION set).
+export const SPA_VERSION = import.meta.env.VITE_SPA_VERSION || 'bundled';
