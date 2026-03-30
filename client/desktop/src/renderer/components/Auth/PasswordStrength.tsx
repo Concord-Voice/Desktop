@@ -12,10 +12,52 @@ interface StrengthResult {
   feedback: string[];
 }
 
-/**
- * Calculate password strength score (0-4)
- * Based on NIST guidelines and industry best practices
- */
+function getVarietyFeedback(hasLower: boolean, hasUpper: boolean, hasNumbers: boolean): string {
+  if (!hasLower || !hasUpper) return 'Mix uppercase and lowercase';
+  if (!hasNumbers) return 'Add some numbers';
+  return 'Add special characters (!@#$%...)';
+}
+
+function scoreLengthAndVariety(password: string): {
+  score: number;
+  feedback: string[];
+  varietyCount: number;
+} {
+  let score = 0;
+  const feedback: string[] = [];
+
+  if (password.length >= 12) score++;
+  if (password.length >= 16) score++;
+  if (password.length >= 20) score++;
+  if (password.length >= 24) score++;
+
+  if (password.length < 12) {
+    feedback.push('Use at least 12 characters');
+  } else if (password.length < 16) {
+    feedback.push('Try 16+ characters for better security');
+  }
+
+  const hasLowercase = /[a-z]/.test(password);
+  const hasUppercase = /[A-Z]/.test(password);
+  const hasNumbers = /\d/.test(password);
+  const hasSpecial = /[^a-zA-Z0-9]/.test(password);
+  const varietyCount = [hasLowercase, hasUppercase, hasNumbers, hasSpecial].filter(Boolean).length;
+
+  if (varietyCount >= 2) score++;
+  if (varietyCount >= 4) score++;
+  if (varietyCount < 3) feedback.push(getVarietyFeedback(hasLowercase, hasUppercase, hasNumbers));
+
+  return { score, feedback, varietyCount };
+}
+
+const commonPatterns = [
+  { pattern: /^(123|abc|qwe)/i, message: 'Avoid sequential starts' },
+  { pattern: /password|letmein|welcome/i, message: 'Avoid common words' },
+  { pattern: /(.)\1{2,}/, message: 'Avoid repeated characters' },
+  { pattern: /^[a-z]+$/i, message: 'Add numbers or symbols' },
+  { pattern: /^\d+$/, message: 'Add letters' },
+];
+
 function calculateStrength(password: string): StrengthResult {
   if (!password) {
     return {
@@ -26,57 +68,13 @@ function calculateStrength(password: string): StrengthResult {
     };
   }
 
-  let score = 0;
-  const feedback: string[] = [];
+  const { score: baseScore, feedback, varietyCount } = scoreLengthAndVariety(password);
+  let score = baseScore;
   let hasPenalty = false;
-
-  // Length scoring (most important factor per NIST)
-  // Minimum is 12 chars (matches backend ValidatePasswordStrength)
-  if (password.length >= 12) score++;
-  if (password.length >= 16) score++;
-  if (password.length >= 20) score++;
-  if (password.length >= 24) score++; // Bonus for very long passwords
-
-  if (password.length < 12) {
-    feedback.push('Use at least 12 characters');
-  } else if (password.length < 16) {
-    feedback.push('Try 16+ characters for better security');
-  }
-
-  // Character variety
-  const hasLowercase = /[a-z]/.test(password);
-  const hasUppercase = /[A-Z]/.test(password);
-  const hasNumbers = /\d/.test(password);
-  const hasSpecial = /[^a-zA-Z0-9]/.test(password);
-
-  const varietyCount = [hasLowercase, hasUppercase, hasNumbers, hasSpecial].filter(Boolean).length;
-
-  // More lenient variety scoring
-  if (varietyCount >= 2) score++; // Basic variety
-  if (varietyCount >= 4) score++; // Full variety bonus
-
-  if (varietyCount < 3) {
-    if (!hasLowercase || !hasUppercase) {
-      feedback.push('Mix uppercase and lowercase');
-    } else if (!hasNumbers) {
-      feedback.push('Add some numbers');
-    } else if (!hasSpecial) {
-      feedback.push('Add special characters (!@#$%...)');
-    }
-  }
-
-  // Common patterns penalty (only penalize, don't add score)
-  const commonPatterns = [
-    { pattern: /^(123|abc|qwe)/i, message: 'Avoid sequential starts' },
-    { pattern: /password|letmein|welcome/i, message: 'Avoid common words' },
-    { pattern: /(.)\1{2,}/, message: 'Avoid repeated characters' },
-    { pattern: /^[a-z]+$/i, message: 'Add numbers or symbols' },
-    { pattern: /^\d+$/, message: 'Add letters' },
-  ];
 
   for (const { pattern, message } of commonPatterns) {
     if (pattern.test(password)) {
-      score = Math.max(0, score - 2); // Stronger penalty
+      score = Math.max(0, score - 2);
       if (!hasPenalty) {
         feedback.push(message);
         hasPenalty = true;
@@ -85,12 +83,10 @@ function calculateStrength(password: string): StrengthResult {
     }
   }
 
-  // Bonus point for truly exceptional passwords (no penalties + max criteria)
   if (score >= 6 && !hasPenalty && password.length >= 24 && varietyCount === 4) {
-    score = 5; // Legendary tier
+    score = 5;
   }
 
-  // Ensure score is 0-5
   score = Math.max(0, Math.min(5, score));
 
   // Determine label and color based on score

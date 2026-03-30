@@ -39,29 +39,31 @@ export function useMessaging() {
   const { updateMessageStatus, addMessage } = useChatStore();
   const userId = useUserStore((s) => s.user?.id);
 
+  // Process a single queued message: encrypt if needed, then send
+  const processQueuedMessage = useCallback(
+    async (msg: QueuedMessage) => {
+      if (!wsService.isSubscribed(msg.channelId)) {
+        return; // Skip — will retry on next cycle once subscribed
+      }
+      const channel = useChannelStore.getState().channels.find((c) => c.id === msg.channelId);
+      const isEncrypted = channel?.is_encrypted ?? false;
+      let content = msg.content;
+      let keyVersion: number | undefined;
+      if (isEncrypted && e2eeService.isInitialized) {
+        content = await e2eeService.encryptForChannel(msg.channelId, msg.content);
+        keyVersion = e2eeService.getCurrentKeyVersion(msg.channelId);
+      }
+      wsService.sendMessage(msg.channelId, content, msg.id, isEncrypted, keyVersion);
+    },
+    [wsService]
+  );
+
   // Start/stop queue processing based on connection state
   useEffect(() => {
     const unsubscribe = wsService.onConnectionChange((state) => {
       if (state === ConnectionState.CONNECTED) {
-        // Start processing queue when connected
-        messageQueue.startProcessing(async (msg: QueuedMessage) => {
-          // Only send to channels we're currently subscribed to
-          if (!wsService.isSubscribed(msg.channelId)) {
-            return; // Skip — will retry on next cycle once subscribed
-          }
-          // Encrypt if the channel is E2EE (fail-closed: skip if encryption fails)
-          const channel = useChannelStore.getState().channels.find((c) => c.id === msg.channelId);
-          const isEncrypted = channel?.is_encrypted ?? false;
-          let content = msg.content;
-          let keyVersion: number | undefined;
-          if (isEncrypted && e2eeService.isInitialized) {
-            content = await e2eeService.encryptForChannel(msg.channelId, msg.content);
-            keyVersion = e2eeService.getCurrentKeyVersion(msg.channelId);
-          }
-          wsService.sendMessage(msg.channelId, content, msg.id, isEncrypted, keyVersion);
-        });
+        messageQueue.startProcessing(processQueuedMessage);
       } else {
-        // Stop processing when disconnected
         messageQueue.stopProcessing();
       }
     });

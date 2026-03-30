@@ -137,16 +137,14 @@ export function useMessageFetch(channelId: string | null, options: UseMessageFet
   useEffect(() => {
     if (!hasPendingKeys || !channelId || !e2eeService.isInitialized) return;
 
-    const interval = setInterval(() => {
-      e2eeService
-        .getChannelKey(channelId)
-        .then(() => {
-          // Key is now available — re-fetch messages to decrypt using the cached key
-          setFetchTrigger((prev) => prev + 1);
-        })
-        .catch(() => {
-          // Still pending — will retry
-        });
+    const interval = setInterval(async () => {
+      try {
+        await e2eeService.getChannelKey(channelId);
+        // Key is now available — re-fetch messages to decrypt using the cached key
+        setFetchTrigger((prev) => prev + 1);
+      } catch {
+        // Still pending — will retry
+      }
     }, 5000);
 
     return () => clearInterval(interval);

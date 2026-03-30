@@ -340,15 +340,16 @@ export const useDMStore = create<DMState>()(
         updateParticipantProfile: (
           userId: string,
           updates: Partial<Omit<DMParticipant, 'userId'>>
-        ) =>
+        ) => {
+          const applyUpdate = (p: DMParticipant) =>
+            p.userId === userId ? { ...p, ...updates } : p;
           set((state) => ({
             conversations: state.conversations.map((c) => ({
               ...c,
-              participants: c.participants.map((p) =>
-                p.userId === userId ? { ...p, ...updates } : p
-              ),
+              participants: c.participants.map(applyUpdate),
             })),
-          })),
+          }));
+        },
 
         updateLastMessage: (convId: string, message: DMLastMessage) =>
           set((state) => {

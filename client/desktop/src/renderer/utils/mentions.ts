@@ -67,9 +67,38 @@ export interface MentionResolveContext {
  * entries. This parser is used for recipient-side scanning (render highlights)
  * and as a fallback for manual typing detection.
  */
+/** Resolve a token-format mention (<@userId> or <@&roleId>) */
+function resolveTokenMention(raw: string, id: string, start: number, end: number): ParsedMention {
+  const type = raw.startsWith('<@&') ? 'role' : 'user';
+  return { type, raw, start, end, id, label: id };
+}
+
+/** Resolve a plain @name mention against context maps */
+function resolvePlainMention(
+  name: string,
+  raw: string,
+  start: number,
+  end: number,
+  ctx: MentionResolveContext
+): ParsedMention | null {
+  const nameLower = name.toLowerCase();
+
+  if (nameLower === 'all' || nameLower === 'everyone')
+    return { type: 'everyone', raw, start, end, label: 'all' };
+  if (nameLower === 'here' || nameLower === 'online')
+    return { type: 'here', raw, start, end, label: 'here' };
+
+  const roleId = ctx.roles.get(nameLower);
+  if (roleId) return { type: 'role', raw, start, end, id: roleId, label: name };
+
+  const userId = ctx.members.get(nameLower) || ctx.displayNames.get(nameLower);
+  if (userId) return { type: 'user', raw, start, end, id: userId, label: name };
+
+  return null;
+}
+
 export function parseMentions(text: string, ctx: MentionResolveContext): ParsedMention[] {
   const mentions: ParsedMention[] = [];
-  // Match both token format (<@userId>, <@&roleId>) and plain format (@username, @all)
   const mentionRegex = /<@&?([\w-]+)>|@([\w.-]+)/g;
   let match: RegExpExecArray | null;
 
@@ -78,53 +107,16 @@ export function parseMentions(text: string, ctx: MentionResolveContext): ParsedM
     const start = match.index;
     const end = start + raw.length;
 
-    // Token format: <@userId> or <@&roleId>
     if (raw.startsWith('<@')) {
-      const id = match[1];
-      if (raw.startsWith('<@&')) {
-        // Role token
-        mentions.push({ type: 'role', raw, start, end, id, label: id });
-      } else {
-        // User token
-        mentions.push({ type: 'user', raw, start, end, id, label: id });
-      }
+      mentions.push(resolveTokenMention(raw, match[1], start, end));
       continue;
     }
 
-    // Plain format: @name
     const name = match[2];
     if (!name) continue;
-    const nameLower = name.toLowerCase();
 
-    // Check special keywords first
-    if (nameLower === 'all' || nameLower === 'everyone') {
-      mentions.push({ type: 'everyone', raw, start, end, label: 'all' });
-      continue;
-    }
-    if (nameLower === 'here' || nameLower === 'online') {
-      mentions.push({ type: 'here', raw, start, end, label: 'here' });
-      continue;
-    }
-
-    // Check roles (case-insensitive)
-    const roleId = ctx.roles.get(nameLower);
-    if (roleId) {
-      mentions.push({ type: 'role', raw, start, end, id: roleId, label: name });
-      continue;
-    }
-
-    // Check members by username (case-insensitive)
-    const userId = ctx.members.get(nameLower);
-    if (userId) {
-      mentions.push({ type: 'user', raw, start, end, id: userId, label: name });
-      continue;
-    }
-
-    // Check members by display name (case-insensitive)
-    const userIdByDisplay = ctx.displayNames.get(nameLower);
-    if (userIdByDisplay) {
-      mentions.push({ type: 'user', raw, start, end, id: userIdByDisplay, label: name });
-    }
+    const resolved = resolvePlainMention(name, raw, start, end, ctx);
+    if (resolved) mentions.push(resolved);
   }
 
   return mentions;

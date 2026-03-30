@@ -130,33 +130,33 @@ export const useLayoutStore = create<LayoutState>()(
               };
             }),
 
-          moveServerToFolder: (serverId: string, folderId: string, insertIndex?: number) =>
+          moveServerToFolder: (serverId: string, folderId: string, insertIndex?: number) => {
+            const updateFolder = (f: ServerFolder) => {
+              const filtered = f.serverIds.filter((id) => id !== serverId);
+              if (f.id !== folderId) return { ...f, serverIds: filtered };
+              if (insertIndex !== undefined && insertIndex >= 0) {
+                const newIds = [...filtered];
+                newIds.splice(insertIndex, 0, serverId);
+                return { ...f, serverIds: newIds };
+              }
+              return { ...f, serverIds: [...filtered, serverId] };
+            };
             set((state) => ({
-              serverFolders: state.serverFolders.map((f) => {
-                // Remove from any current folder
-                const filtered = f.serverIds.filter((id) => id !== serverId);
-                // Add to target folder at specified index (or end)
-                if (f.id === folderId) {
-                  if (insertIndex !== undefined && insertIndex >= 0) {
-                    const newIds = [...filtered];
-                    newIds.splice(insertIndex, 0, serverId);
-                    return { ...f, serverIds: newIds };
-                  }
-                  return { ...f, serverIds: [...filtered, serverId] };
-                }
-                return { ...f, serverIds: filtered };
-              }),
+              serverFolders: state.serverFolders.map(updateFolder),
               serverOrder: state.serverOrder.filter((id) => id !== serverId),
-            })),
+            }));
+          },
 
-          removeServerFromFolder: (serverId: string) =>
+          removeServerFromFolder: (serverId: string) => {
+            const removeFromIds = (f: ServerFolder) => ({
+              ...f,
+              serverIds: f.serverIds.filter((id) => id !== serverId),
+            });
             set((state) => ({
-              serverFolders: state.serverFolders.map((f) => ({
-                ...f,
-                serverIds: f.serverIds.filter((id) => id !== serverId),
-              })),
+              serverFolders: state.serverFolders.map(removeFromIds),
               serverOrder: [...state.serverOrder, serverId],
-            })),
+            }));
+          },
 
           reorderFolderServers: (folderId: string, serverIds: string[]) =>
             set((state) => ({

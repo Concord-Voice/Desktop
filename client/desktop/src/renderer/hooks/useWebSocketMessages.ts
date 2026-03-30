@@ -28,6 +28,17 @@ import { notificationSoundService } from '../services/notificationSoundService';
 // Coalesces rapid bursts (e.g. 10 users joining) into a single API call.
 const voiceRefetchTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+/** TTS helper: speak message if it's in a voice-linked text channel and not from self */
+function speakIfVoiceLinked(text: string, channelId: string, senderId: string, senderName: string) {
+  const selfId = useUserStore.getState().user?.id;
+  if (senderId === selfId) return;
+  const ch = useChannelStore.getState().channels.find((c) => c.id === channelId);
+  if (!ch?.linked_voice_channel_id) return;
+  const voiceActiveId = useVoiceStore.getState().activeChannelId;
+  if (voiceActiveId !== ch.linked_voice_channel_id) return;
+  ttsSpeak(text, senderName);
+}
+
 // ── Extracted handlers to reduce cognitive complexity ─────────────────────
 
 /** Lookup table for voice participant state updates (avoids nested switch). */
@@ -255,16 +266,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         updated_at: data.updated_at || new Date().toISOString(),
       };
 
-      // TTS helper: speak message if it's in a voice-linked text channel and not from self
-      const maybeSpeakTTS = (text: string) => {
-        const selfId = useUserStore.getState().user?.id;
-        if (data.user_id === selfId) return;
-        const ch = useChannelStore.getState().channels.find((c) => c.id === channelId);
-        if (!ch?.linked_voice_channel_id) return;
-        const voiceActiveId = useVoiceStore.getState().activeChannelId;
-        if (voiceActiveId !== ch.linked_voice_channel_id) return;
-        ttsSpeak(text, data.display_name || data.username);
-      };
+      const maybeSpeakTTS = (text: string) =>
+        speakIfVoiceLinked(text, channelId, data.user_id, data.display_name || data.username);
 
       if (isEncrypted) {
         addEncryptedMessage(

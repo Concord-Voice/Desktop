@@ -35,6 +35,71 @@ interface ChannelItemProps {
   itemRef: (id: string, el: HTMLElement | null) => void;
 }
 
+function VoiceSubItems({
+  channel,
+  isGrouped,
+  isActive,
+  showLinkedText,
+  linkedText,
+  isLinkedTextActive,
+  linkedTextUnread,
+  voiceMembers,
+  onLinkedTextClick,
+}: Readonly<{
+  channel: Channel;
+  isGrouped: boolean;
+  isActive: boolean;
+  showLinkedText: boolean;
+  linkedText: Channel | null;
+  isLinkedTextActive: boolean;
+  linkedTextUnread: number;
+  voiceMembers: VoiceMemberInfo[];
+  onLinkedTextClick: (voiceChannel: Channel, linkedText: Channel) => void;
+}>) {
+  return (
+    <div
+      className={`voice-channel-sub-container ${isGrouped ? 'voice-channel-sub-container--grouped' : ''} ${isActive ? 'voice-channel-sub-container--active' : ''}`}
+    >
+      {showLinkedText && linkedText && (
+        <button
+          type="button"
+          className={`channel-item--voice-text ${isGrouped ? 'channel-item--voice-text-grouped' : ''} ${isLinkedTextActive ? 'active' : ''} ${linkedTextUnread > 0 ? 'has-unread' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onLinkedTextClick(channel, linkedText);
+          }}
+          title={`${channel.name} Text Chat`}
+        >
+          <span className="channel-type-icon">
+            <MessageSquare size={12} />
+          </span>
+          <span className="channel-name">{channel.name} Text Chat</span>
+          {linkedTextUnread > 0 && !isLinkedTextActive && (
+            <span className="channel-unread-badge">
+              {linkedTextUnread > 99 ? '99+' : linkedTextUnread}
+            </span>
+          )}
+        </button>
+      )}
+      {voiceMembers.length > 0 && (
+        <div
+          className={`voice-channel-participants ${isGrouped ? 'voice-channel-participants--grouped' : ''}`}
+        >
+          {voiceMembers.map((p) => (
+            <div
+              key={p.userId}
+              className={`voice-channel-participant ${p.isSpeaking ? 'speaking' : ''}`}
+            >
+              {p.isMuted ? <MicOff size={12} /> : <Mic size={12} />}
+              <span className="voice-channel-participant-name">{p.displayName || p.username}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function getChannelTypeIcon(type: Channel['type']) {
   switch (type) {
     case 'text':
@@ -113,52 +178,18 @@ const ChannelItem: React.FC<ChannelItemProps> = ({
         </button>
         {showGhostAfter && <div className="channel-drag-ghost" />}
       </div>
-      {/* Voice sub-items — rendered outside the grouped wrapper so category
-          trunk lines don't extend through them. Wrapped in a container for
-          subtle visual grouping that grows with the member list. */}
       {((showLinkedText && linkedText) || voiceMembers.length > 0) && (
-        <div
-          className={`voice-channel-sub-container ${isGrouped ? 'voice-channel-sub-container--grouped' : ''} ${isActive ? 'voice-channel-sub-container--active' : ''}`}
-        >
-          {showLinkedText && linkedText && (
-            <button
-              type="button"
-              className={`channel-item--voice-text ${isGrouped ? 'channel-item--voice-text-grouped' : ''} ${isLinkedTextActive ? 'active' : ''} ${linkedTextUnread > 0 ? 'has-unread' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                onLinkedTextClick(channel, linkedText);
-              }}
-              title={`${channel.name} Text Chat`}
-            >
-              <span className="channel-type-icon">
-                <MessageSquare size={12} />
-              </span>
-              <span className="channel-name">{channel.name} Text Chat</span>
-              {linkedTextUnread > 0 && !isLinkedTextActive && (
-                <span className="channel-unread-badge">
-                  {linkedTextUnread > 99 ? '99+' : linkedTextUnread}
-                </span>
-              )}
-            </button>
-          )}
-          {voiceMembers.length > 0 && (
-            <div
-              className={`voice-channel-participants ${isGrouped ? 'voice-channel-participants--grouped' : ''}`}
-            >
-              {voiceMembers.map((p) => (
-                <div
-                  key={p.userId}
-                  className={`voice-channel-participant ${p.isSpeaking ? 'speaking' : ''}`}
-                >
-                  {p.isMuted ? <MicOff size={12} /> : <Mic size={12} />}
-                  <span className="voice-channel-participant-name">
-                    {p.displayName || p.username}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <VoiceSubItems
+          channel={channel}
+          isGrouped={isGrouped}
+          isActive={isActive}
+          showLinkedText={showLinkedText}
+          linkedText={linkedText}
+          isLinkedTextActive={isLinkedTextActive}
+          linkedTextUnread={linkedTextUnread}
+          voiceMembers={voiceMembers}
+          onLinkedTextClick={onLinkedTextClick}
+        />
       )}
     </React.Fragment>
   );
