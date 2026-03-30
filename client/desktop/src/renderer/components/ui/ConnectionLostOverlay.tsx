@@ -50,6 +50,7 @@ function PhaseContent({
 }>) {
   const handleRetry = useCallback(async () => {
     const store = useConnectionStore.getState();
+    store.incrementRecoveryAttempts();
     store.enterPreflight();
     const { runPreflight } = await import('../../services/recoveryService');
     const diag = await runPreflight();
@@ -57,13 +58,30 @@ function PhaseContent({
 
     if (diag.sessionRevoked) {
       store.enterFatal();
-    } else if (diag.serverReachable && diag.tokenValid) {
-      // Things look good — soft restart to reconnect everything
-      const { softRestart } = await import('../../services/resetService');
-      softRestart();
-    } else {
-      store.enterRecoveryA();
+      return;
     }
+
+    if (!diag.serverReachable || !diag.tokenValid) {
+      store.enterRecoveryA();
+      return;
+    }
+
+    // Server reachable + token valid — direct reconnect instead of page reload.
+    // runPreflight() already refreshed the token via IPC (authStore updated).
+    const { getWebSocketService } = await import('../../services/websocketService');
+    const { useAuthStore } = await import('../../stores/authStore');
+    const wsService = getWebSocketService();
+    const freshToken = useAuthStore.getState().accessToken;
+
+    if (!freshToken) {
+      store.enterFatal();
+      return;
+    }
+
+    wsService.disconnect();
+    wsService.resetReconnectState();
+    store.reset();
+    wsService.connect(freshToken);
   }, []);
 
   const handleRestart = useCallback(async () => {
