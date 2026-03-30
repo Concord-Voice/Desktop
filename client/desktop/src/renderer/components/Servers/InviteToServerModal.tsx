@@ -116,7 +116,8 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, serve
       } else {
         setError('Failed to create invite');
       }
-    } catch (err) {
+    } catch (err: unknown) {
+      console.error('Failed to create invite:', err);
       setError('Failed to create invite');
     } finally {
       setIsGenerating(false);

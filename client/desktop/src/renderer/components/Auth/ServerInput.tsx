@@ -126,10 +126,7 @@ const ServerInput: React.FC<ServerInputProps> = ({ onConnect, onBack }) => {
         {/* Help Link */}
         <div className="server-footer">
           <p className="footer-help">
-            Don't have a server?{' '}
-            <a href="#" className="help-link">
-              Learn about self-hosting →
-            </a>
+            Don't have a server? <span className="help-link">Learn about self-hosting →</span>
           </p>
         </div>
       </div>
