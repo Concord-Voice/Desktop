@@ -50,12 +50,12 @@
 }
 
 .voice-view__badge--decoder-yellow {
-  color: #faa61a;
+  color: #fbbf24;
   background-color: rgba(250, 166, 26, 0.12);
 }
 
 .voice-view__badge--decoder-red {
-  color: #f04747;
+  color: #f87171;
   background-color: rgba(240, 71, 71, 0.12);
 }
 
