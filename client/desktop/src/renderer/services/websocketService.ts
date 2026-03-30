@@ -148,7 +148,7 @@ export class WebSocketService {
    * Send a message to the WebSocket server
    */
   send(message: WebSocketMessage): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (this.ws?.readyState !== WebSocket.OPEN) {
       // Subscription lifecycle messages are expected when WS isn't open (startup, teardown)
       const subTypes = ['subscribe', 'subscribe_server', 'unsubscribe', 'unsubscribe_server'];
       if (!subTypes.includes(message.type)) {

@@ -10,6 +10,13 @@ export interface DesktopSource {
   appIcon: string | null; // data URL
 }
 
+export type PermissionStatus =
+  | 'granted'
+  | 'denied'
+  | 'not-determined'
+  | 'restricted'
+  | 'unavailable';
+
 contextBridge.exposeInMainWorld('electron', {
   // App info
   getVersion: () => ipcRenderer.invoke('app:getVersion'),
@@ -198,30 +205,19 @@ contextBridge.exposeInMainWorld('electron', {
 
   // OS permission management (#197)
   checkAllPermissions: () =>
-    ipcRenderer.invoke('permission:checkAll') as Promise<
-      Record<string, 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable'>
-    >,
+    ipcRenderer.invoke('permission:checkAll') as Promise<Record<string, PermissionStatus>>,
   checkPermission: (type: string) =>
-    ipcRenderer.invoke('permission:check', type) as Promise<
-      'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable'
-    >,
+    ipcRenderer.invoke('permission:check', type) as Promise<PermissionStatus>,
   requestPermission: (type: string) =>
-    ipcRenderer.invoke('permission:request', type) as Promise<
-      'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable'
-    >,
+    ipcRenderer.invoke('permission:request', type) as Promise<PermissionStatus>,
   openPermissionSettings: (type: string) =>
     ipcRenderer.invoke('permission:openSettings', type) as Promise<void>,
-  onPermissionChanged: (
-    callback: (data: {
-      type: string;
-      status: 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable';
-    }) => void
-  ) => {
+  onPermissionChanged: (callback: (data: { type: string; status: PermissionStatus }) => void) => {
     const handler = (
       _event: Electron.IpcRendererEvent,
       data: {
         type: string;
-        status: 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable';
+        status: PermissionStatus;
       }
     ) => callback(data);
     ipcRenderer.on('permission:changed', handler);
@@ -343,21 +339,12 @@ export interface ElectronAPI {
   getUpdateLogPath: () => Promise<string | null>;
 
   // OS permission management (#197)
-  checkAllPermissions: () => Promise<
-    Record<string, 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable'>
-  >;
-  checkPermission: (
-    type: string
-  ) => Promise<'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable'>;
-  requestPermission: (
-    type: string
-  ) => Promise<'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable'>;
+  checkAllPermissions: () => Promise<Record<string, PermissionStatus>>;
+  checkPermission: (type: string) => Promise<PermissionStatus>;
+  requestPermission: (type: string) => Promise<PermissionStatus>;
   openPermissionSettings: (type: string) => Promise<void>;
   onPermissionChanged: (
-    callback: (data: {
-      type: string;
-      status: 'granted' | 'denied' | 'not-determined' | 'restricted' | 'unavailable';
-    }) => void
+    callback: (data: { type: string; status: PermissionStatus }) => void
   ) => () => void;
 }
 

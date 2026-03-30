@@ -272,7 +272,7 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
       });
       document.body.appendChild(clone);
       e.dataTransfer.setDragImage(clone, size / 2, size / 2);
-      requestAnimationFrame(() => document.body.removeChild(clone));
+      requestAnimationFrame(() => clone.remove());
     }
   };
 

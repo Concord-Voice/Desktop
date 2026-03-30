@@ -198,7 +198,7 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
         document.body.appendChild(ta);
         ta.select();
         document.execCommand('copy');
-        document.body.removeChild(ta);
+        ta.remove();
       }
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -238,7 +238,7 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
           {codeError && <div className="add-friend-error">{codeError}</div>}
           {claimStatus && <div className="add-friend-success">{claimStatus}</div>}
 
-          {codePreview && codePreview.valid && (
+          {codePreview?.valid && (
             <div className="friend-code-preview">
               <div className="member-avatar">
                 <span className="member-avatar-initial">

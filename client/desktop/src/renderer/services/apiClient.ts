@@ -15,7 +15,7 @@
 import { useAuthStore } from '../stores/authStore';
 import { API_BASE } from '../config';
 
-export { API_BASE };
+export { API_BASE } from '../config';
 
 // ─── Machine ID cache (for X-Machine-Id header, #89) ─────────────────
 let cachedMachineId: string | null = null;

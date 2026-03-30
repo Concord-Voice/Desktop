@@ -56,14 +56,14 @@ export const VIDEO_QUALITY_PRESETS: Record<string, VideoQualityPreset> = {
 // Types
 // ---------------------------------------------------------------------------
 
-export type ScreenResolution = string; // 'source' | '720p' | '1080p' | '1440p' | '4K' | 'WxH' (custom display resolution)
+// Screen resolution: 'source' | '720p' | '1080p' | '1440p' | '4K' | 'WxH' (custom display resolution)
 export type ScreenContentType = 'auto' | 'motion' | 'detail';
 export type DegradationPreference = 'balanced' | 'maintain-framerate' | 'maintain-resolution';
 export type VideoPriority = 'off' | 'low' | 'medium' | 'high';
 
 /** Per-share screen share options passed from the picker to voiceService. */
 export interface ScreenShareOptions {
-  resolution: ScreenResolution;
+  resolution: string;
   frameRate: number;
   contentType: ScreenContentType;
 }
@@ -82,7 +82,7 @@ export interface VideoSettings {
   cameraPriority: VideoPriority; // DSCP priority for camera traffic
 
   // Screen share
-  screenResolution: ScreenResolution;
+  screenResolution: string;
   screenFrameRate: number; // 0 = Native (display refresh rate), or specific FPS value
   screenContentType: ScreenContentType;
   screenSharePriority: VideoPriority; // DSCP priority for screen share traffic
@@ -108,7 +108,7 @@ interface VideoSettingsState extends VideoSettings {
   setCameraPreset: (preset: string) => void;
   setPreferredVideoCodec: (codec: string | null) => void;
   setCameraPriority: (priority: VideoPriority) => void;
-  setScreenResolution: (res: ScreenResolution) => void;
+  setScreenResolution: (res: string) => void;
   setScreenFrameRate: (fps: number) => void;
   setScreenContentType: (type: ScreenContentType) => void;
   setScreenSharePriority: (priority: VideoPriority) => void;

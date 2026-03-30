@@ -16,7 +16,6 @@ interface ChannelItemProps {
   unread: number;
   isGrouped: boolean;
   isLastInGroup: boolean;
-  isVoiceConnected: boolean;
   voiceMembers: VoiceMemberInfo[];
   linkedText: Channel | null;
   showLinkedText: boolean;

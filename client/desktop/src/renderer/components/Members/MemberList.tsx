@@ -103,7 +103,7 @@ const MemberList: React.FC = () => {
   // Get status for a member (with fallback)
   // For the self user, use selfStatus as the source of truth
   const getMemberStatus = (userId: string): PresenceStatus => {
-    if (selfUser && userId === selfUser.id) {
+    if (selfUser?.id === userId) {
       return selfStatus;
     }
     return userStatuses.get(userId) || (onlineUserIds.has(userId) ? 'online' : 'offline');

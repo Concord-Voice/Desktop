@@ -1237,18 +1237,16 @@ const PrivacySecuritySection: React.FC = () => {
                 : 'In order to continue, please input your password.'}
             </p>
             {hasMFA ? (
-              <>
-                <MFAVerifyPrompt
-                  methods={mfaMethods}
-                  recoveryOnlyMethods={mfaRecoveryOnly}
-                  onVerify={(code) => {
-                    setRevokeMfaCode(code);
-                    setRevokePasswordError('');
-                  }}
-                  disabled={isRevokingAll}
-                  error={revokePasswordError || undefined}
-                />
-              </>
+              <MFAVerifyPrompt
+                methods={mfaMethods}
+                recoveryOnlyMethods={mfaRecoveryOnly}
+                onVerify={(code) => {
+                  setRevokeMfaCode(code);
+                  setRevokePasswordError('');
+                }}
+                disabled={isRevokingAll}
+                error={revokePasswordError || undefined}
+              />
             ) : (
               <div className="revoke-password-input">
                 <label htmlFor="revoke-all-password">Password</label>
@@ -1299,18 +1297,16 @@ const PrivacySecuritySection: React.FC = () => {
               revoke this session.
             </p>
             {hasMFA ? (
-              <>
-                <MFAVerifyPrompt
-                  methods={mfaMethods}
-                  recoveryOnlyMethods={mfaRecoveryOnly}
-                  onVerify={(code) => {
-                    setSessionMfaCode(code);
-                    setSessionPasswordError('');
-                  }}
-                  disabled={revokingId === sessionPasswordTarget}
-                  error={sessionPasswordError || undefined}
-                />
-              </>
+              <MFAVerifyPrompt
+                methods={mfaMethods}
+                recoveryOnlyMethods={mfaRecoveryOnly}
+                onVerify={(code) => {
+                  setSessionMfaCode(code);
+                  setSessionPasswordError('');
+                }}
+                disabled={revokingId === sessionPasswordTarget}
+                error={sessionPasswordError || undefined}
+              />
             ) : (
               <div className="revoke-password-input">
                 <label htmlFor="session-revoke-password">Password</label>

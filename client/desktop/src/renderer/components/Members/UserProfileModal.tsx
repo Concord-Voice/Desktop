@@ -125,7 +125,7 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
 
   if (!isOpen) return null;
 
-  const links = profile?.links?.filter((l: string) => l && l.trim()) || [];
+  const links = profile?.links?.filter((l: string) => l?.trim()) || [];
 
   return (
     <div className="user-profile-overlay" ref={overlayRef} onClick={handleOverlayClick}>

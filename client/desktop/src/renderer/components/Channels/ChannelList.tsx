@@ -754,10 +754,6 @@ const ChannelList: React.FC<ChannelListProps> = ({
     (channel: Channel, index: number, arr: Channel[], isGrouped: boolean) => {
       const isActive = channel.id === activeChannelId;
       const unread = unreadCounts.get(channel.id) || 0;
-      const isVoiceConnected =
-        channel.type === 'voice' &&
-        channel.id === voiceChannelId &&
-        voiceConnectionState === 'connected';
       const isLastInGroup = isGrouped && index === arr.length - 1;
       const voiceMembers = getVoiceMembers(channel);
       const linkedText =
@@ -774,7 +770,6 @@ const ChannelList: React.FC<ChannelListProps> = ({
           unread={unread}
           isGrouped={isGrouped}
           isLastInGroup={isLastInGroup}
-          isVoiceConnected={isVoiceConnected}
           voiceMembers={voiceMembers}
           linkedText={linkedText}
           showLinkedText={showLinkedText}

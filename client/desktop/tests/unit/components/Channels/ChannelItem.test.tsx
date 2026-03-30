@@ -62,7 +62,6 @@ const defaultProps = {
   unread: 0,
   isGrouped: false,
   isLastInGroup: false,
-  isVoiceConnected: false,
   voiceMembers: [] as VoiceMemberInfo[],
   linkedText: null as Channel | null,
   showLinkedText: false,

@@ -109,7 +109,7 @@ const RecoveryCircle: React.FC<RecoveryCircleProps> = ({ onComplete, onCancel })
         );
         const hybridPayload = JSON.stringify({
           k: arrayBufferToBase64(encryptedAesKey),
-          iv: arrayBufferToBase64(shareIv.buffer as ArrayBuffer),
+          iv: arrayBufferToBase64(shareIv.buffer),
           c: arrayBufferToBase64(shareCiphertext),
         });
         const encodedPayload = new TextEncoder().encode(hybridPayload);
@@ -117,7 +117,7 @@ const RecoveryCircle: React.FC<RecoveryCircleProps> = ({ onComplete, onCancel })
         encryptedShares.push({
           contact_id: contactId,
           share_index: share.index,
-          encrypted_share: arrayBufferToBase64(encodedPayload.buffer as ArrayBuffer),
+          encrypted_share: arrayBufferToBase64(encodedPayload.buffer),
         });
       }
 

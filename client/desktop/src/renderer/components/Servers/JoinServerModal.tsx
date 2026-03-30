@@ -169,7 +169,7 @@ const JoinServerModal: React.FC<JoinServerModalProps> = ({ isOpen, onClose, onSu
         )}
 
         {/* Server preview */}
-        {preview && preview.valid && (
+        {preview?.valid && (
           <div className="join-server-preview">
             <div className="join-preview-icon">
               {preview.server_icon ? (

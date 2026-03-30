@@ -9,7 +9,7 @@ import {
 import './ConnectionLostOverlay.css';
 
 /** Diagnostic checklist shown during recovery phases */
-function DiagnosticDisplay({ diagnostics }: { diagnostics: DiagnosticResults | null }) {
+function DiagnosticDisplay({ diagnostics }: Readonly<{ diagnostics: DiagnosticResults | null }>) {
   if (!diagnostics) return null;
 
   const items = [
@@ -44,10 +44,10 @@ function DiagnosticDisplay({ diagnostics }: { diagnostics: DiagnosticResults | n
 function PhaseContent({
   phase,
   diagnostics,
-}: {
+}: Readonly<{
   phase: RecoveryPhase;
   diagnostics: DiagnosticResults | null;
-}) {
+}>) {
   const handleRetry = useCallback(async () => {
     const store = useConnectionStore.getState();
     store.enterPreflight();

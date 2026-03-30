@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Monitor, X } from 'lucide-react';
 import {
   useVideoSettingsStore,
-  type ScreenResolution,
   type ScreenContentType,
   type ScreenShareOptions,
 } from '../../stores/videoSettingsStore';
@@ -32,7 +31,7 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
   const savedContentType = useVideoSettingsStore((s) => s.screenContentType);
 
   // Local transient state — initialized from saved defaults, not persisted on change
-  const [resolution, setResolution] = useState<ScreenResolution>(savedResolution);
+  const [resolution, setResolution] = useState<string>(savedResolution);
   const [frameRate, setFrameRate] = useState<number>(savedFrameRate);
   const [contentType, setContentType] = useState<ScreenContentType>(savedContentType);
   const [dirty, setDirty] = useState(false);
@@ -170,7 +169,7 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
               ]}
               value={resolution}
               onChange={(v) => {
-                setResolution(v as ScreenResolution);
+                setResolution(v);
                 setDirty(true);
               }}
             />

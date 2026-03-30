@@ -3,9 +3,6 @@
  * Must stay in sync with services/control-plane/internal/rbac/types.go
  */
 
-// Use BigInt for int64 permission bitfields (JS numbers lose precision above 2^53)
-export type Permission = bigint;
-
 // Administrative permissions
 export const MANAGE_SERVER = 1n << 0n;
 export const MANAGE_ROLES = 1n << 1n;

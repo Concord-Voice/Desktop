@@ -30,7 +30,7 @@ const MemberFlexSpace: React.FC = () => {
   if (!activeServerId) return null;
 
   const getMemberStatus = (userId: string): PresenceStatus => {
-    if (selfUser && userId === selfUser.id) return selfStatus;
+    if (selfUser?.id === userId) return selfStatus;
     return userStatuses.get(userId) || (onlineUserIds.has(userId) ? 'online' : 'offline');
   };
 
@@ -54,47 +54,43 @@ const MemberFlexSpace: React.FC = () => {
   // Collapsed mode — avatar strip
   if (memberPanelMode === 'collapsed') {
     return (
-      <>
-        <div className="member-panel-collapsed">
-          <button
-            onClick={() => setMemberPanelMode('expanded')}
-            title="Expand member list"
-            aria-label="Expand member list"
-            style={{
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              color: 'var(--text-muted)',
-              padding: '4px 0',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginBottom: '4px',
-            }}
-          >
-            <Users size={14} />
-          </button>
+      <div className="member-panel-collapsed">
+        <button
+          onClick={() => setMemberPanelMode('expanded')}
+          title="Expand member list"
+          aria-label="Expand member list"
+          style={{
+            background: 'none',
+            border: 'none',
+            cursor: 'pointer',
+            color: 'var(--text-muted)',
+            padding: '4px 0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginBottom: '4px',
+          }}
+        >
+          <Users size={14} />
+        </button>
 
-          {members.slice(0, 30).map((member) => {
-            const status = getMemberStatus(member.user_id);
-            return (
-              <div key={member.user_id} className="member-avatar-strip-item">
-                {member.avatar_url ? (
-                  <img src={member.avatar_url} alt={member.username} />
-                ) : (
-                  <div className="member-avatar-strip-initial">
-                    {member.username.charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <span className={`member-strip-status ${status}`} />
-                <span className="member-strip-tooltip">
-                  {member.display_name || member.username}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </>
+        {members.slice(0, 30).map((member) => {
+          const status = getMemberStatus(member.user_id);
+          return (
+            <div key={member.user_id} className="member-avatar-strip-item">
+              {member.avatar_url ? (
+                <img src={member.avatar_url} alt={member.username} />
+              ) : (
+                <div className="member-avatar-strip-initial">
+                  {member.username.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <span className={`member-strip-status ${status}`} />
+              <span className="member-strip-tooltip">{member.display_name || member.username}</span>
+            </div>
+          );
+        })}
+      </div>
     );
   }
 

@@ -32,7 +32,7 @@ export interface AppearanceSettings {
   customColors: CustomColors | null;
 }
 
-export type { CustomColors };
+export type { CustomColors } from '../utils/colorUtils';
 
 interface SettingsState {
   appearance: AppearanceSettings;
