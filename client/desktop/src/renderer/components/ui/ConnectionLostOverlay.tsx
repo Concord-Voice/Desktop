@@ -56,14 +56,36 @@ function PhaseContent({
     store.setDiagnostics(diag);
 
     if (diag.sessionRevoked) {
+      store.incrementRecoveryAttempts();
       store.enterFatal();
-    } else if (diag.serverReachable && diag.tokenValid) {
-      // Things look good — soft restart to reconnect everything
-      const { softRestart } = await import('../../services/resetService');
-      softRestart();
-    } else {
-      store.enterRecoveryA();
+      return;
     }
+
+    if (!diag.serverReachable || !diag.tokenValid) {
+      store.incrementRecoveryAttempts();
+      store.enterRecoveryA();
+      return;
+    }
+
+    // Server reachable + token valid — direct reconnect instead of page reload.
+    // runPreflight() already refreshed the token via IPC (authStore updated).
+    const { getWebSocketService } = await import('../../services/websocketService');
+    const { useAuthStore } = await import('../../stores/authStore');
+    const wsService = getWebSocketService();
+    const freshToken = useAuthStore.getState().accessToken;
+
+    if (!freshToken) {
+      store.incrementRecoveryAttempts();
+      store.enterFatal();
+      return;
+    }
+
+    // Success path: reset() clears recoveryAttempts — only increment on failure
+    // branches above so the counter reflects consecutive failed retries.
+    wsService.disconnect();
+    wsService.resetReconnectState();
+    store.reset();
+    wsService.connect(freshToken);
   }, []);
 
   const handleRestart = useCallback(async () => {

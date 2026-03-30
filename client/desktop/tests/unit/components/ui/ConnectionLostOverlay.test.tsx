@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '../../../test-utils';
 import { useConnectionStore } from '@/renderer/stores/connectionStore';
+import { useAuthStore } from '@/renderer/stores/authStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
 vi.mock('@/renderer/components/ui/ConnectionLostOverlay.css', () => ({}));
@@ -9,12 +10,26 @@ vi.mock('@/renderer/components/ui/ConnectionLostOverlay.css', () => ({}));
 const mockRunPreflight = vi.fn();
 const mockSoftRestart = vi.fn();
 
+// Mock websocketService singleton
+const mockDisconnect = vi.fn();
+const mockResetReconnectState = vi.fn();
+const mockConnect = vi.fn();
+const mockGetWebSocketService = vi.fn(() => ({
+  disconnect: mockDisconnect,
+  resetReconnectState: mockResetReconnectState,
+  connect: mockConnect,
+}));
+
 vi.mock('@/renderer/services/recoveryService', () => ({
   runPreflight: (...args: unknown[]) => mockRunPreflight(...args),
 }));
 
 vi.mock('@/renderer/services/resetService', () => ({
   softRestart: (...args: unknown[]) => mockSoftRestart(...args),
+}));
+
+vi.mock('@/renderer/services/websocketService', () => ({
+  getWebSocketService: (...args: unknown[]) => mockGetWebSocketService(...args),
 }));
 
 import ConnectionLostOverlay from '@/renderer/components/ui/ConnectionLostOverlay';
@@ -149,6 +164,7 @@ describe('ConnectionLostOverlay', () => {
         sessionRevoked: false,
         rendererStable: true,
       });
+      useAuthStore.setState({ accessToken: 'fresh-token' });
 
       useConnectionStore.setState({
         phase: 'recovery_a',
@@ -190,11 +206,60 @@ describe('ConnectionLostOverlay', () => {
       });
     });
 
-    it('calls softRestart when server is reachable and token is valid', async () => {
+    it('disconnects WS, resets store, and reconnects with fresh token on successful retry', async () => {
       mockRunPreflight.mockResolvedValue({
         internet: true,
         serverReachable: true,
         tokenValid: true,
+        sessionRevoked: false,
+        rendererStable: true,
+      });
+      useAuthStore.setState({ accessToken: 'fresh-jwt-token' });
+
+      useConnectionStore.setState({
+        phase: 'recovery_a',
+        diagnostics: null,
+      });
+      render(<ConnectionLostOverlay />);
+      fireEvent.click(screen.getByText('Retry'));
+
+      await waitFor(() => {
+        expect(mockDisconnect).toHaveBeenCalled();
+        expect(mockResetReconnectState).toHaveBeenCalled();
+        expect(mockConnect).toHaveBeenCalledWith('fresh-jwt-token');
+        expect(useConnectionStore.getState().phase).toBe('stable');
+      });
+    });
+
+    it('enters fatal when diagnostics pass but no access token available', async () => {
+      mockRunPreflight.mockResolvedValue({
+        internet: true,
+        serverReachable: true,
+        tokenValid: true,
+        sessionRevoked: false,
+        rendererStable: true,
+      });
+      useAuthStore.setState({ accessToken: null });
+
+      useConnectionStore.setState({
+        phase: 'recovery_a',
+        diagnostics: null,
+      });
+      render(<ConnectionLostOverlay />);
+      fireEvent.click(screen.getByText('Retry'));
+
+      await waitFor(() => {
+        expect(useConnectionStore.getState().phase).toBe('fatal');
+      });
+      // Should NOT attempt to connect without a token
+      expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('enters recovery_a when server is unreachable', async () => {
+      mockRunPreflight.mockResolvedValue({
+        internet: true,
+        serverReachable: false,
+        tokenValid: false,
         sessionRevoked: false,
         rendererStable: true,
       });
@@ -207,7 +272,56 @@ describe('ConnectionLostOverlay', () => {
       fireEvent.click(screen.getByText('Retry'));
 
       await waitFor(() => {
-        expect(mockSoftRestart).toHaveBeenCalled();
+        expect(useConnectionStore.getState().phase).toBe('recovery_a');
+      });
+      expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('increments recovery attempts on failed retry (server unreachable)', async () => {
+      mockRunPreflight.mockResolvedValue({
+        internet: true,
+        serverReachable: false,
+        tokenValid: false,
+        sessionRevoked: false,
+        rendererStable: true,
+      });
+
+      useConnectionStore.setState({
+        phase: 'recovery_a',
+        diagnostics: null,
+        recoveryAttempts: 0,
+      });
+      render(<ConnectionLostOverlay />);
+      fireEvent.click(screen.getByText('Retry'));
+
+      await waitFor(() => {
+        expect(useConnectionStore.getState().recoveryAttempts).toBe(1);
+        expect(useConnectionStore.getState().phase).toBe('recovery_a');
+      });
+    });
+
+    it('does not increment recovery attempts on successful reconnect', async () => {
+      mockRunPreflight.mockResolvedValue({
+        internet: true,
+        serverReachable: true,
+        tokenValid: true,
+        sessionRevoked: false,
+        rendererStable: true,
+      });
+      useAuthStore.setState({ accessToken: 'token' });
+
+      useConnectionStore.setState({
+        phase: 'recovery_a',
+        diagnostics: null,
+        recoveryAttempts: 2,
+      });
+      render(<ConnectionLostOverlay />);
+      fireEvent.click(screen.getByText('Retry'));
+
+      await waitFor(() => {
+        // reset() clears recoveryAttempts on success path
+        expect(useConnectionStore.getState().recoveryAttempts).toBe(0);
+        expect(useConnectionStore.getState().phase).toBe('stable');
       });
     });
   });

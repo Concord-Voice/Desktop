@@ -459,4 +459,96 @@ describe('WebSocketService — extended', () => {
       expect(heartbeats.length).toBeGreaterThanOrEqual(1);
     });
   });
+
+  describe('resetReconnectState', () => {
+    it('resets reconnect attempts and delay to defaults', async () => {
+      const ws = await connectAndWaitForOpen(service);
+      markConnected(ws);
+
+      // Trigger abnormal close to start reconnecting (increments attempts)
+      ws.simulateAbnormalClose();
+      expect(service.getState()).toBe(ConnectionState.RECONNECTING);
+
+      // Advance to fire reconnect attempt 1 (at 1s base delay)
+      await vi.advanceTimersByTimeAsync(1100);
+      // Let the new WS open so we can close it again
+      await vi.advanceTimersByTimeAsync(0);
+
+      // Reset backoff state — next reconnect should use base delay (1s) again
+      service.resetReconnectState();
+
+      // Snapshot fetch count after reset (before second close)
+      const fetchCountAfterReset = mockFetch.mock.calls.length;
+
+      // Trigger another abnormal close → schedules reconnect with reset backoff
+      const ws2 = (service as any).ws as MockWebSocket | null;
+      if (ws2) {
+        ws2.simulateAbnormalClose();
+      }
+
+      // At base delay (1s) the reconnect should fire — if backoff weren't reset,
+      // the delay would be 2s+ (attempt 2 exponential) and this wouldn't trigger.
+      await vi.advanceTimersByTimeAsync(1100);
+      expect(mockFetch.mock.calls.length).toBeGreaterThan(fetchCountAfterReset);
+    });
+
+    it('clears any pending reconnect timer', async () => {
+      const ws = await connectAndWaitForOpen(service);
+      markConnected(ws);
+
+      // Trigger abnormal close → schedules reconnect timer
+      ws.simulateAbnormalClose();
+
+      const fetchCountBefore = mockFetch.mock.calls.length;
+      service.resetReconnectState();
+
+      // Advance past when the timer would have fired — should NOT reconnect
+      await vi.advanceTimersByTimeAsync(35_000);
+      expect(mockFetch.mock.calls.length).toBe(fetchCountBefore);
+    });
+  });
+
+  describe('updateToken', () => {
+    it('uses updated token on automatic reconnect (backoff)', async () => {
+      const ws = await connectAndWaitForOpen(service, 'old-token');
+      markConnected(ws);
+
+      // Update token while connected — no disconnect/connect cycle
+      service.updateToken('refreshed-token');
+
+      // Clear fetch history so we only capture the reconnect's ticket fetch
+      mockFetch.mockClear();
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ ticket: 'mock-ticket' }),
+      });
+
+      // Abnormal close triggers automatic reconnect via backoff
+      ws.simulateAbnormalClose();
+
+      // Advance past the reconnect delay (1s base)
+      await vi.advanceTimersByTimeAsync(1100);
+
+      // The ws-ticket fetch during automatic reconnect should use the updated token
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/auth/ws-ticket'),
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            Authorization: 'Bearer refreshed-token',
+          }),
+        })
+      );
+    });
+
+    it('does not disconnect or reconnect on its own', async () => {
+      const ws = await connectAndWaitForOpen(service);
+      markConnected(ws);
+
+      const stateBefore = service.getState();
+      service.updateToken('updated-token');
+
+      expect(service.getState()).toBe(stateBefore);
+      expect(ws.readyState).toBe(MockWebSocket.OPEN);
+    });
+  });
 });

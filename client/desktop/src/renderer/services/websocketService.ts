@@ -130,6 +130,26 @@ export class WebSocketService {
   }
 
   /**
+   * Reset reconnect backoff state to defaults.
+   * Used when the caller wants to ensure a fresh backoff curve on the next
+   * connect attempt (e.g., after a successful token refresh + manual retry).
+   */
+  resetReconnectState(): void {
+    this.reconnectAttempts = 0;
+    this.reconnectDelay = 1000;
+    this.clearReconnectTimer();
+  }
+
+  /**
+   * Update the stored JWT token without a full disconnect/connect cycle.
+   * Used when the main process refreshes the token proactively or during
+   * manual retry so the next ws-ticket fetch uses the fresh token.
+   */
+  updateToken(token: string): void {
+    this.token = token;
+  }
+
+  /**
    * Toggle aggressive reconnection mode.
    * When enabled, reconnect attempts use rapid intervals (500ms → 2s)
    * instead of the normal exponential backoff (1s → 30s).
