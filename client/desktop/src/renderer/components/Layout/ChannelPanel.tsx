@@ -102,7 +102,13 @@ const ChannelPanel: React.FC<ChannelPanelProps> = ({ header, children, forcePin 
           {children}
           <UserPanel />
         </div>
-        <div className="layout-resize-handle" onMouseDown={panel.onMouseDown} />
+        <button
+          type="button"
+          className="layout-resize-handle"
+          onMouseDown={panel.onMouseDown}
+          tabIndex={-1}
+          aria-hidden="true"
+        />
       </>
     );
   }

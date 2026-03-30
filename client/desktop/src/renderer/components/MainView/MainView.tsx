@@ -413,9 +413,15 @@ const MainView: React.FC = () => {
         {/* Vertical voice text chat side panel */}
         {showVerticalSideChat && (
           <>
-            <div className="main-content__side-resize" onMouseDown={handleSideChatResizeStart}>
+            <button
+              type="button"
+              className="main-content__side-resize"
+              onMouseDown={handleSideChatResizeStart}
+              tabIndex={-1}
+              aria-hidden="true"
+            >
               <div className="main-content__side-resize-grip" />
-            </div>
+            </button>
             <div className="main-content__side-chat" style={{ width: voiceTextChatWidth }}>
               <VoiceTextChat />
             </div>

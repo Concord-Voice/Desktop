@@ -97,7 +97,13 @@ const MemberFlexSpace: React.FC = () => {
   // Expanded mode — full member list with resize
   return (
     <>
-      <div className="layout-resize-handle" onMouseDown={panel.onMouseDown} />
+      <button
+        type="button"
+        className="layout-resize-handle"
+        onMouseDown={panel.onMouseDown}
+        tabIndex={-1}
+        aria-hidden="true"
+      />
       <div
         className="member-list-container"
         style={{

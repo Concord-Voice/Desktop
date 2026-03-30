@@ -171,7 +171,7 @@ interface CategoryGroupHeaderProps {
   onDrop: (e: React.DragEvent) => void;
   onDragEnd: () => void;
   onCategoryDragOver: (e: React.DragEvent, groupId: string) => void;
-  itemRef: (id: string, el: HTMLDivElement | null) => void;
+  itemRef: (id: string, el: HTMLElement | null) => void;
 }
 
 const CategoryGroupHeader: React.FC<CategoryGroupHeaderProps> = React.memo(
@@ -303,7 +303,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
     targetType: 'channel' | 'category' | 'gap';
   } | null>(null);
   const lastInsertRef = useRef<typeof dragInsertPos>(null);
-  const itemRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const itemRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   const activeServerPerms = usePermissionStore(
     (s) => (activeServerId ? s.serverPermissions[activeServerId] : undefined) ?? 0n
@@ -428,7 +428,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
     [setActiveChannel, showVoiceTextChat, setShowVoiceTextChat, clearUnread]
   );
 
-  const handleItemRef = useCallback((id: string, el: HTMLDivElement | null) => {
+  const handleItemRef = useCallback((id: string, el: HTMLElement | null) => {
     if (el) itemRefs.current.set(id, el);
     else itemRefs.current.delete(id);
   }, []);
@@ -446,7 +446,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
       // Create semi-transparent drag image
       const el = itemRefs.current.get(id);
       if (el) {
-        const clone = el.cloneNode(true) as HTMLDivElement;
+        const clone = el.cloneNode(true) as HTMLElement;
         const rect = el.getBoundingClientRect();
         Object.assign(clone.style, {
           position: 'fixed',

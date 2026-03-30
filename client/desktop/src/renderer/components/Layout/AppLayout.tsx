@@ -67,16 +67,22 @@ const AppLayout: React.FC<AppLayoutProps> = ({
       <div className="layout-server-bar" style={{ height: serverBarHeight }}>
         {serverBar}
       </div>
-      <div
+      <button
+        type="button"
         className="layout-server-bar-resize layout-resize-handle-h"
         onMouseDown={makeResizeHandler(setServerBarHeight)}
+        tabIndex={-1}
+        aria-hidden="true"
       />
       <div className="layout-folder-bar" style={{ height: folderBarHeight }}>
         {folderBar}
       </div>
-      <div
+      <button
+        type="button"
         className="layout-folder-bar-resize layout-resize-handle-h"
         onMouseDown={makeResizeHandler(setFolderBarHeight)}
+        tabIndex={-1}
+        aria-hidden="true"
       />
       <div className="layout-channel-panel">{channelPanel}</div>
       <div className="layout-chat-area">{chatArea}</div>

@@ -4,8 +4,9 @@ const ToggleSwitch: React.FC<{
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
-}> = ({ checked, onChange, disabled }) => (
-  <label className="settings-toggle">
+  label?: string;
+}> = ({ checked, onChange, disabled, label }) => (
+  <label className="settings-toggle" aria-label={label || 'Toggle'}>
     <input
       type="checkbox"
       checked={checked}

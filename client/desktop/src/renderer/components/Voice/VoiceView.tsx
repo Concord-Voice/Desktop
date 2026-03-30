@@ -259,13 +259,16 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
 
               {/* Resize handle: UserFrameBar ↔ VoiceStage */}
               <div className="voice-view__section-handle">
-                <div
+                <button
+                  type="button"
                   className="voice-view__section-handle-grip"
                   onMouseDown={makeSectionResizeStart(
                     'top',
                     userFrameBarHeight,
                     setUserFrameBarHeight
                   )}
+                  tabIndex={-1}
+                  aria-hidden="true"
                 />
                 <button
                   className="voice-view__section-toggle"
@@ -282,13 +285,16 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
               {/* Resize handle: VoiceStage ↔ StreamBar (focus mode only) */}
               {showStreamSection && (
                 <div className="voice-view__section-handle">
-                  <div
+                  <button
+                    type="button"
                     className="voice-view__section-handle-grip"
                     onMouseDown={makeSectionResizeStart(
                       'bottom',
                       streamBarHeight,
                       setStreamBarHeight
                     )}
+                    tabIndex={-1}
+                    aria-hidden="true"
                   />
                   <button
                     className="voice-view__section-toggle"
@@ -315,12 +321,15 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
         {/* Text chat panel — vertical (side-by-side) layout only */}
         {showChat && isVerticalLayout && (
           <>
-            <div
+            <button
+              type="button"
               className="voice-text-chat-resize voice-text-chat-resize--vertical"
               onMouseDown={handleChatResizeStart}
+              tabIndex={-1}
+              aria-hidden="true"
             >
               <div className="voice-text-chat-resize__grip" />
-            </div>
+            </button>
             <div
               className="voice-view__text-chat voice-view__text-chat--vertical"
               style={{ width: voiceTextChatWidth }}
@@ -337,9 +346,15 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
       {/* Text chat panel — horizontal (bottom) layout only */}
       {showChat && !isVerticalLayout && (
         <>
-          <div className="voice-text-chat-resize" onMouseDown={handleChatResizeStart}>
+          <button
+            type="button"
+            className="voice-text-chat-resize"
+            onMouseDown={handleChatResizeStart}
+            tabIndex={-1}
+            aria-hidden="true"
+          >
             <div className="voice-text-chat-resize__grip" />
-          </div>
+          </button>
           <div className="voice-view__text-chat" style={{ height: voiceTextChatHeight }}>
             <VoiceTextChat />
           </div>

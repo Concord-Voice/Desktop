@@ -112,9 +112,15 @@ const PersistentVoiceBar: React.FC = () => {
       {/* Text chat drawer (above controls) */}
       {showChat && voiceControlsPinned && (
         <>
-          <div className="persistent-voice-bar__chat-resize" onMouseDown={handleChatResizeStart}>
+          <button
+            type="button"
+            className="persistent-voice-bar__chat-resize"
+            onMouseDown={handleChatResizeStart}
+            tabIndex={-1}
+            aria-hidden="true"
+          >
             <div className="persistent-voice-bar__chat-resize-grip" />
-          </div>
+          </button>
           <div
             className="persistent-voice-bar__chat-drawer"
             style={{ height: persistentTextChatHeight }}

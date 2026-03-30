@@ -32,7 +32,7 @@ interface ChannelItemProps {
   onDrop: (e: React.DragEvent) => void;
   onDragEnd: () => void;
   onLinkedTextClick: (voiceChannel: Channel, linkedText: Channel) => void;
-  itemRef: (id: string, el: HTMLDivElement | null) => void;
+  itemRef: (id: string, el: HTMLElement | null) => void;
 }
 
 function getChannelTypeIcon(type: Channel['type']) {
@@ -86,7 +86,8 @@ const ChannelItem: React.FC<ChannelItemProps> = ({
     <React.Fragment>
       <div className={`channel-item-wrapper${isGrouped ? ' channel-item-wrapper--grouped' : ''}`}>
         {showGhostBefore && <div className="channel-drag-ghost" />}
-        <div
+        <button
+          type="button"
           ref={(el) => itemRef(channel.id, el)}
           className={`${itemClasses} ${isDragging ? 'dragging' : ''}`}
           draggable={canReorder}
@@ -109,7 +110,7 @@ const ChannelItem: React.FC<ChannelItemProps> = ({
           {unread > 0 && !isActive && (
             <span className="channel-unread-badge">{unread > 99 ? '99+' : unread}</span>
           )}
-        </div>
+        </button>
         {showGhostAfter && <div className="channel-drag-ghost" />}
       </div>
       {/* Voice sub-items — rendered outside the grouped wrapper so category
@@ -120,7 +121,8 @@ const ChannelItem: React.FC<ChannelItemProps> = ({
           className={`voice-channel-sub-container ${isGrouped ? 'voice-channel-sub-container--grouped' : ''} ${isActive ? 'voice-channel-sub-container--active' : ''}`}
         >
           {showLinkedText && linkedText && (
-            <div
+            <button
+              type="button"
               className={`channel-item--voice-text ${isGrouped ? 'channel-item--voice-text-grouped' : ''} ${isLinkedTextActive ? 'active' : ''} ${linkedTextUnread > 0 ? 'has-unread' : ''}`}
               onClick={(e) => {
                 e.stopPropagation();
@@ -137,7 +139,7 @@ const ChannelItem: React.FC<ChannelItemProps> = ({
                   {linkedTextUnread > 99 ? '99+' : linkedTextUnread}
                 </span>
               )}
-            </div>
+            </button>
           )}
           {voiceMembers.length > 0 && (
             <div
