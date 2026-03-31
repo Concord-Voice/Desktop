@@ -4,6 +4,7 @@ import { useUserStore } from '../../stores/userStore';
 import { useAudioSettingsStore } from '../../stores/audioSettingsStore';
 import ParticipantTile from './ParticipantTile';
 import { useVoiceMagnification } from './useVoiceMagnification';
+import { useGridLayout } from '../../hooks/useGridLayout';
 import './ParticipantGrid.css';
 
 /** Maximum boost gain: +18 dB ≈ 8x linear. Prevents extreme noise amplification. */
@@ -246,9 +247,20 @@ export const UserFrameGrid: React.FC = () => {
   const localUserId = useUserStore((s) => s.user?.id);
   const participantList = Object.values(participants);
   const scales = useVoiceMagnification(participants);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const { tileWidth, tileHeight } = useGridLayout(gridRef, participantList.length);
 
   return (
-    <div className="user-frame-grid">
+    <div
+      ref={gridRef}
+      className="user-frame-grid"
+      style={
+        {
+          '--tile-w': `${tileWidth}px`,
+          '--tile-h': `${tileHeight}px`,
+        } as React.CSSProperties
+      }
+    >
       {participantList.map((p) => (
         <ParticipantTile
           key={p.userId}

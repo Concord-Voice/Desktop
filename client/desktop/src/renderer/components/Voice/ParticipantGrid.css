@@ -13,9 +13,10 @@
   min-height: 0;
 }
 
-/* Dynamic tile sizing: CSS container query approach */
+/* Dynamic tile sizing: dimensions set by useGridLayout hook via CSS vars */
 .user-frame-grid .participant-tile {
-  width: clamp(80px, calc((100% - 48px) / 4), 200px);
-  flex-shrink: 1;
+  width: var(--tile-w, 200px);
+  height: var(--tile-h, 112px);
+  flex-shrink: 0;
   flex-grow: 0;
 }

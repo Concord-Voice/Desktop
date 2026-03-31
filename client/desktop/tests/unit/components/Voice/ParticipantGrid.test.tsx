@@ -16,6 +16,10 @@ vi.mock('@/renderer/components/Voice/useVoiceMagnification', () => ({
   useVoiceMagnification: () => ({}),
 }));
 
+vi.mock('@/renderer/hooks/useGridLayout', () => ({
+  useGridLayout: () => ({ tileWidth: 300, tileHeight: 169, columns: 3 }),
+}));
+
 vi.mock('@/renderer/components/Voice/ParticipantGrid.css', () => ({}));
 
 // ── AudioContext mock objects ─────────────────────────────────────────────────
@@ -354,5 +358,31 @@ describe('UserFrameGrid', () => {
     useVoiceStore.setState({ participants: {} });
     const { container } = render(<UserFrameGrid />);
     expect(container.querySelectorAll('[data-testid^="participant-tile"]').length).toBe(0);
+  });
+
+  it('sets --tile-w and --tile-h CSS custom properties on the grid container', () => {
+    useVoiceStore.setState({
+      participants: {
+        u1: {
+          userId: 'u1',
+          username: 'alice',
+          isMuted: false,
+          isDeafened: false,
+          isVideoOn: false,
+          isScreenSharing: false,
+          isSpeaking: false,
+        },
+      },
+    });
+    const { container } = render(<UserFrameGrid />);
+    const grid = container.querySelector('.user-frame-grid') as HTMLElement;
+    expect(grid.style.getPropertyValue('--tile-w')).toBe('300px');
+    expect(grid.style.getPropertyValue('--tile-h')).toBe('169px');
+  });
+
+  it('attaches a ref to the grid container element', () => {
+    const { container } = render(<UserFrameGrid />);
+    const grid = container.querySelector('.user-frame-grid');
+    expect(grid).toBeInstanceOf(HTMLDivElement);
   });
 });
