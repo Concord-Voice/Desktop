@@ -6,7 +6,10 @@ import { usePermissionStore } from '../../stores/permissionStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 import MessageAvatar from './MessageAvatar';
 import MessageActions from './MessageActions';
+import ReactionBar from './ReactionBar';
 import MessageContextMenu from './MessageContextMenu';
+import LazyEmojiPicker from '../EmojiPicker/LazyEmojiPicker';
+import { toggleReaction } from '../../services/reactionService';
 import DeleteMessageModal from './DeleteMessageModal';
 import {
   getEmojiOnlyCount,
@@ -41,6 +44,7 @@ const Message: React.FC<MessageProps> = ({
   const [editContent, setEditContent] = useState(message.content);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
+  const [reactionPicker, setReactionPicker] = useState<{ x: number; y: number } | null>(null);
 
   // Sync editContent when message content changes externally (not while editing)
   useEffect(() => {
@@ -231,6 +235,10 @@ const Message: React.FC<MessageProps> = ({
           onDelete={onDelete}
           onRequestDelete={() => setShowDeleteModal(true)}
         />
+
+        {message.reactions && message.reactions.length > 0 && (
+          <ReactionBar messageId={message.id} reactions={message.reactions} />
+        )}
       </div>
 
       {onDelete && (
@@ -257,6 +265,19 @@ const Message: React.FC<MessageProps> = ({
               setShowDeleteModal(true);
             }
           }}
+          onReaction={() => setReactionPicker(contextMenu)}
+        />
+      )}
+
+      {reactionPicker && (
+        <LazyEmojiPicker
+          onSelect={(emoji: string) => {
+            setReactionPicker(null);
+            toggleReaction(message.id, emoji).catch(() => {});
+          }}
+          onClose={() => setReactionPicker(null)}
+          mode="popover"
+          position={reactionPicker}
         />
       )}
     </div>

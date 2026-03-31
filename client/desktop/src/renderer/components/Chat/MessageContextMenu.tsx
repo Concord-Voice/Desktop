@@ -10,6 +10,7 @@ interface MessageContextMenuProps {
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onReaction?: () => void;
 }
 
 const MessageContextMenu: React.FC<MessageContextMenuProps> = ({
@@ -20,6 +21,7 @@ const MessageContextMenu: React.FC<MessageContextMenuProps> = ({
   onClose,
   onEdit,
   onDelete,
+  onReaction,
 }) => {
   const handleCopyText = async () => {
     await navigator.clipboard.writeText(message.content);
@@ -84,6 +86,27 @@ const MessageContextMenu: React.FC<MessageContextMenuProps> = ({
         label="Pin Message"
         disabled
         onClick={() => {}}
+      />
+
+      <ContextMenu.Item
+        icon={
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" />
+            <circle cx="5.5" cy="6.5" r="1" fill="currentColor" />
+            <circle cx="10.5" cy="6.5" r="1" fill="currentColor" />
+            <path
+              d="M5 10c.8 1.2 2.2 2 3.5 1.8 1.3-.2 2.2-1 2.5-1.8"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+            />
+          </svg>
+        }
+        label="Add Reaction"
+        onClick={() => {
+          onReaction?.();
+          onClose();
+        }}
       />
 
       {canModify && (

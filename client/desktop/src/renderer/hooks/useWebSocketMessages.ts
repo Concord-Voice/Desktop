@@ -324,6 +324,57 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       deleteMessage(channelId, messageId);
     });
 
+    // Reaction event handler (shared logic for added/removed)
+    const applyReactionUpdate = (
+      channelId: string,
+      messageId: string,
+      emoji: string,
+      summary: {
+        emoji: string;
+        count: number;
+        users: Array<{ user_id: string; username: string; display_name?: string }>;
+        me: boolean;
+      } | null
+    ) => {
+      const messages = useChatStore.getState().messagesByChannel.get(channelId);
+      const message = messages?.find((m) => m.id === messageId);
+      if (!message) return;
+
+      const currentReactions = message.reactions || [];
+      const selfId = useUserStore.getState().user?.id;
+      let updatedReactions;
+
+      if (summary && summary.count > 0) {
+        const idx = currentReactions.findIndex((r) => r.emoji === emoji);
+        updatedReactions = [...currentReactions];
+        const withMe = { ...summary, me: summary.users.some((u) => u.user_id === selfId) };
+        if (idx >= 0) {
+          updatedReactions[idx] = withMe;
+        } else {
+          updatedReactions.push(withMe);
+        }
+      } else {
+        updatedReactions = currentReactions.filter((r) => r.emoji !== emoji);
+      }
+
+      updateMessage(channelId, messageId, { reactions: updatedReactions });
+    };
+
+    const unsubReactionAdded = wsService.on('message_reaction_added', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      if (!data.channel_id || !data.message_id) return;
+      applyReactionUpdate(data.channel_id, data.message_id, data.emoji, data.reaction_summary);
+    });
+
+    const unsubReactionRemoved = wsService.on(
+      'message_reaction_removed',
+      (msg: WebSocketMessage) => {
+        const { data } = msg;
+        if (!data.channel_id || !data.message_id) return;
+        applyReactionUpdate(data.channel_id, data.message_id, data.emoji, data.reaction_summary);
+      }
+    );
+
     // Typing indicator handler
     const unsubTyping = wsService.on('typing', (msg: WebSocketMessage) => {
       const { data } = msg;
@@ -1040,6 +1091,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       unsubMessage();
       unsubUpdate();
       unsubDelete();
+      unsubReactionAdded();
+      unsubReactionRemoved();
       unsubTyping();
       unsubAck();
       unsubMemberJoined();

@@ -6,6 +6,8 @@ import {
   mockPendingMessage,
   mockMember,
   mockMember2,
+  mockReaction,
+  mockReaction2,
 } from '../../../mocks/fixtures';
 import { useMemberStore } from '@/renderer/stores/memberStore';
 import { usePermissionStore } from '@/renderer/stores/permissionStore';
@@ -637,5 +639,23 @@ describe('Message', () => {
       />
     );
     expect(screen.getByText('Updated externally')).toBeInTheDocument();
+  });
+
+  it('renders ReactionBar when message has reactions', () => {
+    useMemberStore.getState().addMember(mockMember);
+    const messageWithReactions = {
+      ...mockMessage,
+      reactions: [mockReaction, mockReaction2],
+    };
+    render(<Message message={messageWithReactions} currentUserId="user-1" showAvatar={true} />);
+    expect(document.querySelector('.reaction-bar')).toBeInTheDocument();
+    expect(screen.getByText('👍')).toBeInTheDocument();
+    expect(screen.getByText('❤️')).toBeInTheDocument();
+  });
+
+  it('does not render ReactionBar when no reactions', () => {
+    useMemberStore.getState().addMember(mockMember);
+    render(<Message message={mockMessage} currentUserId="user-1" showAvatar={true} />);
+    expect(document.querySelector('.reaction-bar')).not.toBeInTheDocument();
   });
 });

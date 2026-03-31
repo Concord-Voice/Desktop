@@ -6,6 +6,7 @@ describe('MessageContextMenu', () => {
   const mockOnClose = vi.fn();
   const mockOnEdit = vi.fn();
   const mockOnDelete = vi.fn();
+  const mockOnReaction = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -16,7 +17,7 @@ describe('MessageContextMenu', () => {
     vi.useRealTimers();
   });
 
-  const renderMenu = (canModify = true) => {
+  const renderMenu = (canModify = true, onReaction?: () => void) => {
     return render(
       <MessageContextMenu
         message={mockMessage}
@@ -26,6 +27,7 @@ describe('MessageContextMenu', () => {
         onClose={mockOnClose}
         onEdit={mockOnEdit}
         onDelete={mockOnDelete}
+        onReaction={onReaction}
       />
     );
   };
@@ -73,5 +75,22 @@ describe('MessageContextMenu', () => {
     fireEvent.click(screen.getByText('Delete Message'));
     expect(mockOnDelete).toHaveBeenCalled();
     expect(mockOnClose).toHaveBeenCalled();
+  });
+
+  it('renders Add Reaction option', () => {
+    renderMenu(true, mockOnReaction);
+    expect(screen.getByText('Add Reaction')).toBeInTheDocument();
+  });
+
+  it('calls onReaction and closes when Add Reaction clicked', () => {
+    renderMenu(true, mockOnReaction);
+    fireEvent.click(screen.getByText('Add Reaction'));
+    expect(mockOnReaction).toHaveBeenCalled();
+    expect(mockOnClose).toHaveBeenCalled();
+  });
+
+  it('renders Add Reaction even when canModify is false', () => {
+    renderMenu(false, mockOnReaction);
+    expect(screen.getByText('Add Reaction')).toBeInTheDocument();
   });
 });
