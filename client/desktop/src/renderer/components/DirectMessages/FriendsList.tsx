@@ -98,6 +98,7 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
 
   const handleFriendContextMenu = useCallback((e: React.MouseEvent, friend: Friend) => {
     e.preventDefault();
+    e.stopPropagation();
     setContextMenu({ friend, position: { x: e.clientX, y: e.clientY } });
   }, []);
 

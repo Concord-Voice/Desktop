@@ -32,6 +32,7 @@ const ServerList: React.FC<ServerListProps> = ({ onOpenActionModal, onContextMen
 
   const handleContextMenu = (e: React.MouseEvent, server: ServerWithRole) => {
     e.preventDefault();
+    e.stopPropagation();
     onContextMenu(server, { x: e.clientX, y: e.clientY });
   };
 

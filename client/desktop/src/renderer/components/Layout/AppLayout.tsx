@@ -64,7 +64,11 @@ const AppLayout: React.FC<AppLayoutProps> = ({
       data-channel-pinned={String(channelPanelPinned || forceChannelPin)}
       data-member-mode={forceMemberExpanded ? 'expanded' : memberPanelMode}
     >
-      <div className="layout-server-bar" style={{ height: serverBarHeight }}>
+      <div
+        className="layout-server-bar"
+        data-context-area="servers"
+        style={{ height: serverBarHeight }}
+      >
         {serverBar}
       </div>
       <button
@@ -84,9 +88,15 @@ const AppLayout: React.FC<AppLayoutProps> = ({
         tabIndex={-1}
         aria-hidden="true"
       />
-      <div className="layout-channel-panel">{channelPanel}</div>
-      <div className="layout-chat-area">{chatArea}</div>
-      <div className="layout-member-space">{memberSpace}</div>
+      <div className="layout-channel-panel" data-context-area="channels">
+        {channelPanel}
+      </div>
+      <div className="layout-chat-area" data-context-area="chat">
+        {chatArea}
+      </div>
+      <div className="layout-member-space" data-context-area="members">
+        {memberSpace}
+      </div>
     </div>
   );
 };

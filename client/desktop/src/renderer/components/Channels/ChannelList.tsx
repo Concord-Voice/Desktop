@@ -395,6 +395,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, channel: Channel) => {
       e.preventDefault();
+      e.stopPropagation();
       onContextMenu(channel, { x: e.clientX, y: e.clientY });
     },
     [onContextMenu]
@@ -404,6 +405,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
     // Only fire if clicking empty space (not a channel item or group header)
     if ((e.target as HTMLElement).closest('.channel-item, .channel-group-header')) return;
     e.preventDefault();
+    e.stopPropagation();
     onEmptyContextMenu({ x: e.clientX, y: e.clientY });
   };
 

@@ -11,11 +11,12 @@ import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import AuthFlow from './components/Auth/AuthFlow';
 import MainView from './components/MainView/MainView';
 import DirectMessagesView from './components/DirectMessages/DirectMessagesView';
+import ContextMenuProvider from './components/ui/ContextMenuProvider';
+import ConnectionLostOverlay from './components/ui/ConnectionLostOverlay';
 const ProfilePage = lazy(() => import('./components/Profile/ProfilePage'));
 const SettingsPage = lazy(() => import('./components/Settings/SettingsPage'));
 const ServerSettingsPage = lazy(() => import('./components/Servers/ServerSettingsPage'));
 const PipWindow = lazy(() => import('./components/Voice/PipWindow'));
-import ConnectionLostOverlay from './components/ui/ConnectionLostOverlay';
 import ForceUpdateOverlay from './components/ui/ForceUpdateOverlay';
 import UpdateBanner from './components/ui/UpdateBanner';
 import MFAChallengeModal from './components/Auth/MFAChallengeModal';
@@ -233,49 +234,53 @@ function App() {
 
   if (isRestoring) {
     return (
-      <div className="app" onContextMenu={(e) => e.preventDefault()}>
-        <div className="title-bar">
-          <div className="title-bar-text">Concord Voice</div>
+      <ContextMenuProvider>
+        <div className="app">
+          <div className="title-bar">
+            <div className="title-bar-text">Concord Voice</div>
+          </div>
         </div>
-      </div>
+      </ContextMenuProvider>
     );
   }
 
   return (
     <AppErrorBoundary>
-      <div className="app" onContextMenu={(e) => e.preventDefault()}>
-        <div className="title-bar">
-          <div className="title-bar-text">Concord Voice</div>
-          {version && (
-            <div className="title-bar-info">
-              v{version} • {platform}
-            </div>
-          )}
-        </div>
-        <UpdateBanner />
+      <ContextMenuProvider>
+        <div className="app">
+          <div className="title-bar">
+            <div className="title-bar-text">Concord Voice</div>
+            {version && (
+              <div className="title-bar-info">
+                v{version} • {platform}
+              </div>
+            )}
+          </div>
+          <UpdateBanner />
 
-        <ForceUpdateOverlay />
-        <MFAChallengeModal />
-        <Suspense fallback={null}>
-          <Routes>
-            <Route
-              path="/"
-              element={
-                accessToken && emailVerified ? <Navigate to="/app/dms" replace /> : <AuthFlow />
-              }
-            />
-            <Route element={<AuthenticatedLayout />}>
-              <Route path="/app" element={<MainView />} />
-              <Route path="/app/dms" element={<DirectMessagesView />} />
-              <Route path="/app/profile" element={<ProfilePage />} />
-              <Route path="/app/settings" element={<SettingsPage />} />
-              <Route path="/app/server-settings/:serverId" element={<ServerSettingsPage />} />
-            </Route>
-            {/* PiP windows — separate Electron BrowserWindows, state synced via BroadcastChannel */}
-            <Route path="/pip/:pipId" element={<PipWindow />} />
-          </Routes>
-        </Suspense>
-      </div>
+          <ForceUpdateOverlay />
+          <MFAChallengeModal />
+          <Suspense fallback={null}>
+            <Routes>
+              <Route
+                path="/"
+                element={
+                  accessToken && emailVerified ? <Navigate to="/app/dms" replace /> : <AuthFlow />
+                }
+              />
+              <Route element={<AuthenticatedLayout />}>
+                <Route path="/app" element={<MainView />} />
+                <Route path="/app/dms" element={<DirectMessagesView />} />
+                <Route path="/app/profile" element={<ProfilePage />} />
+                <Route path="/app/settings" element={<SettingsPage />} />
+                <Route path="/app/server-settings/:serverId" element={<ServerSettingsPage />} />
+              </Route>
+              {/* PiP windows — separate Electron BrowserWindows, state synced via BroadcastChannel */}
+              <Route path="/pip/:pipId" element={<PipWindow />} />
+            </Routes>
+          </Suspense>
+        </div>
+      </ContextMenuProvider>
     </AppErrorBoundary>
   );
 }

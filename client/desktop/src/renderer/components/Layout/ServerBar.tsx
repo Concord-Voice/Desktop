@@ -245,6 +245,7 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
   // Context menu
   const handleContextMenu = (e: React.MouseEvent, server: ServerWithRole) => {
     e.preventDefault();
+    e.stopPropagation();
     onContextMenu(server, { x: e.clientX, y: e.clientY });
   };
 

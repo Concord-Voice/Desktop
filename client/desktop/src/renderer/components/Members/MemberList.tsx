@@ -82,6 +82,7 @@ const MemberList: React.FC = () => {
 
   const handleMemberContextMenu = useCallback((e: React.MouseEvent, member: ServerMember) => {
     e.preventDefault();
+    e.stopPropagation();
     setContextMenu({
       member,
       position: { x: e.clientX, y: e.clientY },
