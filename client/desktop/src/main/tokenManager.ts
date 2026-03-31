@@ -529,3 +529,19 @@ export function getPersistedApiBase(): string | null {
 export function getCapabilities(): { persistAvailable: boolean } {
   return { persistAvailable: canPersist() };
 }
+
+// ─── Test Helpers ────────────────────────────────────────────────────
+
+/**
+ * Reset all module-private mutable state for test isolation.
+ * Follows the same pattern as apiClient._resetRefreshState().
+ */
+export function _resetForTesting(): void {
+  stopProactiveRefresh();
+  inMemoryRefreshToken = null;
+  inMemoryRememberMe = true;
+  inMemoryApiBase = '';
+  refreshPromise = null;
+  proactiveRefreshCallback = null;
+  lastProactiveRefreshTimestamp = 0;
+}
