@@ -1,4 +1,4 @@
-import type { MessageWithStatus, Channel } from '../../src/renderer/types/chat';
+import type { MessageWithStatus, Channel, ReactionSummary } from '../../src/renderer/types/chat';
 import type { ServerWithRole } from '../../src/renderer/types/server';
 
 // --- Users ---
@@ -103,6 +103,56 @@ export const mockPendingMessage: MessageWithStatus = {
   status: 'pending',
   clientMessageId: 'client-msg-1',
   content: 'Sending...',
+};
+
+// --- Reactions (for #169) ---
+
+export const mockReaction: ReactionSummary = {
+  emoji: '👍',
+  count: 2,
+  users: [
+    { user_id: 'user-1', username: 'testuser', display_name: 'Test User' },
+    { user_id: 'user-2', username: 'testuser2', display_name: 'Test User 2' },
+  ],
+  me: true,
+};
+
+export const mockReaction2: ReactionSummary = {
+  emoji: '❤️',
+  count: 1,
+  users: [{ user_id: 'user-2', username: 'testuser2', display_name: 'Test User 2' }],
+  me: false,
+};
+
+// --- Reply Messages (for #170) ---
+
+export const mockReplyMessage: MessageWithStatus = {
+  ...mockMessage,
+  id: 'msg-reply',
+  content: 'This is a reply',
+  reply_to_id: 'msg-1',
+  replied_to: {
+    id: 'msg-1',
+    user_id: 'user-1',
+    username: 'testuser',
+    display_name: 'Test User',
+    content: 'Hello, world!',
+    is_encrypted: false,
+  },
+  created_at: '2025-01-01T12:02:00Z',
+  updated_at: '2025-01-01T12:02:00Z',
+};
+
+// --- Pinned Messages (for #171) ---
+
+export const mockPinnedMessage: MessageWithStatus = {
+  ...mockMessage,
+  id: 'msg-pinned',
+  content: 'Important announcement',
+  pinned_at: '2025-01-01T13:00:00Z',
+  pinned_by: 'user-1',
+  created_at: '2025-01-01T12:00:00Z',
+  updated_at: '2025-01-01T12:00:00Z',
 };
 
 // --- Members ---

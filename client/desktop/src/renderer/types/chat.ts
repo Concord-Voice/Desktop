@@ -6,6 +6,9 @@ export interface Message {
   is_encrypted: boolean;
   key_version?: number;
   edited_at?: string;
+  reply_to_id?: string;
+  pinned_at?: string;
+  pinned_by?: string;
   created_at: string;
   updated_at: string;
 }
@@ -14,6 +17,8 @@ export interface MessageWithUser extends Message {
   username: string;
   display_name?: string;
   avatar_url?: string;
+  reactions?: ReactionSummary[];
+  replied_to?: RepliedToMessage;
 }
 
 /**
@@ -27,6 +32,32 @@ export interface MessageWithStatus extends MessageWithUser {
   decryptFailed?: boolean; // True if E2EE decryption failed (never show raw ciphertext)
   pendingKeys?: boolean; // True if channel key not yet distributed (waiting for key delivery)
   embeds_suppressed?: boolean; // True if embeds should not be rendered for this message
+}
+
+// --- Reaction Types (for #169) ---
+
+export interface ReactionUser {
+  user_id: string;
+  username: string;
+  display_name?: string;
+}
+
+export interface ReactionSummary {
+  emoji: string;
+  count: number;
+  users: ReactionUser[];
+  me: boolean;
+}
+
+// --- Reply Types (for #170) ---
+
+export interface RepliedToMessage {
+  id: string;
+  user_id: string;
+  username: string;
+  display_name?: string;
+  content: string;
+  is_encrypted: boolean;
 }
 
 export interface Channel {
