@@ -46,12 +46,24 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
     setIsUpdatingRole(true);
 
     try {
-      await apiFetch(`/api/v1/servers/${serverId}/members/${member.user_id}`, {
+      const res = await apiFetch(`/api/v1/servers/${serverId}/members/${member.user_id}`, {
         method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role: newRole }),
       });
 
-      // Update the member's role in the local store
+      if (!res.ok) {
+        let detail = '';
+        try {
+          const data = (await res.json()) as { error?: string };
+          if (data.error) detail = `: ${data.error}`;
+        } catch {
+          /* ignore parse errors */
+        }
+        throw new Error(`Role update failed (${res.status})${detail}`);
+      }
+
+      // Update the member's role in the local store only after confirmed success
       const members = useMemberStore.getState().members;
       const updatedMembers = members.map((m) =>
         m.user_id === member.user_id ? { ...m, role: newRole as ServerMember['role'] } : m
@@ -61,6 +73,7 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
       onClose();
     } catch (error) {
       console.error('Failed to update role:', error);
+    } finally {
       setIsUpdatingRole(false);
     }
   };
