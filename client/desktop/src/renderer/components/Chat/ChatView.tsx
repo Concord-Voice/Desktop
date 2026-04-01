@@ -1,5 +1,5 @@
-import React, { useCallback } from 'react';
-import MessageList from './MessageList';
+import React, { useCallback, useRef } from 'react';
+import MessageList, { type MessageListHandle } from './MessageList';
 import MessageInput from './MessageInput';
 import TypingIndicator from './TypingIndicator';
 import { useChannelStore } from '../../stores/channelStore';
@@ -52,9 +52,31 @@ const ChatView: React.FC = () => {
   const activeChannel = channels.find((c) => c.id === activeChannelId);
   const currentUserId = user?.id || '';
 
+  // Reply state
+  const messageListRef = useRef<MessageListHandle>(null);
+  const setReplyingTo = useChatStore((s) => s.setReplyingTo);
+  const replyingTo = useChatStore((s) =>
+    activeChannelId ? (s.replyingTo.get(activeChannelId) ?? null) : null
+  );
+
+  const handleReply = useCallback(
+    (message: MessageWithStatus) => {
+      if (activeChannelId) setReplyingTo(activeChannelId, message);
+    },
+    [activeChannelId, setReplyingTo]
+  );
+
+  const handleCancelReply = useCallback(() => {
+    if (activeChannelId) setReplyingTo(activeChannelId, null);
+  }, [activeChannelId, setReplyingTo]);
+
+  const handleScrollToMessage = useCallback((messageId: string) => {
+    messageListRef.current?.scrollToMessage(messageId);
+  }, []);
+
   // Send message (optimistic via useMessaging — E2EE handled internally)
   const handleSendMessage = useCallback(
-    (content: string, mentionMeta?: string) => {
+    (content: string, mentionMeta?: string, replyToId?: string) => {
       if (!activeChannelId) return;
       sendMessage(
         activeChannelId,
@@ -62,10 +84,19 @@ const ChatView: React.FC = () => {
         user?.username || 'You',
         user?.avatar_url,
         user?.display_name,
-        mentionMeta
+        mentionMeta,
+        replyToId
       );
+      setReplyingTo(activeChannelId, null);
     },
-    [activeChannelId, sendMessage, user?.username, user?.avatar_url, user?.display_name]
+    [
+      activeChannelId,
+      sendMessage,
+      user?.username,
+      user?.avatar_url,
+      user?.display_name,
+      setReplyingTo,
+    ]
   );
 
   // Edit message via REST
@@ -174,6 +205,7 @@ const ChatView: React.FC = () => {
 
       <div className="chat-messages">
         <MessageList
+          ref={messageListRef}
           key={activeChannelId}
           messages={messages}
           currentUserId={currentUserId}
@@ -184,6 +216,8 @@ const ChatView: React.FC = () => {
           onEditMessage={handleEditMessage}
           onDeleteMessage={handleDeleteMessage}
           onUnseenOnLeave={handleUnseenOnLeave}
+          onReply={handleReply}
+          onScrollToMessage={handleScrollToMessage}
         />
       </div>
 
@@ -198,6 +232,8 @@ const ChatView: React.FC = () => {
           isChannelEncrypted={activeChannel?.is_encrypted ?? false}
           serverId={activeChannel?.server_id}
           channelId={activeChannelId || undefined}
+          replyingTo={replyingTo}
+          onCancelReply={handleCancelReply}
         />
       </div>
     </div>

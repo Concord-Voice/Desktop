@@ -1,5 +1,6 @@
 import React from 'react';
 import { MessageWithStatus } from '../../types/chat';
+import { copyText } from '../../utils/clipboard';
 import ContextMenu from '../ui/ContextMenu';
 
 interface MessageContextMenuProps {
@@ -11,6 +12,7 @@ interface MessageContextMenuProps {
   onEdit: () => void;
   onDelete: () => void;
   onReaction?: () => void;
+  onReply?: () => void;
 }
 
 const MessageContextMenu: React.FC<MessageContextMenuProps> = ({
@@ -22,9 +24,10 @@ const MessageContextMenu: React.FC<MessageContextMenuProps> = ({
   onEdit,
   onDelete,
   onReaction,
+  onReply,
 }) => {
   const handleCopyText = async () => {
-    await navigator.clipboard.writeText(message.content);
+    await copyText(message.content);
     onClose();
   };
 
@@ -67,8 +70,11 @@ const MessageContextMenu: React.FC<MessageContextMenuProps> = ({
           </svg>
         }
         label="Reply"
-        disabled
-        onClick={() => {}}
+        disabled={!onReply}
+        onClick={() => {
+          onReply?.();
+          onClose();
+        }}
       />
 
       <ContextMenu.Item

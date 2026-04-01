@@ -93,4 +93,41 @@ describe('MessageContextMenu', () => {
     renderMenu(false, mockOnReaction);
     expect(screen.getByText('Add Reaction')).toBeInTheDocument();
   });
+
+  it('Reply item is enabled when onReply provided', () => {
+    const onReply = vi.fn();
+    render(
+      <MessageContextMenu
+        message={mockMessage}
+        position={{ x: 100, y: 100 }}
+        isOwnMessage={true}
+        canModify={true}
+        onClose={mockOnClose}
+        onEdit={mockOnEdit}
+        onDelete={mockOnDelete}
+        onReply={onReply}
+      />
+    );
+    const replyBtn = screen.getByText('Reply');
+    expect(replyBtn.closest('button')).not.toBeDisabled();
+  });
+
+  it('Reply item calls onReply and closes menu', () => {
+    const onReply = vi.fn();
+    render(
+      <MessageContextMenu
+        message={mockMessage}
+        position={{ x: 100, y: 100 }}
+        isOwnMessage={true}
+        canModify={true}
+        onClose={mockOnClose}
+        onEdit={mockOnEdit}
+        onDelete={mockOnDelete}
+        onReply={onReply}
+      />
+    );
+    fireEvent.click(screen.getByText('Reply'));
+    expect(onReply).toHaveBeenCalled();
+    expect(mockOnClose).toHaveBeenCalled();
+  });
 });

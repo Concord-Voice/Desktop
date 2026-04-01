@@ -1,4 +1,11 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  useImperativeHandle,
+  forwardRef,
+} from 'react';
 import { MessageWithStatus } from '../../types/chat';
 import Message from './Message';
 import './MessageList.css';
@@ -13,248 +20,291 @@ export interface MessageListProps {
   onEditMessage?: (messageId: string, newContent: string) => void;
   onDeleteMessage?: (messageId: string) => void;
   onUnseenOnLeave?: (count: number) => void;
+  onReply?: (message: MessageWithStatus) => void;
+  onScrollToMessage?: (messageId: string) => void;
+}
+
+export interface MessageListHandle {
+  scrollToMessage: (messageId: string) => void;
 }
 
 const NEAR_BOTTOM_THRESHOLD = 150;
 const SHOW_BUTTON_THRESHOLD = 300;
 
-const MessageList: React.FC<MessageListProps> = ({
-  messages,
-  currentUserId,
-  channelName,
-  isLoading = false,
-  hasMore = false,
-  onLoadMore,
-  onEditMessage,
-  onDeleteMessage,
-  onUnseenOnLeave,
-}) => {
-  const listRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
-  const isNearBottomRef = useRef(true);
-  const [showScrollButton, setShowScrollButton] = useState(false);
-  const [shiftHeld, setShiftHeld] = useState(false);
-  const [newMessageCount, setNewMessageCount] = useState(0);
-  const prevLastMessageIdRef = useRef<string | null>(null);
-  const newMessageCountRef = useRef(0);
-  const onUnseenOnLeaveRef = useRef(onUnseenOnLeave);
-  onUnseenOnLeaveRef.current = onUnseenOnLeave;
+const MessageList = forwardRef<MessageListHandle, MessageListProps>(
+  (
+    {
+      messages,
+      currentUserId,
+      channelName,
+      isLoading = false,
+      hasMore = false,
+      onLoadMore,
+      onEditMessage,
+      onDeleteMessage,
+      onUnseenOnLeave,
+      onReply,
+      onScrollToMessage,
+    },
+    ref
+  ) => {
+    const listRef = useRef<HTMLDivElement>(null);
+    const bottomRef = useRef<HTMLDivElement>(null);
+    const isNearBottomRef = useRef(true);
+    const [showScrollButton, setShowScrollButton] = useState(false);
+    const [shiftHeld, setShiftHeld] = useState(false);
+    const [newMessageCount, setNewMessageCount] = useState(0);
+    const prevLastMessageIdRef = useRef<string | null>(null);
+    const newMessageCountRef = useRef(0);
+    const onUnseenOnLeaveRef = useRef(onUnseenOnLeave);
+    onUnseenOnLeaveRef.current = onUnseenOnLeave;
+    const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+    const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Shift') setShiftHeld(true);
-    };
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'Shift') setShiftHeld(false);
-    };
-    globalThis.addEventListener('keydown', onKeyDown);
-    globalThis.addEventListener('keyup', onKeyUp);
-    return () => {
-      globalThis.removeEventListener('keydown', onKeyDown);
-      globalThis.removeEventListener('keyup', onKeyUp);
-    };
-  }, []);
+    // Clear highlight timeout on unmount to prevent setState-on-unmounted
+    useEffect(() => {
+      return () => {
+        if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+      };
+    }, []);
 
-  // Keep ref in sync with state so the unmount cleanup reads the latest value
-  useEffect(() => {
-    newMessageCountRef.current = newMessageCount;
-  }, [newMessageCount]);
+    useImperativeHandle(ref, () => ({
+      scrollToMessage: (messageId: string) => {
+        const el = listRef.current?.querySelector(`[data-message-id="${messageId}"]`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          setHighlightedMessageId(messageId);
+          if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+          highlightTimerRef.current = setTimeout(() => setHighlightedMessageId(null), 2000);
+        }
+      },
+    }));
 
-  // On unmount, report unseen messages so the parent can set unread badges
-  useEffect(() => {
-    return () => {
-      if (newMessageCountRef.current > 0 && onUnseenOnLeaveRef.current) {
-        onUnseenOnLeaveRef.current(newMessageCountRef.current);
+    useEffect(() => {
+      const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Shift') setShiftHeld(true);
+      };
+      const onKeyUp = (e: KeyboardEvent) => {
+        if (e.key === 'Shift') setShiftHeld(false);
+      };
+      globalThis.addEventListener('keydown', onKeyDown);
+      globalThis.addEventListener('keyup', onKeyUp);
+      return () => {
+        globalThis.removeEventListener('keydown', onKeyDown);
+        globalThis.removeEventListener('keyup', onKeyUp);
+      };
+    }, []);
+
+    // Keep ref in sync with state so the unmount cleanup reads the latest value
+    useEffect(() => {
+      newMessageCountRef.current = newMessageCount;
+    }, [newMessageCount]);
+
+    // On unmount, report unseen messages so the parent can set unread badges
+    useEffect(() => {
+      return () => {
+        if (newMessageCountRef.current > 0 && onUnseenOnLeaveRef.current) {
+          onUnseenOnLeaveRef.current(newMessageCountRef.current);
+        }
+      };
+    }, []);
+
+    // Auto-scroll when messages change (new message arrives) if user is near bottom.
+    // Also track new messages arriving while the user is scrolled up.
+    useEffect(() => {
+      if (messages.length === 0) {
+        prevLastMessageIdRef.current = null;
+        setNewMessageCount(0);
+        return;
       }
-    };
-  }, []);
 
-  // Auto-scroll when messages change (new message arrives) if user is near bottom.
-  // Also track new messages arriving while the user is scrolled up.
-  useEffect(() => {
-    if (messages.length === 0) {
-      prevLastMessageIdRef.current = null;
+      const lastMessage = messages[messages.length - 1];
+      const lastId = lastMessage.id;
+
+      if (isNearBottomRef.current) {
+        // User is at the bottom — auto-scroll and reset counter
+        if (listRef.current) {
+          listRef.current.scrollTop = listRef.current.scrollHeight;
+        }
+        setNewMessageCount(0);
+      } else if (prevLastMessageIdRef.current !== null && lastId !== prevLastMessageIdRef.current) {
+        // User is scrolled up and a new message arrived — only count others' messages
+        if (lastMessage.user_id !== currentUserId) {
+          setNewMessageCount((c) => c + 1);
+        }
+      }
+
+      prevLastMessageIdRef.current = lastId;
+    }, [messages, currentUserId]);
+
+    const scrollToBottom = useCallback((smooth = true) => {
       setNewMessageCount(0);
-      return;
-    }
-
-    const lastMessage = messages[messages.length - 1];
-    const lastId = lastMessage.id;
-
-    if (isNearBottomRef.current) {
-      // User is at the bottom — auto-scroll and reset counter
       if (listRef.current) {
-        listRef.current.scrollTop = listRef.current.scrollHeight;
+        listRef.current.scrollTo({
+          top: listRef.current.scrollHeight,
+          behavior: smooth ? 'smooth' : 'auto',
+        });
       }
-      setNewMessageCount(0);
-    } else if (prevLastMessageIdRef.current !== null && lastId !== prevLastMessageIdRef.current) {
-      // User is scrolled up and a new message arrived — only count others' messages
-      if (lastMessage.user_id !== currentUserId) {
-        setNewMessageCount((c) => c + 1);
+    }, []);
+
+    const handleScroll = useCallback(() => {
+      if (!listRef.current) return;
+
+      const { scrollTop, scrollHeight, clientHeight } = listRef.current;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+
+      isNearBottomRef.current = distanceFromBottom < NEAR_BOTTOM_THRESHOLD;
+
+      if (isNearBottomRef.current) {
+        setNewMessageCount(0);
       }
-    }
 
-    prevLastMessageIdRef.current = lastId;
-  }, [messages, currentUserId]);
+      const shouldShow = distanceFromBottom > SHOW_BUTTON_THRESHOLD;
+      if (shouldShow !== showScrollButton) {
+        setShowScrollButton(shouldShow);
+      }
 
-  const scrollToBottom = useCallback((smooth = true) => {
-    setNewMessageCount(0);
-    if (listRef.current) {
-      listRef.current.scrollTo({
-        top: listRef.current.scrollHeight,
-        behavior: smooth ? 'smooth' : 'auto',
-      });
-    }
-  }, []);
+      // Load more messages when scrolled near top
+      if (hasMore && onLoadMore && scrollTop < 50 && !isLoading) {
+        onLoadMore();
+      }
+    }, [hasMore, onLoadMore, isLoading, showScrollButton]);
 
-  const handleScroll = useCallback(() => {
-    if (!listRef.current) return;
+    const shouldShowAvatar = (index: number): boolean => {
+      if (index === 0) return true;
+      const currentMessage = messages[index];
+      const previousMessage = messages[index - 1];
 
-    const { scrollTop, scrollHeight, clientHeight } = listRef.current;
-    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      // Show avatar if different user or time gap > 2 minutes
+      if (currentMessage.user_id !== previousMessage.user_id) return true;
 
-    isNearBottomRef.current = distanceFromBottom < NEAR_BOTTOM_THRESHOLD;
+      const currentTime = new Date(currentMessage.created_at).getTime();
+      const previousTime = new Date(previousMessage.created_at).getTime();
+      const twoMinutes = 2 * 60 * 1000;
 
-    if (isNearBottomRef.current) {
-      setNewMessageCount(0);
-    }
+      return currentTime - previousTime > twoMinutes;
+    };
 
-    const shouldShow = distanceFromBottom > SHOW_BUTTON_THRESHOLD;
-    if (shouldShow !== showScrollButton) {
-      setShowScrollButton(shouldShow);
-    }
+    const formatDateDivider = (date: Date): string => {
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
 
-    // Load more messages when scrolled near top
-    if (hasMore && onLoadMore && scrollTop < 50 && !isLoading) {
-      onLoadMore();
-    }
-  }, [hasMore, onLoadMore, isLoading, showScrollButton]);
+      if (date.toDateString() === today.toDateString()) {
+        return 'Today';
+      } else if (date.toDateString() === yesterday.toDateString()) {
+        return 'Yesterday';
+      } else {
+        return date.toLocaleDateString('en-US', {
+          weekday: 'long',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        });
+      }
+    };
 
-  const shouldShowAvatar = (index: number): boolean => {
-    if (index === 0) return true;
-    const currentMessage = messages[index];
-    const previousMessage = messages[index - 1];
+    const shouldShowDateDivider = (index: number): string | null => {
+      if (index === 0) return formatDateDivider(new Date(messages[0].created_at));
 
-    // Show avatar if different user or time gap > 5 minutes
-    if (currentMessage.user_id !== previousMessage.user_id) return true;
+      const currentDate = new Date(messages[index].created_at).toDateString();
+      const previousDate = new Date(messages[index - 1].created_at).toDateString();
 
-    const currentTime = new Date(currentMessage.created_at).getTime();
-    const previousTime = new Date(previousMessage.created_at).getTime();
-    const twoMinutes = 2 * 60 * 1000;
+      if (currentDate !== previousDate) {
+        return formatDateDivider(new Date(messages[index].created_at));
+      }
 
-    return currentTime - previousTime > twoMinutes;
-  };
+      return null;
+    };
 
-  const formatDateDivider = (date: Date): string => {
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (date.toDateString() === today.toDateString()) {
-      return 'Today';
-    } else if (date.toDateString() === yesterday.toDateString()) {
-      return 'Yesterday';
-    } else {
-      return date.toLocaleDateString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      });
-    }
-  };
-
-  const shouldShowDateDivider = (index: number): string | null => {
-    if (index === 0) return formatDateDivider(new Date(messages[0].created_at));
-
-    const currentDate = new Date(messages[index].created_at).toDateString();
-    const previousDate = new Date(messages[index - 1].created_at).toDateString();
-
-    if (currentDate !== previousDate) {
-      return formatDateDivider(new Date(messages[index].created_at));
-    }
-
-    return null;
-  };
-
-  if (isLoading && messages.length === 0) {
-    return (
-      <div className="message-list-empty">
-        <div className="message-list-loading">
-          <div className="message-list-spinner"></div>
-        </div>
-        <p>Loading messages...</p>
-      </div>
-    );
-  }
-
-  if (messages.length === 0) {
-    return (
-      <div className="message-list-empty">
-        <div className="empty-icon">💬</div>
-        <h3>Welcome to #{channelName || 'this channel'}!</h3>
-        <p>This is the beginning of your conversation.</p>
-        <p className="message-list-empty-hint">Send a message to get started.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="message-list-container">
-      <div className="message-list" ref={listRef} onScroll={handleScroll}>
-        {isLoading && hasMore && (
-          <div className="loading-more">
-            <div className="loading-spinner small">
-              <div className="message-list-spinner"></div>
-            </div>
-            <span>Loading more messages...</span>
+    if (isLoading && messages.length === 0) {
+      return (
+        <div className="message-list-empty">
+          <div className="message-list-loading">
+            <div className="message-list-spinner"></div>
           </div>
-        )}
+          <p>Loading messages...</p>
+        </div>
+      );
+    }
 
-        {messages.map((message, index) => {
-          const dateDividerLabel = shouldShowDateDivider(index);
-          return (
-            <React.Fragment key={message.id}>
-              {dateDividerLabel && (
-                <div className="date-divider">
-                  <span className="date-divider-line"></span>
-                  <span className="date-divider-text">{dateDividerLabel}</span>
-                  <span className="date-divider-line"></span>
-                </div>
-              )}
-              <Message
-                message={message}
-                currentUserId={currentUserId}
-                onEdit={onEditMessage}
-                onDelete={onDeleteMessage}
-                showAvatar={shouldShowAvatar(index)}
-                shiftHeld={shiftHeld}
-              />
-            </React.Fragment>
-          );
-        })}
-        <div ref={bottomRef} />
-      </div>
+    if (messages.length === 0) {
+      return (
+        <div className="message-list-empty">
+          <div className="empty-icon">💬</div>
+          <h3>Welcome to #{channelName || 'this channel'}!</h3>
+          <p>This is the beginning of your conversation.</p>
+          <p className="message-list-empty-hint">Send a message to get started.</p>
+        </div>
+      );
+    }
 
-      {showScrollButton && (
-        <button
-          className="scroll-to-bottom"
-          onClick={() => scrollToBottom(true)}
-          aria-label="Return to latest"
-        >
-          {newMessageCount > 0 && (
-            <span className="new-message-badge">
-              {newMessageCount > 99 ? '99+' : newMessageCount}
-            </span>
+    return (
+      <div className="message-list-container">
+        <div className="message-list" ref={listRef} onScroll={handleScroll}>
+          {isLoading && hasMore && (
+            <div className="loading-more">
+              <div className="loading-spinner small">
+                <div className="message-list-spinner"></div>
+              </div>
+              <span>Loading more messages...</span>
+            </div>
           )}
-          <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-            <path d="M10 14l-6-6h12l-6 6z" fill="currentColor" />
-          </svg>
-          Return to Latest
-        </button>
-      )}
-    </div>
-  );
-};
+
+          {messages.map((message, index) => {
+            const dateDividerLabel = shouldShowDateDivider(index);
+            return (
+              <React.Fragment key={message.id}>
+                {dateDividerLabel && (
+                  <div className="date-divider">
+                    <span className="date-divider-line"></span>
+                    <span className="date-divider-text">{dateDividerLabel}</span>
+                    <span className="date-divider-line"></span>
+                  </div>
+                )}
+                <div
+                  data-message-id={message.id}
+                  className={highlightedMessageId === message.id ? 'message-highlight' : undefined}
+                >
+                  <Message
+                    message={message}
+                    currentUserId={currentUserId}
+                    onEdit={onEditMessage}
+                    onDelete={onDeleteMessage}
+                    onReply={onReply}
+                    onScrollToMessage={onScrollToMessage}
+                    showAvatar={shouldShowAvatar(index)}
+                    shiftHeld={shiftHeld}
+                  />
+                </div>
+              </React.Fragment>
+            );
+          })}
+          <div ref={bottomRef} />
+        </div>
+
+        {showScrollButton && (
+          <button
+            className="scroll-to-bottom"
+            onClick={() => scrollToBottom(true)}
+            aria-label="Return to latest"
+          >
+            {newMessageCount > 0 && (
+              <span className="new-message-badge">
+                {newMessageCount > 99 ? '99+' : newMessageCount}
+              </span>
+            )}
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M10 14l-6-6h12l-6 6z" fill="currentColor" />
+            </svg>
+            Return to Latest
+          </button>
+        )}
+      </div>
+    );
+  }
+);
+
+MessageList.displayName = 'MessageList';
 
 export default MessageList;

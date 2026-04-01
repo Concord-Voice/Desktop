@@ -8,6 +8,7 @@ export interface MessageActionsProps {
   onEdit?: () => void;
   onDelete?: (messageId: string) => void;
   onRequestDelete?: () => void;
+  onReply?: () => void;
 }
 
 const MessageActions: React.FC<MessageActionsProps> = ({
@@ -18,6 +19,7 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   onEdit,
   onDelete,
   onRequestDelete,
+  onReply,
 }) => {
   const [showOptions, setShowOptions] = useState(false);
   const optionsRef = useRef<HTMLDivElement>(null);
@@ -35,10 +37,33 @@ const MessageActions: React.FC<MessageActionsProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [showOptions]);
 
-  if (!canModify || isEditing) return null;
+  if (isEditing) return null;
+  if (!canModify && !onReply) return null;
+
+  const hasMenuItems = !!(onEdit || onDelete);
 
   return (
     <div className="message-options" ref={optionsRef}>
+      {onReply && (
+        <button className="message-quick-reply" onClick={onReply} aria-label="Reply" title="Reply">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <path
+              d="M6 3L2 7l4 4"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <path
+              d="M2 7h8a4 4 0 014 4v1"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      )}
       {shiftHeld && onDelete && (
         <button
           className="message-quick-delete"
@@ -57,19 +82,21 @@ const MessageActions: React.FC<MessageActionsProps> = ({
           </svg>
         </button>
       )}
-      <button
-        className="message-options-trigger"
-        onClick={() => setShowOptions(!showOptions)}
-        aria-label="Message options"
-      >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-          <circle cx="8" cy="3" r="1.5" fill="currentColor" />
-          <circle cx="8" cy="8" r="1.5" fill="currentColor" />
-          <circle cx="8" cy="13" r="1.5" fill="currentColor" />
-        </svg>
-      </button>
+      {hasMenuItems && (
+        <button
+          className="message-options-trigger"
+          onClick={() => setShowOptions(!showOptions)}
+          aria-label="Message options"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="3" r="1.5" fill="currentColor" />
+            <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+            <circle cx="8" cy="13" r="1.5" fill="currentColor" />
+          </svg>
+        </button>
+      )}
 
-      {showOptions && (
+      {hasMenuItems && showOptions && (
         <div className="message-options-menu">
           {onEdit && (
             <button

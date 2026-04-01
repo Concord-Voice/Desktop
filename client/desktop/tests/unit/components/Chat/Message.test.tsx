@@ -8,6 +8,7 @@ import {
   mockMember2,
   mockReaction,
   mockReaction2,
+  mockReplyMessage,
 } from '../../../mocks/fixtures';
 import { useMemberStore } from '@/renderer/stores/memberStore';
 import { usePermissionStore } from '@/renderer/stores/permissionStore';
@@ -657,5 +658,40 @@ describe('Message', () => {
     useMemberStore.getState().addMember(mockMember);
     render(<Message message={mockMessage} currentUserId="user-1" showAvatar={true} />);
     expect(document.querySelector('.reaction-bar')).not.toBeInTheDocument();
+  });
+
+  it('renders reply preview when replied_to is present', () => {
+    useMemberStore.getState().addMember(mockMember);
+    render(<Message message={mockReplyMessage} currentUserId="user-1" showAvatar={true} />);
+    expect(document.querySelector('.reply-preview-bar')).toBeInTheDocument();
+    expect(document.querySelector('.reply-preview-author')).toBeInTheDocument();
+    expect(document.querySelector('.reply-preview-snippet')).toBeInTheDocument();
+  });
+
+  it('shows deleted message text when reply_to_id set but replied_to null', () => {
+    useMemberStore.getState().addMember(mockMember);
+    const deletedReply = {
+      ...mockMessage,
+      reply_to_id: 'msg-deleted',
+      replied_to: undefined,
+    };
+    render(<Message message={deletedReply} currentUserId="user-1" showAvatar={true} />);
+    expect(screen.getByText('Original message is unavailable')).toBeInTheDocument();
+  });
+
+  it('calls onScrollToMessage when reply header is clicked', () => {
+    useMemberStore.getState().addMember(mockMember);
+    const onScrollToMessage = vi.fn();
+    render(
+      <Message
+        message={mockReplyMessage}
+        currentUserId="user-1"
+        showAvatar={true}
+        onScrollToMessage={onScrollToMessage}
+      />
+    );
+    const replyBar = document.querySelector('.reply-preview-bar') as HTMLElement;
+    fireEvent.click(replyBar);
+    expect(onScrollToMessage).toHaveBeenCalledWith('msg-1');
   });
 });

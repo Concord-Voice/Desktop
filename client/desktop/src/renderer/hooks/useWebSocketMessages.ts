@@ -262,6 +262,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         avatar_url: data.avatar_url || undefined,
         is_encrypted: isEncrypted,
         key_version: keyVersion,
+        reply_to_id: data.reply_to_id || undefined,
+        replied_to: data.replied_to || undefined,
         created_at: data.created_at || new Date().toISOString(),
         updated_at: data.updated_at || new Date().toISOString(),
       };
@@ -280,6 +282,25 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         );
       } else {
         addPlaintextMessage(channelId, baseMessage, data.content, addMessage, maybeSpeakTTS);
+      }
+
+      // Decrypt replied_to content if the original message was encrypted
+      const rt = baseMessage.replied_to;
+      if (rt?.is_encrypted && rt.content && e2eeService.isInitialized) {
+        const rtKv = rt.key_version;
+        const decryptFn =
+          rtKv && rtKv > 1
+            ? e2eeService.decryptForChannelWithVersion(channelId, rt.content, rtKv)
+            : e2eeService.decryptForChannel(channelId, rt.content);
+        decryptFn
+          .then((plaintext) => {
+            updateMessage(channelId, baseMessage.id, {
+              replied_to: { ...rt, content: plaintext },
+            });
+          })
+          .catch(() => {
+            // Leave ciphertext — ReplyPreviewBar will show it as-is
+          });
       }
 
       // NOTE: Unread tracking is handled exclusively by the 'unread_notify' handler

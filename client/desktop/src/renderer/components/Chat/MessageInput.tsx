@@ -6,10 +6,12 @@ import EmojiPicker from '../EmojiPicker/LazyEmojiPicker';
 import UserPanel from '../User/UserPanel';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { buildAddendum, encodeMentionMeta, type ParsedMention } from '../../utils/mentions';
+import type { MessageWithStatus } from '../../types/chat';
+import ReplyPreviewBar from './ReplyPreviewBar';
 import './MessageInput.css';
 
 export interface MessageInputProps {
-  onSendMessage: (content: string, mentionMeta?: string) => void;
+  onSendMessage: (content: string, mentionMeta?: string, replyToId?: string) => void;
   onTyping?: (isTyping: boolean) => void;
   placeholder?: string;
   maxLength?: number;
@@ -22,6 +24,10 @@ export interface MessageInputProps {
   channelId?: string;
   /** DM conversation ID — used to source mention candidates from DM participants */
   conversationId?: string;
+  /** Message being replied to (preview bar above textarea) */
+  replyingTo?: MessageWithStatus | null;
+  /** Cancel the reply */
+  onCancelReply?: () => void;
 }
 
 const MessageInput: React.FC<MessageInputProps> = ({
@@ -35,6 +41,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
   serverId,
   channelId,
   conversationId,
+  replyingTo,
+  onCancelReply,
 }) => {
   const channelPanelPinned = useLayoutStore((s) => s.channelPanelPinned);
   const [content, setContent] = useState('');
@@ -50,6 +58,13 @@ const MessageInput: React.FC<MessageInputProps> = ({
   // Track mentions selected via autocomplete (for building the addendum)
   const selectedMentionsRef = useRef<ParsedMention[]>([]);
   const mentionAutocompleteRef = useRef<MentionAutocompleteHandle | null>(null);
+
+  // Auto-focus textarea when replyingTo changes
+  useEffect(() => {
+    if (replyingTo && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [replyingTo]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -268,10 +283,11 @@ const MessageInput: React.FC<MessageInputProps> = ({
         }
       }
 
-      onSendMessage(trimmedContent, mentionMeta);
+      onSendMessage(trimmedContent, mentionMeta, replyingTo?.id);
       setContent('');
       setShowMentions(false);
       selectedMentionsRef.current = [];
+      onCancelReply?.();
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
       }
@@ -375,6 +391,20 @@ const MessageInput: React.FC<MessageInputProps> = ({
             <div className="message-input-user-panel">
               <UserPanel compact />
             </div>
+          )}
+          {replyingTo && (
+            <ReplyPreviewBar
+              repliedTo={{
+                id: replyingTo.id,
+                user_id: replyingTo.user_id,
+                username: replyingTo.username,
+                display_name: replyingTo.display_name,
+                content: replyingTo.content,
+                is_encrypted: replyingTo.is_encrypted,
+              }}
+              variant="input"
+              onCancel={onCancelReply}
+            />
           )}
           <textarea
             ref={textareaRef}

@@ -48,7 +48,7 @@ describe('MessageInput', () => {
     const textarea = screen.getByRole('textbox');
     await user.type(textarea, 'Hello world');
     await user.keyboard('{Enter}');
-    expect(onSendMessage).toHaveBeenCalledWith('Hello world', undefined);
+    expect(onSendMessage).toHaveBeenCalledWith('Hello world', undefined, undefined);
   });
 
   it('does not send empty message', async () => {
@@ -114,7 +114,7 @@ describe('MessageInput', () => {
     const textarea = screen.getByRole('textbox');
     await user.type(textarea, '  Hello  ');
     await user.keyboard('{Enter}');
-    expect(onSendMessage).toHaveBeenCalledWith('Hello', undefined);
+    expect(onSendMessage).toHaveBeenCalledWith('Hello', undefined, undefined);
   });
 
   // ── E2EE status bar ──
@@ -167,7 +167,7 @@ describe('MessageInput', () => {
     await user.type(textarea, 'Button send');
     const sendButton = screen.getByLabelText('Send message');
     await user.click(sendButton);
-    expect(onSendMessage).toHaveBeenCalledWith('Button send', undefined);
+    expect(onSendMessage).toHaveBeenCalledWith('Button send', undefined, undefined);
   });
 
   it('send button disabled when input is disabled', () => {

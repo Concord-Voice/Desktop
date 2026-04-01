@@ -57,6 +57,10 @@ interface ChatState {
   getTypingUsers: (channelId: string) => TypingUser[];
   clearOldTypingIndicators: (channelId: string, maxAge?: number) => void;
 
+  // Reply state per channel
+  replyingTo: Map<string, MessageWithStatus>;
+  setReplyingTo: (channelId: string, message: MessageWithStatus | null) => void;
+
   // Connection
   setConnectionStatus: (
     isConnected: boolean,
@@ -73,6 +77,7 @@ export const useChatStore = create<ChatState>()(
     (set, get) => ({
       messagesByChannel: new Map(),
       typingByChannel: new Map(),
+      replyingTo: new Map(),
       isConnected: false,
       connectionState: 'disconnected',
       connectionClientId: null,
@@ -216,6 +221,16 @@ export const useChatStore = create<ChatState>()(
         }),
 
       // Set typing indicator for a user in a channel
+      setReplyingTo: (channelId, message) =>
+        set((state) => {
+          if (message) {
+            state.replyingTo.set(channelId, message);
+          } else {
+            state.replyingTo.delete(channelId);
+          }
+          return { replyingTo: new Map(state.replyingTo) };
+        }),
+
       setTyping: (channelId, userId, isTyping, username) =>
         set((state) => {
           let channelTyping = state.typingByChannel.get(channelId);
@@ -293,6 +308,7 @@ export const useChatStore = create<ChatState>()(
         set({
           messagesByChannel: new Map(),
           typingByChannel: new Map(),
+          replyingTo: new Map(),
           isConnected: false,
           connectionState: 'disconnected',
           connectionClientId: null,

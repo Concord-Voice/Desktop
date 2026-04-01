@@ -27,6 +27,8 @@ export interface QueuedMessage {
   retryCount: number;
   maxRetries: number;
   type: 'message' | 'typing' | 'other';
+  mentionMeta?: string;
+  replyToId?: string;
 }
 
 interface MessageQueueCallbacks {
@@ -55,7 +57,9 @@ export class MessageQueue {
   enqueue(
     channelId: string,
     content: string,
-    type: 'message' | 'typing' | 'other' = 'message'
+    type: 'message' | 'typing' | 'other' = 'message',
+    mentionMeta?: string,
+    replyToId?: string
   ): string {
     const messageId = this.generateMessageId();
 
@@ -68,6 +72,8 @@ export class MessageQueue {
       retryCount: 0,
       maxRetries: MAX_RETRIES,
       type,
+      mentionMeta,
+      replyToId,
     };
 
     this.queue.push(queuedMessage);

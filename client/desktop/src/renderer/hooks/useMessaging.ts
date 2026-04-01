@@ -53,7 +53,15 @@ export function useMessaging() {
         content = await e2eeService.encryptForChannel(msg.channelId, msg.content);
         keyVersion = e2eeService.getCurrentKeyVersion(msg.channelId);
       }
-      wsService.sendMessage(msg.channelId, content, msg.id, isEncrypted, keyVersion);
+      wsService.sendMessage(
+        msg.channelId,
+        content,
+        msg.id,
+        isEncrypted,
+        keyVersion,
+        msg.mentionMeta,
+        msg.replyToId
+      );
     },
     [wsService]
   );
@@ -85,14 +93,39 @@ export function useMessaging() {
       username: string = 'You',
       avatarUrl?: string,
       displayName?: string,
-      mentionMeta?: string
+      mentionMeta?: string,
+      replyToId?: string
     ): string => {
       // Check if channel is encrypted
       const channel = useChannelStore.getState().channels.find((c) => c.id === channelId);
       const isEncrypted = channel?.is_encrypted ?? false;
 
       // Generate client-side message ID
-      const clientMessageId = messageQueue.enqueue(channelId, content, 'message');
+      const clientMessageId = messageQueue.enqueue(
+        channelId,
+        content,
+        'message',
+        mentionMeta,
+        replyToId
+      );
+
+      // Build replied_to summary from store for optimistic display
+      // (prevents "Original message was deleted" flash before WS ack)
+      let repliedTo: MessageWithStatus['replied_to'];
+      if (replyToId) {
+        const storeMessages = useChatStore.getState().messagesByChannel.get(channelId);
+        const target = storeMessages?.find((m) => m.id === replyToId);
+        if (target) {
+          repliedTo = {
+            id: target.id,
+            user_id: target.user_id,
+            username: target.username,
+            display_name: target.display_name,
+            content: target.content,
+            is_encrypted: target.is_encrypted,
+          };
+        }
+      }
 
       // Optimistically add message to UI with "pending" status
       // Always show plaintext locally for the sender
@@ -109,6 +142,8 @@ export function useMessaging() {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         status: 'pending',
+        reply_to_id: replyToId,
+        replied_to: repliedTo,
       };
 
       addMessage(channelId, optimisticMessage);
@@ -135,7 +170,8 @@ export function useMessaging() {
               clientMessageId,
               isEncrypted,
               keyVersion,
-              mentionMeta
+              mentionMeta,
+              replyToId
             );
             messageQueue.markAsSent(clientMessageId);
             messageQueue.remove(clientMessageId);

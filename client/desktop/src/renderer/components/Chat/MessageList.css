@@ -186,3 +186,18 @@
     transform: translateY(3px);
   }
 }
+
+/* Reply scroll-to-message highlight */
+.message-highlight {
+  animation: reply-highlight 2s ease-out;
+  border-radius: 4px;
+}
+
+@keyframes reply-highlight {
+  0% {
+    background-color: color-mix(in srgb, var(--accent-color, #5865f2) 20%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}

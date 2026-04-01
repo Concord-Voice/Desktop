@@ -244,7 +244,8 @@ export class WebSocketService {
     nonce?: string,
     isEncrypted: boolean = false,
     keyVersion?: number,
-    mentionMeta?: string
+    mentionMeta?: string,
+    replyToId?: string
   ): void {
     const data: Record<string, unknown> = {
       channel_id: channelId,
@@ -256,6 +257,9 @@ export class WebSocketService {
     };
     if (mentionMeta) {
       data.mention_meta = mentionMeta;
+    }
+    if (replyToId) {
+      data.reply_to_id = replyToId;
     }
     this.send({ type: 'message', data });
   }

@@ -165,6 +165,27 @@ describe('chatStore', () => {
       useChatStore.getState().reset();
       expect(useChatStore.getState().messagesByChannel.size).toBe(0);
       expect(useChatStore.getState().isConnected).toBe(false);
+      expect(useChatStore.getState().replyingTo.size).toBe(0);
+    });
+  });
+
+  describe('setReplyingTo', () => {
+    it('sets replyingTo for a channel', () => {
+      const msg = { ...mockMessage, id: 'reply-target' };
+      useChatStore.getState().setReplyingTo('channel-1', msg);
+      expect(useChatStore.getState().replyingTo.get('channel-1')).toBeDefined();
+      expect(useChatStore.getState().replyingTo.get('channel-1')?.id).toBe('reply-target');
+    });
+
+    it('clears replyingTo when set to null', () => {
+      const msg = { ...mockMessage, id: 'reply-target' };
+      useChatStore.getState().setReplyingTo('channel-1', msg);
+      useChatStore.getState().setReplyingTo('channel-1', null);
+      expect(useChatStore.getState().replyingTo.get('channel-1')).toBeUndefined();
+    });
+
+    it('returns undefined for channels with no reply', () => {
+      expect(useChatStore.getState().replyingTo.get('no-reply-channel')).toBeUndefined();
     });
   });
 });

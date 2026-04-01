@@ -109,7 +109,13 @@ describe('useMessaging', () => {
       clientId = result.current.sendMessage('channel-1', 'Hello world', 'testuser');
     });
 
-    expect(mockEnqueue).toHaveBeenCalledWith('channel-1', 'Hello world', 'message');
+    expect(mockEnqueue).toHaveBeenCalledWith(
+      'channel-1',
+      'Hello world',
+      'message',
+      undefined,
+      undefined
+    );
     expect(clientId!).toBe('client-msg-1');
   });
 
@@ -127,6 +133,7 @@ describe('useMessaging', () => {
         'Hello world',
         'client-msg-1',
         false,
+        undefined,
         undefined,
         undefined
       );
@@ -153,6 +160,7 @@ describe('useMessaging', () => {
         'client-msg-1',
         true,
         3,
+        undefined,
         undefined
       );
     });
@@ -219,6 +227,69 @@ describe('useMessaging', () => {
     });
 
     expect(mockSendTypingIndicator).not.toHaveBeenCalled();
+  });
+
+  it('sendMessage passes mentionMeta and replyToId to enqueue', () => {
+    const { result } = renderHook(() => useMessaging());
+
+    act(() => {
+      result.current.sendMessage(
+        'channel-1',
+        'Reply msg',
+        'testuser',
+        undefined,
+        undefined,
+        'mention-meta',
+        'reply-target-id'
+      );
+    });
+
+    expect(mockEnqueue).toHaveBeenCalledWith(
+      'channel-1',
+      'Reply msg',
+      'message',
+      'mention-meta',
+      'reply-target-id'
+    );
+  });
+
+  it('sendMessage populates replied_to from store for optimistic message', () => {
+    // Seed the target message in the store
+    useChatStore.getState().addMessage('channel-1', {
+      id: 'target-msg',
+      channel_id: 'channel-1',
+      user_id: 'user-2',
+      username: 'otheruser',
+      display_name: 'Other User',
+      content: 'Original message content',
+      is_encrypted: false,
+      created_at: '2025-01-01T12:00:00Z',
+      updated_at: '2025-01-01T12:00:00Z',
+      status: 'delivered',
+    });
+
+    const { result } = renderHook(() => useMessaging());
+
+    act(() => {
+      result.current.sendMessage(
+        'channel-1',
+        'My reply',
+        'testuser',
+        undefined,
+        undefined,
+        undefined,
+        'target-msg'
+      );
+    });
+
+    // Find the optimistic reply in the store (it has the client-generated ID)
+    const messages = useChatStore.getState().messagesByChannel.get('channel-1');
+    const optimistic = messages?.find((m) => m.content === 'My reply');
+    expect(optimistic).toBeDefined();
+    expect(optimistic?.reply_to_id).toBe('target-msg');
+    expect(optimistic?.replied_to).toBeDefined();
+    expect(optimistic?.replied_to?.id).toBe('target-msg');
+    expect(optimistic?.replied_to?.content).toBe('Original message content');
   });
 
   it('getPendingCount returns queue size', () => {
