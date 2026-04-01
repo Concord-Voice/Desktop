@@ -3,8 +3,17 @@ import { useChatStore } from '../stores/chatStore';
 import { apiFetch, safeJson } from '../services/apiClient';
 import { e2eeService } from '../services/e2eeService';
 import type { MessageWithStatus } from '../types/chat';
+import { indexMessages } from '../services/searchService';
 
 const DEFAULT_LIMIT = 50;
+
+/** Index decrypted messages for search (passive, skips failed/pending). */
+function indexDecryptedMessages(channelId: string, msgs: MessageWithStatus[]) {
+  const indexable = msgs
+    .filter((m) => !m.decryptFailed && !m.pendingKeys && m.content)
+    .map((m) => ({ id: m.id, content: m.content, scope: channelId }));
+  if (indexable.length > 0) indexMessages(indexable);
+}
 
 interface UseMessageFetchOptions {
   type: 'channel' | 'dm';
@@ -178,6 +187,9 @@ export function useMessageFetch(channelId: string | null, options: UseMessageFet
 
         const msgs = await decryptMessages(channelId, rawMsgs);
         if (aborted) return;
+
+        // Passively index decrypted messages for search
+        indexDecryptedMessages(channelId, msgs);
 
         // Merge with any optimistic messages the user sent while the fetch
         // was in flight (e.g. during React StrictMode double-mount or reconnect).

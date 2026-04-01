@@ -3,6 +3,7 @@ import MessageList, { type MessageListHandle } from './MessageList';
 import MessageInput from './MessageInput';
 import TypingIndicator from './TypingIndicator';
 import PinnedMessagesPanel from './PinnedMessagesPanel';
+import SearchPanel from './SearchPanel';
 import { pinMessage, unpinMessage, getChannelPins } from '../../services/pinService';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { PIN_MESSAGES } from '../../utils/permissions';
@@ -177,6 +178,7 @@ const ChatView: React.FC = () => {
 
   // Pinned messages panel state
   const [showPinnedPanel, setShowPinnedPanel] = useState(false);
+  const [showSearchPanel, setShowSearchPanel] = useState(false);
   const [pinnedCount, setPinnedCount] = useState(0);
 
   // Compute canPin from RBAC permission store
@@ -242,6 +244,27 @@ const ChatView: React.FC = () => {
         )}
         <span className="chat-header-name">{activeChannel?.name || 'Channel'}</span>
         <button
+          className="chat-header-search-button"
+          onClick={() => setShowSearchPanel(!showSearchPanel)}
+          title="Search messages"
+          aria-label="Search messages"
+          aria-expanded={showSearchPanel}
+        >
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <circle cx="11" cy="11" r="8" />
+            <line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+        </button>
+        <button
           className="chat-header-pin-button"
           onClick={() => setShowPinnedPanel(!showPinnedPanel)}
           title="Pinned messages"
@@ -305,6 +328,17 @@ const ChatView: React.FC = () => {
         onClose={() => setShowPinnedPanel(false)}
         onScrollToMessage={handleScrollToMessage}
         canPin={canPin}
+      />
+
+      <SearchPanel
+        channelId={activeChannelId}
+        isOpen={showSearchPanel}
+        onClose={() => setShowSearchPanel(false)}
+        onScrollToMessage={handleScrollToMessage}
+        accessibleChannelIds={channels
+          .filter((c) => c.server_id === activeChannel?.server_id)
+          .map((c) => c.id)}
+        showServerWideToggle={!!activeChannel?.server_id}
       />
     </div>
   );

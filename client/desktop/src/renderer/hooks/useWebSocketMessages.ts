@@ -23,6 +23,7 @@ import { useDMStore } from '../stores/dmStore';
 import { useFriendStore } from '../stores/friendStore';
 import { speak as ttsSpeak } from '../services/ttsService';
 import { notificationSoundService } from '../services/notificationSoundService';
+import { indexMessage } from '../services/searchService';
 
 // Debounce timers for re-fetching voice participants after join/leave events.
 // Coalesces rapid bursts (e.g. 10 users joining) into a single API call.
@@ -193,6 +194,8 @@ function addPlaintextMessage(
   onPlaintext?: (text: string) => void
 ): void {
   addMessage(channelId, { ...baseMessage, content });
+  // Passively index plaintext for search
+  indexMessage(baseMessage.id, content, channelId);
   onPlaintext?.(content);
 }
 
@@ -217,6 +220,8 @@ function addEncryptedMessage(
   decryptPromise
     .then((plaintext) => {
       addMessage(channelId, { ...baseMessage, content: plaintext });
+      // Passively index decrypted content for search
+      indexMessage(baseMessage.id, plaintext, channelId);
       onPlaintext?.(plaintext);
     })
     .catch((err) => {

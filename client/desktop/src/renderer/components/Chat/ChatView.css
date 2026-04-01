@@ -34,8 +34,24 @@
   white-space: nowrap;
 }
 
-.chat-header-pin-button {
+.chat-header-search-button {
   margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+
+.chat-header-search-button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.chat-header-pin-button {
   background: none;
   border: none;
   color: var(--text-muted);
