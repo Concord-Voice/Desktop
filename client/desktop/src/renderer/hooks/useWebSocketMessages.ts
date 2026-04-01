@@ -396,6 +396,25 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       }
     );
 
+    // Pin event handlers
+    const unsubMessagePinned = wsService.on('message_pinned', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      if (!data.channel_id || !data.message_id) return;
+      updateMessage(data.channel_id, data.message_id, {
+        pinned_at: data.pinned_at,
+        pinned_by: data.pinned_by,
+      });
+    });
+
+    const unsubMessageUnpinned = wsService.on('message_unpinned', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      if (!data.channel_id || !data.message_id) return;
+      updateMessage(data.channel_id, data.message_id, {
+        pinned_at: undefined,
+        pinned_by: undefined,
+      });
+    });
+
     // Typing indicator handler
     const unsubTyping = wsService.on('typing', (msg: WebSocketMessage) => {
       const { data } = msg;
@@ -1114,6 +1133,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       unsubDelete();
       unsubReactionAdded();
       unsubReactionRemoved();
+      unsubMessagePinned();
+      unsubMessageUnpinned();
       unsubTyping();
       unsubAck();
       unsubMemberJoined();

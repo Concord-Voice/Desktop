@@ -1,7 +1,11 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import MessageList, { type MessageListHandle } from './MessageList';
 import MessageInput from './MessageInput';
 import TypingIndicator from './TypingIndicator';
+import PinnedMessagesPanel from './PinnedMessagesPanel';
+import { pinMessage, unpinMessage, getChannelPins } from '../../services/pinService';
+import { usePermissionStore } from '../../stores/permissionStore';
+import { PIN_MESSAGES } from '../../utils/permissions';
 import { useChannelStore } from '../../stores/channelStore';
 import { useChatStore } from '../../stores/chatStore';
 import { getWebSocketService } from '../../services/websocketService';
@@ -171,6 +175,44 @@ const ChatView: React.FC = () => {
     [activeChannelId]
   );
 
+  // Pinned messages panel state
+  const [showPinnedPanel, setShowPinnedPanel] = useState(false);
+  const [pinnedCount, setPinnedCount] = useState(0);
+
+  // Compute canPin from RBAC permission store
+  const hasServerPermission = usePermissionStore((s) => s.hasServerPermission);
+  const activeServerId = useServerStore((s) => s.activeServerId);
+  const canPin = useMemo(() => {
+    if (!activeServerId) return false;
+    return hasServerPermission(activeServerId, PIN_MESSAGES);
+  }, [activeServerId, hasServerPermission]);
+
+  // Fetch pin count from API when channel changes
+  useEffect(() => {
+    if (!activeChannelId) return;
+    getChannelPins(activeChannelId)
+      .then((pins) => setPinnedCount(pins.length))
+      .catch(() => setPinnedCount(0));
+  }, [activeChannelId]);
+
+  const handlePinToggle = useCallback(
+    async (message: MessageWithStatus) => {
+      if (!activeChannelId) return;
+      try {
+        if (message.pinned_at) {
+          await unpinMessage(message.id);
+          setPinnedCount((c) => Math.max(0, c - 1));
+        } else {
+          await pinMessage(message.id);
+          setPinnedCount((c) => c + 1);
+        }
+      } catch (err) {
+        console.error('Failed to toggle pin:', err);
+      }
+    },
+    [activeChannelId]
+  );
+
   if (!activeChannelId) {
     return null;
   }
@@ -199,6 +241,24 @@ const ChatView: React.FC = () => {
           </svg>
         )}
         <span className="chat-header-name">{activeChannel?.name || 'Channel'}</span>
+        <button
+          className="chat-header-pin-button"
+          onClick={() => setShowPinnedPanel(!showPinnedPanel)}
+          title="Pinned messages"
+          aria-label="Pinned messages"
+          aria-expanded={showPinnedPanel}
+        >
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+            <path
+              d="M9 2L5 8h3v6l4-6H9V2z"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+          {pinnedCount > 0 && <span className="pin-count-badge">{pinnedCount}</span>}
+        </button>
       </div>
 
       {error && <div className="chat-error">{error}</div>}
@@ -218,6 +278,8 @@ const ChatView: React.FC = () => {
           onUnseenOnLeave={handleUnseenOnLeave}
           onReply={handleReply}
           onScrollToMessage={handleScrollToMessage}
+          onPinToggle={handlePinToggle}
+          canPin={canPin}
         />
       </div>
 
@@ -236,6 +298,14 @@ const ChatView: React.FC = () => {
           onCancelReply={handleCancelReply}
         />
       </div>
+
+      <PinnedMessagesPanel
+        channelId={activeChannelId}
+        isOpen={showPinnedPanel}
+        onClose={() => setShowPinnedPanel(false)}
+        onScrollToMessage={handleScrollToMessage}
+        canPin={canPin}
+      />
     </div>
   );
 };

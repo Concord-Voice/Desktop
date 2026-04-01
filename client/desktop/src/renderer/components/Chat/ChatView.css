@@ -34,6 +34,31 @@
   white-space: nowrap;
 }
 
+.chat-header-pin-button {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  position: relative;
+}
+
+.chat-header-pin-button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.pin-count-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-color);
+}
+
 .chat-messages {
   flex: 1;
   display: flex;

@@ -13,6 +13,9 @@ interface MessageContextMenuProps {
   onDelete: () => void;
   onReaction?: () => void;
   onReply?: () => void;
+  onPin?: () => void;
+  isPinned?: boolean;
+  canPin?: boolean;
 }
 
 const MessageContextMenu: React.FC<MessageContextMenuProps> = ({
@@ -25,6 +28,9 @@ const MessageContextMenu: React.FC<MessageContextMenuProps> = ({
   onDelete,
   onReaction,
   onReply,
+  onPin,
+  isPinned,
+  canPin,
 }) => {
   const handleCopyText = async () => {
     await copyText(message.content);
@@ -89,9 +95,12 @@ const MessageContextMenu: React.FC<MessageContextMenuProps> = ({
             />
           </svg>
         }
-        label="Pin Message"
-        disabled
-        onClick={() => {}}
+        label={isPinned ? 'Unpin Message' : 'Pin Message'}
+        disabled={!canPin}
+        onClick={() => {
+          onPin?.();
+          onClose();
+        }}
       />
 
       <ContextMenu.Item

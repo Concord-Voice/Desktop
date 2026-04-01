@@ -27,6 +27,8 @@ export interface MessageProps {
   onDelete?: (messageId: string) => void;
   onReply?: (message: MessageWithStatus) => void;
   onScrollToMessage?: (messageId: string) => void;
+  onPinToggle?: (message: MessageWithStatus) => void;
+  canPin?: boolean;
   showAvatar?: boolean;
   shiftHeld?: boolean;
 }
@@ -142,6 +144,19 @@ function MessageHeader({
       </span>
       <span className="message-timestamp">{formatTimestamp(message.created_at)}</span>
       {message.edited_at && <span className="message-edited">(edited)</span>}
+      {message.pinned_at && (
+        <span className="message-pinned-indicator" title="Pinned message">
+          <svg width="12" height="12" viewBox="0 0 16 16" fill="none">
+            <path
+              d="M9 2L5 8h3v6l4-6H9V2z"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </span>
+      )}
     </div>
   );
 }
@@ -177,6 +192,8 @@ function MessageOverlays({
   onEdit,
   onDelete,
   onReply,
+  onPinToggle,
+  canPin,
 }: Readonly<{
   message: MessageWithStatus;
   canModify: boolean;
@@ -193,7 +210,17 @@ function MessageOverlays({
   onEdit?: (messageId: string, newContent: string) => void;
   onDelete?: (messageId: string) => void;
   onReply?: (message: MessageWithStatus) => void;
+  onPinToggle?: (message: MessageWithStatus) => void;
+  canPin?: boolean;
 }>) {
+  // Pre-compute conditional callbacks to keep JSX complexity flat
+  const editHandler = canModify && onEdit ? () => setIsEditing(true) : undefined;
+  const deleteHandler = canModify ? onDelete : undefined;
+  const requestDeleteHandler = canModify ? () => setShowDeleteModal(true) : undefined;
+  const replyHandler = onReply ? () => onReply(message) : undefined;
+  const pinHandler = onPinToggle ? () => onPinToggle(message) : undefined;
+  const hasReactions = Boolean(message.reactions && message.reactions.length > 0);
+
   return (
     <>
       <MessageActions
@@ -201,15 +228,13 @@ function MessageOverlays({
         canModify={canModify}
         isEditing={isEditing}
         shiftHeld={shiftHeld}
-        onEdit={canModify && onEdit ? () => setIsEditing(true) : undefined}
-        onDelete={canModify ? onDelete : undefined}
-        onRequestDelete={canModify ? () => setShowDeleteModal(true) : undefined}
-        onReply={onReply ? () => onReply(message) : undefined}
+        onEdit={editHandler}
+        onDelete={deleteHandler}
+        onRequestDelete={requestDeleteHandler}
+        onReply={replyHandler}
       />
 
-      {message.reactions && message.reactions.length > 0 && (
-        <ReactionBar messageId={message.id} reactions={message.reactions} />
-      )}
+      {hasReactions && <ReactionBar messageId={message.id} reactions={message.reactions ?? []} />}
 
       {onDelete && (
         <DeleteMessageModal
@@ -236,7 +261,10 @@ function MessageOverlays({
             }
           }}
           onReaction={() => setReactionPicker(contextMenu)}
-          onReply={onReply ? () => onReply(message) : undefined}
+          onReply={replyHandler}
+          onPin={pinHandler}
+          isPinned={!!message.pinned_at}
+          canPin={canPin}
         />
       )}
 
@@ -354,6 +382,8 @@ const Message: React.FC<MessageProps> = ({
   onDelete,
   onReply,
   onScrollToMessage,
+  onPinToggle,
+  canPin,
   showAvatar = true,
   shiftHeld = false,
 }) => {
@@ -415,6 +445,7 @@ const Message: React.FC<MessageProps> = ({
     'message',
     isOwnMessage && 'own-message',
     !showAvatar && 'message-grouped',
+    message.pinned_at && 'pinned',
   ]
     .filter(Boolean)
     .join(' ');
@@ -472,6 +503,8 @@ const Message: React.FC<MessageProps> = ({
           onEdit={onEdit}
           onDelete={onDelete}
           onReply={onReply}
+          onPinToggle={onPinToggle}
+          canPin={canPin}
         />
       </div>
     </article>

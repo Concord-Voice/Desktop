@@ -130,4 +130,77 @@ describe('MessageContextMenu', () => {
     expect(onReply).toHaveBeenCalled();
     expect(mockOnClose).toHaveBeenCalled();
   });
+
+  it('shows Pin Message when canPin is true', () => {
+    const onPin = vi.fn();
+    render(
+      <MessageContextMenu
+        message={mockMessage}
+        position={{ x: 100, y: 100 }}
+        isOwnMessage={true}
+        canModify={true}
+        onClose={mockOnClose}
+        onEdit={mockOnEdit}
+        onDelete={mockOnDelete}
+        onPin={onPin}
+        canPin={true}
+      />
+    );
+    const pinBtn = screen.getByText('Pin Message');
+    expect(pinBtn.closest('button')).not.toBeDisabled();
+  });
+
+  it('shows Unpin Message when isPinned is true', () => {
+    render(
+      <MessageContextMenu
+        message={mockMessage}
+        position={{ x: 100, y: 100 }}
+        isOwnMessage={true}
+        canModify={true}
+        onClose={mockOnClose}
+        onEdit={mockOnEdit}
+        onDelete={mockOnDelete}
+        isPinned={true}
+        canPin={true}
+      />
+    );
+    expect(screen.getByText('Unpin Message')).toBeInTheDocument();
+  });
+
+  it('Pin item is disabled when canPin is false', () => {
+    render(
+      <MessageContextMenu
+        message={mockMessage}
+        position={{ x: 100, y: 100 }}
+        isOwnMessage={true}
+        canModify={true}
+        onClose={mockOnClose}
+        onEdit={mockOnEdit}
+        onDelete={mockOnDelete}
+        canPin={false}
+      />
+    );
+    const pinBtn = screen.getByText('Pin Message');
+    expect(pinBtn.closest('button')).toBeDisabled();
+  });
+
+  it('Pin item calls onPin and closes menu', () => {
+    const onPin = vi.fn();
+    render(
+      <MessageContextMenu
+        message={mockMessage}
+        position={{ x: 100, y: 100 }}
+        isOwnMessage={true}
+        canModify={true}
+        onClose={mockOnClose}
+        onEdit={mockOnEdit}
+        onDelete={mockOnDelete}
+        onPin={onPin}
+        canPin={true}
+      />
+    );
+    fireEvent.click(screen.getByText('Pin Message'));
+    expect(onPin).toHaveBeenCalled();
+    expect(mockOnClose).toHaveBeenCalled();
+  });
 });

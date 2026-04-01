@@ -357,3 +357,16 @@
 .mention-highlight:hover {
   background: rgba(88, 101, 242, 0.24);
 }
+
+/* Pinned message indicator */
+.message.pinned {
+  border-left: 2px solid var(--accent-color);
+}
+
+.message-pinned-indicator {
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent-color);
+  margin-left: 4px;
+  opacity: 0.7;
+}

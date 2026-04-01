@@ -21,6 +21,8 @@ export interface MessageListProps {
   onDeleteMessage?: (messageId: string) => void;
   onUnseenOnLeave?: (count: number) => void;
   onReply?: (message: MessageWithStatus) => void;
+  onPinToggle?: (message: MessageWithStatus) => void;
+  canPin?: boolean;
   onScrollToMessage?: (messageId: string) => void;
 }
 
@@ -45,6 +47,8 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
       onUnseenOnLeave,
       onReply,
       onScrollToMessage,
+      onPinToggle,
+      canPin,
     },
     ref
   ) => {
@@ -273,6 +277,8 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
                     onDelete={onDeleteMessage}
                     onReply={onReply}
                     onScrollToMessage={onScrollToMessage}
+                    onPinToggle={onPinToggle}
+                    canPin={canPin}
                     showAvatar={shouldShowAvatar(index)}
                     shiftHeld={shiftHeld}
                   />

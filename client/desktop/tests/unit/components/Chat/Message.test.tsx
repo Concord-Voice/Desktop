@@ -9,6 +9,7 @@ import {
   mockReaction,
   mockReaction2,
   mockReplyMessage,
+  mockPinnedMessage,
 } from '../../../mocks/fixtures';
 import { useMemberStore } from '@/renderer/stores/memberStore';
 import { usePermissionStore } from '@/renderer/stores/permissionStore';
@@ -693,5 +694,23 @@ describe('Message', () => {
     const replyBar = document.querySelector('.reply-preview-bar') as HTMLElement;
     fireEvent.click(replyBar);
     expect(onScrollToMessage).toHaveBeenCalledWith('msg-1');
+  });
+
+  it('shows pin indicator when message is pinned', () => {
+    useMemberStore.getState().addMember(mockMember);
+    render(<Message message={mockPinnedMessage} currentUserId="user-1" showAvatar={true} />);
+    expect(document.querySelector('.message-pinned-indicator')).toBeInTheDocument();
+  });
+
+  it('applies pinned class when message is pinned', () => {
+    useMemberStore.getState().addMember(mockMember);
+    render(<Message message={mockPinnedMessage} currentUserId="user-1" showAvatar={true} />);
+    expect(document.querySelector('.message.pinned')).toBeInTheDocument();
+  });
+
+  it('does not show pin indicator when message is not pinned', () => {
+    useMemberStore.getState().addMember(mockMember);
+    render(<Message message={mockMessage} currentUserId="user-1" showAvatar={true} />);
+    expect(document.querySelector('.message-pinned-indicator')).not.toBeInTheDocument();
   });
 });
