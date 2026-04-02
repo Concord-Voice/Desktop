@@ -13,6 +13,14 @@ describe('notificationStore', () => {
       friendRequestSound: true,
       voiceEventSounds: true,
       suppressWhenFocused: true,
+      desktopNotificationsEnabled: true,
+      desktopNotifyDMs: true,
+      desktopNotifyMentions: true,
+      desktopNotifyAllMessages: false,
+      doNotDisturb: false,
+      quietHoursEnabled: false,
+      quietHoursStart: '22:00',
+      quietHoursEnd: '08:00',
     });
   });
 
@@ -71,5 +79,69 @@ describe('notificationStore', () => {
   it('toggles suppressWhenFocused', () => {
     useNotificationStore.getState().setSuppressWhenFocused(false);
     expect(useNotificationStore.getState().suppressWhenFocused).toBe(false);
+  });
+
+  it('has correct defaults for desktop notification fields', () => {
+    const state = useNotificationStore.getState();
+    expect(state.desktopNotificationsEnabled).toBe(true);
+    expect(state.desktopNotifyDMs).toBe(true);
+    expect(state.desktopNotifyMentions).toBe(true);
+    expect(state.desktopNotifyAllMessages).toBe(false);
+    expect(state.doNotDisturb).toBe(false);
+    expect(state.quietHoursEnabled).toBe(false);
+    expect(state.quietHoursStart).toBe('22:00');
+    expect(state.quietHoursEnd).toBe('08:00');
+  });
+
+  it('toggles desktopNotificationsEnabled', () => {
+    useNotificationStore.getState().setDesktopNotificationsEnabled(false);
+    expect(useNotificationStore.getState().desktopNotificationsEnabled).toBe(false);
+    useNotificationStore.getState().setDesktopNotificationsEnabled(true);
+    expect(useNotificationStore.getState().desktopNotificationsEnabled).toBe(true);
+  });
+
+  it('toggles desktopNotifyDMs', () => {
+    useNotificationStore.getState().setDesktopNotifyDMs(false);
+    expect(useNotificationStore.getState().desktopNotifyDMs).toBe(false);
+    useNotificationStore.getState().setDesktopNotifyDMs(true);
+    expect(useNotificationStore.getState().desktopNotifyDMs).toBe(true);
+  });
+
+  it('toggles desktopNotifyMentions', () => {
+    useNotificationStore.getState().setDesktopNotifyMentions(false);
+    expect(useNotificationStore.getState().desktopNotifyMentions).toBe(false);
+    useNotificationStore.getState().setDesktopNotifyMentions(true);
+    expect(useNotificationStore.getState().desktopNotifyMentions).toBe(true);
+  });
+
+  it('toggles desktopNotifyAllMessages', () => {
+    useNotificationStore.getState().setDesktopNotifyAllMessages(true);
+    expect(useNotificationStore.getState().desktopNotifyAllMessages).toBe(true);
+    useNotificationStore.getState().setDesktopNotifyAllMessages(false);
+    expect(useNotificationStore.getState().desktopNotifyAllMessages).toBe(false);
+  });
+
+  it('toggles doNotDisturb', () => {
+    useNotificationStore.getState().setDoNotDisturb(true);
+    expect(useNotificationStore.getState().doNotDisturb).toBe(true);
+    useNotificationStore.getState().setDoNotDisturb(false);
+    expect(useNotificationStore.getState().doNotDisturb).toBe(false);
+  });
+
+  it('toggles quietHoursEnabled', () => {
+    useNotificationStore.getState().setQuietHoursEnabled(true);
+    expect(useNotificationStore.getState().quietHoursEnabled).toBe(true);
+    useNotificationStore.getState().setQuietHoursEnabled(false);
+    expect(useNotificationStore.getState().quietHoursEnabled).toBe(false);
+  });
+
+  it('sets quietHoursStart', () => {
+    useNotificationStore.getState().setQuietHoursStart('23:30');
+    expect(useNotificationStore.getState().quietHoursStart).toBe('23:30');
+  });
+
+  it('sets quietHoursEnd', () => {
+    useNotificationStore.getState().setQuietHoursEnd('07:00');
+    expect(useNotificationStore.getState().quietHoursEnd).toBe('07:00');
   });
 });

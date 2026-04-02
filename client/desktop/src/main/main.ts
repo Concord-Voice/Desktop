@@ -431,6 +431,23 @@ ipcMain.handle('app:quit', () => {
   app.quit();
 });
 
+// ─── Desktop Notification Helpers (#175) ────────────────────────────
+
+ipcMain.handle('app:setBadgeCount', (_event, count: number) => {
+  app.setBadgeCount(count);
+});
+
+ipcMain.handle('app:flashFrame', (_event, flash: boolean) => {
+  mainWindow?.flashFrame(flash);
+});
+
+ipcMain.handle('app:focusWindow', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
 // ─── Auto-Update IPC ──────────────────────────────────────────────────
 
 ipcMain.handle('update:check', () => checkForUpdates());

@@ -64,8 +64,8 @@ describe('SettingsPage', () => {
   it('shows "Soon" badge for disabled sections', () => {
     render(<SettingsPage />);
     const soonBadges = screen.getAllByText('Soon');
-    // Account and Notifications are disabled (Voice & Audio and Accessibility are enabled)
-    expect(soonBadges.length).toBe(2);
+    // Only Account is disabled (Notifications was enabled in #175)
+    expect(soonBadges.length).toBe(1);
   });
 
   it('defaults to appearance section', () => {
@@ -473,9 +473,23 @@ describe('SettingsPage', () => {
     expect(accountBtn).toBeDisabled();
   });
 
-  it('Notifications nav item is disabled', () => {
+  it('Notifications nav item is enabled', () => {
     render(<SettingsPage />);
     const notifBtn = screen.getByText('Notifications').closest('button');
-    expect(notifBtn).toBeDisabled();
+    expect(notifBtn).not.toBeDisabled();
+  });
+
+  // ─── Notifications section ──────────────────────────────────────────────
+
+  it('navigating to Notifications section renders NotificationSection', () => {
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Notifications'));
+    // NotificationSection renders "Desktop Notifications" as a collapsible section title
+    // and nav tree shows subsection labels
+    const desktopNotifEls = screen.getAllByText('Desktop Notifications');
+    expect(desktopNotifEls.length).toBeGreaterThanOrEqual(1);
+    // Also renders the Sounds and Quiet Hours sections
+    const soundEls = screen.getAllByText('Sounds');
+    expect(soundEls.length).toBeGreaterThanOrEqual(1);
   });
 });

@@ -18,6 +18,22 @@ export interface NotificationSoundSettings {
   voiceEventSounds: boolean;
   /** Suppress sound when the window is focused on the channel that received the message */
   suppressWhenFocused: boolean;
+  /** Master toggle for desktop notifications */
+  desktopNotificationsEnabled: boolean;
+  /** Show desktop notification for DM messages */
+  desktopNotifyDMs: boolean;
+  /** Show desktop notification for @mentions */
+  desktopNotifyMentions: boolean;
+  /** Show desktop notification for all channel messages */
+  desktopNotifyAllMessages: boolean;
+  /** Suppress all notifications when DND status is active */
+  doNotDisturb: boolean;
+  /** Enable quiet hours (time-based suppression) */
+  quietHoursEnabled: boolean;
+  /** Quiet hours start time (HH:MM format) */
+  quietHoursStart: string;
+  /** Quiet hours end time (HH:MM format) */
+  quietHoursEnd: string;
 }
 
 interface NotificationStore extends NotificationSoundSettings {
@@ -29,6 +45,14 @@ interface NotificationStore extends NotificationSoundSettings {
   setFriendRequestSound: (enabled: boolean) => void;
   setVoiceEventSounds: (enabled: boolean) => void;
   setSuppressWhenFocused: (suppress: boolean) => void;
+  setDesktopNotificationsEnabled: (enabled: boolean) => void;
+  setDesktopNotifyDMs: (enabled: boolean) => void;
+  setDesktopNotifyMentions: (enabled: boolean) => void;
+  setDesktopNotifyAllMessages: (enabled: boolean) => void;
+  setDoNotDisturb: (enabled: boolean) => void;
+  setQuietHoursEnabled: (enabled: boolean) => void;
+  setQuietHoursStart: (start: string) => void;
+  setQuietHoursEnd: (end: string) => void;
 }
 
 export const useNotificationStore = create<NotificationStore>()(
@@ -42,6 +66,14 @@ export const useNotificationStore = create<NotificationStore>()(
       friendRequestSound: true,
       voiceEventSounds: true,
       suppressWhenFocused: true,
+      desktopNotificationsEnabled: true,
+      desktopNotifyDMs: true,
+      desktopNotifyMentions: true,
+      desktopNotifyAllMessages: false,
+      doNotDisturb: false,
+      quietHoursEnabled: false,
+      quietHoursStart: '22:00',
+      quietHoursEnd: '08:00',
 
       setEnabled: (enabled) => set({ enabled }),
       setVolume: (volume) => set({ volume: Math.max(0, Math.min(100, volume)) }),
@@ -51,6 +83,14 @@ export const useNotificationStore = create<NotificationStore>()(
       setFriendRequestSound: (enabled) => set({ friendRequestSound: enabled }),
       setVoiceEventSounds: (enabled) => set({ voiceEventSounds: enabled }),
       setSuppressWhenFocused: (suppress) => set({ suppressWhenFocused: suppress }),
+      setDesktopNotificationsEnabled: (enabled) => set({ desktopNotificationsEnabled: enabled }),
+      setDesktopNotifyDMs: (enabled) => set({ desktopNotifyDMs: enabled }),
+      setDesktopNotifyMentions: (enabled) => set({ desktopNotifyMentions: enabled }),
+      setDesktopNotifyAllMessages: (enabled) => set({ desktopNotifyAllMessages: enabled }),
+      setDoNotDisturb: (enabled) => set({ doNotDisturb: enabled }),
+      setQuietHoursEnabled: (enabled) => set({ quietHoursEnabled: enabled }),
+      setQuietHoursStart: (start) => set({ quietHoursStart: start }),
+      setQuietHoursEnd: (end) => set({ quietHoursEnd: end }),
     }),
     {
       name: 'concord:notification-sounds',
@@ -63,6 +103,18 @@ export const useNotificationStore = create<NotificationStore>()(
         friendRequestSound: state.friendRequestSound,
         voiceEventSounds: state.voiceEventSounds,
         suppressWhenFocused: state.suppressWhenFocused,
+        desktopNotificationsEnabled: state.desktopNotificationsEnabled,
+        desktopNotifyDMs: state.desktopNotifyDMs,
+        desktopNotifyMentions: state.desktopNotifyMentions,
+        desktopNotifyAllMessages: state.desktopNotifyAllMessages,
+        doNotDisturb: state.doNotDisturb,
+        quietHoursEnabled: state.quietHoursEnabled,
+        quietHoursStart: state.quietHoursStart,
+        quietHoursEnd: state.quietHoursEnd,
+      }),
+      merge: (persisted, current) => ({
+        ...current,
+        ...(persisted as Partial<NotificationSoundSettings>),
       }),
     }
   )

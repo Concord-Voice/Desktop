@@ -21,8 +21,10 @@
  *        permission:request, permission:openSettings), permission:changed event
  * - v4: Update safety (#383, #384): update:getLogPath handler,
  *        update:rollback event
+ * - v5: Desktop notification support (#175): app:setBadgeCount,
+ *        app:flashFrame, app:focusWindow handlers
  */
-export const IPC_CONTRACT_VERSION = 4;
+export const IPC_CONTRACT_VERSION = 5;
 
 /**
  * Result shape returned by performRefresh() in the main process and

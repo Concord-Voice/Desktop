@@ -7,7 +7,7 @@ import {
   type ErrorInfo,
   type ReactNode,
 } from 'react';
-import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { Routes, Route, Navigate, Outlet, useNavigate } from 'react-router-dom';
 import AuthFlow from './components/Auth/AuthFlow';
 import MainView from './components/MainView/MainView';
 import DirectMessagesView from './components/DirectMessages/DirectMessagesView';
@@ -29,6 +29,11 @@ import { e2eeService } from './services/e2eeService';
 import { preferencesSyncService } from './services/preferencesSync';
 import { clientConfigService } from './services/clientConfigService';
 import { detectCodecCapabilities, prewarmWebRTC } from './services/mediaCapabilities';
+import { useNotificationNavigationStore } from './stores/notificationNavigationStore';
+import { useServerStore } from './stores/serverStore';
+import { useChannelStore } from './stores/channelStore';
+import { useDMStore } from './stores/dmStore';
+import { desktopNotificationService } from './services/desktopNotificationService';
 // resetService is loaded on-demand via dynamic import() to allow code splitting
 
 // ─── Error Boundary ────────────────────────────────────────────────────
@@ -68,9 +73,36 @@ function AuthenticatedLayout() {
   const emailVerified = useAuthStore((state) => state.emailVerified);
   const user = useUserStore((state) => state.user);
   const fetchUser = useUserStore((state) => state.fetchUser);
+  const navigate = useNavigate();
 
   // Single WebSocket connection that persists across all authenticated routes
   useWebSocket();
+
+  // Handle notification click navigation (#175) — must live here (not MainView)
+  // so it works regardless of which authenticated route is active.
+  useEffect(() => {
+    const unsub = useNotificationNavigationStore.subscribe((state) => {
+      const nav = state.pendingNavigation;
+      if (!nav) return;
+
+      if (nav.type === 'channel' && nav.serverId) {
+        const serverStore = useServerStore.getState();
+        if (serverStore.activeServerId !== nav.serverId) {
+          serverStore.setActiveServer(nav.serverId);
+        }
+        useChannelStore.getState().setActiveChannel(nav.targetId);
+        navigate('/app');
+      } else if (nav.type === 'dm') {
+        useDMStore.getState().setActiveConversation(nav.targetId);
+        navigate('/app/dms');
+      }
+
+      desktopNotificationService.clearBadge();
+      useNotificationNavigationStore.getState().clearPendingNavigation();
+    });
+
+    return unsub;
+  }, [navigate]);
 
   // Eagerly fetch user profile when authenticated (before child routes mount)
   useEffect(() => {

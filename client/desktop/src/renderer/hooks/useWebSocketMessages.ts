@@ -24,6 +24,10 @@ import { useFriendStore } from '../stores/friendStore';
 import { speak as ttsSpeak } from '../services/ttsService';
 import { notificationSoundService } from '../services/notificationSoundService';
 import { indexMessage } from '../services/searchService';
+import {
+  desktopNotificationService,
+  type NotificationType,
+} from '../services/desktopNotificationService';
 
 // Debounce timers for re-fetching voice participants after join/leave events.
 // Coalesces rapid bursts (e.g. 10 users joining) into a single API call.
@@ -314,8 +318,36 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       // channel the user is subscribed to, so no unread increment is needed here.
 
       // Notification sound for focused-channel messages (from other users)
-      if (data.user_id !== useUserStore.getState().user?.id) {
+      const selfId = useUserStore.getState().user?.id;
+      if (data.user_id !== selfId) {
         notificationSoundService.play('message', { focused: true });
+
+        // Desktop notification for channel messages (#175)
+        const isMentioned = data.mentioned === true;
+        const notifType: NotificationType = isMentioned ? 'mention' : 'message';
+        const activeChannelId = useChannelStore.getState().activeChannelId;
+
+        if (
+          desktopNotificationService.shouldNotify({
+            type: notifType,
+            isWindowFocused: document.hasFocus(),
+            isActiveChannel: channelId === activeChannelId,
+          })
+        ) {
+          const channelName = useChannelStore
+            .getState()
+            .channels.find((c) => c.id === channelId)?.name;
+          desktopNotificationService.notify({
+            title: `${data.username || 'Unknown'} in #${channelName || 'channel'}`,
+            body: data.content || '',
+            isEncrypted: data.is_encrypted,
+            targetType: 'channel',
+            targetId: channelId,
+            serverId: data.server_id,
+            senderId: data.user_id,
+          });
+          desktopNotificationService.incrementBadge();
+        }
       }
     });
 
@@ -857,6 +889,25 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       // Notification sound for DM messages (from other users)
       if (data.user_id !== useUserStore.getState().user?.id) {
         notificationSoundService.play('dm', { focused: true });
+
+        // Desktop notification for DM messages (#175)
+        if (
+          desktopNotificationService.shouldNotify({
+            type: 'dm',
+            isWindowFocused: document.hasFocus(),
+            isActiveChannel: conversationId === useDMStore.getState().activeConversationId,
+          })
+        ) {
+          desktopNotificationService.notify({
+            title: `DM from ${data.display_name || data.username || 'Unknown'}`,
+            body: data.content || '',
+            isEncrypted: data.is_encrypted || false,
+            targetType: 'dm',
+            targetId: conversationId,
+            senderId: data.user_id,
+          });
+          desktopNotificationService.incrementBadge();
+        }
       }
     });
 

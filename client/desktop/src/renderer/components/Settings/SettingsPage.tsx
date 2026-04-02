@@ -5,6 +5,7 @@ import AppearanceSection from './AppearanceSection';
 import PrivacySecuritySection from './PrivacySecuritySection';
 import VoiceAudioSection from './VoiceAudioSection';
 import AccessibilitySection from './AccessibilitySection';
+import NotificationSection from './NotificationSection';
 import AboutUpdateSection from './AboutUpdateSection';
 import './SettingsPage.css';
 
@@ -78,7 +79,7 @@ const navItems: NavItem[] = [
   {
     id: 'notifications',
     label: 'Notifications',
-    enabled: false,
+    enabled: true,
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
         <path
@@ -155,6 +156,11 @@ const NAV_SUBSECTIONS: Record<string, { id: string; label: string }[]> = {
     { id: 'mfa', label: 'Multi-Factor Auth' },
     { id: 'active-sessions', label: 'Active Sessions' },
     { id: 'past-sessions', label: 'Past Sessions' },
+  ],
+  notifications: [
+    { id: 'desktop-notifications', label: 'Desktop Notifications' },
+    { id: 'notification-sounds', label: 'Sounds' },
+    { id: 'quiet-hours', label: 'Quiet Hours' },
   ],
   voice: [
     { id: 'device-config', label: 'Device Configuration' },
@@ -252,6 +258,8 @@ const SettingsPage: React.FC = () => {
         return <AppearanceSection />;
       case 'privacy':
         return <PrivacySecuritySection />;
+      case 'notifications':
+        return <NotificationSection />;
       case 'voice':
         return <VoiceAudioSection />;
       case 'accessibility':

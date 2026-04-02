@@ -225,6 +225,11 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.removeListener('permission:changed', handler);
     };
   },
+
+  // Desktop notification helpers (#175)
+  setBadgeCount: (count: number) => ipcRenderer.invoke('app:setBadgeCount', count),
+  flashFrame: (flash: boolean) => ipcRenderer.invoke('app:flashFrame', flash),
+  focusWindow: () => ipcRenderer.invoke('app:focusWindow'),
 });
 
 // Type definitions for the exposed API
@@ -346,6 +351,11 @@ export interface ElectronAPI {
   onPermissionChanged: (
     callback: (data: { type: string; status: PermissionStatus }) => void
   ) => () => void;
+
+  // Desktop notification helpers (#175)
+  setBadgeCount: (count: number) => Promise<void>;
+  flashFrame: (flash: boolean) => Promise<void>;
+  focusWindow: () => Promise<void>;
 }
 
 declare global {

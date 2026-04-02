@@ -1,6 +1,9 @@
-import { render, screen } from '../../test-utils';
+import { render, screen, act } from '../../test-utils';
 import { useAuthStore } from '@/renderer/stores/authStore';
 import { useUserStore } from '@/renderer/stores/userStore';
+import { useChannelStore } from '@/renderer/stores/channelStore';
+import { useDMStore } from '@/renderer/stores/dmStore';
+import { useNotificationNavigationStore } from '@/renderer/stores/notificationNavigationStore';
 // Mock child components to prevent complex rendering
 vi.mock('@/renderer/components/Auth/AuthFlow', () => ({
   default: () => <div data-testid="auth-flow">AuthFlow</div>,
@@ -44,6 +47,13 @@ vi.mock('@/renderer/services/clientConfigService', () => ({
 vi.mock('@/renderer/services/mediaCapabilities', () => ({
   detectCodecCapabilities: vi.fn().mockResolvedValue({}),
   prewarmWebRTC: vi.fn(),
+}));
+
+const mockClearBadge = vi.fn();
+vi.mock('@/renderer/services/desktopNotificationService', () => ({
+  desktopNotificationService: {
+    clearBadge: (...args: unknown[]) => mockClearBadge(...args),
+  },
 }));
 
 import App from '@/renderer/App';
@@ -168,5 +178,64 @@ describe('App', () => {
     // In jsdom, dispatchEvent doesn't call React handlers directly,
     // but we verify the element exists and the handler is wired
     expect(appDiv).toBeInTheDocument();
+  });
+
+  // ── Notification click navigation (#175) ──────────────────────────────
+  // These test the subscription in AuthenticatedLayout which handles
+  // notification clicks across all authenticated routes.
+
+  function authenticateUser() {
+    useAuthStore.getState().setAccessToken('mock-token');
+    useAuthStore.setState({ emailVerified: true });
+    useUserStore.setState({
+      user: {
+        id: 'user-1',
+        email: 'test@concord.chat',
+        username: 'testuser',
+        display_name: 'Test User',
+        bio: null,
+        avatar_url: null,
+        header_image_url: null,
+        links: [],
+        email_verified: true,
+        age_verified: true,
+        e2ee_preference: false,
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-01T00:00:00Z',
+      },
+    });
+  }
+
+  it('navigates to channel on notification click', () => {
+    authenticateUser();
+    render(<App />);
+
+    act(() => {
+      useNotificationNavigationStore.getState().setPendingNavigation({
+        type: 'channel',
+        targetId: 'channel-1',
+        serverId: 'server-1',
+      });
+    });
+
+    expect(useChannelStore.getState().activeChannelId).toBe('channel-1');
+    expect(mockClearBadge).toHaveBeenCalled();
+    expect(useNotificationNavigationStore.getState().pendingNavigation).toBeNull();
+  });
+
+  it('navigates to DM and selects conversation on notification click', () => {
+    authenticateUser();
+    render(<App />);
+
+    act(() => {
+      useNotificationNavigationStore.getState().setPendingNavigation({
+        type: 'dm',
+        targetId: 'dm-conv-1',
+      });
+    });
+
+    expect(useDMStore.getState().activeConversationId).toBe('dm-conv-1');
+    expect(mockClearBadge).toHaveBeenCalled();
+    expect(useNotificationNavigationStore.getState().pendingNavigation).toBeNull();
   });
 });

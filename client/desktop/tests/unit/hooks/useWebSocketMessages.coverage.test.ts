@@ -69,6 +69,17 @@ vi.mock('@/renderer/services/searchService', () => ({
   indexMessage: vi.fn(),
 }));
 
+const mockShouldNotify = vi.fn().mockReturnValue(false);
+const mockNotify = vi.fn();
+const mockIncrementBadge = vi.fn();
+vi.mock('@/renderer/services/desktopNotificationService', () => ({
+  desktopNotificationService: {
+    shouldNotify: (...args: unknown[]) => mockShouldNotify(...args),
+    notify: (...args: unknown[]) => mockNotify(...args),
+    incrementBadge: (...args: unknown[]) => mockIncrementBadge(...args),
+  },
+}));
+
 import { useWebSocketMessages } from '@/renderer/hooks/useWebSocketMessages';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1483,6 +1494,151 @@ describe('useWebSocketMessages — coverage boost', () => {
 
       // Should be suppressed — no sound played
       expect(mockNotificationPlay).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Desktop notification wiring (#175) ────────────────────────────
+
+  describe('desktop notifications for channel messages', () => {
+    it('fires desktop notification when shouldNotify returns true', () => {
+      mockShouldNotify.mockReturnValue(true);
+
+      const { handler } = setupHandler('message');
+      const activeServerId = useServerStore.getState().activeServerId;
+
+      act(() => {
+        handler({
+          type: 'message',
+          data: {
+            id: 'msg-notif-1',
+            channel_id: mockChannel.id,
+            server_id: activeServerId || 'server-1',
+            user_id: 'other-user',
+            username: 'otheruser',
+            content: 'hey there!',
+            is_encrypted: false,
+            created_at: new Date().toISOString(),
+          },
+        });
+      });
+
+      expect(mockShouldNotify).toHaveBeenCalledWith(expect.objectContaining({ type: 'message' }));
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetType: 'channel',
+          targetId: mockChannel.id,
+          body: 'hey there!',
+        })
+      );
+      expect(mockIncrementBadge).toHaveBeenCalled();
+
+      mockShouldNotify.mockReturnValue(false);
+    });
+
+    it('does not fire desktop notification when shouldNotify returns false', () => {
+      mockShouldNotify.mockReturnValue(false);
+
+      const { handler } = setupHandler('message');
+
+      act(() => {
+        handler({
+          type: 'message',
+          data: {
+            id: 'msg-notif-2',
+            channel_id: mockChannel.id,
+            server_id: 'server-1',
+            user_id: 'other-user',
+            username: 'otheruser',
+            content: 'silent',
+            is_encrypted: false,
+            created_at: new Date().toISOString(),
+          },
+        });
+      });
+
+      expect(mockNotify).not.toHaveBeenCalled();
+      expect(mockIncrementBadge).not.toHaveBeenCalled();
+    });
+
+    it('passes mention type when data.mentioned is true', () => {
+      mockShouldNotify.mockReturnValue(true);
+
+      const { handler } = setupHandler('message');
+
+      act(() => {
+        handler({
+          type: 'message',
+          data: {
+            id: 'msg-notif-3',
+            channel_id: mockChannel.id,
+            server_id: 'server-1',
+            user_id: 'other-user',
+            username: 'mentioner',
+            content: '@testuser hey',
+            mentioned: true,
+            is_encrypted: false,
+            created_at: new Date().toISOString(),
+          },
+        });
+      });
+
+      expect(mockShouldNotify).toHaveBeenCalledWith(expect.objectContaining({ type: 'mention' }));
+
+      mockShouldNotify.mockReturnValue(false);
+    });
+  });
+
+  describe('desktop notifications for DM messages', () => {
+    it('fires desktop notification for DM when shouldNotify returns true', () => {
+      mockShouldNotify.mockReturnValue(true);
+
+      // Set up a DM conversation
+      useDMStore.setState({
+        conversations: [
+          {
+            id: 'dm-conv-1',
+            isGroup: false,
+            isPersonal: false,
+            name: null,
+            isEncrypted: false,
+            participants: [],
+            lastMessage: null,
+            unreadCount: 0,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+        activeConversationId: null,
+      });
+
+      const { handler } = setupHandler('dm_message');
+
+      act(() => {
+        handler({
+          type: 'dm_message',
+          data: {
+            id: 'dm-msg-1',
+            conversation_id: 'dm-conv-1',
+            user_id: 'other-user',
+            username: 'alice',
+            display_name: 'Alice',
+            content: 'hello from DM',
+            is_encrypted: false,
+            created_at: new Date().toISOString(),
+          },
+        });
+      });
+
+      expect(mockShouldNotify).toHaveBeenCalledWith(expect.objectContaining({ type: 'dm' }));
+      expect(mockNotify).toHaveBeenCalledWith(
+        expect.objectContaining({
+          targetType: 'dm',
+          targetId: 'dm-conv-1',
+          title: 'DM from Alice',
+        })
+      );
+      expect(mockIncrementBadge).toHaveBeenCalled();
+
+      mockShouldNotify.mockReturnValue(false);
     });
   });
 });

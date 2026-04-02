@@ -1872,3 +1872,59 @@
 [data-reduce-animations='true'] .settings-pending-blob--fading {
   animation-duration: 0s;
 }
+
+/* ─── Notification Permission Banner ─────────────────────────────────────── */
+
+.settings-notification-permission-banner {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 16px 24px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-notification-permission-banner p {
+  font-size: calc(14px * var(--font-scale, 1));
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.settings-notification-permission-btn {
+  background: var(--accent-primary);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-size: calc(13px * var(--font-scale, 1));
+  font-family: 'SourceSans', sans-serif;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.15s ease;
+}
+
+.settings-notification-permission-btn:hover {
+  opacity: 0.85;
+}
+
+/* ─── Time Input (Quiet Hours) ───────────────────────────────────────────── */
+
+.settings-time-input {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: calc(14px * var(--font-scale, 1));
+  font-family: 'SourceSans', sans-serif;
+  color: var(--text-primary);
+  color-scheme: light dark;
+}
+
+.settings-time-input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
