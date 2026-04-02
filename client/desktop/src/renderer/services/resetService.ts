@@ -24,6 +24,7 @@ import { useVoiceStore } from '../stores/voiceStore';
 import { useChatStore } from '../stores/chatStore';
 import { useLayoutStore } from '../stores/layoutStore';
 import { useUserStore } from '../stores/userStore';
+import { useDraftMessageStore } from '../stores/draftMessageStore';
 
 /**
  * Clears content stores while preserving device settings.
@@ -50,11 +51,15 @@ export function gracefulReset(): void {
   // but preserve UI preferences (panel widths/modes)
   useLayoutStore.getState().clearUserContent();
 
+  // Clear draft messages (user content, not device settings)
+  useDraftMessageStore.getState().clearAllDrafts();
+
   // Remove persisted content store data from localStorage
   // (settings stores are NOT touched — theme, audio, video, TTS persist)
   localStorage.removeItem('concord:dm-store');
   localStorage.removeItem('concord-servers');
   localStorage.removeItem('concord-channels');
+  localStorage.removeItem('concord:draft-messages');
 }
 
 /**

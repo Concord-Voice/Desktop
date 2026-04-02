@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { MessageSquare, Users, BookOpen, UserPlus } from 'lucide-react';
+import { MessageSquare, Users, BookOpen, UserPlus, PenLine } from 'lucide-react';
 import { useDMStore, type DMConversation } from '../../stores/dmStore';
 import { useUserStore } from '../../stores/userStore';
 import { e2eeService } from '../../services/e2eeService';
+import { useDraftMessageStore } from '../../stores/draftMessageStore';
 import CreateGroupModal from './CreateGroupModal';
 import './DirectMessages.css';
 
@@ -56,6 +57,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
   const fetchConversations = useDMStore((s) => s.fetchConversations);
   const openPersonalThread = useDMStore((s) => s.openPersonalThread);
   const currentUserId = useUserStore((s) => s.user?.id) || '';
+  const drafts = useDraftMessageStore((s) => s.drafts);
 
   // Cache of decrypted last message previews (conversationId → {plaintext, ciphertext})
   const [decryptedPreviews, setDecryptedPreviews] = useState<
@@ -222,6 +224,11 @@ const ConversationList: React.FC<ConversationListProps> = ({
                 <div className="conversation-bottom-row">
                   <span className="conversation-preview">{preview}</span>
                   <div className="conversation-badges">
+                    {drafts[conv.id] && (
+                      <span className="conversation-draft-indicator" title="Draft message">
+                        <PenLine size={12} />
+                      </span>
+                    )}
                     {conv.unreadCount > 0 && (
                       <span className="conversation-unread-badge">
                         {conv.unreadCount > 99 ? '99+' : conv.unreadCount}

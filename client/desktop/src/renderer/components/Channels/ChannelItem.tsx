@@ -1,5 +1,5 @@
 import React from 'react';
-import { Hash, Volume2, Pin, Lock, Mic, MicOff, MessageSquare } from 'lucide-react';
+import { Hash, Volume2, Pin, Lock, Mic, MicOff, MessageSquare, PenLine } from 'lucide-react';
 import type { Channel } from '../../types/chat';
 
 export interface VoiceMemberInfo {
@@ -21,6 +21,7 @@ interface ChannelItemProps {
   showLinkedText: boolean;
   isLinkedTextActive: boolean;
   linkedTextUnread: number;
+  hasDraft?: boolean;
   canReorder: boolean;
   isDragging: boolean;
   showGhostBefore: boolean;
@@ -124,6 +125,7 @@ const ChannelItem: React.FC<ChannelItemProps> = ({
   showLinkedText,
   isLinkedTextActive,
   linkedTextUnread,
+  hasDraft,
   canReorder,
   isDragging,
   showGhostBefore,
@@ -170,6 +172,11 @@ const ChannelItem: React.FC<ChannelItemProps> = ({
           {channel.is_encrypted && (
             <span className="channel-encrypted-icon" title="End-to-End Encrypted">
               <Lock size={12} />
+            </span>
+          )}
+          {hasDraft && !isActive && (
+            <span className="channel-draft-indicator" title="Draft message">
+              <PenLine size={12} />
             </span>
           )}
           {unread > 0 && !isActive && (

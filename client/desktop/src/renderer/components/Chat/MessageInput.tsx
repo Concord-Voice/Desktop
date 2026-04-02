@@ -8,6 +8,8 @@ import { useLayoutStore } from '../../stores/layoutStore';
 import { buildAddendum, encodeMentionMeta, type ParsedMention } from '../../utils/mentions';
 import type { AttachmentSummary, MessageWithStatus } from '../../types/chat';
 import { useFileUpload } from '../../hooks/useFileUpload';
+import { useDraftMessage } from '../../hooks/useDraftMessage';
+import { useChatStore } from '../../stores/chatStore';
 import AttachmentUploadPreview from './AttachmentUploadPreview';
 import ReplyPreviewBar from './ReplyPreviewBar';
 import './MessageInput.css';
@@ -57,6 +59,12 @@ const MessageInput: React.FC<MessageInputProps> = ({
 }) => {
   const channelPanelPinned = useLayoutStore((s) => s.channelPanelPinned);
   const [content, setContent] = useState('');
+  const draftTargetId = channelId || conversationId;
+  const {
+    initialDraft,
+    saveDraft: saveDraftDebounced,
+    clearDraft: clearDraftNow,
+  } = useDraftMessage(draftTargetId);
   const [dragOver, setDragOver] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -88,6 +96,34 @@ const MessageInput: React.FC<MessageInputProps> = ({
       textareaRef.current.focus();
     }
   }, [replyingTo]);
+
+  // Restore draft content and reply context when channel/conversation changes
+  useEffect(() => {
+    if (initialDraft) {
+      setContent(initialDraft.text);
+      // Restore reply context if the draft had one and the message is still in memory
+      if (initialDraft.replyToId && draftTargetId) {
+        const messages = useChatStore.getState().messagesByChannel.get(draftTargetId);
+        const replyMsg = messages?.find((m) => m.id === initialDraft.replyToId);
+        if (replyMsg) {
+          useChatStore.getState().setReplyingTo(draftTargetId, replyMsg);
+        }
+      }
+    } else {
+      setContent('');
+    }
+  }, [initialDraft, draftTargetId]);
+
+  // Save draft when reply context changes (so switching channels preserves reply state)
+  const prevReplyRef = useRef(replyingTo);
+  useEffect(() => {
+    if (prevReplyRef.current !== replyingTo) {
+      prevReplyRef.current = replyingTo;
+      if (draftTargetId) {
+        saveDraftDebounced(content, replyingTo);
+      }
+    }
+  }, [replyingTo, draftTargetId, content, saveDraftDebounced]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -329,6 +365,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
     onSendMessage(sendContent, mentionMeta, replyingTo?.id, attachmentIds, attachmentSummaries);
     setContent('');
+    clearDraftNow();
     setShowMentions(false);
     selectedMentionsRef.current = [];
     clearFiles();
@@ -388,6 +425,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (e.target.value.length <= maxLength) {
       setContent(e.target.value);
+      saveDraftDebounced(e.target.value, replyingTo);
       setCursorPos(e.target.selectionStart);
     }
 

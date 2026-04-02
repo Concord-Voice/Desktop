@@ -181,6 +181,29 @@ describe('ChannelItem', () => {
     expect(encIcon).not.toBeInTheDocument();
   });
 
+  // -- Draft Indicator --
+
+  it('renders pencil icon when hasDraft is true and not active', () => {
+    const { container } = render(
+      <ChannelItem {...defaultProps} hasDraft={true} isActive={false} />
+    );
+    const draftIndicator = container.querySelector('.channel-draft-indicator');
+    expect(draftIndicator).toBeInTheDocument();
+    expect(draftIndicator?.getAttribute('title')).toBe('Draft message');
+  });
+
+  it('does not render pencil icon when hasDraft is false', () => {
+    const { container } = render(<ChannelItem {...defaultProps} hasDraft={false} />);
+    const draftIndicator = container.querySelector('.channel-draft-indicator');
+    expect(draftIndicator).not.toBeInTheDocument();
+  });
+
+  it('does not render pencil icon when active even if hasDraft is true', () => {
+    const { container } = render(<ChannelItem {...defaultProps} hasDraft={true} isActive={true} />);
+    const draftIndicator = container.querySelector('.channel-draft-indicator');
+    expect(draftIndicator).not.toBeInTheDocument();
+  });
+
   // -- Emoji --
 
   it('renders custom emoji when channel has one', () => {

@@ -183,6 +183,15 @@
   flex-shrink: 0;
 }
 
+.conversation-draft-indicator {
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  opacity: 0.7;
+  margin-right: 4px;
+  flex-shrink: 0;
+}
+
 .conversation-unread-badge {
   min-width: 18px;
   height: 18px;

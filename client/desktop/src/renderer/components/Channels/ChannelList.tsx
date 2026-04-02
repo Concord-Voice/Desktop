@@ -5,6 +5,7 @@ import { useServerStore } from '../../stores/serverStore';
 import { useUnreadStore } from '../../stores/unreadStore';
 import { useVoiceStore, type ChannelVoiceMember } from '../../stores/voiceStore';
 import { usePermissionStore } from '../../stores/permissionStore';
+import { useDraftMessageStore } from '../../stores/draftMessageStore';
 import { Permissions, hasPermission } from '../../utils/permissions';
 import { apiFetch } from '../../services/apiClient';
 import { Channel, ChannelGroup } from '../../types/chat';
@@ -284,6 +285,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
   const updateChannelGroup = useChannelStore((state) => state.updateChannelGroup);
   const unreadCounts = useUnreadStore((state) => state.unreadCounts);
   const clearUnread = useUnreadStore((state) => state.clearUnread);
+  const drafts = useDraftMessageStore((s) => s.drafts);
   const voiceChannelId = useVoiceStore((s) => s.activeChannelId);
   const voiceParticipants = useVoiceStore((s) => s.participants);
   const voiceConnectionState = useVoiceStore((s) => s.connectionState);
@@ -777,6 +779,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
           showLinkedText={showLinkedText}
           isLinkedTextActive={isLinkedTextActive}
           linkedTextUnread={linkedTextUnread}
+          hasDraft={!!drafts[channel.id]}
           canReorder={canReorder}
           isDragging={draggingId === channel.id}
           showGhostBefore={
@@ -797,6 +800,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
     [
       activeChannelId,
       unreadCounts,
+      drafts,
       voiceChannelId,
       voiceConnectionState,
       showVoiceTextChat,
