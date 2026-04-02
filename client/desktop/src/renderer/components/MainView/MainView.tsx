@@ -45,6 +45,9 @@ import { useChannelStore } from '../../stores/channelStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { Permissions, hasPermission } from '../../utils/permissions';
 import { useServerChannelSubscriptions } from '../../hooks/useServerChannelSubscriptions';
+import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
+import ShortcutOverlay from '../ui/ShortcutOverlay';
+import ChannelSwitcher from '../ui/ChannelSwitcher';
 import { ServerWithRole } from '../../types/server';
 import { Channel, ChannelGroup } from '../../types/chat';
 import './MainView.css';
@@ -53,6 +56,7 @@ const MainView: React.FC = () => {
   const navigate = useNavigate();
   // Subscribe to ALL channels in the active server for unread tracking
   useServerChannelSubscriptions();
+  useKeyboardShortcuts();
 
   const [isServerActionModalOpen, setIsServerActionModalOpen] = useState(false);
   const [isCreateServerModalOpen, setIsCreateServerModalOpen] = useState(false);
@@ -628,6 +632,9 @@ const MainView: React.FC = () => {
           onClose={() => setCategoryPermissions(null)}
         />
       )}
+
+      <ShortcutOverlay />
+      <ChannelSwitcher />
 
       {/* E2EE tooltip — portaled to body to escape transform-based containing blocks */}
       {e2eeTooltipPos &&

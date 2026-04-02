@@ -194,6 +194,13 @@ const ChatView: React.FC = () => {
     return hasServerPermission(activeServerId, PIN_MESSAGES);
   }, [activeServerId, hasServerPermission]);
 
+  // Toggle search panel via keyboard shortcut (#176)
+  useEffect(() => {
+    const handler = () => setShowSearchPanel((prev) => !prev);
+    globalThis.addEventListener('concord:toggle-search', handler);
+    return () => globalThis.removeEventListener('concord:toggle-search', handler);
+  }, []);
+
   // Fetch pin count from API when channel changes
   useEffect(() => {
     if (!activeChannelId) return;
