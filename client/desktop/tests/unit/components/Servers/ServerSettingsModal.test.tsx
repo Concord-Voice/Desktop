@@ -601,17 +601,17 @@ describe('ServerSettingsModal', () => {
     fireEvent.click(screen.getByText('Moderator'));
     // Check that the name input has the role name
     expect(screen.getByDisplayValue('Moderator')).toBeInTheDocument();
-    // Check that Display Separately checkbox is checked
-    const displaySepCheckbox = screen
-      .getByText('Display Separately')
-      .closest('label')
-      ?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    // Check that Display Separately toggle is checked (ToggleSwitch renders inside .settings-row)
+    const displaySepRow = screen.getByText('Display Separately').closest('.settings-row');
+    const displaySepCheckbox = displaySepRow?.querySelector(
+      'input[type="checkbox"]'
+    ) as HTMLInputElement;
     expect(displaySepCheckbox.checked).toBe(true);
-    // Check that Mentionable checkbox is checked
-    const mentionableCheckbox = screen
-      .getByText('Mentionable')
-      .closest('label')
-      ?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    // Check that Mentionable toggle is checked
+    const mentionableRow = screen.getByText('Mentionable').closest('.settings-row');
+    const mentionableCheckbox = mentionableRow?.querySelector(
+      'input[type="checkbox"]'
+    ) as HTMLInputElement;
     expect(mentionableCheckbox.checked).toBe(true);
   });
 

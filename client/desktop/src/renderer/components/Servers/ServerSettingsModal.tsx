@@ -2,12 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import Modal from '../ui/Modal';
 import ImageCropEditor from '../ui/ImageCropEditor';
 import LoadingSpinner from '../Auth/LoadingSpinner';
-import PermissionGrid from '../Permissions/PermissionGrid';
+import RoleEditorPanel from './RoleEditorPanel';
+import MemberListPanel from './MemberListPanel';
 import { useServerStore } from '../../stores/serverStore';
 import { useInviteStore } from '../../stores/inviteStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useMemberStore } from '../../stores/memberStore';
-import { Permissions, parsePermissions } from '../../utils/permissions';
+import { Permissions } from '../../utils/permissions';
 import { apiFetch } from '../../services/apiClient';
 import { useImageUpload } from '../../hooks/useImageUpload';
 import IconUploadArea from './IconUploadArea';
@@ -59,18 +60,6 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
   // Tab state
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
 
-  // Roles tab state
-  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
-  const [editRoleName, setEditRoleName] = useState('');
-  const [editRoleColor, setEditRoleColor] = useState('#99aab5');
-  const [editRoleDisplaySeparately, setEditRoleDisplaySeparately] = useState(false);
-  const [editRoleMentionable, setEditRoleMentionable] = useState(false);
-  const [editRolePermissions, setEditRolePermissions] = useState<bigint>(0n);
-  const [isRoleSaving, setIsRoleSaving] = useState(false);
-
-  // Members tab state
-  const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
-
   const hasServerPerm = usePermissionStore((s) => s.hasServerPermission);
   const canManageInvites = hasServerPerm(server.id, Permissions.INVITE);
   const canManageRoles = hasServerPerm(server.id, Permissions.MANAGE_ROLES);
@@ -111,8 +100,6 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
     setInviteCopied(false);
     setIsCreatingInvite(false);
     setActiveTab('general');
-    setSelectedRoleId(null);
-    setExpandedMemberId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- banner/icon are local state; including them causes resets on form interaction
   }, [server]);
 
@@ -137,19 +124,6 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
       fetchRoles(server.id);
     }
   }, [isOpen, activeTab, canAssignRoles, server.id, fetchMembers, fetchRoles]);
-
-  // Load selected role data into edit fields
-  const selectedRole = serverRoles.find((r) => r.id === selectedRoleId) || null;
-
-  useEffect(() => {
-    if (selectedRole) {
-      setEditRoleName(selectedRole.name);
-      setEditRoleColor(selectedRole.color || '#99aab5');
-      setEditRoleDisplaySeparately(selectedRole.display_separately);
-      setEditRoleMentionable(selectedRole.mentionable);
-      setEditRolePermissions(parsePermissions(selectedRole.permissions));
-    }
-  }, [selectedRole]);
 
   const handleClose = () => {
     if (!isSubmitting) {
@@ -218,9 +192,6 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
         updated_at: data.server.updated_at,
       });
 
-      // Server update is broadcast to all clients by the backend PATCH handler,
-      // so no separate WS message is needed here.
-
       setSuccessMessage('Server updated successfully!');
 
       setTimeout(() => {
@@ -237,49 +208,36 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
 
   // Roles tab handlers
   const handleCreateRole = useCallback(async () => {
-    const newRole = await createRole(server.id, {
+    return await createRole(server.id, {
       name: 'New Role',
       color: '#99aab5',
       permissions: '0',
     });
-    if (newRole) {
-      setSelectedRoleId(newRole.id);
-    }
   }, [createRole, server.id]);
 
-  const handleSaveRole = useCallback(async () => {
-    if (!selectedRoleId) return;
-    setIsRoleSaving(true);
-    await updateRole(server.id, selectedRoleId, {
-      name: editRoleName,
-      color: editRoleColor,
-      permissions: editRolePermissions.toString(),
-      display_separately: editRoleDisplaySeparately,
-      mentionable: editRoleMentionable,
-    });
-    setIsRoleSaving(false);
-  }, [
-    selectedRoleId,
-    server.id,
-    editRoleName,
-    editRoleColor,
-    editRolePermissions,
-    editRoleDisplaySeparately,
-    editRoleMentionable,
-    updateRole,
-  ]);
+  const handleSaveRole = useCallback(
+    async (
+      roleId: string,
+      data: {
+        name: string;
+        color: string;
+        emoji: string;
+        permissions: string;
+        display_separately: boolean;
+        mentionable: boolean;
+      }
+    ) => {
+      await updateRole(server.id, roleId, data);
+    },
+    [server.id, updateRole]
+  );
 
-  const handleDeleteRole = useCallback(async () => {
-    if (!selectedRoleId) return;
-    const ok = await deleteRole(server.id, selectedRoleId);
-    if (ok) {
-      setSelectedRoleId(null);
-    }
-  }, [selectedRoleId, server.id, deleteRole]);
-
-  const handlePermChange = useCallback((newValue: bigint) => {
-    setEditRolePermissions(newValue);
-  }, []);
+  const handleDeleteRole = useCallback(
+    async (roleId: string) => {
+      await deleteRole(server.id, roleId);
+    },
+    [server.id, deleteRole]
+  );
 
   // Members tab handlers
   const handleToggleRole = useCallback(
@@ -463,235 +421,24 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
 
       {/* Roles Tab */}
       {activeTab === 'roles' && canManageRoles && (
-        <div className="roles-layout">
-          <div className="roles-list">
-            {serverRoles.map((role) => (
-              <button
-                key={role.id}
-                className={`role-item ${selectedRoleId === role.id ? 'selected' : ''}`}
-                onClick={() => setSelectedRoleId(role.id)}
-              >
-                <span
-                  className="role-color-dot"
-                  style={{ backgroundColor: role.color || '#99aab5' }}
-                />
-                {role.name}
-              </button>
-            ))}
-            <button className="create-role-btn" onClick={handleCreateRole}>
-              + Create Role
-            </button>
-          </div>
-
-          <div className="role-editor">
-            {selectedRole ? (
-              <>
-                {selectedRole.is_default && (
-                  <div className="role-default-note">
-                    This is the default role assigned to all members.
-                  </div>
-                )}
-
-                <div className="form-group">
-                  <label htmlFor="modal-role-name" className="form-label">
-                    Role Name
-                  </label>
-                  <input
-                    id="modal-role-name"
-                    type="text"
-                    className="form-input"
-                    value={editRoleName}
-                    onChange={(e) => setEditRoleName(e.target.value)}
-                    disabled={isRoleSaving}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label htmlFor="modal-role-color" className="form-label">
-                    Role Color
-                  </label>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <input
-                      id="modal-role-color"
-                      type="color"
-                      value={editRoleColor}
-                      onChange={(e) => setEditRoleColor(e.target.value)}
-                      disabled={isRoleSaving}
-                      style={{
-                        width: '40px',
-                        height: '32px',
-                        border: 'none',
-                        cursor: 'pointer',
-                        background: 'none',
-                      }}
-                    />
-                    <input
-                      type="text"
-                      className="form-input"
-                      value={editRoleColor}
-                      onChange={(e) => setEditRoleColor(e.target.value)}
-                      disabled={isRoleSaving}
-                      style={{ width: '120px' }}
-                    />
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label className="role-checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={editRoleDisplaySeparately}
-                      onChange={(e) => setEditRoleDisplaySeparately(e.target.checked)}
-                      disabled={isRoleSaving}
-                    />{' '}
-                    Display Separately
-                  </label>
-                </div>
-
-                <div className="form-group">
-                  <label className="role-checkbox-row">
-                    <input
-                      type="checkbox"
-                      checked={editRoleMentionable}
-                      onChange={(e) => setEditRoleMentionable(e.target.checked)}
-                      disabled={isRoleSaving}
-                    />{' '}
-                    Mentionable
-                  </label>
-                </div>
-
-                <div className="form-group">
-                  <span className="form-label">Permissions</span>
-                  <PermissionGrid
-                    value={editRolePermissions}
-                    onChange={handlePermChange}
-                    mode="role"
-                  />
-                </div>
-
-                <div className="role-editor-actions">
-                  {!selectedRole.is_default && (
-                    <button
-                      type="button"
-                      className="server-settings-cancel-btn"
-                      onClick={handleDeleteRole}
-                      disabled={isRoleSaving}
-                    >
-                      Delete
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    className="server-settings-submit-btn"
-                    onClick={handleSaveRole}
-                    disabled={isRoleSaving}
-                  >
-                    {isRoleSaving ? (
-                      <>
-                        Saving...
-                        <LoadingSpinner size="small" inline />
-                      </>
-                    ) : (
-                      'Save Role'
-                    )}
-                  </button>
-                </div>
-              </>
-            ) : (
-              <div style={{ color: 'var(--text-muted)', padding: '40px', textAlign: 'center' }}>
-                Select a role to edit, or create a new one.
-              </div>
-            )}
-          </div>
-        </div>
+        <RoleEditorPanel
+          roles={serverRoles}
+          onCreateRole={handleCreateRole}
+          onSaveRole={handleSaveRole}
+          onDeleteRole={handleDeleteRole}
+        />
       )}
 
       {/* Members Tab */}
       {activeTab === 'members' && canAssignRoles && (
-        <div className="members-list">
-          {members.map((member) => {
-            const isExpanded = expandedMemberId === member.user_id;
-            return (
-              <div
-                key={member.user_id}
-                className={`member-row ${isExpanded ? 'expanded' : ''}`}
-                onClick={() => setExpandedMemberId(isExpanded ? null : member.user_id)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setExpandedMemberId(isExpanded ? null : member.user_id);
-                  }
-                }}
-                role="button"
-                tabIndex={0}
-              >
-                <div className="member-info">
-                  {member.avatar_url ? (
-                    <img src={member.avatar_url} alt="" className="member-avatar" />
-                  ) : (
-                    <div className="member-avatar" />
-                  )}
-                  <div>
-                    <span className="member-name">{member.display_name || member.username}</span>
-                    {member.display_name && (
-                      <span className="member-username">@{member.username}</span>
-                    )}
-                  </div>
-                  <div className="member-roles">
-                    {member.roles
-                      .filter((r) => !serverRoles.find((sr) => sr.id === r.role_id)?.is_default)
-                      .map((r) => (
-                        <span
-                          key={r.role_id}
-                          className="role-badge"
-                          style={{ backgroundColor: r.role_color || '#99aab5' }}
-                        >
-                          {r.role_name}
-                        </span>
-                      ))}
-                  </div>
-                </div>
-                {isExpanded && (
-                  <div className="member-role-assignment" onClick={(e) => e.stopPropagation()}>
-                    {assignableRoles.map((role) => {
-                      const hasRole = member.roles.some((r) => r.role_id === role.id);
-                      return (
-                        <label key={role.id} className="role-checkbox-row">
-                          <input
-                            type="checkbox"
-                            checked={hasRole}
-                            onChange={() => handleToggleRole(member.user_id, role.id, hasRole)}
-                          />
-                          <span
-                            className="role-color-dot"
-                            style={{ backgroundColor: role.color || '#99aab5' }}
-                          />
-                          {role.name}
-                        </label>
-                      );
-                    })}
-                    {assignableRoles.length === 0 && (
-                      <span
-                        style={{
-                          color: 'var(--text-muted)',
-                          fontSize: 'calc(12px * var(--font-scale, 1))',
-                        }}
-                      >
-                        No roles available to assign. Create roles in the Roles tab first.
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-          {members.length === 0 && (
-            <div style={{ color: 'var(--text-muted)', padding: '40px', textAlign: 'center' }}>
-              No members found.
-            </div>
-          )}
-        </div>
+        <MemberListPanel
+          members={members}
+          serverRoles={serverRoles}
+          assignableRoles={assignableRoles}
+          onToggleRole={handleToggleRole}
+        />
       )}
+
       {/* Icon Crop Editor */}
       <ImageCropEditor
         isOpen={icon.showCrop}

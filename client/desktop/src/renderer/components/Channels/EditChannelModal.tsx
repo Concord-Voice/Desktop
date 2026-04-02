@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useFormState } from '../../hooks/useFormState';
-import { Hash, Volume2, Pin } from 'lucide-react';
-import EmojiPicker from '../EmojiPicker/LazyEmojiPicker';
+import { NAME_MAX, validateChannelName, getChannelTypeIcon } from '../../utils/channelHelpers';
+import ChannelEmojiField from './ChannelEmojiField';
 import Modal from '../ui/Modal';
 import CustomSelect from '../ui/CustomSelect';
 import LoadingSpinner from '../Auth/LoadingSpinner';
@@ -22,9 +22,6 @@ interface FormErrors {
   name?: string;
   general?: string;
 }
-
-const NAME_MIN = 3;
-const NAME_MAX = 100;
 
 const EditChannelModal: React.FC<EditChannelModalProps> = ({
   isOpen,
@@ -47,12 +44,9 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
     setSuccessMessage,
     reset: resetFormState,
   } = useFormState<FormErrors>();
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
   const updateChannel = useChannelStore((state) => state.updateChannel);
   const channelGroups = useChannelStore((state) => state.channelGroups);
-
-  const emojiPickerRef = useRef<HTMLDivElement>(null);
 
   // Reset form when channel changes
   useEffect(() => {
@@ -61,29 +55,21 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
     setGroupId(channel.group_id || '');
     setAudioQualityTier(channel.audio_quality_tier ?? null);
     resetFormState();
-    setShowEmojiPicker(false);
   }, [channel, resetFormState]);
 
   const handleClose = () => {
     if (!isSubmitting) {
       resetFormState();
-      setShowEmojiPicker(false);
       onClose();
     }
   };
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
-    const trimmed = name.trim();
-
-    if (!trimmed) {
-      newErrors.name = 'Channel name is required';
-    } else if (trimmed.length < NAME_MIN) {
-      newErrors.name = `Channel name must be at least ${NAME_MIN} characters`;
-    } else if (trimmed.length > NAME_MAX) {
-      newErrors.name = `Channel name must be at most ${NAME_MAX} characters`;
+    const nameError = validateChannelName(name);
+    if (nameError) {
+      newErrors.name = nameError;
     }
-
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -155,24 +141,6 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
     }
   };
 
-  const handleEmojiClick = (emojiChar: string) => {
-    setEmoji(emojiChar);
-    setShowEmojiPicker(false);
-  };
-
-  const getChannelTypeIcon = (channelType: 'text' | 'voice' | 'bulletin') => {
-    switch (channelType) {
-      case 'text':
-        return <Hash size={20} />;
-      case 'voice':
-        return <Volume2 size={20} />;
-      case 'bulletin':
-        return <Pin size={20} />;
-      default:
-        return <Hash size={20} />;
-    }
-  };
-
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Edit Channel">
       <form onSubmit={handleSubmit} className="create-channel-form">
@@ -204,48 +172,7 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
           </span>
         </div>
 
-        {/* Channel Emoji (Optional) */}
-        <div className="channel-form-group">
-          <span className="channel-form-label">Channel Emoji (Optional)</span>
-          <div className="emoji-input-wrapper" ref={emojiPickerRef}>
-            <div className="emoji-input-container">
-              <button
-                type="button"
-                className={`emoji-picker-button ${emoji ? 'has-emoji' : ''}`}
-                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                disabled={isSubmitting}
-                title={emoji ? 'Change emoji' : 'Pick an emoji'}
-              >
-                {emoji ? (
-                  <span className="emoji-picker-button-emoji">{emoji}</span>
-                ) : (
-                  <span className="emoji-picker-button-placeholder">Pick an emoji</span>
-                )}
-              </button>
-              {emoji && (
-                <button
-                  type="button"
-                  className="emoji-clear-btn"
-                  onClick={() => setEmoji('')}
-                  disabled={isSubmitting}
-                  title="Remove emoji"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-            {showEmojiPicker && (
-              <div className="emoji-picker-container">
-                <EmojiPicker
-                  mode="inline"
-                  onSelect={handleEmojiClick}
-                  onClose={() => setShowEmojiPicker(false)}
-                />
-              </div>
-            )}
-          </div>
-          <span className="channel-form-hint">Click to pick a channel emoji</span>
-        </div>
+        <ChannelEmojiField emoji={emoji} onChange={setEmoji} disabled={isSubmitting} />
 
         {/* Channel Type (read-only) */}
         <div className="channel-form-group">

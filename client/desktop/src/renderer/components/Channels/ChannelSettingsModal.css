@@ -1,4 +1,4 @@
-@import './OverrideStyles.css';
+/* Override styles loaded by OverridePanel component */
 
 .sync-section {
   display: flex;
