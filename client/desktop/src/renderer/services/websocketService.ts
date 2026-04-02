@@ -241,12 +241,23 @@ export class WebSocketService {
   sendMessage(
     channelId: string,
     content: string,
-    nonce?: string,
-    isEncrypted: boolean = false,
-    keyVersion?: number,
-    mentionMeta?: string,
-    replyToId?: string
+    opts?: {
+      nonce?: string;
+      isEncrypted?: boolean;
+      keyVersion?: number;
+      mentionMeta?: string;
+      replyToId?: string;
+      attachmentIds?: string[];
+    }
   ): void {
+    const {
+      nonce,
+      isEncrypted = false,
+      keyVersion,
+      mentionMeta,
+      replyToId,
+      attachmentIds,
+    } = opts ?? {};
     const data: Record<string, unknown> = {
       channel_id: channelId,
       content,
@@ -260,6 +271,9 @@ export class WebSocketService {
     }
     if (replyToId) {
       data.reply_to_id = replyToId;
+    }
+    if (attachmentIds && attachmentIds.length > 0) {
+      data.attachment_ids = attachmentIds;
     }
     this.send({ type: 'message', data });
   }
@@ -335,7 +349,8 @@ export class WebSocketService {
     nonce?: string,
     isEncrypted: boolean = false,
     keyVersion?: number,
-    mentionMeta?: string
+    mentionMeta?: string,
+    attachmentIds?: string[]
   ): void {
     const data: Record<string, unknown> = {
       conversation_id: conversationId,
@@ -347,6 +362,9 @@ export class WebSocketService {
     };
     if (mentionMeta) {
       data.mention_meta = mentionMeta;
+    }
+    if (attachmentIds && attachmentIds.length > 0) {
+      data.attachment_ids = attachmentIds;
     }
     this.send({ type: 'dm_message', data });
   }

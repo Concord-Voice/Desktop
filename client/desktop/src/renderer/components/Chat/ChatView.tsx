@@ -81,17 +81,22 @@ const ChatView: React.FC = () => {
 
   // Send message (optimistic via useMessaging — E2EE handled internally)
   const handleSendMessage = useCallback(
-    (content: string, mentionMeta?: string, replyToId?: string) => {
+    (
+      content: string,
+      mentionMeta?: string,
+      replyToId?: string,
+      attachmentIds?: string[],
+      attachments?: import('../../types/chat').AttachmentSummary[]
+    ) => {
       if (!activeChannelId) return;
-      sendMessage(
-        activeChannelId,
-        content,
-        user?.username || 'You',
-        user?.avatar_url,
-        user?.display_name,
+      sendMessage(activeChannelId, content, user?.username || 'You', {
+        avatarUrl: user?.avatar_url,
+        displayName: user?.display_name,
         mentionMeta,
-        replyToId
-      );
+        replyToId,
+        attachmentIds,
+        attachments,
+      });
       setReplyingTo(activeChannelId, null);
     },
     [

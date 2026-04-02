@@ -50,12 +50,14 @@ vi.mock('@/renderer/components/Chat/MessageInput', () => ({
     isChannelEncrypted,
     serverId,
     channelId,
+    onSendMessage,
   }: {
     channelName?: string;
     disabled: boolean;
     isChannelEncrypted?: boolean;
     serverId?: string;
     channelId?: string;
+    onSendMessage?: (...args: unknown[]) => void;
   }) => (
     <div
       data-testid="message-input"
@@ -64,7 +66,14 @@ vi.mock('@/renderer/components/Chat/MessageInput', () => ({
       data-encrypted={isChannelEncrypted}
       data-server-id={serverId}
       data-channel-id={channelId}
-    />
+    >
+      <button
+        data-testid="mock-send-btn"
+        onClick={() => onSendMessage?.('hello', undefined, undefined, ['att-1'], [{ id: 'att-1' }])}
+      >
+        Send
+      </button>
+    </div>
   ),
 }));
 
@@ -73,9 +82,10 @@ vi.mock('@/renderer/hooks/useChannelSubscription', () => ({
   useChannelSubscription: vi.fn(),
 }));
 
+const mockSendMsg = vi.fn();
 vi.mock('@/renderer/hooks/useMessaging', () => ({
   useMessaging: () => ({
-    sendMessage: vi.fn(),
+    sendMessage: mockSendMsg,
     markDelivered: vi.fn(),
     sendTyping: vi.fn(),
     getPendingCount: vi.fn(() => 0),
@@ -323,5 +333,26 @@ describe('ChatView', () => {
     expect(container.querySelector('.chat-header')).toBeInTheDocument();
     expect(container.querySelector('.chat-messages')).toBeInTheDocument();
     expect(container.querySelector('.chat-input')).toBeInTheDocument();
+  });
+
+  // ── Attachment forwarding (#178) ──
+
+  it('passes attachmentIds and attachments through to sendMessage', async () => {
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    const user = (await import('@testing-library/user-event')).default.setup();
+
+    render(<ChatView />);
+    const sendBtn = screen.getByTestId('mock-send-btn');
+    await user.click(sendBtn);
+
+    expect(mockSendMsg).toHaveBeenCalledWith(
+      'channel-1',
+      'hello',
+      expect.any(String),
+      expect.objectContaining({
+        attachmentIds: ['att-1'],
+        attachments: [{ id: 'att-1' }],
+      })
+    );
   });
 });

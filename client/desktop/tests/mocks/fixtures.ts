@@ -1,4 +1,9 @@
-import type { MessageWithStatus, Channel, ReactionSummary } from '../../src/renderer/types/chat';
+import type {
+  AttachmentSummary,
+  MessageWithStatus,
+  Channel,
+  ReactionSummary,
+} from '../../src/renderer/types/chat';
 import type { ServerWithRole } from '../../src/renderer/types/server';
 
 // --- Users ---
@@ -186,4 +191,27 @@ export const mockE2EEKeys = {
   wrapped_private_key: 'mock-wrapped-private-key',
   key_derivation_salt: 'mock-salt',
   key_version: 1,
+};
+
+// --- Attachments (for #178) ---
+
+export const mockAttachment: AttachmentSummary = {
+  id: 'attach-1',
+  file_type: 'photo',
+  mime_type: 'image/png',
+  file_size: 125000,
+};
+
+export const mockAttachment2: AttachmentSummary = {
+  id: 'attach-2',
+  file_type: 'file',
+  mime_type: 'application/pdf',
+  file_size: 2048000,
+};
+
+export const mockMessageWithAttachments: MessageWithStatus = {
+  ...mockMessage,
+  id: 'msg-with-attachments',
+  content: 'Check out these files',
+  attachments: [mockAttachment, mockAttachment2],
 };

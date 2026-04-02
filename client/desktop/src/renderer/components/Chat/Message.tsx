@@ -18,6 +18,7 @@ import {
   renderContent,
   type MentionLookup,
 } from './messageUtils';
+import AttachmentDisplay from './AttachmentDisplay';
 import './Message.css';
 
 export interface MessageProps {
@@ -484,6 +485,14 @@ const Message: React.FC<MessageProps> = ({
             message={message}
             showAvatar={showAvatar}
             mentionLookup={mentionLookup}
+          />
+        )}
+
+        {message.attachments && message.attachments.length > 0 && (
+          <AttachmentDisplay
+            attachments={message.attachments}
+            channelId={message.channel_id}
+            isEncrypted={message.is_encrypted}
           />
         )}
 

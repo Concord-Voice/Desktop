@@ -4,6 +4,7 @@ import { resetAllStores } from '../../../helpers/store-helpers';
 import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { useChannelStore } from '@/renderer/stores/channelStore';
 import { useUserStore } from '@/renderer/stores/userStore';
+import { mockUser } from '../../../mocks/fixtures';
 import { vi } from 'vitest';
 
 // ── Hooks mocks ──────────────────────────────────────────────────────────────
@@ -203,5 +204,26 @@ describe('VoiceTextChat', () => {
     useChannelStore.setState({ channels: [linkedTextChannel] });
     render(<VoiceTextChat />);
     expect(screen.getByText('Failed to load messages')).toBeInTheDocument();
+  });
+
+  it('calls sendMessage with opts pattern when user sends a message', async () => {
+    useVoiceStore.setState({ activeChannelId: VOICE_CHANNEL_ID });
+    useChannelStore.setState({ channels: [linkedTextChannel] });
+    useUserStore.setState({ user: mockUser });
+
+    render(<VoiceTextChat />);
+    const sendBtn = screen.getByText('Send');
+    const user = (await import('@testing-library/user-event')).default.setup();
+    await user.click(sendBtn);
+
+    expect(mockSendMessage).toHaveBeenCalledWith(
+      TEXT_CHANNEL_ID,
+      'test msg',
+      mockUser.username,
+      expect.objectContaining({
+        avatarUrl: mockUser.avatar_url,
+        displayName: mockUser.display_name,
+      })
+    );
   });
 });

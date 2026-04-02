@@ -18,7 +18,16 @@ import { useChannelStore } from '../stores/channelStore';
 import { getWebSocketService, ConnectionState } from '../services/websocketService';
 import { getMessageQueue, type QueuedMessage } from '../services/messageQueue';
 import { e2eeService } from '../services/e2eeService';
-import type { MessageWithStatus } from '../types/chat';
+import type { AttachmentSummary, MessageWithStatus } from '../types/chat';
+
+interface SendMessageOptions {
+  avatarUrl?: string;
+  displayName?: string;
+  mentionMeta?: string;
+  replyToId?: string;
+  attachmentIds?: string[];
+  attachments?: AttachmentSummary[];
+}
 
 export function useMessaging() {
   const wsService = useRef(getWebSocketService()).current;
@@ -53,15 +62,13 @@ export function useMessaging() {
         content = await e2eeService.encryptForChannel(msg.channelId, msg.content);
         keyVersion = e2eeService.getCurrentKeyVersion(msg.channelId);
       }
-      wsService.sendMessage(
-        msg.channelId,
-        content,
-        msg.id,
+      wsService.sendMessage(msg.channelId, content, {
+        nonce: msg.id,
         isEncrypted,
         keyVersion,
-        msg.mentionMeta,
-        msg.replyToId
-      );
+        mentionMeta: msg.mentionMeta,
+        replyToId: msg.replyToId,
+      });
     },
     [wsService]
   );
@@ -91,11 +98,10 @@ export function useMessaging() {
       channelId: string,
       content: string,
       username: string = 'You',
-      avatarUrl?: string,
-      displayName?: string,
-      mentionMeta?: string,
-      replyToId?: string
+      opts?: SendMessageOptions
     ): string => {
+      const { avatarUrl, displayName, mentionMeta, replyToId, attachmentIds, attachments } =
+        opts ?? {};
       // Check if channel is encrypted
       const channel = useChannelStore.getState().channels.find((c) => c.id === channelId);
       const isEncrypted = channel?.is_encrypted ?? false;
@@ -144,6 +150,7 @@ export function useMessaging() {
         status: 'pending',
         reply_to_id: replyToId,
         replied_to: repliedTo,
+        attachments,
       };
 
       addMessage(channelId, optimisticMessage);
@@ -164,15 +171,14 @@ export function useMessaging() {
                 throw new Error('Encryption produced invalid output');
               }
             }
-            wsService.sendMessage(
-              channelId,
-              sendContent,
-              clientMessageId,
+            wsService.sendMessage(channelId, sendContent, {
+              nonce: clientMessageId,
               isEncrypted,
               keyVersion,
               mentionMeta,
-              replyToId
-            );
+              replyToId,
+              attachmentIds,
+            });
             messageQueue.markAsSent(clientMessageId);
             messageQueue.remove(clientMessageId);
             updateMessageStatus(channelId, clientMessageId, 'sent');

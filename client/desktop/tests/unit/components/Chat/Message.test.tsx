@@ -10,7 +10,19 @@ import {
   mockReaction2,
   mockReplyMessage,
   mockPinnedMessage,
+  mockMessageWithAttachments,
 } from '../../../mocks/fixtures';
+
+// Mock AttachmentDisplay to avoid fetch/decrypt complexity
+vi.mock('@/renderer/components/Chat/AttachmentDisplay', () => ({
+  default: ({ attachments }: { attachments: { id: string }[] }) => (
+    <div data-testid="attachment-display">
+      {attachments.map((a) => (
+        <span key={a.id}>{a.id}</span>
+      ))}
+    </div>
+  ),
+}));
 import { useMemberStore } from '@/renderer/stores/memberStore';
 import { usePermissionStore } from '@/renderer/stores/permissionStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
@@ -712,5 +724,23 @@ describe('Message', () => {
     useMemberStore.getState().addMember(mockMember);
     render(<Message message={mockMessage} currentUserId="user-1" showAvatar={true} />);
     expect(document.querySelector('.message-pinned-indicator')).not.toBeInTheDocument();
+  });
+
+  // ── Attachments (#178) ──
+
+  it('renders AttachmentDisplay when message has attachments', () => {
+    useMemberStore.getState().addMember(mockMember);
+    render(
+      <Message message={mockMessageWithAttachments} currentUserId="user-2" showAvatar={true} />
+    );
+    expect(screen.getByTestId('attachment-display')).toBeInTheDocument();
+    expect(screen.getByText('attach-1')).toBeInTheDocument();
+    expect(screen.getByText('attach-2')).toBeInTheDocument();
+  });
+
+  it('does not render AttachmentDisplay when message has no attachments', () => {
+    useMemberStore.getState().addMember(mockMember);
+    render(<Message message={mockMessage} currentUserId="user-2" showAvatar={true} />);
+    expect(screen.queryByTestId('attachment-display')).not.toBeInTheDocument();
   });
 });

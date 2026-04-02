@@ -224,13 +224,36 @@ describe('WebSocketService', () => {
       const ws = await connectAndWaitForOpen(service);
       ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
 
-      service.sendMessage('ch-1', 'Hello', 'nonce-1', false);
+      service.sendMessage('ch-1', 'Hello', { nonce: 'nonce-1', isEncrypted: false });
 
       const sent = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
       expect(sent.type).toBe('message');
       expect(sent.data.channel_id).toBe('ch-1');
       expect(sent.data.content).toBe('Hello');
       expect(sent.data.nonce).toBe('nonce-1');
+    });
+
+    it('sendMessage includes attachment_ids when provided', async () => {
+      const ws = await connectAndWaitForOpen(service);
+      ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
+
+      service.sendMessage('ch-1', 'Files attached', {
+        nonce: 'nonce-2',
+        attachmentIds: ['file-1', 'file-2'],
+      });
+
+      const sent = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
+      expect(sent.data.attachment_ids).toEqual(['file-1', 'file-2']);
+    });
+
+    it('sendMessage omits attachment_ids when empty', async () => {
+      const ws = await connectAndWaitForOpen(service);
+      ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
+
+      service.sendMessage('ch-1', 'No files');
+
+      const sent = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
+      expect(sent.data.attachment_ids).toBeUndefined();
     });
 
     it('sendTypingIndicator builds correct payload', async () => {

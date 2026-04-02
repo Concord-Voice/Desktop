@@ -269,6 +269,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         key_version: keyVersion,
         reply_to_id: data.reply_to_id || undefined,
         replied_to: data.replied_to || undefined,
+        attachments: data.attachments || undefined,
         created_at: data.created_at || new Date().toISOString(),
         updated_at: data.updated_at || new Date().toISOString(),
       };
@@ -828,6 +829,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         avatar_url: data.avatar_url || undefined,
         is_encrypted: isEncrypted,
         key_version: dmKeyVersion,
+        attachments: data.attachments || undefined,
         created_at: data.created_at || new Date().toISOString(),
         updated_at: data.updated_at || new Date().toISOString(),
       };
@@ -839,8 +841,9 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         username: data.username || 'Unknown',
         createdAt: data.created_at || new Date().toISOString(),
         isEncrypted,
-        // Forward attachment type when #178 adds media support
-        ...(data.attachment_type ? { attachmentType: data.attachment_type as string } : {}),
+        ...(data.attachments?.length
+          ? { attachmentType: data.attachments[0].file_type as string }
+          : {}),
       };
 
       if (isEncrypted) {

@@ -154,4 +154,31 @@ export const handlers = [
   http.get(`${API_BASE}/api/v1/channels/:id/keys`, () => {
     return HttpResponse.json({ wrapped_key: 'mock-key', key_version: 1 });
   }),
+
+  // --- Media / Attachments (#178) ---
+  http.post(`${API_BASE}/api/v1/media/upload/attachment`, () => {
+    return HttpResponse.json(
+      {
+        file_id: 'attach-new-1',
+        storage_key: 'attachments/attach-new-1',
+        file_type: 'photo',
+        file_size: 12345,
+      },
+      { status: 201 }
+    );
+  }),
+
+  http.get(`${API_BASE}/api/v1/media/attachments/:file_id`, () => {
+    return new HttpResponse(new ArrayBuffer(100), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'X-File-Mime-Type': 'image/png',
+      },
+    });
+  }),
+
+  http.delete(`${API_BASE}/api/v1/media/:file_id`, () => {
+    return HttpResponse.json({ deleted: true });
+  }),
 ];

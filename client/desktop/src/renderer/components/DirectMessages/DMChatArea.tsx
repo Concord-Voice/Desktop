@@ -71,7 +71,13 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
 
   // Send DM message
   const handleSendMessage = useCallback(
-    (content: string, mentionMeta?: string) => {
+    (
+      content: string,
+      mentionMeta?: string,
+      _replyToId?: string,
+      attachmentIds?: string[],
+      attachments?: import('../../types/chat').AttachmentSummary[]
+    ) => {
       if (!selectedThreadId || !user) return;
 
       const wsService = getWebSocketService();
@@ -94,6 +100,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         status: 'pending',
+        attachments,
       };
 
       addMessage(selectedThreadId, optimisticMessage);
@@ -114,7 +121,8 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
               clientMessageId,
               isEncrypted,
               undefined,
-              mentionMeta
+              mentionMeta,
+              attachmentIds
             );
             messageQueue.markAsSent(clientMessageId);
             messageQueue.remove(clientMessageId);

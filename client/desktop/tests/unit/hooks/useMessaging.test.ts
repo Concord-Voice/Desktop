@@ -128,15 +128,14 @@ describe('useMessaging', () => {
 
     // Wait for async doSend
     await vi.waitFor(() => {
-      expect(mockSendMessage).toHaveBeenCalledWith(
-        'channel-1',
-        'Hello world',
-        'client-msg-1',
-        false,
-        undefined,
-        undefined,
-        undefined
-      );
+      expect(mockSendMessage).toHaveBeenCalledWith('channel-1', 'Hello world', {
+        nonce: 'client-msg-1',
+        isEncrypted: false,
+        keyVersion: undefined,
+        mentionMeta: undefined,
+        replyToId: undefined,
+        attachmentIds: undefined,
+      });
     });
   });
 
@@ -157,11 +156,14 @@ describe('useMessaging', () => {
       expect(mockSendMessage).toHaveBeenCalledWith(
         'channel-2',
         'encrypted-base64-content-that-is-long-enough-for-validation',
-        'client-msg-1',
-        true,
-        3,
-        undefined,
-        undefined
+        {
+          nonce: 'client-msg-1',
+          isEncrypted: true,
+          keyVersion: 3,
+          mentionMeta: undefined,
+          replyToId: undefined,
+          attachmentIds: undefined,
+        }
       );
     });
   });
@@ -233,15 +235,10 @@ describe('useMessaging', () => {
     const { result } = renderHook(() => useMessaging());
 
     act(() => {
-      result.current.sendMessage(
-        'channel-1',
-        'Reply msg',
-        'testuser',
-        undefined,
-        undefined,
-        'mention-meta',
-        'reply-target-id'
-      );
+      result.current.sendMessage('channel-1', 'Reply msg', 'testuser', {
+        mentionMeta: 'mention-meta',
+        replyToId: 'reply-target-id',
+      });
     });
 
     expect(mockEnqueue).toHaveBeenCalledWith(
@@ -271,15 +268,9 @@ describe('useMessaging', () => {
     const { result } = renderHook(() => useMessaging());
 
     act(() => {
-      result.current.sendMessage(
-        'channel-1',
-        'My reply',
-        'testuser',
-        undefined,
-        undefined,
-        undefined,
-        'target-msg'
-      );
+      result.current.sendMessage('channel-1', 'My reply', 'testuser', {
+        replyToId: 'target-msg',
+      });
     });
 
     // Find the optimistic reply in the store (it has the client-generated ID)

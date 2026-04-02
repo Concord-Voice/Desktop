@@ -183,6 +183,19 @@ describe('WebSocketService — extended', () => {
       const sent = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
       expect(sent.data.mention_meta).toBe('mention-data');
     });
+
+    it('includes attachment_ids when provided', async () => {
+      const ws = await connectAndWaitForOpen(service);
+      markConnected(ws);
+
+      service.sendDMMessage('conv-1', 'files', 'n', false, undefined, undefined, [
+        'att-1',
+        'att-2',
+      ]);
+
+      const sent = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
+      expect(sent.data.attachment_ids).toEqual(['att-1', 'att-2']);
+    });
   });
 
   describe('sendDMTypingIndicator', () => {
@@ -254,7 +267,7 @@ describe('WebSocketService — extended', () => {
       const ws = await connectAndWaitForOpen(service);
       markConnected(ws);
 
-      service.sendMessage('ch-1', 'Hello @user', 'nonce-1', false, undefined, 'meta');
+      service.sendMessage('ch-1', 'Hello @user', { nonce: 'nonce-1', mentionMeta: 'meta' });
 
       const sent = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
       expect(sent.data.mention_meta).toBe('meta');

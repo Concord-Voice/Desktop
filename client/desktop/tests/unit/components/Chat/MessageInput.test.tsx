@@ -14,12 +14,46 @@ vi.mock('@/renderer/stores/layoutStore', () => ({
   useLayoutStore: () => false,
 }));
 
+// Mock useFileUpload with controllable state via mutable overrides
+const mockAddFiles = vi.fn().mockReturnValue(null);
+const mockRemoveFile = vi.fn();
+const mockClearFiles = vi.fn();
+const mockUploadAll = vi.fn().mockResolvedValue({ ids: [], summaries: [] });
+const uploadMockOverrides: { hasFiles?: boolean; isUploading?: boolean; files?: unknown[] } = {};
+vi.mock('@/renderer/hooks/useFileUpload', () => ({
+  useFileUpload: () => ({
+    files: uploadMockOverrides.files ?? [],
+    addFiles: mockAddFiles,
+    removeFile: mockRemoveFile,
+    clearFiles: mockClearFiles,
+    uploadAll: mockUploadAll,
+    isUploading: uploadMockOverrides.isUploading ?? false,
+    hasFiles: uploadMockOverrides.hasFiles ?? false,
+  }),
+}));
+
+// Mock AttachmentUploadPreview
+vi.mock('@/renderer/components/Chat/AttachmentUploadPreview', () => ({
+  default: ({ files, onRemove }: { files: unknown[]; onRemove: (i: number) => void }) => (
+    <div data-testid="attachment-preview">
+      {(files as { file: { name: string } }[]).map((f, i) => (
+        <button key={f.file.name} data-testid={`remove-${i}`} onClick={() => onRemove(i)}>
+          Remove {f.file.name}
+        </button>
+      ))}
+    </div>
+  ),
+}));
+
 describe('MessageInput', () => {
   const onSendMessage = vi.fn();
   const onTyping = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
+    uploadMockOverrides.hasFiles = false;
+    uploadMockOverrides.isUploading = false;
+    uploadMockOverrides.files = [];
   });
 
   it('renders textarea', () => {
@@ -48,7 +82,13 @@ describe('MessageInput', () => {
     const textarea = screen.getByRole('textbox');
     await user.type(textarea, 'Hello world');
     await user.keyboard('{Enter}');
-    expect(onSendMessage).toHaveBeenCalledWith('Hello world', undefined, undefined);
+    expect(onSendMessage).toHaveBeenCalledWith(
+      'Hello world',
+      undefined,
+      undefined,
+      undefined,
+      undefined
+    );
   });
 
   it('does not send empty message', async () => {
@@ -114,7 +154,7 @@ describe('MessageInput', () => {
     const textarea = screen.getByRole('textbox');
     await user.type(textarea, '  Hello  ');
     await user.keyboard('{Enter}');
-    expect(onSendMessage).toHaveBeenCalledWith('Hello', undefined, undefined);
+    expect(onSendMessage).toHaveBeenCalledWith('Hello', undefined, undefined, undefined, undefined);
   });
 
   // ── E2EE status bar ──
@@ -167,7 +207,13 @@ describe('MessageInput', () => {
     await user.type(textarea, 'Button send');
     const sendButton = screen.getByLabelText('Send message');
     await user.click(sendButton);
-    expect(onSendMessage).toHaveBeenCalledWith('Button send', undefined, undefined);
+    expect(onSendMessage).toHaveBeenCalledWith(
+      'Button send',
+      undefined,
+      undefined,
+      undefined,
+      undefined
+    );
   });
 
   it('send button disabled when input is disabled', () => {
@@ -248,8 +294,14 @@ describe('MessageInput', () => {
     expect(gifBtn).toBeDisabled();
   });
 
-  it('renders disabled attach file button', () => {
+  it('renders enabled attach file button by default', () => {
     render(<MessageInput onSendMessage={onSendMessage} />);
+    const attachBtn = screen.getByTitle('Attach file');
+    expect(attachBtn).not.toBeDisabled();
+  });
+
+  it('renders disabled attach file button when canAttachFiles is false', () => {
+    render(<MessageInput onSendMessage={onSendMessage} canAttachFiles={false} />);
     const attachBtn = screen.getByTitle('Attach file');
     expect(attachBtn).toBeDisabled();
   });
@@ -297,5 +349,160 @@ describe('MessageInput', () => {
   it('has accessible label on textarea', () => {
     render(<MessageInput onSendMessage={onSendMessage} />);
     expect(screen.getByLabelText('Message input')).toBeInTheDocument();
+  });
+
+  // ── Attachment features (#178) ──
+
+  it('renders disabled attach file button when canAttachFiles is false', () => {
+    render(<MessageInput onSendMessage={onSendMessage} canAttachFiles={false} />);
+    const attachBtn = screen.getByTitle('Attach file');
+    expect(attachBtn).toBeDisabled();
+  });
+
+  it('opens file picker when attach button is clicked', async () => {
+    const user = userEvent.setup();
+    render(<MessageInput onSendMessage={onSendMessage} />);
+    const attachBtn = screen.getByTitle('Attach file');
+    await user.click(attachBtn);
+    // Hidden file input should exist
+    const fileInput = document.querySelector('input[type="file"]');
+    expect(fileInput).toBeInTheDocument();
+  });
+
+  it('has a hidden file input with multiple attribute', () => {
+    render(<MessageInput onSendMessage={onSendMessage} />);
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    expect(fileInput).toBeInTheDocument();
+    expect(fileInput.multiple).toBe(true);
+    expect(fileInput.style.display).toBe('none');
+  });
+
+  it('applies drag-over class on dragOver event', () => {
+    render(<MessageInput onSendMessage={onSendMessage} />);
+    const wrapper = document.querySelector('.message-input-wrapper') as HTMLElement;
+    fireEvent.dragOver(wrapper);
+    expect(wrapper.classList.contains('drag-over')).toBe(true);
+  });
+
+  it('removes drag-over class on dragLeave event', () => {
+    render(<MessageInput onSendMessage={onSendMessage} />);
+    const wrapper = document.querySelector('.message-input-wrapper') as HTMLElement;
+    fireEvent.dragOver(wrapper);
+    fireEvent.dragLeave(wrapper);
+    expect(wrapper.classList.contains('drag-over')).toBe(false);
+  });
+
+  it('removes drag-over class on drop event', () => {
+    render(<MessageInput onSendMessage={onSendMessage} />);
+    const wrapper = document.querySelector('.message-input-wrapper') as HTMLElement;
+    fireEvent.dragOver(wrapper);
+    fireEvent.drop(wrapper, {
+      dataTransfer: { files: [] },
+    });
+    expect(wrapper.classList.contains('drag-over')).toBe(false);
+  });
+
+  it('does not apply drag-over when canAttachFiles is false', () => {
+    render(<MessageInput onSendMessage={onSendMessage} canAttachFiles={false} />);
+    const wrapper = document.querySelector('.message-input-wrapper') as HTMLElement;
+    fireEvent.dragOver(wrapper);
+    expect(wrapper.classList.contains('drag-over')).toBe(false);
+  });
+
+  it('send button is disabled when no content and no files', () => {
+    render(<MessageInput onSendMessage={onSendMessage} />);
+    const sendButton = screen.getByLabelText('Send message');
+    expect(sendButton).toBeDisabled();
+  });
+
+  it('send button is enabled when files are queued', () => {
+    uploadMockOverrides.hasFiles = true;
+    render(<MessageInput onSendMessage={onSendMessage} />);
+    const sendButton = screen.getByLabelText('Send message');
+    expect(sendButton).not.toBeDisabled();
+  });
+
+  it('send button is disabled while uploading', () => {
+    uploadMockOverrides.hasFiles = true;
+    uploadMockOverrides.isUploading = true;
+    render(<MessageInput onSendMessage={onSendMessage} />);
+    const sendButton = screen.getByLabelText('Send message');
+    expect(sendButton).toBeDisabled();
+  });
+
+  it('calls uploadAll and onSendMessage when sending with files', async () => {
+    uploadMockOverrides.hasFiles = true;
+    mockUploadAll.mockResolvedValue({
+      ids: ['file-1'],
+      summaries: [{ id: 'file-1', file_type: 'photo', mime_type: 'image/png', file_size: 100 }],
+    });
+
+    const user = userEvent.setup();
+    render(<MessageInput onSendMessage={onSendMessage} />);
+
+    const textarea = screen.getByRole('textbox');
+    await user.type(textarea, 'Check this out');
+    await user.keyboard('{Enter}');
+
+    // Wait for the async handleSend to complete
+    await vi.waitFor(() => {
+      expect(mockUploadAll).toHaveBeenCalled();
+    });
+    expect(mockClearFiles).toHaveBeenCalled();
+    expect(onSendMessage).toHaveBeenCalledWith(
+      'Check this out',
+      undefined,
+      undefined,
+      ['file-1'],
+      [{ id: 'file-1', file_type: 'photo', mime_type: 'image/png', file_size: 100 }]
+    );
+  });
+
+  it('sends with space content when only files (no text)', async () => {
+    uploadMockOverrides.hasFiles = true;
+    mockUploadAll.mockResolvedValue({
+      ids: ['file-1'],
+      summaries: [{ id: 'file-1', file_type: 'file', mime_type: 'text/plain', file_size: 50 }],
+    });
+
+    const user = userEvent.setup();
+    render(<MessageInput onSendMessage={onSendMessage} />);
+
+    const sendButton = screen.getByLabelText('Send message');
+    await user.click(sendButton);
+
+    await vi.waitFor(() => {
+      expect(onSendMessage).toHaveBeenCalledWith(
+        ' ',
+        undefined,
+        undefined,
+        ['file-1'],
+        expect.any(Array)
+      );
+    });
+  });
+
+  it('shows upload error when uploadAll fails', async () => {
+    uploadMockOverrides.hasFiles = true;
+    mockUploadAll.mockRejectedValue(new Error('Network error'));
+
+    const user = userEvent.setup();
+    render(<MessageInput onSendMessage={onSendMessage} />);
+
+    const textarea = screen.getByRole('textbox');
+    await user.type(textarea, 'test');
+    await user.keyboard('{Enter}');
+
+    await vi.waitFor(() => {
+      expect(screen.getByText('Failed to upload attachments')).toBeInTheDocument();
+    });
+    expect(onSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('renders attachment preview when files are present', () => {
+    uploadMockOverrides.hasFiles = true;
+    uploadMockOverrides.files = [{ file: { name: 'photo.png' }, progress: 0, status: 'pending' }];
+    render(<MessageInput onSendMessage={onSendMessage} />);
+    expect(screen.getByTestId('attachment-preview')).toBeInTheDocument();
   });
 });

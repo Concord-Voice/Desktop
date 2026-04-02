@@ -6,12 +6,20 @@ import EmojiPicker from '../EmojiPicker/LazyEmojiPicker';
 import UserPanel from '../User/UserPanel';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { buildAddendum, encodeMentionMeta, type ParsedMention } from '../../utils/mentions';
-import type { MessageWithStatus } from '../../types/chat';
+import type { AttachmentSummary, MessageWithStatus } from '../../types/chat';
+import { useFileUpload } from '../../hooks/useFileUpload';
+import AttachmentUploadPreview from './AttachmentUploadPreview';
 import ReplyPreviewBar from './ReplyPreviewBar';
 import './MessageInput.css';
 
 export interface MessageInputProps {
-  onSendMessage: (content: string, mentionMeta?: string, replyToId?: string) => void;
+  onSendMessage: (
+    content: string,
+    mentionMeta?: string,
+    replyToId?: string,
+    attachmentIds?: string[],
+    attachments?: AttachmentSummary[]
+  ) => void;
   onTyping?: (isTyping: boolean) => void;
   placeholder?: string;
   maxLength?: number;
@@ -28,6 +36,8 @@ export interface MessageInputProps {
   replyingTo?: MessageWithStatus | null;
   /** Cancel the reply */
   onCancelReply?: () => void;
+  /** Whether the user has permission to attach files */
+  canAttachFiles?: boolean;
 }
 
 const MessageInput: React.FC<MessageInputProps> = ({
@@ -43,9 +53,22 @@ const MessageInput: React.FC<MessageInputProps> = ({
   conversationId,
   replyingTo,
   onCancelReply,
+  canAttachFiles = true,
 }) => {
   const channelPanelPinned = useLayoutStore((s) => s.channelPanelPinned);
   const [content, setContent] = useState('');
+  const [dragOver, setDragOver] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const {
+    files: uploadFiles,
+    addFiles,
+    removeFile,
+    clearFiles,
+    uploadAll,
+    isUploading,
+    hasFiles,
+  } = useFileUpload();
   const [cursorPos, setCursorPos] = useState(0);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -256,42 +279,97 @@ const MessageInput: React.FC<MessageInputProps> = ({
     [content, cursorPos]
   );
 
-  const handleSend = () => {
+  const buildMentionMeta = (trimmedContent: string): string | undefined => {
+    if (selectedMentionsRef.current.length === 0) return undefined;
+    const validMentions = selectedMentionsRef.current.filter((m) => trimmedContent.includes(m.raw));
+    const addendum = buildAddendum(validMentions);
+    return addendum ? encodeMentionMeta(addendum) : undefined;
+  };
+
+  const stopTypingIndicator = () => {
+    if (onTyping && isTypingRef.current) {
+      isTypingRef.current = false;
+      onTyping(false);
+    }
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+  };
+
+  const handleSend = async () => {
     const trimmedContent = content.trim();
-    if (trimmedContent && trimmedContent.length <= maxLength) {
-      // Stop typing indicator before sending
-      if (onTyping && isTypingRef.current) {
-        isTypingRef.current = false;
-        onTyping(false);
-      }
-      if (typingTimeoutRef.current) {
-        clearTimeout(typingTimeoutRef.current);
-        typingTimeoutRef.current = null;
-      }
+    if (trimmedContent.length > maxLength) return; // block over-limit even with attachments
+    const hasContent = trimmedContent.length > 0;
+    if (!hasContent && !hasFiles) return;
 
-      // Build mention addendum from autocomplete-selected mentions.
-      // Prune stale mentions: only include mentions whose @label text still
-      // exists in the final content (user may have edited/deleted mentions).
-      let mentionMeta: string | undefined;
-      if (selectedMentionsRef.current.length > 0) {
-        const validMentions = selectedMentionsRef.current.filter((m) =>
-          trimmedContent.includes(m.raw)
-        );
-        const addendum = buildAddendum(validMentions);
-        if (addendum) {
-          mentionMeta = encodeMentionMeta(addendum);
+    stopTypingIndicator();
+    const mentionMeta = buildMentionMeta(trimmedContent);
+
+    // Upload attachments (if any) before sending
+    let attachmentIds: string[] | undefined;
+    let attachmentSummaries: import('../../types/chat').AttachmentSummary[] | undefined;
+    if (hasFiles) {
+      try {
+        setUploadError(null);
+        const targetId = conversationId || channelId || '';
+        const result = await uploadAll(targetId, isChannelEncrypted, conversationId);
+        if (result.ids.length > 0) {
+          attachmentIds = result.ids;
+          attachmentSummaries = result.summaries;
         }
-      }
-
-      onSendMessage(trimmedContent, mentionMeta, replyingTo?.id);
-      setContent('');
-      setShowMentions(false);
-      selectedMentionsRef.current = [];
-      onCancelReply?.();
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
+      } catch {
+        setUploadError('Failed to upload attachments');
+        return;
       }
     }
+
+    const sendContent = trimmedContent || (attachmentIds ? ' ' : '');
+    if (!sendContent) return;
+
+    onSendMessage(sendContent, mentionMeta, replyingTo?.id, attachmentIds, attachmentSummaries);
+    setContent('');
+    setShowMentions(false);
+    selectedMentionsRef.current = [];
+    clearFiles();
+    setUploadError(null);
+    onCancelReply?.();
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      const error = addFiles(e.target.files);
+      if (error) setUploadError(error);
+      else setUploadError(null);
+    }
+    // Reset input so same file can be re-selected
+    e.target.value = '';
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!canAttachFiles) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDragOver(false);
+    if (!canAttachFiles || !e.dataTransfer.files.length) return;
+    const error = addFiles(e.dataTransfer.files);
+    if (error) setUploadError(error);
+    else setUploadError(null);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -371,7 +449,14 @@ const MessageInput: React.FC<MessageInputProps> = ({
         )}
       </div>
 
-      <div className="message-input-wrapper" style={{ position: 'relative' }}>
+      <section
+        aria-label="Message composition area"
+        className={`message-input-wrapper ${dragOver ? 'drag-over' : ''}`}
+        style={{ position: 'relative' }}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+      >
         {showMentions && (
           <MentionAutocomplete
             ref={mentionAutocompleteRef}
@@ -406,6 +491,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
               onCancel={onCancelReply}
             />
           )}
+          {hasFiles && <AttachmentUploadPreview files={uploadFiles} onRemove={removeFile} />}
+          {uploadError && <div className="upload-error">{uploadError}</div>}
           <textarea
             ref={textareaRef}
             className="message-input-textarea"
@@ -414,6 +501,14 @@ const MessageInput: React.FC<MessageInputProps> = ({
             onChange={handleChange}
             onKeyDown={handleKeyDown}
             onSelect={handleSelect}
+            onPaste={(e) => {
+              if (canAttachFiles && e.clipboardData.files.length > 0) {
+                e.preventDefault();
+                const error = addFiles(e.clipboardData.files);
+                if (error) setUploadError(error);
+                else setUploadError(null);
+              }
+            }}
             disabled={disabled}
             rows={1}
             aria-label="Message input"
@@ -429,7 +524,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
             <button
               className="send-button"
               onClick={handleSend}
-              disabled={disabled || !content.trim()}
+              disabled={disabled || isUploading || (!content.trim() && !hasFiles)}
               aria-label="Send message"
             >
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -455,12 +550,24 @@ const MessageInput: React.FC<MessageInputProps> = ({
             <button className="media-btn" title="GIF" disabled>
               <ImagePlay size={18} />
             </button>
-            <button className="media-btn" title="Attach file" disabled>
+            <button
+              className="media-btn"
+              title="Attach file"
+              disabled={!canAttachFiles}
+              onClick={() => fileInputRef.current?.click()}
+            >
               <Paperclip size={18} />
             </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              style={{ display: 'none' }}
+              onChange={handleFileSelect}
+            />
           </div>
         </div>
-      </div>
+      </section>
 
       {showEmojiPicker && (
         <EmojiPicker

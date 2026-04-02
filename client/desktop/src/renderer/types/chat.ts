@@ -1,3 +1,12 @@
+// --- Attachment Types (for #178) ---
+
+export interface AttachmentSummary {
+  id: string;
+  file_type: 'photo' | 'animated' | 'video' | 'audio' | 'file';
+  mime_type: string;
+  file_size: number;
+}
+
 export interface Message {
   id: string;
   channel_id: string;
@@ -9,6 +18,7 @@ export interface Message {
   reply_to_id?: string;
   pinned_at?: string;
   pinned_by?: string;
+  attachments?: AttachmentSummary[];
   created_at: string;
   updated_at: string;
 }

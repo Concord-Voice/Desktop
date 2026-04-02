@@ -55,13 +55,10 @@ const VoiceTextChat: React.FC = () => {
   const handleSendMessage = useCallback(
     (content: string) => {
       if (!channelId) return;
-      sendMessage(
-        channelId,
-        content,
-        user?.username || 'You',
-        user?.avatar_url,
-        user?.display_name
-      );
+      sendMessage(channelId, content, user?.username || 'You', {
+        avatarUrl: user?.avatar_url,
+        displayName: user?.display_name,
+      });
     },
     [channelId, sendMessage, user?.username, user?.avatar_url, user?.display_name]
   );
