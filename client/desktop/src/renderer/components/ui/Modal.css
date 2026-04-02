@@ -97,6 +97,11 @@
   }
 }
 
+/* Nested modals stack above their parent */
+.modal-overlay .modal-overlay {
+  z-index: 1001;
+}
+
 /* Respect user preference to reduce animations */
 [data-reduce-animations='true'] .modal-overlay {
   animation: none;

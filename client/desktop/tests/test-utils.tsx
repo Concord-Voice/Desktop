@@ -2,9 +2,14 @@ import React from 'react';
 import { render, RenderOptions } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import userEventLib from '@testing-library/user-event';
+import { ModalProvider } from '@/renderer/components/ui/ModalContext';
 
 function AllProviders({ children }: { children: React.ReactNode }) {
-  return <BrowserRouter>{children}</BrowserRouter>;
+  return (
+    <BrowserRouter>
+      <ModalProvider>{children}</ModalProvider>
+    </BrowserRouter>
+  );
 }
 
 function customRender(ui: React.ReactElement, options?: Omit<RenderOptions, 'wrapper'>) {

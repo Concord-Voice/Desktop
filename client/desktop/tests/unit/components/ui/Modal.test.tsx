@@ -71,4 +71,75 @@ describe('Modal', () => {
     const container = document.querySelector('.modal-container');
     expect(container?.classList.contains('modal-small')).toBe(true);
   });
+
+  describe('nested modals', () => {
+    const onCloseOuter = vi.fn();
+    const onCloseInner = vi.fn();
+
+    beforeEach(() => {
+      onCloseOuter.mockClear();
+      onCloseInner.mockClear();
+    });
+
+    function NestedModals({ innerOpen = true }: { innerOpen?: boolean }) {
+      return (
+        <Modal isOpen={true} onClose={onCloseOuter} title="Outer Modal">
+          <p>Outer content</p>
+          <Modal isOpen={innerOpen} onClose={onCloseInner} title="Inner Modal">
+            <p>Inner content</p>
+          </Modal>
+        </Modal>
+      );
+    }
+
+    it('Escape closes only the topmost (inner) modal', async () => {
+      const user = userEvent.setup();
+      render(<NestedModals />);
+
+      await user.keyboard('{Escape}');
+
+      expect(onCloseInner).toHaveBeenCalledTimes(1);
+      expect(onCloseOuter).not.toHaveBeenCalled();
+    });
+
+    it('overlay click closes only the topmost modal', async () => {
+      const user = userEvent.setup();
+      render(<NestedModals />);
+
+      // The last .modal-overlay in the DOM is the inner modal's overlay
+      const overlays = document.querySelectorAll('.modal-overlay');
+      const innerOverlay = overlays[overlays.length - 1];
+      await user.click(innerOverlay);
+
+      expect(onCloseInner).toHaveBeenCalledTimes(1);
+      expect(onCloseOuter).not.toHaveBeenCalled();
+    });
+
+    it('after inner closes, Escape closes the outer modal', async () => {
+      const user = userEvent.setup();
+      const { rerender } = render(<NestedModals />);
+
+      // Close inner modal
+      rerender(<NestedModals innerOpen={false} />);
+
+      await user.keyboard('{Escape}');
+
+      expect(onCloseOuter).toHaveBeenCalledTimes(1);
+      expect(onCloseInner).not.toHaveBeenCalled();
+    });
+
+    it('after inner closes, overlay click closes the outer modal', async () => {
+      const user = userEvent.setup();
+      const { rerender } = render(<NestedModals />);
+
+      // Close inner modal
+      rerender(<NestedModals innerOpen={false} />);
+
+      const overlay = document.querySelector('.modal-overlay')!;
+      await user.click(overlay);
+
+      expect(onCloseOuter).toHaveBeenCalledTimes(1);
+      expect(onCloseInner).not.toHaveBeenCalled();
+    });
+  });
 });

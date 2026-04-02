@@ -2,6 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { HashRouter } from 'react-router-dom';
 import App from './App';
+import { ModalProvider } from './components/ui/ModalContext';
 import './styles/index.css';
 
 // Apply persisted theme before React renders to prevent flash
@@ -68,7 +69,9 @@ const root = createRoot(container);
 root.render(
   <React.StrictMode>
     <HashRouter>
-      <App />
+      <ModalProvider>
+        <App />
+      </ModalProvider>
     </HashRouter>
   </React.StrictMode>
 );
