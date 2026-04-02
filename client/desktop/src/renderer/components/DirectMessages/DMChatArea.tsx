@@ -1,5 +1,5 @@
-import React, { useCallback } from 'react';
-import { MessageSquare } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
+import { MessageSquare, Users } from 'lucide-react';
 import MessageList from '../Chat/MessageList';
 import MessageInput from '../Chat/MessageInput';
 import TypingIndicator from '../Chat/TypingIndicator';
@@ -14,6 +14,7 @@ import { getWebSocketService, ConnectionState } from '../../services/websocketSe
 import { getMessageQueue } from '../../services/messageQueue';
 import type { MessageWithStatus } from '../../types/chat';
 import { usePrivacyStore } from '../../stores/privacyStore';
+import GroupInfoPanel from './GroupInfoPanel';
 import './DirectMessages.css';
 
 /*
@@ -40,6 +41,7 @@ function getThreadName(conv: DMConversation | undefined, currentUserId: string):
 }
 
 const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
+  const [showGroupInfo, setShowGroupInfo] = useState(false);
   const conversations = useDMStore((s) => s.conversations);
   const clearUnread = useDMStore((s) => s.clearUnread);
   const addMessage = useChatStore((s) => s.addMessage);
@@ -242,67 +244,84 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
   }
 
   return (
-    <div
-      className="dm-chat-placeholder"
-      style={{ display: 'flex', flexDirection: 'column', height: '100%' }}
-    >
-      <div className="dm-chat-header">
-        <div className="conversation-avatar" style={{ width: 28, height: 28 }}>
-          <span className="conversation-avatar-initial" style={{ fontSize: 12 }}>
-            {threadName.charAt(0).toUpperCase()}
-          </span>
-        </div>
-        <div>
-          <div className="dm-chat-header-name">{threadName}</div>
-          <div className="dm-chat-header-status">
-            {(() => {
-              if (activeConv?.isPersonal) return 'Your personal notes';
-              if (activeConv && !activeConv.isGroup) {
-                return (
-                  activeConv.participants.find((p) => p.userId !== currentUserId)?.status ||
-                  'offline'
-                );
-              }
-              return `${activeConv?.participants.length || 0} members`;
-            })()}
+    <div className="dm-chat-area-wrapper">
+      <div
+        className="dm-chat-placeholder"
+        style={{ display: 'flex', flexDirection: 'column', height: '100%', flex: 1, minWidth: 0 }}
+      >
+        <div className="dm-chat-header">
+          <div className="conversation-avatar" style={{ width: 28, height: 28 }}>
+            <span className="conversation-avatar-initial" style={{ fontSize: 12 }}>
+              {threadName.charAt(0).toUpperCase()}
+            </span>
           </div>
+          <div style={{ flex: 1 }}>
+            <div className="dm-chat-header-name">{threadName}</div>
+            <div className="dm-chat-header-status">
+              {(() => {
+                if (activeConv?.isPersonal) return 'Your personal notes';
+                if (activeConv && !activeConv.isGroup) {
+                  return (
+                    activeConv.participants.find((p) => p.userId !== currentUserId)?.status ||
+                    'offline'
+                  );
+                }
+                return `${activeConv?.participants.length || 0} members`;
+              })()}
+            </div>
+          </div>
+          {activeConv?.isGroup && (
+            <button
+              type="button"
+              className="dm-chat-header-group-info-btn"
+              onClick={() => setShowGroupInfo((v) => !v)}
+              aria-label="Toggle group info"
+              title="Group Info"
+            >
+              <Users size={18} />
+            </button>
+          )}
         </div>
-      </div>
 
-      {error && <div className="chat-error">{error}</div>}
+        {error && <div className="chat-error">{error}</div>}
 
-      <div className="chat-messages" style={{ flex: 1, minHeight: 0 }}>
-        <MessageList
-          key={selectedThreadId}
-          messages={messages}
-          currentUserId={currentUserId}
-          channelName={threadName}
-          isLoading={isLoading}
-          hasMore={hasMore}
-          onLoadMore={handleLoadMore}
-          onEditMessage={handleEditMessage}
-          onDeleteMessage={handleDeleteMessage}
-          onUnseenOnLeave={handleUnseenOnLeave}
-        />
-      </div>
-
-      <TypingIndicator channelId={selectedThreadId} />
-
-      {dmPrivacyLevel === 0 ? (
-        <div className="dm-disabled-notice">
-          All DMs have been disabled. Change your privacy settings to restore DMs.
-        </div>
-      ) : (
-        <div className="chat-input">
-          <MessageInput
-            onSendMessage={handleSendMessage}
-            onTyping={handleTyping}
+        <div className="chat-messages" style={{ flex: 1, minHeight: 0 }}>
+          <MessageList
+            key={selectedThreadId}
+            messages={messages}
+            currentUserId={currentUserId}
             channelName={threadName}
-            disabled={!currentUserId}
-            isChannelEncrypted={activeConv?.isEncrypted ?? false}
-            conversationId={selectedThreadId || undefined}
+            isLoading={isLoading}
+            hasMore={hasMore}
+            onLoadMore={handleLoadMore}
+            onEditMessage={handleEditMessage}
+            onDeleteMessage={handleDeleteMessage}
+            onUnseenOnLeave={handleUnseenOnLeave}
           />
         </div>
+
+        <TypingIndicator channelId={selectedThreadId} />
+
+        {dmPrivacyLevel === 0 ? (
+          <div className="dm-disabled-notice">
+            All DMs have been disabled. Change your privacy settings to restore DMs.
+          </div>
+        ) : (
+          <div className="chat-input">
+            <MessageInput
+              onSendMessage={handleSendMessage}
+              onTyping={handleTyping}
+              channelName={threadName}
+              disabled={!currentUserId}
+              isChannelEncrypted={activeConv?.isEncrypted ?? false}
+              conversationId={selectedThreadId || undefined}
+            />
+          </div>
+        )}
+      </div>
+
+      {showGroupInfo && activeConv?.isGroup && (
+        <GroupInfoPanel conversation={activeConv} onClose={() => setShowGroupInfo(false)} />
       )}
     </div>
   );

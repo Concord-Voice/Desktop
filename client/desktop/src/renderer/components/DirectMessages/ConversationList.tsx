@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { MessageSquare, Users, BookOpen } from 'lucide-react';
+import { MessageSquare, Users, BookOpen, UserPlus } from 'lucide-react';
 import { useDMStore, type DMConversation } from '../../stores/dmStore';
 import { useUserStore } from '../../stores/userStore';
 import { e2eeService } from '../../services/e2eeService';
+import CreateGroupModal from './CreateGroupModal';
 import './DirectMessages.css';
 
 interface ConversationListProps {
@@ -50,6 +51,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
   onSelectThread,
 }) => {
   const [search, setSearch] = useState('');
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
   const conversations = useDMStore((s) => s.conversations);
   const fetchConversations = useDMStore((s) => s.fetchConversations);
   const openPersonalThread = useDMStore((s) => s.openPersonalThread);
@@ -125,6 +127,15 @@ const ConversationList: React.FC<ConversationListProps> = ({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+        <button
+          type="button"
+          className="create-group-btn"
+          onClick={() => setIsCreateGroupOpen(true)}
+          aria-label="Create Group DM"
+          title="Create Group DM"
+        >
+          <UserPlus size={16} />
+        </button>
       </div>
 
       {/* Pinned Personal Thread */}
@@ -223,6 +234,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
           );
         })
       )}
+      <CreateGroupModal isOpen={isCreateGroupOpen} onClose={() => setIsCreateGroupOpen(false)} />
     </div>
   );
 };

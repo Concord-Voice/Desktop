@@ -954,12 +954,82 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
               username: p.username as string,
               displayName: p.display_name as string | undefined,
               avatarUrl: p.avatar_url as string | undefined,
+              colorScheme: p.color_scheme as string | undefined,
+              role: p.role as string | undefined,
             })
           ),
+          iconUrl: (data.conversation.icon_url as string) || undefined,
+          createdBy: (data.conversation.created_by as string) || undefined,
           lastMessage: null,
           unreadCount: 0,
           createdAt: data.conversation.created_at,
         });
+      }
+    });
+
+    // DM participant added to group
+    const unsubDMParticipantAdded = wsService.on(
+      'dm_participant_added',
+      (msg: WebSocketMessage) => {
+        const { data } = msg;
+        const conversationId = data.conversation_id;
+        if (!conversationId) return;
+        // Refetch the full conversation to get updated participant list
+        useDMStore.getState().fetchConversations();
+      }
+    );
+
+    // DM participant removed from group
+    const unsubDMParticipantRemoved = wsService.on(
+      'dm_participant_removed',
+      (msg: WebSocketMessage) => {
+        const { data } = msg;
+        const conversationId = data.conversation_id;
+        const removedUserId = data.user_id;
+        if (!conversationId || !removedUserId) return;
+
+        // Check if we were the one removed
+        const currentUser = useUserStore.getState().user;
+        if (currentUser && removedUserId === currentUser.id) {
+          useDMStore.getState().removeConversation(conversationId);
+          return;
+        }
+
+        // Remove participant from conversation locally
+        const dmStore = useDMStore.getState();
+        const conv = dmStore.conversations.find((c) => c.id === conversationId);
+        if (conv) {
+          dmStore.updateConversation(conversationId, {
+            participants: conv.participants.filter((p) => p.userId !== removedUserId),
+          });
+        }
+      }
+    );
+
+    // DM member role changed
+    const unsubDMRoleChanged = wsService.on('dm_role_changed', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      const conversationId = data.conversation_id;
+      const userId = data.user_id;
+      const role = data.role;
+      if (!conversationId || !userId || !role) return;
+
+      const dmStore = useDMStore.getState();
+      const conv = dmStore.conversations.find((c) => c.id === conversationId);
+      if (conv) {
+        dmStore.updateConversation(conversationId, {
+          participants: conv.participants.map((p) =>
+            p.userId === userId ? { ...p, role: role as 'admin' | 'member' } : p
+          ),
+        });
+      }
+    });
+
+    // DM group deleted
+    const unsubDMGroupDeleted = wsService.on('dm_group_deleted', (msg: WebSocketMessage) => {
+      const { data } = msg;
+      if (data.conversation_id) {
+        useDMStore.getState().removeConversation(data.conversation_id);
       }
     });
 
@@ -1174,6 +1244,10 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       unsubDMTyping();
       unsubDMUnread();
       unsubDMConvCreated();
+      unsubDMParticipantAdded();
+      unsubDMParticipantRemoved();
+      unsubDMRoleChanged();
+      unsubDMGroupDeleted();
       unsubDMSubscribed();
       unsubFriendRequestReceived();
       unsubFriendRequestAccepted();

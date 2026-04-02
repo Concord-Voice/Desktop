@@ -831,4 +831,699 @@ describe('dmStore', () => {
       expect(state.dmCallConversationId).toBeNull();
     });
   });
+
+  // ── mapConversation with new fields ───────────────────────────────
+
+  describe('mapConversation with new fields', () => {
+    it('maps role, iconUrl, and createdBy from API response', async () => {
+      // Ensure isLoading is false (clearDMs does not reset it)
+      useDMStore.setState({ isLoading: false });
+      server.use(
+        http.get(`${API_BASE}/api/v1/dm/conversations`, () => {
+          return HttpResponse.json({
+            conversations: [
+              {
+                id: 'group-1',
+                is_group: true,
+                is_personal: false,
+                name: 'Test Group',
+                is_encrypted: false,
+                icon_url: '/api/v1/media/dm-icons/group-1',
+                created_by: 'user-1',
+                participants: [
+                  { user_id: 'user-1', username: 'alice', role: 'admin' },
+                  { user_id: 'user-2', username: 'bob', role: 'member' },
+                ],
+                last_message: null,
+                unread_count: 0,
+                created_at: '2025-01-01T00:00:00Z',
+              },
+            ],
+          });
+        })
+      );
+      await useDMStore.getState().fetchConversations();
+      const conv = useDMStore.getState().conversations[0];
+      expect(conv.iconUrl).toBe('/api/v1/media/dm-icons/group-1');
+      expect(conv.createdBy).toBe('user-1');
+      expect(conv.participants[0].role).toBe('admin');
+      expect(conv.participants[1].role).toBe('member');
+    });
+
+    it('maps undefined iconUrl and createdBy when absent', async () => {
+      useDMStore.setState({ isLoading: false });
+      server.use(
+        http.get(`${API_BASE}/api/v1/dm/conversations`, () => {
+          return HttpResponse.json({
+            conversations: [
+              {
+                id: 'conv-no-icon',
+                is_group: false,
+                is_personal: false,
+                name: null,
+                is_encrypted: false,
+                participants: [{ user_id: 'user-1', username: 'alice' }],
+                last_message: null,
+                unread_count: 0,
+                created_at: '2025-01-01T00:00:00Z',
+              },
+            ],
+          });
+        })
+      );
+      await useDMStore.getState().fetchConversations();
+      const conv = useDMStore.getState().conversations[0];
+      expect(conv.iconUrl).toBeUndefined();
+      expect(conv.createdBy).toBeUndefined();
+    });
+  });
+
+  // ── group management actions ──────────────────────────────────────
+
+  describe('group management actions', () => {
+    const mockGroupConv: DMConversation = {
+      id: 'group-1',
+      isGroup: true,
+      isPersonal: false,
+      name: 'Test Group',
+      isEncrypted: false,
+      createdBy: 'user-1',
+      participants: [
+        { userId: 'user-1', username: 'alice', role: 'admin' },
+        { userId: 'user-2', username: 'bob', role: 'member' },
+      ],
+      lastMessage: null,
+      unreadCount: 0,
+      createdAt: '2025-01-01T00:00:00Z',
+    };
+
+    describe('addGroupMember', () => {
+      it('adds a member and updates conversation', async () => {
+        useDMStore.getState().addConversation(mockGroupConv);
+
+        server.use(
+          http.post(`${API_BASE}/api/v1/dm/conversations/group-1/members`, () => {
+            return HttpResponse.json({
+              conversation: {
+                id: 'group-1',
+                is_group: true,
+                is_personal: false,
+                name: 'Test Group',
+                is_encrypted: false,
+                created_by: 'user-1',
+                participants: [
+                  { user_id: 'user-1', username: 'alice', role: 'admin' },
+                  { user_id: 'user-2', username: 'bob', role: 'member' },
+                  { user_id: 'user-3', username: 'charlie', role: 'member' },
+                ],
+                last_message: null,
+                unread_count: 0,
+                created_at: '2025-01-01T00:00:00Z',
+              },
+            });
+          })
+        );
+
+        await useDMStore.getState().addGroupMember('group-1', 'user-3');
+        const conv = useDMStore.getState().conversations.find((c) => c.id === 'group-1');
+        expect(conv?.participants).toHaveLength(3);
+        expect(conv?.participants[2].username).toBe('charlie');
+      });
+
+      it('throws on API error', async () => {
+        useDMStore.getState().addConversation(mockGroupConv);
+
+        server.use(
+          http.post(`${API_BASE}/api/v1/dm/conversations/group-1/members`, () => {
+            return HttpResponse.json({ error: 'Not authorized' }, { status: 403 });
+          })
+        );
+
+        await expect(useDMStore.getState().addGroupMember('group-1', 'user-3')).rejects.toThrow(
+          'Not authorized'
+        );
+      });
+    });
+
+    describe('removeGroupMember', () => {
+      it('calls DELETE endpoint successfully', async () => {
+        useDMStore.getState().addConversation(mockGroupConv);
+
+        server.use(
+          http.delete(`${API_BASE}/api/v1/dm/conversations/group-1/members/user-2`, () => {
+            return HttpResponse.json({ success: true });
+          })
+        );
+
+        await expect(
+          useDMStore.getState().removeGroupMember('group-1', 'user-2')
+        ).resolves.toBeUndefined();
+      });
+
+      it('throws on non-admin', async () => {
+        server.use(
+          http.delete(`${API_BASE}/api/v1/dm/conversations/group-1/members/user-2`, () => {
+            return HttpResponse.json({ error: 'Only admins can remove members' }, { status: 403 });
+          })
+        );
+
+        await expect(useDMStore.getState().removeGroupMember('group-1', 'user-2')).rejects.toThrow(
+          'Only admins can remove members'
+        );
+      });
+    });
+
+    describe('leaveGroup', () => {
+      it('removes conversation from local state', async () => {
+        useDMStore.getState().addConversation(mockGroupConv);
+        useDMStore.getState().setActiveConversation('group-1');
+
+        // leaveGroup dynamically imports userStore — set user state
+        const { useUserStore } = await import('@/renderer/stores/userStore');
+        useUserStore.setState({ user: { id: 'user-1', username: 'alice' } as any });
+
+        server.use(
+          http.delete(`${API_BASE}/api/v1/dm/conversations/group-1/members/user-1`, () => {
+            return HttpResponse.json({ success: true });
+          })
+        );
+
+        await useDMStore.getState().leaveGroup('group-1');
+        expect(useDMStore.getState().conversations.find((c) => c.id === 'group-1')).toBeUndefined();
+        expect(useDMStore.getState().activeConversationId).toBeNull();
+      });
+    });
+
+    describe('updateMemberRole', () => {
+      it('optimistically updates participant role', async () => {
+        useDMStore.getState().addConversation(mockGroupConv);
+
+        server.use(
+          http.patch(`${API_BASE}/api/v1/dm/conversations/group-1/members/user-2`, () => {
+            return HttpResponse.json({ success: true });
+          })
+        );
+
+        await useDMStore.getState().updateMemberRole('group-1', 'user-2', 'admin');
+        const conv = useDMStore.getState().conversations.find((c) => c.id === 'group-1');
+        const bob = conv?.participants.find((p) => p.userId === 'user-2');
+        expect(bob?.role).toBe('admin');
+      });
+
+      it('throws on API error', async () => {
+        useDMStore.getState().addConversation(mockGroupConv);
+
+        server.use(
+          http.patch(`${API_BASE}/api/v1/dm/conversations/group-1/members/user-2`, () => {
+            return HttpResponse.json({ error: 'Not authorized' }, { status: 403 });
+          })
+        );
+
+        await expect(
+          useDMStore.getState().updateMemberRole('group-1', 'user-2', 'admin')
+        ).rejects.toThrow('Not authorized');
+      });
+    });
+
+    describe('deleteGroup', () => {
+      it('removes conversation from state', async () => {
+        useDMStore.getState().addConversation(mockGroupConv);
+
+        server.use(
+          http.delete(`${API_BASE}/api/v1/dm/conversations/group-1`, () => {
+            return HttpResponse.json({ success: true });
+          })
+        );
+
+        await useDMStore.getState().deleteGroup('group-1');
+        expect(useDMStore.getState().conversations.find((c) => c.id === 'group-1')).toBeUndefined();
+      });
+
+      it('clears activeConversationId if deleted group was active', async () => {
+        useDMStore.getState().addConversation(mockGroupConv);
+        useDMStore.getState().setActiveConversation('group-1');
+
+        server.use(
+          http.delete(`${API_BASE}/api/v1/dm/conversations/group-1`, () => {
+            return HttpResponse.json({ success: true });
+          })
+        );
+
+        await useDMStore.getState().deleteGroup('group-1');
+        expect(useDMStore.getState().activeConversationId).toBeNull();
+      });
+
+      it('preserves activeConversationId if different group deleted', async () => {
+        useDMStore.getState().addConversation(mockGroupConv);
+        useDMStore.getState().addConversation(mockConversation);
+        useDMStore.getState().setActiveConversation('conv-1');
+
+        server.use(
+          http.delete(`${API_BASE}/api/v1/dm/conversations/group-1`, () => {
+            return HttpResponse.json({ success: true });
+          })
+        );
+
+        await useDMStore.getState().deleteGroup('group-1');
+        expect(useDMStore.getState().activeConversationId).toBe('conv-1');
+      });
+
+      it('throws on API error', async () => {
+        server.use(
+          http.delete(`${API_BASE}/api/v1/dm/conversations/group-1`, () => {
+            return HttpResponse.json({ error: 'Not the group creator' }, { status: 403 });
+          })
+        );
+
+        await expect(useDMStore.getState().deleteGroup('group-1')).rejects.toThrow(
+          'Not the group creator'
+        );
+      });
+
+      it('uses generic error when none provided', async () => {
+        server.use(
+          http.delete(`${API_BASE}/api/v1/dm/conversations/group-1`, () => {
+            return HttpResponse.json({}, { status: 500 });
+          })
+        );
+
+        await expect(useDMStore.getState().deleteGroup('group-1')).rejects.toThrow(
+          'Failed to delete group'
+        );
+      });
+    });
+
+    describe('addGroupMember - edge cases', () => {
+      it('does not update state when response has no conversation field', async () => {
+        useDMStore.getState().addConversation(mockGroupConv);
+
+        server.use(
+          http.post(`${API_BASE}/api/v1/dm/conversations/group-1/members`, () => {
+            // Response without conversation field
+            return HttpResponse.json({ success: true });
+          })
+        );
+
+        await useDMStore.getState().addGroupMember('group-1', 'user-3');
+        const conv = useDMStore.getState().conversations.find((c) => c.id === 'group-1');
+        // Participants unchanged since no conversation in response
+        expect(conv?.participants).toHaveLength(2);
+      });
+
+      it('uses generic error when none provided', async () => {
+        server.use(
+          http.post(`${API_BASE}/api/v1/dm/conversations/group-1/members`, () => {
+            return HttpResponse.json({}, { status: 500 });
+          })
+        );
+
+        await expect(useDMStore.getState().addGroupMember('group-1', 'user-3')).rejects.toThrow(
+          'Failed to add member'
+        );
+      });
+    });
+
+    describe('removeGroupMember - edge cases', () => {
+      it('uses generic error when none provided', async () => {
+        server.use(
+          http.delete(`${API_BASE}/api/v1/dm/conversations/group-1/members/user-2`, () => {
+            return HttpResponse.json({}, { status: 500 });
+          })
+        );
+
+        await expect(useDMStore.getState().removeGroupMember('group-1', 'user-2')).rejects.toThrow(
+          'Failed to remove member'
+        );
+      });
+    });
+
+    describe('leaveGroup - edge cases', () => {
+      it('throws when user is not authenticated', async () => {
+        const { useUserStore } = await import('@/renderer/stores/userStore');
+        useUserStore.setState({ user: null });
+
+        await expect(useDMStore.getState().leaveGroup('group-1')).rejects.toThrow(
+          'Not authenticated'
+        );
+      });
+
+      it('throws on API error with message', async () => {
+        const { useUserStore } = await import('@/renderer/stores/userStore');
+        useUserStore.setState({ user: { id: 'user-1', username: 'alice' } as any });
+
+        server.use(
+          http.delete(`${API_BASE}/api/v1/dm/conversations/group-1/members/user-1`, () => {
+            return HttpResponse.json({ error: 'Cannot leave group' }, { status: 400 });
+          })
+        );
+
+        await expect(useDMStore.getState().leaveGroup('group-1')).rejects.toThrow(
+          'Cannot leave group'
+        );
+      });
+
+      it('uses generic error when none provided', async () => {
+        const { useUserStore } = await import('@/renderer/stores/userStore');
+        useUserStore.setState({ user: { id: 'user-1', username: 'alice' } as any });
+
+        server.use(
+          http.delete(`${API_BASE}/api/v1/dm/conversations/group-1/members/user-1`, () => {
+            return HttpResponse.json({}, { status: 500 });
+          })
+        );
+
+        await expect(useDMStore.getState().leaveGroup('group-1')).rejects.toThrow(
+          'Failed to leave group'
+        );
+      });
+
+      it('preserves activeConversationId if leaving a different group', async () => {
+        useDMStore.getState().addConversation(mockGroupConv);
+        useDMStore.getState().addConversation(mockConversation);
+        useDMStore.getState().setActiveConversation('conv-1');
+
+        const { useUserStore } = await import('@/renderer/stores/userStore');
+        useUserStore.setState({ user: { id: 'user-1', username: 'alice' } as any });
+
+        server.use(
+          http.delete(`${API_BASE}/api/v1/dm/conversations/group-1/members/user-1`, () => {
+            return HttpResponse.json({ success: true });
+          })
+        );
+
+        await useDMStore.getState().leaveGroup('group-1');
+        expect(useDMStore.getState().activeConversationId).toBe('conv-1');
+      });
+    });
+
+    describe('updateMemberRole - edge cases', () => {
+      it('uses generic error when none provided', async () => {
+        useDMStore.getState().addConversation(mockGroupConv);
+
+        server.use(
+          http.patch(`${API_BASE}/api/v1/dm/conversations/group-1/members/user-2`, () => {
+            return HttpResponse.json({}, { status: 500 });
+          })
+        );
+
+        await expect(
+          useDMStore.getState().updateMemberRole('group-1', 'user-2', 'admin')
+        ).rejects.toThrow('Failed to update role');
+      });
+    });
+  });
+
+  // ── mapConversation edge cases ──────────────────────────────────────
+
+  describe('mapConversation edge cases', () => {
+    it('handles null participants array', async () => {
+      useDMStore.setState({ isLoading: false });
+      server.use(
+        http.get(`${API_BASE}/api/v1/dm/conversations`, () => {
+          return HttpResponse.json({
+            conversations: [
+              {
+                id: 'conv-null-parts',
+                is_group: false,
+                is_personal: false,
+                name: null,
+                is_encrypted: false,
+                participants: null,
+                last_message: null,
+                unread_count: 0,
+                created_at: '2025-01-01T00:00:00Z',
+              },
+            ],
+          });
+        })
+      );
+
+      await useDMStore.getState().fetchConversations();
+      const conv = useDMStore.getState().conversations[0];
+      expect(conv.participants).toEqual([]);
+    });
+
+    it('handles missing is_personal with false default', async () => {
+      useDMStore.setState({ isLoading: false });
+      server.use(
+        http.get(`${API_BASE}/api/v1/dm/conversations`, () => {
+          return HttpResponse.json({
+            conversations: [
+              {
+                id: 'conv-no-personal',
+                is_group: false,
+                // is_personal omitted
+                name: null,
+                is_encrypted: false,
+                participants: [],
+                last_message: null,
+                unread_count: 0,
+                created_at: '2025-01-01T00:00:00Z',
+              },
+            ],
+          });
+        })
+      );
+
+      await useDMStore.getState().fetchConversations();
+      const conv = useDMStore.getState().conversations[0];
+      expect(conv.isPersonal).toBe(false);
+    });
+
+    it('handles missing unread_count with 0 default', async () => {
+      useDMStore.setState({ isLoading: false });
+      server.use(
+        http.get(`${API_BASE}/api/v1/dm/conversations`, () => {
+          return HttpResponse.json({
+            conversations: [
+              {
+                id: 'conv-no-unread',
+                is_group: false,
+                is_personal: false,
+                name: null,
+                is_encrypted: false,
+                participants: [],
+                last_message: null,
+                // unread_count omitted
+                created_at: '2025-01-01T00:00:00Z',
+              },
+            ],
+          });
+        })
+      );
+
+      await useDMStore.getState().fetchConversations();
+      const conv = useDMStore.getState().conversations[0];
+      expect(conv.unreadCount).toBe(0);
+    });
+
+    it('maps name to null when empty string', async () => {
+      useDMStore.setState({ isLoading: false });
+      server.use(
+        http.get(`${API_BASE}/api/v1/dm/conversations`, () => {
+          return HttpResponse.json({
+            conversations: [
+              {
+                id: 'conv-empty-name',
+                is_group: false,
+                is_personal: false,
+                name: '',
+                is_encrypted: false,
+                participants: [],
+                last_message: null,
+                unread_count: 0,
+                created_at: '2025-01-01T00:00:00Z',
+              },
+            ],
+          });
+        })
+      );
+
+      await useDMStore.getState().fetchConversations();
+      const conv = useDMStore.getState().conversations[0];
+      expect(conv.name).toBeNull();
+    });
+
+    it('handles missing conversations key in API response', async () => {
+      useDMStore.setState({ isLoading: false });
+      server.use(
+        http.get(`${API_BASE}/api/v1/dm/conversations`, () => {
+          return HttpResponse.json({});
+        })
+      );
+
+      await useDMStore.getState().fetchConversations();
+      expect(useDMStore.getState().conversations).toEqual([]);
+    });
+  });
+
+  // ── E2EE key distribution paths ─────────────────────────────────────
+
+  describe('E2EE key distribution paths', () => {
+    let e2eeMock: {
+      isInitialized: boolean;
+      getChannelKey: ReturnType<typeof vi.fn>;
+      createChannelKeys: ReturnType<typeof vi.fn>;
+      clearKeys: ReturnType<typeof vi.fn>;
+    };
+
+    beforeEach(async () => {
+      const mod = await import('@/renderer/services/e2eeService');
+      e2eeMock = mod.e2eeService as typeof e2eeMock;
+      e2eeMock.isInitialized = true;
+      e2eeMock.getChannelKey.mockRejectedValue(new Error('PENDING_KEY'));
+      e2eeMock.createChannelKeys.mockResolvedValue(
+        new Map([
+          ['user-1', 'wrapped-key-1'],
+          ['user-2', 'wrapped-key-2'],
+        ])
+      );
+    });
+
+    afterEach(async () => {
+      const mod = await import('@/renderer/services/e2eeService');
+      const mock = mod.e2eeService as typeof e2eeMock;
+      mock.isInitialized = false;
+      mock.getChannelKey.mockReset();
+      mock.createChannelKeys.mockReset();
+    });
+
+    it('createGroupDM distributes E2EE keys for encrypted group', async () => {
+      server.use(
+        http.post(`${API_BASE}/api/v1/dm/conversations/group`, () => {
+          return HttpResponse.json({
+            conversation: {
+              id: 'conv-e2ee-group',
+              is_group: true,
+              is_personal: false,
+              name: 'Encrypted Group',
+              is_encrypted: true,
+              participants: [
+                { user_id: 'user-1', username: 'alice' },
+                { user_id: 'user-2', username: 'bob' },
+              ],
+              last_message: null,
+              unread_count: 0,
+              created_at: '2025-01-01T00:00:00Z',
+            },
+          });
+        }),
+        http.get(`${API_BASE}/api/v1/users/:userId/public-key`, () => {
+          return HttpResponse.json({ public_key: 'mock-public-key' });
+        }),
+        http.post(`${API_BASE}/api/v1/e2ee/keys/:convId`, () => {
+          return HttpResponse.json({ success: true });
+        })
+      );
+
+      const conv = await useDMStore.getState().createGroupDM(['user-2'], 'Encrypted Group');
+      expect(conv.isEncrypted).toBe(true);
+      expect(e2eeMock.createChannelKeys).toHaveBeenCalled();
+      expect(useDMStore.getState().activeConversationId).toBe('conv-e2ee-group');
+    });
+
+    it('openDM calls ensureE2EEKey for encrypted conversation', async () => {
+      server.use(
+        http.post(`${API_BASE}/api/v1/dm/conversations`, () => {
+          return HttpResponse.json({
+            conversation: {
+              id: 'conv-e2ee-dm',
+              is_group: false,
+              is_personal: false,
+              name: null,
+              is_encrypted: true,
+              participants: [
+                { user_id: 'user-1', username: 'alice' },
+                { user_id: 'user-2', username: 'bob' },
+              ],
+              last_message: null,
+              unread_count: 0,
+              created_at: '2025-01-01T00:00:00Z',
+            },
+          });
+        }),
+        http.get(`${API_BASE}/api/v1/users/:userId/public-key`, () => {
+          return HttpResponse.json({ public_key: 'mock-public-key' });
+        }),
+        http.post(`${API_BASE}/api/v1/e2ee/keys/:convId`, () => {
+          return HttpResponse.json({ success: true });
+        })
+      );
+
+      const conv = await useDMStore.getState().openDM('user-2');
+      expect(conv.isEncrypted).toBe(true);
+      // ensureE2EEKey should have called getChannelKey, then distributed keys
+      expect(e2eeMock.getChannelKey).toHaveBeenCalledWith('conv-e2ee-dm');
+      expect(e2eeMock.createChannelKeys).toHaveBeenCalled();
+    });
+
+    it('openPersonalThread distributes E2EE key when key does not exist', async () => {
+      // getChannelKey rejects (no existing key)
+      e2eeMock.getChannelKey.mockRejectedValue(new Error('NO_KEY'));
+
+      // userStore needs to have user set for personal thread E2EE path
+      const { useUserStore } = await import('@/renderer/stores/userStore');
+      useUserStore.setState({ user: { id: 'user-1', username: 'alice' } as any });
+
+      server.use(
+        http.post(`${API_BASE}/api/v1/dm/conversations/personal`, () => {
+          return HttpResponse.json({
+            conversation: {
+              id: 'conv-e2ee-personal',
+              is_group: false,
+              is_personal: true,
+              name: null,
+              is_encrypted: true,
+              participants: [{ user_id: 'user-1', username: 'alice' }],
+              last_message: null,
+              unread_count: 0,
+              created_at: '2025-01-01T00:00:00Z',
+            },
+          });
+        }),
+        http.get(`${API_BASE}/api/v1/users/user-1/public-key`, () => {
+          return HttpResponse.json({ public_key: 'mock-public-key' });
+        }),
+        http.post(`${API_BASE}/api/v1/e2ee/keys/:convId`, () => {
+          return HttpResponse.json({ success: true });
+        })
+      );
+
+      const conv = await useDMStore.getState().openPersonalThread();
+      expect(conv.isEncrypted).toBe(true);
+      expect(e2eeMock.getChannelKey).toHaveBeenCalledWith('conv-e2ee-personal');
+      expect(e2eeMock.createChannelKeys).toHaveBeenCalled();
+    });
+
+    it('openPersonalThread skips key distribution when key already exists', async () => {
+      // getChannelKey resolves (key exists)
+      e2eeMock.getChannelKey.mockResolvedValue('existing-key');
+
+      const { useUserStore } = await import('@/renderer/stores/userStore');
+      useUserStore.setState({ user: { id: 'user-1', username: 'alice' } as any });
+
+      server.use(
+        http.post(`${API_BASE}/api/v1/dm/conversations/personal`, () => {
+          return HttpResponse.json({
+            conversation: {
+              id: 'conv-e2ee-personal-2',
+              is_group: false,
+              is_personal: true,
+              name: null,
+              is_encrypted: true,
+              participants: [{ user_id: 'user-1', username: 'alice' }],
+              last_message: null,
+              unread_count: 0,
+              created_at: '2025-01-01T00:00:00Z',
+            },
+          });
+        })
+      );
+
+      const conv = await useDMStore.getState().openPersonalThread();
+      expect(conv.isEncrypted).toBe(true);
+      // Key already existed — should NOT create new keys
+      expect(e2eeMock.createChannelKeys).not.toHaveBeenCalled();
+    });
+  });
 });

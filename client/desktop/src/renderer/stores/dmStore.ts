@@ -10,6 +10,7 @@ export interface DMParticipant {
   avatarUrl?: string;
   colorScheme?: string;
   status?: string;
+  role?: 'admin' | 'member';
 }
 
 export interface DMLastMessage {
@@ -28,6 +29,8 @@ export interface DMConversation {
   isPersonal: boolean;
   name: string | null;
   isEncrypted: boolean;
+  iconUrl?: string;
+  createdBy?: string;
   participants: DMParticipant[];
   lastMessage: DMLastMessage | null;
   unreadCount: number;
@@ -117,6 +120,17 @@ interface DMState {
   setDMCallActive: (active: boolean, conversationId?: string | null) => void;
 
   clearDMs: () => void;
+
+  // Group management actions
+  addGroupMember: (conversationId: string, userId: string) => Promise<void>;
+  removeGroupMember: (conversationId: string, userId: string) => Promise<void>;
+  leaveGroup: (conversationId: string) => Promise<void>;
+  updateMemberRole: (
+    conversationId: string,
+    userId: string,
+    role: 'admin' | 'member'
+  ) => Promise<void>;
+  deleteGroup: (conversationId: string) => Promise<void>;
 }
 
 export const useDMStore = create<DMState>()(
@@ -392,6 +406,106 @@ export const useDMStore = create<DMState>()(
             dmCallActive: false,
             dmCallConversationId: null,
           }),
+
+        addGroupMember: async (conversationId: string, userId: string) => {
+          const response = await apiFetch(`/api/v1/dm/conversations/${conversationId}/members`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: userId }),
+          });
+          if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || 'Failed to add member');
+          }
+          const data = await response.json();
+          if (data.conversation) {
+            const conv = mapConversation(data.conversation);
+            set((state) => ({
+              conversations: state.conversations.map((c) => (c.id === conv.id ? conv : c)),
+            }));
+          }
+        },
+
+        removeGroupMember: async (conversationId: string, userId: string) => {
+          const response = await apiFetch(
+            `/api/v1/dm/conversations/${conversationId}/members/${userId}`,
+            {
+              method: 'DELETE',
+            }
+          );
+          if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || 'Failed to remove member');
+          }
+        },
+
+        leaveGroup: async (conversationId: string) => {
+          const userStore = await import('../stores/userStore');
+          const userId = userStore.useUserStore.getState().user?.id;
+          if (!userId) throw new Error('Not authenticated');
+
+          const response = await apiFetch(
+            `/api/v1/dm/conversations/${conversationId}/members/${userId}`,
+            {
+              method: 'DELETE',
+            }
+          );
+          if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || 'Failed to leave group');
+          }
+          // Remove conversation from local state
+          set((state) => ({
+            conversations: state.conversations.filter((c) => c.id !== conversationId),
+            activeConversationId:
+              state.activeConversationId === conversationId ? null : state.activeConversationId,
+          }));
+        },
+
+        updateMemberRole: async (
+          conversationId: string,
+          userId: string,
+          role: 'admin' | 'member'
+        ) => {
+          const response = await apiFetch(
+            `/api/v1/dm/conversations/${conversationId}/members/${userId}`,
+            {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ role }),
+            }
+          );
+          if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || 'Failed to update role');
+          }
+          // Optimistically update the participant's role
+          const updateRole = (conv: DMConversation) =>
+            conv.id === conversationId
+              ? {
+                  ...conv,
+                  participants: conv.participants.map((p) =>
+                    p.userId === userId ? { ...p, role } : p
+                  ),
+                }
+              : conv;
+          set((state) => ({ conversations: state.conversations.map(updateRole) }));
+        },
+
+        deleteGroup: async (conversationId: string) => {
+          const response = await apiFetch(`/api/v1/dm/conversations/${conversationId}`, {
+            method: 'DELETE',
+          });
+          if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || 'Failed to delete group');
+          }
+          set((state) => ({
+            conversations: state.conversations.filter((c) => c.id !== conversationId),
+            activeConversationId:
+              state.activeConversationId === conversationId ? null : state.activeConversationId,
+          }));
+        },
       }),
       {
         name: 'concord:dm-store',
@@ -414,6 +528,7 @@ function mapConversation(c: Record<string, unknown>): DMConversation {
         avatarUrl: p.avatar_url as string | undefined,
         colorScheme: p.color_scheme as string | undefined,
         status: p.status as string | undefined,
+        role: p.role === 'admin' || p.role === 'member' ? p.role : undefined,
       }))
     : [];
 
@@ -425,6 +540,8 @@ function mapConversation(c: Record<string, unknown>): DMConversation {
     isPersonal: (c.is_personal as boolean) || false,
     name: (c.name as string) || null,
     isEncrypted: c.is_encrypted as boolean,
+    iconUrl: (c.icon_url as string) || undefined,
+    createdBy: (c.created_by as string) || undefined,
     participants,
     lastMessage: lastMsg
       ? {

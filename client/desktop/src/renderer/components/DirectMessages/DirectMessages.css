@@ -28,6 +28,9 @@
 
 /* Search bar */
 .conversation-search {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--sp, 1));
   padding: calc(8px * var(--sp, 1)) calc(12px * var(--sp, 1));
 }
 
@@ -893,4 +896,707 @@
   border-top-color: currentColor;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+/* ─── Create Group Button (in search bar) ─────────────────────────────── */
+
+.create-group-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  background: var(--bg-tertiary);
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.create-group-btn:hover {
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+}
+
+/* ─── Create Group Modal ──────────────────────────────────────────────── */
+
+.create-group-modal-overlay,
+.edit-group-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.create-group-modal,
+.edit-group-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  width: 440px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.create-group-modal-header,
+.edit-group-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(14px * var(--sp, 1)) calc(16px * var(--sp, 1));
+  border-bottom: 1px solid var(--border-color);
+}
+
+.create-group-modal-header h3,
+.edit-group-modal-header h3 {
+  font-size: calc(16px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.create-group-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.create-group-close-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.create-group-modal-body,
+.edit-group-modal-body {
+  padding: calc(14px * var(--sp, 1)) calc(16px * var(--sp, 1));
+  display: flex;
+  flex-direction: column;
+  gap: calc(10px * var(--sp, 1));
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.create-group-name-input {
+  width: 100%;
+  padding: calc(8px * var(--sp, 1)) calc(12px * var(--sp, 1));
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: calc(14px * var(--font-scale, 1));
+  outline: none;
+  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+}
+
+.create-group-name-input::placeholder {
+  color: var(--text-muted);
+}
+
+.create-group-name-input:focus {
+  border-color: var(--accent-primary);
+}
+
+/* Selected user chips */
+.create-group-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(6px * var(--sp, 1));
+}
+
+.create-group-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: calc(4px * var(--sp, 1));
+  padding: calc(3px * var(--sp, 1)) calc(8px * var(--sp, 1));
+  background: var(--bg-tertiary);
+  border-radius: 12px;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-primary);
+}
+
+.create-group-chip button {
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  border-radius: 50%;
+  transition: color 0.15s ease;
+}
+
+.create-group-chip button:hover {
+  color: var(--text-primary);
+}
+
+/* Search input */
+.create-group-search {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--sp, 1));
+  padding: calc(6px * var(--sp, 1)) calc(10px * var(--sp, 1));
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  transition: border-color 0.15s ease;
+}
+
+.create-group-search:focus-within {
+  border-color: var(--accent-primary);
+}
+
+.create-group-search-icon {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.create-group-search input {
+  flex: 1;
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  font-size: calc(13px * var(--font-scale, 1));
+  outline: none;
+}
+
+.create-group-search input::placeholder {
+  color: var(--text-muted);
+}
+
+.create-group-limit {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-muted);
+  text-align: center;
+  padding: calc(4px * var(--sp, 1)) 0;
+}
+
+/* Search results list */
+.create-group-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.create-group-results::-webkit-scrollbar {
+  width: 6px;
+}
+
+.create-group-results::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.create-group-results::-webkit-scrollbar-thumb {
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+}
+
+.create-group-no-results {
+  text-align: center;
+  padding: calc(16px * var(--sp, 1));
+  color: var(--text-muted);
+  font-size: calc(13px * var(--font-scale, 1));
+}
+
+.create-group-user-row {
+  display: flex;
+  align-items: center;
+  gap: calc(10px * var(--sp, 1));
+  padding: calc(6px * var(--sp, 1)) calc(8px * var(--sp, 1));
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+
+.create-group-user-row:hover {
+  background: var(--bg-tertiary);
+}
+
+.create-group-user-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.create-group-user-display {
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.create-group-user-username {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--text-muted);
+}
+
+.create-group-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: var(--bg-tertiary);
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.create-group-add-btn:hover:not(:disabled) {
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+}
+
+.create-group-add-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.create-group-error {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--status-disconnected);
+  padding: calc(4px * var(--sp, 1)) 0;
+}
+
+.create-group-modal-footer,
+.edit-group-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: calc(8px * var(--sp, 1));
+  padding: calc(12px * var(--sp, 1)) calc(16px * var(--sp, 1));
+  border-top: 1px solid var(--border-color);
+}
+
+.create-group-create-btn {
+  padding: calc(8px * var(--sp, 1)) calc(16px * var(--sp, 1));
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+  border: none;
+  border-radius: 4px;
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.create-group-create-btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.create-group-create-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ─── Edit Group Modal ────────────────────────────────────────────────── */
+
+.edit-group-label {
+  font-size: calc(12px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.edit-group-cancel-btn {
+  padding: calc(8px * var(--sp, 1)) calc(16px * var(--sp, 1));
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: none;
+  border-radius: 4px;
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.edit-group-cancel-btn:hover {
+  background: var(--bg-primary);
+}
+
+/* ─── DM Chat Area Wrapper (chat + group info side panel) ─────────────── */
+
+.dm-chat-area-wrapper {
+  display: flex;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Group info toggle in chat header */
+.dm-chat-header-group-info-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.dm-chat-header-group-info-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+/* ─── Group Info Panel (right side) ───────────────────────────────────── */
+
+.group-info-panel {
+  width: 280px;
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.group-info-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.group-info-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.group-info-panel::-webkit-scrollbar-thumb {
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+}
+
+.group-info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(10px * var(--sp, 1)) calc(14px * var(--sp, 1));
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
+}
+
+.group-info-header h3 {
+  font-size: calc(14px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.group-info-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.group-info-close-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.group-info-body {
+  padding: calc(14px * var(--sp, 1));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: calc(10px * var(--sp, 1));
+}
+
+.group-info-icon {
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.group-info-icon span {
+  font-size: calc(22px * var(--font-scale, 1));
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.group-info-name-row {
+  display: flex;
+  align-items: center;
+  gap: calc(6px * var(--sp, 1));
+}
+
+.group-info-name {
+  font-size: calc(15px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  text-align: center;
+  word-break: break-word;
+}
+
+.group-info-edit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+  transition: color 0.15s ease;
+}
+
+.group-info-edit-btn:hover {
+  color: var(--accent-primary);
+}
+
+.group-info-member-count {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-muted);
+}
+
+.group-info-error {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--status-disconnected);
+  text-align: center;
+  padding: calc(4px * var(--sp, 1)) 0;
+  width: 100%;
+}
+
+/* Member list */
+.group-info-members {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: calc(6px * var(--sp, 1));
+}
+
+.group-info-members-title {
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 calc(6px * var(--sp, 1)) 0;
+}
+
+/* ─── Group Member Item ───────────────────────────────────────────────── */
+
+.group-member-item {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--sp, 1));
+  padding: calc(6px * var(--sp, 1)) calc(6px * var(--sp, 1));
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+
+.group-member-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.group-member-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.group-member-name {
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-member-you {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: calc(11px * var(--font-scale, 1));
+}
+
+.group-member-username {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--text-muted);
+}
+
+.group-member-role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+  border-radius: 8px;
+  font-size: calc(10px * var(--font-scale, 1));
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* Member actions dropdown */
+.group-member-actions {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.group-member-menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.group-member-menu-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+
+.group-member-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  width: 180px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+}
+
+.group-member-menu-item {
+  display: flex;
+  align-items: center;
+  gap: calc(8px * var(--sp, 1));
+  padding: calc(6px * var(--sp, 1)) calc(10px * var(--sp, 1));
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: calc(13px * var(--font-scale, 1));
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+  text-align: left;
+  width: 100%;
+}
+
+.group-member-menu-item:hover {
+  background: var(--bg-tertiary);
+}
+
+.group-member-menu-item-danger {
+  color: var(--status-disconnected);
+}
+
+.group-member-menu-item-danger:hover {
+  background: rgba(255, 70, 70, 0.1);
+}
+
+/* Action buttons at bottom */
+.group-info-actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: calc(6px * var(--sp, 1));
+  margin-top: calc(12px * var(--sp, 1));
+  padding-top: calc(12px * var(--sp, 1));
+  border-top: 1px solid var(--border-color);
+}
+
+.group-info-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: calc(6px * var(--sp, 1));
+  padding: calc(8px * var(--sp, 1));
+  border: none;
+  border-radius: 4px;
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    opacity 0.15s ease;
+  width: 100%;
+}
+
+.group-info-leave-btn {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.group-info-leave-btn:hover {
+  background: var(--bg-primary);
+}
+
+.group-info-delete-btn {
+  background: transparent;
+  color: var(--status-disconnected);
+}
+
+.group-info-delete-btn:hover {
+  background: rgba(255, 70, 70, 0.1);
 }

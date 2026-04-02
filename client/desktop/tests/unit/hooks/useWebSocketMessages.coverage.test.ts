@@ -1,0 +1,1488 @@
+/**
+ * Coverage boost tests for useWebSocketMessages — covers handlers that
+ * lack test coverage in the base and extended test files:
+ *
+ * NEW DM handlers: dm_participant_added, dm_participant_removed,
+ *   dm_role_changed, dm_group_deleted
+ *
+ * Pre-existing uncovered handlers: message_update, message_ack,
+ *   member_joined, server_updated, channel_updated, channel_deleted,
+ *   server_deleted, member_removed, presence_snapshot, presence,
+ *   server_online_counts, dm_voice_state_update, dm_subscribed, subscribed,
+ *   voice_state_update (muted/unmuted/video/screen actions),
+ *   unread_notify edge cases, message missing channel_id
+ */
+import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { renderHook, act } from '@testing-library/react';
+import { useChatStore } from '@/renderer/stores/chatStore';
+import { useChannelStore } from '@/renderer/stores/channelStore';
+import { useServerStore } from '@/renderer/stores/serverStore';
+import { useUserStore } from '@/renderer/stores/userStore';
+import { useVoiceStore } from '@/renderer/stores/voiceStore';
+import { useMemberStore } from '@/renderer/stores/memberStore';
+import { useUnreadStore } from '@/renderer/stores/unreadStore';
+import { useAuthStore } from '@/renderer/stores/authStore';
+import { useDMStore } from '@/renderer/stores/dmStore';
+import { useFriendStore } from '@/renderer/stores/friendStore';
+import { resetAllStores } from '../../helpers/store-helpers';
+import { mockChannel, mockServer } from '../../mocks/fixtures';
+
+// Mock services
+const mockInvalidateChannelKey = vi.fn();
+const mockProcessPendingKeyRequests = vi.fn().mockResolvedValue(undefined);
+const mockDecryptForChannel = vi.fn();
+const mockDecryptForChannelWithVersion = vi.fn();
+
+vi.mock('@/renderer/services/e2eeService', () => ({
+  e2eeService: {
+    isInitialized: true,
+    invalidateChannelKey: (...args: unknown[]) => mockInvalidateChannelKey(...args),
+    processPendingKeyRequests: (...args: unknown[]) => mockProcessPendingKeyRequests(...args),
+    decryptForChannel: (...args: unknown[]) => mockDecryptForChannel(...args),
+    decryptForChannelWithVersion: (...args: unknown[]) => mockDecryptForChannelWithVersion(...args),
+  },
+}));
+
+vi.mock('@/renderer/services/ttsService', () => ({
+  speak: vi.fn(),
+}));
+
+vi.mock('@/renderer/services/preferencesSync', () => ({
+  preferencesSyncService: { fetchAndApply: vi.fn() },
+}));
+
+const mockNotificationPlay = vi.fn();
+vi.mock('@/renderer/services/notificationSoundService', () => ({
+  notificationSoundService: {
+    play: (...args: unknown[]) => mockNotificationPlay(...args),
+  },
+}));
+
+vi.mock('@/renderer/services/apiClient', () => ({
+  apiFetch: vi.fn().mockResolvedValue({
+    ok: true,
+    json: () => Promise.resolve({ participants: [] }),
+  }),
+}));
+
+vi.mock('@/renderer/services/searchService', () => ({
+  indexMessage: vi.fn(),
+}));
+
+import { useWebSocketMessages } from '@/renderer/hooks/useWebSocketMessages';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyHandler = (...args: any[]) => void;
+
+function createMockWsService() {
+  const handlers = new Map<string, AnyHandler>();
+  return {
+    handlers,
+    on: vi.fn((type: string, handler: AnyHandler) => {
+      handlers.set(type, handler);
+      return () => handlers.delete(type);
+    }),
+    disconnect: vi.fn(),
+  };
+}
+
+/** Helper to render the hook and get a handler by event name. */
+function setupHandler(eventName: string) {
+  const ws = createMockWsService();
+  renderHook(() => useWebSocketMessages(ws as never));
+  const handler = ws.handlers.get(eventName)!;
+  expect(handler).toBeDefined();
+  return { ws, handler };
+}
+
+beforeEach(() => {
+  resetAllStores();
+  vi.clearAllMocks();
+  useAuthStore.getState().setAccessToken('mock-token');
+  useChannelStore.getState().addChannel(mockChannel);
+  useChatStore.setState({ isConnected: true });
+  useUserStore.getState().setUser({
+    id: 'user-1',
+    username: 'testuser',
+    e2ee_preference: false,
+  });
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('useWebSocketMessages — coverage boost', () => {
+  // ── NEW DM handlers ──────────────────────────────────────────────────
+
+  describe('dm_participant_added handler', () => {
+    it('calls fetchConversations when participant added', () => {
+      const { handler } = setupHandler('dm_participant_added');
+      const fetchSpy = vi.spyOn(useDMStore.getState(), 'fetchConversations');
+
+      act(() => {
+        handler({
+          type: 'dm_participant_added',
+          data: { conversation_id: 'conv-1', user_id: 'user-3' },
+        });
+      });
+
+      expect(fetchSpy).toHaveBeenCalled();
+    });
+
+    it('ignores event without conversation_id', () => {
+      const { handler } = setupHandler('dm_participant_added');
+      const fetchSpy = vi.spyOn(useDMStore.getState(), 'fetchConversations');
+
+      act(() => {
+        handler({ type: 'dm_participant_added', data: {} });
+      });
+
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('dm_participant_removed handler', () => {
+    it('removes conversation when current user is removed', () => {
+      const { handler } = setupHandler('dm_participant_removed');
+
+      // Add a conversation first
+      useDMStore.getState().addConversation({
+        id: 'conv-1',
+        isGroup: true,
+        isPersonal: false,
+        name: 'Group Chat',
+        isEncrypted: false,
+        participants: [
+          { userId: 'user-1', username: 'testuser' },
+          { userId: 'user-2', username: 'alice' },
+        ],
+        iconUrl: undefined,
+        createdBy: 'user-2',
+        lastMessage: null,
+        unreadCount: 0,
+        createdAt: '2025-01-01T00:00:00Z',
+      });
+
+      const removeSpy = vi.spyOn(useDMStore.getState(), 'removeConversation');
+
+      act(() => {
+        handler({
+          type: 'dm_participant_removed',
+          data: { conversation_id: 'conv-1', user_id: 'user-1' },
+        });
+      });
+
+      expect(removeSpy).toHaveBeenCalledWith('conv-1');
+    });
+
+    it('removes participant from conversation when another user is removed', () => {
+      const { handler } = setupHandler('dm_participant_removed');
+
+      useDMStore.getState().addConversation({
+        id: 'conv-1',
+        isGroup: true,
+        isPersonal: false,
+        name: 'Group Chat',
+        isEncrypted: false,
+        participants: [
+          { userId: 'user-1', username: 'testuser' },
+          { userId: 'user-2', username: 'alice' },
+          { userId: 'user-3', username: 'bob' },
+        ],
+        iconUrl: undefined,
+        createdBy: 'user-1',
+        lastMessage: null,
+        unreadCount: 0,
+        createdAt: '2025-01-01T00:00:00Z',
+      });
+
+      act(() => {
+        handler({
+          type: 'dm_participant_removed',
+          data: { conversation_id: 'conv-1', user_id: 'user-3' },
+        });
+      });
+
+      const conv = useDMStore.getState().conversations.find((c) => c.id === 'conv-1');
+      expect(conv).toBeDefined();
+      expect(conv!.participants.some((p) => p.userId === 'user-3')).toBe(false);
+      expect(conv!.participants).toHaveLength(2);
+    });
+
+    it('ignores event without conversation_id', () => {
+      const { handler } = setupHandler('dm_participant_removed');
+
+      act(() => {
+        handler({ type: 'dm_participant_removed', data: { user_id: 'user-2' } });
+      });
+
+      // No crash
+    });
+
+    it('ignores event without user_id', () => {
+      const { handler } = setupHandler('dm_participant_removed');
+
+      act(() => {
+        handler({ type: 'dm_participant_removed', data: { conversation_id: 'conv-1' } });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('dm_role_changed handler', () => {
+    it('updates participant role in conversation', () => {
+      const { handler } = setupHandler('dm_role_changed');
+
+      useDMStore.getState().addConversation({
+        id: 'conv-1',
+        isGroup: true,
+        isPersonal: false,
+        name: 'Group Chat',
+        isEncrypted: false,
+        participants: [
+          { userId: 'user-1', username: 'testuser', role: 'admin' },
+          { userId: 'user-2', username: 'alice', role: 'member' },
+        ],
+        iconUrl: undefined,
+        createdBy: 'user-1',
+        lastMessage: null,
+        unreadCount: 0,
+        createdAt: '2025-01-01T00:00:00Z',
+      });
+
+      act(() => {
+        handler({
+          type: 'dm_role_changed',
+          data: { conversation_id: 'conv-1', user_id: 'user-2', role: 'admin' },
+        });
+      });
+
+      const conv = useDMStore.getState().conversations.find((c) => c.id === 'conv-1');
+      const participant = conv!.participants.find((p) => p.userId === 'user-2');
+      expect(participant!.role).toBe('admin');
+    });
+
+    it('ignores event without required fields', () => {
+      const { handler } = setupHandler('dm_role_changed');
+
+      // Missing conversation_id
+      act(() => {
+        handler({ type: 'dm_role_changed', data: { user_id: 'user-2', role: 'admin' } });
+      });
+
+      // Missing user_id
+      act(() => {
+        handler({ type: 'dm_role_changed', data: { conversation_id: 'conv-1', role: 'admin' } });
+      });
+
+      // Missing role
+      act(() => {
+        handler({
+          type: 'dm_role_changed',
+          data: { conversation_id: 'conv-1', user_id: 'user-2' },
+        });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('dm_group_deleted handler', () => {
+    it('removes conversation from DM store', () => {
+      const { handler } = setupHandler('dm_group_deleted');
+
+      useDMStore.getState().addConversation({
+        id: 'conv-del',
+        isGroup: true,
+        isPersonal: false,
+        name: 'To Delete',
+        isEncrypted: false,
+        participants: [],
+        iconUrl: undefined,
+        createdBy: 'user-1',
+        lastMessage: null,
+        unreadCount: 0,
+        createdAt: '2025-01-01T00:00:00Z',
+      });
+
+      act(() => {
+        handler({ type: 'dm_group_deleted', data: { conversation_id: 'conv-del' } });
+      });
+
+      expect(useDMStore.getState().conversations.find((c) => c.id === 'conv-del')).toBeUndefined();
+    });
+
+    it('ignores event without conversation_id', () => {
+      const { handler } = setupHandler('dm_group_deleted');
+
+      act(() => {
+        handler({ type: 'dm_group_deleted', data: {} });
+      });
+
+      // No crash
+    });
+  });
+
+  // ── Pre-existing uncovered handlers ────────────────────────────────
+
+  describe('message_update handler', () => {
+    it('updates message content and edit timestamp', () => {
+      const { handler } = setupHandler('message_update');
+
+      useChatStore.getState().addMessage('channel-1', {
+        id: 'msg-edit-1',
+        channel_id: 'channel-1',
+        user_id: 'user-2',
+        content: 'Original content',
+        username: 'alice',
+        is_encrypted: false,
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-01T00:00:00Z',
+      });
+
+      act(() => {
+        handler({
+          type: 'message_update',
+          data: {
+            channel_id: 'channel-1',
+            id: 'msg-edit-1',
+            content: 'Edited content',
+            edited_at: '2025-01-01T00:01:00Z',
+            updated_at: '2025-01-01T00:01:00Z',
+          },
+        });
+      });
+
+      const msgs = useChatStore.getState().messagesByChannel.get('channel-1');
+      expect(msgs![0].content).toBe('Edited content');
+    });
+
+    it('ignores update without channel_id', () => {
+      const { handler } = setupHandler('message_update');
+
+      act(() => {
+        handler({ type: 'message_update', data: { id: 'msg-1', content: 'x' } });
+      });
+
+      // No crash
+    });
+
+    it('ignores update without message id', () => {
+      const { handler } = setupHandler('message_update');
+
+      act(() => {
+        handler({ type: 'message_update', data: { channel_id: 'channel-1', content: 'x' } });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('message_ack handler', () => {
+    it('updates message status from pending to delivered', () => {
+      const { handler } = setupHandler('message_ack');
+
+      useChatStore.getState().addMessage('channel-1', {
+        id: 'nonce-1',
+        channel_id: 'channel-1',
+        user_id: 'user-1',
+        content: 'Pending msg',
+        username: 'testuser',
+        is_encrypted: false,
+        status: 'pending',
+        clientMessageId: 'nonce-1',
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-01T00:00:00Z',
+      });
+
+      act(() => {
+        handler({
+          type: 'message_ack',
+          data: { nonce: 'nonce-1', id: 'server-id-1', channel_id: 'channel-1' },
+        });
+      });
+
+      const msgs = useChatStore.getState().messagesByChannel.get('channel-1');
+      expect(msgs![0].status).toBe('delivered');
+    });
+
+    it('ignores ack with missing fields', () => {
+      const { handler } = setupHandler('message_ack');
+
+      act(() => {
+        handler({ type: 'message_ack', data: { nonce: 'nonce-1' } });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('member_joined handler', () => {
+    it('adds member when event is for active server', () => {
+      useServerStore.getState().setActiveServer('server-1');
+      const { handler } = setupHandler('member_joined');
+
+      const addSpy = vi.spyOn(useMemberStore.getState(), 'addMember');
+
+      act(() => {
+        handler({
+          type: 'member_joined',
+          data: {
+            server_id: 'server-1',
+            user_id: 'user-3',
+            username: 'newmember',
+            display_name: 'New Member',
+            avatar_url: 'https://example.com/avatar.png',
+            role: 'member',
+          },
+        });
+      });
+
+      expect(addSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          user_id: 'user-3',
+          username: 'newmember',
+        })
+      );
+    });
+
+    it('ignores member_joined for non-active server', () => {
+      useServerStore.getState().setActiveServer('server-1');
+      const { handler } = setupHandler('member_joined');
+
+      const addSpy = vi.spyOn(useMemberStore.getState(), 'addMember');
+
+      act(() => {
+        handler({
+          type: 'member_joined',
+          data: { server_id: 'server-2', user_id: 'user-3', username: 'other' },
+        });
+      });
+
+      expect(addSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('server_updated handler', () => {
+    it('updates server properties', () => {
+      useServerStore.getState().addServer(mockServer);
+      const { handler } = setupHandler('server_updated');
+
+      act(() => {
+        handler({
+          type: 'server_updated',
+          data: {
+            server_id: 'server-1',
+            name: 'Renamed Server',
+            icon_url: 'https://example.com/icon.png',
+            banner_url: 'https://example.com/banner.png',
+            allow_embedded_content: true,
+          },
+        });
+      });
+
+      const server = useServerStore.getState().servers.find((s) => s.id === 'server-1');
+      expect(server?.name).toBe('Renamed Server');
+    });
+
+    it('ignores event without server_id', () => {
+      const { handler } = setupHandler('server_updated');
+
+      act(() => {
+        handler({ type: 'server_updated', data: { name: 'No ID' } });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('channel_updated handler', () => {
+    it('updates channel properties', () => {
+      const { handler } = setupHandler('channel_updated');
+
+      act(() => {
+        handler({
+          type: 'channel_updated',
+          data: {
+            channel_id: 'channel-1',
+            name: 'renamed-general',
+            type: 'text',
+            emoji: '🎉',
+            group_id: null,
+          },
+        });
+      });
+
+      const ch = useChannelStore.getState().channels.find((c) => c.id === 'channel-1');
+      expect(ch?.name).toBe('renamed-general');
+    });
+
+    it('ignores event without channel_id', () => {
+      const { handler } = setupHandler('channel_updated');
+
+      act(() => {
+        handler({ type: 'channel_updated', data: { name: 'no-id' } });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('channel_deleted handler', () => {
+    it('removes channel from store', () => {
+      const { handler } = setupHandler('channel_deleted');
+
+      act(() => {
+        handler({ type: 'channel_deleted', data: { channel_id: 'channel-1' } });
+      });
+
+      expect(useChannelStore.getState().channels.find((c) => c.id === 'channel-1')).toBeUndefined();
+    });
+
+    it('ignores event without channel_id', () => {
+      const { handler } = setupHandler('channel_deleted');
+
+      act(() => {
+        handler({ type: 'channel_deleted', data: {} });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('server_deleted handler', () => {
+    it('removes server from store', () => {
+      useServerStore.getState().addServer(mockServer);
+      const { handler } = setupHandler('server_deleted');
+
+      act(() => {
+        handler({ type: 'server_deleted', data: { server_id: 'server-1' } });
+      });
+
+      expect(useServerStore.getState().servers.find((s) => s.id === 'server-1')).toBeUndefined();
+    });
+
+    it('ignores event without server_id', () => {
+      const { handler } = setupHandler('server_deleted');
+
+      act(() => {
+        handler({ type: 'server_deleted', data: {} });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('member_removed handler', () => {
+    it('removes server when current user is removed', () => {
+      useServerStore.getState().addServer(mockServer);
+      const { handler } = setupHandler('member_removed');
+
+      act(() => {
+        handler({
+          type: 'member_removed',
+          data: { server_id: 'server-1', user_id: 'user-1' },
+        });
+      });
+
+      expect(useServerStore.getState().servers.find((s) => s.id === 'server-1')).toBeUndefined();
+    });
+
+    it('removes member from member list when another user is removed from active server', () => {
+      useServerStore.getState().addServer(mockServer);
+      useServerStore.getState().setActiveServer('server-1');
+      useMemberStore.getState().addMember({
+        user_id: 'user-2',
+        username: 'alice',
+        role: 'member',
+        joined_at: '2025-01-01T00:00:00Z',
+        roles: [],
+      });
+
+      const { handler } = setupHandler('member_removed');
+
+      act(() => {
+        handler({
+          type: 'member_removed',
+          data: { server_id: 'server-1', user_id: 'user-2' },
+        });
+      });
+
+      expect(useMemberStore.getState().members.find((m) => m.user_id === 'user-2')).toBeUndefined();
+    });
+
+    it('ignores event without server_id or user_id', () => {
+      const { handler } = setupHandler('member_removed');
+
+      act(() => {
+        handler({ type: 'member_removed', data: { server_id: 'server-1' } });
+      });
+
+      act(() => {
+        handler({ type: 'member_removed', data: { user_id: 'user-2' } });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('presence_snapshot handler', () => {
+    it('sets presence snapshot with enhanced user+status format', () => {
+      const { handler } = setupHandler('presence_snapshot');
+      const snapshotSpy = vi.spyOn(useMemberStore.getState(), 'setPresenceSnapshot');
+
+      act(() => {
+        handler({
+          type: 'presence_snapshot',
+          data: {
+            users: [
+              { user_id: 'user-2', status: 'online' },
+              { user_id: 'user-3', status: 'dnd' },
+            ],
+          },
+        });
+      });
+
+      expect(snapshotSpy).toHaveBeenCalledWith([
+        { user_id: 'user-2', status: 'online' },
+        { user_id: 'user-3', status: 'dnd' },
+      ]);
+    });
+
+    it('handles backward-compatible online_user_ids format', () => {
+      const { handler } = setupHandler('presence_snapshot');
+      const setOnlineSpy = vi.spyOn(useMemberStore.getState(), 'setOnlineUsers');
+
+      act(() => {
+        handler({
+          type: 'presence_snapshot',
+          data: { online_user_ids: ['user-2', 'user-3'] },
+        });
+      });
+
+      expect(setOnlineSpy).toHaveBeenCalledWith(['user-2', 'user-3']);
+    });
+
+    it('also updates DM participant and friend presence', () => {
+      const { handler } = setupHandler('presence_snapshot');
+      const dmUpdateSpy = vi.spyOn(useDMStore.getState(), 'updateParticipantProfile');
+      const friendUpdateSpy = vi.spyOn(useFriendStore.getState(), 'updateFriendPresence');
+
+      act(() => {
+        handler({
+          type: 'presence_snapshot',
+          data: { users: [{ user_id: 'user-2', status: 'online' }] },
+        });
+      });
+
+      expect(dmUpdateSpy).toHaveBeenCalledWith('user-2', { status: 'online' });
+      expect(friendUpdateSpy).toHaveBeenCalledWith('user-2', 'online');
+    });
+
+    it('updates DM/friend presence from backward-compatible format', () => {
+      const { handler } = setupHandler('presence_snapshot');
+      const dmUpdateSpy = vi.spyOn(useDMStore.getState(), 'updateParticipantProfile');
+      const friendUpdateSpy = vi.spyOn(useFriendStore.getState(), 'updateFriendPresence');
+
+      act(() => {
+        handler({
+          type: 'presence_snapshot',
+          data: { online_user_ids: ['user-4'] },
+        });
+      });
+
+      expect(dmUpdateSpy).toHaveBeenCalledWith('user-4', { status: 'online' });
+      expect(friendUpdateSpy).toHaveBeenCalledWith('user-4', 'online');
+    });
+  });
+
+  describe('presence handler', () => {
+    it('updates user status for another user', () => {
+      const { handler } = setupHandler('presence');
+      const setStatusSpy = vi.spyOn(useMemberStore.getState(), 'setUserStatus');
+
+      act(() => {
+        handler({
+          type: 'presence',
+          data: { user_id: 'user-2', status: 'dnd' },
+        });
+      });
+
+      expect(setStatusSpy).toHaveBeenCalledWith('user-2', 'dnd');
+    });
+
+    it('sets last_seen timestamp on offline status', () => {
+      const { handler } = setupHandler('presence');
+      const setLastSeenSpy = vi.spyOn(useMemberStore.getState(), 'setUserLastSeen');
+
+      act(() => {
+        handler({
+          type: 'presence',
+          data: { user_id: 'user-2', status: 'offline', timestamp: 1704067200 },
+        });
+      });
+
+      expect(setLastSeenSpy).toHaveBeenCalledWith('user-2', 1704067200);
+    });
+
+    it('skips self user to preserve local source of truth', () => {
+      const { handler } = setupHandler('presence');
+      const setStatusSpy = vi.spyOn(useMemberStore.getState(), 'setUserStatus');
+
+      act(() => {
+        handler({
+          type: 'presence',
+          data: { user_id: 'user-1', status: 'offline' },
+        });
+      });
+
+      expect(setStatusSpy).not.toHaveBeenCalled();
+    });
+
+    it('ignores event without user_id', () => {
+      const { handler } = setupHandler('presence');
+      const setStatusSpy = vi.spyOn(useMemberStore.getState(), 'setUserStatus');
+
+      act(() => {
+        handler({ type: 'presence', data: { status: 'online' } });
+      });
+
+      expect(setStatusSpy).not.toHaveBeenCalled();
+    });
+
+    it('updates DM participant and friend presence', () => {
+      const { handler } = setupHandler('presence');
+      const dmUpdateSpy = vi.spyOn(useDMStore.getState(), 'updateParticipantProfile');
+      const friendUpdateSpy = vi.spyOn(useFriendStore.getState(), 'updateFriendPresence');
+
+      act(() => {
+        handler({
+          type: 'presence',
+          data: { user_id: 'user-2', status: 'online' },
+        });
+      });
+
+      expect(dmUpdateSpy).toHaveBeenCalledWith('user-2', { status: 'online' });
+      expect(friendUpdateSpy).toHaveBeenCalledWith('user-2', 'online');
+    });
+  });
+
+  describe('server_online_counts handler', () => {
+    it('updates online counts on server store', () => {
+      useServerStore.getState().addServer(mockServer);
+      const { handler } = setupHandler('server_online_counts');
+      const updateSpy = vi.spyOn(useServerStore.getState(), 'updateOnlineCounts');
+
+      act(() => {
+        handler({
+          type: 'server_online_counts',
+          data: { counts: { 'server-1': 42 } },
+        });
+      });
+
+      expect(updateSpy).toHaveBeenCalledWith({ 'server-1': 42 });
+    });
+
+    it('ignores event without counts', () => {
+      const { handler } = setupHandler('server_online_counts');
+
+      act(() => {
+        handler({ type: 'server_online_counts', data: {} });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('voice_state_update — participant state actions', () => {
+    it('updates muted state for active channel participant', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      // Set up active channel and add participant
+      useVoiceStore.getState().setActiveChannel('ch-voice');
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'muted', user_id: 'user-2' },
+        });
+      });
+
+      expect(useVoiceStore.getState().participants['user-2'].isMuted).toBe(true);
+    });
+
+    it('updates unmuted state', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      useVoiceStore.getState().setActiveChannel('ch-voice');
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: true,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'unmuted', user_id: 'user-2' },
+        });
+      });
+
+      expect(useVoiceStore.getState().participants['user-2'].isMuted).toBe(false);
+    });
+
+    it('updates video_on state', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      useVoiceStore.getState().setActiveChannel('ch-voice');
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'video_on', user_id: 'user-2' },
+        });
+      });
+
+      expect(useVoiceStore.getState().participants['user-2'].isVideoOn).toBe(true);
+    });
+
+    it('updates screen_on state', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      useVoiceStore.getState().setActiveChannel('ch-voice');
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'screen_on', user_id: 'user-2' },
+        });
+      });
+
+      expect(useVoiceStore.getState().participants['user-2'].isScreenSharing).toBe(true);
+    });
+
+    it('plays user-join notification for other users in active voice channel', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      useVoiceStore.getState().setActiveChannel('ch-voice');
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: {
+            channel_id: 'ch-voice',
+            action: 'joined',
+            user_id: 'user-2',
+            username: 'alice',
+            server_id: 'server-1',
+          },
+        });
+      });
+
+      expect(mockNotificationPlay).toHaveBeenCalledWith('user-join');
+    });
+
+    it('plays user-leave notification for other users in active voice channel', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      useVoiceStore.getState().setActiveChannel('ch-voice');
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: {
+            channel_id: 'ch-voice',
+            action: 'left',
+            user_id: 'user-2',
+            server_id: 'server-1',
+          },
+        });
+      });
+
+      expect(mockNotificationPlay).toHaveBeenCalledWith('user-leave');
+    });
+
+    it('does not play notification for own join/leave', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      useVoiceStore.getState().setActiveChannel('ch-voice');
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: {
+            channel_id: 'ch-voice',
+            action: 'joined',
+            user_id: 'user-1',
+            username: 'testuser',
+            server_id: 'server-1',
+          },
+        });
+      });
+
+      expect(mockNotificationPlay).not.toHaveBeenCalled();
+    });
+
+    it('ignores voice_state_update without action', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-1', user_id: 'user-2' },
+        });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('unread_notify — edge cases', () => {
+    it('marks server unread for non-active server', () => {
+      useServerStore.getState().setActiveServer('server-1');
+      const { handler } = setupHandler('unread_notify');
+      const markSpy = vi.spyOn(useUnreadStore.getState(), 'markServerUnread');
+
+      act(() => {
+        handler({
+          type: 'unread_notify',
+          data: { server_id: 'server-2', channel_id: 'ch-5' },
+        });
+      });
+
+      expect(markSpy).toHaveBeenCalledWith('server-2');
+    });
+
+    it('marks server mention for non-active server with mention flag', () => {
+      useServerStore.getState().setActiveServer('server-1');
+      const { handler } = setupHandler('unread_notify');
+      const mentionSpy = vi.spyOn(useUnreadStore.getState(), 'markServerMention');
+
+      act(() => {
+        handler({
+          type: 'unread_notify',
+          data: { server_id: 'server-2', channel_id: 'ch-5', mentioned: true },
+        });
+      });
+
+      expect(mentionSpy).toHaveBeenCalledWith('server-2');
+    });
+
+    it('ignores event without channel_id when server is active', () => {
+      useServerStore.getState().setActiveServer('server-1');
+      const { handler } = setupHandler('unread_notify');
+
+      act(() => {
+        handler({
+          type: 'unread_notify',
+          data: { server_id: 'server-1' },
+        });
+      });
+
+      // Should not crash; no unread incremented
+    });
+
+    it('increments unread and mention counts for non-active channel', () => {
+      useServerStore.getState().setActiveServer('server-1');
+      useChannelStore.setState({ activeChannelId: 'ch-1' });
+      const { handler } = setupHandler('unread_notify');
+      const incrementSpy = vi.spyOn(useUnreadStore.getState(), 'incrementUnread');
+      const mentionSpy = vi.spyOn(useUnreadStore.getState(), 'incrementMention');
+
+      act(() => {
+        handler({
+          type: 'unread_notify',
+          data: { server_id: 'server-1', channel_id: 'ch-2', mentioned: true },
+        });
+      });
+
+      expect(incrementSpy).toHaveBeenCalledWith('ch-2');
+      expect(mentionSpy).toHaveBeenCalledWith('ch-2');
+    });
+  });
+
+  describe('message handler — edge cases', () => {
+    it('ignores message without channel_id', () => {
+      const { handler } = setupHandler('message');
+
+      act(() => {
+        handler({
+          type: 'message',
+          data: {
+            id: 'msg-no-ch',
+            user_id: 'user-2',
+            content: 'No channel',
+            username: 'alice',
+            is_encrypted: false,
+          },
+        });
+      });
+
+      expect(useChatStore.getState().messagesByChannel.size).toBe(0);
+    });
+  });
+
+  describe('message_delete handler — edge cases', () => {
+    it('ignores delete without channel_id or message_id', () => {
+      const { handler } = setupHandler('message_delete');
+
+      act(() => {
+        handler({ type: 'message_delete', data: { id: 'msg-1' } });
+      });
+
+      act(() => {
+        handler({ type: 'message_delete', data: { channel_id: 'channel-1' } });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('typing handler — edge cases', () => {
+    it('ignores typing event without channel_id or user_id', () => {
+      const { handler } = setupHandler('typing');
+
+      act(() => {
+        handler({ type: 'typing', data: { user_id: 'user-2', is_typing: true } });
+      });
+
+      act(() => {
+        handler({ type: 'typing', data: { channel_id: 'ch-1', is_typing: true } });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('dm_voice_state_update handler', () => {
+    it('handles dm voice state update without crashing', () => {
+      const { handler } = setupHandler('dm_voice_state_update');
+
+      act(() => {
+        handler({
+          type: 'dm_voice_state_update',
+          data: {
+            conversation_id: 'conv-1',
+            action: 'joined',
+            user_id: 'user-2',
+          },
+        });
+      });
+
+      // Just a debug log handler — verify no crash
+    });
+
+    it('ignores event without conversation_id', () => {
+      const { handler } = setupHandler('dm_voice_state_update');
+
+      act(() => {
+        handler({
+          type: 'dm_voice_state_update',
+          data: { action: 'joined', user_id: 'user-2' },
+        });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('dm_subscribed handler', () => {
+    it('handles subscription confirmation without crashing', () => {
+      const { handler } = setupHandler('dm_subscribed');
+
+      act(() => {
+        handler({
+          type: 'dm_subscribed',
+          data: { conversation_id: 'conv-1' },
+        });
+      });
+
+      // Debug log only
+    });
+  });
+
+  describe('subscribed handler', () => {
+    it('handles channel subscription confirmation without crashing', () => {
+      const { handler } = setupHandler('subscribed');
+
+      act(() => {
+        handler({
+          type: 'subscribed',
+          data: { channel_id: 'channel-1' },
+        });
+      });
+
+      // Debug log only
+    });
+  });
+
+  describe('dm_unread_notify — last_message preview', () => {
+    it('updates last message preview on DM unread notification', () => {
+      const { handler } = setupHandler('dm_unread_notify');
+
+      useDMStore.getState().addConversation({
+        id: 'conv-1',
+        isGroup: false,
+        isPersonal: false,
+        name: null,
+        isEncrypted: false,
+        participants: [],
+        iconUrl: undefined,
+        createdBy: 'user-2',
+        lastMessage: null,
+        unreadCount: 0,
+        createdAt: '2025-01-01T00:00:00Z',
+      });
+
+      const updateSpy = vi.spyOn(useDMStore.getState(), 'updateLastMessage');
+
+      act(() => {
+        handler({
+          type: 'dm_unread_notify',
+          data: {
+            conversation_id: 'conv-1',
+            last_message: {
+              content: 'Preview text',
+              user_id: 'user-2',
+              username: 'alice',
+              created_at: '2025-01-01T01:00:00Z',
+              is_encrypted: false,
+            },
+          },
+        });
+      });
+
+      expect(updateSpy).toHaveBeenCalledWith(
+        'conv-1',
+        expect.objectContaining({ content: 'Preview text' })
+      );
+    });
+  });
+
+  describe('profile_updated — voice participant updates', () => {
+    it('updates voice participant when user is in active call', () => {
+      const { handler } = setupHandler('profile_updated');
+
+      // Set up a voice participant
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'old-alice',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'profile_updated',
+          data: {
+            user_id: 'user-2',
+            username: 'new-alice',
+            display_name: 'New Alice',
+            avatar_url: 'https://example.com/new.png',
+          },
+        });
+      });
+
+      const participant = useVoiceStore.getState().participants['user-2'];
+      expect(participant.username).toBe('new-alice');
+    });
+
+    it('updates channel voice members sidebar display', () => {
+      const { handler } = setupHandler('profile_updated');
+
+      useVoiceStore
+        .getState()
+        .setChannelVoiceMembers('ch-1', [
+          { userId: 'user-2', username: 'old-alice', isMuted: false },
+        ]);
+
+      act(() => {
+        handler({
+          type: 'profile_updated',
+          data: {
+            user_id: 'user-2',
+            username: 'new-alice',
+            display_name: 'New Alice',
+          },
+        });
+      });
+
+      const members = useVoiceStore.getState().channelVoiceMembers['ch-1'];
+      expect(members[0].username).toBe('new-alice');
+    });
+
+    it('updates available screen shares', () => {
+      const { handler } = setupHandler('profile_updated');
+
+      useVoiceStore.setState({
+        availableScreenShares: [{ userId: 'user-2', username: 'old-alice', streamId: 'stream-1' }],
+      });
+
+      act(() => {
+        handler({
+          type: 'profile_updated',
+          data: {
+            user_id: 'user-2',
+            username: 'new-alice',
+            display_name: 'New Alice',
+          },
+        });
+      });
+
+      const shares = useVoiceStore.getState().availableScreenShares;
+      expect(shares[0].username).toBe('new-alice');
+    });
+  });
+
+  describe('channel_group_created — non-active server', () => {
+    it('ignores group creation for non-active server', () => {
+      useServerStore.getState().setActiveServer('server-1');
+      const { handler } = setupHandler('channel_group_created');
+
+      const addSpy = vi.spyOn(useChannelStore.getState(), 'addChannelGroup');
+
+      act(() => {
+        handler({
+          type: 'channel_group_created',
+          data: {
+            channel_group: {
+              id: 'group-1',
+              server_id: 'server-other',
+              name: 'Other Group',
+              position: 0,
+            },
+          },
+        });
+      });
+
+      expect(addSpy).not.toHaveBeenCalled();
+    });
+
+    it('ignores event without channel_group', () => {
+      const { handler } = setupHandler('channel_group_created');
+
+      act(() => {
+        handler({ type: 'channel_group_created', data: {} });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('channel_group_updated — missing data', () => {
+    it('ignores event without channel_group', () => {
+      const { handler } = setupHandler('channel_group_updated');
+
+      act(() => {
+        handler({ type: 'channel_group_updated', data: {} });
+      });
+
+      // No crash
+    });
+  });
+
+  describe('channel_group_deleted — missing data', () => {
+    it('ignores event without group_id', () => {
+      const { handler } = setupHandler('channel_group_deleted');
+
+      act(() => {
+        handler({ type: 'channel_group_deleted', data: {} });
+      });
+
+      // No crash
+    });
+  });
+
+  // ── Additional branch coverage ───────────────────────────────────────
+
+  describe('key_needed — E2EE not initialized branch', () => {
+    it('ignores key_needed when E2EE is not initialized', async () => {
+      // Temporarily override e2eeService.isInitialized
+      const { e2eeService } = await import('@/renderer/services/e2eeService');
+      const original = e2eeService.isInitialized;
+      Object.defineProperty(e2eeService, 'isInitialized', { value: false, writable: true });
+
+      const { handler } = setupHandler('key_needed');
+
+      act(() => {
+        handler({ type: 'key_needed', data: { channel_id: 'ch-1' } });
+      });
+
+      expect(mockProcessPendingKeyRequests).not.toHaveBeenCalled();
+
+      // Restore
+      Object.defineProperty(e2eeService, 'isInitialized', { value: original, writable: true });
+    });
+
+    it('handles processPendingKeyRequests rejection gracefully', async () => {
+      mockProcessPendingKeyRequests.mockRejectedValueOnce(new Error('key fetch failed'));
+
+      const { handler } = setupHandler('key_needed');
+
+      act(() => {
+        handler({ type: 'key_needed', data: { channel_id: 'ch-1' } });
+      });
+
+      // The catch handler should swallow the error
+      await vi.waitFor(() => {
+        expect(mockProcessPendingKeyRequests).toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('dm_message — encrypted path', () => {
+    it('handles encrypted DM message', () => {
+      mockDecryptForChannel.mockResolvedValue('decrypted DM content');
+
+      const { handler } = setupHandler('dm_message');
+
+      act(() => {
+        handler({
+          type: 'dm_message',
+          data: {
+            id: 'dm-enc-1',
+            conversation_id: 'conv-enc',
+            user_id: 'user-2',
+            username: 'alice',
+            content: 'encrypted-ciphertext',
+            is_encrypted: true,
+            created_at: '2025-01-01T00:00:00Z',
+            updated_at: '2025-01-01T00:00:00Z',
+          },
+        });
+      });
+
+      expect(mockDecryptForChannel).toHaveBeenCalledWith('conv-enc', 'encrypted-ciphertext');
+    });
+
+    it('handles encrypted DM message with key version > 1', () => {
+      mockDecryptForChannelWithVersion.mockResolvedValue('decrypted v2 content');
+
+      const { handler } = setupHandler('dm_message');
+
+      act(() => {
+        handler({
+          type: 'dm_message',
+          data: {
+            id: 'dm-enc-2',
+            conversation_id: 'conv-enc',
+            user_id: 'user-2',
+            username: 'alice',
+            content: 'encrypted-v2-ciphertext',
+            is_encrypted: true,
+            key_version: 2,
+            created_at: '2025-01-01T00:00:00Z',
+            updated_at: '2025-01-01T00:00:00Z',
+          },
+        });
+      });
+
+      expect(mockDecryptForChannelWithVersion).toHaveBeenCalledWith(
+        'conv-enc',
+        'encrypted-v2-ciphertext',
+        2
+      );
+    });
+
+    it('handles DM message with attachments in last message preview', () => {
+      const { handler } = setupHandler('dm_message');
+      const updateSpy = vi.spyOn(useDMStore.getState(), 'updateLastMessage');
+
+      act(() => {
+        handler({
+          type: 'dm_message',
+          data: {
+            id: 'dm-attach-1',
+            conversation_id: 'conv-1',
+            user_id: 'user-2',
+            username: 'alice',
+            content: '',
+            is_encrypted: false,
+            attachments: [{ file_type: 'image/png', url: 'https://example.com/img.png' }],
+            created_at: '2025-01-01T00:00:00Z',
+          },
+        });
+      });
+
+      expect(updateSpy).toHaveBeenCalledWith(
+        'conv-1',
+        expect.objectContaining({ attachmentType: 'image/png' })
+      );
+    });
+  });
+
+  describe('shouldSuppressLinkedTextNotification branch', () => {
+    it('suppresses unread for voice-linked text channel when not in that voice channel', () => {
+      // Set up a channel with a linked voice channel
+      useChannelStore.getState().addChannel({
+        id: 'ch-linked',
+        server_id: 'server-1',
+        name: 'linked-text',
+        type: 'text',
+        is_encrypted: false,
+        position: 1,
+        linked_voice_channel_id: 'ch-voice-linked',
+        created_at: '2025-01-01T00:00:00Z',
+        updated_at: '2025-01-01T00:00:00Z',
+      });
+
+      // User is NOT in the linked voice channel
+      useVoiceStore.getState().setActiveChannel('ch-other-voice');
+      useServerStore.getState().setActiveServer('server-1');
+      useChannelStore.setState({ activeChannelId: 'ch-1' });
+
+      const { handler } = setupHandler('unread_notify');
+
+      act(() => {
+        handler({
+          type: 'unread_notify',
+          data: { server_id: 'server-1', channel_id: 'ch-linked' },
+        });
+      });
+
+      // Should be suppressed — no sound played
+      expect(mockNotificationPlay).not.toHaveBeenCalled();
+    });
+  });
+});
