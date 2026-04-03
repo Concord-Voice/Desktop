@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useCallback } from 'react';
+import React, { useEffect, useRef, useCallback, useMemo } from 'react';
 import { Lock, Users, ChevronUp, ChevronDown } from 'lucide-react';
+import { createResizeKeyHandler } from '../../utils/resizeKeyboard';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useChannelStore } from '../../stores/channelStore';
 // voiceService is loaded on-demand via dynamic import() — see voiceService.ts
@@ -184,6 +185,59 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
     []
   );
 
+  // Keyboard handlers for resize handles
+  const userFrameResizeKeyHandler = useMemo(
+    () =>
+      createResizeKeyHandler({
+        axis: 'vertical',
+        direction: 'grow',
+        min: MIN_SECTION_HEIGHT,
+        max: 600,
+        getValue: () => userFrameBarHeight,
+        setValue: setUserFrameBarHeight,
+      }),
+    [userFrameBarHeight, setUserFrameBarHeight]
+  );
+
+  const streamBarResizeKeyHandler = useMemo(
+    () =>
+      createResizeKeyHandler({
+        axis: 'vertical',
+        direction: 'shrink',
+        min: MIN_SECTION_HEIGHT,
+        max: 600,
+        getValue: () => streamBarHeight,
+        setValue: setStreamBarHeight,
+      }),
+    [streamBarHeight, setStreamBarHeight]
+  );
+
+  const chatVerticalResizeKeyHandler = useMemo(
+    () =>
+      createResizeKeyHandler({
+        axis: 'horizontal',
+        direction: 'shrink',
+        min: MIN_CHAT_WIDTH,
+        max: 1200,
+        getValue: () => voiceTextChatWidth,
+        setValue: setVoiceTextChatWidth,
+      }),
+    [voiceTextChatWidth, setVoiceTextChatWidth]
+  );
+
+  const chatHorizontalResizeKeyHandler = useMemo(
+    () =>
+      createResizeKeyHandler({
+        axis: 'vertical',
+        direction: 'shrink',
+        min: MIN_CHAT_HEIGHT,
+        max: 1200,
+        getValue: () => voiceTextChatHeight,
+        setValue: setVoiceTextChatHeight,
+      }),
+    [voiceTextChatHeight, setVoiceTextChatHeight]
+  );
+
   // Not connected — show join prompt
   if (!isConnected) {
     return (
@@ -267,8 +321,9 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
                     userFrameBarHeight,
                     setUserFrameBarHeight
                   )}
-                  tabIndex={-1}
-                  aria-hidden="true"
+                  onKeyDown={userFrameResizeKeyHandler}
+                  tabIndex={0}
+                  aria-label="Resize user frame bar"
                 />
                 <button
                   className="voice-view__section-toggle"
@@ -293,8 +348,9 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
                       streamBarHeight,
                       setStreamBarHeight
                     )}
-                    tabIndex={-1}
-                    aria-hidden="true"
+                    onKeyDown={streamBarResizeKeyHandler}
+                    tabIndex={0}
+                    aria-label="Resize stream bar"
                   />
                   <button
                     className="voice-view__section-toggle"
@@ -325,8 +381,9 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
               type="button"
               className="voice-text-chat-resize voice-text-chat-resize--vertical"
               onMouseDown={handleChatResizeStart}
-              tabIndex={-1}
-              aria-hidden="true"
+              onKeyDown={chatVerticalResizeKeyHandler}
+              tabIndex={0}
+              aria-label="Resize voice text chat"
             >
               <div className="voice-text-chat-resize__grip" />
             </button>
@@ -350,8 +407,9 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
             type="button"
             className="voice-text-chat-resize"
             onMouseDown={handleChatResizeStart}
-            tabIndex={-1}
-            aria-hidden="true"
+            onKeyDown={chatHorizontalResizeKeyHandler}
+            tabIndex={0}
+            aria-label="Resize voice text chat"
           >
             <div className="voice-text-chat-resize__grip" />
           </button>

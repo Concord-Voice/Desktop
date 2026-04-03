@@ -278,4 +278,18 @@ describe('PersistentVoiceBar', () => {
       expect(useVoiceStore.getState().voiceControlsPoppedOut).toBe(true);
     });
   });
+
+  // ── Resize handle accessibility ──
+
+  describe('resize handle accessibility', () => {
+    it('chat resize handle is keyboard-accessible', () => {
+      useChannelStore.setState({ channels: [linkedTextChannel] });
+      setBarState({ showVoiceTextChat: true });
+      const { container } = render(<PersistentVoiceBar />);
+      const handle = container.querySelector('.persistent-voice-bar__chat-resize');
+      expect(handle).toHaveAttribute('tabindex', '0');
+      expect(handle).toHaveAttribute('aria-label', 'Resize voice text chat');
+      expect(handle).not.toHaveAttribute('aria-hidden');
+    });
+  });
 });

@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, act } from '../../../test-utils';
+import { render, screen, fireEvent } from '../../../test-utils';
 import MemberListPanel from '@/renderer/components/Servers/MemberListPanel';
 import { vi } from 'vitest';
 import type { ServerMember } from '@/renderer/stores/memberStore';
@@ -71,7 +71,6 @@ const mockMembers: ServerMember[] = [
 
 const defaultProps = {
   members: mockMembers,
-  serverRoles: mockRoles,
   assignableRoles,
   onToggleRole: vi.fn(),
 };
@@ -81,48 +80,43 @@ describe('MemberListPanel', () => {
     vi.clearAllMocks();
   });
 
+  it('renders column headers', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const header = document.querySelector('.member-list-header');
+    expect(header).toBeInTheDocument();
+    const spans = document.querySelectorAll('.member-list-header span');
+    expect(spans[0]).toHaveTextContent('User');
+    expect(spans[1]).toHaveTextContent('Roles');
+  });
+
   it('renders member list with names and avatars', () => {
     render(<MemberListPanel {...defaultProps} />);
     expect(screen.getByText('Alice')).toBeInTheDocument();
     expect(screen.getByText('bob')).toBeInTheDocument();
-    // Avatar divs should exist
     const avatarDivs = document.querySelectorAll('.member-avatar');
     expect(avatarDivs.length).toBe(2);
   });
 
   it('shows display_name when available, username otherwise', () => {
     render(<MemberListPanel {...defaultProps} />);
-    // Alice has display_name -> shows "Alice"
     const aliceName = screen.getByText('Alice');
     expect(aliceName).toHaveClass('member-name');
-    // Bob has no display_name -> shows "bob"
     const bobName = screen.getByText('bob');
     expect(bobName).toHaveClass('member-name');
   });
 
   it('shows @username below display_name', () => {
     render(<MemberListPanel {...defaultProps} />);
-    // Alice has display_name, so @username should be shown
     expect(screen.getByText('@alice')).toBeInTheDocument();
-    // Bob has no display_name, so no @username shown
     expect(screen.queryByText('@bob')).not.toBeInTheDocument();
   });
 
-  it('shows role badges for non-default roles', () => {
+  it('shows roles inline as removable badges without needing to expand', () => {
     render(<MemberListPanel {...defaultProps} />);
-    const badges = document.querySelectorAll('.role-badge');
-    // Only alice has a non-default role (Moderator)
-    expect(badges.length).toBe(1);
-    expect(badges[0]).toHaveTextContent('Moderator');
-    expect(badges[0]).toHaveStyle({ backgroundColor: '#ff0000' });
-  });
-
-  it('hides default role badges', () => {
-    render(<MemberListPanel {...defaultProps} />);
-    // Bob only has @everyone which is default -> no badge
-    const badges = document.querySelectorAll('.role-badge');
-    const badgeTexts = Array.from(badges).map((b) => b.textContent);
-    expect(badgeTexts).not.toContain('@everyone');
+    // Alice has Moderator — should be visible immediately as a removable badge
+    const removableBadges = document.querySelectorAll('.role-badge--removable');
+    expect(removableBadges.length).toBe(1);
+    expect(removableBadges[0]).toHaveTextContent('Moderator');
   });
 
   it('shows empty state when no members', () => {
@@ -130,101 +124,44 @@ describe('MemberListPanel', () => {
     expect(screen.getByText('No members found.')).toBeInTheDocument();
   });
 
-  it('clicking member expands role assignment', () => {
+  it('shows Add Role button inline for members with unassigned roles', () => {
     render(<MemberListPanel {...defaultProps} />);
-    const memberRow = screen.getByText('Alice').closest('.member-row')!;
-    const toggle = memberRow.querySelector('.member-row-toggle')!;
-    fireEvent.click(toggle);
-
-    expect(memberRow).toHaveClass('expanded');
-    expect(document.querySelector('.member-role-assignment')).toBeInTheDocument();
+    // Bob has no assigned non-default roles -> Add Role button should be visible immediately
+    const addBtns = document.querySelectorAll('.member-role-add-btn');
+    expect(addBtns.length).toBeGreaterThan(0);
   });
 
-  it('member rows are focusable native buttons (keyboard accessible)', () => {
+  it('clicking Add Role and selecting a role calls onToggleRole(userId, roleId, false)', () => {
     render(<MemberListPanel {...defaultProps} />);
-    const memberRow = screen.getByText('Alice').closest('.member-row')!;
-    const toggle = memberRow.querySelector('.member-row-toggle')! as HTMLButtonElement;
-    expect(toggle.tagName).toBe('BUTTON');
-    // Native buttons handle Enter/Space keyboard activation automatically
-    toggle.focus();
-    expect(document.activeElement).toBe(toggle);
-  });
-
-  it('clicking expanded member collapses it', () => {
-    render(<MemberListPanel {...defaultProps} />);
-    const memberRow = screen.getByText('Alice').closest('.member-row')!;
-    const toggle = memberRow.querySelector('.member-row-toggle')!;
-
-    // Expand
-    fireEvent.click(toggle);
-    expect(memberRow).toHaveClass('expanded');
-
-    // Collapse
-    fireEvent.click(toggle);
-    expect(memberRow).not.toHaveClass('expanded');
-    expect(document.querySelector('.member-role-assignment')).not.toBeInTheDocument();
-  });
-
-  it('role assignment shows checkboxes for assignable roles', () => {
-    render(<MemberListPanel {...defaultProps} />);
-    const memberRow = screen.getByText('Alice').closest('.member-row')!;
-    fireEvent.click(memberRow.querySelector('.member-row-toggle')!);
-
-    const checkboxes = document.querySelectorAll('.member-role-assignment input[type="checkbox"]');
-    expect(checkboxes.length).toBe(1); // Only Moderator (non-default)
-  });
-
-  it('checking a role calls onToggleRole(userId, roleId, false) when user does not have role', () => {
-    render(<MemberListPanel {...defaultProps} />);
-    // Expand bob (who does NOT have the Moderator role)
+    // Bob's row should have Add Role button visible inline
     const bobRow = screen.getByText('bob').closest('.member-row')!;
-    fireEvent.click(bobRow.querySelector('.member-row-toggle')!);
+    const addBtn = bobRow.querySelector('.member-role-add-btn');
+    expect(addBtn).toBeInTheDocument();
+    fireEvent.click(addBtn);
 
-    const checkbox = document.querySelector(
-      '.member-role-assignment input[type="checkbox"]'
-    ) as HTMLInputElement;
-    fireEvent.click(checkbox);
+    // Dropdown should appear with Moderator
+    const dropdownItem = document.querySelector('.member-role-dropdown__item');
+    expect(dropdownItem).toHaveTextContent('Moderator');
+    fireEvent.click(dropdownItem as HTMLElement);
 
-    // Bob doesn't have role-1, so hasRole = false
     expect(defaultProps.onToggleRole).toHaveBeenCalledWith('u2', 'role-1', false);
   });
 
-  it('unchecking a role calls onToggleRole(userId, roleId, true) when user has role', () => {
+  it('clicking remove button on a role badge calls onToggleRole(userId, roleId, true)', () => {
     render(<MemberListPanel {...defaultProps} />);
-    // Expand alice (who HAS the Moderator role)
-    const aliceRow = screen.getByText('Alice').closest('.member-row')!;
-    fireEvent.click(aliceRow.querySelector('.member-row-toggle')!);
+    // Alice's remove button is visible inline (no expand needed)
+    const removeBtn = document.querySelector('.role-badge__remove');
+    expect(removeBtn).toBeInTheDocument();
+    fireEvent.click(removeBtn as HTMLElement);
 
-    const checkbox = document.querySelector(
-      '.member-role-assignment input[type="checkbox"]'
-    ) as HTMLInputElement;
-    expect(checkbox.checked).toBe(true);
-    fireEvent.click(checkbox);
-
-    // Alice has role-1, so hasRole = true
     expect(defaultProps.onToggleRole).toHaveBeenCalledWith('u1', 'role-1', true);
   });
 
   it('shows "No roles available" when assignableRoles is empty', () => {
     render(<MemberListPanel {...defaultProps} assignableRoles={[]} />);
-    const memberRow = screen.getByText('Alice').closest('.member-row')!;
-    fireEvent.click(memberRow.querySelector('.member-row-toggle')!);
-
-    expect(
-      screen.getByText('No roles available to assign. Create roles in the Roles tab first.')
-    ).toBeInTheDocument();
-  });
-
-  it('clicking inside role assignment area does not collapse the member row', () => {
-    render(<MemberListPanel {...defaultProps} />);
-    const aliceRow = screen.getByText('Alice').closest('.member-row')!;
-    fireEvent.click(aliceRow.querySelector('.member-row-toggle')!);
-    expect(aliceRow).toHaveClass('expanded');
-
-    // Click inside the role assignment area — should NOT collapse
-    const assignmentArea = document.querySelector('.member-role-assignment')!;
-    fireEvent.click(assignmentArea);
-    expect(aliceRow).toHaveClass('expanded');
+    // Each member row shows the message, so use getAllByText
+    const msgs = screen.getAllByText('No roles available to assign.');
+    expect(msgs.length).toBe(2);
   });
 
   it('renders avatar image when avatar_url is provided', () => {
@@ -240,28 +177,19 @@ describe('MemberListPanel', () => {
     expect(img.src).toBe('https://example.com/avatar.png');
   });
 
-  it('only one member can be expanded at a time', () => {
-    render(<MemberListPanel {...defaultProps} />);
-    const aliceRow = screen.getByText('Alice').closest('.member-row')!;
-    const bobRow = screen.getByText('bob').closest('.member-row')!;
-
-    // Expand alice
-    fireEvent.click(aliceRow.querySelector('.member-row-toggle')!);
-    expect(aliceRow).toHaveClass('expanded');
-
-    // Expand bob -> alice should collapse
-    fireEvent.click(bobRow.querySelector('.member-row-toggle')!);
-    expect(bobRow).toHaveClass('expanded');
-    expect(aliceRow).not.toHaveClass('expanded');
-  });
-
-  it('member rows contain native button toggle elements', () => {
+  it('does not have expand/collapse toggle buttons', () => {
     render(<MemberListPanel {...defaultProps} />);
     const toggles = document.querySelectorAll('.member-row-toggle');
-    expect(toggles.length).toBe(2);
-    toggles.forEach((toggle) => {
-      expect(toggle.tagName).toBe('BUTTON');
-      expect(toggle).toHaveAttribute('type', 'button');
+    expect(toggles.length).toBe(0);
+  });
+
+  it('all member rows use grid layout with two cells', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const rows = document.querySelectorAll('.member-row');
+    expect(rows.length).toBe(2);
+    rows.forEach((row) => {
+      expect(row.querySelector('.member-cell--user')).toBeInTheDocument();
+      expect(row.querySelector('.member-cell--roles')).toBeInTheDocument();
     });
   });
 });

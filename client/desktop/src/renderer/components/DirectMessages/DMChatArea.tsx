@@ -10,10 +10,12 @@ import { useDMSubscription } from '../../hooks/useDMSubscription';
 import { useMessageFetch } from '../../hooks/useMessageFetch';
 import { apiFetch, safeJson } from '../../services/apiClient';
 import { e2eeService } from '../../services/e2eeService';
+import { pinMessage, unpinMessage } from '../../services/pinService';
 import { getWebSocketService, ConnectionState } from '../../services/websocketService';
 import { getMessageQueue } from '../../services/messageQueue';
 import type { MessageWithStatus } from '../../types/chat';
 import { usePrivacyStore } from '../../stores/privacyStore';
+import { resolveUserAccentColors } from '../../utils/schemeColors';
 import GroupInfoPanel from './GroupInfoPanel';
 import './DirectMessages.css';
 
@@ -42,6 +44,21 @@ function getThreadName(conv: DMConversation | undefined, currentUserId: string):
 
 const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
   const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<MessageWithStatus | null>(null);
+  const handleReply = useCallback((msg: MessageWithStatus) => setReplyingTo(msg), []);
+  const handleCancelReply = useCallback(() => setReplyingTo(null), []);
+
+  const handlePinToggle = useCallback(async (message: MessageWithStatus) => {
+    try {
+      if (message.pinned_at) {
+        await unpinMessage(message.id);
+      } else {
+        await pinMessage(message.id);
+      }
+    } catch (err) {
+      console.error('Failed to toggle pin:', err);
+    }
+  }, []);
   const conversations = useDMStore((s) => s.conversations);
   const clearUnread = useDMStore((s) => s.clearUnread);
   const addMessage = useChatStore((s) => s.addMessage);
@@ -76,7 +93,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
     (
       content: string,
       mentionMeta?: string,
-      _replyToId?: string,
+      replyToId?: string,
       attachmentIds?: string[],
       attachments?: import('../../types/chat').AttachmentSummary[]
     ) => {
@@ -87,6 +104,23 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
       const isEncrypted = activeConv?.isEncrypted ?? false;
 
       const clientMessageId = messageQueue.enqueue(selectedThreadId, content, 'message');
+
+      // Build replied_to summary from store for optimistic display
+      let repliedTo: MessageWithStatus['replied_to'];
+      if (replyToId) {
+        const storeMessages = useChatStore.getState().messagesByChannel.get(selectedThreadId);
+        const target = storeMessages?.find((m) => m.id === replyToId);
+        if (target) {
+          repliedTo = {
+            id: target.id,
+            user_id: target.user_id,
+            username: target.username,
+            display_name: target.display_name,
+            content: target.content,
+            is_encrypted: target.is_encrypted,
+          };
+        }
+      }
 
       // Optimistic UI
       const optimisticMessage: MessageWithStatus = {
@@ -102,6 +136,8 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         status: 'pending',
+        reply_to_id: replyToId,
+        replied_to: repliedTo,
         attachments,
       };
 
@@ -117,15 +153,13 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
                 throw new Error('Encryption produced invalid output');
               }
             }
-            wsService.sendDMMessage(
-              selectedThreadId,
-              sendContent,
-              clientMessageId,
+            wsService.sendDMMessage(selectedThreadId, sendContent, {
+              nonce: clientMessageId,
               isEncrypted,
-              undefined,
               mentionMeta,
-              attachmentIds
-            );
+              attachmentIds,
+              replyToId,
+            });
             messageQueue.markAsSent(clientMessageId);
             messageQueue.remove(clientMessageId);
             updateMessageStatus(selectedThreadId, clientMessageId, 'sent');
@@ -139,6 +173,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
         doSend();
       }
 
+      setReplyingTo(null);
       return clientMessageId;
     },
     [selectedThreadId, user, activeConv, addMessage, updateMessageStatus]
@@ -251,7 +286,17 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
       >
         <div className="dm-chat-header">
           <div className="conversation-avatar" style={{ width: 28, height: 28 }}>
-            <span className="conversation-avatar-initial" style={{ fontSize: 12 }}>
+            <span
+              className="conversation-avatar-initial"
+              style={(() => {
+                const other =
+                  activeConv && !activeConv.isGroup && !activeConv.isPersonal
+                    ? activeConv.participants.find((p) => p.userId !== currentUserId)
+                    : null;
+                const colors = resolveUserAccentColors(other?.colorScheme);
+                return colors ? { fontSize: 12, background: colors.gradient } : { fontSize: 12 };
+              })()}
+            >
               {threadName.charAt(0).toUpperCase()}
             </span>
           </div>
@@ -297,6 +342,9 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
             onEditMessage={handleEditMessage}
             onDeleteMessage={handleDeleteMessage}
             onUnseenOnLeave={handleUnseenOnLeave}
+            onReply={handleReply}
+            onPinToggle={handlePinToggle}
+            canPin={true}
           />
         </div>
 
@@ -315,6 +363,8 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
               disabled={!currentUserId}
               isChannelEncrypted={activeConv?.isEncrypted ?? false}
               conversationId={selectedThreadId || undefined}
+              replyingTo={replyingTo}
+              onCancelReply={handleCancelReply}
             />
           </div>
         )}

@@ -1,5 +1,6 @@
-import React, { useRef, useCallback, useEffect } from 'react';
+import React, { useRef, useCallback, useEffect, useMemo } from 'react';
 import { useVoiceStore } from '../../stores/voiceStore';
+import { createResizeKeyHandler } from '../../utils/resizeKeyboard';
 import { useChannelStore } from '../../stores/channelStore';
 import VoiceControls from './VoiceControls';
 import VoiceTextChat from './VoiceTextChat';
@@ -99,6 +100,19 @@ const PersistentVoiceBar: React.FC = () => {
     [persistentTextChatHeight, setPersistentTextChatHeight]
   );
 
+  const chatResizeKeyHandler = useMemo(
+    () =>
+      createResizeKeyHandler({
+        axis: 'vertical',
+        direction: 'shrink',
+        min: MIN_CHAT_HEIGHT,
+        max: 1200,
+        getValue: () => persistentTextChatHeight,
+        setValue: setPersistentTextChatHeight,
+      }),
+    [persistentTextChatHeight, setPersistentTextChatHeight]
+  );
+
   // When popped out to Electron PiP, hide the inline bar
   if (voiceControlsPoppedOut) {
     return null;
@@ -116,8 +130,9 @@ const PersistentVoiceBar: React.FC = () => {
             type="button"
             className="persistent-voice-bar__chat-resize"
             onMouseDown={handleChatResizeStart}
-            tabIndex={-1}
-            aria-hidden="true"
+            onKeyDown={chatResizeKeyHandler}
+            tabIndex={0}
+            aria-label="Resize voice text chat"
           >
             <div className="persistent-voice-bar__chat-resize-grip" />
           </button>

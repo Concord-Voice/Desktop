@@ -659,7 +659,7 @@ describe('ServerSettingsModal', () => {
     expect(screen.getByText('No members found.')).toBeInTheDocument();
   });
 
-  it('expands member row to show role assignment on click', () => {
+  it('shows Add Role button inline without needing to expand', () => {
     usePermissionStore.setState({
       serverPermissions: {
         'server-1': ADMIN_PERMISSIONS | MANAGE_SERVER | MANAGE_ROLES | MANAGE_ROLES_ASSIGN,
@@ -681,10 +681,8 @@ describe('ServerSettingsModal', () => {
     });
     render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
     fireEvent.click(screen.getByText('Members'));
-    // Click on the member row to expand
-    fireEvent.click(screen.getByText('Test User'));
-    // Should show assignable roles (non-default only)
-    expect(screen.getByText('Moderator')).toBeInTheDocument();
+    // Add Role button should be visible immediately — no click to expand needed
+    expect(screen.getByText('+ Add Role')).toBeInTheDocument();
   });
 
   it('shows "No roles available" when no assignable roles exist', () => {
@@ -709,13 +707,11 @@ describe('ServerSettingsModal', () => {
     });
     render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
     fireEvent.click(screen.getByText('Members'));
-    fireEvent.click(screen.getByText('Test User'));
-    expect(
-      screen.getByText('No roles available to assign. Create roles in the Roles tab first.')
-    ).toBeInTheDocument();
+    // No roles available message should be visible immediately — no click to expand needed
+    expect(screen.getByText('No roles available to assign.')).toBeInTheDocument();
   });
 
-  it('collapses member row on second click', () => {
+  it('shows roles inline without expand/collapse toggle', () => {
     usePermissionStore.setState({
       serverPermissions: {
         'server-1': ADMIN_PERMISSIONS | MANAGE_SERVER | MANAGE_ROLES | MANAGE_ROLES_ASSIGN,
@@ -737,12 +733,9 @@ describe('ServerSettingsModal', () => {
     });
     render(<ServerSettingsModal isOpen={true} server={ownerServer} onClose={mockOnClose} />);
     fireEvent.click(screen.getByText('Members'));
-    // Expand
-    fireEvent.click(screen.getByText('Test User'));
-    expect(document.querySelector('.member-role-assignment')).toBeInTheDocument();
-    // Collapse
-    fireEvent.click(screen.getByText('Test User'));
-    expect(document.querySelector('.member-role-assignment')).not.toBeInTheDocument();
+    // Roles column is always visible — no toggle buttons exist
+    expect(document.querySelector('.member-row-toggle')).not.toBeInTheDocument();
+    expect(document.querySelector('.member-cell--roles')).toBeInTheDocument();
   });
 
   it('shows member username when display name is set', () => {
@@ -794,7 +787,7 @@ describe('ServerSettingsModal', () => {
     fireEvent.click(screen.getByText('Members'));
     const badge = document.querySelector('.role-badge');
     expect(badge).toBeInTheDocument();
-    expect(badge?.textContent).toBe('Moderator');
+    expect(badge).toHaveTextContent('Moderator');
   });
 
   // ── Invite hint text ──

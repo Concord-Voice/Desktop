@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { AudioOutputs } from '../Voice/ParticipantGrid';
@@ -9,6 +9,7 @@ import LeaveServerModal from '../Servers/LeaveServerModal';
 import CreateServerModal from '../Servers/CreateServerModal';
 import ServerActionModal from '../Servers/ServerActionModal';
 import JoinServerModal from '../Servers/JoinServerModal';
+import { createResizeKeyHandler } from '../../utils/resizeKeyboard';
 import InviteToServerModal from '../Servers/InviteToServerModal';
 import ChannelList from '../Channels/ChannelList';
 import ServerActionBar from '../Channels/ServerActionBar';
@@ -316,6 +317,19 @@ const MainView: React.FC = () => {
     [voiceTextChatWidth, setVoiceTextChatWidth]
   );
 
+  const handleSideChatResizeKeyDown = useMemo(
+    () =>
+      createResizeKeyHandler({
+        axis: 'horizontal',
+        direction: 'shrink',
+        min: 250,
+        max: 600,
+        getValue: () => voiceTextChatWidth,
+        setValue: setVoiceTextChatWidth,
+      }),
+    [voiceTextChatWidth, setVoiceTextChatWidth]
+  );
+
   // Determine if any MessageInput (which renders compact UserPanel) is on screen.
   // VoiceTextChat contains a MessageInput that shows compact UserPanel when channel panel is unpinned.
   const voiceLinkedTextExists = !!voiceLinkedText;
@@ -421,8 +435,9 @@ const MainView: React.FC = () => {
               type="button"
               className="main-content__side-resize"
               onMouseDown={handleSideChatResizeStart}
-              tabIndex={-1}
-              aria-hidden="true"
+              onKeyDown={handleSideChatResizeKeyDown}
+              tabIndex={0}
+              aria-label="Resize voice text chat"
             >
               <div className="main-content__side-resize-grip" />
             </button>

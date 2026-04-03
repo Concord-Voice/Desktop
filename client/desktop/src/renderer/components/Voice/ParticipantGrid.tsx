@@ -248,7 +248,11 @@ export const UserFrameGrid: React.FC = () => {
   const participantList = Object.values(participants);
   const scales = useVoiceMagnification(participants);
   const gridRef = useRef<HTMLDivElement>(null);
-  const { tileWidth, tileHeight } = useGridLayout(gridRef, participantList.length);
+  const hasAnyVideo = participantList.some((p) => p.isVideoOn);
+  const { tileWidth, tileHeight } = useGridLayout(gridRef, participantList.length, {
+    aspectRatio: hasAnyVideo ? 16 / 9 : 1,
+    maxTileWidth: 320,
+  });
 
   return (
     <div

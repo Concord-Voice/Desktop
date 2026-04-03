@@ -18,7 +18,8 @@ const MemberItem: React.FC<MemberItemProps> = ({ member, status, onClick, onCont
     : null;
   const roleColor = topDisplayRole?.role_color ?? null;
   return (
-    <div
+    <button
+      type="button"
       className={`member-item ${status}`}
       onClick={(e) => onClick(e, member)}
       onMouseDown={(e) => e.stopPropagation()}
@@ -41,7 +42,7 @@ const MemberItem: React.FC<MemberItemProps> = ({ member, status, onClick, onCont
       <span className="member-username" style={roleColor ? { color: roleColor } : undefined}>
         {member.display_name || member.username}
       </span>
-    </div>
+    </button>
   );
 };
 

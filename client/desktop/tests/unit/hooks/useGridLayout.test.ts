@@ -72,67 +72,70 @@ describe('computeGridLayout', () => {
   });
 
   it('places a single participant to fill most of the container', () => {
-    const result = computeGridLayout(1000, 600, 1, AR, 4, 12);
+    const result = computeGridLayout(1000, 600, 1, { aspectRatio: AR, gap: 4, padding: 12 });
     expect(result.columns).toBe(1);
-    // Should use nearly full width (1000 - 2*12 padding = 976)
-    // but constrained by height (600 - 2*12 = 576), so tileH = 576, tileW = 576 * AR
     expect(result.tileWidth).toBeGreaterThan(400);
     expect(result.tileHeight).toBeGreaterThan(200);
   });
 
   it('places 2 participants side by side in a landscape container', () => {
-    const result = computeGridLayout(1000, 400, 2, AR, 4, 12);
-    // 2 columns is better than 1 column (2 rows) in landscape
+    const result = computeGridLayout(1000, 400, 2, { aspectRatio: AR, gap: 4, padding: 12 });
     expect(result.columns).toBe(2);
   });
 
   it('places 4 participants in a 2x2 grid', () => {
-    const result = computeGridLayout(800, 600, 4, AR, 4, 12);
-    // 2 columns × 2 rows should maximise area for 4 tiles in a typical container
+    const result = computeGridLayout(800, 600, 4, { aspectRatio: AR, gap: 4, padding: 12 });
     expect(result.columns).toBe(2);
     expect(result.tileWidth).toBeGreaterThan(0);
     expect(result.tileHeight).toBeGreaterThan(0);
   });
 
   it('handles 5 participants (odd count)', () => {
-    const result = computeGridLayout(1000, 600, 5, AR, 4, 12);
+    const result = computeGridLayout(1000, 600, 5, { aspectRatio: AR, gap: 4, padding: 12 });
     expect(result.columns).toBeGreaterThanOrEqual(2);
     expect(result.columns).toBeLessThanOrEqual(5);
   });
 
   it('handles 25 participants — tiles stay above minTileWidth', () => {
-    const result = computeGridLayout(1200, 800, 25, AR, 4, 12, 60);
+    const result = computeGridLayout(1200, 800, 25, {
+      aspectRatio: AR,
+      gap: 4,
+      padding: 12,
+      minTileWidth: 60,
+    });
     expect(result.tileWidth).toBeGreaterThanOrEqual(60);
     expect(result.columns).toBeGreaterThan(1);
   });
 
   it('prefers fewer columns in a tall narrow container', () => {
-    const tall = computeGridLayout(300, 900, 6, AR, 4, 12);
-    const wide = computeGridLayout(900, 300, 6, AR, 4, 12);
+    const tall = computeGridLayout(300, 900, 6, { aspectRatio: AR, gap: 4, padding: 12 });
+    const wide = computeGridLayout(900, 300, 6, { aspectRatio: AR, gap: 4, padding: 12 });
     expect(tall.columns).toBeLessThanOrEqual(wide.columns);
   });
 
   it('prefers more columns in a wide short container', () => {
-    const result = computeGridLayout(1600, 200, 4, AR, 4, 12);
+    const result = computeGridLayout(1600, 200, 4, { aspectRatio: AR, gap: 4, padding: 12 });
     expect(result.columns).toBeGreaterThanOrEqual(3);
   });
 
   it('respects custom aspect ratio (1:1)', () => {
-    const result = computeGridLayout(800, 800, 4, 1, 4, 12);
-    // With 1:1 aspect, tileWidth ≈ tileHeight
+    const result = computeGridLayout(800, 800, 4, { aspectRatio: 1, gap: 4, padding: 12 });
     expect(Math.abs(result.tileWidth - result.tileHeight)).toBeLessThan(1);
   });
 
   it('subtracts gap and padding correctly', () => {
-    const noGap = computeGridLayout(800, 600, 4, AR, 0, 0);
-    const withGap = computeGridLayout(800, 600, 4, AR, 20, 40);
+    const noGap = computeGridLayout(800, 600, 4, { aspectRatio: AR, gap: 0, padding: 0 });
+    const withGap = computeGridLayout(800, 600, 4, { aspectRatio: AR, gap: 20, padding: 40 });
     expect(noGap.tileWidth).toBeGreaterThan(withGap.tileWidth);
   });
 
   it('reduces columns when container is too small for minTileWidth', () => {
-    // 200px wide, minTileWidth=80, 4 participants
-    // Can't fit 4 cols (need 4*80 + gaps > 200), should fall back to fewer cols
-    const result = computeGridLayout(200, 600, 4, AR, 4, 12, 80);
+    const result = computeGridLayout(200, 600, 4, {
+      aspectRatio: AR,
+      gap: 4,
+      padding: 12,
+      minTileWidth: 80,
+    });
     expect(result.columns).toBeLessThanOrEqual(2);
     expect(result.tileWidth).toBeGreaterThanOrEqual(80);
   });
@@ -144,26 +147,31 @@ describe('computeGridLayout', () => {
     const padding = 12;
 
     for (const count of [1, 2, 3, 4, 5, 8, 12, 25]) {
-      const { tileWidth, tileHeight, columns } = computeGridLayout(W, H, count, AR, gap, padding);
+      const { tileWidth, tileHeight, columns } = computeGridLayout(W, H, count, {
+        aspectRatio: AR,
+        gap,
+        padding,
+      });
       const rows = Math.ceil(count / columns);
       const totalW = columns * tileWidth + (columns - 1) * gap + 2 * padding;
       const totalH = rows * tileHeight + (rows - 1) * gap + 2 * padding;
-      expect(totalW).toBeLessThanOrEqual(W + 0.01); // float tolerance
+      expect(totalW).toBeLessThanOrEqual(W + 0.01);
       expect(totalH).toBeLessThanOrEqual(H + 0.01);
     }
   });
 
   it('uses padding=0 by default (contentRect already excludes CSS padding)', () => {
-    // With no explicit padding, tiles should use the full container width
-    const result = computeGridLayout(400, 300, 1, AR, 4);
-    // tileWidth should be close to 400 (no padding subtracted)
+    const result = computeGridLayout(400, 300, 1, { aspectRatio: AR, gap: 4 });
     expect(result.tileWidth).toBeGreaterThan(390);
   });
 
   it('falls back to smaller-than-min tiles when container is too small', () => {
-    // Container 60px wide, minTileWidth=80, 2 participants — no candidate satisfies minTileWidth
-    const result = computeGridLayout(60, 200, 2, AR, 4, 0, 80);
-    // Should still return a valid layout (fallback path), not the initial minTileWidth
+    const result = computeGridLayout(60, 200, 2, {
+      aspectRatio: AR,
+      gap: 4,
+      padding: 0,
+      minTileWidth: 80,
+    });
     expect(result.columns).toBe(1);
     expect(result.tileWidth).toBeLessThanOrEqual(60);
     expect(result.tileWidth).toBeGreaterThan(0);
@@ -173,7 +181,12 @@ describe('computeGridLayout', () => {
   it('fallback tiles do not overflow the container', () => {
     const W = 50;
     const H = 100;
-    const result = computeGridLayout(W, H, 3, AR, 4, 0, 80);
+    const result = computeGridLayout(W, H, 3, {
+      aspectRatio: AR,
+      gap: 4,
+      padding: 0,
+      minTileWidth: 80,
+    });
     const rows = Math.ceil(3 / result.columns);
     const totalW = result.columns * result.tileWidth + (result.columns - 1) * 4;
     const totalH = rows * result.tileHeight + (rows - 1) * 4;
@@ -185,9 +198,8 @@ describe('computeGridLayout', () => {
     const W = 1000;
     const H = 600;
     const count = 6;
-    const best = computeGridLayout(W, H, count, AR, 4, 12);
+    const best = computeGridLayout(W, H, count, { aspectRatio: AR, gap: 4, padding: 12 });
 
-    // Verify that no other column count yields a larger area
     for (let cols = 1; cols <= count; cols++) {
       const rows = Math.ceil(count / cols);
       const availW = W - 24 - (cols - 1) * 4;
@@ -203,6 +215,17 @@ describe('computeGridLayout', () => {
       expect(best.tileWidth * best.tileHeight).toBeGreaterThanOrEqual(tw * th - 0.01);
     }
   });
+
+  it('clamps tile width to maxTileWidth', () => {
+    const result = computeGridLayout(1000, 1000, 1, {
+      aspectRatio: 1,
+      gap: 4,
+      padding: 12,
+      maxTileWidth: 320,
+    });
+    expect(result.tileWidth).toBeLessThanOrEqual(320);
+    expect(result.tileHeight).toBeLessThanOrEqual(320);
+  });
 });
 
 // ── useGridLayout (hook) ───────────────────────────────────────────────────────
@@ -216,7 +239,6 @@ describe('useGridLayout', () => {
     const div = document.createElement('div');
     const ref = makeRef(div);
     const { result } = renderHook(() => useGridLayout(ref, 4));
-    // dimensions start at 0×0 → safe defaults
     expect(result.current.columns).toBe(1);
     expect(result.current.tileWidth).toBe(80);
   });
@@ -265,7 +287,6 @@ describe('useGridLayout', () => {
   it('handles null ref gracefully', () => {
     const ref = makeRef(null);
     const { result } = renderHook(() => useGridLayout(ref, 4));
-    // Should not crash, returns defaults
     expect(result.current.columns).toBe(1);
     expect(mockObserve).not.toHaveBeenCalled();
   });
@@ -279,7 +300,6 @@ describe('useGridLayout', () => {
 
     triggerResize(800, 800);
 
-    // With 1:1 aspect ratio, tiles should be roughly square
     expect(Math.abs(result.current.tileWidth - result.current.tileHeight)).toBeLessThan(1);
     expect(result.current.tileWidth).toBeGreaterThanOrEqual(100);
   });

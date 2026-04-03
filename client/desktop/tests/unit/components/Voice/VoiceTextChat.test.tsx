@@ -40,27 +40,64 @@ vi.mock('@/renderer/services/e2eeService', () => ({
   },
 }));
 
-// ── Child component mocks ────────────────────────────────────────────────────
-vi.mock('@/renderer/components/Chat/MessageList', () => ({
-  default: ({ channelName }: { channelName: string }) => (
-    <div data-testid="message-list">{channelName}</div>
-  ),
+// ── Service mocks ───────────────────────────────────────────────────────────
+vi.mock('@/renderer/services/pinService', () => ({
+  pinMessage: vi.fn().mockResolvedValue({}),
+  unpinMessage: vi.fn().mockResolvedValue({}),
 }));
 
+vi.mock('@/renderer/stores/permissionStore', async () => {
+  const { create } = await import('zustand');
+  const store = create(() => ({
+    hasServerPermission: vi.fn().mockReturnValue(true),
+    permissions: {},
+  }));
+  return { usePermissionStore: store };
+});
+
+vi.mock('@/renderer/stores/serverStore', async () => {
+  const { create } = await import('zustand');
+  const store = create(() => ({
+    activeServerId: 'server-1',
+    servers: [],
+    clearServers: vi.fn(),
+  }));
+  return { useServerStore: store };
+});
+
+vi.mock('@/renderer/utils/permissions', () => ({
+  PIN_MESSAGES: 'pin_messages',
+}));
+
+// ── Child component mocks ────────────────────────────────────────────────────
+let capturedMessageListProps: Record<string, unknown> = {};
+vi.mock('@/renderer/components/Chat/MessageList', () => ({
+  default: (props: Record<string, unknown>) => {
+    capturedMessageListProps = props;
+    return <div data-testid="message-list">{props.channelName as string}</div>;
+  },
+}));
+
+let capturedMessageInputProps: Record<string, unknown> = {};
 vi.mock('@/renderer/components/Chat/MessageInput', () => ({
-  default: ({
-    onSendMessage,
-    placeholder,
-    disabled,
-  }: {
-    onSendMessage: (content: string) => void;
+  default: (props: {
+    onSendMessage: (content: string, mentionMeta?: string, replyToId?: string) => void;
     placeholder: string;
     disabled: boolean;
-  }) => (
-    <div data-testid="message-input" data-placeholder={placeholder} data-disabled={disabled}>
-      <button onClick={() => onSendMessage('test msg')}>Send</button>
-    </div>
-  ),
+    replyingTo?: unknown;
+    onCancelReply?: () => void;
+  }) => {
+    capturedMessageInputProps = props;
+    return (
+      <div
+        data-testid="message-input"
+        data-placeholder={props.placeholder}
+        data-disabled={props.disabled}
+      >
+        <button onClick={() => props.onSendMessage('test msg')}>Send</button>
+      </div>
+    );
+  },
 }));
 
 // ── CSS mock ─────────────────────────────────────────────────────────────────
@@ -88,6 +125,8 @@ describe('VoiceTextChat', () => {
   beforeEach(() => {
     resetAllStores();
     vi.clearAllMocks();
+    capturedMessageListProps = {};
+    capturedMessageInputProps = {};
     useVoiceStore.setState({
       activeChannelId: null,
       voiceTextChatLayout: 'horizontal',
@@ -225,5 +264,32 @@ describe('VoiceTextChat', () => {
         displayName: mockUser.display_name,
       })
     );
+  });
+
+  // ── Reply support ─────────────────────────────────────────────────────────
+
+  it('passes onReply to MessageList', () => {
+    useVoiceStore.setState({ activeChannelId: VOICE_CHANNEL_ID });
+    useChannelStore.setState({ channels: [linkedTextChannel] });
+    render(<VoiceTextChat />);
+    expect(capturedMessageListProps.onReply).toBeInstanceOf(Function);
+  });
+
+  it('passes replyingTo and onCancelReply to MessageInput', () => {
+    useVoiceStore.setState({ activeChannelId: VOICE_CHANNEL_ID });
+    useChannelStore.setState({ channels: [linkedTextChannel] });
+    render(<VoiceTextChat />);
+    expect(capturedMessageInputProps.replyingTo).toBeNull();
+    expect(capturedMessageInputProps.onCancelReply).toBeInstanceOf(Function);
+  });
+
+  // ── Pin support ───────────────────────────────────────────────────────────
+
+  it('passes onPinToggle and canPin to MessageList', () => {
+    useVoiceStore.setState({ activeChannelId: VOICE_CHANNEL_ID });
+    useChannelStore.setState({ channels: [linkedTextChannel] });
+    render(<VoiceTextChat />);
+    expect(capturedMessageListProps.onPinToggle).toBeInstanceOf(Function);
+    expect(capturedMessageListProps.canPin).toBeDefined();
   });
 });

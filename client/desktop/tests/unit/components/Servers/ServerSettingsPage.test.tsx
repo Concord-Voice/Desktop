@@ -300,6 +300,57 @@ describe('ServerSettingsPage', () => {
     expect(screen.getByText('Test User')).toBeInTheDocument();
   });
 
+  it('member list shows initial letter when no avatar_url', () => {
+    usePermissionStore.setState({
+      serverPermissions: { 'server-1': allPerms },
+      serverRoles: { 'server-1': mockRoles },
+      fetchRoles: vi.fn().mockResolvedValue(undefined),
+    });
+    useMemberStore.setState({
+      members: [
+        {
+          user_id: 'user-no-avatar',
+          username: 'noavatar',
+          display_name: 'Zara',
+          avatar_url: null,
+          roles: [],
+        },
+      ],
+      fetchMembers: vi.fn().mockResolvedValue(undefined),
+    });
+    render(<ServerSettingsPage />);
+    fireEvent.click(screen.getByText('Members'));
+    // The fallback avatar should show the first letter of the display name
+    const initial = screen.getByText('Z');
+    expect(initial).toBeInTheDocument();
+    expect(initial.className).toContain('member-avatar--initial');
+  });
+
+  it('member list shows username initial when no display_name or avatar_url', () => {
+    usePermissionStore.setState({
+      serverPermissions: { 'server-1': allPerms },
+      serverRoles: { 'server-1': mockRoles },
+      fetchRoles: vi.fn().mockResolvedValue(undefined),
+    });
+    useMemberStore.setState({
+      members: [
+        {
+          user_id: 'user-no-avatar-2',
+          username: 'bobsmith',
+          display_name: '',
+          avatar_url: null,
+          roles: [],
+        },
+      ],
+      fetchMembers: vi.fn().mockResolvedValue(undefined),
+    });
+    render(<ServerSettingsPage />);
+    fireEvent.click(screen.getByText('Members'));
+    const initial = screen.getByText('B');
+    expect(initial).toBeInTheDocument();
+    expect(initial.className).toContain('member-avatar--initial');
+  });
+
   it('shows role editor when role is selected', () => {
     usePermissionStore.setState({
       serverPermissions: { 'server-1': allPerms },

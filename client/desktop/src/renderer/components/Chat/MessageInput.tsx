@@ -509,25 +509,26 @@ const MessageInput: React.FC<MessageInputProps> = ({
           />
         )}
 
+        {replyingTo && (
+          <ReplyPreviewBar
+            repliedTo={{
+              id: replyingTo.id,
+              user_id: replyingTo.user_id,
+              username: replyingTo.username,
+              display_name: replyingTo.display_name,
+              content: replyingTo.content,
+              is_encrypted: replyingTo.is_encrypted,
+            }}
+            variant="input"
+            onCancel={onCancelReply}
+          />
+        )}
+
         <div className="message-input-box" onContextMenu={handleContextMenu}>
           {!channelPanelPinned && (
             <div className="message-input-user-panel">
               <UserPanel compact />
             </div>
-          )}
-          {replyingTo && (
-            <ReplyPreviewBar
-              repliedTo={{
-                id: replyingTo.id,
-                user_id: replyingTo.user_id,
-                username: replyingTo.username,
-                display_name: replyingTo.display_name,
-                content: replyingTo.content,
-                is_encrypted: replyingTo.is_encrypted,
-              }}
-              variant="input"
-              onCancel={onCancelReply}
-            />
           )}
           {hasFiles && <AttachmentUploadPreview files={uploadFiles} onRemove={removeFile} />}
           {uploadError && <div className="upload-error">{uploadError}</div>}

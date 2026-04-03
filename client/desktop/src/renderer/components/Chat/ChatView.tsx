@@ -79,6 +79,14 @@ const ChatView: React.FC = () => {
     messageListRef.current?.scrollToMessage(messageId);
   }, []);
 
+  // Auto-scroll to bottom when the reply bar appears (it takes vertical space,
+  // pushing the latest messages out of view). Only scrolls if already near bottom.
+  useEffect(() => {
+    if (replyingTo) {
+      messageListRef.current?.scrollToBottomIfNear();
+    }
+  }, [replyingTo]);
+
   // Send message (optimistic via useMessaging — E2EE handled internally)
   const handleSendMessage = useCallback(
     (

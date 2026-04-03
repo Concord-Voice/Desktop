@@ -106,8 +106,9 @@ const ChannelPanel: React.FC<ChannelPanelProps> = ({ header, children, forcePin 
           type="button"
           className="layout-resize-handle"
           onMouseDown={panel.onMouseDown}
-          tabIndex={-1}
-          aria-hidden="true"
+          onKeyDown={panel.onKeyDown}
+          tabIndex={0}
+          aria-label="Resize channel panel"
         />
       </>
     );

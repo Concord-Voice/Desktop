@@ -28,6 +28,7 @@ export interface MessageListProps {
 
 export interface MessageListHandle {
   scrollToMessage: (messageId: string) => void;
+  scrollToBottomIfNear: () => void;
 }
 
 const NEAR_BOTTOM_THRESHOLD = 150;
@@ -80,6 +81,11 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
           setHighlightedMessageId(messageId);
           if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
           highlightTimerRef.current = setTimeout(() => setHighlightedMessageId(null), 2000);
+        }
+      },
+      scrollToBottomIfNear: () => {
+        if (isNearBottomRef.current) {
+          requestAnimationFrame(() => scrollToBottom(false));
         }
       },
     }));

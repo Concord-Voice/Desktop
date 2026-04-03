@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, type KeyboardEvent } from 'react';
 
 interface UseResizablePanelOptions {
   defaultWidth: number;
@@ -74,5 +74,26 @@ export function useResizablePanel({
     };
   }, [minWidth, maxWidth, side, storageKey]);
 
-  return { width, onMouseDown };
+  const onKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      let step = 0;
+      const large = e.shiftKey ? 5 : 1;
+      if (e.key === 'ArrowRight') {
+        step = (side === 'left' ? 10 : -10) * large;
+      } else if (e.key === 'ArrowLeft') {
+        step = (side === 'left' ? -10 : 10) * large;
+      } else {
+        return;
+      }
+      e.preventDefault();
+      setWidth((prev) => {
+        const next = Math.max(minWidth, Math.min(maxWidth, prev + step));
+        if (storageKey) localStorage.setItem(storageKey, String(next));
+        return next;
+      });
+    },
+    [side, minWidth, maxWidth, storageKey]
+  );
+
+  return { width, onMouseDown, onKeyDown };
 }

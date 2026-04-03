@@ -231,9 +231,11 @@
 }
 
 .footer-link {
-  color: var(--text-secondary);
-  text-decoration: none;
-  transition: color 0.2s ease;
+  all: unset;
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease;
 }
 
 .footer-link:hover {
@@ -244,6 +246,11 @@
   outline: 2px solid var(--accent-primary);
   outline-offset: 2px;
   border-radius: 4px;
+}
+
+.footer-link:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .footer-separator {

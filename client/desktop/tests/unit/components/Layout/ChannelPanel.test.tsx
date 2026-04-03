@@ -12,6 +12,7 @@ vi.mock('@/renderer/hooks/useResizablePanel', () => ({
   useResizablePanel: () => ({
     width: 240,
     onMouseDown: vi.fn(),
+    onKeyDown: vi.fn(),
   }),
 }));
 
@@ -157,5 +158,17 @@ describe('ChannelPanel', () => {
       </ChannelPanel>
     );
     expect(container.querySelector('.channels-sidebar-header')).toBeInTheDocument();
+  });
+
+  it('resize handle is keyboard-accessible with aria-label', () => {
+    useLayoutStore.setState({ channelPanelPinned: true });
+    render(
+      <ChannelPanel header={<div>Header</div>}>
+        <div>Content</div>
+      </ChannelPanel>
+    );
+    const handle = screen.getByLabelText('Resize channel panel');
+    expect(handle).toBeInTheDocument();
+    expect(handle).toHaveAttribute('tabindex', '0');
   });
 });

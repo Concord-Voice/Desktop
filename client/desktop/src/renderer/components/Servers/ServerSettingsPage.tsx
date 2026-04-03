@@ -603,7 +603,6 @@ const ServerSettingsPage: React.FC = () => {
       <h2 className="settings-section-title">Member List</h2>
       <MemberListPanel
         members={members}
-        serverRoles={serverRoles}
         assignableRoles={assignableRoles}
         onToggleRole={handleToggleRole}
       />

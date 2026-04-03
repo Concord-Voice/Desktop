@@ -208,25 +208,32 @@ const CategoryGroupHeader: React.FC<CategoryGroupHeaderProps> = React.memo(
       }}
       onDrop={onDrop}
       onDragEnd={onDragEnd}
-      onClick={() => onToggleCollapsed(group.id)}
       onContextMenu={(e) => {
         e.preventDefault();
         e.stopPropagation();
         onContextMenu(group, { x: e.clientX, y: e.clientY });
       }}
     >
-      <span className="channel-group-header__chevron">
-        {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-      </span>
-      <span>{(group.name ?? '').toUpperCase()}</span>
-      {isCollapsed && groupVoiceUsers.length > 0 && (
-        <CollapsedVoiceAvatars voiceUsers={groupVoiceUsers} />
-      )}
-      {isCollapsed && groupUnreadCount > 0 && (
-        <span className="channel-group-header__count">
-          {groupUnreadCount > 99 ? '99+' : groupUnreadCount}
+      <button
+        type="button"
+        className="channel-group-header__toggle"
+        onClick={() => onToggleCollapsed(group.id)}
+        aria-expanded={!isCollapsed}
+        {...(group.name ? { 'aria-label': group.name } : {})}
+      >
+        <span className="channel-group-header__chevron">
+          {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
         </span>
-      )}
+        <span>{(group.name ?? '').toUpperCase()}</span>
+        {isCollapsed && groupVoiceUsers.length > 0 && (
+          <CollapsedVoiceAvatars voiceUsers={groupVoiceUsers} />
+        )}
+        {isCollapsed && groupUnreadCount > 0 && (
+          <span className="channel-group-header__count">
+            {groupUnreadCount > 99 ? '99+' : groupUnreadCount}
+          </span>
+        )}
+      </button>
     </div>
   )
 );
@@ -779,7 +786,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
           showLinkedText={showLinkedText}
           isLinkedTextActive={isLinkedTextActive}
           linkedTextUnread={linkedTextUnread}
-          hasDraft={!!drafts[channel.id]}
+          hasDraft={!!(drafts[channel.id]?.text.trim() || drafts[channel.id]?.replyToId)}
           canReorder={canReorder}
           isDragging={draggingId === channel.id}
           showGhostBefore={

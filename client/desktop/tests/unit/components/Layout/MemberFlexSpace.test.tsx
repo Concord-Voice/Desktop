@@ -15,6 +15,7 @@ vi.mock('@/renderer/hooks/useResizablePanel', () => ({
   useResizablePanel: () => ({
     width: 260,
     onMouseDown: vi.fn(),
+    onKeyDown: vi.fn(),
   }),
 }));
 
@@ -72,5 +73,13 @@ describe('MemberFlexSpace', () => {
     render(<MemberFlexSpace />);
     // mockMember.username starts with 't'
     expect(screen.getByText('T')).toBeInTheDocument();
+  });
+
+  it('resize handle is keyboard-accessible with aria-label', () => {
+    useLayoutStore.setState({ memberPanelMode: 'expanded' });
+    render(<MemberFlexSpace />);
+    const handle = screen.getByLabelText('Resize member panel');
+    expect(handle).toBeInTheDocument();
+    expect(handle).toHaveAttribute('tabindex', '0');
   });
 });

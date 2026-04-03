@@ -91,4 +91,21 @@ describe('ConnectionSelector', () => {
     const radios = container.querySelectorAll('input[type="radio"]');
     expect(radios).toHaveLength(3);
   });
+
+  it('renders self-hosting link as a button', () => {
+    render(<ConnectionSelector onSelect={mockOnSelect} />);
+    expect(screen.getByRole('button', { name: /learn about self-hosting/i })).toBeInTheDocument();
+  });
+
+  it('self-hosting button is disabled until wired', () => {
+    render(<ConnectionSelector onSelect={mockOnSelect} />);
+    const button = screen.getByRole('button', { name: /learn about self-hosting/i });
+    expect(button).toBeDisabled();
+  });
+
+  it('labels have accessible text', () => {
+    render(<ConnectionSelector onSelect={mockOnSelect} />);
+    const labels = screen.getAllByLabelText(/.+/);
+    expect(labels.length).toBeGreaterThanOrEqual(3);
+  });
 });

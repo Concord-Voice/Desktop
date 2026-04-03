@@ -101,8 +101,9 @@ const MemberFlexSpace: React.FC = () => {
         type="button"
         className="layout-resize-handle"
         onMouseDown={panel.onMouseDown}
-        tabIndex={-1}
-        aria-hidden="true"
+        onKeyDown={panel.onKeyDown}
+        tabIndex={0}
+        aria-label="Resize member panel"
       />
       <div
         className="member-list-container"

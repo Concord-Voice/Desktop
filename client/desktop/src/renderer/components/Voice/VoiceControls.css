@@ -2,7 +2,9 @@
 
 .voice-controls__buttons {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: center;
   gap: calc(4px * var(--sp, 1));
 }
 

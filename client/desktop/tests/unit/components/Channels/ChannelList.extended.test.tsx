@@ -258,6 +258,59 @@ describe('ChannelList — extended coverage', () => {
     });
   });
 
+  // --- CategoryGroupHeader toggle button a11y ---
+
+  describe('category header toggle button accessibility', () => {
+    const setupCategory = (collapsed = false) => {
+      useServerStore.setState({ activeServerId: 'server-1' });
+      useChannelStore.setState({
+        channels: [{ ...mockChannel, id: 'ch-1', group_id: 'group-1', position: 0 }],
+        channelGroups: [mockGroup1],
+        collapsedGroups: collapsed ? ['group-1'] : [],
+        toggleGroupCollapsed: vi.fn(),
+        isLoading: false,
+        error: null,
+      });
+    };
+
+    it('category header toggle button has aria-expanded true when not collapsed', () => {
+      setupCategory(false);
+      renderChannelList();
+      const toggle = screen.getByRole('button', { name: 'Text Channels' });
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('category header toggle button has aria-expanded false when collapsed', () => {
+      setupCategory(true);
+      renderChannelList();
+      const toggle = screen.getByRole('button', { name: 'Text Channels' });
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    });
+
+    it('category header toggle button has aria-label with category name', () => {
+      setupCategory();
+      renderChannelList();
+      const toggle = screen.getByRole('button', { name: 'Text Channels' });
+      expect(toggle).toHaveAttribute('aria-label', 'Text Channels');
+    });
+
+    it('clicking category toggle button calls onToggleCollapsed', () => {
+      setupCategory();
+      renderChannelList();
+      const toggle = screen.getByRole('button', { name: 'Text Channels' });
+      fireEvent.click(toggle);
+      expect(useChannelStore.getState().toggleGroupCollapsed).toHaveBeenCalledWith('group-1');
+    });
+
+    it('category toggle is keyboard accessible as a native button', () => {
+      setupCategory();
+      renderChannelList();
+      const toggle = screen.getByRole('button', { name: 'Text Channels' });
+      expect(toggle.tagName).toBe('BUTTON');
+      expect(toggle).toHaveAttribute('type', 'button');
+    });
+  });
+
   // --- DnD gap zones ---
 
   describe('drag-and-drop gap zones', () => {

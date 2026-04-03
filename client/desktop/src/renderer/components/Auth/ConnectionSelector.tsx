@@ -35,7 +35,7 @@ const ConnectionSelector: React.FC<ConnectionSelectorProps> = ({ onSelect }) => 
         <div className="connection-options">
           <label
             className={`connection-option ${selectedMode === 'hosted-login' ? 'selected' : ''}`}
-            onClick={() => handleModeChange('hosted-login')}
+            aria-label="Sign In to Existing Account"
           >
             <input
               type="radio"
@@ -62,7 +62,7 @@ const ConnectionSelector: React.FC<ConnectionSelectorProps> = ({ onSelect }) => 
 
           <label
             className={`connection-option ${selectedMode === 'hosted' ? 'selected' : ''}`}
-            onClick={() => handleModeChange('hosted')}
+            aria-label="Create New Account"
           >
             <input
               type="radio"
@@ -89,7 +89,7 @@ const ConnectionSelector: React.FC<ConnectionSelectorProps> = ({ onSelect }) => 
 
           <label
             className={`connection-option ${selectedMode === 'self-hosted' ? 'selected' : ''}`}
-            onClick={() => handleModeChange('self-hosted')}
+            aria-label="Connect to Self-Hosted Server"
           >
             <input
               type="radio"
@@ -122,9 +122,9 @@ const ConnectionSelector: React.FC<ConnectionSelectorProps> = ({ onSelect }) => 
 
         {/* Footer Links */}
         <div className="connection-footer">
-          <a href="#" className="footer-link">
+          <button type="button" className="footer-link" disabled aria-disabled="true">
             Learn about self-hosting
-          </a>
+          </button>
         </div>
       </div>
     </div>

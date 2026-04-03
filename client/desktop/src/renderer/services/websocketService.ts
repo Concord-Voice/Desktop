@@ -346,25 +346,31 @@ export class WebSocketService {
   sendDMMessage(
     conversationId: string,
     content: string,
-    nonce?: string,
-    isEncrypted: boolean = false,
-    keyVersion?: number,
-    mentionMeta?: string,
-    attachmentIds?: string[]
+    opts: {
+      nonce?: string;
+      isEncrypted?: boolean;
+      keyVersion?: number;
+      mentionMeta?: string;
+      attachmentIds?: string[];
+      replyToId?: string;
+    } = {}
   ): void {
     const data: Record<string, unknown> = {
       conversation_id: conversationId,
       content,
-      is_encrypted: isEncrypted,
-      key_version: keyVersion,
-      nonce,
+      is_encrypted: opts.isEncrypted ?? false,
+      key_version: opts.keyVersion,
+      nonce: opts.nonce,
       timestamp: Date.now(),
     };
-    if (mentionMeta) {
-      data.mention_meta = mentionMeta;
+    if (opts.mentionMeta) {
+      data.mention_meta = opts.mentionMeta;
     }
-    if (attachmentIds && attachmentIds.length > 0) {
-      data.attachment_ids = attachmentIds;
+    if (opts.attachmentIds && opts.attachmentIds.length > 0) {
+      data.attachment_ids = opts.attachmentIds;
+    }
+    if (opts.replyToId) {
+      data.reply_to_id = opts.replyToId;
     }
     this.send({ type: 'dm_message', data });
   }

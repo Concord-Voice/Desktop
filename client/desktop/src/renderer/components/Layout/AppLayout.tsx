@@ -1,5 +1,6 @@
-import React, { useCallback, useRef } from 'react';
+import React, { useCallback, useMemo, useRef } from 'react';
 import { useLayoutStore } from '../../stores/layoutStore';
+import { createResizeKeyHandler } from '../../utils/resizeKeyboard';
 import './AppLayout.css';
 
 interface AppLayoutProps {
@@ -58,6 +59,32 @@ const AppLayout: React.FC<AppLayoutProps> = ({
     []
   );
 
+  const handleServerBarResizeKeyDown = useMemo(
+    () =>
+      createResizeKeyHandler({
+        axis: 'vertical',
+        direction: 'grow',
+        min: 36,
+        max: 64,
+        getValue: () => serverBarHeight,
+        setValue: setServerBarHeight,
+      }),
+    [serverBarHeight, setServerBarHeight]
+  );
+
+  const handleFolderBarResizeKeyDown = useMemo(
+    () =>
+      createResizeKeyHandler({
+        axis: 'vertical',
+        direction: 'grow',
+        min: 24,
+        max: 48,
+        getValue: () => folderBarHeight,
+        setValue: setFolderBarHeight,
+      }),
+    [folderBarHeight, setFolderBarHeight]
+  );
+
   return (
     <div
       className="app-layout"
@@ -75,8 +102,9 @@ const AppLayout: React.FC<AppLayoutProps> = ({
         type="button"
         className="layout-server-bar-resize layout-resize-handle-h"
         onMouseDown={makeResizeHandler(setServerBarHeight)}
-        tabIndex={-1}
-        aria-hidden="true"
+        onKeyDown={handleServerBarResizeKeyDown}
+        tabIndex={0}
+        aria-label="Resize server bar"
       />
       <div className="layout-folder-bar" style={{ height: folderBarHeight }}>
         {folderBar}
@@ -85,8 +113,9 @@ const AppLayout: React.FC<AppLayoutProps> = ({
         type="button"
         className="layout-folder-bar-resize layout-resize-handle-h"
         onMouseDown={makeResizeHandler(setFolderBarHeight)}
-        tabIndex={-1}
-        aria-hidden="true"
+        onKeyDown={handleFolderBarResizeKeyDown}
+        tabIndex={0}
+        aria-label="Resize folder bar"
       />
       <div className="layout-channel-panel" data-context-area="channels">
         {channelPanel}

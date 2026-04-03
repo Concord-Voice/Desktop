@@ -4,6 +4,7 @@ import { useDMStore, type DMConversation } from '../../stores/dmStore';
 import { useUserStore } from '../../stores/userStore';
 import { e2eeService } from '../../services/e2eeService';
 import { useDraftMessageStore } from '../../stores/draftMessageStore';
+import { resolveUserAccentColors } from '../../utils/schemeColors';
 import CreateGroupModal from './CreateGroupModal';
 import './DirectMessages.css';
 
@@ -209,7 +210,13 @@ const ConversationList: React.FC<ConversationListProps> = ({
                 {conv.isGroup ? (
                   <Users size={18} />
                 ) : (
-                  <span className="conversation-avatar-initial">
+                  <span
+                    className="conversation-avatar-initial"
+                    style={(() => {
+                      const colors = resolveUserAccentColors(other?.colorScheme);
+                      return colors ? { background: colors.gradient } : undefined;
+                    })()}
+                  >
                     {getInitial(conv, currentUserId)}
                   </span>
                 )}

@@ -135,13 +135,24 @@
 /* ─── Member Items ──────────────────────────────────────────────────────── */
 
 .member-item {
+  all: unset;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
+  width: 100%;
   padding: calc(6px * var(--sp, 1)) calc(8px * var(--sp, 1));
   margin: 1px 0;
   border-radius: 4px;
   cursor: pointer;
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
   transition: background-color 0.15s ease;
+}
+
+.member-item:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
 .member-item:hover {
@@ -179,6 +190,12 @@
 }
 
 .member-avatar-initial {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: calc(12px * var(--font-scale, 1));
   font-weight: 700;
   color: var(--text-primary);

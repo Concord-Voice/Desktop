@@ -19,49 +19,51 @@ vi.mock('@/renderer/services/apiClient', () => ({
 }));
 
 // Mock heavy child components — expose callbacks so tests can invoke them
+let capturedMLProps: Record<string, unknown> = {};
 vi.mock('@/renderer/components/Chat/MessageList', () => ({
-  default: ({
-    messages,
-    channelName,
-    isLoading,
-    onEditMessage,
-    onDeleteMessage,
-    onUnseenOnLeave,
-  }: {
+  default: (props: {
     messages: unknown[];
     channelName?: string;
     isLoading: boolean;
     onEditMessage?: (id: string, content: string) => void;
     onDeleteMessage?: (id: string) => void;
     onUnseenOnLeave?: (count: number) => void;
-  }) => (
-    <div data-testid="message-list" data-channel={channelName} data-loading={isLoading}>
-      {(messages as Array<{ id: string; content: string }>).map((m) => (
-        <div key={m.id} data-testid="message">
-          {m.content}
-        </div>
-      ))}
-      <button data-testid="trigger-edit" onClick={() => onEditMessage?.('msg-1', 'edited text')}>
-        Edit
-      </button>
-      <button data-testid="trigger-delete" onClick={() => onDeleteMessage?.('msg-1')}>
-        Delete
-      </button>
-      <button data-testid="trigger-unseen" onClick={() => onUnseenOnLeave?.(3)}>
-        Unseen
-      </button>
-    </div>
-  ),
+    onReply?: (message: unknown) => void;
+    onPinToggle?: (message: unknown) => void;
+    canPin?: boolean;
+  }) => {
+    capturedMLProps = props;
+    return (
+      <div
+        data-testid="message-list"
+        data-channel={props.channelName}
+        data-loading={props.isLoading}
+      >
+        {(props.messages as Array<{ id: string; content: string }>).map((m) => (
+          <div key={m.id} data-testid="message">
+            {m.content}
+          </div>
+        ))}
+        <button
+          data-testid="trigger-edit"
+          onClick={() => props.onEditMessage?.('msg-1', 'edited text')}
+        >
+          Edit
+        </button>
+        <button data-testid="trigger-delete" onClick={() => props.onDeleteMessage?.('msg-1')}>
+          Delete
+        </button>
+        <button data-testid="trigger-unseen" onClick={() => props.onUnseenOnLeave?.(3)}>
+          Unseen
+        </button>
+      </div>
+    );
+  },
 }));
 
+let capturedMIProps: Record<string, unknown> = {};
 vi.mock('@/renderer/components/Chat/MessageInput', () => ({
-  default: ({
-    channelName,
-    disabled,
-    isChannelEncrypted,
-    onSendMessage,
-    onTyping,
-  }: {
+  default: (props: {
     channelName?: string;
     disabled: boolean;
     isChannelEncrypted: boolean;
@@ -73,21 +75,32 @@ vi.mock('@/renderer/components/Chat/MessageInput', () => ({
       attachments?: unknown[]
     ) => void;
     onTyping?: (isTyping: boolean) => void;
-  }) => (
-    <div
-      data-testid="message-input"
-      data-channel={channelName}
-      data-disabled={disabled}
-      data-encrypted={isChannelEncrypted}
-    >
-      <button data-testid="trigger-send" onClick={() => onSendMessage?.('Hello world')}>
-        Send
-      </button>
-      <button data-testid="trigger-typing" onClick={() => onTyping?.(true)}>
-        Typing
-      </button>
-    </div>
-  ),
+    replyingTo?: unknown;
+    onCancelReply?: () => void;
+  }) => {
+    capturedMIProps = props;
+    return (
+      <div
+        data-testid="message-input"
+        data-channel={props.channelName}
+        data-disabled={props.disabled}
+        data-encrypted={props.isChannelEncrypted}
+      >
+        <button data-testid="trigger-send" onClick={() => props.onSendMessage?.('Hello world')}>
+          Send
+        </button>
+        <button
+          data-testid="trigger-send-with-reply"
+          onClick={() => props.onSendMessage?.('Reply msg', undefined, 'parent-msg-1')}
+        >
+          SendReply
+        </button>
+        <button data-testid="trigger-typing" onClick={() => props.onTyping?.(true)}>
+          Typing
+        </button>
+      </div>
+    );
+  },
 }));
 
 vi.mock('@/renderer/components/Chat/TypingIndicator', () => ({
@@ -108,6 +121,11 @@ vi.mock('@/renderer/components/DirectMessages/GroupInfoPanel', () => ({
 // Mock hooks
 vi.mock('@/renderer/hooks/useDMSubscription', () => ({
   useDMSubscription: vi.fn(),
+}));
+
+vi.mock('@/renderer/services/pinService', () => ({
+  pinMessage: vi.fn().mockResolvedValue({}),
+  unpinMessage: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock('@/renderer/services/e2eeService', () => ({
@@ -161,6 +179,8 @@ describe('DMChatArea', () => {
   beforeEach(() => {
     resetAllStores();
     vi.clearAllMocks();
+    capturedMLProps = {};
+    capturedMIProps = {};
     useUserStore.setState({ user: mockUser });
     useDMStore.setState({
       conversations: [],
@@ -722,15 +742,13 @@ describe('DMChatArea', () => {
 
     // WebSocket sendDMMessage should be called (async, so wait)
     await waitFor(() => {
-      expect(mockWs.sendDMMessage).toHaveBeenCalledWith(
-        'conv-1',
-        'Hello world',
-        'client-msg-1',
-        false,
-        undefined,
-        undefined,
-        undefined
-      );
+      expect(mockWs.sendDMMessage).toHaveBeenCalledWith('conv-1', 'Hello world', {
+        nonce: 'client-msg-1',
+        isEncrypted: false,
+        mentionMeta: undefined,
+        attachmentIds: undefined,
+        replyToId: undefined,
+      });
     });
   });
 
@@ -814,11 +832,13 @@ describe('DMChatArea', () => {
       expect(mockWs.sendDMMessage).toHaveBeenCalledWith(
         'conv-1',
         'encrypted-content-that-is-at-least-forty-characters-long-for-validation',
-        'client-msg-1',
-        true,
-        undefined,
-        undefined,
-        undefined
+        {
+          nonce: 'client-msg-1',
+          isEncrypted: true,
+          mentionMeta: undefined,
+          attachmentIds: undefined,
+          replyToId: undefined,
+        }
       );
     });
   });
@@ -1080,5 +1100,57 @@ describe('DMChatArea', () => {
 
     // Reset
     Object.defineProperty(e2eeService, 'isInitialized', { value: false, writable: true });
+  });
+
+  // --- Reply support ---
+
+  it('passes onReply and replyingTo to child components', () => {
+    useDMStore.setState({
+      conversations: [makeConversation()],
+    });
+    render(<DMChatArea selectedThreadId="conv-1" />);
+    expect(capturedMLProps.onReply).toBeInstanceOf(Function);
+    expect(capturedMIProps.replyingTo).toBeNull();
+    expect(capturedMIProps.onCancelReply).toBeInstanceOf(Function);
+  });
+
+  it('passes replyToId when replying', async () => {
+    const mockSendDMMessage = vi.fn();
+    const { getWebSocketService, ConnectionState } =
+      await import('@/renderer/services/websocketService');
+    (getWebSocketService as ReturnType<typeof vi.fn>).mockReturnValue({
+      getState: vi.fn().mockReturnValue(ConnectionState.CONNECTED),
+      sendDMMessage: mockSendDMMessage,
+      sendDMTypingIndicator: vi.fn(),
+    });
+
+    useDMStore.setState({
+      conversations: [makeConversation()],
+    });
+    render(<DMChatArea selectedThreadId="conv-1" />);
+
+    // Trigger send with reply
+    fireEvent.click(screen.getByTestId('trigger-send-with-reply'));
+
+    await waitFor(() => {
+      expect(mockSendDMMessage).toHaveBeenCalledWith('conv-1', 'Reply msg', {
+        nonce: expect.any(String),
+        isEncrypted: false,
+        mentionMeta: undefined,
+        attachmentIds: undefined,
+        replyToId: 'parent-msg-1',
+      });
+    });
+  });
+
+  // --- Pin support ---
+
+  it('passes onPinToggle and canPin to MessageList', () => {
+    useDMStore.setState({
+      conversations: [makeConversation()],
+    });
+    render(<DMChatArea selectedThreadId="conv-1" />);
+    expect(capturedMLProps.onPinToggle).toBeInstanceOf(Function);
+    expect(capturedMLProps.canPin).toBe(true);
   });
 });

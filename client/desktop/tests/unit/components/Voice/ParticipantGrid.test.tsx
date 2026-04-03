@@ -16,8 +16,9 @@ vi.mock('@/renderer/components/Voice/useVoiceMagnification', () => ({
   useVoiceMagnification: () => ({}),
 }));
 
+const mockUseGridLayout = vi.fn(() => ({ tileWidth: 300, tileHeight: 169, columns: 3 }));
 vi.mock('@/renderer/hooks/useGridLayout', () => ({
-  useGridLayout: () => ({ tileWidth: 300, tileHeight: 169, columns: 3 }),
+  useGridLayout: (...args: unknown[]) => mockUseGridLayout(...args),
 }));
 
 vi.mock('@/renderer/components/Voice/ParticipantGrid.css', () => ({}));
@@ -384,5 +385,72 @@ describe('UserFrameGrid', () => {
     const { container } = render(<UserFrameGrid />);
     const grid = container.querySelector('.user-frame-grid');
     expect(grid).toBeInstanceOf(HTMLDivElement);
+  });
+
+  it('passes square aspect ratio when no participant has video', () => {
+    mockUseGridLayout.mockReturnValue({ tileWidth: 200, tileHeight: 200, columns: 2 });
+    useVoiceStore.setState({
+      participants: {
+        u1: {
+          userId: 'u1',
+          username: 'alice',
+          isMuted: false,
+          isDeafened: false,
+          isVideoOn: false,
+          isScreenSharing: false,
+          isSpeaking: false,
+        },
+        u2: {
+          userId: 'u2',
+          username: 'bob',
+          isMuted: false,
+          isDeafened: false,
+          isVideoOn: false,
+          isScreenSharing: false,
+          isSpeaking: false,
+        },
+      },
+    });
+    const { container } = render(<UserFrameGrid />);
+
+    // Verify useGridLayout was called with aspectRatio: 1 (square)
+    const lastCall = mockUseGridLayout.mock.calls[mockUseGridLayout.mock.calls.length - 1];
+    expect(lastCall[2]).toEqual(expect.objectContaining({ aspectRatio: 1 }));
+
+    // Verify CSS variables reflect square tiles
+    const grid = container.querySelector('.user-frame-grid') as HTMLElement;
+    expect(grid.style.getPropertyValue('--tile-w')).toBe('200px');
+    expect(grid.style.getPropertyValue('--tile-h')).toBe('200px');
+  });
+
+  it('passes 16:9 aspect ratio when any participant has video', () => {
+    mockUseGridLayout.mockReturnValue({ tileWidth: 300, tileHeight: 169, columns: 2 });
+    useVoiceStore.setState({
+      participants: {
+        u1: {
+          userId: 'u1',
+          username: 'alice',
+          isMuted: false,
+          isDeafened: false,
+          isVideoOn: true,
+          isScreenSharing: false,
+          isSpeaking: false,
+        },
+        u2: {
+          userId: 'u2',
+          username: 'bob',
+          isMuted: false,
+          isDeafened: false,
+          isVideoOn: false,
+          isScreenSharing: false,
+          isSpeaking: false,
+        },
+      },
+    });
+    render(<UserFrameGrid />);
+
+    // Verify useGridLayout was called with aspectRatio: 16/9
+    const lastCall = mockUseGridLayout.mock.calls[mockUseGridLayout.mock.calls.length - 1];
+    expect(lastCall[2]).toEqual(expect.objectContaining({ aspectRatio: 16 / 9 }));
   });
 });

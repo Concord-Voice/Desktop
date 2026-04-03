@@ -427,4 +427,26 @@ describe('VoiceView', () => {
 
     expect(useVoiceStore.getState().localStreamPaused).toBe(false);
   });
+
+  // ── Resize handle accessibility ──
+
+  it('resize handles are keyboard-accessible with aria-labels', () => {
+    setConnectedState({
+      showUserFrameBar: true,
+      showStreamBar: true,
+      showVoiceTextChat: false,
+      tunedInScreenShares: { 'share-1': true },
+      availableScreenShares: [{ id: 'share-1', peerId: 'peer-1', displayName: 'User' }],
+      stageLayout: 'focus',
+    });
+    const { container } = render(<VoiceView channelId={VOICE_CHANNEL_ID} channelName="General" />);
+    // Section handle grips appear in the three-section layout (screen share mode)
+    const gripHandles = container.querySelectorAll('.voice-view__section-handle-grip');
+    expect(gripHandles.length).toBeGreaterThanOrEqual(1);
+    for (const handle of gripHandles) {
+      expect(handle).toHaveAttribute('tabindex', '0');
+      expect(handle).toHaveAttribute('aria-label');
+      expect(handle).not.toHaveAttribute('aria-hidden');
+    }
+  });
 });

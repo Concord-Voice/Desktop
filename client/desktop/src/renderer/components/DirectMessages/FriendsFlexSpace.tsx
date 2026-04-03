@@ -21,8 +21,9 @@ const FriendsFlexSpace: React.FC<FriendsFlexSpaceProps> = ({ onFriendClick }) =>
         type="button"
         className="layout-resize-handle"
         onMouseDown={panel.onMouseDown}
-        tabIndex={-1}
-        aria-hidden="true"
+        onKeyDown={panel.onKeyDown}
+        tabIndex={0}
+        aria-label="Resize friends panel"
       />
       <div
         className="member-list-container"

@@ -36,6 +36,24 @@
   flex-shrink: 0;
 }
 
+.channel-group-header__toggle {
+  all: unset;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: calc(2px * var(--sp, 1));
+  cursor: pointer;
+  color: inherit;
+  flex: 1;
+  min-width: 0;
+}
+
+.channel-group-header__toggle:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 .channel-group-header span {
   font-size: calc(11px * var(--font-scale, 1));
   font-weight: 600;
@@ -120,11 +138,22 @@
 }
 
 /* Channel Items */
+.channel-item-wrapper {
+  padding: 0 calc(8px * var(--sp, 1));
+}
+
 .channel-item {
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
   display: flex;
   align-items: center;
+  text-align: left;
+  width: 100%;
+  box-sizing: border-box;
   padding: calc(8px * var(--sp, 1)) calc(12px * var(--sp, 1));
-  margin: calc(2px * var(--sp, 1)) calc(8px * var(--sp, 1));
+  margin: calc(2px * var(--sp, 1)) 0;
   border-radius: 4px;
   border-left: 3px solid transparent;
   cursor: pointer;
@@ -193,6 +222,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
   flex: 1;
 }
 
@@ -355,9 +385,12 @@
   display: none;
 }
 
-/* Grouped channel items — indented to make room for tree connectors */
+/* Grouped channel items — indented to make room for tree connectors.
+   30px total indent from wrapper outer edge: 8px wrapper padding + 22px margin.
+   width:auto overrides the base 100% so margin-left doesn't cause overflow. */
 .channel-item--grouped {
-  margin-left: calc(30px * var(--sp, 1));
+  width: auto;
+  margin-left: calc(22px * var(--sp, 1));
   padding-left: calc(8px * var(--sp, 1));
 }
 
@@ -465,6 +498,10 @@
    Perceptual icon center ≈ 28px (8 margin + 3 border + 12 padding + 5 visual).
    Element at 36px, connector left -8px → vertical at 28px (centered). */
 .channel-item--voice-text {
+  background: none;
+  border: none;
+  font: inherit;
+  color: inherit;
   display: flex;
   align-items: center;
   position: relative;
@@ -585,7 +622,7 @@
 
 .channel-drag-ghost {
   height: 2px;
-  margin: 0 calc(8px * var(--sp, 1));
+  margin: 0;
   background: var(--accent-primary);
   border-radius: 1px;
   pointer-events: none;

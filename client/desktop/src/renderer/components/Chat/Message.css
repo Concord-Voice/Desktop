@@ -285,6 +285,24 @@
   border-color: var(--danger);
 }
 
+.message-quick-reply {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 6px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-quick-reply:hover {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
 .message-options-trigger {
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);

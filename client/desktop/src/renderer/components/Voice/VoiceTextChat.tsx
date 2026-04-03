@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { MessageSquare, Volume2, PanelBottom, PanelRight } from 'lucide-react';
 import MessageList from '../Chat/MessageList';
 import MessageInput from '../Chat/MessageInput';
@@ -7,6 +7,10 @@ import { useVoiceStore } from '../../stores/voiceStore';
 import { useChatStore } from '../../stores/chatStore';
 import { useUserStore } from '../../stores/userStore';
 import { useTTSSettingsStore } from '../../stores/ttsSettingsStore';
+import { usePermissionStore } from '../../stores/permissionStore';
+import { useServerStore } from '../../stores/serverStore';
+import { PIN_MESSAGES } from '../../utils/permissions';
+import { pinMessage, unpinMessage } from '../../services/pinService';
 import { useChannelSubscription } from '../../hooks/useChannelSubscription';
 import { useMessageFetch } from '../../hooks/useMessageFetch';
 import { useMessaging } from '../../hooks/useMessaging';
@@ -27,6 +31,29 @@ const VoiceTextChat: React.FC = () => {
   const updateMessage = useChatStore((s) => s.updateMessage);
   const deleteMessage = useChatStore((s) => s.deleteMessage);
   const user = useUserStore((s) => s.user);
+  const hasServerPermission = usePermissionStore((s) => s.hasServerPermission);
+  const activeServerId = useServerStore((s) => s.activeServerId);
+
+  const [replyingTo, setReplyingTo] = useState<MessageWithStatus | null>(null);
+  const handleReply = useCallback((msg: MessageWithStatus) => setReplyingTo(msg), []);
+  const handleCancelReply = useCallback(() => setReplyingTo(null), []);
+
+  const canPin = useMemo(() => {
+    if (!activeServerId) return false;
+    return hasServerPermission(activeServerId, PIN_MESSAGES);
+  }, [activeServerId, hasServerPermission]);
+
+  const handlePinToggle = useCallback(async (message: MessageWithStatus) => {
+    try {
+      if (message.pinned_at) {
+        await unpinMessage(message.id);
+      } else {
+        await pinMessage(message.id);
+      }
+    } catch (err) {
+      console.error('Failed to toggle pin:', err);
+    }
+  }, []);
 
   const ttsEnabled = useTTSSettingsStore((s) => s.ttsEnabled);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -53,12 +80,23 @@ const VoiceTextChat: React.FC = () => {
   const currentUserId = user?.id || '';
 
   const handleSendMessage = useCallback(
-    (content: string) => {
+    (
+      content: string,
+      mentionMeta?: string,
+      replyToId?: string,
+      attachmentIds?: string[],
+      attachments?: import('../../types/chat').AttachmentSummary[]
+    ) => {
       if (!channelId) return;
       sendMessage(channelId, content, user?.username || 'You', {
         avatarUrl: user?.avatar_url,
         displayName: user?.display_name,
+        mentionMeta,
+        replyToId,
+        attachmentIds,
+        attachments,
       });
+      setReplyingTo(null);
     },
     [channelId, sendMessage, user?.username, user?.avatar_url, user?.display_name]
   );
@@ -162,6 +200,9 @@ const VoiceTextChat: React.FC = () => {
           onLoadMore={handleLoadMore}
           onEditMessage={handleEditMessage}
           onDeleteMessage={handleDeleteMessage}
+          onReply={handleReply}
+          onPinToggle={handlePinToggle}
+          canPin={canPin}
         />
       </div>
 
@@ -179,6 +220,8 @@ const VoiceTextChat: React.FC = () => {
           disabled={!currentUserId}
           isChannelEncrypted={linkedChannel.is_encrypted ?? false}
           placeholder={`Message ${linkedChannel.name} text chat...`}
+          replyingTo={replyingTo}
+          onCancelReply={handleCancelReply}
         />
       </div>
     </div>

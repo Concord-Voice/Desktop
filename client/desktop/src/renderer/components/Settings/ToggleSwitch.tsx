@@ -1,12 +1,26 @@
 import React from 'react';
 
-const ToggleSwitch: React.FC<{
+interface ToggleSwitchProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
   label?: string;
-}> = ({ checked, onChange, disabled, label }) => (
-  <label className="settings-toggle" aria-label={label || 'Toggle'}>
+  ariaLabelledBy?: string;
+}
+
+const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
+  checked,
+  onChange,
+  disabled,
+  label,
+  ariaLabelledBy,
+}) => (
+  <label
+    className="settings-toggle"
+    {...(ariaLabelledBy
+      ? { 'aria-labelledby': ariaLabelledBy }
+      : { 'aria-label': label || 'Toggle' })}
+  >
     <input
       type="checkbox"
       checked={checked}

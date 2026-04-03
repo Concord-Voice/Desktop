@@ -183,4 +183,28 @@ describe('AppLayout', () => {
     );
     expect(screen.getByTestId('custom-chat')).toBeInTheDocument();
   });
+
+  // ── Resize handle accessibility ──
+
+  it('resize handles are keyboard-accessible', () => {
+    const { container } = render(<AppLayout {...defaultProps} />);
+    const handles = container.querySelectorAll('.layout-resize-handle-h');
+    for (const handle of handles) {
+      expect(handle).toHaveAttribute('tabindex', '0');
+      expect(handle).toHaveAttribute('aria-label');
+      expect(handle).not.toHaveAttribute('aria-hidden');
+    }
+  });
+
+  it('server bar resize handle has correct aria-label', () => {
+    const { container } = render(<AppLayout {...defaultProps} />);
+    const handle = container.querySelector('.layout-server-bar-resize');
+    expect(handle).toHaveAttribute('aria-label', 'Resize server bar');
+  });
+
+  it('folder bar resize handle has correct aria-label', () => {
+    const { container } = render(<AppLayout {...defaultProps} />);
+    const handle = container.querySelector('.layout-folder-bar-resize');
+    expect(handle).toHaveAttribute('aria-label', 'Resize folder bar');
+  });
 });

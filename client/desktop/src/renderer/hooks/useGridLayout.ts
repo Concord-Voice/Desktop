@@ -15,12 +15,49 @@ interface GridLayoutOptions {
   padding?: number;
   /** Minimum tile width in px (default: 80). */
   minTileWidth?: number;
+  /** Maximum tile width in px (default: none). Clamps oversized tiles (e.g. single-user). */
+  maxTileWidth?: number;
 }
 
 const DEFAULT_ASPECT_RATIO = 16 / 9;
 const DEFAULT_GAP = 4;
 const DEFAULT_PADDING = 0;
 const DEFAULT_MIN_TILE_WIDTH = 80;
+
+/** Clamp tile width to maxTileWidth and recompute height from aspect ratio. */
+function clampTile(tileW: number, tileH: number, aspectRatio: number, maxTileWidth?: number) {
+  if (maxTileWidth && tileW > maxTileWidth) {
+    return { tileW: maxTileWidth, tileH: maxTileWidth / aspectRatio };
+  }
+  return { tileW, tileH };
+}
+
+/** Fallback layout when container is too small for minTileWidth. */
+function computeFallbackLayout(
+  containerWidth: number,
+  containerHeight: number,
+  count: number,
+  aspectRatio: number,
+  gap: number,
+  padding: number,
+  maxTileWidth?: number
+): GridLayout {
+  const rows = count; // single column
+  const availW = Math.max(1, containerWidth - 2 * padding);
+  const availH = Math.max(1, containerHeight - 2 * padding - (rows - 1) * gap);
+  let tileW = availW;
+  let tileH = tileW / aspectRatio;
+  if (tileH * rows > availH) {
+    tileH = availH / rows;
+    tileW = tileH * aspectRatio;
+  }
+  const clamped = clampTile(tileW, tileH, aspectRatio, maxTileWidth);
+  return {
+    tileWidth: Math.max(0, clamped.tileW),
+    tileHeight: Math.max(0, clamped.tileH),
+    columns: 1,
+  };
+}
 
 /**
  * Compute the optimal grid layout that maximises tile area while fitting all
@@ -33,15 +70,21 @@ export function computeGridLayout(
   containerWidth: number,
   containerHeight: number,
   count: number,
-  aspectRatio: number = DEFAULT_ASPECT_RATIO,
-  gap: number = DEFAULT_GAP,
-  padding: number = DEFAULT_PADDING,
-  minTileWidth: number = DEFAULT_MIN_TILE_WIDTH
+  options: GridLayoutOptions = {}
 ): GridLayout {
+  const {
+    aspectRatio = DEFAULT_ASPECT_RATIO,
+    gap = DEFAULT_GAP,
+    padding = DEFAULT_PADDING,
+    minTileWidth = DEFAULT_MIN_TILE_WIDTH,
+    maxTileWidth,
+  } = options;
+
   if (count <= 0) return { tileWidth: 0, tileHeight: 0, columns: 0 };
 
   if (containerWidth <= 0 || containerHeight <= 0) {
-    return { tileWidth: minTileWidth, tileHeight: minTileWidth / aspectRatio, columns: 1 };
+    const clamped = clampTile(minTileWidth, minTileWidth / aspectRatio, aspectRatio, maxTileWidth);
+    return { tileWidth: clamped.tileW, tileHeight: clamped.tileH, columns: 1 };
   }
 
   let bestLayout: GridLayout = {
@@ -68,6 +111,9 @@ export function computeGridLayout(
       tileW = tileH * aspectRatio;
     }
 
+    // Clamp to maxTileWidth
+    ({ tileW, tileH } = clampTile(tileW, tileH, aspectRatio, maxTileWidth));
+
     if (tileW < minTileWidth) continue;
 
     const area = tileW * tileH;
@@ -79,16 +125,15 @@ export function computeGridLayout(
 
   // Fallback: container too small for minTileWidth — allow smaller tiles to avoid overflow
   if (bestArea === 0) {
-    const rows = count; // single column
-    const availW = Math.max(1, containerWidth - 2 * padding);
-    const availH = Math.max(1, containerHeight - 2 * padding - (rows - 1) * gap);
-    let tileW = availW;
-    let tileH = tileW / aspectRatio;
-    if (tileH * rows > availH) {
-      tileH = availH / rows;
-      tileW = tileH * aspectRatio;
-    }
-    return { tileWidth: Math.max(0, tileW), tileHeight: Math.max(0, tileH), columns: 1 };
+    return computeFallbackLayout(
+      containerWidth,
+      containerHeight,
+      count,
+      aspectRatio,
+      gap,
+      padding,
+      maxTileWidth
+    );
   }
 
   return bestLayout;
@@ -108,6 +153,7 @@ export function useGridLayout(
     gap = DEFAULT_GAP,
     padding = DEFAULT_PADDING,
     minTileWidth = DEFAULT_MIN_TILE_WIDTH,
+    maxTileWidth,
   } = options;
 
   const [dimensions, setDimensions] = useState<{ width: number; height: number }>({
@@ -135,15 +181,22 @@ export function useGridLayout(
 
   return useMemo(
     () =>
-      computeGridLayout(
-        dimensions.width,
-        dimensions.height,
-        count,
+      computeGridLayout(dimensions.width, dimensions.height, count, {
         aspectRatio,
         gap,
         padding,
-        minTileWidth
-      ),
-    [dimensions.width, dimensions.height, count, aspectRatio, gap, padding, minTileWidth]
+        minTileWidth,
+        maxTileWidth,
+      }),
+    [
+      dimensions.width,
+      dimensions.height,
+      count,
+      aspectRatio,
+      gap,
+      padding,
+      minTileWidth,
+      maxTileWidth,
+    ]
   );
 }

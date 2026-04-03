@@ -433,7 +433,6 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
       {activeTab === 'members' && canAssignRoles && (
         <MemberListPanel
           members={members}
-          serverRoles={serverRoles}
           assignableRoles={assignableRoles}
           onToggleRole={handleToggleRole}
         />
