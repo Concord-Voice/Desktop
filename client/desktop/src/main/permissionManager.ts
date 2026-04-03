@@ -94,42 +94,28 @@ function mapMacNotificationStatus(): OsPermissionStatus {
 
 // ─── Check ────────────────────────────────────────────────────────────
 
-export function checkPermission(type: OsPermissionType): OsPermissionStatus {
-  switch (type) {
-    case 'microphone':
-      if (process.platform === 'darwin') {
-        return mapMacMediaStatus(systemPreferences.getMediaAccessStatus('microphone'));
-      }
-      // Windows/Linux: Chromium handles mic access via getUserMedia — no OS-level gate
-      return 'granted';
-
-    case 'camera':
-      if (process.platform === 'darwin') {
-        return mapMacMediaStatus(systemPreferences.getMediaAccessStatus('camera'));
-      }
-      return 'granted';
-
-    case 'screen':
-      if (process.platform === 'darwin') {
-        return mapMacMediaStatus(systemPreferences.getMediaAccessStatus('screen'));
-      }
-      // Windows/Linux: no OS-level screen recording gate
-      return 'granted';
-
-    case 'secureStorage':
-      return safeStorage.isEncryptionAvailable() ? 'granted' : 'unavailable';
-
-    case 'notifications':
-      if (!Notification.isSupported()) return 'unavailable';
-      if (process.platform === 'darwin') {
-        return mapMacNotificationStatus();
-      }
-      // Win/Linux: notifications are always available without an explicit grant
-      return 'granted';
-
-    default:
-      return 'unavailable';
+function checkMacMediaOrGranted(mediaType: 'microphone' | 'camera' | 'screen'): OsPermissionStatus {
+  if (process.platform === 'darwin') {
+    return mapMacMediaStatus(systemPreferences.getMediaAccessStatus(mediaType));
   }
+  return 'granted';
+}
+
+const PERMISSION_CHECKERS: Record<OsPermissionType, () => OsPermissionStatus> = {
+  microphone: () => checkMacMediaOrGranted('microphone'),
+  camera: () => checkMacMediaOrGranted('camera'),
+  screen: () => checkMacMediaOrGranted('screen'),
+  secureStorage: () => (safeStorage.isEncryptionAvailable() ? 'granted' : 'unavailable'),
+  notifications: () => {
+    if (!Notification.isSupported()) return 'unavailable';
+    if (process.platform === 'darwin') return mapMacNotificationStatus();
+    return 'granted';
+  },
+};
+
+export function checkPermission(type: OsPermissionType): OsPermissionStatus {
+  const checker = PERMISSION_CHECKERS[type];
+  return checker ? checker() : 'unavailable';
 }
 
 export function checkAllPermissions(): OsPermissionState {
@@ -142,78 +128,70 @@ export function checkAllPermissions(): OsPermissionState {
 
 // ─── Request ──────────────────────────────────────────────────────────
 
+/**
+ * Request macOS media access for microphone or camera.
+ * Deduplicates the nearly-identical logic for both media types.
+ */
+async function requestMacMediaAccess(
+  mediaType: 'microphone' | 'camera'
+): Promise<OsPermissionStatus> {
+  const status = systemPreferences.getMediaAccessStatus(mediaType);
+  if (status === 'granted') return 'granted';
+  if (status === 'denied' || status === 'restricted') return mapMacMediaStatus(status);
+  // Dev mode: askForMediaAccess can SIGABRT when the Electron helper
+  // process lacks the usage description in its Info.plist.
+  // Return the raw status and let getUserMedia trigger the TCC prompt.
+  if (!app.isPackaged) return mapMacMediaStatus(status);
+  // Production (packaged): askForMediaAccess works correctly because
+  // forge.config.ts sets the usage descriptions in the signed bundle.
+  const granted = await systemPreferences.askForMediaAccess(mediaType);
+  return granted ? 'granted' : 'denied';
+}
+
+const PERMISSION_REQUESTERS: Record<OsPermissionType, () => Promise<OsPermissionStatus>> = {
+  microphone: async () => {
+    if (process.platform === 'darwin') return requestMacMediaAccess('microphone');
+    return 'granted';
+  },
+  camera: async () => {
+    if (process.platform === 'darwin') return requestMacMediaAccess('camera');
+    return 'granted';
+  },
+  screen: async () => {
+    // macOS screen recording cannot be programmatically requested —
+    // the user must toggle it manually in System Settings.
+    if (process.platform === 'darwin') {
+      openSystemSettings('screen');
+      return checkPermission('screen');
+    }
+    return 'granted';
+  },
+  secureStorage: async () => {
+    // Secure storage availability cannot be "requested" — it depends on
+    // whether the OS keyring/credential manager is functional.
+    return checkPermission('secureStorage');
+  },
+  notifications: async () => {
+    // Show a minimal silent notification to trigger the macOS permission prompt.
+    // On first invocation the OS presents its "allow notifications?" dialog.
+    if (Notification.isSupported()) {
+      const notification = new Notification({
+        title: 'Concord Notifications',
+        body: 'Desktop notifications are now enabled.',
+        silent: true,
+      });
+      notification.show();
+    } else if (process.platform === 'darwin') {
+      openSystemSettings('notifications');
+    }
+    // Return the real authorization status after the prompt
+    return checkPermission('notifications');
+  },
+};
+
 export async function requestPermission(type: OsPermissionType): Promise<OsPermissionStatus> {
-  switch (type) {
-    case 'microphone':
-      if (process.platform === 'darwin') {
-        const micStatus = systemPreferences.getMediaAccessStatus('microphone');
-        if (micStatus === 'granted') return 'granted';
-        if (micStatus === 'denied' || micStatus === 'restricted') {
-          return mapMacMediaStatus(micStatus);
-        }
-        if (!app.isPackaged) {
-          // Dev mode: askForMediaAccess can SIGABRT when the Electron helper
-          // process lacks NSMicrophoneUsageDescription in its Info.plist.
-          // Return the raw status and let getUserMedia trigger the TCC prompt
-          // (safe after the postinstall plist patch).
-          return mapMacMediaStatus(micStatus);
-        }
-        // Production (packaged): askForMediaAccess works correctly because
-        // forge.config.ts sets the usage descriptions in the signed bundle.
-        const micGranted = await systemPreferences.askForMediaAccess('microphone');
-        return micGranted ? 'granted' : 'denied';
-      }
-      return 'granted';
-
-    case 'camera':
-      if (process.platform === 'darwin') {
-        const camStatus = systemPreferences.getMediaAccessStatus('camera');
-        if (camStatus === 'granted') return 'granted';
-        if (camStatus === 'denied' || camStatus === 'restricted') {
-          return mapMacMediaStatus(camStatus);
-        }
-        if (!app.isPackaged) {
-          return mapMacMediaStatus(camStatus);
-        }
-        const camGranted = await systemPreferences.askForMediaAccess('camera');
-        return camGranted ? 'granted' : 'denied';
-      }
-      return 'granted';
-
-    case 'screen':
-      // macOS screen recording cannot be programmatically requested —
-      // the user must toggle it manually in System Settings.
-      if (process.platform === 'darwin') {
-        openSystemSettings('screen');
-        return checkPermission('screen');
-      }
-      return 'granted';
-
-    case 'secureStorage':
-      // Secure storage availability cannot be "requested" — it depends on
-      // whether the OS keyring/credential manager is functional.
-      return checkPermission('secureStorage');
-
-    case 'notifications':
-      // Show a minimal silent notification to trigger the macOS permission prompt.
-      // On first invocation the OS presents its "allow notifications?" dialog.
-      // The actual notification feature is handled by #175.
-      if (Notification.isSupported()) {
-        const notification = new Notification({
-          title: 'Concord Notifications',
-          body: 'Desktop notifications are now enabled.',
-          silent: true,
-        });
-        notification.show();
-      } else if (process.platform === 'darwin') {
-        openSystemSettings('notifications');
-      }
-      // Return the real authorization status after the prompt
-      return checkPermission('notifications');
-
-    default:
-      return 'unavailable';
-  }
+  const requester = PERMISSION_REQUESTERS[type];
+  return requester ? requester() : 'unavailable';
 }
 
 // ─── Open System Settings ─────────────────────────────────────────────

@@ -50,6 +50,150 @@ async function getVoiceService() {
   return voiceService;
 }
 
+/** Attach mousedown + keydown listeners that dismiss a popup when clicking outside or pressing Escape. */
+function attachDismissListeners(
+  anchorRef: React.RefObject<HTMLElement | null>,
+  popupRef: React.RefObject<HTMLElement | null>,
+  dismiss: () => void
+): () => void {
+  const handleClick = (e: MouseEvent) => {
+    const target = e.target as Node;
+    if (anchorRef.current?.contains(target)) return;
+    if (popupRef.current?.contains(target)) return;
+    dismiss();
+  };
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') dismiss();
+  };
+  document.addEventListener('mousedown', handleClick);
+  document.addEventListener('keydown', handleKeyDown);
+  return () => {
+    document.removeEventListener('mousedown', handleClick);
+    document.removeEventListener('keydown', handleKeyDown);
+  };
+}
+
+/** Compute position:fixed style to render a portal element above an anchor ref. */
+function getPortalStyle(ref: React.RefObject<HTMLElement | null>): React.CSSProperties {
+  const base: React.CSSProperties = {
+    position: 'fixed',
+    transform: 'translateX(-50%)',
+    zIndex: 99999,
+  };
+  const rect = ref.current?.getBoundingClientRect();
+  if (!rect) return { ...base, bottom: 0, left: '50%' };
+  return {
+    ...base,
+    bottom: globalThis.innerHeight - rect.top,
+    left: rect.left + rect.width / 2,
+  };
+}
+
+/** Build PiP window options for the given mode. */
+function buildPipOptions(mode: 'frames' | 'screen', producerId?: string) {
+  const isFrames = mode === 'frames';
+  return {
+    id: isFrames ? 'frames-main' : `screen-${producerId || ''}`,
+    width: isFrames ? 320 : 400,
+    height: isFrames ? 240 : 300,
+  };
+}
+
+/** Start or stop screen sharing, showing the picker on Electron. */
+async function toggleScreenShareAction(
+  isScreenSharing: boolean,
+  setShowScreenPicker: (v: boolean) => void
+): Promise<void> {
+  if (isScreenSharing) {
+    await (await getVoiceService()).toggleScreenShare();
+    return;
+  }
+
+  const denied = await checkPermissionOrWarn(
+    'screen',
+    'Screen recording access denied. On macOS, enable Screen Recording in ' +
+      'System Settings > Privacy & Security, then restart Concord.'
+  );
+  if (denied) return;
+
+  if (typeof globalThis.electron?.getDesktopSources === 'function') {
+    setShowScreenPicker(true);
+  } else {
+    await (await getVoiceService()).toggleScreenShare();
+  }
+}
+
+/* ── Extracted sub-components (reduces cognitive complexity — S3776) ── */
+
+interface PipMenuProps {
+  pipMenuRef: React.RefObject<HTMLDivElement | null>;
+  style: React.CSSProperties;
+  tunedInIds: string[];
+  participants: Record<
+    string,
+    { isScreenSharing?: boolean; displayName?: string; username?: string }
+  >;
+  onOpenPip: (mode: 'frames' | 'screen', producerId?: string) => void;
+}
+
+/** Portaled PiP menu — lists pop-out targets for user frames and active screen shares. */
+const PipMenu: React.FC<PipMenuProps> = ({
+  pipMenuRef,
+  style,
+  tunedInIds,
+  participants,
+  onOpenPip,
+}) => (
+  <div ref={pipMenuRef} className="voice-controls__pip-menu" style={style}>
+    <button className="voice-controls__pip-menu-item" onClick={() => onOpenPip('frames')}>
+      Pop Out User Frames
+    </button>
+    {tunedInIds.map((producerId) => {
+      const sharer = Object.values(participants).find((p) => p.isScreenSharing);
+      const name = sharer?.displayName || sharer?.username || 'User';
+      return (
+        <button
+          key={producerId}
+          className="voice-controls__pip-menu-item"
+          onClick={() => onOpenPip('screen', producerId)}
+        >
+          Pop Out {name}&apos;s Screen
+        </button>
+      );
+    })}
+  </div>
+);
+
+interface MediaButtonProps {
+  isActive: boolean;
+  onClick: () => void;
+  title: string;
+  activeIcon: React.ReactNode;
+  inactiveIcon: React.ReactNode;
+  activeLabel: string;
+  inactiveLabel: string;
+}
+
+/** Generic media toggle button — mic, deafen, video, screen share. */
+const MediaButton: React.FC<MediaButtonProps> = ({
+  isActive,
+  onClick,
+  title,
+  activeIcon,
+  inactiveIcon,
+  activeLabel,
+  inactiveLabel,
+}) => (
+  <button
+    className={`voice-controls__btn ${isActive ? 'voice-controls__btn--active' : ''}`}
+    onClick={onClick}
+    title={title}
+  >
+    {isActive ? activeIcon : inactiveIcon}
+    <span className="voice-controls__btn-label">{isActive ? activeLabel : inactiveLabel}</span>
+  </button>
+);
+
 interface VoiceControlsProps {
   /** 'voiceView' = inside VoiceView, 'persistent' = navigated-away bar */
   context?: 'voiceView' | 'persistent';
@@ -99,35 +243,20 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   };
 
   const handleToggleVideo = async () => {
-    if (!isVideoOn) {
-      const denied = await checkPermissionOrWarn(
+    const needsPermission = !isVideoOn;
+    const denied =
+      needsPermission &&
+      (await checkPermissionOrWarn(
         'camera',
         'Camera access denied. Grant permission in System Settings > Privacy & Security.'
-      );
-      if (denied) return;
-    }
+      ));
+    if (denied) return;
     await (await getVoiceService()).toggleVideo();
   };
 
   const handleToggleScreen = async () => {
     try {
-      if (isScreenSharing) {
-        await (await getVoiceService()).toggleScreenShare();
-        return;
-      }
-
-      const denied = await checkPermissionOrWarn(
-        'screen',
-        'Screen recording access denied. On macOS, enable Screen Recording in ' +
-          'System Settings > Privacy & Security, then restart Concord.'
-      );
-      if (denied) return;
-
-      if (typeof globalThis.electron?.getDesktopSources === 'function') {
-        setShowScreenPicker(true);
-      } else {
-        await (await getVoiceService()).toggleScreenShare();
-      }
+      await toggleScreenShareAction(isScreenSharing, setShowScreenPicker);
     } catch (err) {
       console.error('Failed to toggle screen share:', err);
     }
@@ -159,51 +288,12 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   // Close PiP menu on click outside or Escape
   useEffect(() => {
     if (!showPipMenu) return;
-    const handleClick = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (pipWrapRef.current?.contains(target)) return;
-      if (pipMenuRef.current?.contains(target)) return;
-      setShowPipMenu(false);
-    };
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setShowPipMenu(false);
-    };
-    document.addEventListener('mousedown', handleClick);
-    document.addEventListener('keydown', handleKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleClick);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
+    return attachDismissListeners(pipWrapRef, pipMenuRef, () => setShowPipMenu(false));
   }, [showPipMenu]);
-
-  /** Compute position:fixed style to render a portal element above an anchor */
-  const getPortalStyle = (ref: React.RefObject<HTMLElement | null>): React.CSSProperties => {
-    const rect = ref.current?.getBoundingClientRect();
-    if (!rect)
-      return {
-        position: 'fixed',
-        bottom: 0,
-        left: '50%',
-        transform: 'translateX(-50%)',
-        zIndex: 99999,
-      };
-    return {
-      position: 'fixed',
-      bottom: globalThis.innerHeight - rect.top,
-      left: rect.left + rect.width / 2,
-      transform: 'translateX(-50%)',
-      zIndex: 99999,
-    };
-  };
 
   const handleOpenPip = useCallback(async (mode: 'frames' | 'screen', producerId?: string) => {
     if (!globalThis.electron?.openPipWindow) return;
-    const id = mode === 'frames' ? 'frames-main' : `screen-${producerId || ''}`;
-    await globalThis.electron.openPipWindow({
-      id,
-      width: mode === 'frames' ? 320 : 400,
-      height: mode === 'frames' ? 240 : 300,
-    });
+    await globalThis.electron.openPipWindow(buildPipOptions(mode, producerId));
     setShowPipMenu(false);
   }, []);
 
@@ -228,41 +318,45 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
         )}
 
         <div className="voice-controls__buttons">
-          <button
-            className={`voice-controls__btn ${isMuted ? 'voice-controls__btn--active' : ''}`}
+          <MediaButton
+            isActive={isMuted}
             onClick={handleToggleMute}
             title={isMuted ? 'Unmute' : 'Mute'}
-          >
-            {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
-            <span className="voice-controls__btn-label">{isMuted ? 'Unmute' : 'Mute'}</span>
-          </button>
+            activeIcon={<MicOff size={18} />}
+            inactiveIcon={<Mic size={18} />}
+            activeLabel="Unmute"
+            inactiveLabel="Mute"
+          />
 
-          <button
-            className={`voice-controls__btn ${isDeafened ? 'voice-controls__btn--active' : ''}`}
+          <MediaButton
+            isActive={isDeafened}
             onClick={handleToggleDeafen}
             title={isDeafened ? 'Undeafen' : 'Deafen'}
-          >
-            {isDeafened ? <HeadphoneOff size={18} /> : <Headphones size={18} />}
-            <span className="voice-controls__btn-label">{isDeafened ? 'Undeafen' : 'Deafen'}</span>
-          </button>
+            activeIcon={<HeadphoneOff size={18} />}
+            inactiveIcon={<Headphones size={18} />}
+            activeLabel="Undeafen"
+            inactiveLabel="Deafen"
+          />
 
-          <button
-            className={`voice-controls__btn ${isVideoOn ? 'voice-controls__btn--active' : ''}`}
+          <MediaButton
+            isActive={isVideoOn}
             onClick={handleToggleVideo}
             title={isVideoOn ? 'Stop Video' : 'Start Video'}
-          >
-            {isVideoOn ? <VideoOff size={18} /> : <Video size={18} />}
-            <span className="voice-controls__btn-label">{isVideoOn ? 'Stop Video' : 'Video'}</span>
-          </button>
+            activeIcon={<VideoOff size={18} />}
+            inactiveIcon={<Video size={18} />}
+            activeLabel="Stop Video"
+            inactiveLabel="Video"
+          />
 
-          <button
-            className={`voice-controls__btn ${isScreenSharing ? 'voice-controls__btn--active' : ''}`}
+          <MediaButton
+            isActive={isScreenSharing}
             onClick={handleToggleScreen}
             title={isScreenSharing ? 'Stop Sharing' : 'Share Screen'}
-          >
-            {isScreenSharing ? <MonitorOff size={18} /> : <Monitor size={18} />}
-            <span className="voice-controls__btn-label">{isScreenSharing ? 'Stop' : 'Screen'}</span>
-          </button>
+            activeIcon={<MonitorOff size={18} />}
+            inactiveIcon={<Monitor size={18} />}
+            activeLabel="Stop"
+            inactiveLabel="Screen"
+          />
 
           {hasLinkedText && (
             <button
@@ -276,20 +370,19 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
           )}
 
           {isScreenSharing && (
-            <button
-              className={`voice-controls__btn ${keepActiveWhileUnfocused ? 'voice-controls__btn--active' : ''}`}
+            <MediaButton
+              isActive={keepActiveWhileUnfocused}
               onClick={() => setKeepActiveWhileUnfocused(!keepActiveWhileUnfocused)}
               title={
                 keepActiveWhileUnfocused
                   ? 'Stream stays active when unfocused'
                   : 'Stream pauses when unfocused'
               }
-            >
-              {keepActiveWhileUnfocused ? <Eye size={18} /> : <EyeOff size={18} />}
-              <span className="voice-controls__btn-label">
-                {keepActiveWhileUnfocused ? 'Always On' : 'Auto Pause'}
-              </span>
-            </button>
+              activeIcon={<Eye size={18} />}
+              inactiveIcon={<EyeOff size={18} />}
+              activeLabel="Always On"
+              inactiveLabel="Auto Pause"
+            />
           )}
 
           {hasElectronPip && (
@@ -336,31 +429,13 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
       {/* Portaled PiP menu — escapes overflow:hidden ancestors */}
       {showPipMenu &&
         createPortal(
-          <div
-            ref={pipMenuRef}
-            className="voice-controls__pip-menu"
+          <PipMenu
+            pipMenuRef={pipMenuRef}
             style={getPortalStyle(pipWrapRef)}
-          >
-            <button
-              className="voice-controls__pip-menu-item"
-              onClick={() => handleOpenPip('frames')}
-            >
-              Pop Out User Frames
-            </button>
-            {tunedInIds.map((producerId) => {
-              const sharer = Object.values(participants).find((p) => p.isScreenSharing);
-              const name = sharer?.displayName || sharer?.username || 'User';
-              return (
-                <button
-                  key={producerId}
-                  className="voice-controls__pip-menu-item"
-                  onClick={() => handleOpenPip('screen', producerId)}
-                >
-                  Pop Out {name}&apos;s Screen
-                </button>
-              );
-            })}
-          </div>,
+            tunedInIds={tunedInIds}
+            participants={participants}
+            onOpenPip={handleOpenPip}
+          />,
           document.body
         )}
 

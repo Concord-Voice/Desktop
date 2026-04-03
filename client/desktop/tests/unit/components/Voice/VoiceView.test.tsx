@@ -428,6 +428,246 @@ describe('VoiceView', () => {
     expect(useVoiceStore.getState().localStreamPaused).toBe(false);
   });
 
+  // ── Focus handler for auto-pause ──
+
+  it('does not clear localStreamPaused on focus when it was not paused', () => {
+    setConnectedState({ isScreenSharing: true, keepActiveWhileUnfocused: false });
+    useVoiceStore.setState({ localStreamPaused: false });
+    render(<VoiceView channelId={VOICE_CHANNEL_ID} channelName="General" />);
+
+    act(() => {
+      globalThis.dispatchEvent(new Event('focus'));
+    });
+
+    // localStreamPaused stays false (the guard `if (!...localStreamPaused) return` short-circuits)
+    expect(useVoiceStore.getState().localStreamPaused).toBe(false);
+  });
+
+  // ── Join error handling ──
+
+  it('resets hasJoinedRef on join failure so user can retry', async () => {
+    mockJoinChannel.mockRejectedValueOnce(new Error('Connection failed'));
+    render(<VoiceView channelId={VOICE_CHANNEL_ID} channelName="General" />);
+
+    // First join attempt — fails
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Join Voice' }));
+    });
+    expect(mockJoinChannel).toHaveBeenCalledTimes(1);
+
+    // Second attempt — should NOT be blocked because ref was reset
+    mockJoinChannel.mockResolvedValueOnce(undefined);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Join Voice' }));
+    });
+    expect(mockJoinChannel).toHaveBeenCalledTimes(2);
+  });
+
+  // ── Chat resize (horizontal layout) ──
+
+  it('resizes chat panel height in horizontal layout via mouse drag', () => {
+    setConnectedState({
+      showVoiceTextChat: true,
+      voiceTextChatLayout: 'horizontal',
+      voiceTextChatHeight: 300,
+    });
+    useChannelStore.setState({
+      channels: [
+        {
+          id: 'text-1',
+          server_id: 's1',
+          name: 'voice-text',
+          type: 'text',
+          is_encrypted: false,
+          position: 0,
+          linked_voice_channel_id: VOICE_CHANNEL_ID,
+          created_at: '',
+          updated_at: '',
+        },
+      ],
+    });
+    const { container } = render(<VoiceView channelId={VOICE_CHANNEL_ID} channelName="General" />);
+
+    const resizeHandle = container.querySelector(
+      '.voice-text-chat-resize:not(.voice-text-chat-resize--vertical)'
+    );
+    expect(resizeHandle).toBeTruthy();
+
+    // Start drag
+    fireEvent.mouseDown(resizeHandle!, { clientY: 400 });
+
+    // Move mouse up (increases chat height)
+    act(() => {
+      fireEvent.mouseMove(document, { clientY: 350 });
+    });
+
+    // End drag
+    act(() => {
+      fireEvent.mouseUp(document);
+    });
+
+    // Verify cursor was cleaned up
+    expect(document.body.style.cursor).toBe('');
+    expect(document.body.style.userSelect).toBe('');
+  });
+
+  // ── Chat resize (vertical layout) ──
+
+  it('resizes chat panel width in vertical layout via mouse drag', () => {
+    setConnectedState({
+      showVoiceTextChat: true,
+      voiceTextChatLayout: 'vertical',
+      voiceTextChatWidth: 350,
+    });
+    useChannelStore.setState({
+      channels: [
+        {
+          id: 'text-1',
+          server_id: 's1',
+          name: 'voice-text',
+          type: 'text',
+          is_encrypted: false,
+          position: 0,
+          linked_voice_channel_id: VOICE_CHANNEL_ID,
+          created_at: '',
+          updated_at: '',
+        },
+      ],
+    });
+    const { container } = render(<VoiceView channelId={VOICE_CHANNEL_ID} channelName="General" />);
+
+    const resizeHandle = container.querySelector('.voice-text-chat-resize--vertical');
+    expect(resizeHandle).toBeTruthy();
+
+    // Start drag
+    fireEvent.mouseDown(resizeHandle!, { clientX: 500 });
+
+    // Move mouse left (increases chat width)
+    act(() => {
+      fireEvent.mouseMove(document, { clientX: 450 });
+    });
+
+    // End drag
+    act(() => {
+      fireEvent.mouseUp(document);
+    });
+
+    expect(document.body.style.cursor).toBe('');
+    expect(document.body.style.userSelect).toBe('');
+  });
+
+  // ── Section resize (UserFrameBar / StreamBar) ──
+
+  it('resizes user frame bar height via mouse drag on section handle', () => {
+    setConnectedState({
+      tunedInScreenShares: { 'producer-1': 'consumer-1' },
+      showUserFrameBar: true,
+      userFrameBarHeight: 120,
+    });
+    const { container } = render(<VoiceView channelId={VOICE_CHANNEL_ID} channelName="General" />);
+
+    const gripHandles = container.querySelectorAll('.voice-view__section-handle-grip');
+    expect(gripHandles.length).toBeGreaterThanOrEqual(1);
+
+    // First grip is the user frame bar resize handle
+    fireEvent.mouseDown(gripHandles[0], { clientY: 200 });
+
+    act(() => {
+      fireEvent.mouseMove(document, { clientY: 250 });
+    });
+
+    act(() => {
+      fireEvent.mouseUp(document);
+    });
+  });
+
+  it('resizes stream bar height via mouse drag when stream section visible', () => {
+    setConnectedState({
+      tunedInScreenShares: { 'producer-1': 'consumer-1', 'producer-2': 'consumer-2' },
+      showStreamBar: true,
+      streamBarHeight: 120,
+      stageLayout: 'focus',
+    });
+    const { container } = render(<VoiceView channelId={VOICE_CHANNEL_ID} channelName="General" />);
+
+    const gripHandles = container.querySelectorAll('.voice-view__section-handle-grip');
+    // With stream section visible, there should be 2 grips
+    expect(gripHandles.length).toBe(2);
+
+    // Second grip is the stream bar resize handle
+    fireEvent.mouseDown(gripHandles[1], { clientY: 500 });
+
+    act(() => {
+      fireEvent.mouseMove(document, { clientY: 450 });
+    });
+
+    act(() => {
+      fireEvent.mouseUp(document);
+    });
+  });
+
+  // ── Stream section conditional rendering ──
+
+  it('shows stream bar section when stageLayout is focus and multiple tuned-in shares', () => {
+    setConnectedState({
+      tunedInScreenShares: { 'producer-1': 'consumer-1', 'producer-2': 'consumer-2' },
+      showStreamBar: true,
+      stageLayout: 'focus',
+    });
+    render(<VoiceView channelId={VOICE_CHANNEL_ID} channelName="General" />);
+    expect(screen.getByTestId('stream-bar')).toBeInTheDocument();
+  });
+
+  it('hides stream bar when showStreamBar is false even with multiple shares', () => {
+    setConnectedState({
+      tunedInScreenShares: { 'producer-1': 'consumer-1', 'producer-2': 'consumer-2' },
+      showStreamBar: false,
+      stageLayout: 'focus',
+    });
+    render(<VoiceView channelId={VOICE_CHANNEL_ID} channelName="General" />);
+    expect(screen.queryByTestId('stream-bar')).not.toBeInTheDocument();
+  });
+
+  it('does not show stream section when stageLayout is not focus', () => {
+    setConnectedState({
+      tunedInScreenShares: { 'producer-1': 'consumer-1', 'producer-2': 'consumer-2' },
+      showStreamBar: true,
+      stageLayout: 'grid',
+    });
+    render(<VoiceView channelId={VOICE_CHANNEL_ID} channelName="General" />);
+    // Stream bar toggle button should not appear
+    expect(screen.queryByTitle('Hide stream bar')).not.toBeInTheDocument();
+  });
+
+  // ── Section toggle buttons ──
+
+  it('toggles user frame bar visibility via toggle button', () => {
+    const mockToggle = vi.fn();
+    setConnectedState({
+      tunedInScreenShares: { 'producer-1': 'consumer-1' },
+      showUserFrameBar: true,
+      toggleUserFrameBar: mockToggle,
+    });
+    render(<VoiceView channelId={VOICE_CHANNEL_ID} channelName="General" />);
+
+    fireEvent.click(screen.getByTitle('Hide user frames'));
+    expect(mockToggle).toHaveBeenCalled();
+  });
+
+  it('toggles stream bar visibility via toggle button', () => {
+    const mockToggle = vi.fn();
+    setConnectedState({
+      tunedInScreenShares: { 'producer-1': 'consumer-1', 'producer-2': 'consumer-2' },
+      showStreamBar: true,
+      stageLayout: 'focus',
+      toggleStreamBar: mockToggle,
+    });
+    render(<VoiceView channelId={VOICE_CHANNEL_ID} channelName="General" />);
+
+    fireEvent.click(screen.getByTitle('Hide stream bar'));
+    expect(mockToggle).toHaveBeenCalled();
+  });
+
   // ── Resize handle accessibility ──
 
   it('resize handles are keyboard-accessible with aria-labels', () => {

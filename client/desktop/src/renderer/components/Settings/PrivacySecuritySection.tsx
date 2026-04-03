@@ -78,24 +78,38 @@ const PERMISSION_ROWS: {
   },
 ];
 
+const PERMISSION_STATUS_BADGES: Record<OsPermissionStatus, { className: string; label: string }> = {
+  granted: { className: 'os-perm-badge os-perm-badge--granted', label: 'Granted' },
+  denied: { className: 'os-perm-badge os-perm-badge--denied', label: 'Denied' },
+  restricted: { className: 'os-perm-badge os-perm-badge--denied', label: 'Restricted' },
+  'not-determined': { className: 'os-perm-badge os-perm-badge--pending', label: 'Not Requested' },
+  unavailable: { className: 'os-perm-badge os-perm-badge--unavailable', label: 'Unavailable' },
+};
+
+const DM_LEVEL_TITLES: Record<DMPrivacyLevel, string> = {
+  0: 'No One',
+  1: 'Friends Only',
+  2: 'Friends + Server Members',
+  3: 'Allow All',
+};
+
+const DM_LEVEL_DESCRIPTIONS: Record<DMPrivacyLevel, string> = {
+  0: "Hermit mode. Nobody can DM you. You've chosen peace and silence. Existing DMs are frozen solid.",
+  1: "Inner circle only. If they're not on your friends list, they're talking to a wall.",
+  2: 'The social butterfly. Friends and anyone you share a server with can slide into your DMs.',
+  3: 'Open season. Anyone on the platform can message you. Bold move.',
+};
+
+const DM_FOF_HINTS: Record<number, string> = {
+  0: 'DMs are disabled — this setting has no effect.',
+  3: 'Everyone can already DM you — friends-of-friends is included.',
+};
+
 function permissionStatusBadge(status: OsPermissionStatus): {
   className: string;
   label: string;
 } {
-  switch (status) {
-    case 'granted':
-      return { className: 'os-perm-badge os-perm-badge--granted', label: 'Granted' };
-    case 'denied':
-      return { className: 'os-perm-badge os-perm-badge--denied', label: 'Denied' };
-    case 'restricted':
-      return { className: 'os-perm-badge os-perm-badge--denied', label: 'Restricted' };
-    case 'not-determined':
-      return { className: 'os-perm-badge os-perm-badge--pending', label: 'Not Requested' };
-    case 'unavailable':
-      return { className: 'os-perm-badge os-perm-badge--unavailable', label: 'Unavailable' };
-    default:
-      return { className: 'os-perm-badge', label: 'Unknown' };
-  }
+  return PERMISSION_STATUS_BADGES[status] ?? { className: 'os-perm-badge', label: 'Unknown' };
 }
 
 const SystemPermissionsSection: React.FC = () => {
@@ -659,25 +673,8 @@ const PrivacySecuritySection: React.FC = () => {
             />
           </div>
           <div className="settings-tier-description">
-            <span>
-              {(() => {
-                if (localDmLevel === 0) return 'No One';
-                if (localDmLevel === 1) return 'Friends Only';
-                if (localDmLevel === 2) return 'Friends + Server Members';
-                return 'Allow All';
-              })()}
-            </span>
-            <span>
-              {(() => {
-                if (localDmLevel === 0)
-                  return "Hermit mode. Nobody can DM you. You've chosen peace and silence. Existing DMs are frozen solid.";
-                if (localDmLevel === 1)
-                  return "Inner circle only. If they're not on your friends list, they're talking to a wall.";
-                if (localDmLevel === 2)
-                  return 'The social butterfly. Friends and anyone you share a server with can slide into your DMs.';
-                return 'Open season. Anyone on the platform can message you. Bold move.';
-              })()}
-            </span>
+            <span>{DM_LEVEL_TITLES[localDmLevel]}</span>
+            <span>{DM_LEVEL_DESCRIPTIONS[localDmLevel]}</span>
           </div>
         </div>
 
@@ -687,12 +684,8 @@ const PrivacySecuritySection: React.FC = () => {
           <div className="settings-row-info">
             <span className="settings-row-label">Allow Friends-of-Friends</span>
             <span className="settings-row-hint">
-              {(() => {
-                if (localDmLevel === 0) return 'DMs are disabled — this setting has no effect.';
-                if (localDmLevel === 3)
-                  return 'Everyone can already DM you — friends-of-friends is included.';
-                return 'Also allow DMs from people who share a mutual friend with you';
-              })()}
+              {DM_FOF_HINTS[localDmLevel] ??
+                'Also allow DMs from people who share a mutual friend with you'}
             </span>
           </div>
           <ToggleSwitch

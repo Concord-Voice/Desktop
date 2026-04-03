@@ -3,9 +3,10 @@ import { useFriendStore } from '@/renderer/stores/friendStore';
 import { usePrivacyStore } from '@/renderer/stores/privacyStore';
 import { vi } from 'vitest';
 
-// Mock apiFetch
+// Mock apiFetch — controllable per test
+const mockApiFetch = vi.fn().mockResolvedValue({ ok: false });
 vi.mock('@/renderer/services/apiClient', () => ({
-  apiFetch: vi.fn().mockResolvedValue({ ok: false }),
+  apiFetch: (...args: unknown[]) => mockApiFetch(...args),
   API_BASE: 'http://localhost:8080',
 }));
 
@@ -303,5 +304,99 @@ describe('AddFriendModal', () => {
     useFriendStore.setState({ fetchFriendCodes: mockFetch });
     render(<AddFriendModal isOpen={true} onClose={mockOnClose} />);
     expect(mockFetch).toHaveBeenCalled();
+  });
+
+  it('shows server invite error when code is a valid server invite', async () => {
+    const mockPreview = vi.fn().mockRejectedValue(new Error('Not found'));
+    mockApiFetch.mockResolvedValue({ ok: true });
+    useFriendStore.setState({ previewFriendCode: mockPreview });
+    render(<AddFriendModal isOpen={true} onClose={mockOnClose} />);
+    const input = screen.getByPlaceholderText('Enter 8-character code...');
+    fireEvent.change(input, { target: { value: 'SRVRINV1' } });
+    await vi.waitFor(() => {
+      expect(
+        screen.getByText(
+          'This looks like a server invite code, not a friend code. Use the Join Server button to use it.'
+        )
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('shows generic error when code is invalid and not a server invite', async () => {
+    const mockPreview = vi.fn().mockRejectedValue(new Error('Code not found'));
+    mockApiFetch.mockResolvedValue({ ok: false });
+    useFriendStore.setState({ previewFriendCode: mockPreview });
+    render(<AddFriendModal isOpen={true} onClose={mockOnClose} />);
+    const input = screen.getByPlaceholderText('Enter 8-character code...');
+    fireEvent.change(input, { target: { value: 'INVALID1' } });
+    await vi.waitFor(() => {
+      expect(screen.getByText('Code not found')).toBeInTheDocument();
+    });
+  });
+
+  it('shows fallback error when code throws non-Error and invite check also fails', async () => {
+    const mockPreview = vi.fn().mockRejectedValue('unknown error');
+    mockApiFetch.mockRejectedValue(new Error('network failure'));
+    useFriendStore.setState({ previewFriendCode: mockPreview });
+    render(<AddFriendModal isOpen={true} onClose={mockOnClose} />);
+    const input = screen.getByPlaceholderText('Enter 8-character code...');
+    fireEvent.change(input, { target: { value: 'FAILCODE' } });
+    await vi.waitFor(() => {
+      expect(screen.getByText('Invalid code')).toBeInTheDocument();
+    });
+  });
+
+  it('calls onClose when modal close is triggered', () => {
+    render(<AddFriendModal isOpen={true} onClose={mockOnClose} />);
+    const closeBtn = document.querySelector('.modal-close-btn');
+    if (closeBtn) {
+      fireEvent.click(closeBtn);
+      expect(mockOnClose).toHaveBeenCalled();
+    }
+  });
+
+  it('shows pending status when claim result is pending', async () => {
+    const mockPreview = vi.fn().mockResolvedValue({
+      valid: true,
+      username: 'bob',
+      displayName: 'Bob',
+    });
+    const mockClaim = vi.fn().mockResolvedValue({
+      status: 'pending',
+      user: { username: 'bob' },
+    });
+    useFriendStore.setState({
+      previewFriendCode: mockPreview,
+      claimFriendCode: mockClaim,
+    });
+    render(<AddFriendModal isOpen={true} onClose={mockOnClose} />);
+    const input = screen.getByPlaceholderText('Enter 8-character code...');
+    fireEvent.change(input, { target: { value: 'BOBCODE1' } });
+    await vi.waitFor(() => {
+      expect(screen.getByText('Send Friend Request')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText('Send Friend Request'));
+    await vi.waitFor(() => {
+      expect(screen.getByText('Friend request sent to bob')).toBeInTheDocument();
+    });
+  });
+
+  it('sends friend request from search results', async () => {
+    const mockSearch = vi
+      .fn()
+      .mockResolvedValue([{ id: 'u1', username: 'diana', displayName: 'Diana' }]);
+    const mockSendRequest = vi.fn().mockResolvedValue(undefined);
+    useFriendStore.setState({ searchUsers: mockSearch, sendRequest: mockSendRequest });
+    render(<AddFriendModal isOpen={true} onClose={mockOnClose} />);
+    const input = screen.getByPlaceholderText('Search by username (3+ characters)...');
+    fireEvent.change(input, { target: { value: 'dia' } });
+    await vi.waitFor(() => {
+      expect(screen.getByText('Diana')).toBeInTheDocument();
+    });
+    const addBtn = screen.getByRole('button', { name: /Add Friend/i });
+    fireEvent.click(addBtn);
+    await vi.waitFor(() => {
+      expect(mockSendRequest).toHaveBeenCalledWith('u1');
+    });
   });
 });

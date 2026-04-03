@@ -179,6 +179,36 @@ if (import.meta.hot) {
 let rendererRefreshPromise: Promise<string | null> | null = null;
 
 /**
+ * Handle MFA challenge during token refresh if the server flags a suspicious session.
+ * Returns the new access token if MFA verification + retry succeeds, null otherwise.
+ */
+async function handleMfaChallengeIfNeeded(
+  result: import('../../main/ipcContract').RefreshResult
+): Promise<string | null> {
+  if (result.status !== 'mfa_required' || !result.mfaChallengeToken) return null;
+
+  const { useMFAChallengeStore } = await import('../stores/mfaChallengeStore');
+  const verified = await useMFAChallengeStore
+    .getState()
+    .showChallenge(
+      result.mfaChallengeToken,
+      result.mfaMethods || [],
+      'suspicious_refresh',
+      result.mfaRecoveryOnlyMethods || []
+    );
+  if (!verified) return null;
+
+  // MFA verified — retry the refresh
+  const retryResult = await globalThis.electron.refreshToken();
+  if (retryResult.status === 'ok' && retryResult.accessToken) {
+    useAuthStore.getState().setAccessToken(retryResult.accessToken);
+    if (retryResult.sessionId) useAuthStore.getState().setSessionId(retryResult.sessionId);
+    return retryResult.accessToken;
+  }
+  return null;
+}
+
+/**
  * Attempt to refresh the access token via the main process IPC.
  * The main process holds the refresh token securely and makes the HTTP call.
  * Concurrent calls from the renderer are deduplicated.
@@ -199,28 +229,7 @@ export async function refreshAccessToken(): Promise<string | null> {
     }
 
     // Handle suspicious session MFA challenge
-    if (result.status === 'mfa_required' && result.mfaChallengeToken) {
-      const { useMFAChallengeStore } = await import('../stores/mfaChallengeStore');
-      const verified = await useMFAChallengeStore
-        .getState()
-        .showChallenge(
-          result.mfaChallengeToken,
-          result.mfaMethods || [],
-          'suspicious_refresh',
-          result.mfaRecoveryOnlyMethods || []
-        );
-      if (verified) {
-        // MFA verified — retry the refresh
-        const retryResult = await globalThis.electron.refreshToken();
-        if (retryResult.status === 'ok' && retryResult.accessToken) {
-          useAuthStore.getState().setAccessToken(retryResult.accessToken);
-          if (retryResult.sessionId) useAuthStore.getState().setSessionId(retryResult.sessionId);
-          return retryResult.accessToken;
-        }
-      }
-    }
-
-    return null;
+    return handleMfaChallengeIfNeeded(result);
   })();
 
   try {
@@ -260,6 +269,71 @@ export async function safeJson<T = unknown>(res: Response): Promise<T> {
   }
 }
 
+/**
+ * Handle refresh failure by clearing auth state and optionally resetting stores.
+ * Only triggers logout once — safe to call from concurrent 401 handlers.
+ */
+async function handleRefreshFailure(): Promise<void> {
+  if (!useAuthStore.getState().accessToken) return;
+
+  // If recovery system is already handling this disconnect, don't double-reset
+  const { useConnectionStore } = await import('../stores/connectionStore');
+  const phase = useConnectionStore.getState().phase;
+  if (phase !== 'stable') {
+    useAuthStore.getState().clearAccessToken();
+    return;
+  }
+
+  const { gracefulReset, nuclearReset } = await import('./resetService');
+  if (useAuthStore.getState().rememberMe) {
+    gracefulReset();
+    // DO NOT clear disk tokens — session can be restored on next launch
+  } else {
+    nuclearReset(); // already calls clearTokens() internally
+  }
+  useAuthStore.getState().clearAccessToken();
+}
+
+/**
+ * Attempt to recover from a 401 response by refreshing the token and retrying.
+ * Returns the retried response on success, or the original 401 on failure.
+ */
+async function handle401Recovery(
+  path: string,
+  init: RequestInit | undefined,
+  response: Response,
+  mid: string | null
+): Promise<Response> {
+  // If auth already cleared, return original 401
+  if (!useAuthStore.getState().accessToken) return response;
+
+  // Attempt token refresh (deduplicated + rate-limited)
+  let newToken: string | null = null;
+  if (rendererRefreshPromise) {
+    // Another 401 handler already started a refresh — piggyback on it
+    newToken = await rendererRefreshPromise;
+  } else {
+    const now = Date.now();
+    if (now - lastRefreshTimestamp < MIN_REFRESH_INTERVAL_MS) {
+      // Recently refreshed and no in-flight refresh — likely token revocation
+      return response;
+    }
+    lastRefreshTimestamp = now;
+    newToken = await refreshAccessToken();
+  }
+
+  if (!newToken) {
+    await handleRefreshFailure();
+    return response;
+  }
+
+  // Retry with new token
+  const retryHeaders = new Headers(init?.headers);
+  retryHeaders.set('Authorization', `Bearer ${newToken}`);
+  if (mid) retryHeaders.set('X-Machine-Id', mid);
+  return fetch(`${API_BASE}${path}`, { ...init, headers: retryHeaders, credentials: 'include' });
+}
+
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
   const token = useAuthStore.getState().accessToken;
 
@@ -283,62 +357,5 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
     return response;
   }
 
-  // If auth has already been cleared (e.g. a concurrent 401 handler already
-  // triggered logout), don't attempt another refresh — just return the 401.
-  if (!useAuthStore.getState().accessToken) {
-    return response;
-  }
-
-  // Attempt token refresh via main process (deduplicated + rate-limited).
-  // If a refresh is already in-flight, await it (dedup) regardless of rate limit.
-  // Only rate-limit the *initiation* of new refreshes.
-  let newToken: string | null = null;
-  if (rendererRefreshPromise) {
-    // Another 401 handler already started a refresh — piggyback on it
-    newToken = await rendererRefreshPromise;
-  } else {
-    const now = Date.now();
-    if (now - lastRefreshTimestamp < MIN_REFRESH_INTERVAL_MS) {
-      // Recently refreshed and no in-flight refresh — likely token revocation
-      return response;
-    }
-    lastRefreshTimestamp = now;
-    newToken = await refreshAccessToken();
-  }
-  if (!newToken) {
-    // Refresh failed — but only trigger logout once. Another concurrent caller
-    // may have already cleared auth while we were awaiting the shared promise.
-    if (useAuthStore.getState().accessToken) {
-      // If recovery system is already handling this disconnect, don't double-reset
-      const { useConnectionStore } = await import('../stores/connectionStore');
-      const phase = useConnectionStore.getState().phase;
-      if (phase !== 'stable') {
-        useAuthStore.getState().clearAccessToken();
-        return response;
-      }
-
-      const { gracefulReset, nuclearReset } = await import('./resetService');
-      if (useAuthStore.getState().rememberMe) {
-        gracefulReset();
-        // DO NOT clear disk tokens — session can be restored on next launch
-      } else {
-        nuclearReset(); // already calls clearTokens() internally
-      }
-      useAuthStore.getState().clearAccessToken();
-    }
-    return response; // Return the original 401
-  }
-
-  // Retry with new token
-  const retryHeaders = new Headers(init?.headers);
-  retryHeaders.set('Authorization', `Bearer ${newToken}`);
-  if (mid) {
-    retryHeaders.set('X-Machine-Id', mid);
-  }
-
-  return fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: retryHeaders,
-    credentials: 'include',
-  });
+  return handle401Recovery(path, init, response, mid);
 }

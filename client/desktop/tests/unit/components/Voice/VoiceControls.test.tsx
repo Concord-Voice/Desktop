@@ -358,4 +358,308 @@ describe('VoiceControls', () => {
     render(<VoiceControls />);
     expect(screen.getByTitle('Leave Voice').className).toContain('voice-controls__btn--danger');
   });
+
+  // ── Screen share with Electron picker ───────────────────────────────────
+
+  it('opens screen share picker when Electron getDesktopSources is available', async () => {
+    // Simulate Electron environment with getDesktopSources
+    const origElectron = globalThis.electron;
+    globalThis.electron = {
+      ...globalThis.electron,
+      getDesktopSources: vi.fn().mockResolvedValue([]),
+    } as unknown as typeof globalThis.electron;
+
+    setVoiceState({ isScreenSharing: false });
+    render(<VoiceControls />);
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('Share Screen'));
+    });
+
+    expect(screen.getByTestId('screen-share-picker')).toBeInTheDocument();
+    expect(mockToggleScreenShare).not.toHaveBeenCalled();
+
+    globalThis.electron = origElectron;
+  });
+
+  it('calls toggleScreenShare with sourceId when picker source selected', async () => {
+    const origElectron = globalThis.electron;
+    globalThis.electron = {
+      ...globalThis.electron,
+      getDesktopSources: vi.fn().mockResolvedValue([]),
+    } as unknown as typeof globalThis.electron;
+
+    setVoiceState({ isScreenSharing: false });
+    render(<VoiceControls />);
+
+    // Open picker
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('Share Screen'));
+    });
+
+    // Select a source
+    await act(async () => {
+      fireEvent.click(screen.getByText('Select Source'));
+    });
+
+    expect(mockToggleScreenShare).toHaveBeenCalledWith('source-1', undefined);
+    expect(screen.queryByTestId('screen-share-picker')).not.toBeInTheDocument();
+
+    globalThis.electron = origElectron;
+  });
+
+  it('closes screen share picker on cancel', async () => {
+    const origElectron = globalThis.electron;
+    globalThis.electron = {
+      ...globalThis.electron,
+      getDesktopSources: vi.fn().mockResolvedValue([]),
+    } as unknown as typeof globalThis.electron;
+
+    setVoiceState({ isScreenSharing: false });
+    render(<VoiceControls />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('Share Screen'));
+    });
+    expect(screen.getByTestId('screen-share-picker')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Cancel Picker'));
+    });
+    expect(screen.queryByTestId('screen-share-picker')).not.toBeInTheDocument();
+
+    globalThis.electron = origElectron;
+  });
+
+  it('calls toggleScreenShare directly when no Electron picker and not sharing', async () => {
+    // Ensure no electron.getDesktopSources
+    const origElectron = globalThis.electron;
+    globalThis.electron = undefined as unknown as typeof globalThis.electron;
+
+    setVoiceState({ isScreenSharing: false });
+    render(<VoiceControls />);
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('Share Screen'));
+    });
+    expect(mockToggleScreenShare).toHaveBeenCalled();
+
+    globalThis.electron = origElectron;
+  });
+
+  // ── Keep active while unfocused toggle ──────────────────────────────────
+
+  it('toggles keepActiveWhileUnfocused when button clicked', async () => {
+    const mockSetKeepActive = vi.fn();
+    setVoiceState({
+      isScreenSharing: true,
+      keepActiveWhileUnfocused: false,
+      setKeepActiveWhileUnfocused: mockSetKeepActive,
+    });
+    render(<VoiceControls />);
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('Stream pauses when unfocused'));
+    });
+    expect(mockSetKeepActive).toHaveBeenCalledWith(true);
+  });
+
+  // ── PiP menu ────────────────────────────────────────────────────────────
+
+  it('shows PiP button when electron.openPipWindow is available', () => {
+    const origElectron = globalThis.electron;
+    globalThis.electron = {
+      ...globalThis.electron,
+      openPipWindow: vi.fn(),
+    } as unknown as typeof globalThis.electron;
+
+    setVoiceState();
+    render(<VoiceControls />);
+    expect(screen.getByTitle('Picture-in-Picture')).toBeInTheDocument();
+
+    globalThis.electron = origElectron;
+  });
+
+  it('does not show PiP button when electron.openPipWindow is not available', () => {
+    const origElectron = globalThis.electron;
+    globalThis.electron = undefined as unknown as typeof globalThis.electron;
+
+    setVoiceState();
+    render(<VoiceControls />);
+    expect(screen.queryByTitle('Picture-in-Picture')).not.toBeInTheDocument();
+
+    globalThis.electron = origElectron;
+  });
+
+  it('opens PiP menu when PiP button clicked', async () => {
+    const origElectron = globalThis.electron;
+    globalThis.electron = {
+      ...globalThis.electron,
+      openPipWindow: vi.fn(),
+    } as unknown as typeof globalThis.electron;
+
+    setVoiceState({
+      tunedInScreenShares: { 'producer-1': 'consumer-1' },
+      participants: {
+        u1: { isScreenSharing: true, displayName: 'Alice', username: 'alice' },
+      },
+    });
+    render(<VoiceControls />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('Picture-in-Picture'));
+    });
+
+    expect(screen.getByText('Pop Out User Frames')).toBeInTheDocument();
+    expect(screen.getByText(/Pop Out Alice.s Screen/)).toBeInTheDocument();
+
+    globalThis.electron = origElectron;
+  });
+
+  it('calls electron.openPipWindow with frames options when Pop Out User Frames clicked', async () => {
+    const mockOpenPip = vi.fn().mockResolvedValue(undefined);
+    const origElectron = globalThis.electron;
+    globalThis.electron = {
+      ...globalThis.electron,
+      openPipWindow: mockOpenPip,
+    } as unknown as typeof globalThis.electron;
+
+    setVoiceState({ tunedInScreenShares: {} });
+    render(<VoiceControls />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('Picture-in-Picture'));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('Pop Out User Frames'));
+    });
+
+    expect(mockOpenPip).toHaveBeenCalledWith({
+      id: 'frames-main',
+      width: 320,
+      height: 240,
+    });
+
+    globalThis.electron = origElectron;
+  });
+
+  it('calls electron.openPipWindow with screen options when Pop Out screen clicked', async () => {
+    const mockOpenPip = vi.fn().mockResolvedValue(undefined);
+    const origElectron = globalThis.electron;
+    globalThis.electron = {
+      ...globalThis.electron,
+      openPipWindow: mockOpenPip,
+    } as unknown as typeof globalThis.electron;
+
+    setVoiceState({
+      tunedInScreenShares: { 'producer-1': 'consumer-1' },
+      participants: {
+        u1: { isScreenSharing: true, displayName: 'Bob', username: 'bob' },
+      },
+    });
+    render(<VoiceControls />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('Picture-in-Picture'));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText(/Pop Out Bob.s Screen/));
+    });
+
+    expect(mockOpenPip).toHaveBeenCalledWith({
+      id: 'screen-producer-1',
+      width: 400,
+      height: 300,
+    });
+
+    globalThis.electron = origElectron;
+  });
+
+  it('closes PiP menu when Escape is pressed', async () => {
+    const origElectron = globalThis.electron;
+    globalThis.electron = {
+      ...globalThis.electron,
+      openPipWindow: vi.fn(),
+    } as unknown as typeof globalThis.electron;
+
+    setVoiceState({ tunedInScreenShares: {} });
+    render(<VoiceControls />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('Picture-in-Picture'));
+    });
+    expect(screen.getByText('Pop Out User Frames')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.keyDown(document, { key: 'Escape' });
+    });
+    expect(screen.queryByText('Pop Out User Frames')).not.toBeInTheDocument();
+
+    globalThis.electron = origElectron;
+  });
+
+  it('closes PiP menu when clicking outside', async () => {
+    const origElectron = globalThis.electron;
+    globalThis.electron = {
+      ...globalThis.electron,
+      openPipWindow: vi.fn(),
+    } as unknown as typeof globalThis.electron;
+
+    setVoiceState({ tunedInScreenShares: {} });
+    render(<VoiceControls />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('Picture-in-Picture'));
+    });
+    expect(screen.getByText('Pop Out User Frames')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.mouseDown(document.body);
+    });
+    expect(screen.queryByText('Pop Out User Frames')).not.toBeInTheDocument();
+
+    globalThis.electron = origElectron;
+  });
+
+  // ── Video slot error auto-dismiss ───────────────────────────────────────
+
+  it('auto-dismisses video slot error after 5 seconds', async () => {
+    vi.useFakeTimers();
+    const mockSetError = vi.fn();
+    setVoiceState({ videoSlotError: 'Some error', setVideoSlotError: mockSetError });
+    render(<VoiceControls />);
+
+    await act(async () => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(mockSetError).toHaveBeenCalledWith(null);
+    vi.useRealTimers();
+  });
+
+  // ── Screen share error handling ─────────────────────────────────────────
+
+  it('handles screen share toggle error gracefully', async () => {
+    mockToggleScreenShare.mockRejectedValueOnce(new Error('Failed'));
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    setVoiceState({ isScreenSharing: true });
+    render(<VoiceControls />);
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('Stop Sharing'));
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith('Failed to toggle screen share:', expect.any(Error));
+    consoleSpy.mockRestore();
+  });
+
+  // ── Screen permission restricted ────────────────────────────────────────
+
+  it('does not start screen share when permission is restricted', async () => {
+    mockCheckOne.mockResolvedValueOnce('restricted');
+    setVoiceState({ isScreenSharing: false });
+    render(<VoiceControls />);
+    await act(async () => {
+      fireEvent.click(screen.getByTitle('Share Screen'));
+    });
+    expect(mockToggleScreenShare).not.toHaveBeenCalled();
+    expect(mockOpenSettings).toHaveBeenCalledWith('screen');
+  });
 });

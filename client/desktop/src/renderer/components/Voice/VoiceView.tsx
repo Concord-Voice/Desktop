@@ -24,6 +24,172 @@ const MIN_CHAT_WIDTH = 250;
 const MAX_CHAT_WIDTH_RATIO = 0.5;
 const MIN_SECTION_HEIGHT = 80;
 
+/** Compute new chat panel size during a drag resize. */
+function computeChatResizeValue(
+  isVertical: boolean,
+  containerRect: DOMRect,
+  startPos: number,
+  movePos: number,
+  startSize: number
+): number {
+  const delta = startPos - movePos;
+  if (isVertical) {
+    const maxWidth = containerRect.width * MAX_CHAT_WIDTH_RATIO;
+    return Math.min(maxWidth, Math.max(MIN_CHAT_WIDTH, startSize + delta));
+  }
+  const maxHeight = containerRect.height * MAX_CHAT_RATIO;
+  return Math.min(maxHeight, Math.max(MIN_CHAT_HEIGHT, startSize + delta));
+}
+
+/* ── Extracted sub-components (reduces cognitive complexity — S3776) ── */
+
+/** Compute the join prompt subtitle text. */
+function getJoinSubtitle(isConnecting: boolean, memberCount: number): string {
+  if (isConnecting) return 'Connecting...';
+  if (memberCount > 0) {
+    const plural = memberCount === 1 ? '' : 's';
+    return `${memberCount} user${plural} in this channel`;
+  }
+  return 'No one is in this voice channel yet.';
+}
+
+interface JoinPromptProps {
+  channelName: string;
+  isConnecting: boolean;
+  memberCount: number;
+  onJoin: () => void;
+}
+
+/** Displayed when the user is not connected to the voice channel. */
+const JoinPrompt: React.FC<JoinPromptProps> = ({
+  channelName,
+  isConnecting,
+  memberCount,
+  onJoin,
+}) => (
+  <div className="voice-view">
+    <div className="voice-view__join">
+      <div className="voice-view__join-icon">
+        <Users size={48} />
+      </div>
+      <h2 className="voice-view__join-title">{channelName}</h2>
+      <p className="voice-view__join-subtitle">{getJoinSubtitle(isConnecting, memberCount)}</p>
+      <button className="voice-view__join-btn" onClick={onJoin} disabled={isConnecting}>
+        {isConnecting ? 'Connecting...' : 'Join Voice'}
+      </button>
+    </div>
+  </div>
+);
+
+interface HeaderBadgesProps {
+  isEncrypted: boolean;
+  participantCount: number;
+  effectiveQualityTier: string;
+  decoderHealth: string;
+}
+
+/** Header metadata badges: E2EE, participant count, quality tier, decoder health. */
+const HeaderBadges: React.FC<HeaderBadgesProps> = ({
+  isEncrypted,
+  participantCount,
+  effectiveQualityTier,
+  decoderHealth,
+}) => (
+  <div className="voice-view__header-meta">
+    {isEncrypted && (
+      <span className="voice-view__badge voice-view__badge--encrypted">
+        <Lock size={12} />
+        E2EE
+      </span>
+    )}
+    <span className="voice-view__badge">
+      <Users size={12} />
+      {participantCount}
+    </span>
+    <span className="voice-view__badge voice-view__badge--quality">{effectiveQualityTier}</span>
+    {decoderHealth !== 'green' && (
+      <span className={`voice-view__badge voice-view__badge--decoder-${decoderHealth}`}>
+        {decoderHealth === 'yellow' ? 'Decode Warning' : 'Decode Overload'}
+      </span>
+    )}
+  </div>
+);
+
+interface ScreenShareLayoutProps {
+  showUserFrameBar: boolean;
+  userFrameBarHeight: number;
+  onUserFrameResize: (e: React.MouseEvent) => void;
+  userFrameResizeKeyHandler: (e: React.KeyboardEvent) => void;
+  toggleUserFrameBar: () => void;
+  showStreamSection: boolean;
+  streamBarHeight: number;
+  onStreamBarResize: (e: React.MouseEvent) => void;
+  streamBarResizeKeyHandler: (e: React.KeyboardEvent) => void;
+  toggleStreamBar: () => void;
+  showStreamBar: boolean;
+}
+
+/** Three-section layout when screen shares are active (user frames, stage, stream bar). */
+const ScreenShareLayout: React.FC<ScreenShareLayoutProps> = ({
+  showUserFrameBar,
+  userFrameBarHeight,
+  onUserFrameResize,
+  userFrameResizeKeyHandler,
+  toggleUserFrameBar,
+  showStreamSection,
+  streamBarHeight,
+  onStreamBarResize,
+  streamBarResizeKeyHandler,
+  toggleStreamBar,
+  showStreamBar,
+}) => (
+  <>
+    {showUserFrameBar && <UserFrameBar height={userFrameBarHeight} />}
+
+    <div className="voice-view__section-handle">
+      <button
+        type="button"
+        className="voice-view__section-handle-grip"
+        onMouseDown={onUserFrameResize}
+        onKeyDown={userFrameResizeKeyHandler}
+        tabIndex={0}
+        aria-label="Resize user frame bar"
+      />
+      <button
+        className="voice-view__section-toggle"
+        onClick={toggleUserFrameBar}
+        title={showUserFrameBar ? 'Hide user frames' : 'Show user frames'}
+      >
+        {showUserFrameBar ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+      </button>
+    </div>
+
+    <VoiceStage />
+
+    {showStreamSection && (
+      <div className="voice-view__section-handle">
+        <button
+          type="button"
+          className="voice-view__section-handle-grip"
+          onMouseDown={onStreamBarResize}
+          onKeyDown={streamBarResizeKeyHandler}
+          tabIndex={0}
+          aria-label="Resize stream bar"
+        />
+        <button
+          className="voice-view__section-toggle"
+          onClick={toggleStreamBar}
+          title={showStreamBar ? 'Hide stream bar' : 'Show stream bar'}
+        >
+          {showStreamBar ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+        </button>
+      </div>
+    )}
+
+    {showStreamSection && showStreamBar && <StreamBar height={streamBarHeight} />}
+  </>
+);
+
 const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
   const {
     activeChannelId,
@@ -119,6 +285,7 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
       const isVertical = voiceTextChatLayout === 'vertical';
       const startPos = isVertical ? e.clientX : e.clientY;
       const startSize = isVertical ? voiceTextChatWidth : voiceTextChatHeight;
+      const setter = isVertical ? setVoiceTextChatWidth : setVoiceTextChatHeight;
 
       document.body.style.cursor = isVertical ? 'col-resize' : 'row-resize';
       document.body.style.userSelect = 'none';
@@ -126,18 +293,8 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
       const onMouseMove = (moveEvent: MouseEvent) => {
         if (!resizingRef.current || !containerRef.current) return;
         const rect = containerRef.current.getBoundingClientRect();
-
-        if (isVertical) {
-          const maxWidth = rect.width * MAX_CHAT_WIDTH_RATIO;
-          const delta = startPos - moveEvent.clientX;
-          const newWidth = Math.min(maxWidth, Math.max(MIN_CHAT_WIDTH, startSize + delta));
-          setVoiceTextChatWidth(newWidth);
-        } else {
-          const maxHeight = rect.height * MAX_CHAT_RATIO;
-          const delta = startPos - moveEvent.clientY;
-          const newHeight = Math.min(maxHeight, Math.max(MIN_CHAT_HEIGHT, startSize + delta));
-          setVoiceTextChatHeight(newHeight);
-        }
+        const movePos = isVertical ? moveEvent.clientX : moveEvent.clientY;
+        setter(computeChatResizeValue(isVertical, rect, startPos, movePos, startSize));
       };
 
       const onMouseUp = () => {
@@ -240,29 +397,14 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
 
   // Not connected — show join prompt
   if (!isConnected) {
+    const memberCount = channelVoiceMembers[channelId]?.length || 0;
     return (
-      <div className="voice-view">
-        <div className="voice-view__join">
-          <div className="voice-view__join-icon">
-            <Users size={48} />
-          </div>
-          <h2 className="voice-view__join-title">{channelName}</h2>
-          <p className="voice-view__join-subtitle">
-            {(() => {
-              if (isConnecting) return 'Connecting...';
-              const memberCount = channelVoiceMembers[channelId]?.length || 0;
-              if (memberCount > 0) {
-                const plural = memberCount === 1 ? '' : 's';
-                return `${memberCount} user${plural} in this channel`;
-              }
-              return 'No one is in this voice channel yet.';
-            })()}
-          </p>
-          <button className="voice-view__join-btn" onClick={handleJoin} disabled={isConnecting}>
-            {isConnecting ? 'Connecting...' : 'Join Voice'}
-          </button>
-        </div>
-      </div>
+      <JoinPrompt
+        channelName={channelName}
+        isConnecting={isConnecting}
+        memberCount={memberCount}
+        onJoin={handleJoin}
+      />
     );
   }
 
@@ -277,26 +419,12 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
       {/* Header */}
       <div className="voice-view__header">
         <h2 className="voice-view__channel-name">{channelName}</h2>
-        <div className="voice-view__header-meta">
-          {isEncrypted && (
-            <span className="voice-view__badge voice-view__badge--encrypted">
-              <Lock size={12} />
-              E2EE
-            </span>
-          )}
-          <span className="voice-view__badge">
-            <Users size={12} />
-            {participantCount}
-          </span>
-          <span className="voice-view__badge voice-view__badge--quality">
-            {effectiveQualityTier}
-          </span>
-          {decoderHealth !== 'green' && (
-            <span className={`voice-view__badge voice-view__badge--decoder-${decoderHealth}`}>
-              {decoderHealth === 'yellow' ? 'Decode Warning' : 'Decode Overload'}
-            </span>
-          )}
-        </div>
+        <HeaderBadges
+          isEncrypted={isEncrypted}
+          participantCount={participantCount}
+          effectiveQualityTier={effectiveQualityTier}
+          decoderHealth={decoderHealth}
+        />
       </div>
 
       {/* Content wrapper: voice area + optional text chat (switches flex direction) */}
@@ -306,67 +434,28 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
         {/* Voice area — one resizable entity vs text chat */}
         <div className="voice-view__voice-area">
           {hasScreenShares ? (
-            /* Mode B: Three-section layout */
-            <>
-              {/* User Frame Bar (top) */}
-              {showUserFrameBar && <UserFrameBar height={userFrameBarHeight} />}
-
-              {/* Resize handle: UserFrameBar ↔ VoiceStage */}
-              <div className="voice-view__section-handle">
-                <button
-                  type="button"
-                  className="voice-view__section-handle-grip"
-                  onMouseDown={makeSectionResizeStart(
-                    'top',
-                    userFrameBarHeight,
-                    setUserFrameBarHeight
-                  )}
-                  onKeyDown={userFrameResizeKeyHandler}
-                  tabIndex={0}
-                  aria-label="Resize user frame bar"
-                />
-                <button
-                  className="voice-view__section-toggle"
-                  onClick={toggleUserFrameBar}
-                  title={showUserFrameBar ? 'Hide user frames' : 'Show user frames'}
-                >
-                  {showUserFrameBar ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                </button>
-              </div>
-
-              {/* Center Stage (dominant screen share) */}
-              <VoiceStage />
-
-              {/* Resize handle: VoiceStage ↔ StreamBar (focus mode only) */}
-              {showStreamSection && (
-                <div className="voice-view__section-handle">
-                  <button
-                    type="button"
-                    className="voice-view__section-handle-grip"
-                    onMouseDown={makeSectionResizeStart(
-                      'bottom',
-                      streamBarHeight,
-                      setStreamBarHeight
-                    )}
-                    onKeyDown={streamBarResizeKeyHandler}
-                    tabIndex={0}
-                    aria-label="Resize stream bar"
-                  />
-                  <button
-                    className="voice-view__section-toggle"
-                    onClick={toggleStreamBar}
-                    title={showStreamBar ? 'Hide stream bar' : 'Show stream bar'}
-                  >
-                    {showStreamBar ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
-                  </button>
-                </div>
+            <ScreenShareLayout
+              showUserFrameBar={showUserFrameBar}
+              userFrameBarHeight={userFrameBarHeight}
+              onUserFrameResize={makeSectionResizeStart(
+                'top',
+                userFrameBarHeight,
+                setUserFrameBarHeight
               )}
-
-              {/* Stream Bar (bottom — non-dominant shares, focus mode only) */}
-              {showStreamSection && showStreamBar && <StreamBar height={streamBarHeight} />}
-            </>
+              userFrameResizeKeyHandler={userFrameResizeKeyHandler}
+              toggleUserFrameBar={toggleUserFrameBar}
+              showStreamSection={showStreamSection}
+              streamBarHeight={streamBarHeight}
+              onStreamBarResize={makeSectionResizeStart(
+                'bottom',
+                streamBarHeight,
+                setStreamBarHeight
+              )}
+              streamBarResizeKeyHandler={streamBarResizeKeyHandler}
+              toggleStreamBar={toggleStreamBar}
+              showStreamBar={showStreamBar}
+            />
           ) : (
-            /* Mode A: Centered user frames */
             <UserFrameGrid />
           )}
 

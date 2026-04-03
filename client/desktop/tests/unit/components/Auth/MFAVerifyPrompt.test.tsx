@@ -212,6 +212,299 @@ describe('MFAVerifyPrompt', () => {
     });
   });
 
+  // ── WebAuthn Full Success Flow ──────────────────────────────────────────
+
+  it('completes WebAuthn verification and calls onVerify with mfa_token', async () => {
+    // Step 1: begin endpoint returns challenge options
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        publicKey: {
+          challenge: 'dGVzdC1jaGFsbGVuZ2U',
+          rpId: 'localhost',
+          allowCredentials: [],
+        },
+        challengeToken: 'test-challenge-token',
+      }),
+    });
+
+    // Step 2: finish endpoint returns MFA token
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ mfa_token: 'webauthn-mfa-token-123' }),
+    });
+
+    // Mock navigator.credentials.get to return a credential
+    const mockCredential = {
+      id: 'credential-id',
+      rawId: new Uint8Array([1, 2, 3]).buffer,
+      type: 'public-key',
+      response: {
+        authenticatorData: new Uint8Array([10, 20]).buffer,
+        clientDataJSON: new Uint8Array([30, 40]).buffer,
+        signature: new Uint8Array([50, 60]).buffer,
+        userHandle: new Uint8Array([70, 80]).buffer,
+      },
+    };
+
+    Object.defineProperty(navigator, 'credentials', {
+      value: { get: vi.fn().mockResolvedValue(mockCredential), create: vi.fn() },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<MFAVerifyPrompt methods={['webauthn']} onVerify={onVerify} />);
+    fireEvent.click(screen.getByText('Verify with security key'));
+
+    await vi.waitFor(() => {
+      expect(onVerify).toHaveBeenCalledWith('webauthn-mfa-token-123');
+    });
+  });
+
+  it('shows error when navigator.credentials.get returns null', async () => {
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        publicKey: {
+          challenge: 'dGVzdC1jaGFsbGVuZ2U',
+          rpId: 'localhost',
+          allowCredentials: [],
+        },
+      }),
+    });
+
+    Object.defineProperty(navigator, 'credentials', {
+      value: { get: vi.fn().mockResolvedValue(null), create: vi.fn() },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<MFAVerifyPrompt methods={['webauthn']} onVerify={onVerify} />);
+    fireEvent.click(screen.getByText('Verify with security key'));
+
+    await vi.waitFor(() => {
+      expect(screen.getByText('No credential returned')).toBeInTheDocument();
+      expect(screen.getByText('Try again')).toBeInTheDocument();
+    });
+  });
+
+  it('shows "Cancelled or timed out" on NotAllowedError', async () => {
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        publicKey: {
+          challenge: 'dGVzdC1jaGFsbGVuZ2U',
+          rpId: 'localhost',
+          allowCredentials: [],
+        },
+      }),
+    });
+
+    const notAllowed = new DOMException('User denied', 'NotAllowedError');
+    Object.defineProperty(navigator, 'credentials', {
+      value: { get: vi.fn().mockRejectedValue(notAllowed), create: vi.fn() },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<MFAVerifyPrompt methods={['webauthn']} onVerify={onVerify} />);
+    fireEvent.click(screen.getByText('Verify with security key'));
+
+    await vi.waitFor(() => {
+      expect(screen.getByText('Cancelled or timed out. Try again.')).toBeInTheDocument();
+    });
+  });
+
+  it('silently resets to idle on AbortError', async () => {
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        publicKey: {
+          challenge: 'dGVzdC1jaGFsbGVuZ2U',
+          rpId: 'localhost',
+          allowCredentials: [],
+        },
+      }),
+    });
+
+    const abortError = new DOMException('Aborted', 'AbortError');
+    Object.defineProperty(navigator, 'credentials', {
+      value: { get: vi.fn().mockRejectedValue(abortError), create: vi.fn() },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<MFAVerifyPrompt methods={['webauthn']} onVerify={onVerify} />);
+    fireEvent.click(screen.getByText('Verify with security key'));
+
+    await vi.waitFor(() => {
+      // Should go back to idle state (show the verify button again)
+      expect(screen.getByText('Verify with security key')).toBeInTheDocument();
+    });
+    expect(onVerify).not.toHaveBeenCalled();
+  });
+
+  it('shows finish endpoint error message', async () => {
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        publicKey: {
+          challenge: 'dGVzdC1jaGFsbGVuZ2U',
+          rpId: 'localhost',
+          allowCredentials: [],
+        },
+        challengeToken: 'tok',
+      }),
+    });
+    mockApiFetch.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: 'Credential not recognized' }),
+    });
+
+    const mockCredential = {
+      id: 'cred-id',
+      rawId: new Uint8Array([1]).buffer,
+      type: 'public-key',
+      response: {
+        authenticatorData: new Uint8Array([2]).buffer,
+        clientDataJSON: new Uint8Array([3]).buffer,
+        signature: new Uint8Array([4]).buffer,
+        userHandle: null,
+      },
+    };
+    Object.defineProperty(navigator, 'credentials', {
+      value: { get: vi.fn().mockResolvedValue(mockCredential), create: vi.fn() },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<MFAVerifyPrompt methods={['webauthn']} onVerify={onVerify} />);
+    fireEvent.click(screen.getByText('Verify with security key'));
+
+    await vi.waitFor(() => {
+      expect(screen.getByText('Credential not recognized')).toBeInTheDocument();
+    });
+  });
+
+  it('handles allowCredentials with base64url ids', async () => {
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        publicKey: {
+          challenge: 'dGVzdA',
+          rpId: 'localhost',
+          allowCredentials: [{ id: 'AQID', type: 'public-key' }],
+        },
+        challengeToken: 'tok',
+      }),
+    });
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ mfa_token: 'token-with-creds' }),
+    });
+
+    const mockCredential = {
+      id: 'cred',
+      rawId: new Uint8Array([1]).buffer,
+      type: 'public-key',
+      response: {
+        authenticatorData: new Uint8Array([2]).buffer,
+        clientDataJSON: new Uint8Array([3]).buffer,
+        signature: new Uint8Array([4]).buffer,
+        userHandle: null,
+      },
+    };
+    Object.defineProperty(navigator, 'credentials', {
+      value: { get: vi.fn().mockResolvedValue(mockCredential), create: vi.fn() },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<MFAVerifyPrompt methods={['webauthn']} onVerify={onVerify} />);
+    fireEvent.click(screen.getByText('Verify with security key'));
+
+    await vi.waitFor(() => {
+      expect(onVerify).toHaveBeenCalledWith('token-with-creds');
+    });
+  });
+
+  it('shows fallback error for non-Error thrown values', async () => {
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        publicKey: {
+          challenge: 'dGVzdA',
+          rpId: 'localhost',
+          allowCredentials: [],
+        },
+      }),
+    });
+
+    Object.defineProperty(navigator, 'credentials', {
+      value: { get: vi.fn().mockRejectedValue('string-error'), create: vi.fn() },
+      writable: true,
+      configurable: true,
+    });
+
+    render(<MFAVerifyPrompt methods={['webauthn']} onVerify={onVerify} />);
+    fireEvent.click(screen.getByText('Verify with security key'));
+
+    await vi.waitFor(() => {
+      expect(screen.getByText('Verification failed')).toBeInTheDocument();
+    });
+  });
+
+  it('can retry after WebAuthn error', async () => {
+    // First attempt fails
+    mockApiFetch.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({ error: 'Server error' }),
+    });
+
+    render(<MFAVerifyPrompt methods={['webauthn']} onVerify={onVerify} />);
+    fireEvent.click(screen.getByText('Verify with security key'));
+
+    await vi.waitFor(() => {
+      expect(screen.getByText('Try again')).toBeInTheDocument();
+    });
+
+    // Second attempt succeeds
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        publicKey: { challenge: 'dGVzdA', rpId: 'localhost', allowCredentials: [] },
+        challengeToken: 'tok2',
+      }),
+    });
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ mfa_token: 'retry-token' }),
+    });
+
+    const mockCred = {
+      id: 'c',
+      rawId: new Uint8Array([1]).buffer,
+      type: 'public-key',
+      response: {
+        authenticatorData: new Uint8Array([2]).buffer,
+        clientDataJSON: new Uint8Array([3]).buffer,
+        signature: new Uint8Array([4]).buffer,
+        userHandle: null,
+      },
+    };
+    Object.defineProperty(navigator, 'credentials', {
+      value: { get: vi.fn().mockResolvedValue(mockCred), create: vi.fn() },
+      writable: true,
+      configurable: true,
+    });
+
+    fireEvent.click(screen.getByText('Try again'));
+
+    await vi.waitFor(() => {
+      expect(onVerify).toHaveBeenCalledWith('retry-token');
+    });
+  });
+
   // ── Email/SMS Mode ─────────────────────────────────────────────────────
 
   it('shows TOTP-style input for email-sms mode', () => {
@@ -221,18 +514,21 @@ describe('MFAVerifyPrompt', () => {
     expect(inputs.length).toBe(6);
   });
 
-  it('shows totp switch link from email-sms mode when totp is also available', () => {
-    render(<MFAVerifyPrompt methods={['email', 'totp']} onVerify={onVerify} />);
-    // Default should be totp (higher priority than email-sms)
-    // Switch to email-sms would not be shown since totp is default
-    // Actually: webauthn > totp > email-sms > backup
-    // So with ['email', 'totp'], default = totp
-    // From totp mode, we don't see email-sms switch because it would need methods
-    // The component only shows links for available categories other than current
-    // There's no explicit email-sms switch text in the code for totp→email-sms
-    // Default should be totp — verify TOTP inputs are rendered
+  it('shows email-sms switch link from totp mode when email is available', () => {
+    render(<MFAVerifyPrompt methods={['totp', 'email']} onVerify={onVerify} />);
+    // Default is totp (higher priority than email-sms)
+    // Should see email/sms switch link
+    expect(screen.getByText('Use email/SMS code instead')).toBeInTheDocument();
+  });
+
+  it('switches from totp to email-sms mode', () => {
+    render(<MFAVerifyPrompt methods={['totp', 'email']} onVerify={onVerify} />);
+    fireEvent.click(screen.getByText('Use email/SMS code instead'));
+    // email-sms mode also shows TOTP-style 6-digit input
     const inputs = screen.getAllByRole('textbox');
-    expect(inputs.length).toBeGreaterThan(0);
+    expect(inputs.length).toBe(6);
+    // Should now see link to switch back to authenticator app
+    expect(screen.getByText('Use authenticator app instead')).toBeInTheDocument();
   });
 
   // ── Edge Cases ─────────────────────────────────────────────────────────
@@ -251,5 +547,48 @@ describe('MFAVerifyPrompt', () => {
     // Should still show TOTP
     const inputs = screen.getAllByRole('textbox');
     expect(inputs.length).toBe(6);
+  });
+
+  it('shows all three method links when all methods available', () => {
+    render(<MFAVerifyPrompt methods={['totp', 'webauthn', 'email']} onVerify={onVerify} />);
+    // Default is webauthn (highest priority)
+    expect(screen.getByText('Use authenticator app instead')).toBeInTheDocument();
+    expect(screen.getByText('Use a backup code instead')).toBeInTheDocument();
+    expect(screen.getByText('Use email/SMS code instead')).toBeInTheDocument();
+  });
+
+  it('unmount aborts pending WebAuthn ceremony', async () => {
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        publicKey: {
+          challenge: 'dGVzdA',
+          rpId: 'localhost',
+          allowCredentials: [],
+        },
+      }),
+    });
+
+    const mockGet = vi.fn().mockReturnValue(new Promise(() => {}));
+    Object.defineProperty(navigator, 'credentials', {
+      value: { get: mockGet, create: vi.fn() },
+      writable: true,
+      configurable: true,
+    });
+
+    // Spy on AbortController.prototype.abort
+    const abortSpy = vi.spyOn(AbortController.prototype, 'abort');
+
+    const { unmount } = render(<MFAVerifyPrompt methods={['webauthn']} onVerify={onVerify} />);
+    fireEvent.click(screen.getByText('Verify with security key'));
+
+    await vi.waitFor(() => {
+      expect(mockGet).toHaveBeenCalled();
+    });
+
+    unmount();
+    expect(abortSpy).toHaveBeenCalled();
+
+    abortSpy.mockRestore();
   });
 });

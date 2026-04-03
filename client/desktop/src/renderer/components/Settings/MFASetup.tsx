@@ -12,6 +12,92 @@ import {
 } from '../../utils/crypto';
 import { e2eeService } from '../../services/e2eeService';
 
+// ── Extracted helpers (reduce cognitive complexity) ───────────────────
+
+/** Generate a recovery key, wrap E2EE keys with it, and upload to server. */
+async function generateAndStoreRecoveryKey(): Promise<string | null> {
+  const wrappingKey = e2eeService.getWrappingKey();
+  const wrappedPrivateKey = e2eeService.getWrappedPrivateKey();
+
+  if (!wrappingKey || !wrappedPrivateKey) {
+    return null; // No wrapping key available, skip recovery
+  }
+
+  const newRecoveryKey = generateRecoveryKey();
+  const { wrappedKey: recoveryWrappedKey, salt: recoverySalt } = await wrapWithRecoveryKey(
+    wrappedPrivateKey,
+    wrappingKey,
+    newRecoveryKey
+  );
+
+  const uploadBody: Record<string, string> = {
+    recovery_wrapped_private_key: recoveryWrappedKey,
+    recovery_key_salt: recoverySalt,
+  };
+
+  const prefsKeyBase64 = e2eeService.getPreferencesKeyBase64();
+  if (prefsKeyBase64) {
+    const { wrappedKey: recoveryWrappedPrefs, salt: prefsSalt } = await wrapPrefsKeyWithRecoveryKey(
+      prefsKeyBase64,
+      newRecoveryKey
+    );
+    uploadBody.recovery_wrapped_prefs_key = recoveryWrappedPrefs;
+    uploadBody.recovery_prefs_key_salt = prefsSalt;
+  }
+
+  const storeRes = await apiFetch('/api/v1/mfa/recovery-key', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(uploadBody),
+  });
+
+  if (!storeRes.ok) {
+    return null; // Server rejected, caller decides fallback
+  }
+
+  return newRecoveryKey;
+}
+
+/** Classify a WebAuthn error into a user-friendly message. */
+function classifyWebAuthnError(err: unknown): string {
+  if (err instanceof DOMException && err.name === 'NotAllowedError') {
+    return 'Registration cancelled or timed out. Try again.';
+  }
+  return err instanceof Error ? err.message : 'Registration failed';
+}
+
+/** Classify an error message into the appropriate form field. */
+function classifyErrorField(message: string): 'password' | 'mfa' | 'general' {
+  const lower = message.toLowerCase();
+  if (lower.includes('password')) return 'password';
+  if (lower.includes('mfa') || lower.includes('code')) return 'mfa';
+  return 'general';
+}
+
+/** Convert base64url-encoded fields in WebAuthn options to ArrayBuffers. */
+function decodeWebAuthnOptions(
+  options: PublicKeyCredentialCreationOptions & Record<string, unknown>
+): void {
+  options.challenge = base64urlToBuffer(options.challenge as unknown as string);
+  const user = options.user as unknown as Record<string, unknown>;
+  user.id = base64urlToBuffer(user.id as string);
+  if (options.excludeCredentials) {
+    for (const cred of options.excludeCredentials as Array<{ id: unknown }>) {
+      cred.id = base64urlToBuffer(cred.id as string);
+    }
+  }
+}
+
+/** Determine whether a WebAuthn error should return the user to the password step. */
+function shouldResetToPasswordStep(err: unknown, msg: string, currentStep: WebAuthnStep): boolean {
+  const isNotAllowed = err instanceof DOMException && err.name === 'NotAllowedError';
+  const isBeginStepError =
+    currentStep === 'password' ||
+    msg.toLowerCase().includes('password') ||
+    msg.toLowerCase().includes('mfa');
+  return isNotAllowed || isBeginStepError;
+}
+
 type SetupMethod = 'totp' | 'webauthn';
 type TOTPStep = 'password' | 'qr' | 'verify' | 'backup' | 'recovery' | 'done';
 type WebAuthnStep = 'password' | 'registering' | 'done';
@@ -58,10 +144,7 @@ const MFASetup: React.FC<MFASetupProps> = ({
 
   const setFieldError = (message: string) => {
     setError(message);
-    const lower = message.toLowerCase();
-    if (lower.includes('password')) setErrorField('password');
-    else if (lower.includes('mfa') || lower.includes('code')) setErrorField('mfa');
-    else setErrorField('general');
+    setErrorField(classifyErrorField(message));
   };
 
   const handleTOTPSetup = async () => {
@@ -108,77 +191,43 @@ const MFASetup: React.FC<MFASetupProps> = ({
     }
   };
 
+  const confirmTOTPSetup = async () => {
+    const res = await apiFetch('/api/v1/mfa/totp/confirm-setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Confirmation failed');
+    }
+  };
+
   const handleTOTPConfirm = async () => {
     setLoading(true);
     setError('');
     try {
-      const res = await apiFetch('/api/v1/mfa/totp/confirm-setup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Confirmation failed');
-      }
-
-      // Generate recovery key and wrap the private key
-      setRecoveryLoading(true);
-      try {
-        const newRecoveryKey = generateRecoveryKey();
-        const wrappingKey = e2eeService.getWrappingKey();
-        const wrappedPrivateKey = e2eeService.getWrappedPrivateKey();
-
-        if (wrappingKey && wrappedPrivateKey) {
-          const { wrappedKey: recoveryWrappedKey, salt: recoverySalt } = await wrapWithRecoveryKey(
-            wrappedPrivateKey,
-            wrappingKey,
-            newRecoveryKey
-          );
-
-          // Also wrap preferences key if available
-          const prefsKeyBase64 = e2eeService.getPreferencesKeyBase64();
-          let prefsPayload = {};
-          if (prefsKeyBase64) {
-            const { wrappedKey: recoveryWrappedPrefs, salt: prefsSalt } =
-              await wrapPrefsKeyWithRecoveryKey(prefsKeyBase64, newRecoveryKey);
-            prefsPayload = {
-              recovery_wrapped_prefs_key: recoveryWrappedPrefs,
-              recovery_prefs_key_salt: prefsSalt,
-            };
-          }
-
-          // Upload to server
-          const storeRes = await apiFetch('/api/v1/mfa/recovery-key', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              recovery_wrapped_private_key: recoveryWrappedKey,
-              recovery_key_salt: recoverySalt,
-              ...prefsPayload,
-            }),
-          });
-
-          if (!storeRes.ok) {
-            console.warn('Failed to store recovery key, skipping');
-            setTotpStep('done');
-            return;
-          }
-
-          setRecoveryKey(newRecoveryKey);
-          setTotpStep('recovery');
-        } else {
-          // No wrapping key available (shouldn't happen), skip recovery
-          setTotpStep('done');
-        }
-      } catch (recoveryErr) {
-        console.warn('Recovery key generation failed, skipping:', recoveryErr);
-        setTotpStep('done');
-      } finally {
-        setRecoveryLoading(false);
-      }
+      await confirmTOTPSetup();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Confirmation failed');
+      setLoading(false);
+      return;
+    }
+
+    // Generate and store recovery key
+    setRecoveryLoading(true);
+    try {
+      const newRecoveryKey = await generateAndStoreRecoveryKey();
+      if (newRecoveryKey) {
+        setRecoveryKey(newRecoveryKey);
+        setTotpStep('recovery');
+      } else {
+        setTotpStep('done');
+      }
+    } catch (recoveryErr) {
+      console.warn('Recovery key generation failed, skipping:', recoveryErr);
+      setTotpStep('done');
     } finally {
+      setRecoveryLoading(false);
       setLoading(false);
     }
   };
@@ -206,13 +255,7 @@ const MFASetup: React.FC<MFASetupProps> = ({
 
       // Convert base64url fields for WebAuthn API
       const options = beginData.publicKey;
-      options.challenge = base64urlToBuffer(options.challenge);
-      options.user.id = base64urlToBuffer(options.user.id);
-      if (options.excludeCredentials) {
-        for (const cred of options.excludeCredentials) {
-          cred.id = base64urlToBuffer(cred.id);
-        }
-      }
+      decodeWebAuthnOptions(options);
 
       // Show the "waiting for key" step before triggering the browser dialog
       setWebauthnStep('registering');
@@ -257,22 +300,14 @@ const MFASetup: React.FC<MFASetupProps> = ({
       }
       setWebauthnStep('done');
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'NotAllowedError') {
-        setFieldError('Registration cancelled or timed out. Try again.');
+      const msg = classifyWebAuthnError(err);
+      setFieldError(msg);
+
+      // Go back to password step for cancellation or credential errors
+      if (shouldResetToPasswordStep(err, msg, webauthnStep)) {
         setWebauthnStep('password');
-      } else {
-        const msg = err instanceof Error ? err.message : 'Registration failed';
-        setFieldError(msg);
-        // If the error is from the begin step (password/MFA), go back to password step
-        if (
-          webauthnStep === 'password' ||
-          msg.toLowerCase().includes('password') ||
-          msg.toLowerCase().includes('mfa')
-        ) {
-          setWebauthnStep('password');
-        }
-        // Otherwise stay on 'registering' step so the error banner is clearly visible
       }
+      // Otherwise stay on 'registering' step so the error banner is clearly visible
     } finally {
       setLoading(false);
     }

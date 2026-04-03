@@ -585,6 +585,290 @@ describe('PrivacySecuritySection', () => {
 
   // ── Revoke All modal password input ──────────────────────────────────────
 
+  // ── Permission status badge mapping ──────────────────────────────────────
+
+  it('shows Denied badge for denied permission', async () => {
+    vi.mocked(
+      await import('@/renderer/stores/osPermissionStore').then((m) => m.useOsPermissionStore)
+    ).mockImplementation((s) =>
+      s({
+        microphone: 'denied',
+        camera: 'granted',
+        screen: 'granted',
+        secureStorage: 'granted',
+        notifications: 'granted',
+        isLoaded: true,
+        fetchAll: vi.fn().mockResolvedValue(undefined),
+        requestOne: vi.fn().mockResolvedValue('granted'),
+        openSettings: vi.fn().mockResolvedValue(undefined),
+      })
+    );
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Denied')).toBeInTheDocument());
+  });
+
+  it('shows Restricted badge for restricted permission', async () => {
+    vi.mocked(
+      await import('@/renderer/stores/osPermissionStore').then((m) => m.useOsPermissionStore)
+    ).mockImplementation((s) =>
+      s({
+        microphone: 'restricted',
+        camera: 'granted',
+        screen: 'granted',
+        secureStorage: 'granted',
+        notifications: 'granted',
+        isLoaded: true,
+        fetchAll: vi.fn().mockResolvedValue(undefined),
+        requestOne: vi.fn().mockResolvedValue('granted'),
+        openSettings: vi.fn().mockResolvedValue(undefined),
+      })
+    );
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Restricted')).toBeInTheDocument());
+  });
+
+  it('shows Not Requested badge for not-determined permission', async () => {
+    vi.mocked(
+      await import('@/renderer/stores/osPermissionStore').then((m) => m.useOsPermissionStore)
+    ).mockImplementation((s) =>
+      s({
+        microphone: 'not-determined',
+        camera: 'granted',
+        screen: 'granted',
+        secureStorage: 'granted',
+        notifications: 'granted',
+        isLoaded: true,
+        fetchAll: vi.fn().mockResolvedValue(undefined),
+        requestOne: vi.fn().mockResolvedValue('granted'),
+        openSettings: vi.fn().mockResolvedValue(undefined),
+      })
+    );
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Not Requested')).toBeInTheDocument());
+  });
+
+  it('shows Unavailable badge for unavailable permission', async () => {
+    vi.mocked(
+      await import('@/renderer/stores/osPermissionStore').then((m) => m.useOsPermissionStore)
+    ).mockImplementation((s) =>
+      s({
+        microphone: 'unavailable',
+        camera: 'granted',
+        screen: 'granted',
+        secureStorage: 'granted',
+        notifications: 'granted',
+        isLoaded: true,
+        fetchAll: vi.fn().mockResolvedValue(undefined),
+        requestOne: vi.fn().mockResolvedValue('granted'),
+        openSettings: vi.fn().mockResolvedValue(undefined),
+      })
+    );
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Unavailable')).toBeInTheDocument());
+  });
+
+  // ── Past sessions rendering ─────────────────────────────────────────────
+
+  it('renders past sessions when they exist', async () => {
+    mockApiFetch
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          sessions: [],
+          past_sessions: [
+            {
+              id: 'ps1',
+              device_name: 'Old Device',
+              ip_address: '10.0.0.1',
+              user_agent: 'Mozilla/5.0 Firefox/100',
+              created_at: '2026-01-01T00:00:00Z',
+              last_used: '2026-01-15T00:00:00Z',
+              revoked_at: '2026-01-20T00:00:00Z',
+            },
+          ],
+          revocation_mode: 'secure',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ methods: [], backup_codes_remaining: 0 }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ credentials: [] }) });
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Past Sessions')).toBeInTheDocument());
+    expect(screen.getByText('Revoked')).toBeInTheDocument();
+  });
+
+  // ── Session revoke flow (non-current) ───────────────────────────────────
+
+  it('revokes a non-current session successfully', async () => {
+    mockApiFetch
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          sessions: [
+            {
+              id: 's1',
+              device_name: 'Desktop',
+              ip_address: '1.2.3.4',
+              user_agent: 'Mozilla/5.0 Electron',
+              expires_at: '2026-12-01T00:00:00Z',
+              created_at: '2026-01-01T00:00:00Z',
+              last_used: new Date().toISOString(),
+              is_current: true,
+            },
+            {
+              id: 's2',
+              device_name: 'Phone',
+              ip_address: '5.6.7.8',
+              user_agent: 'Mozilla/5.0 Safari/600',
+              expires_at: '2026-12-01T00:00:00Z',
+              created_at: '2026-02-01T00:00:00Z',
+              last_used: new Date().toISOString(),
+              is_current: false,
+            },
+          ],
+          past_sessions: [],
+          revocation_mode: 'simple',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ methods: [], backup_codes_remaining: 0 }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ credentials: [] }) });
+
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Safari Browser')).toBeInTheDocument());
+
+    // Mock the DELETE call for session revoke + subsequent fetchSessions
+    mockApiFetch.mockResolvedValueOnce({ ok: true, json: async () => ({}) }).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ sessions: [], past_sessions: [], revocation_mode: 'simple' }),
+    });
+
+    // Click Revoke on the non-current session (second revoke button)
+    const revokeButtons = screen.getAllByText('Revoke');
+    fireEvent.click(revokeButtons[1]);
+
+    await vi.waitFor(() =>
+      expect(mockApiFetch).toHaveBeenCalledWith(
+        '/api/v1/sessions/s2',
+        expect.objectContaining({ method: 'DELETE' })
+      )
+    );
+  });
+
+  // ── Session revoke 403 password_required flow ───────────────────────────
+
+  it('shows password modal on 403 password_required', async () => {
+    mockApiFetch
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          sessions: [
+            {
+              id: 's2',
+              device_name: 'Phone',
+              ip_address: '5.6.7.8',
+              user_agent: 'Mozilla/5.0 Chrome/100',
+              expires_at: '2026-12-01T00:00:00Z',
+              created_at: '2026-02-01T00:00:00Z',
+              last_used: new Date().toISOString(),
+              is_current: false,
+            },
+          ],
+          past_sessions: [],
+          revocation_mode: 'secure',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ methods: [], backup_codes_remaining: 0 }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ credentials: [] }) });
+
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Chrome Browser')).toBeInTheDocument());
+
+    // Mock 403 response
+    mockApiFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: 'password_required' }),
+    });
+
+    fireEvent.click(screen.getByText('Revoke'));
+
+    await vi.waitFor(() => expect(screen.getByText('Verify Your Identity')).toBeInTheDocument());
+  });
+
+  // ── MFA enabled state ──────────────────────────────────────────────────
+
+  it('shows backup code count and Reset button when MFA active', async () => {
+    mockApiFetch
+      .mockReset()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ sessions: [], past_sessions: [], revocation_mode: 'secure' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          methods: ['totp'],
+          recovery_only_methods: [],
+          recovery_hardened: false,
+          backup_codes_remaining: 7,
+          backup_email: 'test@example.com',
+        }),
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ credentials: [] }) });
+
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('7')).toBeInTheDocument());
+    const resetBtn = screen.getByText(/Reset/);
+    expect(resetBtn).not.toBeDisabled();
+  });
+
+  it('disables Reset Codes button when no MFA is active', async () => {
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Requires MFA')).toBeInTheDocument());
+    const resetBtn = screen.getByText(/Reset/);
+    expect(resetBtn).toBeDisabled();
+  });
+
+  // ── DM privacy level descriptions ──────────────────────────────────────
+
+  it('renders DM description for level 0 (No One)', async () => {
+    vi.mocked(
+      await import('@/renderer/stores/privacyStore').then((m) => m.usePrivacyStore)
+    ).mockImplementation((s) =>
+      s({
+        settings: {
+          messagesFriendsOnly: true,
+          messagesServerMembers: true,
+          dmPrivacyLevel: 0 as const,
+          dmFriendsOfFriends: false,
+          autoAcceptFriendCodes: false,
+          searchableByUsername: false,
+          searchableByEmail: false,
+          searchableByPhone: false,
+          allowEmbeddedContent: false,
+        },
+        fetchPrivacy: mockFetchPrivacy,
+        updatePrivacy: mockUpdatePrivacy,
+      })
+    );
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText(/Hermit mode/)).toBeInTheDocument());
+    expect(screen.getByText(/DMs are disabled/)).toBeInTheDocument();
+  });
+
+  // ── Revoke All modal ───────────────────────────────────────────────────
+
   it('opens Revoke All modal when button clicked', async () => {
     mockApiFetch
       .mockReset()

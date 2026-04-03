@@ -110,6 +110,13 @@ function decodeJwtExp(token: string): number | null {
  * Schedule a proactive token refresh based on the JWT's exp claim.
  * Called after every successful refresh (renderer-initiated or proactive).
  */
+function scheduleProactiveTimer(delayMs: number): void {
+  proactiveTimer = setTimeout(() => {
+    proactiveTimer = null;
+    void doProactiveRefresh();
+  }, delayMs);
+}
+
 function scheduleProactiveRefresh(accessToken: string): void {
   if (proactiveTimer) {
     clearTimeout(proactiveTimer);
@@ -122,31 +129,26 @@ function scheduleProactiveRefresh(accessToken: string): void {
   const nowSeconds = Math.floor(Date.now() / 1000);
   const delaySeconds = exp - nowSeconds - PROACTIVE_BUFFER_SECONDS;
 
-  if (delaySeconds <= 0) {
-    // Token already near expiry — refresh immediately (rate-limited)
-    const sinceLastRefresh = Date.now() - lastProactiveRefreshTimestamp;
-    if (sinceLastRefresh < MIN_PROACTIVE_INTERVAL_MS) {
-      // Recently refreshed — schedule after cooldown to avoid tight loop
-      const retryMs = MIN_PROACTIVE_INTERVAL_MS - sinceLastRefresh;
-      console.log(`[TokenManager] Token near expiry, retrying in ${retryMs}ms (rate-limited)`);
-      proactiveTimer = setTimeout(() => {
-        proactiveTimer = null;
-        void doProactiveRefresh();
-      }, retryMs);
-      return;
-    }
-    console.log('[TokenManager] Token near expiry, refreshing immediately');
-    void doProactiveRefresh();
+  if (delaySeconds > 0) {
+    console.log(
+      `[TokenManager] Proactive refresh scheduled in ${Math.round(delaySeconds / 60)}m ${delaySeconds % 60}s`
+    );
+    scheduleProactiveTimer(delaySeconds * 1000);
     return;
   }
 
-  console.log(
-    `[TokenManager] Proactive refresh scheduled in ${Math.round(delaySeconds / 60)}m ${delaySeconds % 60}s`
-  );
-  proactiveTimer = setTimeout(() => {
-    proactiveTimer = null;
-    void doProactiveRefresh();
-  }, delaySeconds * 1000);
+  // Token already near expiry — refresh immediately (rate-limited)
+  const sinceLastRefresh = Date.now() - lastProactiveRefreshTimestamp;
+  if (sinceLastRefresh < MIN_PROACTIVE_INTERVAL_MS) {
+    // Recently refreshed — schedule after cooldown to avoid tight loop
+    const retryMs = MIN_PROACTIVE_INTERVAL_MS - sinceLastRefresh;
+    console.log(`[TokenManager] Token near expiry, retrying in ${retryMs}ms (rate-limited)`);
+    scheduleProactiveTimer(retryMs);
+    return;
+  }
+
+  console.log('[TokenManager] Token near expiry, refreshing immediately');
+  void doProactiveRefresh();
 }
 
 /**
@@ -164,10 +166,7 @@ async function doProactiveRefresh(): Promise<void> {
   } else if (inMemoryRefreshToken && inMemoryApiBase) {
     // Refresh failed but we still have credentials — schedule a retry
     console.warn(`[TokenManager] Proactive refresh failed (${result.status}), retrying in 10s`);
-    proactiveTimer = setTimeout(() => {
-      proactiveTimer = null;
-      void doProactiveRefresh();
-    }, MIN_PROACTIVE_INTERVAL_MS);
+    scheduleProactiveTimer(MIN_PROACTIVE_INTERVAL_MS);
   }
 }
 
@@ -210,10 +209,7 @@ export function onSystemResume(): void {
   if (sinceLastRefresh < MIN_PROACTIVE_INTERVAL_MS) {
     const retryMs = MIN_PROACTIVE_INTERVAL_MS - sinceLastRefresh;
     console.log(`[TokenManager] System resumed, refreshing in ${retryMs}ms (rate-limited)`);
-    proactiveTimer = setTimeout(() => {
-      proactiveTimer = null;
-      void doProactiveRefresh();
-    }, retryMs);
+    scheduleProactiveTimer(retryMs);
     return;
   }
 
@@ -318,6 +314,57 @@ export function restoreRefreshToken():
   }
 }
 
+async function tryParseMfaChallenge(
+  response: Response,
+  tokenSuffix: string
+): Promise<RefreshResult | null> {
+  if (response.status !== 403) return null;
+
+  try {
+    const errData = (await response.json()) as {
+      error?: string;
+      mfa_challenge_token?: string;
+      methods?: string[];
+      recovery_only_methods?: string[];
+    };
+    if (
+      (errData.error === 'suspicious_session_mfa' || errData.error === 'mfa_upgrade_required') &&
+      errData.mfa_challenge_token
+    ) {
+      console.warn(`[TokenManager] ${errData.error} — MFA required (token …${tokenSuffix})`);
+      return {
+        status: 'mfa_required',
+        mfaChallengeToken: errData.mfa_challenge_token,
+        mfaMethods: errData.methods || [],
+        mfaRecoveryOnlyMethods: errData.recovery_only_methods || [],
+      };
+    }
+  } catch {
+    // Not JSON or no MFA data — fall through to generic failure
+  }
+
+  return null;
+}
+
+function persistRotatedToken(newRefreshToken: string): void {
+  const newSuffix = newRefreshToken.slice(-8);
+
+  if (!inMemoryRememberMe || !canPersist()) {
+    console.log(
+      `[TokenManager] Rotated token NOT persisted (rememberMe=${inMemoryRememberMe}, canPersist=${canPersist()})`
+    );
+    return;
+  }
+
+  try {
+    const encrypted = safeStorage.encryptString(newRefreshToken);
+    fs.writeFileSync(TOKEN_FILE, encrypted);
+    console.log(`[TokenManager] Rotated token persisted to disk ✓ (…${newSuffix})`);
+  } catch (err) {
+    console.error('[TokenManager] Failed to re-encrypt rotated token:', err);
+  }
+}
+
 /**
  * Perform a token refresh via the main process.
  * Deduplicates concurrent calls. Returns only the access token.
@@ -351,34 +398,8 @@ export function performRefresh(): Promise<RefreshResult> {
       });
 
       if (!response.ok) {
-        // Check for suspicious session MFA challenge (403 with challenge token)
-        if (response.status === 403) {
-          try {
-            const errData = (await response.json()) as {
-              error?: string;
-              mfa_challenge_token?: string;
-              methods?: string[];
-              recovery_only_methods?: string[];
-            };
-            if (
-              (errData.error === 'suspicious_session_mfa' ||
-                errData.error === 'mfa_upgrade_required') &&
-              errData.mfa_challenge_token
-            ) {
-              console.warn(
-                `[TokenManager] ${errData.error} — MFA required (token …${tokenSuffix})`
-              );
-              return {
-                status: 'mfa_required',
-                mfaChallengeToken: errData.mfa_challenge_token,
-                mfaMethods: errData.methods || [],
-                mfaRecoveryOnlyMethods: errData.recovery_only_methods || [],
-              };
-            }
-          } catch {
-            // Not JSON or no MFA data — fall through to generic failure
-          }
-        }
+        const mfaResult = await tryParseMfaChallenge(response, tokenSuffix);
+        if (mfaResult) return mfaResult;
         console.warn(
           `[TokenManager] Refresh failed: HTTP ${response.status} (token …${tokenSuffix})`
         );
@@ -400,23 +421,11 @@ export function performRefresh(): Promise<RefreshResult> {
 
       // Rotate: update in-memory refresh token and re-encrypt to disk
       if (newRefreshToken) {
-        const newSuffix = newRefreshToken.slice(-8);
-        console.log(`[TokenManager] Token rotated: …${tokenSuffix} → …${newSuffix}`);
+        console.log(
+          `[TokenManager] Token rotated: …${tokenSuffix} → …${newRefreshToken.slice(-8)}`
+        );
         inMemoryRefreshToken = newRefreshToken;
-
-        if (inMemoryRememberMe && canPersist()) {
-          try {
-            const encrypted = safeStorage.encryptString(newRefreshToken);
-            fs.writeFileSync(TOKEN_FILE, encrypted);
-            console.log(`[TokenManager] Rotated token persisted to disk ✓ (…${newSuffix})`);
-          } catch (err) {
-            console.error('[TokenManager] Failed to re-encrypt rotated token:', err);
-          }
-        } else {
-          console.log(
-            `[TokenManager] Rotated token NOT persisted (rememberMe=${inMemoryRememberMe}, canPersist=${canPersist()})`
-          );
-        }
+        persistRotatedToken(newRefreshToken);
       }
 
       // Schedule next proactive refresh based on new token's exp (#254)

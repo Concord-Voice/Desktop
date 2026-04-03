@@ -8,6 +8,73 @@ import {
   type MFAMethodCategory,
 } from './MFAMethodPicker';
 
+// ── WebAuthn helpers (module-level, outside component) ─────────────────
+
+/** Perform the browser WebAuthn assertion ceremony. */
+async function performWebAuthnAssertion(
+  options: PublicKeyCredentialRequestOptions,
+  signal: AbortSignal
+): Promise<PublicKeyCredential> {
+  const credential = (await navigator.credentials.get({
+    publicKey: options,
+    signal,
+  })) as PublicKeyCredential;
+  if (!credential) throw new Error('No credential returned');
+  return credential;
+}
+
+/** Send the assertion response to the server and return the MFA token. */
+async function finishWebAuthnVerification(
+  credential: PublicKeyCredential,
+  _challengeToken: string
+): Promise<string> {
+  const assertion = credential.response as AuthenticatorAssertionResponse;
+  const finishRes = await apiFetch('/api/v1/mfa/webauthn/verify-inline/finish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: credential.id,
+      rawId: bufferToBase64url(credential.rawId),
+      type: credential.type,
+      response: {
+        authenticatorData: bufferToBase64url(assertion.authenticatorData),
+        clientDataJSON: bufferToBase64url(assertion.clientDataJSON),
+        signature: bufferToBase64url(assertion.signature),
+        userHandle: assertion.userHandle ? bufferToBase64url(assertion.userHandle) : undefined,
+      },
+    }),
+  });
+  const finishData = await finishRes.json();
+  if (!finishRes.ok) throw new Error(finishData.error || 'Verification failed');
+  return finishData.mfa_token;
+}
+
+/** Classify a WebAuthn error into a user-facing message, or null for silent abort. */
+function classifyWebAuthnError(err: unknown): string | null {
+  if (err instanceof DOMException && err.name === 'AbortError') return null;
+  if (err instanceof DOMException && err.name === 'NotAllowedError') {
+    return 'Cancelled or timed out. Try again.';
+  }
+  return err instanceof Error ? err.message : 'Verification failed';
+}
+
+// ── Method-link descriptors ────────────────────────────────────────────
+
+interface MethodLinkDescriptor {
+  mode: MFAMethodCategory;
+  label: string;
+  resetsWebAuthn: boolean;
+}
+
+const METHOD_LINK_DEFS: MethodLinkDescriptor[] = [
+  { mode: 'webauthn', label: 'Use a security key instead', resetsWebAuthn: true },
+  { mode: 'totp', label: 'Use authenticator app instead', resetsWebAuthn: false },
+  { mode: 'backup', label: 'Use a backup code instead', resetsWebAuthn: false },
+  { mode: 'email-sms', label: 'Use email/SMS code instead', resetsWebAuthn: false },
+];
+
+// ── Component ──────────────────────────────────────────────────────────
+
 interface MFAVerifyPromptProps {
   /** Raw method strings from the server (e.g. ['totp', 'webauthn', 'email', 'sms']) */
   methods: string[];
@@ -62,67 +129,46 @@ const MFAVerifyPrompt: React.FC<MFAVerifyPromptProps> = ({
     };
   }, []);
 
-  // Build switch links for other available methods
-  const otherMethodLinks = useCallback(
-    (currentMode: MFAMethodCategory) => {
-      const links: React.ReactNode[] = [];
-      if (currentMode !== 'webauthn' && available.includes('webauthn')) {
-        links.push(
-          <button
-            key="webauthn"
-            type="button"
-            className="totp-backup-link"
-            onClick={() => {
-              setMode('webauthn');
-              setWebauthnStatus('idle');
-              setWebauthnError('');
-            }}
-            disabled={disabled}
-          >
-            Use a security key instead
-          </button>
-        );
+  // Build switch links for other available methods (data-driven, no branching)
+  const otherMethodLinks = useMemo(() => {
+    return METHOD_LINK_DEFS.filter((def) => {
+      if (def.mode === mode) return false;
+      if (def.mode === 'backup') return showBackupSwitch;
+      return available.includes(def.mode);
+    });
+  }, [available, showBackupSwitch, mode]);
+
+  const handleSwitchMode = useCallback(
+    (def: MethodLinkDescriptor) => {
+      if (def.resetsWebAuthn) {
+        setWebauthnStatus('idle');
+        setWebauthnError('');
+      } else {
+        abortRef.current?.abort();
       }
-      if (currentMode !== 'totp' && available.includes('totp')) {
-        links.push(
-          <button
-            key="totp"
-            type="button"
-            className="totp-backup-link"
-            onClick={() => {
-              abortRef.current?.abort();
-              setMode('totp');
-            }}
-            disabled={disabled}
-          >
-            Use authenticator app instead
-          </button>
-        );
-      }
-      if (showBackupSwitch && currentMode !== 'backup') {
-        links.push(
-          <button
-            key="backup"
-            type="button"
-            className="totp-backup-link"
-            onClick={() => {
-              abortRef.current?.abort();
-              setMode('backup');
-            }}
-            disabled={disabled}
-          >
-            Use a backup code instead
-          </button>
-        );
-      }
-      return links;
+      setMode(def.mode);
     },
-    [available, showBackupSwitch, disabled]
+    [setMode, setWebauthnStatus, setWebauthnError]
+  );
+
+  const renderMethodLinks = useCallback(
+    () =>
+      otherMethodLinks.map((def) => (
+        <button
+          key={def.mode}
+          type="button"
+          className="totp-backup-link"
+          onClick={() => handleSwitchMode(def)}
+          disabled={disabled}
+        >
+          {def.label}
+        </button>
+      )),
+    [otherMethodLinks, handleSwitchMode, disabled]
   );
 
   // WebAuthn inline-verify flow
   const handleWebAuthnVerify = useCallback(async () => {
-    // Abort any previous pending ceremony
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -147,46 +193,18 @@ const MFAVerifyPrompt: React.FC<MFAVerifyPromptProps> = ({
       }
 
       // Step 2: Browser WebAuthn ceremony
-      const credential = (await navigator.credentials.get({
-        publicKey: options,
-        signal: controller.signal,
-      })) as PublicKeyCredential;
-      if (!credential) throw new Error('No credential returned');
+      const credential = await performWebAuthnAssertion(options, controller.signal);
 
-      const assertion = credential.response as AuthenticatorAssertionResponse;
-
-      // Step 3: Send assertion to server for verification
-      const finishRes = await apiFetch('/api/v1/mfa/webauthn/verify-inline/finish', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: credential.id,
-          rawId: bufferToBase64url(credential.rawId),
-          type: credential.type,
-          response: {
-            authenticatorData: bufferToBase64url(assertion.authenticatorData),
-            clientDataJSON: bufferToBase64url(assertion.clientDataJSON),
-            signature: bufferToBase64url(assertion.signature),
-            userHandle: assertion.userHandle ? bufferToBase64url(assertion.userHandle) : undefined,
-          },
-        }),
-      });
-      const finishData = await finishRes.json();
-      if (!finishRes.ok) throw new Error(finishData.error || 'Verification failed');
-
-      // Pass the inline verification token as the MFA code
-      onVerify(finishData.mfa_token);
+      // Step 3: Send assertion to server and get MFA token
+      const mfaToken = await finishWebAuthnVerification(credential, beginData.challengeToken);
+      onVerify(mfaToken);
     } catch (err) {
-      // If aborted (unmount or new ceremony), silently reset
-      if (err instanceof DOMException && err.name === 'AbortError') {
+      const message = classifyWebAuthnError(err);
+      if (message === null) {
         setWebauthnStatus('idle');
         return;
       }
-      if (err instanceof DOMException && err.name === 'NotAllowedError') {
-        setWebauthnError('Cancelled or timed out. Try again.');
-      } else {
-        setWebauthnError(err instanceof Error ? err.message : 'Verification failed');
-      }
+      setWebauthnError(message);
       setWebauthnStatus('error');
     }
   }, [onVerify]);
@@ -198,14 +216,14 @@ const MFAVerifyPrompt: React.FC<MFAVerifyPromptProps> = ({
       {mode === 'totp' && (
         <>
           <TOTPInput onSubmit={onVerify} disabled={disabled} error={error} autoFocus />
-          {otherMethodLinks('totp')}
+          {renderMethodLinks()}
         </>
       )}
 
       {mode === 'backup' && !excludeBackupCodes && (
         <>
           <BackupCodeInput onSubmit={onVerify} disabled={disabled} error={error} />
-          {otherMethodLinks('backup')}
+          {renderMethodLinks()}
         </>
       )}
 
@@ -260,14 +278,14 @@ const MFAVerifyPrompt: React.FC<MFAVerifyPromptProps> = ({
               </button>
             </>
           )}
-          {otherMethodLinks('webauthn')}
+          {renderMethodLinks()}
         </div>
       )}
 
       {mode === 'email-sms' && (
         <>
           <TOTPInput onSubmit={onVerify} disabled={disabled} error={error} autoFocus />
-          {otherMethodLinks('email-sms')}
+          {renderMethodLinks()}
         </>
       )}
     </div>
@@ -282,7 +300,7 @@ function base64urlToBuffer(base64url: string): ArrayBuffer {
   const binary = atob(base64 + pad);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
+    bytes[i] = binary.codePointAt(i) ?? 0;
   }
   return bytes.buffer;
 }

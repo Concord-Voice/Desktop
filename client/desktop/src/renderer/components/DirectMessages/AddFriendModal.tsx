@@ -72,6 +72,16 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
     }
   }, [isOpen, fetchFriendCodes, privacyAutoAccept]);
 
+  // Check whether a code is actually a server invite (not a friend code)
+  const checkIfServerInvite = useCallback(async (code: string): Promise<boolean> => {
+    try {
+      const invRes = await apiFetch(`/api/v1/invites/${code}`);
+      return invRes.ok;
+    } catch {
+      return false;
+    }
+  }, []);
+
   // Preview friend code on input
   const handleCodeInput = useCallback(
     async (value: string) => {
@@ -81,29 +91,24 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
       setClaimStatus('');
 
       const trimmed = value.trim();
-      if (trimmed.length === 8) {
-        try {
-          const preview = await previewFriendCode(trimmed);
-          setCodePreview(preview);
-          if (!preview.valid) setCodeError('This code is expired or has been used');
-        } catch (err) {
-          // Check if this might be a server invite code instead
-          try {
-            const invRes = await apiFetch(`/api/v1/invites/${trimmed}`);
-            if (invRes.ok) {
-              setCodeError(
-                'This looks like a server invite code, not a friend code. Use the Join Server button to use it.'
-              );
-            } else {
-              setCodeError(err instanceof Error ? err.message : 'Invalid code');
-            }
-          } catch {
-            setCodeError(err instanceof Error ? err.message : 'Invalid code');
-          }
+      if (trimmed.length !== 8) return;
+
+      try {
+        const preview = await previewFriendCode(trimmed);
+        setCodePreview(preview);
+        if (!preview.valid) setCodeError('This code is expired or has been used');
+      } catch (err) {
+        const isServerInvite = await checkIfServerInvite(trimmed);
+        if (isServerInvite) {
+          setCodeError(
+            'This looks like a server invite code, not a friend code. Use the Join Server button to use it.'
+          );
+        } else {
+          setCodeError(err instanceof Error ? err.message : 'Invalid code');
         }
       }
     },
-    [previewFriendCode]
+    [previewFriendCode, checkIfServerInvite]
   );
 
   // Claim friend code
