@@ -6,7 +6,7 @@
     "outDir": "./dist/preload",
     "rootDir": "./src/preload",
     "lib": ["ES2022"],
-    "ignoreDeprecations": "5.0"
+    "ignoreDeprecations": "6.0"
   },
   "include": ["src/preload/**/*"],
   "exclude": ["node_modules", "dist", "src/renderer", "src/main"]
