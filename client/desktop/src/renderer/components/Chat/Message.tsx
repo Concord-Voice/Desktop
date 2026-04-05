@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Lock } from 'lucide-react';
-import { MessageWithStatus } from '../../types/chat';
+import { MessageWithStatus, type ChatContextType } from '../../types/chat';
 import { useMemberStore } from '../../stores/memberStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
@@ -21,9 +21,14 @@ import {
 import AttachmentDisplay from './AttachmentDisplay';
 import './Message.css';
 
+// Stable empty references to avoid infinite re-renders when DM context skips server data
+const EMPTY_MEMBERS: never[] = [];
+const EMPTY_ROLES: Record<string, never[]> = {};
+
 export interface MessageProps {
   message: MessageWithStatus;
   currentUserId: string;
+  chatContext?: ChatContextType;
   onEdit?: (messageId: string, newContent: string) => void;
   onDelete?: (messageId: string) => void;
   onReply?: (message: MessageWithStatus) => void;
@@ -379,6 +384,7 @@ function MessageTextContent({
 const Message: React.FC<MessageProps> = ({
   message,
   currentUserId,
+  chatContext = 'channel',
   onEdit,
   onDelete,
   onReply,
@@ -388,6 +394,7 @@ const Message: React.FC<MessageProps> = ({
   showAvatar = true,
   shiftHeld = false,
 }) => {
+  const isDM = chatContext === 'dm';
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -404,15 +411,17 @@ const Message: React.FC<MessageProps> = ({
   const isOwnMessage = message.user_id === currentUserId;
   const canModify = isOwnMessage && isServerMessage(message);
 
-  const members = useMemberStore((state) => state.members);
-  const allServerRoles = usePermissionStore((state) => state.serverRoles);
+  // Gate inside selectors so DM messages return stable empty refs and don't
+  // re-render on unrelated server member/role store updates.
+  const members = useMemberStore((state) => (isDM ? EMPTY_MEMBERS : state.members));
+  const allServerRoles = usePermissionStore((state) => (isDM ? EMPTY_ROLES : state.serverRoles));
 
   const mentionLookup = useMemo(
     () => buildMentionLookup(members, allServerRoles),
     [members, allServerRoles]
   );
 
-  const senderMember = members.find((m) => m.user_id === message.user_id);
+  const senderMember = isDM ? undefined : members.find((m) => m.user_id === message.user_id);
   const senderColors = resolveUserAccentColors(senderMember?.color_scheme);
 
   const topDisplayRole = getTopDisplayRole(senderMember);
@@ -458,6 +467,7 @@ const Message: React.FC<MessageProps> = ({
         currentUserId={currentUserId}
         showAvatar={showAvatar}
         senderColors={senderColors}
+        chatContext={chatContext}
       />
       <div className="message-content-wrapper">
         {showReplyPreview && (

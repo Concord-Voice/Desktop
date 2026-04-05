@@ -1,3 +1,9 @@
+// --- Chat Context ---
+
+/** Identifies the rendering context so display logic can enforce isolation boundaries.
+ *  Server roles apply in 'channel'/'voice'; DM-specific styling (#324) applies in 'dm'. */
+export type ChatContextType = 'channel' | 'dm' | 'voice';
+
 // --- Attachment Types (for #178) ---
 
 export interface AttachmentSummary {

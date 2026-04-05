@@ -6,7 +6,7 @@ import React, {
   useImperativeHandle,
   forwardRef,
 } from 'react';
-import { MessageWithStatus } from '../../types/chat';
+import { MessageWithStatus, type ChatContextType } from '../../types/chat';
 import Message from './Message';
 import './MessageList.css';
 
@@ -14,6 +14,7 @@ export interface MessageListProps {
   messages: MessageWithStatus[];
   currentUserId: string;
   channelName?: string;
+  chatContext?: ChatContextType;
   isLoading?: boolean;
   hasMore?: boolean;
   onLoadMore?: () => void;
@@ -40,6 +41,7 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
       messages,
       currentUserId,
       channelName,
+      chatContext = 'channel',
       isLoading = false,
       hasMore = false,
       onLoadMore,
@@ -279,6 +281,7 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
                   <Message
                     message={message}
                     currentUserId={currentUserId}
+                    chatContext={chatContext}
                     onEdit={onEditMessage}
                     onDelete={onDeleteMessage}
                     onReply={onReply}

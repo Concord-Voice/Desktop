@@ -1,16 +1,19 @@
 import React, { useState, useCallback } from 'react';
-import { MessageWithStatus } from '../../types/chat';
+import { MessageWithStatus, type ChatContextType } from '../../types/chat';
 import { useMemberStore, type ServerMember } from '../../stores/memberStore';
 import { useFriendStore } from '../../stores/friendStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import MemberProfileCard, { type ProfileCardMember } from '../Members/MemberProfileCard';
 import UserProfileModal from '../Members/UserProfileModal';
 
+const EMPTY_MEMBERS: never[] = [];
+
 export interface MessageAvatarProps {
   message: MessageWithStatus;
   currentUserId: string;
   showAvatar: boolean;
   senderColors?: { gradient: string } | null;
+  chatContext?: ChatContextType;
 }
 
 function getInitials(username: string) {
@@ -31,6 +34,7 @@ const MessageAvatar: React.FC<MessageAvatarProps> = ({
   currentUserId,
   showAvatar,
   senderColors,
+  chatContext = 'channel',
 }) => {
   const [selectedMember, setSelectedMember] = useState<{
     member: ProfileCardMember;
@@ -39,7 +43,8 @@ const MessageAvatar: React.FC<MessageAvatarProps> = ({
   } | null>(null);
   const [fullProfileMember, setFullProfileMember] = useState<ServerMember | null>(null);
 
-  const members = useMemberStore((state) => state.members);
+  const isDM = chatContext === 'dm';
+  const members = useMemberStore((state) => (isDM ? EMPTY_MEMBERS : state.members));
   const userStatuses = useMemberStore((state) => state.userStatuses);
   const lastSeenByUser = useMemberStore((state) => state.lastSeenByUser);
 
@@ -53,11 +58,13 @@ const MessageAvatar: React.FC<MessageAvatarProps> = ({
 
       const position = { x: e.clientX, y: e.clientY };
 
-      // Try server member store first (has full data: role, joined_at, bio, etc.)
-      const serverMember = members.find((m) => m.user_id === message.user_id);
-      if (serverMember) {
-        setSelectedMember({ member: serverMember, serverMember, position });
-        return;
+      // In server contexts, try server member store first (has full data: role, joined_at, bio, etc.)
+      if (chatContext !== 'dm') {
+        const serverMember = members.find((m) => m.user_id === message.user_id);
+        if (serverMember) {
+          setSelectedMember({ member: serverMember, serverMember, position });
+          return;
+        }
       }
 
       // Fall back to friend store (has colorScheme, avatarUrl, displayName)
@@ -116,6 +123,7 @@ const MessageAvatar: React.FC<MessageAvatarProps> = ({
       message.avatar_url,
       currentUserId,
       selectedMember,
+      chatContext,
     ]
   );
 

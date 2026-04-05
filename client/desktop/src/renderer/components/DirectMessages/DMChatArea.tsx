@@ -335,6 +335,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
             key={selectedThreadId}
             messages={messages}
             currentUserId={currentUserId}
+            chatContext="dm"
             channelName={threadName}
             isLoading={isLoading}
             hasMore={hasMore}

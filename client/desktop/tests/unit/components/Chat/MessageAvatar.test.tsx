@@ -161,6 +161,41 @@ describe('MessageAvatar', () => {
     expect(avatarButton).toBeInTheDocument();
   });
 
+  it('skips server member lookup in DM context and uses friend store', () => {
+    // Add member to server store — should be ignored in DM context
+    useMemberStore.getState().addMember(mockMember);
+    useFriendStore.setState({
+      friends: [
+        {
+          odId: 'od-1',
+          odStatus: 'accepted',
+          odTimestamp: '2025-01-01T00:00:00Z',
+          userId: 'user-1',
+          username: 'testuser',
+          displayName: 'Test User',
+          avatarUrl: null,
+          colorScheme: undefined,
+        },
+      ],
+    });
+
+    render(
+      <MessageAvatar
+        message={mockMessage}
+        currentUserId="user-2"
+        showAvatar={true}
+        senderColors={null}
+        chatContext="dm"
+      />
+    );
+
+    const avatarButton = screen.getByLabelText('View user profile');
+    fireEvent.click(avatarButton);
+
+    // Profile card should open (using friend store data, not server member data)
+    expect(document.querySelector('.member-profile-card')).toBeInTheDocument();
+  });
+
   it('uses username initial when no display_name', () => {
     const messageNoDisplay = {
       ...mockMessage,

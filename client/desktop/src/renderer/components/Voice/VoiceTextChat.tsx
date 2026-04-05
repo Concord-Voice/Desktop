@@ -194,6 +194,7 @@ const VoiceTextChat: React.FC = () => {
           key={channelId}
           messages={messages}
           currentUserId={currentUserId}
+          chatContext="voice"
           channelName={linkedChannel.name}
           isLoading={isLoading}
           hasMore={hasMore}

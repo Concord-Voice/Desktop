@@ -621,6 +621,83 @@ describe('Message', () => {
     expect(username.style.color).toBe('rgb(255, 0, 0)');
   });
 
+  it('does not show role emoji in DM context', () => {
+    useMemberStore.setState({
+      members: [
+        {
+          ...mockMember,
+          roles: [
+            {
+              role_id: 'role-1',
+              role_name: 'Admin',
+              role_color: '#ff0000',
+              position: 1,
+              display_separately: true,
+              role_emoji: '🛡️',
+            },
+          ],
+        },
+      ],
+    });
+    render(
+      <Message message={mockMessage} currentUserId="user-2" chatContext="dm" showAvatar={true} />
+    );
+    expect(document.querySelector('.message-role-emoji')).not.toBeInTheDocument();
+  });
+
+  it('does not apply role color in DM context', () => {
+    useMemberStore.setState({
+      members: [
+        {
+          ...mockMember,
+          roles: [
+            {
+              role_id: 'role-1',
+              role_name: 'Admin',
+              role_color: '#ff0000',
+              position: 1,
+              display_separately: true,
+              role_emoji: null,
+            },
+          ],
+        },
+      ],
+    });
+    render(
+      <Message message={mockMessage} currentUserId="user-2" chatContext="dm" showAvatar={true} />
+    );
+    const username = document.querySelector('.message-username') as HTMLElement;
+    expect(username.style.color).toBe('');
+  });
+
+  it('shows role styling in voice context (server context)', () => {
+    useMemberStore.setState({
+      members: [
+        {
+          ...mockMember,
+          roles: [
+            {
+              role_id: 'role-1',
+              role_name: 'Mod',
+              role_color: '#00ff00',
+              position: 1,
+              display_separately: true,
+              role_emoji: '⚔️',
+            },
+          ],
+        },
+      ],
+    });
+    render(
+      <Message message={mockMessage} currentUserId="user-2" chatContext="voice" showAvatar={true} />
+    );
+    const roleEmoji = document.querySelector('.message-role-emoji');
+    expect(roleEmoji).toBeInTheDocument();
+    expect(roleEmoji?.textContent).toBe('⚔️');
+    const username = document.querySelector('.message-username') as HTMLElement;
+    expect(username.style.color).toBe('rgb(0, 255, 0)');
+  });
+
   // ── Options menu outside click ──
 
   it('closes options menu on outside click', async () => {
