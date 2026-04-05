@@ -43,6 +43,8 @@ export interface VoiceParticipant {
   avatarUrl?: string;
   isMuted: boolean;
   isDeafened: boolean;
+  serverMuted: boolean;
+  serverDeafened: boolean;
   isVideoOn: boolean;
   isScreenSharing: boolean;
   isSpeaking: boolean;
@@ -51,6 +53,11 @@ export interface VoiceParticipant {
   screenStream?: MediaStream;
   screenAudioStream?: MediaStream;
 }
+
+// ---------------------------------------------------------------------------
+// DM caller role (admin can enforce mute/deafen in group DMs)
+// ---------------------------------------------------------------------------
+export type DMCallerRole = 'admin' | 'member' | null;
 
 // ---------------------------------------------------------------------------
 // Audio quality tiers (must match server-side AUDIO_QUALITY_TIERS)
@@ -167,6 +174,8 @@ export interface ChannelVoiceMember {
   displayName?: string;
   avatarUrl?: string;
   isMuted: boolean;
+  serverMuted: boolean;
+  serverDeafened: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,6 +277,9 @@ interface VoiceState {
   // DM voice call state
   isDMCall: boolean;
   dmConversationId: string | null;
+  isGroupDM: boolean;
+  callerDMRole: DMCallerRole;
+  effectivePermissions: bigint;
 
   // Solo bandwidth saving (applies to both DM calls and server voice)
   isSoloBandwidthSaving: boolean;
@@ -314,6 +326,11 @@ interface VoiceState {
   setChannelVoiceMembers: (channelId: string, members: ChannelVoiceMember[]) => void;
   addChannelVoiceMember: (channelId: string, member: ChannelVoiceMember) => void;
   removeChannelVoiceMember: (channelId: string, userId: string) => void;
+  updateChannelVoiceMember: (
+    channelId: string,
+    userId: string,
+    update: Partial<ChannelVoiceMember>
+  ) => void;
   clearAllChannelVoiceMembers: () => void;
 
   // Voice text chat
@@ -361,6 +378,8 @@ interface VoiceState {
 
   // DM voice call
   setDMCall: (isDM: boolean, conversationId?: string | null) => void;
+  setGroupDMInfo: (isGroupDM: boolean, callerRole: DMCallerRole) => void;
+  setEffectivePermissions: (permissions: bigint) => void;
 
   // Solo bandwidth saving
   setSoloBandwidthSaving: (saving: boolean) => void;
@@ -458,6 +477,9 @@ const initialState = {
   persistentTextChatHeight: 250,
   isDMCall: false,
   dmConversationId: null as string | null,
+  isGroupDM: false,
+  callerDMRole: null as DMCallerRole,
+  effectivePermissions: 0n,
   isSoloBandwidthSaving: false,
   soloBandwidthNotification: false,
   codecFloor: null as string[] | null,
@@ -596,6 +618,17 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
         channelVoiceMembers: { ...state.channelVoiceMembers, [channelId]: filtered },
       };
     }),
+  updateChannelVoiceMember: (channelId, userId, update) =>
+    set((state) => {
+      const existing = state.channelVoiceMembers[channelId];
+      if (!existing) return state;
+      return {
+        channelVoiceMembers: {
+          ...state.channelVoiceMembers,
+          [channelId]: existing.map((m) => (m.userId === userId ? { ...m, ...update } : m)),
+        },
+      };
+    }),
   clearAllChannelVoiceMembers: () => set({ channelVoiceMembers: {} }),
 
   // Voice text chat
@@ -729,6 +762,9 @@ export const useVoiceStore = create<VoiceState>()((set) => ({
       isDMCall,
       dmConversationId: isDMCall ? (conversationId ?? null) : null,
     }),
+
+  setGroupDMInfo: (isGroupDM, callerDMRole) => set({ isGroupDM, callerDMRole }),
+  setEffectivePermissions: (effectivePermissions) => set({ effectivePermissions }),
 
   setSoloBandwidthSaving: (isSoloBandwidthSaving) => set({ isSoloBandwidthSaving }),
   setSoloBandwidthNotification: (soloBandwidthNotification) => set({ soloBandwidthNotification }),

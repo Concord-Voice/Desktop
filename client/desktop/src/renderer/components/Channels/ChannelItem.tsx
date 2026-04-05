@@ -1,5 +1,15 @@
 import React from 'react';
-import { Hash, Volume2, Pin, Lock, Mic, MicOff, MessageSquare, PenLine } from 'lucide-react';
+import {
+  Hash,
+  Volume2,
+  Pin,
+  Lock,
+  Mic,
+  MicOff,
+  HeadphoneOff,
+  MessageSquare,
+  PenLine,
+} from 'lucide-react';
 import type { Channel } from '../../types/chat';
 
 export interface VoiceMemberInfo {
@@ -8,6 +18,9 @@ export interface VoiceMemberInfo {
   username: string;
   isMuted: boolean;
   isSpeaking?: boolean;
+  serverMuted: boolean;
+  serverDeafened: boolean;
+  isDeafened: boolean;
 }
 
 interface ChannelItemProps {
@@ -34,6 +47,32 @@ interface ChannelItemProps {
   onDragEnd: () => void;
   onLinkedTextClick: (voiceChannel: Channel, linkedText: Channel) => void;
   itemRef: (id: string, el: HTMLElement | null) => void;
+}
+
+function VoiceStatusIcon({ p }: Readonly<{ p: VoiceMemberInfo }>) {
+  if (p.serverDeafened) {
+    return (
+      <span className="voice-channel-participant__icon voice-channel-participant__icon--server-enforced">
+        <HeadphoneOff size={12} />
+        <Lock size={6} className="voice-channel-participant__lock" />
+      </span>
+    );
+  }
+  if (p.serverMuted) {
+    return (
+      <span className="voice-channel-participant__icon voice-channel-participant__icon--server-enforced">
+        <MicOff size={12} />
+        <Lock size={6} className="voice-channel-participant__lock" />
+      </span>
+    );
+  }
+  if (p.isDeafened) {
+    return <HeadphoneOff size={12} className="voice-channel-participant__icon--muted" />;
+  }
+  if (p.isMuted) {
+    return <MicOff size={12} className="voice-channel-participant__icon--muted" />;
+  }
+  return <Mic size={12} />;
 }
 
 function VoiceSubItems({
@@ -91,7 +130,7 @@ function VoiceSubItems({
               key={p.userId}
               className={`voice-channel-participant ${p.isSpeaking ? 'speaking' : ''}`}
             >
-              {p.isMuted ? <MicOff size={12} /> : <Mic size={12} />}
+              <VoiceStatusIcon p={p} />
               <span className="voice-channel-participant-name">{p.displayName || p.username}</span>
             </div>
           ))}

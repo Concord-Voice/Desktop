@@ -161,6 +161,22 @@
   color: var(--danger);
 }
 
+.participant-tile__status--deafened {
+  color: var(--danger);
+}
+
+.participant-tile__status--server-muted,
+.participant-tile__status--server-deafened {
+  color: var(--warning);
+  position: relative;
+}
+
+.participant-tile__lock-badge {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+}
+
 .participant-tile__status--screen {
   color: var(--accent-primary);
 }

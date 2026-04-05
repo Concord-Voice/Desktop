@@ -434,6 +434,113 @@ describe('ChannelList', () => {
     expect(screen.getByText('Other User')).toBeInTheDocument();
   });
 
+  it('maps enforcement flags from real-time participants to voice members', () => {
+    useServerStore.setState({ activeServerId: 'server-1' });
+    useChannelStore.setState({
+      channels: [mockVoiceChannel],
+      isLoading: false,
+      error: null,
+    });
+    useVoiceStore.setState({
+      activeChannelId: 'voice-1',
+      connectionState: 'connected',
+      participants: {
+        'user-1': {
+          peerId: 'peer-1',
+          userId: 'user-1',
+          username: 'enforceduser',
+          displayName: 'Enforced User',
+          isMuted: false,
+          isDeafened: true,
+          isSpeaking: false,
+          serverMuted: true,
+          serverDeafened: true,
+        },
+      },
+    });
+    renderChannelList();
+    expect(screen.getByText('Enforced User')).toBeInTheDocument();
+  });
+
+  it('maps enforcement flags from cached channel voice members', () => {
+    useServerStore.setState({ activeServerId: 'server-1' });
+    useChannelStore.setState({
+      channels: [mockVoiceChannel],
+      isLoading: false,
+      error: null,
+    });
+    useVoiceStore.setState({
+      activeChannelId: null,
+      connectionState: 'idle',
+      channelVoiceMembers: {
+        'voice-1': [
+          {
+            userId: 'user-3',
+            username: 'cacheduser',
+            displayName: 'Cached User',
+            isMuted: true,
+            serverMuted: true,
+            serverDeafened: false,
+          },
+        ],
+      },
+    });
+    renderChannelList();
+    expect(screen.getByText('Cached User')).toBeInTheDocument();
+  });
+
+  it('defaults enforcement flags to false when missing from real-time participants', () => {
+    useServerStore.setState({ activeServerId: 'server-1' });
+    useChannelStore.setState({
+      channels: [mockVoiceChannel],
+      isLoading: false,
+      error: null,
+    });
+    useVoiceStore.setState({
+      activeChannelId: 'voice-1',
+      connectionState: 'connected',
+      participants: {
+        'user-1': {
+          peerId: 'peer-1',
+          userId: 'user-1',
+          username: 'plainuser',
+          displayName: 'Plain User',
+          isMuted: false,
+          isSpeaking: false,
+          // serverMuted, serverDeafened, isDeafened intentionally omitted
+        },
+      },
+    });
+    renderChannelList();
+    expect(screen.getByText('Plain User')).toBeInTheDocument();
+  });
+
+  it('defaults enforcement flags to false when missing from cached voice members', () => {
+    useServerStore.setState({ activeServerId: 'server-1' });
+    useChannelStore.setState({
+      channels: [mockVoiceChannel],
+      isLoading: false,
+      error: null,
+    });
+    useVoiceStore.setState({
+      activeChannelId: null,
+      connectionState: 'idle',
+      channelVoiceMembers: {
+        'voice-1': [
+          {
+            userId: 'user-4',
+            username: 'minimaluser',
+            displayName: 'Minimal User',
+            isMuted: false,
+            // serverMuted, serverDeafened intentionally omitted
+          },
+        ],
+      },
+    });
+    renderChannelList();
+    expect(screen.getByText('Minimal User')).toBeInTheDocument();
+  });
+
   // ── Channel with Emoji ──
 
   it('renders channel custom emoji when set', () => {

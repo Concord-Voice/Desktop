@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { ServerMember, useMemberStore } from '../../stores/memberStore';
 import { usePermissionStore } from '../../stores/permissionStore';
-import { Permissions } from '../../utils/permissions';
+import { useVoiceStore } from '../../stores/voiceStore';
+import { Permissions, MUTE_MEMBERS, DEAFEN_MEMBERS } from '../../utils/permissions';
 import { apiFetch } from '../../services/apiClient';
 import ContextMenu from '../ui/ContextMenu';
+import { EnforcementMenuItems } from '../ui/EnforcementMenuItems';
 
 // Available assignable roles — extend this array as custom roles are added
 const AVAILABLE_ROLES: { value: string; label: string }[] = [
@@ -40,6 +42,16 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
 
   // Can ban if user has BAN permission and target is not the owner
   const canBan = hasServerPerm(serverId, Permissions.BAN) && !targetIsOwner;
+
+  // Voice enforcement permissions
+  const canMute = hasServerPerm(serverId, MUTE_MEMBERS) && !targetIsOwner;
+  const canDeafen = hasServerPerm(serverId, DEAFEN_MEMBERS) && !targetIsOwner;
+
+  // Check if target is currently in a voice channel on this server
+  const channelVoiceMembers = useVoiceStore((s) => s.channelVoiceMembers);
+  const targetIsInVoice = Object.values(channelVoiceMembers).some((members) =>
+    members.some((m) => m.userId === member.user_id)
+  );
 
   const handleRoleSelect = async (newRole: string) => {
     if (newRole === member.role || isUpdatingRole) return;
@@ -188,6 +200,25 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
             )}
           </div>
         </>
+      )}
+
+      {/* Voice enforcement — mute/deafen controls */}
+      {(canMute || canDeafen) && (
+        <EnforcementMenuItems
+          targetUserId={member.user_id}
+          targetServerMuted={member.server_muted || false}
+          targetServerDeafened={member.server_deafened || false}
+          targetIsMuted={false}
+          targetIsInVoice={targetIsInVoice}
+          context={{
+            type: 'server',
+            serverId,
+            canMute,
+            canDeafen,
+            canModerate: !targetIsOwner,
+          }}
+          onClose={onClose}
+        />
       )}
 
       {/* Ban — visible to owner/admin, disabled (no backend yet) */}

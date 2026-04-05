@@ -598,6 +598,23 @@
   white-space: nowrap;
 }
 
+.voice-channel-participant__icon--server-enforced {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  color: var(--warning);
+}
+
+.voice-channel-participant__lock {
+  position: absolute;
+  bottom: -1px;
+  right: -3px;
+}
+
+.voice-channel-participant__icon--muted {
+  color: var(--danger);
+}
+
 /* ── Drag-and-drop ── */
 
 .channel-item[draggable='true'],

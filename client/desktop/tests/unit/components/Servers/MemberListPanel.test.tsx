@@ -192,4 +192,60 @@ describe('MemberListPanel', () => {
       expect(row.querySelector('.member-cell--roles')).toBeInTheDocument();
     });
   });
+
+  // ── Server enforcement badges ──
+
+  it('shows Server Deafened badge when member is server_deafened', () => {
+    const members: ServerMember[] = [
+      {
+        ...mockMembers[0],
+        server_deafened: true,
+        server_muted: false,
+      },
+    ];
+    render(<MemberListPanel {...defaultProps} members={members} />);
+    const badge = screen.getByTitle('Server Deafened');
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveClass('member-enforcement-badge');
+  });
+
+  it('shows Server Muted badge when member is server_muted but not server_deafened', () => {
+    const members: ServerMember[] = [
+      {
+        ...mockMembers[0],
+        server_muted: true,
+        server_deafened: false,
+      },
+    ];
+    render(<MemberListPanel {...defaultProps} members={members} />);
+    const badge = screen.getByTitle('Server Muted');
+    expect(badge).toBeInTheDocument();
+    expect(badge).toHaveClass('member-enforcement-badge');
+  });
+
+  it('shows no enforcement badge when both server_muted and server_deafened are false', () => {
+    const members: ServerMember[] = [
+      {
+        ...mockMembers[0],
+        server_muted: false,
+        server_deafened: false,
+      },
+    ];
+    render(<MemberListPanel {...defaultProps} members={members} />);
+    expect(screen.queryByTitle('Server Muted')).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Server Deafened')).not.toBeInTheDocument();
+  });
+
+  it('shows only deafened badge when both server_muted and server_deafened are true', () => {
+    const members: ServerMember[] = [
+      {
+        ...mockMembers[0],
+        server_muted: true,
+        server_deafened: true,
+      },
+    ];
+    render(<MemberListPanel {...defaultProps} members={members} />);
+    expect(screen.getByTitle('Server Deafened')).toBeInTheDocument();
+    expect(screen.queryByTitle('Server Muted')).not.toBeInTheDocument();
+  });
 });

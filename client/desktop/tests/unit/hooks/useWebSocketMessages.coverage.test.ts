@@ -986,6 +986,249 @@ describe('useWebSocketMessages — coverage boost', () => {
     });
   });
 
+  describe('voice_state_update — server enforcement actions', () => {
+    it('updates sidebar voice member on server_muted', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      useVoiceStore.getState().setActiveChannel('ch-voice');
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        serverMuted: false,
+        serverDeafened: false,
+      });
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'server_muted', user_id: 'user-2' },
+        });
+      });
+
+      const members = useVoiceStore.getState().channelVoiceMembers['ch-voice'];
+      const alice = members?.find((m) => m.userId === 'user-2');
+      expect(alice?.serverMuted).toBe(true);
+
+      // Also updates active-channel participant
+      expect(useVoiceStore.getState().participants['user-2'].serverMuted).toBe(true);
+    });
+
+    it('updates sidebar voice member on server_unmuted', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        serverMuted: true,
+        serverDeafened: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'server_unmuted', user_id: 'user-2' },
+        });
+      });
+
+      const members = useVoiceStore.getState().channelVoiceMembers['ch-voice'];
+      const alice = members?.find((m) => m.userId === 'user-2');
+      expect(alice?.serverMuted).toBe(false);
+    });
+
+    it('updates sidebar voice member on server_deafened (sets both serverDeafened and serverMuted)', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      useVoiceStore.getState().setActiveChannel('ch-voice');
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        serverMuted: false,
+        serverDeafened: false,
+      });
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'server_deafened', user_id: 'user-2' },
+        });
+      });
+
+      const members = useVoiceStore.getState().channelVoiceMembers['ch-voice'];
+      const alice = members?.find((m) => m.userId === 'user-2');
+      expect(alice?.serverDeafened).toBe(true);
+      expect(alice?.serverMuted).toBe(true);
+    });
+
+    it('updates sidebar voice member on server_undeafened (clears both)', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        serverMuted: true,
+        serverDeafened: true,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'server_undeafened', user_id: 'user-2' },
+        });
+      });
+
+      const members = useVoiceStore.getState().channelVoiceMembers['ch-voice'];
+      const alice = members?.find((m) => m.userId === 'user-2');
+      expect(alice?.serverDeafened).toBe(false);
+      expect(alice?.serverMuted).toBe(false);
+    });
+
+    it('shows toast log when local user is server_muted', () => {
+      const { handler } = setupHandler('voice_state_update');
+      const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-1',
+        username: 'testuser',
+        isMuted: false,
+        serverMuted: false,
+        serverDeafened: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'server_muted', user_id: 'user-1' },
+        });
+      });
+
+      expect(debugSpy).toHaveBeenCalledWith('[Voice]', 'You have been server-muted by a moderator');
+      debugSpy.mockRestore();
+    });
+
+    it('shows toast log when local user is server_unmuted', () => {
+      const { handler } = setupHandler('voice_state_update');
+      const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-1',
+        username: 'testuser',
+        isMuted: false,
+        serverMuted: true,
+        serverDeafened: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'server_unmuted', user_id: 'user-1' },
+        });
+      });
+
+      expect(debugSpy).toHaveBeenCalledWith('[Voice]', 'A moderator has removed your server mute');
+      debugSpy.mockRestore();
+    });
+
+    it('shows toast log when local user is server_deafened', () => {
+      const { handler } = setupHandler('voice_state_update');
+      const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-1',
+        username: 'testuser',
+        isMuted: false,
+        serverMuted: false,
+        serverDeafened: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'server_deafened', user_id: 'user-1' },
+        });
+      });
+
+      expect(debugSpy).toHaveBeenCalledWith(
+        '[Voice]',
+        'You have been server-deafened by a moderator'
+      );
+      debugSpy.mockRestore();
+    });
+
+    it('shows toast log when local user is server_undeafened', () => {
+      const { handler } = setupHandler('voice_state_update');
+      const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-1',
+        username: 'testuser',
+        isMuted: false,
+        serverMuted: true,
+        serverDeafened: true,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'server_undeafened', user_id: 'user-1' },
+        });
+      });
+
+      expect(debugSpy).toHaveBeenCalledWith(
+        '[Voice]',
+        'A moderator has removed your server deafen'
+      );
+      debugSpy.mockRestore();
+    });
+
+    it('does not show toast for non-local users on enforcement actions', () => {
+      const { handler } = setupHandler('voice_state_update');
+      const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        serverMuted: false,
+        serverDeafened: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'server_muted', user_id: 'user-2' },
+        });
+      });
+
+      expect(debugSpy).not.toHaveBeenCalledWith(
+        '[Voice]',
+        expect.stringContaining('You have been')
+      );
+      debugSpy.mockRestore();
+    });
+  });
+
   describe('unread_notify — edge cases', () => {
     it('marks server unread for non-active server', () => {
       useServerStore.getState().setActiveServer('server-1');
@@ -1639,6 +1882,754 @@ describe('useWebSocketMessages — coverage boost', () => {
       expect(mockIncrementBadge).toHaveBeenCalled();
 
       mockShouldNotify.mockReturnValue(false);
+    });
+  });
+
+  // ── Enforcement coverage gaps ─────────────────────────────────────────
+
+  describe('voice_state_update — joined action defaults', () => {
+    it('sets serverMuted: false and serverDeafened: false on addChannelVoiceMember', () => {
+      const { handler } = setupHandler('voice_state_update');
+      const addSpy = vi.spyOn(useVoiceStore.getState(), 'addChannelVoiceMember');
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: {
+            channel_id: 'ch-voice',
+            action: 'joined',
+            user_id: 'user-2',
+            username: 'alice',
+            display_name: 'Alice',
+            server_id: 'server-1',
+          },
+        });
+      });
+
+      expect(addSpy).toHaveBeenCalledWith('ch-voice', {
+        userId: 'user-2',
+        username: 'alice',
+        displayName: 'Alice',
+        isMuted: false,
+        serverMuted: false,
+        serverDeafened: false,
+      });
+    });
+
+    it('increments server voice count on joined', () => {
+      const { handler } = setupHandler('voice_state_update');
+      const incSpy = vi.spyOn(useVoiceStore.getState(), 'incrementServerVoiceCount');
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: {
+            channel_id: 'ch-voice',
+            action: 'joined',
+            user_id: 'user-2',
+            username: 'alice',
+            server_id: 'server-1',
+          },
+        });
+      });
+
+      expect(incSpy).toHaveBeenCalledWith('server-1');
+    });
+
+    it('decrements server voice count on left', () => {
+      const { handler } = setupHandler('voice_state_update');
+      const decSpy = vi.spyOn(useVoiceStore.getState(), 'decrementServerVoiceCount');
+
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: {
+            channel_id: 'ch-voice',
+            action: 'left',
+            user_id: 'user-2',
+            server_id: 'server-1',
+          },
+        });
+      });
+
+      expect(decSpy).toHaveBeenCalledWith('server-1');
+    });
+
+    it('removes voice member from channel on left', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: {
+            channel_id: 'ch-voice',
+            action: 'left',
+            user_id: 'user-2',
+            server_id: 'server-1',
+          },
+        });
+      });
+
+      const members = useVoiceStore.getState().channelVoiceMembers['ch-voice'];
+      expect(members?.find((m) => m.userId === 'user-2')).toBeUndefined();
+    });
+  });
+
+  describe('voice_state_update — room_empty action', () => {
+    it('clears all voice members for the channel', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+      });
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-3',
+        username: 'bob',
+        isMuted: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'room_empty' },
+        });
+      });
+
+      const members = useVoiceStore.getState().channelVoiceMembers['ch-voice'];
+      expect(members).toEqual([]);
+    });
+  });
+
+  describe('voice_state_update — enforcement without userId', () => {
+    it('does not crash when enforcement action has no userId', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'server_muted' },
+        });
+      });
+
+      // No crash — the `&& userId` guard prevents sidebar/toast updates
+    });
+
+    it('does not update sidebar members when userId is undefined', () => {
+      const { handler } = setupHandler('voice_state_update');
+      const updateSpy = vi.spyOn(useVoiceStore.getState(), 'updateChannelVoiceMember');
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'server_deafened' },
+        });
+      });
+
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('voice_state_update — non-enforcement actions skip enforcement block', () => {
+    it('does not call updateChannelVoiceMember for muted action', () => {
+      const { handler } = setupHandler('voice_state_update');
+      const updateSpy = vi.spyOn(useVoiceStore.getState(), 'updateChannelVoiceMember');
+
+      useVoiceStore.getState().setActiveChannel('ch-voice');
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+      });
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'muted', user_id: 'user-2' },
+        });
+      });
+
+      // muted is NOT an enforcement action, so updateChannelVoiceMember should NOT be called
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('does not call updateChannelVoiceMember for video_on action', () => {
+      const { handler } = setupHandler('voice_state_update');
+      const updateSpy = vi.spyOn(useVoiceStore.getState(), 'updateChannelVoiceMember');
+
+      useVoiceStore.getState().setActiveChannel('ch-voice');
+      useVoiceStore.getState().addChannelVoiceMember('ch-voice', {
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+      });
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-voice', action: 'video_on', user_id: 'user-2' },
+        });
+      });
+
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('voice_state_update — scheduleVoiceRefetch', () => {
+    it('calls apiFetch after debounce on joined action', async () => {
+      vi.useFakeTimers();
+      const { apiFetch: mockApiFetch } = await import('@/renderer/services/apiClient');
+
+      const { handler } = setupHandler('voice_state_update');
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: {
+            channel_id: 'ch-refetch',
+            action: 'joined',
+            user_id: 'user-2',
+            username: 'alice',
+          },
+        });
+      });
+
+      // Before debounce fires
+      expect(mockApiFetch).not.toHaveBeenCalledWith(
+        '/api/v1/channels/ch-refetch/voice/participants'
+      );
+
+      // Advance past the 2000ms debounce
+      await act(async () => {
+        vi.advanceTimersByTime(2100);
+      });
+
+      expect(mockApiFetch).toHaveBeenCalledWith('/api/v1/channels/ch-refetch/voice/participants');
+
+      vi.useRealTimers();
+    });
+
+    it('calls apiFetch after debounce on left action', async () => {
+      vi.useFakeTimers();
+      const { apiFetch: mockApiFetch } = await import('@/renderer/services/apiClient');
+
+      const { handler } = setupHandler('voice_state_update');
+
+      useVoiceStore.getState().addChannelVoiceMember('ch-refetch', {
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: {
+            channel_id: 'ch-refetch',
+            action: 'left',
+            user_id: 'user-2',
+          },
+        });
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(2100);
+      });
+
+      expect(mockApiFetch).toHaveBeenCalledWith('/api/v1/channels/ch-refetch/voice/participants');
+
+      vi.useRealTimers();
+    });
+
+    it('maps server_muted and server_deafened fields from API response', async () => {
+      vi.useFakeTimers();
+      const { apiFetch: mockApiFetch } = await import('@/renderer/services/apiClient');
+      (mockApiFetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            participants: [
+              {
+                user_id: 'user-2',
+                username: 'alice',
+                display_name: 'Alice',
+                avatar_url: 'https://example.com/a.png',
+                is_muted: true,
+                server_muted: true,
+                server_deafened: false,
+              },
+            ],
+          }),
+      });
+
+      const { handler } = setupHandler('voice_state_update');
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: {
+            channel_id: 'ch-refetch-map',
+            action: 'joined',
+            user_id: 'user-2',
+            username: 'alice',
+          },
+        });
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(2100);
+      });
+
+      // Wait for the async response to be processed
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      const members = useVoiceStore.getState().channelVoiceMembers['ch-refetch-map'];
+      expect(members).toBeDefined();
+      if (members && members.length > 0) {
+        expect(members[0]).toEqual(
+          expect.objectContaining({
+            userId: 'user-2',
+            username: 'alice',
+            displayName: 'Alice',
+            avatarUrl: 'https://example.com/a.png',
+            isMuted: true,
+            serverMuted: true,
+            serverDeafened: false,
+          })
+        );
+      }
+
+      vi.useRealTimers();
+    });
+
+    it('coalesces rapid bursts into a single API call', async () => {
+      vi.useFakeTimers();
+      const { apiFetch: mockApiFetch } = await import('@/renderer/services/apiClient');
+      (mockApiFetch as ReturnType<typeof vi.fn>).mockClear();
+
+      const { handler } = setupHandler('voice_state_update');
+
+      // Simulate 3 rapid joins
+      for (const uid of ['user-3', 'user-4', 'user-5']) {
+        act(() => {
+          handler({
+            type: 'voice_state_update',
+            data: {
+              channel_id: 'ch-burst',
+              action: 'joined',
+              user_id: uid,
+              username: uid,
+            },
+          });
+        });
+      }
+
+      await act(async () => {
+        vi.advanceTimersByTime(2100);
+      });
+
+      // Only one API call despite 3 events
+      const calls = (mockApiFetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c: string[]) => c[0] === '/api/v1/channels/ch-burst/voice/participants'
+      );
+      expect(calls).toHaveLength(1);
+
+      vi.useRealTimers();
+    });
+
+    it('handles API fetch failure gracefully', async () => {
+      vi.useFakeTimers();
+      const { apiFetch: mockApiFetch } = await import('@/renderer/services/apiClient');
+      (mockApiFetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('Network error'));
+
+      const { handler } = setupHandler('voice_state_update');
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: {
+            channel_id: 'ch-fail',
+            action: 'joined',
+            user_id: 'user-2',
+            username: 'alice',
+          },
+        });
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(2100);
+      });
+
+      // Should not crash — error is swallowed
+      expect(mockApiFetch).toHaveBeenCalledWith('/api/v1/channels/ch-fail/voice/participants');
+
+      vi.useRealTimers();
+    });
+
+    it('handles non-ok API response gracefully', async () => {
+      vi.useFakeTimers();
+      const { apiFetch: mockApiFetch } = await import('@/renderer/services/apiClient');
+      (mockApiFetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+      });
+
+      const { handler } = setupHandler('voice_state_update');
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: {
+            channel_id: 'ch-500',
+            action: 'left',
+            user_id: 'user-2',
+          },
+        });
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(2100);
+      });
+
+      // Should not crash — early return on !res.ok
+      const members = useVoiceStore.getState().channelVoiceMembers['ch-500'];
+      // Members should not be overwritten on failure
+      expect(members).toBeUndefined();
+
+      vi.useRealTimers();
+    });
+
+    it('does not schedule refetch for non-joined/left actions', async () => {
+      vi.useFakeTimers();
+      const { apiFetch: mockApiFetch } = await import('@/renderer/services/apiClient');
+      (mockApiFetch as ReturnType<typeof vi.fn>).mockClear();
+
+      const { handler } = setupHandler('voice_state_update');
+
+      useVoiceStore.getState().setActiveChannel('ch-no-refetch');
+      useVoiceStore.getState().addChannelVoiceMember('ch-no-refetch', {
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        serverMuted: false,
+        serverDeafened: false,
+      });
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-no-refetch', action: 'server_muted', user_id: 'user-2' },
+        });
+      });
+
+      await act(async () => {
+        vi.advanceTimersByTime(2100);
+      });
+
+      const calls = (mockApiFetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c: string[]) => c[0] === '/api/v1/channels/ch-no-refetch/voice/participants'
+      );
+      expect(calls).toHaveLength(0);
+
+      vi.useRealTimers();
+    });
+  });
+
+  describe('dm_voice_state_update — enforcement actions', () => {
+    it('updates participant on server_muted in DM call', () => {
+      const { handler } = setupHandler('dm_voice_state_update');
+
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'dm_voice_state_update',
+          data: {
+            conversation_id: 'conv-1',
+            action: 'server_muted',
+            user_id: 'user-2',
+          },
+        });
+      });
+
+      expect(useVoiceStore.getState().participants['user-2'].serverMuted).toBe(true);
+    });
+
+    it('updates participant on server_unmuted in DM call', () => {
+      const { handler } = setupHandler('dm_voice_state_update');
+
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+        serverMuted: true,
+      });
+
+      act(() => {
+        handler({
+          type: 'dm_voice_state_update',
+          data: {
+            conversation_id: 'conv-1',
+            action: 'server_unmuted',
+            user_id: 'user-2',
+          },
+        });
+      });
+
+      expect(useVoiceStore.getState().participants['user-2'].serverMuted).toBe(false);
+    });
+
+    it('updates participant on server_deafened in DM call (sets both flags)', () => {
+      const { handler } = setupHandler('dm_voice_state_update');
+
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'dm_voice_state_update',
+          data: {
+            conversation_id: 'conv-1',
+            action: 'server_deafened',
+            user_id: 'user-2',
+          },
+        });
+      });
+
+      expect(useVoiceStore.getState().participants['user-2'].serverDeafened).toBe(true);
+      expect(useVoiceStore.getState().participants['user-2'].serverMuted).toBe(true);
+    });
+
+    it('updates participant on server_undeafened in DM call (clears both flags)', () => {
+      const { handler } = setupHandler('dm_voice_state_update');
+
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+        serverMuted: true,
+        serverDeafened: true,
+      });
+
+      act(() => {
+        handler({
+          type: 'dm_voice_state_update',
+          data: {
+            conversation_id: 'conv-1',
+            action: 'server_undeafened',
+            user_id: 'user-2',
+          },
+        });
+      });
+
+      expect(useVoiceStore.getState().participants['user-2'].serverDeafened).toBe(false);
+      expect(useVoiceStore.getState().participants['user-2'].serverMuted).toBe(false);
+    });
+
+    it('shows toast log when local user is enforcement-targeted in DM call', () => {
+      const { handler } = setupHandler('dm_voice_state_update');
+      const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+
+      act(() => {
+        handler({
+          type: 'dm_voice_state_update',
+          data: {
+            conversation_id: 'conv-1',
+            action: 'server_muted',
+            user_id: 'user-1',
+          },
+        });
+      });
+
+      expect(debugSpy).toHaveBeenCalledWith('[Voice]', 'You have been server-muted by a moderator');
+      debugSpy.mockRestore();
+    });
+
+    it('shows toast for server_deafened on local user in DM call', () => {
+      const { handler } = setupHandler('dm_voice_state_update');
+      const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+
+      act(() => {
+        handler({
+          type: 'dm_voice_state_update',
+          data: {
+            conversation_id: 'conv-1',
+            action: 'server_deafened',
+            user_id: 'user-1',
+          },
+        });
+      });
+
+      expect(debugSpy).toHaveBeenCalledWith(
+        '[Voice]',
+        'You have been server-deafened by a moderator'
+      );
+      debugSpy.mockRestore();
+    });
+
+    it('does not show toast for non-local user enforcement in DM call', () => {
+      const { handler } = setupHandler('dm_voice_state_update');
+      const debugSpy = vi.spyOn(console, 'debug').mockImplementation(() => {});
+
+      act(() => {
+        handler({
+          type: 'dm_voice_state_update',
+          data: {
+            conversation_id: 'conv-1',
+            action: 'server_muted',
+            user_id: 'user-2',
+          },
+        });
+      });
+
+      expect(debugSpy).not.toHaveBeenCalledWith(
+        '[Voice]',
+        expect.stringContaining('You have been')
+      );
+      debugSpy.mockRestore();
+    });
+
+    it('does not crash when enforcement action has no userId in DM', () => {
+      const { handler } = setupHandler('dm_voice_state_update');
+
+      act(() => {
+        handler({
+          type: 'dm_voice_state_update',
+          data: {
+            conversation_id: 'conv-1',
+            action: 'server_muted',
+          },
+        });
+      });
+
+      // No crash — the `&& userId` guard prevents updates
+    });
+
+    it('ignores non-enforcement actions in DM voice handler', () => {
+      const { handler } = setupHandler('dm_voice_state_update');
+      const updateSpy = vi.spyOn(useVoiceStore.getState(), 'updateParticipant');
+
+      act(() => {
+        handler({
+          type: 'dm_voice_state_update',
+          data: {
+            conversation_id: 'conv-1',
+            action: 'muted',
+            user_id: 'user-2',
+          },
+        });
+      });
+
+      // 'muted' is not in the enforcement list, so updateParticipant is not called
+      // (the DM handler only processes enforcement actions)
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('voice_state_update — joined without channel_id guard', () => {
+    it('ignores voice_state_update without channel_id', () => {
+      const { handler } = setupHandler('voice_state_update');
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { action: 'joined', user_id: 'user-2', username: 'alice' },
+        });
+      });
+
+      // No crash — early return when channelId is missing
+    });
+  });
+
+  describe('voice_state_update — participant update skipped for non-active channel', () => {
+    it('does not call updateParticipant when action is for a different channel', () => {
+      const { handler } = setupHandler('voice_state_update');
+      const updateSpy = vi.spyOn(useVoiceStore.getState(), 'updateParticipant');
+
+      useVoiceStore.getState().setActiveChannel('ch-active');
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      act(() => {
+        handler({
+          type: 'voice_state_update',
+          data: { channel_id: 'ch-OTHER', action: 'muted', user_id: 'user-2' },
+        });
+      });
+
+      expect(updateSpy).not.toHaveBeenCalled();
     });
   });
 });

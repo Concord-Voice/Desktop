@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent, act } from '../../../test-utils';
 import { resetAllStores } from '../../../helpers/store-helpers';
 import { useVoiceStore } from '@/renderer/stores/voiceStore';
+import { useUserStore } from '@/renderer/stores/userStore';
 import { useChannelStore } from '@/renderer/stores/channelStore';
 import { vi } from 'vitest';
 
@@ -357,6 +358,55 @@ describe('VoiceControls', () => {
     setVoiceState();
     render(<VoiceControls />);
     expect(screen.getByTitle('Leave Voice').className).toContain('voice-controls__btn--danger');
+  });
+
+  // ── Server-enforced mute/deafen — locked + disabled ────────────────────
+
+  it('renders mute button as disabled when server-muted', () => {
+    setVoiceState({
+      isMuted: true,
+      participants: {
+        'user-1': { serverMuted: true, serverDeafened: false },
+      },
+    });
+    // Set local user so the component can look up the local participant
+    useVoiceStore.setState({ activeChannelId: VOICE_CHANNEL_ID, connectionState: 'connected' });
+    useUserStore.setState({ user: { id: 'user-1' } });
+
+    render(<VoiceControls />);
+    const muteBtn = screen.getByTitle('Server-muted by a moderator');
+    expect(muteBtn).toBeDisabled();
+    expect(muteBtn.className).toContain('voice-controls__btn--locked');
+  });
+
+  it('renders deafen button as disabled when server-deafened', () => {
+    setVoiceState({
+      isDeafened: true,
+      participants: {
+        'user-1': { serverMuted: false, serverDeafened: true },
+      },
+    });
+    useUserStore.setState({ user: { id: 'user-1' } });
+
+    render(<VoiceControls />);
+    const deafenBtn = screen.getByTitle('Server-deafened by a moderator');
+    expect(deafenBtn).toBeDisabled();
+    expect(deafenBtn.className).toContain('voice-controls__btn--locked');
+  });
+
+  it('renders mute button as enabled when not server-muted', () => {
+    setVoiceState({
+      isMuted: false,
+      participants: {
+        'user-1': { serverMuted: false, serverDeafened: false },
+      },
+    });
+    useUserStore.setState({ user: { id: 'user-1' } });
+
+    render(<VoiceControls />);
+    const muteBtn = screen.getByTitle('Mute');
+    expect(muteBtn).not.toBeDisabled();
+    expect(muteBtn.className).not.toContain('voice-controls__btn--locked');
   });
 
   // ── Screen share with Electron picker ───────────────────────────────────

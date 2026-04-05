@@ -217,6 +217,21 @@ describe('memberStore', () => {
     });
   });
 
+  describe('server enforcement fields', () => {
+    it('should include server_muted and server_deafened in member data', () => {
+      useMemberStore.getState().addMember({
+        ...mockMember,
+        user_id: 'u-enforced',
+        username: 'enforced-user',
+        server_muted: true,
+        server_deafened: false,
+      });
+      const member = useMemberStore.getState().members.find((m) => m.user_id === 'u-enforced');
+      expect(member?.server_muted).toBe(true);
+      expect(member?.server_deafened).toBe(false);
+    });
+  });
+
   describe('clearMembers', () => {
     it('clears members list but preserves presence', () => {
       useMemberStore.getState().addMember(mockMember);

@@ -20,6 +20,7 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
+import { useUserStore } from '../../stores/userStore';
 import { useChannelStore } from '../../stores/channelStore';
 import { useOsPermissionStore } from '../../stores/osPermissionStore';
 // voiceService is loaded on-demand via dynamic import() — see voiceService.ts
@@ -42,6 +43,20 @@ async function checkPermissionOrWarn(
     return true;
   }
   return false;
+}
+
+/** Compute mute button tooltip based on enforcement state. */
+function muteTitle(serverMuted: boolean, selfMuted: boolean): string {
+  if (serverMuted) return 'Server-muted by a moderator';
+  if (selfMuted) return 'Unmute';
+  return 'Mute';
+}
+
+/** Compute deafen button tooltip based on enforcement state. */
+function deafenTitle(serverDeafened: boolean, selfDeafened: boolean): string {
+  if (serverDeafened) return 'Server-deafened by a moderator';
+  if (selfDeafened) return 'Undeafen';
+  return 'Deafen';
 }
 
 /** Lazily import and return the voice service. */
@@ -172,6 +187,7 @@ interface MediaButtonProps {
   inactiveIcon: React.ReactNode;
   activeLabel: string;
   inactiveLabel: string;
+  locked?: boolean;
 }
 
 /** Generic media toggle button — mic, deafen, video, screen share. */
@@ -183,16 +199,23 @@ const MediaButton: React.FC<MediaButtonProps> = ({
   inactiveIcon,
   activeLabel,
   inactiveLabel,
-}) => (
-  <button
-    className={`voice-controls__btn ${isActive ? 'voice-controls__btn--active' : ''}`}
-    onClick={onClick}
-    title={title}
-  >
-    {isActive ? activeIcon : inactiveIcon}
-    <span className="voice-controls__btn-label">{isActive ? activeLabel : inactiveLabel}</span>
-  </button>
-);
+  locked = false,
+}) => {
+  const classes = [
+    'voice-controls__btn',
+    isActive ? 'voice-controls__btn--active' : '',
+    locked ? 'voice-controls__btn--locked' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  return (
+    <button className={classes} onClick={onClick} title={title} disabled={locked}>
+      {isActive ? activeIcon : inactiveIcon}
+      <span className="voice-controls__btn-label">{isActive ? activeLabel : inactiveLabel}</span>
+    </button>
+  );
+};
 
 interface VoiceControlsProps {
   /** 'voiceView' = inside VoiceView, 'persistent' = navigated-away bar */
@@ -220,6 +243,13 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
     voiceControlsPinned,
     toggleVoiceControlsPinned,
   } = useVoiceStore();
+
+  const localUserId = useUserStore((s) => s.user?.id);
+  const localParticipant = useVoiceStore((s) =>
+    localUserId ? s.participants[localUserId] : undefined
+  );
+  const isServerMuted = localParticipant?.serverMuted || false;
+  const isServerDeafened = localParticipant?.serverDeafened || false;
 
   const getLinkedTextChannel = useChannelStore((s) => s.getLinkedTextChannel);
   const hasLinkedText = !!(activeChannelId && getLinkedTextChannel(activeChannelId));
@@ -319,23 +349,25 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
 
         <div className="voice-controls__buttons">
           <MediaButton
-            isActive={isMuted}
+            isActive={isMuted || isServerMuted}
             onClick={handleToggleMute}
-            title={isMuted ? 'Unmute' : 'Mute'}
+            title={muteTitle(isServerMuted, isMuted)}
             activeIcon={<MicOff size={18} />}
             inactiveIcon={<Mic size={18} />}
-            activeLabel="Unmute"
+            activeLabel={isServerMuted ? 'Muted' : 'Unmute'}
             inactiveLabel="Mute"
+            locked={isServerMuted}
           />
 
           <MediaButton
-            isActive={isDeafened}
+            isActive={isDeafened || isServerDeafened}
             onClick={handleToggleDeafen}
-            title={isDeafened ? 'Undeafen' : 'Deafen'}
+            title={deafenTitle(isServerDeafened, isDeafened)}
             activeIcon={<HeadphoneOff size={18} />}
             inactiveIcon={<Headphones size={18} />}
-            activeLabel="Undeafen"
+            activeLabel={isServerDeafened ? 'Deafened' : 'Undeafen'}
             inactiveLabel="Deafen"
+            locked={isServerDeafened}
           />
 
           <MediaButton

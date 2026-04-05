@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { MicOff, HeadphoneOff, Lock } from 'lucide-react';
 import type { ServerMember } from '../../stores/memberStore';
 import type { Role } from '../../types/server';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
@@ -97,6 +98,18 @@ const MemberListPanel: React.FC<MemberListPanelProps> = ({
               )}
               <div>
                 <span className="member-name">{member.display_name || member.username}</span>
+                {member.server_deafened && (
+                  <span className="member-enforcement-badge" title="Server Deafened">
+                    <HeadphoneOff size={14} />
+                    <Lock size={8} className="enforcement-lock-badge" />
+                  </span>
+                )}
+                {member.server_muted && !member.server_deafened && (
+                  <span className="member-enforcement-badge" title="Server Muted">
+                    <MicOff size={14} />
+                    <Lock size={8} className="enforcement-lock-badge" />
+                  </span>
+                )}
                 {member.display_name && <span className="member-username">@{member.username}</span>}
               </div>
             </div>

@@ -17,6 +17,8 @@ export interface ServerMember {
   joined_at: string;
   last_seen?: number;
   roles: MemberRoleInfo[];
+  server_muted?: boolean;
+  server_deafened?: boolean;
 }
 
 interface MemberState {

@@ -31,6 +31,8 @@ const mockParticipant: VoiceParticipant = {
   isVideoOn: false,
   isScreenSharing: false,
   isSpeaking: false,
+  serverMuted: false,
+  serverDeafened: false,
 };
 
 describe('voiceStore', () => {
@@ -611,6 +613,90 @@ describe('voiceStore', () => {
     it('sets all server voice counts at once', () => {
       useVoiceStore.getState().setServerVoiceCounts({ s1: 3, s2: 7 });
       expect(useVoiceStore.getState().serverVoiceCounts).toEqual({ s1: 3, s2: 7 });
+    });
+  });
+
+  // ===== Server enforcement =====
+
+  describe('server enforcement', () => {
+    it('should update participant serverMuted via updateParticipant', () => {
+      useVoiceStore.getState().addParticipant({
+        ...mockParticipant,
+        userId: 'user-1',
+        username: 'alice',
+      });
+      useVoiceStore.getState().updateParticipant('user-1', { serverMuted: true });
+      expect(useVoiceStore.getState().participants['user-1']?.serverMuted).toBe(true);
+    });
+
+    it('should update participant serverDeafened via updateParticipant', () => {
+      useVoiceStore.getState().addParticipant({
+        ...mockParticipant,
+        userId: 'user-1',
+        username: 'alice',
+      });
+      useVoiceStore.getState().updateParticipant('user-1', { serverDeafened: true });
+      expect(useVoiceStore.getState().participants['user-1']?.serverDeafened).toBe(true);
+    });
+
+    it('should update channel voice member enforcement state', () => {
+      useVoiceStore.getState().setChannelVoiceMembers('ch-1', [
+        {
+          userId: 'user-1',
+          username: 'alice',
+          isMuted: false,
+          serverMuted: false,
+          serverDeafened: false,
+        },
+      ]);
+      useVoiceStore.getState().updateChannelVoiceMember('ch-1', 'user-1', { serverMuted: true });
+      const members = useVoiceStore.getState().channelVoiceMembers['ch-1'];
+      expect(members?.[0]?.serverMuted).toBe(true);
+    });
+
+    it('should not modify other members when updating one', () => {
+      useVoiceStore.getState().setChannelVoiceMembers('ch-1', [
+        {
+          userId: 'user-1',
+          username: 'alice',
+          isMuted: false,
+          serverMuted: false,
+          serverDeafened: false,
+        },
+        {
+          userId: 'user-2',
+          username: 'bob',
+          isMuted: false,
+          serverMuted: false,
+          serverDeafened: false,
+        },
+      ]);
+      useVoiceStore.getState().updateChannelVoiceMember('ch-1', 'user-1', { serverMuted: true });
+      const members = useVoiceStore.getState().channelVoiceMembers['ch-1'];
+      expect(members?.[1]?.serverMuted).toBe(false);
+    });
+
+    it('should handle updateChannelVoiceMember for non-existent channel', () => {
+      // Should not throw
+      useVoiceStore
+        .getState()
+        .updateChannelVoiceMember('nonexistent', 'user-1', { serverMuted: true });
+      expect(useVoiceStore.getState().channelVoiceMembers['nonexistent']).toBeUndefined();
+    });
+
+    it('should set and clear group DM info', () => {
+      useVoiceStore.getState().setGroupDMInfo(true, 'admin');
+      expect(useVoiceStore.getState().isGroupDM).toBe(true);
+      expect(useVoiceStore.getState().callerDMRole).toBe('admin');
+
+      useVoiceStore.getState().setGroupDMInfo(false, null);
+      expect(useVoiceStore.getState().isGroupDM).toBe(false);
+      expect(useVoiceStore.getState().callerDMRole).toBeNull();
+    });
+
+    it('should set effective permissions', () => {
+      useVoiceStore.getState().setEffectivePermissions(0x40000n);
+      expect(useVoiceStore.getState().effectivePermissions).toBe(0x40000n);
     });
   });
 });

@@ -54,6 +54,10 @@ const VOICE_PARTICIPANT_UPDATES: Record<string, Record<string, boolean>> = {
   video_off: { isVideoOn: false },
   screen_on: { isScreenSharing: true },
   screen_off: { isScreenSharing: false },
+  server_muted: { serverMuted: true },
+  server_unmuted: { serverMuted: false },
+  server_deafened: { serverDeafened: true, serverMuted: true },
+  server_undeafened: { serverDeafened: false, serverMuted: false },
 };
 
 /** Returns true if a voice-linked text channel notification should be suppressed. */
@@ -123,6 +127,8 @@ function handleVoiceStateUpdate(msg: WebSocketMessage): void {
       username: (data.username as string) || 'Unknown',
       displayName: data.display_name as string | undefined,
       isMuted: false,
+      serverMuted: false,
+      serverDeafened: false,
     });
     if (serverId) voiceStore.incrementServerVoiceCount(serverId);
     if (isLocalUserInChannel && userId !== localUserId) {
@@ -148,6 +154,30 @@ function handleVoiceStateUpdate(msg: WebSocketMessage): void {
     const update = VOICE_PARTICIPANT_UPDATES[action];
     if (update) voiceStore.updateParticipant(userId, update);
   }
+
+  // Update sidebar voice members for enforcement changes
+  if (
+    ['server_muted', 'server_unmuted', 'server_deafened', 'server_undeafened'].includes(action) &&
+    userId
+  ) {
+    const update = VOICE_PARTICIPANT_UPDATES[action];
+    if (update) {
+      voiceStore.updateChannelVoiceMember(channelId, userId, update);
+    }
+
+    // Toast notification when local user is targeted
+    if (userId === localUserId) {
+      const messages: Record<string, string> = {
+        server_muted: 'You have been server-muted by a moderator',
+        server_unmuted: 'A moderator has removed your server mute',
+        server_deafened: 'You have been server-deafened by a moderator',
+        server_undeafened: 'A moderator has removed your server deafen',
+      };
+      if (messages[action]) {
+        console.debug('[Voice]', messages[action]);
+      }
+    }
+  }
 }
 
 /** Schedule a debounced re-fetch of voice participants for a channel. */
@@ -172,12 +202,16 @@ function scheduleVoiceRefetch(
             display_name?: string;
             avatar_url?: string;
             is_muted?: boolean;
+            server_muted?: boolean;
+            server_deafened?: boolean;
           }) => ({
             userId: p.user_id,
             username: p.username,
             displayName: p.display_name,
             avatarUrl: p.avatar_url,
             isMuted: p.is_muted || false,
+            serverMuted: p.server_muted || false,
+            serverDeafened: p.server_deafened || false,
           })
         );
         voiceStore.setChannelVoiceMembers(channelId, members);
@@ -1204,11 +1238,40 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
     const unsubDMVoiceState = wsService.on('dm_voice_state_update', (msg: WebSocketMessage) => {
       const { data } = msg;
       const conversationId = data.conversation_id;
-      const action = data.action; // 'joined' | 'left' | 'room_empty'
+      const action = data.action; // 'joined' | 'left' | 'room_empty' | enforcement actions
+      const userId = data.user_id as string | undefined;
 
       if (!conversationId) return;
 
-      console.debug('[WebSocket] DM voice state update:', action, conversationId, data.user_id);
+      console.debug('[WebSocket] DM voice state update:', action, conversationId, userId);
+
+      // Handle enforcement actions in DM calls
+      if (
+        ['server_muted', 'server_unmuted', 'server_deafened', 'server_undeafened'].includes(
+          action
+        ) &&
+        userId
+      ) {
+        const voiceStore = useVoiceStore.getState();
+        const update = VOICE_PARTICIPANT_UPDATES[action];
+        if (update) {
+          voiceStore.updateParticipant(userId, update);
+        }
+
+        const localUserId = useUserStore.getState().user?.id;
+        if (userId === localUserId) {
+          const messages: Record<string, string> = {
+            server_muted: 'You have been server-muted by a moderator',
+            server_unmuted: 'A moderator has removed your server mute',
+            server_deafened: 'You have been server-deafened by a moderator',
+            server_undeafened: 'A moderator has removed your server deafen',
+          };
+          if (messages[action]) {
+            console.debug('[Voice]', messages[action]);
+          }
+        }
+      }
+
       // DM voice state is handled by voiceStore when the user is in the call
       // and by dmStore for showing call indicators in the conversation list
     });

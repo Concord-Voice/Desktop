@@ -1,5 +1,6 @@
-import React, { useRef, useEffect, useMemo } from 'react';
-import { MicOff, Monitor } from 'lucide-react';
+import React, { useRef, useEffect, useMemo, useState } from 'react';
+import { MicOff, HeadphoneOff, Lock, Monitor } from 'lucide-react';
+import { ParticipantContextMenu } from './ParticipantContextMenu';
 import type { VoiceParticipant } from '../../stores/voiceStore';
 import { useMemberStore } from '../../stores/memberStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
@@ -25,6 +26,52 @@ function bannerGradient(userId: string): string {
   const hue1 = (hash >>> 0) % 360;
   const hue2 = (hue1 + 60) % 360;
   return `linear-gradient(135deg, hsl(${hue1}, 60%, 35%), hsl(${hue2}, 60%, 25%))`;
+}
+
+function ParticipantStatusOverlay({
+  participant,
+  compact,
+}: Readonly<{ participant: VoiceParticipant; compact: boolean }>) {
+  const iconSize = compact ? 10 : 14;
+  const lockSize = compact ? 6 : 8;
+
+  if (participant.serverDeafened) {
+    return (
+      <div
+        className="participant-tile__status participant-tile__status--server-deafened"
+        title="Server Deafened"
+      >
+        <HeadphoneOff size={iconSize} />
+        <Lock size={lockSize} className="participant-tile__lock-badge" />
+      </div>
+    );
+  }
+  if (participant.serverMuted) {
+    return (
+      <div
+        className="participant-tile__status participant-tile__status--server-muted"
+        title="Server Muted"
+      >
+        <MicOff size={iconSize} />
+        <Lock size={lockSize} className="participant-tile__lock-badge" />
+      </div>
+    );
+  }
+  if (participant.isDeafened) {
+    return (
+      <div className="participant-tile__status participant-tile__status--deafened">
+        <HeadphoneOff size={iconSize} />
+      </div>
+    );
+  }
+  if (participant.isMuted) {
+    return (
+      <div className="participant-tile__status participant-tile__status--muted">
+        <MicOff size={iconSize} />
+      </div>
+    );
+  }
+  return null;
 }
 
 const ParticipantTile: React.FC<ParticipantTileProps> = ({
@@ -66,11 +113,20 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
   const scaleStyle =
     magnificationScale === 1 ? undefined : { transform: `scale(${magnificationScale})`, zIndex: 2 };
 
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    if (isLocal) return; // No context menu on yourself
+    e.preventDefault();
+    setCtxMenu({ x: e.clientX, y: e.clientY });
+  };
+
   return (
     <div
       className={`participant-tile${hasVideo ? ' participant-tile--video' : ''}${compact ? ' participant-tile--compact' : ''}`}
       {...scopeProps}
       style={{ ...scopeProps.style, ...scaleStyle }}
+      onContextMenu={isLocal ? undefined : handleContextMenu}
     >
       {hasVideo ? (
         /* Video mode — fills the frame, name overlay at bottom */
@@ -114,17 +170,20 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
 
       {/* Status overlays */}
       <div className="participant-tile__overlays">
-        {participant.isMuted && (
-          <div className="participant-tile__status participant-tile__status--muted">
-            <MicOff size={compact ? 10 : 14} />
-          </div>
-        )}
+        <ParticipantStatusOverlay participant={participant} compact={compact} />
         {participant.isScreenSharing && (
           <div className="participant-tile__status participant-tile__status--screen">
             <Monitor size={compact ? 10 : 14} />
           </div>
         )}
       </div>
+      {ctxMenu && (
+        <ParticipantContextMenu
+          participant={participant}
+          position={ctxMenu}
+          onClose={() => setCtxMenu(null)}
+        />
+      )}
     </div>
   );
 };

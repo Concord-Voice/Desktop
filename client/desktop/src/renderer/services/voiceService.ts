@@ -142,6 +142,13 @@ interface JoinResponse {
     is_encrypted: boolean;
     audio_quality_tier?: string | null;
   };
+  permissions?: string;
+  server_muted?: boolean;
+  server_deafened?: boolean;
+  conversation?: {
+    is_group?: boolean;
+    caller_role?: 'admin' | 'member';
+  };
 }
 
 interface RoomJoinedResponse {
@@ -1395,6 +1402,8 @@ class VoiceService {
         avatarUrl: p.avatarUrl,
         isMuted: false,
         isDeafened: false,
+        serverMuted: false,
+        serverDeafened: false,
         isVideoOn: producerState?.isVideoOn ?? false,
         isScreenSharing: producerState?.isScreenSharing ?? false,
         isSpeaking: false,
@@ -1425,6 +1434,42 @@ class VoiceService {
           producer.kind as mediasoupTypes.MediaKind
         );
       }
+    }
+  }
+
+  /** Apply permissions, enforcement flags, and DM state from the join response. */
+  private applyJoinMetadata(
+    store: ReturnType<typeof useVoiceStore.getState>,
+    joinData: JoinResponse,
+    joinType: 'channel' | 'dm',
+    channelId: string
+  ): void {
+    // Store effective permissions
+    if (joinData.permissions) {
+      try {
+        store.setEffectivePermissions(BigInt(joinData.permissions));
+      } catch {
+        store.setEffectivePermissions(0n);
+      }
+    }
+
+    // Apply server enforcement flags (local audio state only;
+    // participant record is updated after setParticipants in joinChannel)
+    if (joinData.server_muted || joinData.server_deafened) {
+      if (joinData.server_muted) store.setMuted(true);
+      if (joinData.server_deafened) {
+        store.setDeafened(true);
+        store.setMuted(true);
+      }
+    }
+
+    // Track DM call state
+    if (joinType === 'dm') {
+      store.setDMCall(true, channelId);
+      store.setGroupDMInfo(
+        joinData.conversation?.is_group || false,
+        joinData.conversation?.caller_role || null
+      );
     }
   }
 
@@ -1461,10 +1506,7 @@ class VoiceService {
       store.setActiveChannel(channel.id, channel.name, channel.server_id);
       store.setEncrypted(channel.is_encrypted);
 
-      // Track DM call state
-      if (joinType === 'dm') {
-        store.setDMCall(true, channelId);
-      }
+      this.applyJoinMetadata(store, joinData, joinType, channelId);
 
       // Resolve effective quality tier: channel override takes priority over personal setting
       const channelTier = channel.audio_quality_tier;
@@ -1530,6 +1572,17 @@ class VoiceService {
 
       // Step 7: Set participants before consuming producers
       store.setParticipants(this.buildParticipantList(roomJoined));
+
+      // Apply enforcement flags after participants are populated
+      if (joinData.server_muted || joinData.server_deafened) {
+        const localUserId = useUserStore.getState().user?.id;
+        if (localUserId) {
+          store.updateParticipant(localUserId, {
+            serverMuted: joinData.server_muted || false,
+            serverDeafened: joinData.server_deafened || false,
+          });
+        }
+      }
 
       // Step 8: Produce audio (using pre-acquired mic stream)
       const preAcquiredStream = await micPromise;
@@ -2199,6 +2252,15 @@ class VoiceService {
     if (!producer) return;
 
     if (store.isMuted) {
+      // Check server-mute enforcement — cannot unmute while server-muted
+      const localUserId = useUserStore.getState().user?.id;
+      if (localUserId) {
+        const participant = store.participants[localUserId];
+        if (participant?.serverMuted) {
+          return; // Cannot unmute while server-muted
+        }
+      }
+
       await producer.resume();
       this.socket?.emit('resume-producer', { producerId: producer.id });
       store.setMuted(false);
@@ -2215,9 +2277,22 @@ class VoiceService {
     }
   }
 
+  /** Returns true if the local user is currently server-deafened and cannot undeafen. */
+  private isServerDeafenBlocked(): boolean {
+    const store = useVoiceStore.getState();
+    if (!store.isDeafened) return false;
+    const localUserId = useUserStore.getState().user?.id;
+    if (!localUserId) return false;
+    return store.participants[localUserId]?.serverDeafened === true;
+  }
+
   /** Toggle deafen (mute all incoming audio) */
   toggleDeafen(): void {
     const store = useVoiceStore.getState();
+
+    // Check server-deafen enforcement — cannot undeafen while server-deafened
+    if (this.isServerDeafenBlocked()) return;
+
     const newDeafened = !store.isDeafened;
     store.setDeafened(newDeafened);
     notificationSoundService.play(newDeafened ? 'deafen' : 'undeafen');
@@ -3082,6 +3157,8 @@ class VoiceService {
         avatarUrl,
         isMuted: false,
         isDeafened: false,
+        serverMuted: false,
+        serverDeafened: false,
         isVideoOn: false,
         isScreenSharing: false,
         isSpeaking: false,
@@ -3204,6 +3281,51 @@ class VoiceService {
     this.socket.on('error', ({ message }) => {
       console.error('Media plane error:', message);
     });
+
+    // Server-enforced mute/deafen
+    this.socket.on(
+      'server-mute-changed',
+      ({ userId, serverMuted }: { userId: string; serverMuted: boolean }) => {
+        const store = useVoiceStore.getState();
+        store.updateParticipant(userId, { serverMuted });
+
+        const localUserId = useUserStore.getState().user?.id;
+        if (userId === localUserId && serverMuted) {
+          // Enforce locally — pause mic producer
+          const micProducer = this.producers.get('mic');
+          if (micProducer && !micProducer.paused) {
+            micProducer.pause();
+            this.socket?.emit('pause-producer', { producerId: micProducer.id });
+          }
+          store.setMuted(true);
+        }
+      }
+    );
+
+    this.socket.on(
+      'server-deafen-changed',
+      ({ userId, serverDeafened }: { userId: string; serverDeafened: boolean }) => {
+        const store = useVoiceStore.getState();
+        store.updateParticipant(userId, { serverDeafened, serverMuted: serverDeafened });
+
+        const localUserId = useUserStore.getState().user?.id;
+        if (userId === localUserId && serverDeafened) {
+          // Enforce locally — pause all audio consumers and mic
+          for (const [, consumer] of this.consumers) {
+            if (consumer.kind === 'audio') {
+              consumer.pause();
+            }
+          }
+          const micProducer = this.producers.get('mic');
+          if (micProducer && !micProducer.paused) {
+            micProducer.pause();
+            this.socket?.emit('pause-producer', { producerId: micProducer.id });
+          }
+          store.setMuted(true);
+          store.setDeafened(true);
+        }
+      }
+    );
   }
 
   // ─── Decoder Budget Profiling (IGNIS insight) ─────────────────

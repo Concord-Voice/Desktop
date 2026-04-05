@@ -20,6 +20,8 @@ const makeParticipant = (overrides: Partial<VoiceParticipant> = {}): VoicePartic
   isVideoOn: false,
   isScreenSharing: false,
   isSpeaking: false,
+  serverMuted: false,
+  serverDeafened: false,
   ...overrides,
 });
 
@@ -131,6 +133,98 @@ describe('ParticipantTile', () => {
       <ParticipantTile participant={makeParticipant({ isVideoOn: false })} />
     );
     expect(container.querySelector('.participant-tile__video')).not.toBeInTheDocument();
+  });
+
+  // ===== Server enforcement indicators =====
+
+  it('shows server-muted indicator with title', () => {
+    render(<ParticipantTile participant={makeParticipant({ serverMuted: true })} />);
+    expect(screen.getByTitle('Server Muted')).toBeInTheDocument();
+  });
+
+  it('shows server-deafened indicator with title', () => {
+    render(<ParticipantTile participant={makeParticipant({ serverDeafened: true })} />);
+    expect(screen.getByTitle('Server Deafened')).toBeInTheDocument();
+  });
+
+  it('prioritizes server-mute over self-mute indicator', () => {
+    render(<ParticipantTile participant={makeParticipant({ isMuted: true, serverMuted: true })} />);
+    // Server mute indicator should be visible, not self-mute
+    expect(screen.getByTitle('Server Muted')).toBeInTheDocument();
+  });
+
+  it('shows self-muted indicator when not server-muted', () => {
+    const { container } = render(
+      <ParticipantTile participant={makeParticipant({ isMuted: true })} />
+    );
+    expect(screen.queryByTitle('Server Muted')).not.toBeInTheDocument();
+    expect(container.querySelector('.participant-tile__status--muted')).toBeInTheDocument();
+  });
+
+  it('prioritizes server-deafened over self-deafened indicator', () => {
+    render(
+      <ParticipantTile participant={makeParticipant({ isDeafened: true, serverDeafened: true })} />
+    );
+    expect(screen.getByTitle('Server Deafened')).toBeInTheDocument();
+  });
+
+  it('shows lock badge on server-muted indicator', () => {
+    const { container } = render(
+      <ParticipantTile participant={makeParticipant({ serverMuted: true })} />
+    );
+    expect(container.querySelector('.participant-tile__lock-badge')).toBeInTheDocument();
+  });
+
+  it('shows self-deafened indicator without lock badge when not server-deafened', () => {
+    const { container } = render(
+      <ParticipantTile participant={makeParticipant({ isDeafened: true, serverDeafened: false })} />
+    );
+    expect(container.querySelector('.participant-tile__status--deafened')).toBeInTheDocument();
+    expect(container.querySelector('.participant-tile__lock-badge')).not.toBeInTheDocument();
+  });
+
+  it('uses smaller icon sizes in compact mode for server-muted', () => {
+    const { container } = render(
+      <ParticipantTile participant={makeParticipant({ serverMuted: true })} compact />
+    );
+    const statusEl = container.querySelector('.participant-tile__status--server-muted');
+    expect(statusEl).toBeInTheDocument();
+    // Compact mode renders MicOff at size 10 and Lock at size 6
+    const svgs = statusEl?.querySelectorAll('svg');
+    expect(svgs?.length).toBe(2);
+  });
+
+  it('uses smaller icon sizes in compact mode for server-deafened', () => {
+    const { container } = render(
+      <ParticipantTile participant={makeParticipant({ serverDeafened: true })} compact />
+    );
+    const statusEl = container.querySelector('.participant-tile__status--server-deafened');
+    expect(statusEl).toBeInTheDocument();
+    const svgs = statusEl?.querySelectorAll('svg');
+    expect(svgs?.length).toBe(2);
+  });
+
+  it('shows no status overlay when not muted, deafened, or server-enforced', () => {
+    const { container } = render(
+      <ParticipantTile
+        participant={makeParticipant({
+          isMuted: false,
+          isDeafened: false,
+          serverMuted: false,
+          serverDeafened: false,
+          isScreenSharing: false,
+        })}
+      />
+    );
+    expect(container.querySelector('.participant-tile__status--muted')).not.toBeInTheDocument();
+    expect(container.querySelector('.participant-tile__status--deafened')).not.toBeInTheDocument();
+    expect(
+      container.querySelector('.participant-tile__status--server-muted')
+    ).not.toBeInTheDocument();
+    expect(
+      container.querySelector('.participant-tile__status--server-deafened')
+    ).not.toBeInTheDocument();
+    expect(container.querySelector('.participant-tile__status--screen')).not.toBeInTheDocument();
   });
 
   it('resolves user accent colors from member store', () => {

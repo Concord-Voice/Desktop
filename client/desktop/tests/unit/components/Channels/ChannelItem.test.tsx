@@ -347,6 +347,88 @@ describe('ChannelItem', () => {
     expect(speaking).toBeInTheDocument();
   });
 
+  // -- VoiceStatusIcon branches --
+
+  it('shows server-enforced icon with HeadphoneOff + Lock for server-deafened member', () => {
+    const voiceMembers: VoiceMemberInfo[] = [
+      {
+        userId: 'u1',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: false,
+        serverMuted: false,
+        serverDeafened: true,
+      },
+    ];
+    const { container } = render(
+      <ChannelItem {...defaultProps} channel={mockVoiceChannel} voiceMembers={voiceMembers} />
+    );
+    const serverIcon = container.querySelector('.voice-channel-participant__icon--server-enforced');
+    expect(serverIcon).toBeInTheDocument();
+    const lockIcon = container.querySelector('.voice-channel-participant__lock');
+    expect(lockIcon).toBeInTheDocument();
+  });
+
+  it('shows server-enforced icon with MicOff + Lock for server-muted member', () => {
+    const voiceMembers: VoiceMemberInfo[] = [
+      {
+        userId: 'u1',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: false,
+        serverMuted: true,
+        serverDeafened: false,
+      },
+    ];
+    const { container } = render(
+      <ChannelItem {...defaultProps} channel={mockVoiceChannel} voiceMembers={voiceMembers} />
+    );
+    const serverIcon = container.querySelector('.voice-channel-participant__icon--server-enforced');
+    expect(serverIcon).toBeInTheDocument();
+    const lockIcon = container.querySelector('.voice-channel-participant__lock');
+    expect(lockIcon).toBeInTheDocument();
+  });
+
+  it('shows HeadphoneOff icon (without Lock) for self-deafened member', () => {
+    const voiceMembers: VoiceMemberInfo[] = [
+      {
+        userId: 'u1',
+        username: 'alice',
+        isMuted: false,
+        isDeafened: true,
+        serverMuted: false,
+        serverDeafened: false,
+      },
+    ];
+    const { container } = render(
+      <ChannelItem {...defaultProps} channel={mockVoiceChannel} voiceMembers={voiceMembers} />
+    );
+    const mutedIcon = container.querySelector('.voice-channel-participant__icon--muted');
+    expect(mutedIcon).toBeInTheDocument();
+    // Should NOT have a lock icon (not server-enforced)
+    const lockIcon = container.querySelector('.voice-channel-participant__lock');
+    expect(lockIcon).not.toBeInTheDocument();
+  });
+
+  it('prioritizes serverDeafened over serverMuted and self-deafened', () => {
+    const voiceMembers: VoiceMemberInfo[] = [
+      {
+        userId: 'u1',
+        username: 'alice',
+        isMuted: true,
+        isDeafened: true,
+        serverMuted: true,
+        serverDeafened: true,
+      },
+    ];
+    const { container } = render(
+      <ChannelItem {...defaultProps} channel={mockVoiceChannel} voiceMembers={voiceMembers} />
+    );
+    // serverDeafened should take priority — shows HeadphoneOff + Lock
+    const serverIcon = container.querySelector('.voice-channel-participant__icon--server-enforced');
+    expect(serverIcon).toBeInTheDocument();
+  });
+
   // -- Linked Text Channel --
 
   it('shows linked text channel when showLinkedText is true', () => {

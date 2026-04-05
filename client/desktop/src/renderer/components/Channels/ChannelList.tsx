@@ -362,12 +362,16 @@ const ChannelList: React.FC<ChannelListProps> = ({
             display_name?: string;
             avatar_url?: string;
             is_muted?: boolean;
+            server_muted?: boolean;
+            server_deafened?: boolean;
           }) => ({
             userId: p.user_id,
             username: p.username,
             displayName: p.display_name,
             avatarUrl: p.avatar_url,
             isMuted: p.is_muted || false,
+            serverMuted: p.server_muted || false,
+            serverDeafened: p.server_deafened || false,
           })
         );
         if (members.length > 0) {
@@ -748,6 +752,9 @@ const ChannelList: React.FC<ChannelListProps> = ({
           username: p.username,
           isMuted: p.isMuted,
           isSpeaking: p.isSpeaking,
+          serverMuted: p.serverMuted || false,
+          serverDeafened: p.serverDeafened || false,
+          isDeafened: p.isDeafened || false,
         }));
       }
       return (channelVoiceMembers[channel.id] || []).map((m) => ({
@@ -756,6 +763,9 @@ const ChannelList: React.FC<ChannelListProps> = ({
         username: m.username,
         isMuted: m.isMuted,
         isSpeaking: false,
+        serverMuted: m.serverMuted || false,
+        serverDeafened: m.serverDeafened || false,
+        isDeafened: false,
       }));
     },
     [voiceChannelId, voiceConnectionState, voiceParticipants, channelVoiceMembers]
