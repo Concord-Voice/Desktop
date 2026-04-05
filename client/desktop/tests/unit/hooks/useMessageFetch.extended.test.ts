@@ -1,6 +1,7 @@
 import { renderHook, waitFor, act } from '@testing-library/react';
 import { useChatStore } from '@/renderer/stores/chatStore';
 import { mockMessage } from '../../mocks/fixtures';
+import { resetAllStores } from '../../helpers/store-helpers';
 import type { MessageWithStatus } from '@/renderer/types/chat';
 
 // Mock apiFetch and safeJson
@@ -47,8 +48,8 @@ function mockFetchResponse(messages: MessageWithStatus[], ok = true) {
 describe('useMessageFetch — extended coverage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetAllStores();
     mockIsInitialized = true;
-    useChatStore.setState({ messagesByChannel: new Map() });
   });
 
   // --- E2EE decryption ---
@@ -140,6 +141,181 @@ describe('useMessageFetch — extended coverage', () => {
         expect(stored).toBeDefined();
         expect(stored![0].content).toBe('');
         expect(stored![0].decryptFailed).toBe(true);
+      });
+    });
+
+    it('decrypts replied_to content alongside the message', async () => {
+      const msgWithReply: MessageWithStatus = {
+        ...mockMessage,
+        id: 'enc-reply-1',
+        is_encrypted: true,
+        content: 'encrypted-parent',
+        replied_to: {
+          id: 'original-1',
+          user_id: 'user-1',
+          username: 'testuser',
+          content: 'encrypted-reply-content',
+          is_encrypted: true,
+          key_version: 1,
+        },
+      };
+
+      const mockKey = {} as CryptoKey;
+      mockGetChannelKey.mockResolvedValue(mockKey);
+      // replied_to is decrypted first, then the parent message
+      mockDecryptWithKey
+        .mockResolvedValueOnce('decrypted reply')
+        .mockResolvedValueOnce('decrypted parent');
+      mockFetchResponse([msgWithReply]);
+
+      renderHook(() => useMessageFetch('channel-1', { type: 'channel' }));
+
+      await waitFor(() => {
+        const stored = useChatStore.getState().messagesByChannel.get('channel-1');
+        expect(stored).toBeDefined();
+        expect(stored![0].content).toBe('decrypted parent');
+        expect(stored![0].replied_to?.content).toBe('decrypted reply');
+      });
+    });
+
+    it('decrypts replied_to with a different key version than the parent', async () => {
+      const msgWithVersionedReply: MessageWithStatus = {
+        ...mockMessage,
+        id: 'enc-vreply-1',
+        is_encrypted: true,
+        content: 'encrypted-parent-v1',
+        key_version: 1,
+        replied_to: {
+          id: 'original-2',
+          user_id: 'user-1',
+          username: 'testuser',
+          content: 'encrypted-reply-v3',
+          is_encrypted: true,
+          key_version: 3,
+        },
+      };
+
+      const mockCurrentKey = {} as CryptoKey;
+      const mockV3Key = {} as CryptoKey;
+      mockGetChannelKey.mockResolvedValue(mockCurrentKey);
+      mockGetChannelKeyByVersion.mockResolvedValue(mockV3Key);
+      // Parent uses current key (version 1), replied_to uses version 3
+      mockDecryptWithKey.mockImplementation(async (content: string, key: CryptoKey) => {
+        if (key === mockCurrentKey) return 'decrypted parent v1';
+        if (key === mockV3Key) return 'decrypted reply v3';
+        throw new Error('unexpected key');
+      });
+      mockFetchResponse([msgWithVersionedReply]);
+
+      renderHook(() => useMessageFetch('channel-1', { type: 'channel' }));
+
+      await waitFor(() => {
+        const stored = useChatStore.getState().messagesByChannel.get('channel-1');
+        expect(stored).toBeDefined();
+        expect(stored![0].content).toBe('decrypted parent v1');
+        expect(stored![0].replied_to?.content).toBe('decrypted reply v3');
+      });
+
+      // Should have pre-fetched version 3 key
+      expect(mockGetChannelKeyByVersion).toHaveBeenCalledWith('channel-1', 3);
+    });
+
+    it('does not decrypt replied_to when it is not encrypted', async () => {
+      const msgWithPlainReply: MessageWithStatus = {
+        ...mockMessage,
+        id: 'enc-plainreply-1',
+        is_encrypted: true,
+        content: 'encrypted-parent',
+        replied_to: {
+          id: 'original-3',
+          user_id: 'user-1',
+          username: 'testuser',
+          content: 'plaintext reply',
+          is_encrypted: false,
+        },
+      };
+
+      const mockKey = {} as CryptoKey;
+      mockGetChannelKey.mockResolvedValue(mockKey);
+      mockDecryptWithKey.mockResolvedValue('decrypted parent');
+      mockFetchResponse([msgWithPlainReply]);
+
+      renderHook(() => useMessageFetch('channel-1', { type: 'channel' }));
+
+      await waitFor(() => {
+        const stored = useChatStore.getState().messagesByChannel.get('channel-1');
+        expect(stored).toBeDefined();
+        expect(stored![0].content).toBe('decrypted parent');
+        expect(stored![0].replied_to?.content).toBe('plaintext reply');
+      });
+
+      // decryptWithKey should only be called once (for the parent message)
+      expect(mockDecryptWithKey).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves replied_to ciphertext on decryption failure', async () => {
+      const msgWithBadReply: MessageWithStatus = {
+        ...mockMessage,
+        id: 'enc-badreply-1',
+        is_encrypted: true,
+        content: 'encrypted-parent',
+        replied_to: {
+          id: 'original-4',
+          user_id: 'user-1',
+          username: 'testuser',
+          content: 'undecryptable-ciphertext',
+          is_encrypted: true,
+          key_version: 1,
+        },
+      };
+
+      const mockKey = {} as CryptoKey;
+      mockGetChannelKey.mockResolvedValue(mockKey);
+      // replied_to decryption fails first, then parent succeeds
+      mockDecryptWithKey
+        .mockRejectedValueOnce(new Error('decryption failed'))
+        .mockResolvedValueOnce('decrypted parent');
+      mockFetchResponse([msgWithBadReply]);
+
+      renderHook(() => useMessageFetch('channel-1', { type: 'channel' }));
+
+      await waitFor(() => {
+        const stored = useChatStore.getState().messagesByChannel.get('channel-1');
+        expect(stored).toBeDefined();
+        expect(stored![0].content).toBe('decrypted parent');
+        // replied_to content stays as ciphertext (graceful degradation)
+        expect(stored![0].replied_to?.content).toBe('undecryptable-ciphertext');
+      });
+    });
+
+    it('blanks both message and replied_to content when E2EE is not initialized', async () => {
+      mockIsInitialized = false;
+
+      const msgWithReply: MessageWithStatus = {
+        ...mockMessage,
+        id: 'enc-noinit-1',
+        is_encrypted: true,
+        content: 'encrypted',
+        replied_to: {
+          id: 'original-5',
+          user_id: 'user-1',
+          username: 'testuser',
+          content: 'encrypted-reply',
+          is_encrypted: true,
+        },
+      };
+      mockFetchResponse([msgWithReply]);
+
+      renderHook(() => useMessageFetch('channel-1', { type: 'channel' }));
+
+      await waitFor(() => {
+        const stored = useChatStore.getState().messagesByChannel.get('channel-1');
+        expect(stored).toBeDefined();
+        // Fail-closed: message content blanked, pendingKeys set
+        expect(stored![0].content).toBe('');
+        expect(stored![0].pendingKeys).toBe(true);
+        // replied_to content also blanked to prevent ciphertext leak
+        expect(stored![0].replied_to?.content).toBe('');
       });
     });
 

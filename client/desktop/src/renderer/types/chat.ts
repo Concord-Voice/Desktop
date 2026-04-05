@@ -68,6 +68,7 @@ export interface RepliedToMessage {
   display_name?: string;
   content: string;
   is_encrypted: boolean;
+  key_version?: number;
 }
 
 export interface Channel {

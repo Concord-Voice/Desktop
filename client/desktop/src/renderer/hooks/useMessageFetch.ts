@@ -22,6 +22,28 @@ interface UseMessageFetchOptions {
 }
 
 /**
+ * Decrypt a single ciphertext using the appropriate key version.
+ * Prefers pre-fetched keys from the batch maps; falls back to on-demand fetch.
+ */
+async function decryptContent(
+  channelId: string,
+  ciphertext: string,
+  keyVersion: number | undefined,
+  channelKey: CryptoKey | null,
+  versionedKeys: Map<number, CryptoKey>
+): Promise<string> {
+  if (keyVersion && keyVersion > 1) {
+    const vKey = versionedKeys.get(keyVersion);
+    return vKey
+      ? e2eeService.decryptWithKey(ciphertext, vKey)
+      : e2eeService.decryptForChannelWithVersion(channelId, ciphertext, keyVersion);
+  }
+  return channelKey
+    ? e2eeService.decryptWithKey(ciphertext, channelKey)
+    : e2eeService.decryptForChannel(channelId, ciphertext);
+}
+
+/**
  * Decrypt a batch of messages, pre-fetching the channel key once to avoid
  * N concurrent getChannelKey() calls.
  */
@@ -29,13 +51,23 @@ async function decryptMessages(
   channelId: string,
   rawMsgs: MessageWithStatus[]
 ): Promise<MessageWithStatus[]> {
-  const hasEncrypted = rawMsgs.some((m) => m.is_encrypted);
+  const hasEncrypted = rawMsgs.some((m) => m.is_encrypted || m.replied_to?.is_encrypted);
   if (!hasEncrypted) return rawMsgs;
 
-  // Fail-closed: if E2EE isn't initialized, blank encrypted messages rather than
+  // Fail-closed: if E2EE isn't initialized, blank encrypted content rather than
   // leaking ciphertext. Mark as pendingKeys so the UI shows the correct placeholder.
   if (!e2eeService.isInitialized) {
-    return rawMsgs.map((m) => (m.is_encrypted ? { ...m, content: '', pendingKeys: true } : m));
+    return rawMsgs.map((m) => {
+      const rt = m.replied_to;
+      const blankedRt = rt?.is_encrypted ? { ...rt, content: '' } : rt;
+      if (m.is_encrypted) {
+        return { ...m, content: '', pendingKeys: true, replied_to: blankedRt };
+      }
+      if (blankedRt !== rt) {
+        return { ...m, replied_to: blankedRt };
+      }
+      return m;
+    });
   }
 
   // Pre-fetch channel key ONCE for batch decryption (current version)
@@ -49,13 +81,16 @@ async function decryptMessages(
   // Pre-fetch each unique historical key version ONCE to avoid N parallel
   // getChannelKeyByVersion() calls (which lack pending-fetch deduplication).
   const versionedKeys = new Map<number, CryptoKey>();
-  const uniqueVersions = new Set(
-    rawMsgs
-      .filter((m): m is MessageWithStatus & { key_version: number } =>
-        Boolean(m.is_encrypted && m.key_version && m.key_version > 1)
-      )
-      .map((m) => m.key_version)
-  );
+  const uniqueVersions = new Set<number>();
+  for (const m of rawMsgs) {
+    if (m.is_encrypted && m.key_version && m.key_version > 1) {
+      uniqueVersions.add(m.key_version);
+    }
+    const rt = m.replied_to;
+    if (rt?.is_encrypted && rt.key_version && rt.key_version > 1) {
+      uniqueVersions.add(rt.key_version);
+    }
+  }
   await Promise.all(
     [...uniqueVersions].map(async (version) => {
       try {
@@ -69,20 +104,40 @@ async function decryptMessages(
 
   return Promise.all(
     rawMsgs.map(async (m) => {
-      if (!m.is_encrypted || !e2eeService.isInitialized) return m;
-      try {
-        let plaintext: string;
-        if (m.key_version && m.key_version > 1) {
-          const vKey = versionedKeys.get(m.key_version);
-          plaintext = vKey
-            ? await e2eeService.decryptWithKey(m.content, vKey)
-            : await e2eeService.decryptForChannelWithVersion(channelId, m.content, m.key_version);
-        } else {
-          plaintext = channelKey
-            ? await e2eeService.decryptWithKey(m.content, channelKey)
-            : await e2eeService.decryptForChannel(channelId, m.content);
+      // Decrypt replied_to content if the original replied-to message was encrypted
+      let decryptedRt = m.replied_to;
+      const rt = m.replied_to;
+      if (rt?.is_encrypted && rt.content) {
+        try {
+          const rtPlaintext = await decryptContent(
+            channelId,
+            rt.content,
+            rt.key_version,
+            channelKey,
+            versionedKeys
+          );
+          decryptedRt = { ...rt, content: rtPlaintext };
+        } catch {
+          // Leave ciphertext as-is — matches WebSocket handler behavior
         }
-        return { ...m, content: plaintext };
+      }
+
+      // Non-encrypted message — return with potentially-decrypted replied_to
+      if (!m.is_encrypted) {
+        if (decryptedRt === rt) return m;
+        return { ...m, replied_to: decryptedRt };
+      }
+
+      // Encrypted message — decrypt content
+      try {
+        const plaintext = await decryptContent(
+          channelId,
+          m.content,
+          m.key_version,
+          channelKey,
+          versionedKeys
+        );
+        return { ...m, content: plaintext, replied_to: decryptedRt };
       } catch (err) {
         const isPending = err instanceof Error && err.message === 'PENDING_KEY';
         return { ...m, content: '', decryptFailed: !isPending, pendingKeys: isPending };
