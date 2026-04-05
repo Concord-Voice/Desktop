@@ -11,6 +11,24 @@ vi.mock('@/renderer/services/pinService', () => ({
   unpinMessage: (...args: unknown[]) => mockUnpinMessage(...args),
 }));
 
+// Mock e2ee service
+const mockDecryptWithKey = vi.fn();
+const mockDecryptForChannel = vi.fn();
+const mockGetChannelKey = vi.fn();
+const mockGetChannelKeyByVersion = vi.fn();
+const mockDecryptForChannelWithVersion = vi.fn();
+
+vi.mock('@/renderer/services/e2eeService', () => ({
+  e2eeService: {
+    isInitialized: false,
+    getChannelKey: (...args: unknown[]) => mockGetChannelKey(...args),
+    getChannelKeyByVersion: (...args: unknown[]) => mockGetChannelKeyByVersion(...args),
+    decryptWithKey: (...args: unknown[]) => mockDecryptWithKey(...args),
+    decryptForChannel: (...args: unknown[]) => mockDecryptForChannel(...args),
+    decryptForChannelWithVersion: (...args: unknown[]) => mockDecryptForChannelWithVersion(...args),
+  },
+}));
+
 const mockPins: MessageWithUser[] = [
   {
     id: 'pin-1',
@@ -38,6 +56,11 @@ const mockPins: MessageWithUser[] = [
     pinned_by: 'user-1',
   },
 ];
+
+async function enableE2EE() {
+  const { e2eeService } = await import('@/renderer/services/e2eeService');
+  Object.defineProperty(e2eeService, 'isInitialized', { value: true, writable: true });
+}
 
 describe('PinnedMessagesPanel', () => {
   const defaultProps = {
@@ -154,5 +177,113 @@ describe('PinnedMessagesPanel', () => {
       const contentEl = document.querySelector('.pinned-message-content');
       expect(contentEl?.textContent).toHaveLength(203); // 200 + "..."
     });
+  });
+
+  describe('E2EE decryption', () => {
+    const encryptedPin: MessageWithUser = {
+      id: 'pin-enc-1',
+      channel_id: 'channel-1',
+      user_id: 'user-1',
+      content: 'ciphertext-abc',
+      username: 'testuser',
+      display_name: 'Test User',
+      is_encrypted: true,
+      created_at: '2025-01-01T12:00:00Z',
+      updated_at: '2025-01-01T12:00:00Z',
+      pinned_at: '2025-01-01T13:00:00Z',
+      pinned_by: 'user-1',
+    };
+
+    it('decrypts encrypted pinned messages when E2EE is initialized', async () => {
+      await enableE2EE();
+      const mockKey = {} as CryptoKey;
+      mockGetChannelKey.mockResolvedValue(mockKey);
+      mockDecryptWithKey.mockResolvedValue('Decrypted secret message');
+      mockGetChannelPins.mockResolvedValue([encryptedPin]);
+
+      render(<PinnedMessagesPanel {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Decrypted secret message')).toBeInTheDocument();
+      });
+
+      expect(mockGetChannelKey).toHaveBeenCalledWith('channel-1');
+      expect(mockDecryptWithKey).toHaveBeenCalledWith('ciphertext-abc', mockKey);
+    });
+
+    it('shows "Unable to decrypt" when decryption fails', async () => {
+      await enableE2EE();
+      const mockKey = {} as CryptoKey;
+      mockGetChannelKey.mockResolvedValue(mockKey);
+      mockDecryptWithKey.mockRejectedValue(new Error('Decryption failed'));
+      mockGetChannelPins.mockResolvedValue([encryptedPin]);
+
+      render(<PinnedMessagesPanel {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Unable to decrypt')).toBeInTheDocument();
+      });
+    });
+
+    it('handles versioned keys for historical messages', async () => {
+      await enableE2EE();
+      const versionedPin: MessageWithUser = {
+        ...encryptedPin,
+        id: 'pin-enc-v3',
+        content: 'ciphertext-v3',
+        key_version: 3,
+      };
+      const mockVersionedKey = {} as CryptoKey;
+      mockGetChannelKey.mockResolvedValue({} as CryptoKey);
+      mockGetChannelKeyByVersion.mockResolvedValue(mockVersionedKey);
+      mockDecryptWithKey.mockResolvedValue('Decrypted versioned message');
+      mockGetChannelPins.mockResolvedValue([versionedPin]);
+
+      render(<PinnedMessagesPanel {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Decrypted versioned message')).toBeInTheDocument();
+      });
+
+      expect(mockGetChannelKeyByVersion).toHaveBeenCalledWith('channel-1', 3);
+      expect(mockDecryptWithKey).toHaveBeenCalledWith('ciphertext-v3', mockVersionedKey);
+    });
+
+    it('falls back to decryptForChannel when channelKey fetch fails', async () => {
+      await enableE2EE();
+      mockGetChannelKey.mockRejectedValue(new Error('Key not available'));
+      mockDecryptForChannel.mockResolvedValue('Fallback decrypted message');
+      mockGetChannelPins.mockResolvedValue([encryptedPin]);
+
+      render(<PinnedMessagesPanel {...defaultProps} />);
+
+      await waitFor(() => {
+        expect(screen.getByText('Fallback decrypted message')).toBeInTheDocument();
+      });
+
+      expect(mockDecryptForChannel).toHaveBeenCalledWith('channel-1', 'ciphertext-abc');
+    });
+  });
+
+  it('hides Unpin button when canPin is false', async () => {
+    render(<PinnedMessagesPanel {...defaultProps} canPin={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Pinned message one')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByText('Unpin')).not.toBeInTheDocument();
+    // Jump buttons should still be present
+    expect(screen.getAllByText('Jump')).toHaveLength(2);
+  });
+
+  it('shows Unpin button when canPin is true', async () => {
+    render(<PinnedMessagesPanel {...defaultProps} canPin={true} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Pinned message one')).toBeInTheDocument();
+    });
+
+    expect(screen.getAllByText('Unpin')).toHaveLength(2);
   });
 });

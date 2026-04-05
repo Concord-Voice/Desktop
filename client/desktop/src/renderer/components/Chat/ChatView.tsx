@@ -5,28 +5,21 @@ import TypingIndicator from './TypingIndicator';
 import PinnedMessagesPanel from './PinnedMessagesPanel';
 import SearchPanel from './SearchPanel';
 import { pinMessage, unpinMessage, getChannelPins } from '../../services/pinService';
-import { usePermissionStore } from '../../stores/permissionStore';
-import { PIN_MESSAGES } from '../../utils/permissions';
 import { useChannelStore } from '../../stores/channelStore';
-import { useChatStore } from '../../stores/chatStore';
-import { getWebSocketService } from '../../services/websocketService';
 import { useUserStore } from '../../stores/userStore';
 import { useChannelSubscription } from '../../hooks/useChannelSubscription';
 import { useMessageFetch } from '../../hooks/useMessageFetch';
-import { useMessaging } from '../../hooks/useMessaging';
+import { useChatController } from '../../hooks/useChatController';
 import { useUnreadStore } from '../../stores/unreadStore';
 import { useServerStore } from '../../stores/serverStore';
-import { apiFetch, safeJson } from '../../services/apiClient';
-import { e2eeService } from '../../services/e2eeService';
-import type { MessageWithStatus } from '../../types/chat';
+import type { ChatContext, MessageWithStatus } from '../../types/chat';
 import './ChatView.css';
 
 const ChatView: React.FC = () => {
   const activeChannelId = useChannelStore((s) => s.activeChannelId);
   const channels = useChannelStore((s) => s.channels);
-  const updateMessage = useChatStore((s) => s.updateMessage);
-  const deleteMessage = useChatStore((s) => s.deleteMessage);
   const user = useUserStore((s) => s.user);
+  const activeServerId = useServerStore((s) => s.activeServerId);
 
   // Subscribe to active channel for full message delivery
   useChannelSubscription(activeChannelId);
@@ -35,6 +28,32 @@ const ChatView: React.FC = () => {
   const { messages, isLoading, hasMore, error, handleLoadMore } = useMessageFetch(activeChannelId, {
     type: 'channel',
   });
+
+  // Active channel info
+  const activeChannel = channels.find((c) => c.id === activeChannelId);
+  const currentUserId = user?.id || '';
+
+  // Chat controller — unified send/edit/delete/reply/pin/typing
+  const ctx: ChatContext = useMemo(
+    () => ({
+      type: 'channel' as const,
+      id: activeChannelId || '',
+      serverId: activeServerId ?? undefined,
+      isEncrypted: activeChannel?.is_encrypted ?? false,
+    }),
+    [activeChannelId, activeServerId, activeChannel?.is_encrypted]
+  );
+
+  const {
+    sendMessage,
+    editMessage,
+    deleteMessage,
+    replyingTo,
+    handleReply,
+    cancelReply,
+    canPin,
+    sendTyping,
+  } = useChatController(ctx);
 
   // Called by MessageList on unmount when the user left with unseen messages
   const handleUnseenOnLeave = useCallback(
@@ -50,44 +69,21 @@ const ChatView: React.FC = () => {
     [activeChannelId]
   );
 
-  // Optimistic messaging hook
-  const { sendMessage } = useMessaging();
-
-  // Active channel info
-  const activeChannel = channels.find((c) => c.id === activeChannelId);
-  const currentUserId = user?.id || '';
-
-  // Reply state
+  // Scroll handling
   const messageListRef = useRef<MessageListHandle>(null);
-  const setReplyingTo = useChatStore((s) => s.setReplyingTo);
-  const replyingTo = useChatStore((s) =>
-    activeChannelId ? (s.replyingTo.get(activeChannelId) ?? null) : null
-  );
-
-  const handleReply = useCallback(
-    (message: MessageWithStatus) => {
-      if (activeChannelId) setReplyingTo(activeChannelId, message);
-    },
-    [activeChannelId, setReplyingTo]
-  );
-
-  const handleCancelReply = useCallback(() => {
-    if (activeChannelId) setReplyingTo(activeChannelId, null);
-  }, [activeChannelId, setReplyingTo]);
 
   const handleScrollToMessage = useCallback((messageId: string) => {
     messageListRef.current?.scrollToMessage(messageId);
   }, []);
 
-  // Auto-scroll to bottom when the reply bar appears (it takes vertical space,
-  // pushing the latest messages out of view). Only scrolls if already near bottom.
+  // Auto-scroll to bottom when the reply bar appears
   useEffect(() => {
     if (replyingTo) {
       messageListRef.current?.scrollToBottomIfNear();
     }
   }, [replyingTo]);
 
-  // Send message (optimistic via useMessaging — E2EE handled internally)
+  // Send message adapter (MessageInput callback signature)
   const handleSendMessage = useCallback(
     (
       content: string,
@@ -97,110 +93,15 @@ const ChatView: React.FC = () => {
       attachments?: import('../../types/chat').AttachmentSummary[]
     ) => {
       if (!activeChannelId) return;
-      sendMessage(activeChannelId, content, user?.username || 'You', {
-        avatarUrl: user?.avatar_url,
-        displayName: user?.display_name,
-        mentionMeta,
-        replyToId,
-        attachmentIds,
-        attachments,
-      });
-      setReplyingTo(activeChannelId, null);
+      sendMessage(content, { mentionMeta, replyToId, attachmentIds, attachments });
     },
-    [
-      activeChannelId,
-      sendMessage,
-      user?.username,
-      user?.avatar_url,
-      user?.display_name,
-      setReplyingTo,
-    ]
+    [activeChannelId, sendMessage]
   );
 
-  // Edit message via REST
-  const handleEditMessage = useCallback(
-    async (messageId: string, newContent: string) => {
-      if (!activeChannelId) return;
-
-      try {
-        // Encrypt if channel is E2EE
-        let sendContent = newContent;
-        const channel = useChannelStore.getState().channels.find((c) => c.id === activeChannelId);
-        if (channel?.is_encrypted && e2eeService.isInitialized) {
-          sendContent = await e2eeService.encryptForChannel(activeChannelId, newContent);
-        }
-
-        const res = await apiFetch(`/api/v1/messages/${messageId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: sendContent }),
-        });
-
-        if (!res.ok) {
-          const data = await safeJson<{ error?: string }>(res);
-          throw new Error(data.error || 'Failed to edit message');
-        }
-
-        const data = await safeJson<{ message: MessageWithStatus }>(res);
-        updateMessage(activeChannelId, messageId, {
-          content: channel?.is_encrypted ? newContent : data.message.content,
-          is_encrypted: data.message.is_encrypted,
-          key_version: data.message.key_version,
-          edited_at: data.message.edited_at,
-          updated_at: data.message.updated_at,
-        });
-      } catch (err) {
-        console.error('Failed to edit message:', err);
-      }
-    },
-    [activeChannelId, updateMessage]
-  );
-
-  // Delete message via REST
-  const handleDeleteMessage = useCallback(
-    async (messageId: string) => {
-      if (!activeChannelId) return;
-
-      try {
-        const res = await apiFetch(`/api/v1/messages/${messageId}`, {
-          method: 'DELETE',
-        });
-
-        if (!res.ok) {
-          const data = await safeJson<{ error?: string }>(res);
-          throw new Error(data.error || 'Failed to delete message');
-        }
-
-        deleteMessage(activeChannelId, messageId);
-      } catch (err) {
-        console.error('Failed to delete message:', err);
-      }
-    },
-    [activeChannelId, deleteMessage]
-  );
-
-  // Send typing indicator via WebSocket
-  const handleTyping = useCallback(
-    (isTyping: boolean) => {
-      if (activeChannelId) {
-        getWebSocketService()?.sendTypingIndicator(activeChannelId, isTyping);
-      }
-    },
-    [activeChannelId]
-  );
-
-  // Pinned messages panel state
+  // Pinned messages panel state — ChatView-specific UI (count badge + panel)
   const [showPinnedPanel, setShowPinnedPanel] = useState(false);
   const [showSearchPanel, setShowSearchPanel] = useState(false);
   const [pinnedCount, setPinnedCount] = useState(0);
-
-  // Compute canPin from RBAC permission store
-  const hasServerPermission = usePermissionStore((s) => s.hasServerPermission);
-  const activeServerId = useServerStore((s) => s.activeServerId);
-  const canPin = useMemo(() => {
-    if (!activeServerId) return false;
-    return hasServerPermission(activeServerId, PIN_MESSAGES);
-  }, [activeServerId, hasServerPermission]);
 
   // Toggle search panel via keyboard shortcut (#176)
   useEffect(() => {
@@ -217,6 +118,7 @@ const ChatView: React.FC = () => {
       .catch(() => setPinnedCount(0));
   }, [activeChannelId]);
 
+  // Pin toggle with local count tracking (wraps hook's generic handler)
   const handlePinToggle = useCallback(
     async (message: MessageWithStatus) => {
       if (!activeChannelId) return;
@@ -316,8 +218,8 @@ const ChatView: React.FC = () => {
           isLoading={isLoading}
           hasMore={hasMore}
           onLoadMore={handleLoadMore}
-          onEditMessage={handleEditMessage}
-          onDeleteMessage={handleDeleteMessage}
+          onEditMessage={editMessage}
+          onDeleteMessage={deleteMessage}
           onUnseenOnLeave={handleUnseenOnLeave}
           onReply={handleReply}
           onScrollToMessage={handleScrollToMessage}
@@ -331,14 +233,14 @@ const ChatView: React.FC = () => {
       <div className="chat-input">
         <MessageInput
           onSendMessage={handleSendMessage}
-          onTyping={handleTyping}
+          onTyping={sendTyping}
           channelName={activeChannel?.name}
           disabled={!currentUserId}
           isChannelEncrypted={activeChannel?.is_encrypted ?? false}
           serverId={activeChannel?.server_id}
           channelId={activeChannelId || undefined}
           replyingTo={replyingTo}
-          onCancelReply={handleCancelReply}
+          onCancelReply={cancelReply}
         />
       </div>
 

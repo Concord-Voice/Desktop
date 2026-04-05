@@ -123,6 +123,19 @@ vi.mock('@/renderer/hooks/useDMSubscription', () => ({
   useDMSubscription: vi.fn(),
 }));
 
+const mockSendMessage = vi.fn();
+const mockSendDMMessage = vi.fn();
+vi.mock('@/renderer/hooks/useMessaging', () => ({
+  useMessaging: vi.fn(() => ({
+    sendMessage: mockSendMessage,
+    sendDMMessage: mockSendDMMessage,
+    markDelivered: vi.fn(),
+    sendTyping: vi.fn(),
+    getPendingCount: vi.fn(() => 0),
+    getPendingMessagesForChannel: vi.fn(() => []),
+  })),
+}));
+
 vi.mock('@/renderer/services/pinService', () => ({
   pinMessage: vi.fn().mockResolvedValue({}),
   unpinMessage: vi.fn().mockResolvedValue({}),
@@ -139,11 +152,20 @@ vi.mock('@/renderer/services/e2eeService', () => ({
 
 vi.mock('@/renderer/services/websocketService', () => ({
   getWebSocketService: vi.fn().mockReturnValue({
-    getState: vi.fn().mockReturnValue(0),
+    getState: vi.fn().mockReturnValue('disconnected'),
+    sendMessage: vi.fn(),
     sendDMMessage: vi.fn(),
+    sendTypingIndicator: vi.fn(),
     sendDMTypingIndicator: vi.fn(),
+    onConnectionChange: vi.fn(() => vi.fn()),
+    isSubscribed: vi.fn(() => true),
+    isDMSubscribed: vi.fn(() => true),
   }),
-  ConnectionState: { CONNECTED: 1, DISCONNECTED: 0 },
+  ConnectionState: {
+    CONNECTED: 'connected',
+    DISCONNECTED: 'disconnected',
+    CONNECTING: 'connecting',
+  },
 }));
 
 vi.mock('@/renderer/services/messageQueue', () => ({
@@ -712,44 +734,20 @@ describe('DMChatArea', () => {
 
   // --- handleSendMessage ---
 
-  it('sends a message via WebSocket when connected', async () => {
-    const { getWebSocketService } = await import('@/renderer/services/websocketService');
-    const { getMessageQueue } = await import('@/renderer/services/messageQueue');
-    const mockWs = getWebSocketService() as ReturnType<typeof getWebSocketService>;
-    const mockQueue = getMessageQueue({}) as ReturnType<typeof getMessageQueue>;
-
-    // Make WS report CONNECTED (ConnectionState.CONNECTED = 1)
-    vi.mocked(mockWs.getState).mockReturnValue(1);
-
+  it('sends a message via useChatController.sendMessage (delegates to useMessaging.sendDMMessage)', () => {
     useDMStore.setState({ conversations: [makeConversation()] });
     render(<DMChatArea selectedThreadId="conv-1" />);
 
     fireEvent.click(screen.getByTestId('trigger-send'));
 
-    // Message queue should be used
-    expect(mockQueue.enqueue).toHaveBeenCalledWith('conv-1', 'Hello world', 'message');
-
-    // Optimistic message added to chat store
-    const addMessage = useChatStore.getState().addMessage;
-    expect(addMessage).toHaveBeenCalledWith(
+    // useChatController routes DM sends to useMessaging.sendDMMessage
+    expect(mockSendDMMessage).toHaveBeenCalledWith(
       'conv-1',
-      expect.objectContaining({
-        content: 'Hello world',
-        channel_id: 'conv-1',
-        status: 'pending',
-      })
+      'Hello world',
+      false, // isEncrypted
+      'testuser',
+      expect.objectContaining({})
     );
-
-    // WebSocket sendDMMessage should be called (async, so wait)
-    await waitFor(() => {
-      expect(mockWs.sendDMMessage).toHaveBeenCalledWith('conv-1', 'Hello world', {
-        nonce: 'client-msg-1',
-        isEncrypted: false,
-        mentionMeta: undefined,
-        attachmentIds: undefined,
-        replyToId: undefined,
-      });
-    });
   });
 
   it('does not send message when no thread is selected', async () => {
@@ -770,103 +768,24 @@ describe('DMChatArea', () => {
     expect(mockQueue.enqueue).not.toHaveBeenCalled();
   });
 
-  it('handles send failure and marks message as failed', async () => {
-    const { getWebSocketService } = await import('@/renderer/services/websocketService');
-    const { getMessageQueue } = await import('@/renderer/services/messageQueue');
-    const mockWs = getWebSocketService() as ReturnType<typeof getWebSocketService>;
-    const mockQueue = getMessageQueue({}) as ReturnType<typeof getMessageQueue>;
+  // Send failure/offline/encryption tests have moved to useChatController.test.ts and useMessaging.test.ts
+  // since DMChatArea now delegates all send logic to useChatController → useMessaging.
 
-    vi.mocked(mockWs.getState).mockReturnValue(1);
-    vi.mocked(mockWs.sendDMMessage).mockImplementation(() => {
-      throw new Error('WS send failed');
+  it('passes isEncrypted=true to sendDMMessage for encrypted conversations', () => {
+    useDMStore.setState({
+      conversations: [makeConversation({ isEncrypted: true })],
     });
-
-    useDMStore.setState({ conversations: [makeConversation()] });
     render(<DMChatArea selectedThreadId="conv-1" />);
 
     fireEvent.click(screen.getByTestId('trigger-send'));
 
-    await waitFor(() => {
-      expect(mockQueue.markAsFailed).toHaveBeenCalledWith('client-msg-1', expect.any(String));
-    });
-  });
-
-  it('does not send via WS when disconnected but still enqueues', async () => {
-    const { getWebSocketService } = await import('@/renderer/services/websocketService');
-    const { getMessageQueue } = await import('@/renderer/services/messageQueue');
-    const mockWs = getWebSocketService() as ReturnType<typeof getWebSocketService>;
-    const mockQueue = getMessageQueue({}) as ReturnType<typeof getMessageQueue>;
-
-    // Disconnected state (0)
-    vi.mocked(mockWs.getState).mockReturnValue(0);
-
-    useDMStore.setState({ conversations: [makeConversation()] });
-    render(<DMChatArea selectedThreadId="conv-1" />);
-
-    fireEvent.click(screen.getByTestId('trigger-send'));
-
-    expect(mockQueue.enqueue).toHaveBeenCalled();
-    // Should NOT attempt to send via WS
-    expect(mockWs.sendDMMessage).not.toHaveBeenCalled();
-  });
-
-  it('encrypts message before sending for encrypted conversations', async () => {
-    const { getWebSocketService } = await import('@/renderer/services/websocketService');
-    const { e2eeService } = await import('@/renderer/services/e2eeService');
-    const mockWs = getWebSocketService() as ReturnType<typeof getWebSocketService>;
-
-    vi.mocked(mockWs.getState).mockReturnValue(1);
-    vi.mocked(e2eeService.encryptForChannel).mockResolvedValue(
-      'encrypted-content-that-is-at-least-forty-characters-long-for-validation'
+    expect(mockSendDMMessage).toHaveBeenCalledWith(
+      'conv-1',
+      'Hello world',
+      true, // isEncrypted
+      'testuser',
+      expect.objectContaining({})
     );
-
-    useDMStore.setState({
-      conversations: [makeConversation({ isEncrypted: true })],
-    });
-    render(<DMChatArea selectedThreadId="conv-1" />);
-
-    fireEvent.click(screen.getByTestId('trigger-send'));
-
-    await waitFor(() => {
-      expect(e2eeService.encryptForChannel).toHaveBeenCalledWith('conv-1', 'Hello world');
-      expect(mockWs.sendDMMessage).toHaveBeenCalledWith(
-        'conv-1',
-        'encrypted-content-that-is-at-least-forty-characters-long-for-validation',
-        {
-          nonce: 'client-msg-1',
-          isEncrypted: true,
-          mentionMeta: undefined,
-          attachmentIds: undefined,
-          replyToId: undefined,
-        }
-      );
-    });
-  });
-
-  it('marks message as failed when encryption produces invalid output', async () => {
-    const { getWebSocketService } = await import('@/renderer/services/websocketService');
-    const { getMessageQueue } = await import('@/renderer/services/messageQueue');
-    const { e2eeService } = await import('@/renderer/services/e2eeService');
-    const mockWs = getWebSocketService() as ReturnType<typeof getWebSocketService>;
-    const mockQueue = getMessageQueue({}) as ReturnType<typeof getMessageQueue>;
-
-    vi.mocked(mockWs.getState).mockReturnValue(1);
-    // Return a short string (< 40 chars) to trigger the invalid output check
-    vi.mocked(e2eeService.encryptForChannel).mockResolvedValue('short');
-
-    useDMStore.setState({
-      conversations: [makeConversation({ isEncrypted: true })],
-    });
-    render(<DMChatArea selectedThreadId="conv-1" />);
-
-    fireEvent.click(screen.getByTestId('trigger-send'));
-
-    await waitFor(() => {
-      expect(mockQueue.markAsFailed).toHaveBeenCalledWith(
-        'client-msg-1',
-        'Encryption failed — message not sent'
-      );
-    });
   });
 
   // --- handleEditMessage ---
@@ -997,16 +916,12 @@ describe('DMChatArea', () => {
 
   // --- handleTyping ---
 
-  it('sends typing indicator via WebSocket', async () => {
-    const { getWebSocketService } = await import('@/renderer/services/websocketService');
-    const mockWs = getWebSocketService() as ReturnType<typeof getWebSocketService>;
-
+  it('passes sendTyping from useChatController to MessageInput as onTyping', () => {
     useDMStore.setState({ conversations: [makeConversation()] });
     render(<DMChatArea selectedThreadId="conv-1" />);
 
-    fireEvent.click(screen.getByTestId('trigger-typing'));
-
-    expect(mockWs.sendDMTypingIndicator).toHaveBeenCalledWith('conv-1', true);
+    // MessageInput should receive onTyping prop from useChatController.sendTyping
+    expect(capturedMIProps.onTyping).toBeInstanceOf(Function);
   });
 
   // --- handleFetchComplete ---
@@ -1114,16 +1029,7 @@ describe('DMChatArea', () => {
     expect(capturedMIProps.onCancelReply).toBeInstanceOf(Function);
   });
 
-  it('passes replyToId when replying', async () => {
-    const mockSendDMMessage = vi.fn();
-    const { getWebSocketService, ConnectionState } =
-      await import('@/renderer/services/websocketService');
-    (getWebSocketService as ReturnType<typeof vi.fn>).mockReturnValue({
-      getState: vi.fn().mockReturnValue(ConnectionState.CONNECTED),
-      sendDMMessage: mockSendDMMessage,
-      sendDMTypingIndicator: vi.fn(),
-    });
-
+  it('passes replyToId when replying', () => {
     useDMStore.setState({
       conversations: [makeConversation()],
     });
@@ -1132,15 +1038,15 @@ describe('DMChatArea', () => {
     // Trigger send with reply
     fireEvent.click(screen.getByTestId('trigger-send-with-reply'));
 
-    await waitFor(() => {
-      expect(mockSendDMMessage).toHaveBeenCalledWith('conv-1', 'Reply msg', {
-        nonce: expect.any(String),
-        isEncrypted: false,
-        mentionMeta: undefined,
-        attachmentIds: undefined,
+    expect(mockSendDMMessage).toHaveBeenCalledWith(
+      'conv-1',
+      'Reply msg',
+      false, // isEncrypted
+      'testuser',
+      expect.objectContaining({
         replyToId: 'parent-msg-1',
-      });
-    });
+      })
+    );
   });
 
   // --- Pin support ---

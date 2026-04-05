@@ -1,22 +1,18 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { MessageSquare, Users } from 'lucide-react';
 import MessageList from '../Chat/MessageList';
 import MessageInput from '../Chat/MessageInput';
 import TypingIndicator from '../Chat/TypingIndicator';
 import { useDMStore, type DMConversation } from '../../stores/dmStore';
-import { useChatStore } from '../../stores/chatStore';
 import { useUserStore } from '../../stores/userStore';
 import { useDMSubscription } from '../../hooks/useDMSubscription';
 import { useMessageFetch } from '../../hooks/useMessageFetch';
-import { apiFetch, safeJson } from '../../services/apiClient';
-import { e2eeService } from '../../services/e2eeService';
-import { pinMessage, unpinMessage } from '../../services/pinService';
-import { getWebSocketService, ConnectionState } from '../../services/websocketService';
-import { getMessageQueue } from '../../services/messageQueue';
-import type { MessageWithStatus } from '../../types/chat';
+import { useChatController } from '../../hooks/useChatController';
+import { apiFetch } from '../../services/apiClient';
 import { usePrivacyStore } from '../../stores/privacyStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 import GroupInfoPanel from './GroupInfoPanel';
+import type { ChatContext } from '../../types/chat';
 import './DirectMessages.css';
 
 /*
@@ -44,25 +40,9 @@ function getThreadName(conv: DMConversation | undefined, currentUserId: string):
 
 const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
   const [showGroupInfo, setShowGroupInfo] = useState(false);
-  const [replyingTo, setReplyingTo] = useState<MessageWithStatus | null>(null);
-  const handleReply = useCallback((msg: MessageWithStatus) => setReplyingTo(msg), []);
-  const handleCancelReply = useCallback(() => setReplyingTo(null), []);
 
-  const handlePinToggle = useCallback(async (message: MessageWithStatus) => {
-    try {
-      if (message.pinned_at) {
-        await unpinMessage(message.id);
-      } else {
-        await pinMessage(message.id);
-      }
-    } catch (err) {
-      console.error('Failed to toggle pin:', err);
-    }
-  }, []);
   const conversations = useDMStore((s) => s.conversations);
   const clearUnread = useDMStore((s) => s.clearUnread);
-  const addMessage = useChatStore((s) => s.addMessage);
-  const updateMessageStatus = useChatStore((s) => s.updateMessageStatus);
   const user = useUserStore((s) => s.user);
   const dmPrivacyLevel = usePrivacyStore((s) => s.settings.dmPrivacyLevel);
 
@@ -72,6 +52,28 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
   const activeConv = conversations.find((c) => c.id === selectedThreadId);
   const currentUserId = user?.id || '';
   const threadName = getThreadName(activeConv, currentUserId);
+
+  // Chat controller — unified send/edit/delete/reply/pin/typing
+  const ctx: ChatContext = useMemo(
+    () => ({
+      type: 'dm' as const,
+      id: selectedThreadId || '',
+      isEncrypted: activeConv?.isEncrypted ?? false,
+    }),
+    [selectedThreadId, activeConv?.isEncrypted]
+  );
+
+  const {
+    sendMessage,
+    editMessage,
+    deleteMessage,
+    replyingTo,
+    handleReply,
+    cancelReply,
+    handlePinToggle,
+    sendTyping,
+    chatContext,
+  } = useChatController(ctx);
 
   // Mark conversation as read after messages are fetched
   const handleFetchComplete = useCallback(() => {
@@ -88,166 +90,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
     { type: 'dm', onFetchComplete: handleFetchComplete }
   );
 
-  // Send DM message
-  const handleSendMessage = useCallback(
-    (
-      content: string,
-      mentionMeta?: string,
-      replyToId?: string,
-      attachmentIds?: string[],
-      attachments?: import('../../types/chat').AttachmentSummary[]
-    ) => {
-      if (!selectedThreadId || !user) return;
-
-      const wsService = getWebSocketService();
-      const messageQueue = getMessageQueue({});
-      const isEncrypted = activeConv?.isEncrypted ?? false;
-
-      const clientMessageId = messageQueue.enqueue(selectedThreadId, content, 'message');
-
-      // Build replied_to summary from store for optimistic display
-      let repliedTo: MessageWithStatus['replied_to'];
-      if (replyToId) {
-        const storeMessages = useChatStore.getState().messagesByChannel.get(selectedThreadId);
-        const target = storeMessages?.find((m) => m.id === replyToId);
-        if (target) {
-          repliedTo = {
-            id: target.id,
-            user_id: target.user_id,
-            username: target.username,
-            display_name: target.display_name,
-            content: target.content,
-            is_encrypted: target.is_encrypted,
-          };
-        }
-      }
-
-      // Optimistic UI
-      const optimisticMessage: MessageWithStatus = {
-        id: clientMessageId,
-        clientMessageId,
-        channel_id: selectedThreadId,
-        user_id: user.id,
-        username: user.username,
-        display_name: user.display_name,
-        avatar_url: user.avatar_url,
-        content,
-        is_encrypted: isEncrypted,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        status: 'pending',
-        reply_to_id: replyToId,
-        replied_to: repliedTo,
-        attachments,
-      };
-
-      addMessage(selectedThreadId, optimisticMessage);
-
-      if (wsService.getState() === ConnectionState.CONNECTED) {
-        const doSend = async () => {
-          try {
-            let sendContent = content;
-            if (isEncrypted) {
-              sendContent = await e2eeService.encryptForChannel(selectedThreadId, content);
-              if (!sendContent || sendContent.length < 40) {
-                throw new Error('Encryption produced invalid output');
-              }
-            }
-            wsService.sendDMMessage(selectedThreadId, sendContent, {
-              nonce: clientMessageId,
-              isEncrypted,
-              mentionMeta,
-              attachmentIds,
-              replyToId,
-            });
-            messageQueue.markAsSent(clientMessageId);
-            messageQueue.remove(clientMessageId);
-            updateMessageStatus(selectedThreadId, clientMessageId, 'sent');
-          } catch (error) {
-            console.error('[DMChatArea] Failed to send DM message:', error);
-            const errMsg = isEncrypted ? 'Encryption failed — message not sent' : String(error);
-            messageQueue.markAsFailed(clientMessageId, errMsg);
-            updateMessageStatus(selectedThreadId, clientMessageId, 'failed', undefined, errMsg);
-          }
-        };
-        doSend();
-      }
-
-      setReplyingTo(null);
-      return clientMessageId;
-    },
-    [selectedThreadId, user, activeConv, addMessage, updateMessageStatus]
-  );
-
-  // Edit DM message via REST
-  const handleEditMessage = useCallback(
-    async (messageId: string, newContent: string) => {
-      if (!selectedThreadId) return;
-      try {
-        // Encrypt if conversation is E2EE
-        let sendContent = newContent;
-        const isEncrypted = activeConv?.isEncrypted ?? false;
-        if (isEncrypted && e2eeService.isInitialized) {
-          sendContent = await e2eeService.encryptForChannel(selectedThreadId, newContent);
-        }
-
-        const res = await apiFetch(
-          `/api/v1/dm/conversations/${selectedThreadId}/messages/${messageId}`,
-          {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: sendContent }),
-          }
-        );
-        if (!res.ok) {
-          const data = await safeJson<{ error?: string }>(res);
-          throw new Error(data.error || 'Failed to edit message');
-        }
-        const data = await safeJson<{
-          message: {
-            content: string;
-            is_encrypted: boolean;
-            key_version?: number;
-            edited_at: string;
-          };
-        }>(res);
-        const updateMessage = useChatStore.getState().updateMessage;
-        updateMessage(selectedThreadId, messageId, {
-          content: isEncrypted ? newContent : data.message.content,
-          is_encrypted: data.message.is_encrypted,
-          key_version: data.message.key_version,
-          edited_at: data.message.edited_at,
-        });
-      } catch (err) {
-        console.error('Failed to edit DM message:', err);
-      }
-    },
-    [selectedThreadId, activeConv]
-  );
-
-  // Delete DM message via REST
-  const handleDeleteMessage = useCallback(
-    async (messageId: string) => {
-      if (!selectedThreadId) return;
-      try {
-        const res = await apiFetch(
-          `/api/v1/dm/conversations/${selectedThreadId}/messages/${messageId}`,
-          { method: 'DELETE' }
-        );
-        if (!res.ok) {
-          const data = await safeJson<{ error?: string }>(res);
-          throw new Error(data.error || 'Failed to delete message');
-        }
-        const deleteMessage = useChatStore.getState().deleteMessage;
-        deleteMessage(selectedThreadId, messageId);
-      } catch (err) {
-        console.error('Failed to delete DM message:', err);
-      }
-    },
-    [selectedThreadId]
-  );
-
-  // Unseen count on leave
+  // Unseen count on leave (DM-specific: uses dmStore, not unreadStore)
   const handleUnseenOnLeave = useCallback(
     (count: number) => {
       if (!selectedThreadId || count <= 0) return;
@@ -256,14 +99,19 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
     [selectedThreadId]
   );
 
-  // Send DM typing indicator via WebSocket
-  const handleTyping = useCallback(
-    (isTyping: boolean) => {
-      if (selectedThreadId) {
-        getWebSocketService()?.sendDMTypingIndicator(selectedThreadId, isTyping);
-      }
+  // Send message adapter (MessageInput callback signature)
+  const handleSendMessage = useCallback(
+    (
+      content: string,
+      mentionMeta?: string,
+      replyToId?: string,
+      attachmentIds?: string[],
+      attachments?: import('../../types/chat').AttachmentSummary[]
+    ) => {
+      if (!selectedThreadId) return;
+      sendMessage(content, { mentionMeta, replyToId, attachmentIds, attachments });
     },
-    [selectedThreadId]
+    [selectedThreadId, sendMessage]
   );
 
   if (!selectedThreadId) {
@@ -335,13 +183,13 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
             key={selectedThreadId}
             messages={messages}
             currentUserId={currentUserId}
-            chatContext="dm"
+            chatContext={chatContext}
             channelName={threadName}
             isLoading={isLoading}
             hasMore={hasMore}
             onLoadMore={handleLoadMore}
-            onEditMessage={handleEditMessage}
-            onDeleteMessage={handleDeleteMessage}
+            onEditMessage={editMessage}
+            onDeleteMessage={deleteMessage}
             onUnseenOnLeave={handleUnseenOnLeave}
             onReply={handleReply}
             onPinToggle={handlePinToggle}
@@ -359,13 +207,13 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
           <div className="chat-input">
             <MessageInput
               onSendMessage={handleSendMessage}
-              onTyping={handleTyping}
+              onTyping={sendTyping}
               channelName={threadName}
               disabled={!currentUserId}
               isChannelEncrypted={activeConv?.isEncrypted ?? false}
               conversationId={selectedThreadId || undefined}
               replyingTo={replyingTo}
-              onCancelReply={handleCancelReply}
+              onCancelReply={cancelReply}
             />
           </div>
         )}

@@ -238,6 +238,10 @@ function MessageOverlays({
         onDelete={deleteHandler}
         onRequestDelete={requestDeleteHandler}
         onReply={replyHandler}
+        onPin={pinHandler}
+        canPin={canPin}
+        isPinned={!!message.pinned_at}
+        onReaction={(pos) => setReactionPicker(pos)}
       />
 
       {hasReactions && <ReactionBar messageId={message.id} reactions={message.reactions ?? []} />}

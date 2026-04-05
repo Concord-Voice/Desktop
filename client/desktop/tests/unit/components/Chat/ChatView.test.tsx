@@ -1,8 +1,9 @@
-import { render, screen } from '../../../test-utils';
+import { render, screen, act } from '../../../test-utils';
 import { useChannelStore } from '@/renderer/stores/channelStore';
 import { useChatStore } from '@/renderer/stores/chatStore';
 import { useUserStore } from '@/renderer/stores/userStore';
 import { useServerStore } from '@/renderer/stores/serverStore';
+import { useUnreadStore } from '@/renderer/stores/unreadStore';
 import {
   mockUser,
   mockChannel,
@@ -22,25 +23,46 @@ vi.mock('@/renderer/services/apiClient', () => ({
   API_BASE: 'http://localhost:8080',
 }));
 
+// Mock pinService — must be before ChatView import
+const mockPinMessage = vi.fn().mockResolvedValue({
+  message_id: 'msg-1',
+  pinned_at: '2025-01-01T00:00:00Z',
+  pinned_by: 'user-1',
+});
+const mockUnpinMessage = vi.fn().mockResolvedValue({ message_id: 'msg-1' });
+const mockGetChannelPins = vi.fn().mockResolvedValue([]);
+vi.mock('@/renderer/services/pinService', () => ({
+  pinMessage: (...args: unknown[]) => mockPinMessage(...args),
+  unpinMessage: (...args: unknown[]) => mockUnpinMessage(...args),
+  getChannelPins: (...args: unknown[]) => mockGetChannelPins(...args),
+}));
+
+// Capture MessageList callback props for testing
+let capturedMessageListProps: Record<string, unknown> = {};
+
 // Mock heavy child components
 vi.mock('@/renderer/components/Chat/MessageList', () => ({
-  default: ({
-    messages,
-    channelName,
-    isLoading,
-  }: {
+  default: (props: {
     messages: unknown[];
     channelName?: string;
     isLoading: boolean;
-  }) => (
-    <div data-testid="message-list" data-channel={channelName} data-loading={isLoading}>
-      {(messages as Array<{ id: string; content: string }>).map((m) => (
-        <div key={m.id} data-testid="message">
-          {m.content}
-        </div>
-      ))}
-    </div>
-  ),
+    onUnseenOnLeave?: (count: number) => void;
+    onPinToggle?: (message: unknown) => void;
+    onScrollToMessage?: (messageId: string) => void;
+    [key: string]: unknown;
+  }) => {
+    capturedMessageListProps = props;
+    const { messages, channelName, isLoading } = props;
+    return (
+      <div data-testid="message-list" data-channel={channelName} data-loading={isLoading}>
+        {(messages as Array<{ id: string; content: string }>).map((m) => (
+          <div key={m.id} data-testid="message">
+            {m.content}
+          </div>
+        ))}
+      </div>
+    );
+  },
 }));
 
 vi.mock('@/renderer/components/Chat/MessageInput', () => ({
@@ -108,8 +130,10 @@ import ChatView from '@/renderer/components/Chat/ChatView';
 describe('ChatView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    capturedMessageListProps = {};
     useUserStore.setState({ user: mockUser });
     useChannelStore.setState({ channels: [mockChannel], activeChannelId: null });
+    useServerStore.setState({ activeServerId: 'server-1' });
     useChatStore.setState({
       messagesByChannel: new Map(),
       isConnected: true,
@@ -118,6 +142,7 @@ describe('ChatView', () => {
       ok: true,
       json: async () => ({ messages: [] }),
     });
+    mockGetChannelPins.mockResolvedValue([]);
   });
 
   it('renders nothing when no active channel', () => {
@@ -354,5 +379,92 @@ describe('ChatView', () => {
         attachments: [{ id: 'att-1' }],
       })
     );
+  });
+
+  // ── handleUnseenOnLeave ──
+
+  it('handleUnseenOnLeave sets unread count and marks server unread', () => {
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    useServerStore.setState({ activeServerId: 'server-1' });
+    render(<ChatView />);
+
+    const onUnseenOnLeave = capturedMessageListProps.onUnseenOnLeave as (count: number) => void;
+    expect(onUnseenOnLeave).toBeDefined();
+
+    // Spy on unreadStore methods
+    const setUnreadCountSpy = vi.spyOn(useUnreadStore.getState(), 'setUnreadCount');
+    const markServerUnreadSpy = vi.spyOn(useUnreadStore.getState(), 'markServerUnread');
+
+    onUnseenOnLeave(5);
+
+    expect(setUnreadCountSpy).toHaveBeenCalledWith('channel-1', 5);
+    expect(markServerUnreadSpy).toHaveBeenCalledWith('server-1');
+
+    setUnreadCountSpy.mockRestore();
+    markServerUnreadSpy.mockRestore();
+  });
+
+  // ── handlePinToggle ──
+
+  it('handlePinToggle calls pinMessage and increments count', async () => {
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    render(<ChatView />);
+
+    const onPinToggle = capturedMessageListProps.onPinToggle as (msg: unknown) => Promise<void>;
+    expect(onPinToggle).toBeDefined();
+
+    // Trigger pin on an unpinned message (no pinned_at)
+    await onPinToggle({ ...mockMessage, pinned_at: null });
+
+    expect(mockPinMessage).toHaveBeenCalledWith('msg-1');
+    expect(mockUnpinMessage).not.toHaveBeenCalled();
+  });
+
+  it('handlePinToggle calls unpinMessage and decrements count', async () => {
+    // Seed one existing pin so count starts at 1
+    mockGetChannelPins.mockResolvedValue([{ id: 'msg-1' }]);
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    render(<ChatView />);
+
+    // Wait for pin count fetch to settle
+    await vi.waitFor(() => {
+      expect(mockGetChannelPins).toHaveBeenCalledWith('channel-1');
+    });
+
+    const onPinToggle = capturedMessageListProps.onPinToggle as (msg: unknown) => Promise<void>;
+    expect(onPinToggle).toBeDefined();
+
+    // Trigger unpin on a pinned message
+    await onPinToggle({ ...mockMessage, pinned_at: '2025-01-01T00:00:00Z' });
+
+    expect(mockUnpinMessage).toHaveBeenCalledWith('msg-1');
+    expect(mockPinMessage).not.toHaveBeenCalled();
+  });
+
+  // ── handleScrollToMessage ──
+
+  it('handleScrollToMessage is passed to MessageList', () => {
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    render(<ChatView />);
+
+    const onScrollToMessage = capturedMessageListProps.onScrollToMessage as (id: string) => void;
+    expect(typeof onScrollToMessage).toBe('function');
+  });
+
+  // ── Keyboard shortcut: toggle search panel ──
+
+  it('toggles search panel via concord:toggle-search event', () => {
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    render(<ChatView />);
+
+    const searchBtn = screen.getByRole('button', { name: 'Search messages' });
+    expect(searchBtn).toHaveAttribute('aria-expanded', 'false');
+
+    // Dispatch the custom event that the keyboard shortcut handler listens for
+    act(() => {
+      globalThis.dispatchEvent(new Event('concord:toggle-search'));
+    });
+
+    expect(searchBtn).toHaveAttribute('aria-expanded', 'true');
   });
 });

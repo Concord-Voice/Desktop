@@ -4,6 +4,18 @@
  *  Server roles apply in 'channel'/'voice'; DM-specific styling (#324) applies in 'dm'. */
 export type ChatContextType = 'channel' | 'dm' | 'voice';
 
+/** Controller-level context for routing operations (send/edit/delete/typing/pin)
+ *  to the correct transport (WS method, REST endpoint) and permission model. */
+export interface ChatContext {
+  type: ChatContextType;
+  /** channelId for channels/voice, conversationId for DMs */
+  id: string;
+  /** Required for RBAC permission lookups (channels/voice only) */
+  serverId?: string;
+  /** Whether messages in this context are E2EE-encrypted */
+  isEncrypted: boolean;
+}
+
 // --- Attachment Types (for #178) ---
 
 export interface AttachmentSummary {

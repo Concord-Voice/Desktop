@@ -48,27 +48,50 @@ export function useMessaging() {
   const { updateMessageStatus, addMessage } = useChatStore();
   const userId = useUserStore((s) => s.user?.id);
 
-  // Process a single queued message: encrypt if needed, then send
+  // Process a single queued message: encrypt if needed, then send via correct transport
   const processQueuedMessage = useCallback(
     async (msg: QueuedMessage) => {
-      if (!wsService.isSubscribed(msg.channelId)) {
-        return; // Skip — will retry on next cycle once subscribed
+      const isDM = msg.type === 'dm_message';
+      const subscribed = isDM
+        ? wsService.isDMSubscribed(msg.channelId)
+        : wsService.isSubscribed(msg.channelId);
+      if (!subscribed) {
+        throw new Error(
+          `Subscription not available for ${isDM ? 'DM' : 'channel'} ${msg.channelId}; retry later`
+        );
       }
-      const channel = useChannelStore.getState().channels.find((c) => c.id === msg.channelId);
-      const isEncrypted = channel?.is_encrypted ?? false;
+      // For DMs, encryption state is captured at enqueue time.
+      // For channels, look up from the channel store (authoritative).
+      const isEncrypted = isDM
+        ? (msg.isEncrypted ?? false)
+        : (useChannelStore.getState().channels.find((c) => c.id === msg.channelId)?.is_encrypted ??
+          false);
       let content = msg.content;
       let keyVersion: number | undefined;
-      if (isEncrypted && e2eeService.isInitialized) {
+      if (isEncrypted) {
+        if (!e2eeService.isInitialized) {
+          throw new Error(
+            `E2EE not initialized for encrypted ${isDM ? 'DM' : 'channel'} message ${msg.id}; retry later`
+          );
+        }
         content = await e2eeService.encryptForChannel(msg.channelId, msg.content);
+        if (!content || content.length < 40) {
+          throw new Error(`Encryption produced invalid output for message ${msg.id}`);
+        }
         keyVersion = e2eeService.getCurrentKeyVersion(msg.channelId);
       }
-      wsService.sendMessage(msg.channelId, content, {
+      const opts = {
         nonce: msg.id,
         isEncrypted,
         keyVersion,
         mentionMeta: msg.mentionMeta,
         replyToId: msg.replyToId,
-      });
+      };
+      if (isDM) {
+        wsService.sendDMMessage(msg.channelId, content, opts);
+      } else {
+        wsService.sendMessage(msg.channelId, content, opts);
+      }
     },
     [wsService]
   );
@@ -201,6 +224,111 @@ export function useMessaging() {
   );
 
   /**
+   * Send a DM message with delivery tracking.
+   * Mirrors sendMessage but routes through DM WebSocket transport.
+   * Fixes #492: includes keyVersion for epoch enforcement (was previously omitted).
+   */
+  const sendDMMessage = useCallback(
+    (
+      conversationId: string,
+      content: string,
+      isEncrypted: boolean,
+      username: string = 'You',
+      opts?: SendMessageOptions
+    ): string => {
+      const { avatarUrl, displayName, mentionMeta, replyToId, attachmentIds, attachments } =
+        opts ?? {};
+
+      // Generate client-side message ID
+      const clientMessageId = messageQueue.enqueue(
+        conversationId,
+        content,
+        'dm_message',
+        mentionMeta,
+        replyToId,
+        isEncrypted
+      );
+
+      // Build replied_to summary from store for optimistic display
+      let repliedTo: MessageWithStatus['replied_to'];
+      if (replyToId) {
+        const storeMessages = useChatStore.getState().messagesByChannel.get(conversationId);
+        const target = storeMessages?.find((m) => m.id === replyToId);
+        if (target) {
+          repliedTo = {
+            id: target.id,
+            user_id: target.user_id,
+            username: target.username,
+            display_name: target.display_name,
+            content: target.content,
+            is_encrypted: target.is_encrypted,
+          };
+        }
+      }
+
+      // Optimistically add message to UI with "pending" status
+      const optimisticMessage: MessageWithStatus = {
+        id: clientMessageId,
+        clientMessageId,
+        channel_id: conversationId,
+        user_id: userId || 'unknown',
+        username,
+        display_name: displayName,
+        avatar_url: avatarUrl,
+        content,
+        is_encrypted: isEncrypted,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: 'pending',
+        reply_to_id: replyToId,
+        replied_to: repliedTo,
+        attachments,
+      };
+
+      addMessage(conversationId, optimisticMessage);
+
+      // If connected, send immediately (with encryption if needed)
+      if (wsService.getState() === ConnectionState.CONNECTED) {
+        const doSend = async () => {
+          try {
+            let sendContent = content;
+            let keyVersion: number | undefined;
+            if (isEncrypted) {
+              sendContent = await e2eeService.encryptForChannel(conversationId, content);
+              keyVersion = e2eeService.getCurrentKeyVersion(conversationId);
+              if (!sendContent || sendContent.length < 40) {
+                throw new Error('Encryption produced invalid output');
+              }
+            }
+            wsService.sendDMMessage(conversationId, sendContent, {
+              nonce: clientMessageId,
+              isEncrypted,
+              keyVersion,
+              mentionMeta,
+              attachmentIds,
+              replyToId,
+            });
+            messageQueue.markAsSent(clientMessageId);
+            messageQueue.remove(clientMessageId);
+            updateMessageStatus(conversationId, clientMessageId, 'sent');
+          } catch (error) {
+            console.error('[useMessaging] Failed to send DM message:', error);
+            const errMsg = isEncrypted ? 'Encryption failed — message not sent' : String(error);
+            messageQueue.markAsFailed(clientMessageId, errMsg);
+            updateMessageStatus(conversationId, clientMessageId, 'failed', undefined, errMsg);
+          }
+        };
+        doSend();
+      } else {
+        console.debug(`[useMessaging] DM message queued (offline): ${clientMessageId}`);
+      }
+
+      return clientMessageId;
+    },
+    [wsService, messageQueue, addMessage, updateMessageStatus, userId]
+  );
+
+  /**
    * Mark a message as delivered (called when server acknowledges)
    */
   const markDelivered = useCallback(
@@ -242,6 +370,7 @@ export function useMessaging() {
 
   return {
     sendMessage,
+    sendDMMessage,
     markDelivered,
     sendTyping,
     getPendingCount,

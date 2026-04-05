@@ -1,22 +1,16 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { MessageSquare, Volume2, PanelBottom, PanelRight } from 'lucide-react';
 import MessageList from '../Chat/MessageList';
 import MessageInput from '../Chat/MessageInput';
 import { useChannelStore } from '../../stores/channelStore';
 import { useVoiceStore } from '../../stores/voiceStore';
-import { useChatStore } from '../../stores/chatStore';
 import { useUserStore } from '../../stores/userStore';
 import { useTTSSettingsStore } from '../../stores/ttsSettingsStore';
-import { usePermissionStore } from '../../stores/permissionStore';
 import { useServerStore } from '../../stores/serverStore';
-import { PIN_MESSAGES } from '../../utils/permissions';
-import { pinMessage, unpinMessage } from '../../services/pinService';
 import { useChannelSubscription } from '../../hooks/useChannelSubscription';
 import { useMessageFetch } from '../../hooks/useMessageFetch';
-import { useMessaging } from '../../hooks/useMessaging';
-import { apiFetch, safeJson } from '../../services/apiClient';
-import { e2eeService } from '../../services/e2eeService';
-import type { MessageWithStatus } from '../../types/chat';
+import { useChatController } from '../../hooks/useChatController';
+import type { ChatContext } from '../../types/chat';
 import './VoiceTextChat.css';
 
 const VoiceTextChat: React.FC = () => {
@@ -28,32 +22,31 @@ const VoiceTextChat: React.FC = () => {
   const linkedChannel = activeChannelId ? getLinkedTextChannel(activeChannelId) : undefined;
   const channelId = linkedChannel?.id ?? null;
 
-  const updateMessage = useChatStore((s) => s.updateMessage);
-  const deleteMessage = useChatStore((s) => s.deleteMessage);
   const user = useUserStore((s) => s.user);
-  const hasServerPermission = usePermissionStore((s) => s.hasServerPermission);
   const activeServerId = useServerStore((s) => s.activeServerId);
 
-  const [replyingTo, setReplyingTo] = useState<MessageWithStatus | null>(null);
-  const handleReply = useCallback((msg: MessageWithStatus) => setReplyingTo(msg), []);
-  const handleCancelReply = useCallback(() => setReplyingTo(null), []);
+  const ctx: ChatContext = useMemo(
+    () => ({
+      type: 'voice' as const,
+      id: channelId || '',
+      serverId: activeServerId ?? undefined,
+      isEncrypted: linkedChannel?.is_encrypted ?? false,
+    }),
+    [channelId, activeServerId, linkedChannel?.is_encrypted]
+  );
 
-  const canPin = useMemo(() => {
-    if (!activeServerId) return false;
-    return hasServerPermission(activeServerId, PIN_MESSAGES);
-  }, [activeServerId, hasServerPermission]);
-
-  const handlePinToggle = useCallback(async (message: MessageWithStatus) => {
-    try {
-      if (message.pinned_at) {
-        await unpinMessage(message.id);
-      } else {
-        await pinMessage(message.id);
-      }
-    } catch (err) {
-      console.error('Failed to toggle pin:', err);
-    }
-  }, []);
+  const {
+    sendMessage,
+    editMessage,
+    deleteMessage,
+    replyingTo,
+    handleReply,
+    cancelReply,
+    canPin,
+    handlePinToggle,
+    sendTyping,
+    chatContext,
+  } = useChatController(ctx);
 
   const ttsEnabled = useTTSSettingsStore((s) => s.ttsEnabled);
   const [isSpeaking, setIsSpeaking] = useState(false);
@@ -75,85 +68,18 @@ const VoiceTextChat: React.FC = () => {
     type: 'channel',
   });
 
-  const { sendMessage } = useMessaging();
-
   const currentUserId = user?.id || '';
 
-  const handleSendMessage = useCallback(
-    (
-      content: string,
-      mentionMeta?: string,
-      replyToId?: string,
-      attachmentIds?: string[],
-      attachments?: import('../../types/chat').AttachmentSummary[]
-    ) => {
-      if (!channelId) return;
-      sendMessage(channelId, content, user?.username || 'You', {
-        avatarUrl: user?.avatar_url,
-        displayName: user?.display_name,
-        mentionMeta,
-        replyToId,
-        attachmentIds,
-        attachments,
-      });
-      setReplyingTo(null);
-    },
-    [channelId, sendMessage, user?.username, user?.avatar_url, user?.display_name]
-  );
-
-  const handleEditMessage = useCallback(
-    async (messageId: string, newContent: string) => {
-      if (!channelId) return;
-      try {
-        // Encrypt if channel is E2EE
-        let sendContent = newContent;
-        const channel = useChannelStore.getState().channels.find((c) => c.id === channelId);
-        if (channel?.is_encrypted && e2eeService.isInitialized) {
-          sendContent = await e2eeService.encryptForChannel(channelId, newContent);
-        }
-
-        const res = await apiFetch(`/api/v1/messages/${messageId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content: sendContent }),
-        });
-        if (!res.ok) {
-          const data = await safeJson<{ error?: string }>(res);
-          throw new Error(data.error || 'Failed to edit message');
-        }
-        const data = await safeJson<{ message: MessageWithStatus }>(res);
-        updateMessage(channelId, messageId, {
-          content: channel?.is_encrypted ? newContent : data.message.content,
-          is_encrypted: data.message.is_encrypted,
-          key_version: data.message.key_version,
-          edited_at: data.message.edited_at,
-          updated_at: data.message.updated_at,
-        });
-      } catch (err) {
-        console.error('Failed to edit message:', err);
-      }
-    },
-    [channelId, updateMessage]
-  );
-
-  const handleDeleteMessage = useCallback(
-    async (messageId: string) => {
-      if (!channelId) return;
-      try {
-        const res = await apiFetch(`/api/v1/messages/${messageId}`, {
-          method: 'DELETE',
-        });
-        if (!res.ok) {
-          const data = await safeJson<{ error?: string }>(res);
-          throw new Error(data.error || 'Failed to delete message');
-        }
-        deleteMessage(channelId, messageId);
-      } catch (err) {
-        console.error('Failed to delete message:', err);
-      }
-    },
-    [channelId, deleteMessage]
-  );
+  const handleSendMessage = (
+    content: string,
+    mentionMeta?: string,
+    replyToId?: string,
+    attachmentIds?: string[],
+    attachments?: import('../../types/chat').AttachmentSummary[]
+  ) => {
+    if (!channelId) return;
+    sendMessage(content, { mentionMeta, replyToId, attachmentIds, attachments });
+  };
 
   if (!channelId || !linkedChannel) {
     return (
@@ -194,13 +120,13 @@ const VoiceTextChat: React.FC = () => {
           key={channelId}
           messages={messages}
           currentUserId={currentUserId}
-          chatContext="voice"
+          chatContext={chatContext}
           channelName={linkedChannel.name}
           isLoading={isLoading}
           hasMore={hasMore}
           onLoadMore={handleLoadMore}
-          onEditMessage={handleEditMessage}
-          onDeleteMessage={handleDeleteMessage}
+          onEditMessage={editMessage}
+          onDeleteMessage={deleteMessage}
           onReply={handleReply}
           onPinToggle={handlePinToggle}
           canPin={canPin}
@@ -217,12 +143,13 @@ const VoiceTextChat: React.FC = () => {
       <div className="voice-text-chat__input">
         <MessageInput
           onSendMessage={handleSendMessage}
+          onTyping={sendTyping}
           channelName={linkedChannel.name}
           disabled={!currentUserId}
           isChannelEncrypted={linkedChannel.is_encrypted ?? false}
           placeholder={`Message ${linkedChannel.name} text chat...`}
           replyingTo={replyingTo}
-          onCancelReply={handleCancelReply}
+          onCancelReply={cancelReply}
         />
       </div>
     </div>

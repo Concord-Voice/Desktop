@@ -26,9 +26,10 @@ export interface QueuedMessage {
   status: MessageStatus;
   retryCount: number;
   maxRetries: number;
-  type: 'message' | 'typing' | 'other';
+  type: 'message' | 'dm_message' | 'typing' | 'other';
   mentionMeta?: string;
   replyToId?: string;
+  isEncrypted?: boolean; // Captured at enqueue time for DM queue processing
 }
 
 interface MessageQueueCallbacks {
@@ -57,9 +58,10 @@ export class MessageQueue {
   enqueue(
     channelId: string,
     content: string,
-    type: 'message' | 'typing' | 'other' = 'message',
+    type: 'message' | 'dm_message' | 'typing' | 'other' = 'message',
     mentionMeta?: string,
-    replyToId?: string
+    replyToId?: string,
+    isEncrypted?: boolean
   ): string {
     const messageId = this.generateMessageId();
 
@@ -74,6 +76,7 @@ export class MessageQueue {
       type,
       mentionMeta,
       replyToId,
+      isEncrypted,
     };
 
     this.queue.push(queuedMessage);

@@ -8,18 +8,22 @@ import { ConnectionState } from '@/renderer/services/websocketService';
 
 // Mock websocketService
 const mockSendMessage = vi.fn();
+const mockSendDMMessage = vi.fn();
 const mockSendTypingIndicator = vi.fn();
 const mockOnConnectionChange = vi.fn(() => vi.fn()); // returns unsubscribe
 const mockGetState = vi.fn(() => ConnectionState.CONNECTED);
 const mockIsSubscribed = vi.fn(() => true);
+const mockIsDMSubscribed = vi.fn(() => true);
 
 vi.mock('@/renderer/services/websocketService', () => ({
   getWebSocketService: () => ({
     sendMessage: mockSendMessage,
+    sendDMMessage: mockSendDMMessage,
     sendTypingIndicator: mockSendTypingIndicator,
     onConnectionChange: mockOnConnectionChange,
     getState: mockGetState,
     isSubscribed: mockIsSubscribed,
+    isDMSubscribed: mockIsDMSubscribed,
   }),
   ConnectionState: {
     CONNECTED: 'connected',
@@ -75,11 +79,14 @@ describe('useMessaging', () => {
     useUserStore.setState({ user: mockUser });
     useChannelStore.setState({ channels: [mockChannel, mockEncryptedChannel] });
     mockGetState.mockReturnValue(ConnectionState.CONNECTED);
+    mockIsSubscribed.mockReturnValue(true);
+    mockIsDMSubscribed.mockReturnValue(true);
   });
 
-  it('returns sendMessage, markDelivered, sendTyping, getPendingCount, getPendingMessagesForChannel', () => {
+  it('returns sendMessage, sendDMMessage, markDelivered, sendTyping, getPendingCount, getPendingMessagesForChannel', () => {
     const { result } = renderHook(() => useMessaging());
     expect(result.current.sendMessage).toBeInstanceOf(Function);
+    expect(result.current.sendDMMessage).toBeInstanceOf(Function);
     expect(result.current.markDelivered).toBeInstanceOf(Function);
     expect(result.current.sendTyping).toBeInstanceOf(Function);
     expect(result.current.getPendingCount).toBeInstanceOf(Function);
@@ -296,5 +303,288 @@ describe('useMessaging', () => {
     const { result } = renderHook(() => useMessaging());
     expect(result.current.getPendingMessagesForChannel('channel-1')).toEqual(msgs);
     expect(mockGetMessagesForChannel).toHaveBeenCalledWith('channel-1');
+  });
+
+  // --- sendDMMessage tests ---
+
+  it('sendDMMessage enqueues with dm_message type and isEncrypted flag', () => {
+    const { result } = renderHook(() => useMessaging());
+
+    act(() => {
+      result.current.sendDMMessage('dm-conv-1', 'Hello DM', true, 'testuser');
+    });
+
+    expect(mockEnqueue).toHaveBeenCalledWith(
+      'dm-conv-1',
+      'Hello DM',
+      'dm_message',
+      undefined,
+      undefined,
+      true
+    );
+  });
+
+  it('sendDMMessage sends via websocket sendDMMessage when connected', async () => {
+    const { result } = renderHook(() => useMessaging());
+
+    act(() => {
+      result.current.sendDMMessage('dm-conv-1', 'Hello DM', false, 'testuser');
+    });
+
+    await vi.waitFor(() => {
+      expect(mockSendDMMessage).toHaveBeenCalledWith('dm-conv-1', 'Hello DM', {
+        nonce: 'client-msg-1',
+        isEncrypted: false,
+        keyVersion: undefined,
+        mentionMeta: undefined,
+        attachmentIds: undefined,
+        replyToId: undefined,
+      });
+    });
+  });
+
+  it('sendDMMessage encrypts for E2EE conversations and includes keyVersion', async () => {
+    mockEncryptForChannel.mockResolvedValue(
+      'encrypted-base64-content-that-is-long-enough-for-validation'
+    );
+    mockGetCurrentKeyVersion.mockReturnValue(5);
+
+    const { result } = renderHook(() => useMessaging());
+
+    act(() => {
+      result.current.sendDMMessage('dm-conv-1', 'Secret DM', true, 'testuser');
+    });
+
+    await vi.waitFor(() => {
+      expect(mockEncryptForChannel).toHaveBeenCalledWith('dm-conv-1', 'Secret DM');
+      expect(mockSendDMMessage).toHaveBeenCalledWith(
+        'dm-conv-1',
+        'encrypted-base64-content-that-is-long-enough-for-validation',
+        {
+          nonce: 'client-msg-1',
+          isEncrypted: true,
+          keyVersion: 5,
+          mentionMeta: undefined,
+          attachmentIds: undefined,
+          replyToId: undefined,
+        }
+      );
+    });
+  });
+
+  it('sendDMMessage marks as failed when encryption produces invalid output', async () => {
+    mockEncryptForChannel.mockResolvedValue('short');
+    mockGetCurrentKeyVersion.mockReturnValue(2);
+
+    const { result } = renderHook(() => useMessaging());
+
+    act(() => {
+      result.current.sendDMMessage('dm-conv-1', 'Secret DM', true, 'testuser');
+    });
+
+    await vi.waitFor(() => {
+      expect(mockMarkAsFailed).toHaveBeenCalledWith(
+        'client-msg-1',
+        'Encryption failed — message not sent'
+      );
+    });
+  });
+
+  it('sendDMMessage does not send via websocket when disconnected', () => {
+    mockGetState.mockReturnValue(ConnectionState.DISCONNECTED);
+
+    const { result } = renderHook(() => useMessaging());
+
+    act(() => {
+      result.current.sendDMMessage('dm-conv-1', 'Hello offline DM', false, 'testuser');
+    });
+
+    expect(mockSendDMMessage).not.toHaveBeenCalled();
+    // But should still enqueue
+    expect(mockEnqueue).toHaveBeenCalled();
+  });
+
+  it('sendDMMessage adds optimistic message to store', () => {
+    const { result } = renderHook(() => useMessaging());
+
+    act(() => {
+      result.current.sendDMMessage('dm-conv-1', 'Optimistic DM', true, 'testuser');
+    });
+
+    const messages = useChatStore.getState().messagesByChannel.get('dm-conv-1');
+    const optimistic = messages?.find((m) => m.content === 'Optimistic DM');
+    expect(optimistic).toBeDefined();
+    expect(optimistic?.channel_id).toBe('dm-conv-1');
+    expect(optimistic?.is_encrypted).toBe(true);
+    expect(optimistic?.status).toBe('pending');
+  });
+
+  it('sendDMMessage populates replied_to from store for optimistic display', () => {
+    // Seed the target message in the store
+    useChatStore.getState().addMessage('dm-conv-1', {
+      id: 'dm-target-msg',
+      channel_id: 'dm-conv-1',
+      user_id: 'user-2',
+      username: 'otheruser',
+      display_name: 'Other User',
+      content: 'Original DM content',
+      is_encrypted: false,
+      created_at: '2025-01-01T12:00:00Z',
+      updated_at: '2025-01-01T12:00:00Z',
+      status: 'delivered',
+    });
+
+    const { result } = renderHook(() => useMessaging());
+
+    act(() => {
+      result.current.sendDMMessage('dm-conv-1', 'My DM reply', false, 'testuser', {
+        replyToId: 'dm-target-msg',
+      });
+    });
+
+    const messages = useChatStore.getState().messagesByChannel.get('dm-conv-1');
+    const optimistic = messages?.find((m) => m.content === 'My DM reply');
+    expect(optimistic).toBeDefined();
+    expect(optimistic?.reply_to_id).toBe('dm-target-msg');
+    expect(optimistic?.replied_to).toBeDefined();
+    expect(optimistic?.replied_to?.id).toBe('dm-target-msg');
+    expect(optimistic?.replied_to?.content).toBe('Original DM content');
+  });
+
+  // --- processQueuedMessage tests (via startProcessing callback) ---
+
+  it('processQueuedMessage routes dm_message to sendDMMessage', async () => {
+    renderHook(() => useMessaging());
+
+    // Capture the connection change handler
+    const connectionHandler = mockOnConnectionChange.mock.calls[0][0];
+    // Trigger CONNECTED to start processing — captures processQueuedMessage callback
+    act(() => {
+      connectionHandler(ConnectionState.CONNECTED);
+    });
+
+    const processCallback = mockStartProcessing.mock.calls[0][0];
+
+    // Invoke processQueuedMessage with a DM queued message
+    await processCallback({
+      id: 'queued-dm-1',
+      channelId: 'dm-conv-1',
+      content: 'DM via queue',
+      type: 'dm_message',
+      isEncrypted: false,
+      status: 'pending',
+      createdAt: Date.now(),
+      retries: 0,
+    });
+
+    expect(mockSendDMMessage).toHaveBeenCalledWith('dm-conv-1', 'DM via queue', {
+      nonce: 'queued-dm-1',
+      isEncrypted: false,
+      keyVersion: undefined,
+      mentionMeta: undefined,
+      replyToId: undefined,
+    });
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('processQueuedMessage routes regular message to sendMessage', async () => {
+    renderHook(() => useMessaging());
+
+    const connectionHandler = mockOnConnectionChange.mock.calls[0][0];
+    act(() => {
+      connectionHandler(ConnectionState.CONNECTED);
+    });
+
+    const processCallback = mockStartProcessing.mock.calls[0][0];
+
+    await processCallback({
+      id: 'queued-msg-1',
+      channelId: 'channel-1',
+      content: 'Regular via queue',
+      type: 'message',
+      status: 'pending',
+      createdAt: Date.now(),
+      retries: 0,
+    });
+
+    expect(mockSendMessage).toHaveBeenCalledWith('channel-1', 'Regular via queue', {
+      nonce: 'queued-msg-1',
+      isEncrypted: false,
+      keyVersion: undefined,
+      mentionMeta: undefined,
+      replyToId: undefined,
+    });
+    expect(mockSendDMMessage).not.toHaveBeenCalled();
+  });
+
+  it('processQueuedMessage throws when not subscribed (DM) so queue retries', async () => {
+    mockIsDMSubscribed.mockReturnValue(false);
+
+    renderHook(() => useMessaging());
+
+    const connectionHandler = mockOnConnectionChange.mock.calls[0][0];
+    act(() => {
+      connectionHandler(ConnectionState.CONNECTED);
+    });
+
+    const processCallback = mockStartProcessing.mock.calls[0][0];
+
+    await expect(
+      processCallback({
+        id: 'queued-dm-2',
+        channelId: 'dm-conv-1',
+        content: 'Should be retried',
+        type: 'dm_message',
+        isEncrypted: false,
+        status: 'pending',
+        createdAt: Date.now(),
+        retries: 0,
+      })
+    ).rejects.toThrow('Subscription not available');
+
+    expect(mockSendDMMessage).not.toHaveBeenCalled();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('processQueuedMessage uses msg.isEncrypted for DM encryption state', async () => {
+    mockEncryptForChannel.mockResolvedValue(
+      'encrypted-base64-content-that-is-long-enough-for-validation'
+    );
+    mockGetCurrentKeyVersion.mockReturnValue(7);
+
+    renderHook(() => useMessaging());
+
+    const connectionHandler = mockOnConnectionChange.mock.calls[0][0];
+    act(() => {
+      connectionHandler(ConnectionState.CONNECTED);
+    });
+
+    const processCallback = mockStartProcessing.mock.calls[0][0];
+
+    await act(async () => {
+      await processCallback({
+        id: 'queued-dm-enc',
+        channelId: 'dm-conv-1',
+        content: 'Encrypted DM via queue',
+        type: 'dm_message',
+        isEncrypted: true,
+        status: 'pending',
+        createdAt: Date.now(),
+        retries: 0,
+      });
+    });
+
+    expect(mockEncryptForChannel).toHaveBeenCalledWith('dm-conv-1', 'Encrypted DM via queue');
+    expect(mockSendDMMessage).toHaveBeenCalledWith(
+      'dm-conv-1',
+      'encrypted-base64-content-that-is-long-enough-for-validation',
+      {
+        nonce: 'queued-dm-enc',
+        isEncrypted: true,
+        keyVersion: 7,
+        mentionMeta: undefined,
+        replyToId: undefined,
+      }
+    );
   });
 });

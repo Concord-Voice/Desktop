@@ -9,6 +9,10 @@ export interface MessageActionsProps {
   onDelete?: (messageId: string) => void;
   onRequestDelete?: () => void;
   onReply?: () => void;
+  onPin?: () => void;
+  canPin?: boolean;
+  isPinned?: boolean;
+  onReaction?: (position: { x: number; y: number }) => void;
 }
 
 const MessageActions: React.FC<MessageActionsProps> = ({
@@ -20,6 +24,10 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   onDelete,
   onRequestDelete,
   onReply,
+  onPin,
+  canPin,
+  isPinned,
+  onReaction,
 }) => {
   const [showOptions, setShowOptions] = useState(false);
   const optionsRef = useRef<HTMLDivElement>(null);
@@ -38,12 +46,36 @@ const MessageActions: React.FC<MessageActionsProps> = ({
   }, [showOptions]);
 
   if (isEditing) return null;
-  if (!canModify && !onReply) return null;
+  const canShowPin = !!(canPin && onPin);
+  if (!canModify && !onReply && !canShowPin) return null;
 
-  const hasMenuItems = !!(onEdit || onDelete);
+  const hasMenuItems = !!(onEdit || onDelete || canShowPin);
 
   return (
     <div className="message-options" ref={optionsRef}>
+      {onReaction && (
+        <button
+          className="message-quick-reaction"
+          onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            onReaction({ x: rect.left, y: rect.bottom + 4 });
+          }}
+          aria-label="Add Reaction"
+          title="Add Reaction"
+        >
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.5" />
+            <circle cx="5.5" cy="6.5" r="1" fill="currentColor" />
+            <circle cx="10.5" cy="6.5" r="1" fill="currentColor" />
+            <path
+              d="M5 10c.8 1.2 2.2 2 3.5 1.8 1.3-.2 2.2-1 2.5-1.8"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </button>
+      )}
       {onReply && (
         <button className="message-quick-reply" onClick={onReply} aria-label="Reply" title="Reply">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -98,6 +130,26 @@ const MessageActions: React.FC<MessageActionsProps> = ({
 
       {hasMenuItems && showOptions && (
         <div className="message-options-menu">
+          {canShowPin && (
+            <button
+              className="message-option"
+              onClick={() => {
+                onPin();
+                setShowOptions(false);
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <path
+                  d="M8 1.5L4.5 7H7v5l3.5-5H8V1.5z"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+              {isPinned ? 'Unpin' : 'Pin'}
+            </button>
+          )}
           {onEdit && (
             <button
               className="message-option"
