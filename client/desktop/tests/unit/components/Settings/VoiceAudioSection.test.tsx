@@ -549,4 +549,179 @@ describe('VoiceAudioSection', () => {
   // Note: stopTest interaction test omitted — same vi.mock() module cache issue
   // documented in the existing advanced mode tests. The "shows Stop Testing when
   // mic test active" test above validates the state-driven UI change.
+
+  // ===== AudioConfigSection: Advanced mode features =====
+
+  it('shows advanced audio features: FEC, NACK, Silence Detection, Frame Size, QoS, Stereo', async () => {
+    const { useAudioSettingsStore } = await import('@/renderer/stores/audioSettingsStore');
+    (useAudioSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (s: Function) => s({ advancedMode: true, setAdvancedMode: vi.fn() })
+    );
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Music Mode')).toBeInTheDocument();
+    expect(screen.getByText('Adaptive Frame Size (AFS)')).toBeInTheDocument();
+    expect(screen.getByText('Frame Size (ptime)')).toBeInTheDocument();
+    expect(screen.getByText('Silence Detection (DTX)')).toBeInTheDocument();
+    expect(screen.getByText('Mic Channel Mode')).toBeInTheDocument();
+    expect(screen.getByText('In-Line Forward Error Correction (FEC)')).toBeInTheDocument();
+    expect(screen.getByText('NACK (Retransmission)')).toBeInTheDocument();
+    expect(screen.getByText('Quality of Service for Audio')).toBeInTheDocument();
+  });
+
+  it('shows Error Correction & Reliability and Transport subsection headers in advanced mode', async () => {
+    const { useAudioSettingsStore } = await import('@/renderer/stores/audioSettingsStore');
+    (useAudioSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (s: Function) => s({ advancedMode: true, setAdvancedMode: vi.fn() })
+    );
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Error Correction & Reliability')).toBeInTheDocument();
+    expect(screen.getByText('Transport')).toBeInTheDocument();
+  });
+
+  it('shows advanced mode notice banner', async () => {
+    const { useAudioSettingsStore } = await import('@/renderer/stores/audioSettingsStore');
+    (useAudioSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (s: Function) => s({ advancedMode: true, setAdvancedMode: vi.fn() })
+    );
+    render(<VoiceAudioSection />);
+    expect(
+      screen.getByText(/These settings override the quality tier presets/)
+    ).toBeInTheDocument();
+  });
+
+  // ===== AudioConfigSection: Noise gate manual mode =====
+
+  it('shows gate threshold slider when noise gate is manual', async () => {
+    const { useDraftAudioSetting } = await import('@/renderer/hooks/useDraftSettings');
+    (useDraftAudioSetting as ReturnType<typeof vi.fn>).mockImplementation(
+      (key: string) =>
+        ({
+          stereoOverride: null,
+          noiseCancellation: true,
+          echoCancellation: true,
+          autoGainControl: true,
+          noiseGateMode: 'manual',
+          noiseGateLevel: -50,
+          inputVolume: 100,
+          outputVolume: 100,
+          quietBoost: false,
+          quietBoostThreshold: -38,
+          musicMode: false,
+          frameSize: 0,
+          silenceDetection: true,
+          inlineFec: true,
+          fecHeadroom: true,
+          opusNack: false,
+          adaptivePtime: true,
+          audioPriority: 'medium',
+        })[key] ?? false
+    );
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Gate Threshold')).toBeInTheDocument();
+    expect(screen.getByText('-50 dBFS')).toBeInTheDocument();
+  });
+
+  // ===== AudioConfigSection: Quiet boost enabled =====
+
+  it('shows boost threshold slider when quiet boost is enabled', async () => {
+    const { useDraftAudioSetting } = await import('@/renderer/hooks/useDraftSettings');
+    (useDraftAudioSetting as ReturnType<typeof vi.fn>).mockImplementation(
+      (key: string) =>
+        ({
+          stereoOverride: null,
+          noiseCancellation: true,
+          echoCancellation: true,
+          autoGainControl: true,
+          noiseGateMode: 'auto',
+          noiseGateLevel: -50,
+          inputVolume: 100,
+          outputVolume: 100,
+          quietBoost: true,
+          quietBoostThreshold: -38,
+          musicMode: false,
+          frameSize: 0,
+          silenceDetection: true,
+          inlineFec: true,
+          fecHeadroom: true,
+          opusNack: false,
+          adaptivePtime: true,
+          audioPriority: 'medium',
+        })[key] ?? false
+    );
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Boost Threshold')).toBeInTheDocument();
+    expect(screen.getByText('-38 dBFS')).toBeInTheDocument();
+  });
+
+  // ===== VideoConfigSection: Basic mode rendering =====
+
+  it('renders video basic mode elements: camera preset, resolution, frame rate, content type', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Camera Preset')).toBeInTheDocument();
+    expect(screen.getByText('Resolution')).toBeInTheDocument();
+    expect(screen.getByText('Frame Rate')).toBeInTheDocument();
+    expect(screen.getByText('Content Type')).toBeInTheDocument();
+    expect(screen.getByText('Screen Share')).toBeInTheDocument();
+  });
+
+  it('does not show advanced video features in basic mode', () => {
+    render(<VoiceAudioSection />);
+    expect(screen.queryByText('Hardware Acceleration')).not.toBeInTheDocument();
+    expect(screen.queryByText('Congestion Priority')).not.toBeInTheDocument();
+    expect(screen.queryByText('Enable HDR Encoding')).not.toBeInTheDocument();
+    expect(screen.queryByText('Codec & Hardware')).not.toBeInTheDocument();
+  });
+
+  // ===== VideoConfigSection: Advanced mode rendering =====
+
+  it('shows video advanced features when videoAdvancedMode is true', async () => {
+    const { useVideoSettingsStore } = await import('@/renderer/stores/videoSettingsStore');
+    (useVideoSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (s: Function) =>
+        s({
+          codecCapabilities: [],
+          gpuInfo: null,
+          videoAdvancedMode: true,
+          systemHdr: false,
+        })
+    );
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Hardware Acceleration')).toBeInTheDocument();
+    expect(screen.getByText('Enable HDR Encoding')).toBeInTheDocument();
+    expect(screen.getByText('Congestion Priority')).toBeInTheDocument();
+    expect(screen.getByText('Video Codec')).toBeInTheDocument();
+    expect(screen.getByText('Codec & Hardware')).toBeInTheDocument();
+  });
+
+  it('shows video transport QoS selectors in advanced mode', async () => {
+    const { useVideoSettingsStore } = await import('@/renderer/stores/videoSettingsStore');
+    (useVideoSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (s: Function) =>
+        s({
+          codecCapabilities: [],
+          gpuInfo: null,
+          videoAdvancedMode: true,
+          systemHdr: false,
+        })
+    );
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Quality of Service for Camera')).toBeInTheDocument();
+    expect(screen.getByText('Quality of Service for Screen Share')).toBeInTheDocument();
+  });
+
+  it('shows Bandwidth subsection in video advanced mode', async () => {
+    const { useVideoSettingsStore } = await import('@/renderer/stores/videoSettingsStore');
+    (useVideoSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (s: Function) =>
+        s({
+          codecCapabilities: [],
+          gpuInfo: null,
+          videoAdvancedMode: true,
+          systemHdr: false,
+        })
+    );
+    render(<VoiceAudioSection />);
+    expect(screen.getByText('Bandwidth')).toBeInTheDocument();
+    expect(screen.getByText('Automatic Bitrate')).toBeInTheDocument();
+  });
 });
