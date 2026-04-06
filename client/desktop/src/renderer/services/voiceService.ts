@@ -46,6 +46,11 @@ import type {
 } from '../workers/e2eeProtocol';
 import { notificationSoundService } from './notificationSoundService';
 import { selectCodecFromCascade, type CodecLookup } from './voiceCodecSelection';
+import {
+  applyLegacyDecryptPipeline,
+  type DecryptRecoveryCallbacks,
+  type InsertableStreamsReceiver,
+} from './voiceE2eeTransforms';
 
 // Toggle for verbose E2EE/SDP diagnostics — set to true when debugging
 // frame drops, BUNDLE collisions, or key rotation issues. When false,
@@ -1687,41 +1692,52 @@ class VoiceService {
     }
   }
 
+  /**
+   * Resolve the audio stream: use pre-acquired if available and device unchanged,
+   * otherwise acquire fresh via getUserMedia.
+   */
+  private async resolveAudioStream(
+    deviceId: string | undefined,
+    preAcquiredStream: MediaStream | null | undefined,
+    musicMode: boolean,
+    audioSettings: {
+      echoCancellation: boolean;
+      noiseCancellation: boolean;
+      autoGainControl: boolean;
+    }
+  ): Promise<MediaStream> {
+    if (preAcquiredStream && !deviceId) return preAcquiredStream;
+
+    // Stop any pre-acquired stream we're not using (device changed)
+    if (preAcquiredStream) {
+      for (const t of preAcquiredStream.getTracks()) t.stop();
+    }
+
+    await this.ensureOsPermission('microphone');
+
+    const useProcessing = !musicMode;
+    return navigator.mediaDevices.getUserMedia({
+      audio: {
+        deviceId: deviceId ? { exact: deviceId } : undefined,
+        echoCancellation: useProcessing && audioSettings.echoCancellation,
+        noiseSuppression: useProcessing && audioSettings.noiseCancellation,
+        autoGainControl: useProcessing && audioSettings.autoGainControl,
+        sampleRate: 48000,
+        channelCount: 2,
+      },
+    });
+  }
+
   async produceAudio(deviceId?: string, preAcquiredStream?: MediaStream | null): Promise<void> {
     if (!this.sendTransport || !this.device) return;
 
-    // Read advanced audio settings
     const adv = useAudioSettingsStore.getState();
-
-    // Music mode disables all audio processing to preserve tonal fidelity
-    const useProcessing = !adv.musicMode;
-
-    // Use pre-acquired stream if provided (from parallel mic acquisition during join),
-    // otherwise acquire fresh (device switch, live reproduce, etc.)
-    if (preAcquiredStream && !deviceId) {
-      this.localMicStream = preAcquiredStream;
-    } else {
-      // Stop any pre-acquired stream we're not using (device changed)
-      if (preAcquiredStream) {
-        for (const t of preAcquiredStream.getTracks()) t.stop();
-      }
-
-      // JIT permission check (#197): request mic access on macOS before getUserMedia
-      await this.ensureOsPermission('microphone');
-
-      const constraints: MediaStreamConstraints = {
-        audio: {
-          deviceId: deviceId ? { exact: deviceId } : undefined,
-          echoCancellation: useProcessing && adv.echoCancellation,
-          noiseSuppression: useProcessing && adv.noiseCancellation,
-          autoGainControl: useProcessing && adv.autoGainControl,
-          sampleRate: 48000,
-          channelCount: 2,
-        },
-      };
-
-      this.localMicStream = await navigator.mediaDevices.getUserMedia(constraints);
-    }
+    this.localMicStream = await this.resolveAudioStream(
+      deviceId,
+      preAcquiredStream,
+      adv.musicMode,
+      adv
+    );
     let track = this.localMicStream.getAudioTracks()[0];
 
     // Apply noise gate in manual mode
@@ -1786,6 +1802,69 @@ class VoiceService {
     });
   }
 
+  /**
+   * Build a progressive fallback chain of MediaStreamConstraints for camera capture.
+   * Relaxes constraints step by step on OverconstrainedError.
+   */
+  private buildCameraFallbackChain(
+    deviceId: string | undefined,
+    preset: { width: number; height: number; frameRate: number },
+    isSystemDefault: boolean
+  ): MediaStreamConstraints[] {
+    const idealConstraints = isSystemDefault
+      ? {}
+      : {
+          width: { ideal: preset.width },
+          height: { ideal: preset.height },
+          frameRate: { ideal: preset.frameRate },
+        };
+
+    const chain: MediaStreamConstraints[] = [
+      { video: { deviceId: deviceId ? { exact: deviceId } : undefined, ...idealConstraints } },
+    ];
+    if (deviceId && !isSystemDefault) {
+      chain.push({ video: { deviceId: { exact: deviceId } } });
+    }
+    if (!isSystemDefault) {
+      chain.push({ video: idealConstraints });
+    }
+    chain.push({ video: true });
+    return chain;
+  }
+
+  /** Try each constraint set in order, relaxing on OverconstrainedError. */
+  private async acquireCameraWithFallback(
+    fallbackChain: MediaStreamConstraints[]
+  ): Promise<MediaStream | null> {
+    for (const constraints of fallbackChain) {
+      try {
+        return await navigator.mediaDevices.getUserMedia(constraints);
+      } catch (err) {
+        if (
+          err instanceof DOMException &&
+          err.name === 'OverconstrainedError' &&
+          constraints !== fallbackChain.at(-1)
+        ) {
+          console.warn('Camera overconstrained, relaxing constraints:', err);
+          continue;
+        }
+        throw err;
+      }
+    }
+    return null;
+  }
+
+  /** Map a camera capture error to a user-friendly message. */
+  private static mapCameraError(err: unknown): string {
+    if (err instanceof DOMException && err.name === 'NotAllowedError') {
+      return 'Camera access denied. Check your browser or system permissions.';
+    }
+    if (err instanceof DOMException && err.name === 'NotFoundError') {
+      return 'No camera found. Check that your camera is connected.';
+    }
+    return 'Could not start camera. Try a different camera or video preset in Settings.';
+  }
+
   /** Produce camera video — VP9 SVC (L3T3) preferred, H264 simulcast fallback */
   async produceVideo(deviceId?: string): Promise<void> {
     if (!this.sendTransport || !this.device) return;
@@ -1802,70 +1881,15 @@ class VoiceService {
     }
 
     try {
-      // JIT permission check (#197): request camera access on macOS before getUserMedia
       await this.ensureOsPermission('camera');
 
-      // Read video settings for camera preset
       const videoSettings = useVideoSettingsStore.getState();
       const preset =
         VIDEO_QUALITY_PRESETS[videoSettings.cameraPreset] || VIDEO_QUALITY_PRESETS['system'];
       const isSystemDefault = videoSettings.cameraPreset === 'system' || preset.width === 0;
 
-      // Try getUserMedia with progressive constraint relaxation on OverconstrainedError:
-      // 1. Full constraints (deviceId exact + resolution/frameRate ideal)
-      // 2. Drop resolution/frameRate, keep deviceId
-      // 3. Drop deviceId, keep resolution/frameRate
-      // 4. Bare minimum (no constraints at all)
-      const fallbackChain: MediaStreamConstraints[] = [
-        {
-          video: {
-            deviceId: deviceId ? { exact: deviceId } : undefined,
-            ...(isSystemDefault
-              ? {}
-              : {
-                  width: { ideal: preset.width },
-                  height: { ideal: preset.height },
-                  frameRate: { ideal: preset.frameRate },
-                }),
-          },
-        },
-        ...(deviceId && !isSystemDefault
-          ? [
-              {
-                video: { deviceId: { exact: deviceId } },
-              },
-            ]
-          : []),
-        ...(isSystemDefault
-          ? []
-          : [
-              {
-                video: {
-                  width: { ideal: preset.width },
-                  height: { ideal: preset.height },
-                  frameRate: { ideal: preset.frameRate },
-                },
-              },
-            ]),
-        { video: true },
-      ];
-
-      for (const constraints of fallbackChain) {
-        try {
-          this.localCameraStream = await navigator.mediaDevices.getUserMedia(constraints);
-          break;
-        } catch (err) {
-          if (
-            err instanceof DOMException &&
-            err.name === 'OverconstrainedError' &&
-            constraints !== fallbackChain.at(-1)
-          ) {
-            console.warn('Camera overconstrained, relaxing constraints:', err);
-            continue;
-          }
-          throw err;
-        }
-      }
+      const fallbackChain = this.buildCameraFallbackChain(deviceId, preset, isSystemDefault);
+      this.localCameraStream = await this.acquireCameraWithFallback(fallbackChain);
 
       if (!this.localCameraStream) {
         voiceState.setVideoSlotError(
@@ -1882,21 +1906,15 @@ class VoiceService {
         track,
         encodings,
         codec,
-        codecOptions: {
-          videoGoogleStartBitrate: this.computeStartBitrate(cameraBitrate),
-        },
+        codecOptions: { videoGoogleStartBitrate: this.computeStartBitrate(cameraBitrate) },
         appData: { source: 'camera' },
       });
 
-      // Apply degradation preference on the RTP sender
       this.applyDegradationPreference(producer);
-
       this.producers.set('camera', producer);
 
-      // Track active codec for settings UI
       useVoiceStore.getState().setActiveCameraCodec(codec?.mimeType?.toLowerCase() ?? null);
 
-      // Update store: both global flag and local participant's video stream
       const store = useVoiceStore.getState();
       store.setVideoOn(true);
       const localUserId = useUserStore.getState().user?.id;
@@ -1924,20 +1942,120 @@ class VoiceService {
       });
     } catch (err) {
       console.error('Failed to start camera:', err);
-      // Clean up any partial stream
       if (this.localCameraStream) {
         for (const t of this.localCameraStream.getTracks()) t.stop();
         this.localCameraStream = null;
       }
-      let errMsg: string;
-      if (err instanceof DOMException && err.name === 'NotAllowedError') {
-        errMsg = 'Camera access denied. Check your browser or system permissions.';
-      } else if (err instanceof DOMException && err.name === 'NotFoundError') {
-        errMsg = 'No camera found. Check that your camera is connected.';
-      } else {
-        errMsg = 'Could not start camera. Try a different camera or video preset in Settings.';
+      voiceState.setVideoSlotError(VoiceService.mapCameraError(err));
+    }
+  }
+
+  /** Parse a screen resolution string into width/height. */
+  private static parseScreenResolution(resolution: string): { w: number; h: number } {
+    const resMap: Record<string, { w: number; h: number }> = {
+      source: { w: 3840, h: 2160 },
+      '720p': { w: 1280, h: 720 },
+      '1080p': { w: 1920, h: 1080 },
+      '1440p': { w: 2560, h: 1440 },
+      '4K': { w: 3840, h: 2160 },
+    };
+    const customParsed = /^(\d+)x(\d+)$/.exec(resolution);
+    return customParsed
+      ? { w: Number(customParsed[1]), h: Number(customParsed[2]) }
+      : resMap[resolution] || resMap['source'];
+  }
+
+  /**
+   * Capture screen via Electron desktopCapturer (with audio fallback) or getDisplayMedia.
+   * Throws on permission denial or no sources.
+   */
+  private async captureScreen(
+    sourceId: string | undefined,
+    screenRes: { w: number; h: number },
+    screenFps: number
+  ): Promise<MediaStream> {
+    if (typeof globalThis.electron?.getDesktopSources === 'function') {
+      return this.captureScreenElectron(sourceId, screenRes, screenFps);
+    }
+    console.debug('produceScreen: using getDisplayMedia fallback');
+    return navigator.mediaDevices.getDisplayMedia({
+      video: {
+        width: { ideal: screenRes.w },
+        height: { ideal: screenRes.h },
+        frameRate: { ideal: screenFps },
+      },
+      audio: true,
+    });
+  }
+
+  /** Electron desktopCapturer path — tries video+audio, falls back to video-only. */
+  private async captureScreenElectron(
+    sourceId: string | undefined,
+    screenRes: { w: number; h: number },
+    screenFps: number
+  ): Promise<MediaStream> {
+    const electron = globalThis.electron;
+    if (!electron) throw new Error('captureScreenElectron called without Electron bridge');
+
+    let chosenId = sourceId;
+    if (!chosenId) {
+      const sources = await electron.getDesktopSources();
+      if (sources.length === 0) throw new Error('No screen sources available');
+      chosenId = sources.find((s) => s.id.startsWith('screen:'))?.id || sources[0].id;
+    }
+    console.debug('produceScreen: capturing desktop source', chosenId);
+
+    const videoConstraints = {
+      mandatory: {
+        chromeMediaSource: 'desktop',
+        chromeMediaSourceId: chosenId,
+        maxWidth: screenRes.w,
+        maxHeight: screenRes.h,
+        maxFrameRate: screenFps,
+      },
+    } as unknown as MediaTrackConstraints;
+
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: {
+          mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: chosenId },
+        } as unknown as MediaTrackConstraints,
+        video: videoConstraints,
+      });
+    } catch (audioErr) {
+      console.debug(
+        'produceScreen: audio capture unavailable, falling back to video-only',
+        audioErr
+      );
+      return navigator.mediaDevices.getUserMedia({ audio: false, video: videoConstraints });
+    }
+  }
+
+  /** Produce screen audio from the capture stream if audio tracks are available. */
+  private async produceScreenAudioFromStream(stream: MediaStream): Promise<void> {
+    const audioTracks = stream.getAudioTracks();
+    if (audioTracks.length === 0 || !this.sendTransport) return;
+
+    try {
+      const audioProducer = await this.sendTransport.produce({
+        track: audioTracks[0],
+        codecOptions: { opusStereo: true, opusDtx: false },
+        appData: { source: 'screen-audio' },
+      });
+
+      this.producers.set('screen-audio', audioProducer);
+
+      if (this.isEncrypted && this.mediaEncryption) {
+        this.applyEncryptTransform(audioProducer);
       }
-      voiceState.setVideoSlotError(errMsg);
+
+      audioProducer.on('transportclose', () => {
+        this.producers.delete('screen-audio');
+      });
+
+      console.debug('produceScreen: screen audio producer created', audioProducer.id);
+    } catch (err) {
+      console.warn('Failed to produce screen audio:', err);
     }
   }
 
@@ -1948,95 +2066,17 @@ class VoiceService {
       return;
     }
 
-    // Read screen share quality settings — prefer per-share options from picker, fall back to persisted store
     const screenSettings = useVideoSettingsStore.getState();
     const resolution = options?.resolution ?? screenSettings.screenResolution;
     const frameRate = options?.frameRate ?? screenSettings.screenFrameRate;
     const contentType = options?.contentType ?? screenSettings.screenContentType;
+    const screenFps = frameRate === 0 ? 60 : frameRate;
+    const screenRes = VoiceService.parseScreenResolution(resolution);
 
-    const screenFps = frameRate === 0 ? 60 : frameRate; // 0 = Native, use 60 as capture max
-    const resMap: Record<string, { w: number; h: number }> = {
-      source: { w: 3840, h: 2160 },
-      '720p': { w: 1280, h: 720 },
-      '1080p': { w: 1920, h: 1080 },
-      '1440p': { w: 2560, h: 1440 },
-      '4K': { w: 3840, h: 2160 },
-    };
-    // Parse custom WxH display resolutions
-    const customParsed = resolution.match(/^(\d+)x(\d+)$/);
-    const screenRes = customParsed
-      ? { w: Number(customParsed[1]), h: Number(customParsed[2]) }
-      : resMap[resolution] || resMap['source'];
-
-    // Capture screen — uses Electron desktopCapturer when available, else getDisplayMedia.
-    // Permission errors are caught here instead of pre-checked, because Electron's
-    // systemPreferences.getMediaAccessStatus('screen') can return stale cached results
-    // on macOS after the user toggles the permission in System Settings.
     let stream: MediaStream;
     try {
-      if (globalThis.electron?.getDesktopSources) {
-        // sourceId should come from ScreenSharePicker; fallback to first screen
-        let chosenId = sourceId;
-        if (!chosenId) {
-          const sources = await globalThis.electron.getDesktopSources();
-          if (sources.length === 0) throw new Error('No screen sources available');
-          chosenId = sources.find((s) => s.id.startsWith('screen:'))?.id || sources[0].id;
-        }
-        console.debug('produceScreen: capturing desktop source', chosenId);
-
-        // Try video+audio first (audio not available on macOS), fall back to video-only
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              mandatory: {
-                chromeMediaSource: 'desktop',
-                chromeMediaSourceId: chosenId,
-              },
-            } as unknown as MediaTrackConstraints,
-            video: {
-              mandatory: {
-                chromeMediaSource: 'desktop',
-                chromeMediaSourceId: chosenId,
-                maxWidth: screenRes.w,
-                maxHeight: screenRes.h,
-                maxFrameRate: screenFps,
-              },
-            } as unknown as MediaTrackConstraints,
-          });
-        } catch (audioErr) {
-          // Audio capture failed (expected on macOS, may also be permission/device errors)
-          console.debug(
-            'produceScreen: audio capture unavailable, falling back to video-only',
-            audioErr
-          );
-          stream = await navigator.mediaDevices.getUserMedia({
-            audio: false,
-            video: {
-              mandatory: {
-                chromeMediaSource: 'desktop',
-                chromeMediaSourceId: chosenId,
-                maxWidth: screenRes.w,
-                maxHeight: screenRes.h,
-                maxFrameRate: screenFps,
-              },
-            } as unknown as MediaTrackConstraints,
-          });
-        }
-      } else {
-        console.debug('produceScreen: using getDisplayMedia fallback');
-        // audio: true shows "Share audio" checkbox in browser picker.
-        // If declined or unsupported, stream simply has no audio tracks.
-        stream = await navigator.mediaDevices.getDisplayMedia({
-          video: {
-            width: { ideal: screenRes.w },
-            height: { ideal: screenRes.h },
-            frameRate: { ideal: screenFps },
-          },
-          audio: true,
-        });
-      }
+      stream = await this.captureScreen(sourceId, screenRes, screenFps);
     } catch (captureErr) {
-      // Handle permission denial at the OS level (media APIs throw DOMException)
       if (captureErr instanceof DOMException && captureErr.name === 'NotAllowedError') {
         useVoiceStore
           .getState()
@@ -2057,20 +2097,11 @@ class VoiceService {
     }
 
     const track = videoTracks[0];
+    if (contentType === 'motion') track.contentHint = 'motion';
+    else if (contentType === 'detail') track.contentHint = 'detail';
 
-    // Apply content hint for screen share optimization
-    if (contentType === 'motion') {
-      track.contentHint = 'motion';
-    } else if (contentType === 'detail') {
-      track.contentHint = 'detail';
-    }
-    // 'auto' → don't set contentHint, let the browser decide
-
-    // Set localScreenStream early so calculateScreenBitrate() can read
-    // actual capture dimensions via track.getSettings() for 'source' resolution
     this.localScreenStream = stream;
 
-    // Wrap produce in try/catch so we can clean up the stream on failure
     try {
       const { codec, encodings, effectiveBitrate: screenBitrate } = this.pickScreenCodec();
 
@@ -2078,21 +2109,14 @@ class VoiceService {
         track,
         encodings,
         codec,
-        codecOptions: {
-          videoGoogleStartBitrate: this.computeStartBitrate(screenBitrate),
-        },
+        codecOptions: { videoGoogleStartBitrate: this.computeStartBitrate(screenBitrate) },
         appData: { source: 'screen' },
       });
 
-      // Apply degradation preference on the RTP sender
       this.applyDegradationPreference(producer);
-
       this.producers.set('screen', producer);
-
-      // Track active codec for settings UI
       useVoiceStore.getState().setActiveScreenCodec(codec?.mimeType?.toLowerCase() ?? null);
 
-      // Update store: both global flag and local participant's screen stream
       const store = useVoiceStore.getState();
       store.setScreenSharing(true);
       const localUserId = useUserStore.getState().user?.id;
@@ -2103,7 +2127,6 @@ class VoiceService {
         });
       }
 
-      // Auto-stage: tune in to own screen share and set as dominant
       store.tuneIn(producer.id, 'local-screen');
       if (!store.dominantScreenShareId) {
         store.setDominantScreenShare(producer.id);
@@ -2113,38 +2136,8 @@ class VoiceService {
         this.applyEncryptTransform(producer);
       }
 
-      // Produce screen audio if available (piggybacked on same capture stream)
-      const audioTracks = stream.getAudioTracks();
-      if (audioTracks.length > 0 && this.sendTransport) {
-        try {
-          const audioTrack = audioTracks[0];
-          const audioProducer = await this.sendTransport.produce({
-            track: audioTrack,
-            codecOptions: {
-              opusStereo: true,
-              opusDtx: false,
-            },
-            appData: { source: 'screen-audio' },
-          });
+      await this.produceScreenAudioFromStream(stream);
 
-          this.producers.set('screen-audio', audioProducer);
-
-          if (this.isEncrypted && this.mediaEncryption) {
-            this.applyEncryptTransform(audioProducer);
-          }
-
-          audioProducer.on('transportclose', () => {
-            this.producers.delete('screen-audio');
-          });
-
-          console.debug('produceScreen: screen audio producer created', audioProducer.id);
-        } catch (err) {
-          console.warn('Failed to produce screen audio:', err);
-          // Non-fatal — screen share works without audio
-        }
-      }
-
-      // Handle user stopping screen share via browser UI
       track.onended = () => {
         this.closeProducer('screen');
       };
@@ -2161,7 +2154,6 @@ class VoiceService {
         if (uid) s.updateParticipant(uid, { screenStream: undefined, isScreenSharing: false });
       });
     } catch (err) {
-      // Clean up stream and reference if produce failed
       for (const t of stream.getTracks()) t.stop();
       this.localScreenStream = null;
       throw err;
@@ -2818,6 +2810,69 @@ class VoiceService {
     }
   }
 
+  /** Lazy-init E2EE and apply decrypt transform for a consumed producer. */
+  private async ensureE2EEForConsumer(
+    consumer: mediasoupTypes.Consumer,
+    producerUserId: string
+  ): Promise<void> {
+    // Lazy re-init: if initEncryption failed at join time but CSK is now available
+    if (!this.mediaEncryption) {
+      const channelId = useVoiceStore.getState().activeChannelId;
+      if (channelId) {
+        try {
+          await this.initEncryption(channelId);
+        } catch {
+          console.warn('E2EE: lazy re-init failed, consumer will receive encrypted frames');
+        }
+      }
+    }
+    if (!this.mediaEncryption) return;
+
+    // Fire-and-forget: add decrypt key without blocking the consume queue.
+    const channelId = useVoiceStore.getState().activeChannelId;
+    if (channelId) {
+      void this.addDecryptKeyForUser(channelId, producerUserId).catch((err) => {
+        console.warn('E2EE: addDecryptKeyForUser failed, self-healing will retry', {
+          producerUserId,
+          error: err instanceof Error ? err.message : err,
+        });
+      });
+    }
+    this.applyDecryptTransform(consumer, producerUserId);
+  }
+
+  /** Route a consumed stream to the correct participant field in the store. */
+  private routeConsumerToStore(consumer: mediasoupTypes.Consumer, result: ConsumeResponse): void {
+    const stream = new MediaStream([consumer.track]);
+    const store = useVoiceStore.getState();
+    const source = result.source;
+    const hasParticipant = !!store.participants[result.producerUserId];
+
+    if (!hasParticipant) {
+      console.warn('[consume] participant not in store!', {
+        producerUserId: result.producerUserId,
+        knownUserIds: Object.keys(store.participants),
+      });
+    }
+
+    const routeMap: Record<string, Partial<VoiceParticipant>> = {
+      'screen-audio': { screenAudioStream: stream },
+      camera: { videoStream: stream, isVideoOn: true },
+      screen: { screenStream: stream, isScreenSharing: true },
+    };
+    const update = routeMap[source] ?? (result.kind === 'audio' ? { audioStream: stream } : null);
+    if (update) {
+      store.updateParticipant(result.producerUserId, update);
+    }
+
+    console.debug('[consume] stream attached', {
+      kind: result.kind,
+      source,
+      producerUserId: result.producerUserId,
+      hasParticipant,
+    });
+  }
+
   private async consumeProducerImpl(
     producerId: string,
     senderUserId?: string,
@@ -2893,65 +2948,11 @@ class VoiceService {
       // Apply E2EE decrypt transform if encrypted
       const producerUserId = senderUserId || result.producerUserId;
       if (this.isEncrypted) {
-        // Lazy re-init: if initEncryption failed at join time but CSK is now available
-        if (!this.mediaEncryption) {
-          const channelId = useVoiceStore.getState().activeChannelId;
-          if (channelId) {
-            try {
-              await this.initEncryption(channelId);
-            } catch {
-              console.warn('E2EE: lazy re-init failed, consumer will receive encrypted frames');
-            }
-          }
-        }
-        if (this.mediaEncryption) {
-          // Fire-and-forget: add decrypt key without blocking the consume queue.
-          // Self-healing recovery in applyDecryptTransform handles missing keys.
-          const channelId = useVoiceStore.getState().activeChannelId;
-          if (channelId) {
-            void this.addDecryptKeyForUser(channelId, producerUserId).catch((err) => {
-              console.warn('E2EE: addDecryptKeyForUser failed, self-healing will retry', {
-                producerUserId,
-                error: err instanceof Error ? err.message : err,
-              });
-            });
-          }
-          this.applyDecryptTransform(consumer, producerUserId);
-        }
+        await this.ensureE2EEForConsumer(consumer, producerUserId);
       }
 
       // Attach stream to participant
-      const stream = new MediaStream([consumer.track]);
-      const store = useVoiceStore.getState();
-      const source = result.source;
-      const hasParticipant = !!store.participants[result.producerUserId];
-
-      if (!hasParticipant) {
-        console.warn('[consume] participant not in store!', {
-          producerUserId: result.producerUserId,
-          knownUserIds: Object.keys(store.participants),
-        });
-      }
-
-      if (source === 'screen-audio') {
-        store.updateParticipant(result.producerUserId, { screenAudioStream: stream });
-      } else if (result.kind === 'audio') {
-        store.updateParticipant(result.producerUserId, { audioStream: stream });
-      } else if (source === 'camera') {
-        store.updateParticipant(result.producerUserId, { videoStream: stream, isVideoOn: true });
-      } else if (source === 'screen') {
-        store.updateParticipant(result.producerUserId, {
-          screenStream: stream,
-          isScreenSharing: true,
-        });
-      }
-
-      console.debug('[consume] stream attached', {
-        kind: result.kind,
-        source,
-        producerUserId: result.producerUserId,
-        hasParticipant,
-      });
+      this.routeConsumerToStore(consumer, result);
 
       // Clean up on close
       consumer.on('transportclose', () => {
@@ -3730,6 +3731,15 @@ class VoiceService {
    * Modern path: RTCRtpScriptTransform (Chromium 129+, Worker-based).
    * Legacy path: createEncodedStreams (Chromium 86-130, main-thread).
    */
+  /** Build DecryptRecoveryCallbacks bound to this VoiceService instance. */
+  private decryptRecoveryCallbacks(): DecryptRecoveryCallbacks {
+    return {
+      getActiveChannelId: () => useVoiceStore.getState().activeChannelId,
+      addDecryptKeyForUser: (channelId, userId) => this.addDecryptKeyForUser(channelId, userId),
+      invalidateChannelKey: (channelId) => e2eeService.invalidateChannelKey(channelId),
+    };
+  }
+
   private applyDecryptTransform(consumer: mediasoupTypes.Consumer, senderUserId: string): void {
     const receiver = consumer.rtpReceiver;
     if (!receiver) {
@@ -3753,115 +3763,13 @@ class VoiceService {
 
     // Legacy path: createEncodedStreams (Chromium 86-130)
     if (!this.mediaEncryption) return;
-    const encryption = this.mediaEncryption;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const receiverAny = receiver as any;
-
-    let recoveryInProgress = false;
-    let lastRecoveryAttempt = 0;
-    const RECOVERY_COOLDOWN_MS = 5000;
-    const RECOVERY_THRESHOLD = 50;
-    const PERSISTENT_FAILURE_THRESHOLD = 500;
-    let firstDecryptLogged = false;
-
-    if (typeof receiverAny.createEncodedStreams === 'function') {
-      try {
-        const { readable, writable } = receiverAny.createEncodedStreams();
-        let dropCount = 0;
-        const transform = new TransformStream({
-          transform: async (frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame, controller) => {
-            try {
-              await encryption.decryptFrame(frame, senderUserId);
-              controller.enqueue(frame);
-              if (!firstDecryptLogged) {
-                firstDecryptLogged = true;
-                console.debug(`E2EE: first frame decrypted for ${senderUserId}`);
-              }
-              if (dropCount > 0) {
-                console.debug(
-                  `E2EE: decrypt recovered after ${dropCount} dropped frames for ${senderUserId}`
-                );
-                dropCount = 0;
-              }
-            } catch (decryptErr) {
-              dropCount++;
-              if (dropCount === 1 || dropCount % 100 === 0) {
-                const errMsg =
-                  decryptErr instanceof Error
-                    ? `${decryptErr.name}: ${decryptErr.message}`
-                    : String(decryptErr);
-                if (E2EE_VERBOSE) {
-                  const fd = new Uint8Array(frame.data);
-                  const trailerHex =
-                    fd.length >= 16
-                      ? Array.from(fd.slice(-16))
-                          .map((b) => b.toString(16).padStart(2, '0'))
-                          .join(' ')
-                      : 'too-small';
-                  const hasMagic = fd.length >= 2 && fd.at(-2) === 0xde && fd.at(-1) === 0xad;
-                  console.warn(`E2EE: dropping frame for ${senderUserId} (dropped: ${dropCount})`, {
-                    error: errMsg,
-                    frameSize: fd.length,
-                    localEpoch: encryption.getCurrentKeyId(),
-                    hasMagic,
-                    keyId: hasMagic && fd.length >= 15 ? fd.at(-15) : -1,
-                    trailerHex,
-                  });
-                } else {
-                  console.warn(
-                    `E2EE: dropping undecryptable frame for ${senderUserId} (dropped: ${dropCount})`,
-                    { error: errMsg, frameSize: frame.data.byteLength }
-                  );
-                }
-              }
-
-              if (
-                dropCount === RECOVERY_THRESHOLD &&
-                !recoveryInProgress &&
-                Date.now() - lastRecoveryAttempt > RECOVERY_COOLDOWN_MS
-              ) {
-                recoveryInProgress = true;
-                lastRecoveryAttempt = Date.now();
-                const channelId = useVoiceStore.getState().activeChannelId;
-                if (channelId && this.mediaEncryption) {
-                  console.debug(`E2EE: attempting self-healing key recovery for ${senderUserId}`);
-                  e2eeService.invalidateChannelKey(channelId);
-                  this.addDecryptKeyForUser(channelId, senderUserId)
-                    .then((ok) => {
-                      if (ok) {
-                        console.debug(`E2EE: recovery key re-derived for ${senderUserId}`);
-                      }
-                    })
-                    .catch(() => {})
-                    .finally(() => {
-                      recoveryInProgress = false;
-                    });
-                } else {
-                  recoveryInProgress = false;
-                }
-              }
-
-              if (dropCount === PERSISTENT_FAILURE_THRESHOLD) {
-                console.error(
-                  `E2EE: persistent decrypt failure for ${senderUserId} — ${PERSISTENT_FAILURE_THRESHOLD} frames dropped. Rejoin may be required.`
-                );
-              }
-            }
-          },
-        });
-        readable
-          .pipeThrough(transform)
-          .pipeTo(writable)
-          .catch((err: unknown) => {
-            console.warn('E2EE decrypt pipe error:', err);
-          });
-        console.debug(`E2EE: decrypt transform applied for ${senderUserId} (createEncodedStreams)`);
-      } catch (err) {
-        console.error('E2EE: createEncodedStreams failed on receiver:', err);
-      }
-    } else {
-      console.warn('E2EE: no Insertable Streams API available — frames will not be decrypted');
-    }
+    applyLegacyDecryptPipeline(
+      receiver as InsertableStreamsReceiver,
+      senderUserId,
+      this.mediaEncryption,
+      this.decryptRecoveryCallbacks(),
+      E2EE_VERBOSE
+    );
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────
