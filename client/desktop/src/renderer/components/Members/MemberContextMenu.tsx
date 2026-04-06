@@ -1,17 +1,14 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { ServerMember, useMemberStore } from '../../stores/memberStore';
 import { usePermissionStore } from '../../stores/permissionStore';
+import { useDMStore } from '../../stores/dmStore';
+import { useFriendStore } from '../../stores/friendStore';
+import { useUserStore } from '../../stores/userStore';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { Permissions, MUTE_MEMBERS, DEAFEN_MEMBERS } from '../../utils/permissions';
-import { apiFetch } from '../../services/apiClient';
 import ContextMenu from '../ui/ContextMenu';
 import { EnforcementMenuItems } from '../ui/EnforcementMenuItems';
-
-// Available assignable roles — extend this array as custom roles are added
-const AVAILABLE_ROLES: { value: string; label: string }[] = [
-  { value: 'admin', label: 'Admin' },
-  { value: 'member', label: 'Member' },
-];
 
 interface MemberContextMenuProps {
   member: ServerMember;
@@ -20,6 +17,8 @@ interface MemberContextMenuProps {
   ownerUserId: string;
   onClose: () => void;
   onViewProfile: () => void;
+  onBan: (member: ServerMember) => void;
+  onKick: (member: ServerMember) => void;
 }
 
 const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
@@ -29,23 +28,36 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
   ownerUserId,
   onClose,
   onViewProfile,
+  onBan,
+  onKick,
 }) => {
-  const [isUpdatingRole, setIsUpdatingRole] = useState(false);
   const [showRolePicker, setShowRolePicker] = useState(false);
   const [rolePickerClosing, setRolePickerClosing] = useState(false);
+  const [togglingRoleId, setTogglingRoleId] = useState<string | null>(null);
 
+  const navigate = useNavigate();
+  const currentUserId = useUserStore((s) => s.user?.id);
   const hasServerPerm = usePermissionStore((s) => s.hasServerPermission);
+  const serverRoles = usePermissionStore((s) => s.serverRoles[serverId]);
+  const fetchRoles = usePermissionStore((s) => s.fetchRoles);
+  const assignRole = usePermissionStore((s) => s.assignRole);
+  const unassignRole = usePermissionStore((s) => s.unassignRole);
+
+  const isFriend = useFriendStore((s) => s.friends.some((f) => f.userId === member.user_id));
+  const hasPendingRequest = useFriendStore((s) =>
+    s.pendingRequests.some((r) => r.fromUserId === member.user_id || r.toUserId === member.user_id)
+  );
+
+  const isSelf = member.user_id === currentUserId;
   const targetIsOwner = member.user_id === ownerUserId;
 
-  // Can assign roles if user has MANAGE_ROLES_ASSIGN and target is not the owner
-  const canAssignRole = hasServerPerm(serverId, Permissions.MANAGE_ROLES_ASSIGN) && !targetIsOwner;
-
-  // Can ban if user has BAN permission and target is not the owner
-  const canBan = hasServerPerm(serverId, Permissions.BAN) && !targetIsOwner;
-
-  // Voice enforcement permissions
-  const canMute = hasServerPerm(serverId, MUTE_MEMBERS) && !targetIsOwner;
-  const canDeafen = hasServerPerm(serverId, DEAFEN_MEMBERS) && !targetIsOwner;
+  // Permission checks
+  const canAssignRole =
+    hasServerPerm(serverId, Permissions.MANAGE_ROLES_ASSIGN) && !targetIsOwner && !isSelf;
+  const canBan = hasServerPerm(serverId, Permissions.BAN) && !targetIsOwner && !isSelf;
+  const canKick = hasServerPerm(serverId, Permissions.KICK) && !targetIsOwner && !isSelf;
+  const canMute = hasServerPerm(serverId, MUTE_MEMBERS) && !targetIsOwner && !isSelf;
+  const canDeafen = hasServerPerm(serverId, DEAFEN_MEMBERS) && !targetIsOwner && !isSelf;
 
   // Check if target is currently in a voice channel on this server
   const channelVoiceMembers = useVoiceStore((s) => s.channelVoiceMembers);
@@ -53,41 +65,69 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
     members.some((m) => m.userId === member.user_id)
   );
 
-  const handleRoleSelect = async (newRole: string) => {
-    if (newRole === member.role || isUpdatingRole) return;
-    setIsUpdatingRole(true);
+  // Fetch RBAC roles only when role picker is needed and not yet loaded
+  useEffect(() => {
+    if (canAssignRole && showRolePicker && !serverRoles) {
+      fetchRoles(serverId);
+    }
+  }, [canAssignRole, showRolePicker, serverRoles, fetchRoles, serverId]);
+
+  // Friend request button label
+  const friendLabel = (() => {
+    if (isFriend) return 'Friends';
+    if (hasPendingRequest) return 'Request Pending';
+    return 'Send Friend Request';
+  })();
+
+  // RBAC roles sorted by position (highest first), excluding the default @everyone role
+  const assignableRoles = (serverRoles ?? [])
+    .filter((r) => !r.is_default)
+    .sort((a, b) => b.position - a.position);
+
+  // Set of role IDs the member currently has
+  const memberRoleIds = new Set(member.roles.map((r) => r.role_id));
+
+  const handleRoleToggle = async (roleId: string) => {
+    if (togglingRoleId) return;
+    setTogglingRoleId(roleId);
 
     try {
-      const res = await apiFetch(`/api/v1/servers/${serverId}/members/${member.user_id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role: newRole }),
-      });
+      const hasRole = memberRoleIds.has(roleId);
+      const ok = hasRole
+        ? await unassignRole(serverId, member.user_id, roleId)
+        : await assignRole(serverId, member.user_id, roleId);
 
-      if (!res.ok) {
-        let detail = '';
-        try {
-          const data = (await res.json()) as { error?: string };
-          if (data.error) detail = `: ${data.error}`;
-        } catch {
-          /* ignore parse errors */
-        }
-        throw new Error(`Role update failed (${res.status})${detail}`);
+      if (ok) {
+        // Refetch members so the role badges update immediately
+        await useMemberStore.getState().fetchMembers(serverId);
+      } else {
+        console.error('Failed to toggle role: server returned non-OK');
       }
+    } catch (error) {
+      console.error('Failed to toggle role:', error);
+    } finally {
+      setTogglingRoleId(null);
+    }
+  };
 
-      // Update the member's role in the local store only after confirmed success
-      const members = useMemberStore.getState().members;
-      const updatedMembers = members.map((m) =>
-        m.user_id === member.user_id ? { ...m, role: newRole as ServerMember['role'] } : m
-      );
-      useMemberStore.setState({ members: updatedMembers });
-
+  const handleSendDM = async () => {
+    try {
+      await useDMStore.getState().openDM(member.user_id);
+      navigate('/app/dms');
       onClose();
     } catch (error) {
-      console.error('Failed to update role:', error);
-    } finally {
-      setIsUpdatingRole(false);
+      console.error('Failed to open DM:', error);
+      onClose();
     }
+  };
+
+  const handleSendFriendRequest = async () => {
+    try {
+      await useFriendStore.getState().sendRequest(member.user_id);
+    } catch (error) {
+      console.error('Failed to send friend request:', error);
+    }
+    onClose();
   };
 
   return (
@@ -126,25 +166,52 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
         }}
       />
 
-      {/* Send DM — always visible, disabled (no backend yet) */}
-      <ContextMenu.Item
-        icon={
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M2 3h12v9H4l-2 2V3z"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        }
-        label="Send DM"
-        disabled
-        onClick={() => {}}
-      />
+      {/* Send DM — hidden for self */}
+      {!isSelf && (
+        <ContextMenu.Item
+          icon={
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path
+                d="M2 3h12v9H4l-2 2V3z"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          }
+          label="Send DM"
+          onClick={handleSendDM}
+        />
+      )}
 
-      {/* Assign Role — only for server owner, not on the owner themselves */}
+      {/* Friend Request — hidden for self */}
+      {!isSelf && (
+        <ContextMenu.Item
+          icon={
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <circle cx="7" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" />
+              <path
+                d="M1 14c0-2.76 2.24-5 6-5"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+              <path
+                d="M12 10v4M10 12h4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+          }
+          label={friendLabel}
+          disabled={isFriend || hasPendingRequest}
+          onClick={handleSendFriendRequest}
+        />
+      )}
+
+      {/* Assign Role — requires MANAGE_ROLES_ASSIGN, hidden for owner/self */}
       {canAssignRole && (
         <>
           <ContextMenu.Separator />
@@ -161,8 +228,8 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
                   />
                 </svg>
               }
-              label={isUpdatingRole ? 'Updating...' : 'Assign Role'}
-              disabled={isUpdatingRole}
+              label={togglingRoleId ? 'Updating...' : 'Assign Role'}
+              disabled={!!togglingRoleId}
               hasSubMenu
               onClick={() => {
                 if (showRolePicker) {
@@ -177,25 +244,54 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
               }}
             />
 
-            {/* Role picker flyout submenu */}
-            {showRolePicker && !isUpdatingRole && (
+            {/* Role picker flyout submenu — shows RBAC roles */}
+            {showRolePicker && !togglingRoleId && (
               <ContextMenu.SubMenu closing={rolePickerClosing}>
-                {AVAILABLE_ROLES.map((role) => {
-                  const isCurrent = member.role === role.value;
-                  return (
-                    <ContextMenu.Item
-                      key={role.value}
-                      icon={
-                        <span style={{ width: 16, textAlign: 'center', fontSize: 12 }}>
-                          {isCurrent ? '✓' : ''}
-                        </span>
-                      }
-                      label={role.label}
-                      disabled={isCurrent}
-                      onClick={() => handleRoleSelect(role.value)}
-                    />
-                  );
-                })}
+                {assignableRoles.length === 0 ? (
+                  <ContextMenu.Item
+                    icon={<span style={{ width: 16 }} />}
+                    label="No roles available"
+                    disabled
+                    onClick={() => {}}
+                  />
+                ) : (
+                  assignableRoles.map((role) => {
+                    const hasRole = memberRoleIds.has(role.id);
+                    return (
+                      <ContextMenu.Item
+                        key={role.id}
+                        icon={
+                          <span
+                            style={{
+                              width: 16,
+                              textAlign: 'center',
+                              fontSize: 12,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            {hasRole
+                              ? '✓'
+                              : role.emoji || (
+                                  <span
+                                    style={{
+                                      display: 'inline-block',
+                                      width: 10,
+                                      height: 10,
+                                      borderRadius: '50%',
+                                      backgroundColor: role.color || 'var(--text-secondary)',
+                                    }}
+                                  />
+                                )}
+                          </span>
+                        }
+                        label={role.name}
+                        onClick={() => handleRoleToggle(role.id)}
+                      />
+                    );
+                  })
+                )}
               </ContextMenu.SubMenu>
             )}
           </div>
@@ -221,7 +317,33 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
         />
       )}
 
-      {/* Ban — visible to owner/admin, disabled (no backend yet) */}
+      {/* Danger zone separator */}
+      {(canKick || canBan) && <ContextMenu.Separator />}
+
+      {/* Kick */}
+      {canKick && (
+        <ContextMenu.Item
+          icon={
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path
+                d="M10 2l4 4-4 4M14 6H6M2 2v12"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          }
+          label="Kick"
+          danger
+          onClick={() => {
+            onKick(member);
+            onClose();
+          }}
+        />
+      )}
+
+      {/* Ban */}
       {canBan && (
         <ContextMenu.Item
           icon={
@@ -237,8 +359,10 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
           }
           label="Ban"
           danger
-          disabled
-          onClick={() => {}}
+          onClick={() => {
+            onBan(member);
+            onClose();
+          }}
         />
       )}
     </ContextMenu>

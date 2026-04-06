@@ -170,6 +170,14 @@ export const mockMember = {
   avatar_url: null,
   role: 'owner' as const,
   joined_at: '2025-01-01T00:00:00Z',
+  roles: [] as {
+    role_id: string;
+    role_name: string;
+    role_color?: string;
+    role_emoji?: string;
+    position: number;
+    display_separately?: boolean;
+  }[],
 };
 
 export const mockMember2 = {

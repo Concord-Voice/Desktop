@@ -7,6 +7,8 @@ import MemberItem from './MemberItem';
 import MemberProfileCard from './MemberProfileCard';
 import MemberContextMenu from './MemberContextMenu';
 import UserProfileModal from './UserProfileModal';
+import ConfirmActionModal from '../ui/ConfirmActionModal';
+import { apiFetch, safeJson } from '../../services/apiClient';
 import './MemberList.css';
 
 const MemberList: React.FC = () => {
@@ -37,6 +39,8 @@ const MemberList: React.FC = () => {
   } | null>(null);
 
   const [fullProfileUserId, setFullProfileUserId] = useState<string | null>(null);
+  const [banTarget, setBanTarget] = useState<ServerMember | null>(null);
+  const [kickTarget, setKickTarget] = useState<ServerMember | null>(null);
 
   // Derive live member data from store (not stale snapshots)
   const selectedMemberData = selectedMember
@@ -345,6 +349,14 @@ const MemberList: React.FC = () => {
           onViewProfile={() => {
             setFullProfileUserId(contextMenu.member.user_id);
           }}
+          onBan={(m) => {
+            setContextMenu(null);
+            setBanTarget(m);
+          }}
+          onKick={(m) => {
+            setContextMenu(null);
+            setKickTarget(m);
+          }}
         />
       )}
 
@@ -356,6 +368,54 @@ const MemberList: React.FC = () => {
           member={fullProfileMemberData}
           presenceStatus={getMemberStatus(fullProfileMemberData.user_id)}
           lastSeen={lastSeenByUser.get(fullProfileMemberData.user_id)}
+        />
+      )}
+
+      {/* Ban Confirmation Modal */}
+      {activeServer && (
+        <ConfirmActionModal
+          isOpen={!!banTarget}
+          onClose={() => setBanTarget(null)}
+          title={`Ban ${banTarget?.display_name || banTarget?.username || 'User'}`}
+          message="This will permanently remove them from the server and prevent them from rejoining."
+          confirmLabel="Ban"
+          loadingLabel="Banning..."
+          onConfirm={async () => {
+            if (!banTarget) return;
+            const res = await apiFetch(
+              `/api/v1/servers/${activeServer.id}/bans/${banTarget.user_id}`,
+              { method: 'POST' }
+            );
+            if (!res.ok) {
+              const data = await safeJson<{ error?: string }>(res);
+              throw new Error(data?.error || 'Ban failed');
+            }
+            useMemberStore.getState().removeMember(banTarget.user_id);
+          }}
+        />
+      )}
+
+      {/* Kick Confirmation Modal */}
+      {activeServer && (
+        <ConfirmActionModal
+          isOpen={!!kickTarget}
+          onClose={() => setKickTarget(null)}
+          title={`Kick ${kickTarget?.display_name || kickTarget?.username || 'User'}`}
+          message="This will remove them from the server. They can rejoin with a new invite."
+          confirmLabel="Kick"
+          loadingLabel="Kicking..."
+          onConfirm={async () => {
+            if (!kickTarget) return;
+            const res = await apiFetch(
+              `/api/v1/servers/${activeServer.id}/members/${kickTarget.user_id}`,
+              { method: 'DELETE' }
+            );
+            if (!res.ok) {
+              const data = await safeJson<{ error?: string }>(res);
+              throw new Error(data?.error || 'Kick failed');
+            }
+            useMemberStore.getState().removeMember(kickTarget.user_id);
+          }}
         />
       )}
     </div>

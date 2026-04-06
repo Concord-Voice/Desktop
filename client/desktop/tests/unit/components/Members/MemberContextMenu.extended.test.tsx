@@ -3,20 +3,65 @@ import MemberContextMenu from '@/renderer/components/Members/MemberContextMenu';
 import { mockMember, mockMember2 } from '../../../mocks/fixtures';
 import { usePermissionStore } from '@/renderer/stores/permissionStore';
 import { useMemberStore } from '@/renderer/stores/memberStore';
+import { useUserStore } from '@/renderer/stores/userStore';
+import { useDMStore } from '@/renderer/stores/dmStore';
+import { useFriendStore } from '@/renderer/stores/friendStore';
 import { ADMIN_PERMISSIONS } from '@/renderer/utils/permissions';
 import { resetAllStores } from '../../../helpers/store-helpers';
-
-const mockApiFetch = vi.fn();
-vi.mock('@/renderer/services/apiClient', () => ({
-  apiFetch: (...args: unknown[]) => mockApiFetch(...args),
-}));
+import type { Role } from '@/renderer/types/server';
 
 const SERVER_ID = 'server-1';
 const OWNER_USER_ID = 'user-1';
 
+const mockRoles: Role[] = [
+  {
+    id: 'role-admin',
+    server_id: SERVER_ID,
+    name: 'Admin',
+    color: '#FF0000',
+    position: 2,
+    permissions: '0',
+    is_default: false,
+    display_separately: true,
+    mentionable: false,
+    require_mfa: false,
+    created_at: '2025-01-01T00:00:00Z',
+    updated_at: '2025-01-01T00:00:00Z',
+  },
+  {
+    id: 'role-mod',
+    server_id: SERVER_ID,
+    name: 'Moderator',
+    color: '#00FF00',
+    position: 1,
+    permissions: '0',
+    is_default: false,
+    display_separately: false,
+    mentionable: false,
+    require_mfa: false,
+    created_at: '2025-01-01T00:00:00Z',
+    updated_at: '2025-01-01T00:00:00Z',
+  },
+  {
+    id: 'role-everyone',
+    server_id: SERVER_ID,
+    name: '@everyone',
+    position: 0,
+    permissions: '0',
+    is_default: true,
+    display_separately: false,
+    mentionable: false,
+    require_mfa: false,
+    created_at: '2025-01-01T00:00:00Z',
+    updated_at: '2025-01-01T00:00:00Z',
+  },
+];
+
 describe('MemberContextMenu — extended coverage', () => {
   const mockOnClose = vi.fn();
   const mockOnViewProfile = vi.fn();
+  const mockOnBan = vi.fn();
+  const mockOnKick = vi.fn();
 
   const defaultProps = {
     member: mockMember2,
@@ -25,6 +70,8 @@ describe('MemberContextMenu — extended coverage', () => {
     ownerUserId: OWNER_USER_ID,
     onClose: mockOnClose,
     onViewProfile: mockOnViewProfile,
+    onBan: mockOnBan,
+    onKick: mockOnKick,
   };
 
   beforeEach(() => {
@@ -33,43 +80,136 @@ describe('MemberContextMenu — extended coverage', () => {
     resetAllStores();
     usePermissionStore.setState({
       serverPermissions: { [SERVER_ID]: ADMIN_PERMISSIONS },
+      serverRoles: { [SERVER_ID]: mockRoles },
     });
-    useMemberStore.setState({ members: [mockMember, mockMember2] });
+    useUserStore.setState({ user: { id: OWNER_USER_ID, username: 'testuser' } as never });
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  describe('role selection', () => {
+  describe('role assignment via RBAC', () => {
     it('renders the context menu for a member', () => {
       render(<MemberContextMenu {...defaultProps} />);
-      // Verify the context menu renders with the member's info
       expect(
         screen.getByText(mockMember2.display_name || mockMember2.username)
       ).toBeInTheDocument();
     });
 
-    it('does not update role when selecting current role', () => {
+    it('calls assignRole when clicking an unassigned role', async () => {
+      const mockAssign = vi.fn().mockResolvedValue(true);
+      usePermissionStore.setState({
+        serverPermissions: { [SERVER_ID]: ADMIN_PERMISSIONS },
+        serverRoles: { [SERVER_ID]: mockRoles },
+        assignRole: mockAssign,
+      });
+
       render(<MemberContextMenu {...defaultProps} />);
       fireEvent.click(screen.getByText('Assign Role'));
-      // mockMember2 already has role 'member'
-      const memberBtn = screen.getByText('Member').closest('button');
-      expect(memberBtn).toBeDisabled();
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Admin'));
+      });
+
+      expect(mockAssign).toHaveBeenCalledWith(SERVER_ID, mockMember2.user_id, 'role-admin');
     });
 
-    it('shows checkmark next to current role', () => {
+    it('calls unassignRole when clicking an already-assigned role', async () => {
+      const mockUnassign = vi.fn().mockResolvedValue(true);
+      usePermissionStore.setState({
+        serverPermissions: { [SERVER_ID]: ADMIN_PERMISSIONS },
+        serverRoles: { [SERVER_ID]: mockRoles },
+        unassignRole: mockUnassign,
+      });
+
+      const memberWithRole = {
+        ...mockMember2,
+        roles: [{ role_id: 'role-admin', role_name: 'Admin', position: 2 }],
+      };
+
+      render(<MemberContextMenu {...defaultProps} member={memberWithRole} />);
+      fireEvent.click(screen.getByText('Assign Role'));
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Admin'));
+      });
+
+      expect(mockUnassign).toHaveBeenCalledWith(SERVER_ID, mockMember2.user_id, 'role-admin');
+    });
+
+    it('refetches members after successful role assignment', async () => {
+      const mockAssign = vi.fn().mockResolvedValue(true);
+      const mockFetchMembers = vi.fn().mockResolvedValue(undefined);
+      usePermissionStore.setState({
+        serverPermissions: { [SERVER_ID]: ADMIN_PERMISSIONS },
+        serverRoles: { [SERVER_ID]: mockRoles },
+        assignRole: mockAssign,
+      });
+      useMemberStore.setState({ fetchMembers: mockFetchMembers });
+
       render(<MemberContextMenu {...defaultProps} />);
       fireEvent.click(screen.getByText('Assign Role'));
-      // The current role (member) should have a checkmark
-      const memberOption = screen.getByText('Member').closest('button');
-      expect(memberOption?.textContent).toContain('\u2713');
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Admin'));
+      });
+
+      expect(mockAssign).toHaveBeenCalledWith(SERVER_ID, mockMember2.user_id, 'role-admin');
+      expect(mockFetchMembers).toHaveBeenCalledWith(SERVER_ID);
     });
 
-    it('provides onClose callback in the menu', () => {
+    it('logs error when role assignment returns false', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mockAssign = vi.fn().mockResolvedValue(false);
+      usePermissionStore.setState({
+        serverPermissions: { [SERVER_ID]: ADMIN_PERMISSIONS },
+        serverRoles: { [SERVER_ID]: mockRoles },
+        assignRole: mockAssign,
+      });
+
       render(<MemberContextMenu {...defaultProps} />);
-      // The context menu should be rendered and closeable
-      expect(defaultProps.onClose).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByText('Assign Role'));
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Admin'));
+      });
+
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to toggle role: server returned non-OK');
+      consoleSpy.mockRestore();
+    });
+
+    it('shows "No roles available" when server has no assignable roles', () => {
+      usePermissionStore.setState({
+        serverPermissions: { [SERVER_ID]: ADMIN_PERMISSIONS },
+        serverRoles: {
+          [SERVER_ID]: [mockRoles[2]], // Only @everyone (is_default)
+        },
+      });
+      render(<MemberContextMenu {...defaultProps} />);
+      fireEvent.click(screen.getByText('Assign Role'));
+      expect(screen.getByText('No roles available')).toBeInTheDocument();
+    });
+
+    it('resets togglingRoleId after failure', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mockAssign = vi.fn().mockRejectedValue(new Error('Network error'));
+      usePermissionStore.setState({
+        serverPermissions: { [SERVER_ID]: ADMIN_PERMISSIONS },
+        serverRoles: { [SERVER_ID]: mockRoles },
+        assignRole: mockAssign,
+      });
+
+      render(<MemberContextMenu {...defaultProps} />);
+      fireEvent.click(screen.getByText('Assign Role'));
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Admin'));
+      });
+
+      // Should not be stuck in "Updating..." state
+      expect(screen.queryByText('Updating...')).not.toBeInTheDocument();
+      consoleSpy.mockRestore();
     });
   });
 
@@ -81,124 +221,95 @@ describe('MemberContextMenu — extended coverage', () => {
     });
   });
 
-  describe('Ban button', () => {
+  describe('Ban and Kick', () => {
     it('hides Ban when targeting the owner', () => {
       render(<MemberContextMenu {...defaultProps} member={mockMember} />);
       expect(screen.queryByText('Ban')).not.toBeInTheDocument();
     });
 
-    it('shows Ban as disabled (no backend)', () => {
+    it('hides Kick when targeting the owner', () => {
+      render(<MemberContextMenu {...defaultProps} member={mockMember} />);
+      expect(screen.queryByText('Kick')).not.toBeInTheDocument();
+    });
+
+    it('Ban button is enabled and calls onBan', () => {
       render(<MemberContextMenu {...defaultProps} />);
-      const banBtn = screen.getByText('Ban').closest('button');
-      expect(banBtn).toBeDisabled();
+      const banBtn = screen.getByText('Ban').closest('button')!;
+      expect(banBtn).not.toBeDisabled();
+      fireEvent.click(banBtn);
+      expect(mockOnBan).toHaveBeenCalledWith(mockMember2);
+    });
+
+    it('Kick button is enabled and calls onKick', () => {
+      render(<MemberContextMenu {...defaultProps} />);
+      const kickBtn = screen.getByText('Kick').closest('button')!;
+      expect(kickBtn).not.toBeDisabled();
+      fireEvent.click(kickBtn);
+      expect(mockOnKick).toHaveBeenCalledWith(mockMember2);
     });
   });
 
-  describe('handleRoleSelect', () => {
-    it('sends PATCH with Content-Type header and updates store on success', async () => {
-      mockApiFetch.mockResolvedValueOnce({ ok: true, status: 200 });
+  describe('Send DM', () => {
+    it('calls openDM on click', async () => {
+      const mockOpenDM = vi.fn().mockResolvedValue({ id: 'dm-1' });
+      useDMStore.setState({ openDM: mockOpenDM } as never);
 
       render(<MemberContextMenu {...defaultProps} />);
-      fireEvent.click(screen.getByText('Assign Role'));
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Admin'));
+        fireEvent.click(screen.getByText('Send DM'));
       });
 
-      // Verify PATCH was sent with correct headers and body
-      expect(mockApiFetch).toHaveBeenCalledWith(
-        `/api/v1/servers/${SERVER_ID}/members/${mockMember2.user_id}`,
-        expect.objectContaining({
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ role: 'admin' }),
-        })
-      );
-
-      // Verify store was updated
-      const members = useMemberStore.getState().members;
-      const updated = members.find((m) => m.user_id === mockMember2.user_id);
-      expect(updated?.role).toBe('admin');
-
-      // Verify onClose was called
+      expect(mockOpenDM).toHaveBeenCalledWith(mockMember2.user_id);
       expect(mockOnClose).toHaveBeenCalled();
     });
 
-    it('does NOT update store when API returns non-ok response', async () => {
-      mockApiFetch.mockResolvedValueOnce({ ok: false, status: 403 });
-
-      render(<MemberContextMenu {...defaultProps} />);
-      fireEvent.click(screen.getByText('Assign Role'));
-
-      await act(async () => {
-        fireEvent.click(screen.getByText('Admin'));
-      });
-
-      // Store should NOT have been updated
-      const members = useMemberStore.getState().members;
-      const member = members.find((m) => m.user_id === mockMember2.user_id);
-      expect(member?.role).toBe('member');
-
-      // onClose should NOT have been called
-      expect(mockOnClose).not.toHaveBeenCalled();
-    });
-
-    it('includes backend error message when API returns error JSON', async () => {
+    it('handles openDM error gracefully', async () => {
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      mockApiFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 403,
-        json: () => Promise.resolve({ error: 'Insufficient permissions' }),
-      });
+      const mockOpenDM = vi.fn().mockRejectedValue(new Error('DM blocked'));
+      useDMStore.setState({ openDM: mockOpenDM } as never);
 
       render(<MemberContextMenu {...defaultProps} />);
-      fireEvent.click(screen.getByText('Assign Role'));
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Admin'));
+        fireEvent.click(screen.getByText('Send DM'));
       });
 
-      expect(consoleSpy).toHaveBeenCalledWith(
-        'Failed to update role:',
-        expect.objectContaining({
-          message: expect.stringContaining('Insufficient permissions'),
-        })
-      );
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to open DM:', expect.any(Error));
+      expect(mockOnClose).toHaveBeenCalled();
       consoleSpy.mockRestore();
     });
+  });
 
-    it('does NOT update store on network error', async () => {
-      mockApiFetch.mockRejectedValueOnce(new Error('Network error'));
+  describe('Friend Request', () => {
+    it('calls sendRequest on click', async () => {
+      const mockSendRequest = vi.fn().mockResolvedValue(undefined);
+      useFriendStore.setState({ sendRequest: mockSendRequest } as never);
 
       render(<MemberContextMenu {...defaultProps} />);
-      fireEvent.click(screen.getByText('Assign Role'));
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Admin'));
+        fireEvent.click(screen.getByText('Send Friend Request'));
       });
 
-      // Store should NOT have been updated
-      const members = useMemberStore.getState().members;
-      const member = members.find((m) => m.user_id === mockMember2.user_id);
-      expect(member?.role).toBe('member');
-
-      // onClose should NOT have been called
-      expect(mockOnClose).not.toHaveBeenCalled();
+      expect(mockSendRequest).toHaveBeenCalledWith(mockMember2.user_id);
+      expect(mockOnClose).toHaveBeenCalled();
     });
 
-    it('resets isUpdatingRole after failure', async () => {
-      mockApiFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+    it('handles sendRequest error gracefully', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const mockSendRequest = vi.fn().mockRejectedValue(new Error('Already sent'));
+      useFriendStore.setState({ sendRequest: mockSendRequest } as never);
 
       render(<MemberContextMenu {...defaultProps} />);
-      fireEvent.click(screen.getByText('Assign Role'));
 
       await act(async () => {
-        fireEvent.click(screen.getByText('Admin'));
+        fireEvent.click(screen.getByText('Send Friend Request'));
       });
 
-      // isUpdatingRole should have been reset via finally block,
-      // so the button should not be stuck in "Updating..." state
-      expect(screen.queryByText('Updating...')).not.toBeInTheDocument();
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to send friend request:', expect.any(Error));
+      expect(mockOnClose).toHaveBeenCalled();
+      consoleSpy.mockRestore();
     });
   });
 });
