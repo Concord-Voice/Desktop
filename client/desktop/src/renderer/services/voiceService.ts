@@ -71,6 +71,9 @@ interface RtpSenderWithEncodedStreams {
   createEncodedStreams?: () => { readable: ReadableStream; writable: WritableStream };
 }
 
+/** Decoder health zone classification for IGNIS profiling. */
+type DecoderHealthZone = 'green' | 'yellow' | 'red';
+
 /** SFU-layer-aware consumer — mediasoup-client exposes currentLayers/setPreferredLayers
  *  on the server but not in the public client type definitions. */
 interface ConsumerWithLayers {
@@ -488,6 +491,40 @@ class VoiceService {
    * for in-band FEC without sacrificing primary audio quality.
    * Loss > threshold → packetLossWarning in store.
    */
+  /** Extract packet loss stats from a producer's stats report. */
+  private static extractPacketLossStats(stats: RTCStatsReport): {
+    packetsSent: number;
+    packetsLost: number;
+  } {
+    let packetsSent = 0;
+    let packetsLost = 0;
+    for (const report of stats.values()) {
+      if (report.type === 'outbound-rtp') {
+        packetsSent = (report as { packetsSent?: number }).packetsSent ?? 0;
+      }
+      if (report.type === 'remote-inbound-rtp') {
+        packetsLost = (report as { packetsLost?: number }).packetsLost ?? 0;
+      }
+    }
+    return { packetsSent, packetsLost };
+  }
+
+  /** Calculate FEC headroom bitrate multiplier based on loss % and tier. */
+  private static calculateFecBitrate(
+    lossPercent: number,
+    tierMaxBitrate: number,
+    effectiveHeadroom: boolean
+  ): number {
+    if (!effectiveHeadroom || lossPercent <= 0) return tierMaxBitrate;
+
+    let K: number;
+    if (tierMaxBitrate < 64_000) K = 4;
+    else if (tierMaxBitrate < 128_000) K = 2.5;
+    else K = 1.5;
+    const headroomPercent = Math.min(50, lossPercent * K);
+    return Math.round(tierMaxBitrate * (1 + headroomPercent / 100));
+  }
+
   private startPacketLossMonitor(): void {
     this.stopPacketLossMonitor();
     this.lastPacketsLost = 0;
@@ -499,24 +536,12 @@ class VoiceService {
 
       try {
         const stats = await micProducer.getStats();
+        const { packetsSent, packetsLost } = VoiceService.extractPacketLossStats(stats);
 
-        let totalPacketsSent = 0;
-        let totalPacketsLost = 0;
-
-        for (const report of stats.values()) {
-          if (report.type === 'outbound-rtp') {
-            totalPacketsSent = (report as { packetsSent?: number }).packetsSent ?? 0;
-          }
-          if (report.type === 'remote-inbound-rtp') {
-            totalPacketsLost = (report as { packetsLost?: number }).packetsLost ?? 0;
-          }
-        }
-
-        // Calculate delta loss since last poll
-        const deltaSent = totalPacketsSent - this.lastPacketsSent;
-        const deltaLost = totalPacketsLost - this.lastPacketsLost;
-        this.lastPacketsSent = totalPacketsSent;
-        this.lastPacketsLost = totalPacketsLost;
+        const deltaSent = packetsSent - this.lastPacketsSent;
+        const deltaLost = packetsLost - this.lastPacketsLost;
+        this.lastPacketsSent = packetsSent;
+        this.lastPacketsLost = packetsLost;
 
         if (deltaSent <= 0) return;
 
@@ -524,30 +549,20 @@ class VoiceService {
         const adv = useAudioSettingsStore.getState();
         useVoiceStore.getState().setPacketLoss(lossPercent, adv.packetLossWarningThreshold);
 
-        // FEC headroom — reactively inflate bitrate when loss detected
         if (micProducer.rtpSender) {
           const tier = useVoiceStore.getState().effectiveQualityTier;
           const tierConfig = AUDIO_QUALITY_TIERS[tier];
           const effectiveHeadroom = adv.advancedMode
             ? adv.inlineFec && adv.fecHeadroom
-            : tierConfig.opusFec; // basic mode: headroom on when FEC is on
+            : tierConfig.opusFec;
 
           const params = micProducer.rtpSender.getParameters();
           if (params.encodings?.[0]) {
-            if (effectiveHeadroom && lossPercent > 0) {
-              // Tier-derived multiplier: low bitrate tiers need proportionally more
-              // headroom since FEC eats a larger share of a small budget
-              let K: number;
-              if (tierConfig.maxBitrate < 64_000) K = 4;
-              else if (tierConfig.maxBitrate < 128_000) K = 2.5;
-              else K = 1.5;
-              const headroomPercent = Math.min(50, lossPercent * K);
-              params.encodings[0].maxBitrate = Math.round(
-                tierConfig.maxBitrate * (1 + headroomPercent / 100)
-              );
-            } else {
-              params.encodings[0].maxBitrate = tierConfig.maxBitrate;
-            }
+            params.encodings[0].maxBitrate = VoiceService.calculateFecBitrate(
+              lossPercent,
+              tierConfig.maxBitrate,
+              effectiveHeadroom
+            );
             micProducer.rtpSender.setParameters(params).catch(() => {});
           }
         }
@@ -796,29 +811,29 @@ class VoiceService {
       }
 
       // --- replaceTrack: re-acquire mic with new constraints ---
-      const constraintChanged =
-        state.noiseCancellation !== prev.noiseCancellation ||
-        state.echoCancellation !== prev.echoCancellation ||
-        state.autoGainControl !== prev.autoGainControl ||
-        state.noiseGateMode !== prev.noiseGateMode ||
-        state.noiseGateLevel !== prev.noiseGateLevel;
-
-      if (constraintChanged) {
+      const constraintFields = [
+        'noiseCancellation',
+        'echoCancellation',
+        'autoGainControl',
+        'noiseGateMode',
+        'noiseGateLevel',
+      ] as const;
+      if (constraintFields.some((f) => state[f] !== prev[f])) {
         this.liveReplaceAudioTrack();
-        return; // replaceTrack handles everything
+        return;
       }
 
       // --- Re-produce: codec options changed ---
-      const codecOptionChanged =
-        state.musicMode !== prev.musicMode ||
-        state.frameSize !== prev.frameSize ||
-        state.silenceDetection !== prev.silenceDetection ||
-        state.inlineFec !== prev.inlineFec ||
-        state.fecHeadroom !== prev.fecHeadroom ||
-        state.opusNack !== prev.opusNack ||
-        state.adaptivePtime !== prev.adaptivePtime;
-
-      if (codecOptionChanged) {
+      const codecOptionFields = [
+        'musicMode',
+        'frameSize',
+        'silenceDetection',
+        'inlineFec',
+        'fecHeadroom',
+        'opusNack',
+        'adaptivePtime',
+      ] as const;
+      if (codecOptionFields.some((f) => state[f] !== prev[f])) {
         this.liveReproduceAudio();
       }
     });
@@ -2399,36 +2414,15 @@ class VoiceService {
 
     // Close the paired screen-audio consumer for this specific user
     if (screenOwnerUserId) {
-      for (const [cid, meta] of this.consumerMeta) {
-        if (meta.source === 'screen-audio' && meta.producerUserId === screenOwnerUserId) {
-          const consumer = this.consumers.get(cid);
-          if (consumer) {
-            consumer.close();
-            this.consumers.delete(cid);
-            this.consumerMeta.delete(cid);
-            this.socket?.emit('close-consumer', { consumerId: cid });
-          }
-          store.updateParticipant(screenOwnerUserId, { screenAudioStream: undefined });
-          break;
-        }
-      }
+      this.closeScreenAudioConsumerForUser(screenOwnerUserId, store);
     }
 
     // Find the producing user to update their participant state
-    const participants = store.participants;
-    let producerUserId: string | undefined = screenOwnerUserId;
-    if (!producerUserId) {
-      for (const [uid, p] of Object.entries(participants)) {
-        if (p.screenStream) {
-          producerUserId = uid;
-          break;
-        }
-      }
-    }
+    const producerUserId = screenOwnerUserId ?? this.findScreenShareOwner(store);
 
     // Add back to available shares
     if (producerUserId) {
-      const participant = participants[producerUserId];
+      const participant = store.participants[producerUserId];
       store.addAvailableScreenShare({
         producerId,
         userId: producerUserId,
@@ -2439,6 +2433,36 @@ class VoiceService {
 
     // Remove from tuned-in (this also handles dominant swap & slot recalculation)
     store.tuneOut(producerId);
+  }
+
+  /** Close the screen-audio consumer for a specific user. */
+  private closeScreenAudioConsumerForUser(
+    userId: string,
+    store: ReturnType<typeof useVoiceStore.getState>
+  ): void {
+    for (const [cid, meta] of this.consumerMeta) {
+      if (meta.source === 'screen-audio' && meta.producerUserId === userId) {
+        const consumer = this.consumers.get(cid);
+        if (consumer) {
+          consumer.close();
+          this.consumers.delete(cid);
+          this.consumerMeta.delete(cid);
+          this.socket?.emit('close-consumer', { consumerId: cid });
+        }
+        store.updateParticipant(userId, { screenAudioStream: undefined });
+        break;
+      }
+    }
+  }
+
+  /** Find the user who owns an active screen share. */
+  private findScreenShareOwner(
+    store: ReturnType<typeof useVoiceStore.getState>
+  ): string | undefined {
+    for (const [uid, p] of Object.entries(store.participants)) {
+      if (p.screenStream) return uid;
+    }
+    return undefined;
   }
 
   /** Pause a consumer locally and signal the server to stop forwarding RTP */
@@ -2515,59 +2539,65 @@ class VoiceService {
 
     if (producer) {
       producer.close();
-      // Drain the transport's internal queue so the stopSending SDP renegotiation
-      // completes before any subsequent produce() call (prevents PT collision).
       await this.drainSendTransportQueue();
       this.producers.delete(source);
       this.socket?.emit('close-producer', { producerId: producer.id });
     }
 
     // Always clean up local tracks and reset state, even if no producer exists.
-    // This prevents state from getting stuck (e.g. isScreenSharing=true with no producer).
-    const localUserId = useUserStore.getState().user?.id;
-    if (source === 'mic') {
-      this.stopLocalVAD();
-      this.stopNoiseGate();
-      this.stopInputVolume();
-      if (this.localMicStream) {
-        for (const t of this.localMicStream.getTracks()) t.stop();
-        this.localMicStream = null;
-      }
-    } else if (source === 'camera') {
-      if (this.localCameraStream) {
-        for (const t of this.localCameraStream.getTracks()) t.stop();
-        this.localCameraStream = null;
-      }
-      useVoiceStore.getState().setVideoOn(false);
-      useVoiceStore.getState().setActiveCameraCodec(null);
-      if (localUserId) {
-        useVoiceStore
-          .getState()
-          .updateParticipant(localUserId, { videoStream: undefined, isVideoOn: false });
-      }
-    } else if (source === 'screen') {
-      // Also close the paired screen-audio producer
-      const audioProducer = this.producers.get('screen-audio');
-      if (audioProducer) {
-        audioProducer.close();
-        await this.drainSendTransportQueue();
-        this.producers.delete('screen-audio');
-        this.socket?.emit('close-producer', { producerId: audioProducer.id });
-      }
+    if (source === 'mic') this.cleanupMicState();
+    else if (source === 'camera') this.cleanupCameraState();
+    else if (source === 'screen') await this.cleanupScreenState();
+  }
 
-      if (this.localScreenStream) {
-        for (const t of this.localScreenStream.getTracks()) t.stop(); // Stops both video & audio tracks
-        this.localScreenStream = null;
-      }
-      useVoiceStore.getState().setScreenSharing(false);
-      useVoiceStore.getState().setActiveScreenCodec(null);
-      if (localUserId) {
-        useVoiceStore.getState().updateParticipant(localUserId, {
-          screenStream: undefined,
-          screenAudioStream: undefined,
-          isScreenSharing: false,
-        });
-      }
+  private cleanupMicState(): void {
+    this.stopLocalVAD();
+    this.stopNoiseGate();
+    this.stopInputVolume();
+    if (this.localMicStream) {
+      for (const t of this.localMicStream.getTracks()) t.stop();
+      this.localMicStream = null;
+    }
+  }
+
+  private cleanupCameraState(): void {
+    if (this.localCameraStream) {
+      for (const t of this.localCameraStream.getTracks()) t.stop();
+      this.localCameraStream = null;
+    }
+    const store = useVoiceStore.getState();
+    store.setVideoOn(false);
+    store.setActiveCameraCodec(null);
+    const localUserId = useUserStore.getState().user?.id;
+    if (localUserId) {
+      store.updateParticipant(localUserId, { videoStream: undefined, isVideoOn: false });
+    }
+  }
+
+  private async cleanupScreenState(): Promise<void> {
+    // Also close the paired screen-audio producer
+    const audioProducer = this.producers.get('screen-audio');
+    if (audioProducer) {
+      audioProducer.close();
+      await this.drainSendTransportQueue();
+      this.producers.delete('screen-audio');
+      this.socket?.emit('close-producer', { producerId: audioProducer.id });
+    }
+
+    if (this.localScreenStream) {
+      for (const t of this.localScreenStream.getTracks()) t.stop();
+      this.localScreenStream = null;
+    }
+    const store = useVoiceStore.getState();
+    store.setScreenSharing(false);
+    store.setActiveScreenCodec(null);
+    const localUserId = useUserStore.getState().user?.id;
+    if (localUserId) {
+      store.updateParticipant(localUserId, {
+        screenStream: undefined,
+        screenAudioStream: undefined,
+        isScreenSharing: false,
+      });
     }
   }
 
@@ -2971,71 +3001,79 @@ class VoiceService {
 
   // ─── Socket Listeners ──────────────────────────────────────────────
 
+  /** Check if we're already tuned into a screen share from a specific user. */
+  private isUserScreenTunedIn(
+    userId: string,
+    store: ReturnType<typeof useVoiceStore.getState>
+  ): boolean {
+    return (
+      Object.values(store.tunedInScreenShares).length > 0 &&
+      [...this.consumerMeta.values()].some(
+        (m) => m.source === 'screen' && m.producerUserId === userId
+      )
+    );
+  }
+
+  /** Handle a new-producer socket event — dispatches opt-in, E2EE, slot enforcement. */
+  private async handleNewProducer(event: {
+    producerId: string;
+    userId: string;
+    kind: string;
+    source: string;
+    requiresOptIn?: boolean;
+  }): Promise<void> {
+    const { producerId, userId, kind, source, requiresOptIn } = event;
+    const store = useVoiceStore.getState();
+
+    if (requiresOptIn && source === 'screen') {
+      const participant = store.participants[userId];
+      store.addAvailableScreenShare({
+        producerId,
+        userId,
+        username: participant?.username || 'Unknown',
+        displayName: participant?.displayName,
+      });
+      store.updateParticipant(userId, { isScreenSharing: true });
+      return;
+    }
+
+    if (requiresOptIn && source === 'screen-audio') {
+      this.pendingScreenAudioProducers.set(userId, producerId);
+      if (this.isUserScreenTunedIn(userId, store)) {
+        await this.consumeProducer(producerId, userId, 'audio');
+      }
+      return;
+    }
+
+    if (this.isEncrypted && this.mediaEncryption) {
+      const channelId = store.activeChannelId;
+      if (channelId) {
+        await this.addDecryptKeyForUser(channelId, userId);
+      }
+    }
+
+    if (source === 'camera') {
+      const videoOnCount = Object.values(store.participants).filter((p) => p.isVideoOn).length;
+      if (videoOnCount >= store.maxVideoSlots) {
+        console.warn(
+          `[new-producer] Video slot limit reached (${store.maxVideoSlots}), skipping camera consume for ${userId}`
+        );
+        store.updateParticipant(userId, { isVideoOn: true });
+        return;
+      }
+    }
+
+    await this.consumeProducer(producerId, userId, kind as mediasoupTypes.MediaKind);
+    if (source === 'camera') store.updateParticipant(userId, { isVideoOn: true });
+    if (source === 'screen') store.updateParticipant(userId, { isScreenSharing: true });
+
+    this.onProducerAdded?.(producerId, userId, source);
+  }
+
   private setupSocketListeners(): void {
     if (!this.socket) return;
 
-    this.socket.on('new-producer', async ({ producerId, userId, kind, source, requiresOptIn }) => {
-      const store = useVoiceStore.getState();
-
-      // Screen shares use opt-in ("Tune In") model — announce but don't auto-consume
-      if (requiresOptIn && source === 'screen') {
-        const participant = store.participants[userId];
-        store.addAvailableScreenShare({
-          producerId,
-          userId,
-          username: participant?.username || 'Unknown',
-          displayName: participant?.displayName,
-        });
-        store.updateParticipant(userId, { isScreenSharing: true });
-        return;
-      }
-
-      // Screen-audio is paired with screen video — store mapping and auto-consume
-      // if the user is already tuned into this user's screen share
-      if (requiresOptIn && source === 'screen-audio') {
-        this.pendingScreenAudioProducers.set(userId, producerId);
-        // Check if we're already tuned into a screen share from this user
-        const alreadyTunedIn =
-          Object.values(store.tunedInScreenShares).length > 0 &&
-          [...this.consumerMeta.values()].some(
-            (m) => m.source === 'screen' && m.producerUserId === userId
-          );
-        if (alreadyTunedIn) {
-          // Late arrival — consume immediately
-          await this.consumeProducer(producerId, userId, 'audio');
-        }
-        return;
-      }
-
-      // E2EE: ensure decrypt key is ready BEFORE consuming so the first
-      // frames can be decrypted. Socket.IO doesn't await async handlers,
-      // so user-joined's addDecryptKeyForUser may still be in-flight.
-      if (this.isEncrypted && this.mediaEncryption) {
-        const channelId = store.activeChannelId;
-        if (channelId) {
-          await this.addDecryptKeyForUser(channelId, userId);
-        }
-      }
-
-      // Video slot enforcement for camera streams
-      if (source === 'camera') {
-        const videoOnCount = Object.values(store.participants).filter((p) => p.isVideoOn).length;
-        if (videoOnCount >= store.maxVideoSlots) {
-          console.warn(
-            `[new-producer] Video slot limit reached (${store.maxVideoSlots}), skipping camera consume for ${userId}`
-          );
-          store.updateParticipant(userId, { isVideoOn: true }); // Mark them as video-on even if we can't consume
-          return;
-        }
-      }
-
-      await this.consumeProducer(producerId, userId, kind as mediasoupTypes.MediaKind);
-      if (source === 'camera') store.updateParticipant(userId, { isVideoOn: true });
-      if (source === 'screen') store.updateParticipant(userId, { isScreenSharing: true });
-
-      // Notify PiP proxy so open PiP windows can consume the new producer
-      this.onProducerAdded?.(producerId, userId, source);
-    });
+    this.socket.on('new-producer', (event) => this.handleNewProducer(event));
 
     this.socket.on('producer-paused', ({ producerId: _producerId, userId }) => {
       useVoiceStore.getState().updateParticipant(userId, { isMuted: true });
@@ -3364,60 +3402,72 @@ class VoiceService {
     console.warn(`IGNIS RED: pausing screen share consumer ${consumer.id} — no camera to demote`);
   }
 
+  /** Extract video decoder stats from a stats report. Returns null if insufficient data. */
+  private static extractDecoderStats(
+    report: Record<string, unknown>
+  ): { rho: number; p95DecodeMs: number; currentFps: number } | null {
+    const totalDecodeTime = report.totalDecodeTime as number | undefined;
+    const framesDecoded = report.framesDecoded as number | undefined;
+    const currentFps = report.framesPerSecond as number | undefined;
+
+    if (!totalDecodeTime || !framesDecoded || framesDecoded === 0 || !currentFps) return null;
+
+    const avgDecodeMs = (totalDecodeTime / framesDecoded) * 1000;
+    const p95DecodeMs = avgDecodeMs * 1.5;
+    const rho = (p95DecodeMs * currentFps) / 1000;
+    return { rho, p95DecodeMs, currentFps };
+  }
+
+  /** Classify decoder load into a health zone and apply layer adjustments. */
+  private classifyAndHandleDecoderZone(
+    consumer: mediasoupTypes.Consumer,
+    rho: number,
+    p95DecodeMs: number,
+    currentFps: number,
+    worstZone: DecoderHealthZone
+  ): DecoderHealthZone {
+    const consumerWithLayers = consumer as unknown as ConsumerWithLayers;
+    const currentLayers = consumerWithLayers.currentLayers;
+
+    if (rho >= 0.925) {
+      this.handleRedZone(consumer, consumerWithLayers, currentLayers, rho, p95DecodeMs, currentFps);
+      return 'red';
+    }
+    if (rho >= 0.8) {
+      if (currentLayers && currentLayers.temporalLayer > 0) {
+        consumerWithLayers.setPreferredLayers({
+          spatialLayer: currentLayers.spatialLayer,
+          temporalLayer: currentLayers.temporalLayer - 1,
+        });
+        console.warn(
+          `IGNIS YELLOW: lowering temporal layer for consumer ${consumer.id}`,
+          `(rho=${rho.toFixed(2)}, decode p95=${p95DecodeMs.toFixed(1)}ms, fps=${currentFps})`
+        );
+      }
+      return worstZone === 'red' ? 'red' : 'yellow';
+    }
+    return worstZone;
+  }
+
   private async profileDecoders(): Promise<void> {
-    let worstZone: 'green' | 'yellow' | 'red' = 'green';
+    let worstZone: DecoderHealthZone = 'green';
 
     for (const [, consumer] of this.consumers) {
       if (consumer.kind !== 'video') continue;
 
       try {
         const stats = await consumer.getStats();
-
         for (const report of stats.values()) {
           if (report.type !== 'inbound-rtp' || report.kind !== 'video') continue;
-
-          const totalDecodeTime = (report as Record<string, unknown>).totalDecodeTime as
-            | number
-            | undefined;
-          const framesDecoded = (report as Record<string, unknown>).framesDecoded as
-            | number
-            | undefined;
-          const currentFps = (report as Record<string, unknown>).framesPerSecond as
-            | number
-            | undefined;
-
-          if (!totalDecodeTime || !framesDecoded || framesDecoded === 0 || !currentFps) continue;
-
-          const avgDecodeMs = (totalDecodeTime / framesDecoded) * 1000;
-          const p95DecodeMs = avgDecodeMs * 1.5;
-          const rho = (p95DecodeMs * currentFps) / 1000;
-
-          const consumerWithLayers = consumer as unknown as ConsumerWithLayers;
-          const currentLayers = consumerWithLayers.currentLayers;
-
-          if (rho >= 0.925) {
-            worstZone = 'red';
-            this.handleRedZone(
-              consumer,
-              consumerWithLayers,
-              currentLayers,
-              rho,
-              p95DecodeMs,
-              currentFps
-            );
-          } else if (rho >= 0.8) {
-            if (worstZone !== 'red') worstZone = 'yellow';
-            if (currentLayers && currentLayers.temporalLayer > 0) {
-              consumerWithLayers.setPreferredLayers({
-                spatialLayer: currentLayers.spatialLayer,
-                temporalLayer: currentLayers.temporalLayer - 1,
-              });
-              console.warn(
-                `IGNIS YELLOW: lowering temporal layer for consumer ${consumer.id}`,
-                `(rho=${rho.toFixed(2)}, decode p95=${p95DecodeMs.toFixed(1)}ms, fps=${currentFps})`
-              );
-            }
-          }
+          const decoded = VoiceService.extractDecoderStats(report as Record<string, unknown>);
+          if (!decoded) continue;
+          worstZone = this.classifyAndHandleDecoderZone(
+            consumer,
+            decoded.rho,
+            decoded.p95DecodeMs,
+            decoded.currentFps,
+            worstZone
+          );
         }
       } catch {
         // Stats not available — skip
