@@ -2030,6 +2030,176 @@ describe('VoiceService', () => {
       await svc.handleCodecFloorChange(null, ['video/VP8']);
       expect(useVoiceStore.getState().connectionState).toBe('connected');
     });
+
+    it('reProduceIfBetterCodec skips when no producer for source', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      // No camera producer → should return without error
+      await svc.reProduceIfBetterCodec('camera');
+      expect(useVoiceStore.getState().connectionState).toBe('connected');
+    });
+
+    it('reProduceIfBetterCodec skips when current mime is null', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      const cameraProducer = createMockProducer('prod-cam', 'camera');
+      // rtpSender returns no codecs → getProducerCodecMimeType returns null
+      cameraProducer.rtpSender.getParameters = vi.fn().mockReturnValue({ codecs: [] });
+      svc.producers.set('camera', cameraProducer);
+      await svc.reProduceIfBetterCodec('camera');
+      expect(useVoiceStore.getState().connectionState).toBe('connected');
+    });
+
+    it('reProduceIfBetterCodec skips when best codec matches current', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      const cameraProducer = createMockProducer('prod-cam', 'camera');
+      // Current codec is VP8, cascade will also pick VP8 (only available)
+      cameraProducer.rtpSender.getParameters = vi.fn().mockReturnValue({
+        codecs: [{ mimeType: 'video/VP8' }],
+        encodings: [{ maxBitrate: 2000000 }],
+      });
+      svc.producers.set('camera', cameraProducer);
+      await svc.reProduceIfBetterCodec('camera');
+      // Should not have called fastReproduceCamera
+      expect(cameraProducer.close).not.toHaveBeenCalled();
+    });
+
+    it('reProduceIfBetterCodec skips HW switch when hwAccel disabled', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      useVideoSettingsStore.setState({
+        hardwareAcceleration: false,
+        codecCapabilities: [
+          { mimeType: 'video/AV1', powerEfficient: true },
+          { mimeType: 'video/VP8', powerEfficient: false },
+        ],
+      });
+      const cameraProducer = createMockProducer('prod-cam', 'camera');
+      cameraProducer.rtpSender.getParameters = vi.fn().mockReturnValue({
+        codecs: [{ mimeType: 'video/VP8' }],
+        encodings: [{ maxBitrate: 2000000 }],
+      });
+      svc.producers.set('camera', cameraProducer);
+      // AV1 is HW (powerEfficient), VP8 is SW — should skip since hwAccel=false
+      await svc.reProduceIfBetterCodec('camera');
+      expect(cameraProducer.close).not.toHaveBeenCalled();
+    });
+
+    it('reProduceIfBetterCodec dispatches to correct reproduce function', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+
+      // Override methods with flags to verify dispatch (delete restores prototype)
+      let cameraCalled = false;
+      let screenCalled = false;
+      svc.fastReproduceCamera = async () => {
+        cameraCalled = true;
+      };
+      svc.fastReproduceScreen = async () => {
+        screenCalled = true;
+      };
+      svc.getProducerCodecMimeType = () => 'video/vp8';
+      svc.pickCameraCodec = () => ({
+        codec: { mimeType: 'video/AV1', kind: 'video', clockRate: 90000, parameters: {} },
+        encodings: [{ maxBitrate: 2000000 }],
+      });
+      svc.pickScreenCodec = () => ({
+        codec: { mimeType: 'video/AV1', kind: 'video', clockRate: 90000, parameters: {} },
+        encodings: [{ maxBitrate: 4000000 }],
+        effectiveBitrate: 4000000,
+      });
+
+      useVideoSettingsStore.setState({ hardwareAcceleration: false, codecCapabilities: [] });
+
+      // Camera path
+      svc.producers.set('camera', createMockProducer('prod-cam', 'camera'));
+      await svc.reProduceIfBetterCodec('camera');
+      expect(cameraCalled).toBe(true);
+
+      // Screen path
+      svc.producers.set('screen', createMockProducer('prod-scr', 'screen'));
+      await svc.reProduceIfBetterCodec('screen');
+      expect(screenCalled).toBe(true);
+
+      // Restore all overrides
+      delete svc.fastReproduceCamera;
+      delete svc.fastReproduceScreen;
+      delete svc.getProducerCodecMimeType;
+      delete svc.pickCameraCodec;
+      delete svc.pickScreenCodec;
+    });
+  });
+
+  describe('reProduceScreenAudio', () => {
+    it('returns early when no screen-audio producer', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      // No screen-audio producer → noop
+      await svc.reProduceScreenAudio();
+      expect(mockSocket.emit).not.toHaveBeenCalledWith(
+        'close-producer',
+        expect.objectContaining({ producerId: expect.any(String) })
+      );
+    });
+
+    it('returns early when no localScreenStream', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      svc.producers.set('screen-audio', createMockProducer('prod-sa', 'screen-audio'));
+      svc.localScreenStream = null;
+      await svc.reProduceScreenAudio();
+      expect(svc.producers.get('screen-audio').close).not.toHaveBeenCalled();
+    });
+
+    it('returns early when audio track is not live', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      svc.producers.set('screen-audio', createMockProducer('prod-sa', 'screen-audio'));
+      svc.localScreenStream = createMockMediaStream([{ kind: 'audio', id: 'sa-1' }]);
+      // Override readyState to 'ended'
+      svc.localScreenStream.getAudioTracks()[0].readyState = 'ended';
+      await svc.reProduceScreenAudio();
+      expect(svc.producers.get('screen-audio').close).not.toHaveBeenCalled();
+    });
+
+    it('re-produces screen audio with new producer', async () => {
+      const { sendTransport } = await joinVoiceChannel();
+      const svc = voiceService as any;
+      const oldProducer = createMockProducer('prod-sa-old', 'screen-audio');
+      svc.producers.set('screen-audio', oldProducer);
+      svc.localScreenStream = createMockMediaStream([{ kind: 'audio', id: 'sa-1' }]);
+
+      const newProducer = createMockProducer('prod-sa-new', 'screen-audio');
+      sendTransport.produce.mockResolvedValue(newProducer);
+
+      await svc.reProduceScreenAudio();
+
+      expect(oldProducer.close).toHaveBeenCalled();
+      expect(mockSocket.emit).toHaveBeenCalledWith('close-producer', {
+        producerId: 'prod-sa-old',
+      });
+      expect(sendTransport.produce).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appData: { source: 'screen-audio' },
+          codecOptions: { opusStereo: true, opusDtx: false },
+        })
+      );
+      expect(svc.producers.get('screen-audio')).toBe(newProducer);
+    });
+
+    it('handles produce failure gracefully', async () => {
+      const { sendTransport } = await joinVoiceChannel();
+      const svc = voiceService as any;
+      svc.producers.set('screen-audio', createMockProducer('prod-sa-old', 'screen-audio'));
+      svc.localScreenStream = createMockMediaStream([{ kind: 'audio', id: 'sa-1' }]);
+      sendTransport.produce.mockRejectedValue(new Error('transport closed'));
+
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      await svc.reProduceScreenAudio();
+      expect(warnSpy).toHaveBeenCalledWith('Failed to re-produce screen audio:', expect.any(Error));
+      warnSpy.mockRestore();
+    });
   });
 
   // ===== Decoder Budget Profiling (IGNIS) =====

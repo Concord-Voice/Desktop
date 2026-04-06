@@ -45,6 +45,7 @@ import type {
   E2EETransformOptions,
 } from '../workers/e2eeProtocol';
 import { notificationSoundService } from './notificationSoundService';
+import { selectCodecFromCascade, type CodecLookup } from './voiceCodecSelection';
 
 // Toggle for verbose E2EE/SDP diagnostics — set to true when debugging
 // frame drops, BUNDLE collisions, or key rotation issues. When false,
@@ -689,6 +690,15 @@ class VoiceService {
    * Cascade: user pref → AV1 → HEVC → H264 High → VP9:2 (HDR) → H264 → VP9 → VP8
    * Two-pass: HW-accelerated first, then SW fallback.
    */
+  /** Build a CodecLookup bound to this VoiceService instance. */
+  private codecLookup(): CodecLookup {
+    return {
+      isInCodecFloor: (key: string) => this.isInCodecFloor(key),
+      isHwAccelerated: (key: string) => this.isHwAccelerated(key),
+      findSendCodec: (key: string) => this.findSendCodec(key),
+    };
+  }
+
   private pickCameraCodec(): {
     codec?: mediasoupTypes.RtpCodecCapability;
     encodings: mediasoupTypes.RtpEncodingParameters[];
@@ -697,64 +707,17 @@ class VoiceService {
     const preset = VIDEO_QUALITY_PRESETS[vs.cameraPreset] || VIDEO_QUALITY_PRESETS['720p30'];
     const prio = vs.cameraPriority;
 
-    // Base encoding params: priority for DSCP marking (skip when 'off')
-    const base: Partial<mediasoupTypes.RtpEncodingParameters> =
-      prio === 'off'
-        ? {}
-        : {
-            priority: prio,
-            networkPriority: prio,
-          };
-
-    const makeResult = (codec?: mediasoupTypes.RtpCodecCapability) => ({
-      codec,
-      encodings: [{ ...base, maxBitrate: preset.maxBitrate }],
+    const codec = selectCodecFromCascade({
+      preferred: vs.preferredVideoCodec,
+      hwAccel: vs.hardwareAcceleration,
+      hdrEncoding: vs.hdrEncoding,
+      ...this.codecLookup(),
     });
 
-    // Check user's preferred codec first — only if floor-compatible
-    const preferred = vs.preferredVideoCodec;
-    if (preferred && this.isInCodecFloor(preferred)) {
-      const codec = this.findSendCodec(preferred);
-      if (codec) return makeResult(codec);
-    }
+    const base: Partial<mediasoupTypes.RtpEncodingParameters> =
+      prio === 'off' ? {} : { priority: prio, networkPriority: prio };
 
-    // Priority cascade: AV1 → HEVC → H264 High → VP9:2 (HDR) → H264 → VP9 → VP8
-    // When HW accel is on, first pass tries only HW-accelerated codecs.
-    // If no HW codec is floor-compatible, second pass tries all codecs (SW fallback).
-    const hwAccel = vs.hardwareAcceleration;
-    const hdrEncoding = vs.hdrEncoding;
-    const codecCascade: { mime: string; alt?: string }[] = [
-      { mime: 'video/AV1' },
-      { mime: 'video/H265', alt: 'video/HEVC' },
-      { mime: 'video/H264:6400' },
-      ...(hdrEncoding ? [{ mime: 'video/VP9:2' }] : []),
-      { mime: 'video/H264' },
-      { mime: 'video/VP9' },
-    ];
-
-    // Pass 1: HW-only (when HW accel enabled)
-    if (hwAccel) {
-      for (const { mime, alt } of codecCascade) {
-        if (
-          (this.isHwAccelerated(mime) || (alt && this.isHwAccelerated(alt))) &&
-          (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt)))
-        ) {
-          const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
-          if (codec) return makeResult(codec);
-        }
-      }
-    }
-
-    // Pass 2: All codecs (SW fallback, or when HW accel disabled)
-    for (const { mime, alt } of codecCascade) {
-      if (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt))) {
-        const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
-        if (codec) return makeResult(codec);
-      }
-    }
-
-    // VP8 last resort — universal support, bypasses floor
-    return makeResult(this.findSendCodec('video/VP8'));
+    return { codec, encodings: [{ ...base, maxBitrate: preset.maxBitrate }] };
   }
 
   /**
@@ -770,72 +733,25 @@ class VoiceService {
     effectiveBitrate: number;
   } {
     const vs = useVideoSettingsStore.getState();
-    const preferred = vs.preferredVideoCodec;
     const prio = vs.screenSharePriority;
     const userBitrate = vs.screenShareBitrate; // 0 = auto
+    const bitrate = userBitrate || this.calculateScreenBitrate();
 
-    // Base encoding params: priority for DSCP marking (skip when 'off')
+    const codec = selectCodecFromCascade({
+      preferred: vs.preferredVideoCodec,
+      hwAccel: vs.hardwareAcceleration,
+      hdrEncoding: vs.hdrEncoding,
+      ...this.codecLookup(),
+    });
+
     const base: Partial<mediasoupTypes.RtpEncodingParameters> =
-      prio === 'off'
-        ? {}
-        : {
-            priority: prio,
-            networkPriority: prio,
-          };
+      prio === 'off' ? {} : { priority: prio, networkPriority: prio };
 
-    // Dynamic auto-bitrate: calculate based on resolution, FPS, and codec
-    const autoBitrate = this.calculateScreenBitrate();
-    const bitrate = userBitrate || autoBitrate;
-
-    const makeResult = (codec?: mediasoupTypes.RtpCodecCapability) => ({
+    return {
       codec,
       encodings: [{ ...base, maxBitrate: bitrate }],
       effectiveBitrate: bitrate,
-    });
-
-    // User preference — only if floor-compatible
-    if (preferred && this.isInCodecFloor(preferred)) {
-      const codec = this.findSendCodec(preferred);
-      if (codec) return makeResult(codec);
-    }
-
-    // Priority cascade: AV1 → HEVC → H264 High → VP9:2 (HDR) → H264 → VP9 → VP8
-    // When HW accel is on, first pass tries only HW-accelerated codecs.
-    // If no HW codec is floor-compatible, second pass tries all codecs (SW fallback).
-    const hwAccel = vs.hardwareAcceleration;
-    const hdrEncoding = vs.hdrEncoding;
-    const codecCascade: { mime: string; alt?: string }[] = [
-      { mime: 'video/AV1' },
-      { mime: 'video/H265', alt: 'video/HEVC' },
-      { mime: 'video/H264:6400' },
-      ...(hdrEncoding ? [{ mime: 'video/VP9:2' }] : []),
-      { mime: 'video/H264' },
-      { mime: 'video/VP9' },
-    ];
-
-    // Pass 1: HW-only (when HW accel enabled)
-    if (hwAccel) {
-      for (const { mime, alt } of codecCascade) {
-        if (
-          (this.isHwAccelerated(mime) || (alt && this.isHwAccelerated(alt))) &&
-          (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt)))
-        ) {
-          const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
-          if (codec) return makeResult(codec);
-        }
-      }
-    }
-
-    // Pass 2: All codecs (SW fallback, or when HW accel disabled)
-    for (const { mime, alt } of codecCascade) {
-      if (this.isInCodecFloor(mime) || (alt && this.isInCodecFloor(alt))) {
-        const codec = this.findSendCodec(mime) || (alt ? this.findSendCodec(alt) : undefined);
-        if (codec) return makeResult(codec);
-      }
-    }
-
-    // VP8 last resort — universal support, bypasses floor
-    return makeResult(this.findSendCodec('video/VP8'));
+    };
   }
 
   /**
@@ -1280,41 +1196,45 @@ class VoiceService {
       if (uid) s.updateParticipant(uid, { screenStream: undefined, isScreenSharing: false });
     });
 
-    // Re-produce screen audio if it was active
-    const oldAudioProducer = this.producers.get('screen-audio');
-    if (oldAudioProducer && this.localScreenStream) {
-      const audioTrack = this.localScreenStream.getAudioTracks()[0];
-      if (audioTrack?.readyState === 'live') {
-        const oldAudioId = oldAudioProducer.id;
-        oldAudioProducer.close();
-        await this.drainSendTransportQueue();
-        this.producers.delete('screen-audio');
-        this.socket?.emit('close-producer', { producerId: oldAudioId });
-
-        try {
-          const newAudioProducer = await this.sendTransport.produce({
-            track: audioTrack,
-            codecOptions: { opusStereo: true, opusDtx: false },
-            appData: { source: 'screen-audio' },
-          });
-          this.producers.set('screen-audio', newAudioProducer);
-          if (this.isEncrypted && this.mediaEncryption) {
-            this.applyEncryptTransform(newAudioProducer);
-          }
-          newAudioProducer.on('transportclose', () => {
-            this.producers.delete('screen-audio');
-          });
-        } catch (err) {
-          console.warn('Failed to re-produce screen audio:', err);
-        }
-      }
-    }
+    await this.reProduceScreenAudio();
 
     useVoiceStore.getState().setActiveScreenCodec(codec?.mimeType?.toLowerCase() ?? null);
     const hwTag = codec?.mimeType && this.isHwAccelerated(codec.mimeType) ? 'HW' : 'SW';
     console.debug(
       `[codec-floor] Fast re-produced screen with ${codec?.mimeType ?? 'default'} (${hwTag})`
     );
+  }
+
+  /** Re-produce screen audio if an active screen-audio producer and live audio track exist. */
+  private async reProduceScreenAudio(): Promise<void> {
+    const oldAudioProducer = this.producers.get('screen-audio');
+    if (!oldAudioProducer || !this.localScreenStream || !this.sendTransport) return;
+
+    const audioTrack = this.localScreenStream.getAudioTracks()[0];
+    if (audioTrack?.readyState !== 'live') return;
+
+    const oldAudioId = oldAudioProducer.id;
+    oldAudioProducer.close();
+    await this.drainSendTransportQueue();
+    this.producers.delete('screen-audio');
+    this.socket?.emit('close-producer', { producerId: oldAudioId });
+
+    try {
+      const newAudioProducer = await this.sendTransport.produce({
+        track: audioTrack,
+        codecOptions: { opusStereo: true, opusDtx: false },
+        appData: { source: 'screen-audio' },
+      });
+      this.producers.set('screen-audio', newAudioProducer);
+      if (this.isEncrypted && this.mediaEncryption) {
+        this.applyEncryptTransform(newAudioProducer);
+      }
+      newAudioProducer.on('transportclose', () => {
+        this.producers.delete('screen-audio');
+      });
+    } catch (err) {
+      console.warn('Failed to re-produce screen audio:', err);
+    }
   }
 
   /**
@@ -1327,35 +1247,40 @@ class VoiceService {
     _newFloor: string[] | null
   ): Promise<void> {
     for (const source of ['camera', 'screen'] as const) {
-      const producer = this.producers.get(source);
-      if (!producer) continue;
+      await this.reProduceIfBetterCodec(source);
+    }
+  }
 
-      const currentMime = this.getProducerCodecMimeType(source);
-      if (!currentMime) continue;
+  /** Re-produce a video source if the codec cascade now selects a different codec. */
+  private async reProduceIfBetterCodec(source: 'camera' | 'screen'): Promise<void> {
+    const producer = this.producers.get(source);
+    if (!producer) return;
 
-      // Determine what codec the selection logic would pick now
-      const bestPick = source === 'camera' ? this.pickCameraCodec() : this.pickScreenCodec();
-      const bestMime = bestPick.codec?.mimeType?.toLowerCase() ?? null;
+    const currentMime = this.getProducerCodecMimeType(source);
+    if (!currentMime) return;
 
-      if (bestMime && bestMime !== currentMime) {
-        // Never switch to a HW codec if hardware acceleration is disabled
-        const hwAccel = useVideoSettingsStore.getState().hardwareAcceleration;
-        if (!hwAccel && this.isHwAccelerated(bestMime) && !this.isHwAccelerated(currentMime)) {
-          console.debug(
-            `[codec-floor] Skipping ${source} switch to ${bestMime} (HW) — hardware accel is off`
-          );
-          continue;
-        }
-        const hwLabel = this.isHwAccelerated(bestMime) ? 'HW' : 'SW';
-        console.debug(
-          `[codec-floor] Re-producing ${source}: ${currentMime} → ${bestMime} (${hwLabel})`
-        );
-        if (source === 'camera') {
-          await this.fastReproduceCamera();
-        } else {
-          await this.fastReproduceScreen();
-        }
-      }
+    const bestPick = source === 'camera' ? this.pickCameraCodec() : this.pickScreenCodec();
+    const bestMime = bestPick.codec?.mimeType?.toLowerCase() ?? null;
+    if (!bestMime || bestMime === currentMime) return;
+
+    // Never switch to a HW codec if hardware acceleration is disabled
+    const hwAccel = useVideoSettingsStore.getState().hardwareAcceleration;
+    if (!hwAccel && this.isHwAccelerated(bestMime) && !this.isHwAccelerated(currentMime)) {
+      console.debug(
+        `[codec-floor] Skipping ${source} switch to ${bestMime} (HW) — hardware accel is off`
+      );
+      return;
+    }
+
+    const hwLabel = this.isHwAccelerated(bestMime) ? 'HW' : 'SW';
+    console.debug(
+      `[codec-floor] Re-producing ${source}: ${currentMime} → ${bestMime} (${hwLabel})`
+    );
+
+    if (source === 'camera') {
+      await this.fastReproduceCamera();
+    } else {
+      await this.fastReproduceScreen();
     }
   }
 
