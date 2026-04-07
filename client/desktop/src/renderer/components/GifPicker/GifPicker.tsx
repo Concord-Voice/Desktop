@@ -180,10 +180,20 @@ function PickerBody({
  *  is rendered in a `<dialog>` element for accessibility. */
 const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose, position }) => {
   const reduceAnimations = useSettingsStore((s) => s.appearance.reduceAnimations);
+  const themeMode = useSettingsStore((s) => s.appearance.theme);
   const savedGifSlugs = useSavedGifsStore((s) => s.gifs);
   const sharePersonalization = usePrivacyStore(
     (s) => s.settings.sharePersonalizationWithGifProvider
   );
+
+  // Match the runtime theme (light/dark) used by document.documentElement —
+  // settings.theme can be "system", so resolve via the same media query the
+  // settings store does. The picker re-evaluates on theme change because
+  // themeMode is in the dep graph above.
+  const resolvedDark =
+    themeMode === 'dark' ||
+    (themeMode === 'system' && globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches);
+  const providerLogo = resolvedDark ? gifProvider.logoAssetDark : gifProvider.logoAssetLight;
 
   const [activeTab, setActiveTab] = useState<Tab>('trending');
   const [searchTerm, setSearchTerm] = useState('');
@@ -392,8 +402,8 @@ const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose, position }) =>
 
       <div className="gif-picker-footer">
         <span className="gif-picker-attribution">Powered by</span>
-        {gifProvider.logoAsset && (
-          <img src={gifProvider.logoAsset} alt={gifProvider.name} className="gif-picker-logo" />
+        {providerLogo && (
+          <img src={providerLogo} alt={gifProvider.name} className="gif-picker-logo" />
         )}
       </div>
     </dialog>

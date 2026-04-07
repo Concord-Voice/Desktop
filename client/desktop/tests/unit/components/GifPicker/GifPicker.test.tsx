@@ -35,7 +35,8 @@ vi.mock('@/renderer/services/gifProvider', () => ({
     name: 'KLIPY',
     searchPlaceholder: 'Search KLIPY',
     poweredByText: 'Powered by KLIPY',
-    logoAsset: '/assets/klipy-logo.svg',
+    logoAssetLight: './branding/KLIPY/klipy-logo-light.svg',
+    logoAssetDark: './branding/KLIPY/klipy-logo-dark.svg',
     independenceDisclaimer:
       'Concord is independently developed and not affiliated with or endorsed by KLIPY.',
     supportsRecent: true,

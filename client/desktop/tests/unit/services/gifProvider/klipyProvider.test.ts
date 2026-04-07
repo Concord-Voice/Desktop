@@ -92,8 +92,9 @@ describe('klipyProvider', () => {
       expect(klipyProvider.supportsCategories).toBe(true);
     });
 
-    it('exposes a logo asset path', () => {
-      expect(klipyProvider.logoAsset).toBe('./assets/klipy-logo.svg');
+    it('exposes light + dark logo asset paths', () => {
+      expect(klipyProvider.logoAssetLight).toBe('./branding/KLIPY/klipy-logo-light.svg');
+      expect(klipyProvider.logoAssetDark).toBe('./branding/KLIPY/klipy-logo-dark.svg');
     });
 
     it('includes the independence disclaimer required by the ToS', () => {

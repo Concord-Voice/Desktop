@@ -118,10 +118,14 @@ export const klipyProvider: GifProvider = {
   name: 'KLIPY',
   searchPlaceholder: 'Search KLIPY',
   poweredByText: 'Powered by KLIPY',
-  logoAsset: './assets/klipy-logo.svg',
+  // KLIPY ships a Yellow&Black mark for light backgrounds and a Yellow&White
+  // mark for dark backgrounds in their attribution kit. Use the official assets
+  // verbatim to satisfy ToS Section 4 (no recoloring/modification).
+  logoAssetLight: './branding/KLIPY/klipy-logo-light.svg',
+  logoAssetDark: './branding/KLIPY/klipy-logo-dark.svg',
   // Surfaced in Settings > About (third-party services), not in the picker.
   independenceDisclaimer:
-    'Concord is independently developed and not affiliated with or endorsed by KLIPY.',
+    'Concord Voice is independently developed and not affiliated with or endorsed by KLIPY.',
   supportsRecent: true,
   supportsCategories: true,
 

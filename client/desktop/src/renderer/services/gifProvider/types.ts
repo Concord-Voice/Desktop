@@ -79,8 +79,12 @@ export interface GifProvider {
   readonly searchPlaceholder: string;
   /** "Powered by X" attribution text. */
   readonly poweredByText: string;
-  /** Optional vendor logo URL/asset path for the picker footer. */
-  readonly logoAsset?: string;
+  /** Optional vendor logo asset paths for the picker footer. Provide both
+   *  variants when the brand kit ships separate light/dark marks so the
+   *  attribution stays legible against either chrome theme. The picker reads
+   *  the active theme from the settings store and chooses accordingly. */
+  readonly logoAssetLight?: string;
+  readonly logoAssetDark?: string;
   /** Optional independence disclaimer text required by the vendor's ToS. */
   readonly independenceDisclaimer?: string;
   /** Whether the provider supports a server-tracked "Recent" tab.

@@ -376,7 +376,7 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
         <div className="login-content">
           <div className="login-header">
             <img
-              src="./branding/logos/main-logo-transparent-vector.svg"
+              src="./branding/Concord-Voice/logos/main-logo-transparent-vector.svg"
               className="login-logo"
               alt="Concord Voice"
             />
@@ -398,7 +398,7 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
       <div className="login-content">
         <div className="login-header">
           <img
-            src="./branding/logos/main-logo-transparent-vector.svg"
+            src="./branding/Concord-Voice/logos/main-logo-transparent-vector.svg"
             className="login-logo"
             alt="Concord Voice"
           />

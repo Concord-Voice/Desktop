@@ -239,7 +239,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
       <div className="register-content">
         <div className="register-header">
           <img
-            src="./branding/logos/main-logo-transparent-vector.svg"
+            src="./branding/Concord-Voice/logos/main-logo-transparent-vector.svg"
             className="register-logo"
             alt="Concord Voice"
           />

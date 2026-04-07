@@ -8,14 +8,14 @@
 /* Concord Brand Fonts */
 @font-face {
   font-family: 'BaronNeue';
-  src: url('/branding/fonts/BaronNeue.woff') format('woff');
+  src: url('/branding/Concord-Voice/fonts/BaronNeue.woff') format('woff');
   font-weight: normal;
   font-style: normal;
 }
 
 @font-face {
   font-family: 'SourceSans';
-  src: url('/branding/fonts/SourceSans.otf') format('opentype');
+  src: url('/branding/Concord-Voice/fonts/SourceSans.otf') format('opentype');
   font-weight: normal;
   font-style: normal;
 }
