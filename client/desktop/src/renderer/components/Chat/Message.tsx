@@ -512,7 +512,6 @@ const Message: React.FC<MessageProps> = ({
             slug={message.gif_slug}
             reduceMotion={reduceAnimations}
             loadAutomatically={loadGifsAutomatically}
-            embedsSuppressed={message.embeds_suppressed}
           />
         )}
 

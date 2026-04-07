@@ -8,8 +8,8 @@
                    script-src 'self' 'wasm-unsafe-eval';
                    style-src 'self' 'unsafe-inline';
                    connect-src 'self' ws://localhost:* http://localhost:* wss://localhost:* https://localhost:* ws://127.0.0.1:* http://127.0.0.1:* https://concordvoice.chat wss://concordvoice.chat https://*.concordvoice.chat wss://*.concordvoice.chat https://api.klipy.com https://*.klipy.com;
-                   img-src 'self' data: https://cdn.jsdelivr.net https://*.klipy.com https://*.klipy.io;
-                   media-src 'self' https://*.klipy.com https://*.klipy.io;
+                   img-src 'self' data: blob: https://cdn.jsdelivr.net https://*.klipy.com https://*.klipy.io;
+                   media-src 'self' blob: https://*.klipy.com https://*.klipy.io;
                    base-uri 'self';
                    form-action 'self';">
     <title>Concord Voice</title>

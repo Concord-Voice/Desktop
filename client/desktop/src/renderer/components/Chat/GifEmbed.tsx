@@ -7,7 +7,6 @@ interface GifEmbedProps {
   slug: string;
   reduceMotion: boolean;
   loadAutomatically: boolean;
-  embedsSuppressed?: boolean;
 }
 
 /** Inline GIF embed for chat messages.
@@ -18,13 +17,13 @@ interface GifEmbedProps {
  *  Reduce-motion mode shows the still rendition as an `<img>` instead.
  *  When `loadAutomatically` is false, the embed shows a "Click to load"
  *  placeholder until the user explicitly taps it.
+ *
+ *  GIFs intentionally do NOT honor `embeds_suppressed` — that flag gates
+ *  link previews / image thumbnails / off-app trackers, while GIFs are an
+ *  explicit user-chosen attachment. Privacy → "Load GIFs from KLIPY
+ *  automatically" is the dedicated control for them.
  */
-const GifEmbed: React.FC<GifEmbedProps> = ({
-  slug,
-  reduceMotion,
-  loadAutomatically,
-  embedsSuppressed,
-}) => {
+const GifEmbed: React.FC<GifEmbedProps> = ({ slug, reduceMotion, loadAutomatically }) => {
   const [resolved, setResolved] = useState<GifResolved | null>(null);
   const [error, setError] = useState(false);
   const [userClicked, setUserClicked] = useState(false);
@@ -68,9 +67,6 @@ const GifEmbed: React.FC<GifEmbedProps> = ({
       cancelled = true;
     };
   }, [isVisible, shouldLoad, slug, resolved, error]);
-
-  // Server policy: suppress all embeds
-  if (embedsSuppressed) return null;
 
   let body: React.ReactNode;
   if (!shouldLoad) {
