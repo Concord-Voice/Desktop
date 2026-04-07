@@ -138,48 +138,76 @@ function ImageAttachment({ attachment, channelId, isEncrypted }: AttachmentItemP
 function MediaAttachment({ attachment, channelId, isEncrypted }: AttachmentItemProps) {
   const [url, setUrl] = useState<string | null>(blobUrlCache.get(attachment.id) || null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Videos auto-lazy-load so the browser can render the first frame as a natural
+  // poster — no separate thumbnail pipeline needed. Audio stays click-to-load
+  // because there's nothing visual to gain from prefetching the bytes.
+  const autoLoad = attachment.file_type === 'video';
 
-  const load = async () => {
+  const load = useCallback(async () => {
     if (url) return;
+    setError(false);
     setLoading(true);
     try {
       const blobUrl = await fetchAndDecrypt(attachment.id, channelId, isEncrypted);
       setUrl(blobUrl);
     } catch {
-      // Non-fatal: user can retry by clicking the load button again
+      setError(true);
     } finally {
       setLoading(false);
     }
-  };
+  }, [attachment.id, channelId, isEncrypted, url]);
 
-  if (attachment.file_type === 'video') {
-    return (
-      <div className="attachment-media-container">
-        {url ? (
-          <video src={url} controls className="attachment-video" preload="metadata">
-            <track kind="captions" />
-          </video>
-        ) : (
-          <button className="attachment-load-btn" onClick={load} disabled={loading}>
-            <Film size={24} />
-            <span>{loading ? 'Loading...' : 'Load video'}</span>
-          </button>
-        )}
-      </div>
+  useEffect(() => {
+    if (!autoLoad || url) return;
+    const el = containerRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          load();
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '200px' }
     );
-  }
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [autoLoad, url, load]);
 
-  // audio
+  const Icon = attachment.file_type === 'video' ? Film : Music;
+  const label = attachment.file_type === 'video' ? 'video' : 'audio';
+  const sizeLabel = formatFileSize(attachment.file_size);
+  let loadTitle = `Load ${label}`;
+  if (error) loadTitle = `Failed to load ${label} — retry`;
+  else if (loading) loadTitle = `Loading ${label}…`;
+
   return (
-    <div className="attachment-media-container">
-      {url ? (
+    <div className="attachment-media-container" ref={containerRef}>
+      {url && attachment.file_type === 'video' && (
+        <video src={url} controls className="attachment-video" preload="metadata">
+          <track kind="captions" />
+        </video>
+      )}
+      {url && attachment.file_type === 'audio' && (
         <audio src={url} controls className="attachment-audio" preload="metadata">
           <track kind="captions" />
         </audio>
-      ) : (
-        <button className="attachment-load-btn" onClick={load} disabled={loading}>
-          <Music size={24} />
-          <span>{loading ? 'Loading...' : 'Load audio'}</span>
+      )}
+      {!url && (
+        <button
+          className="attachment-load-btn attachment-load-btn-rich"
+          onClick={load}
+          disabled={loading}
+        >
+          <Icon size={20} />
+          <div className="attachment-load-info">
+            <span className="attachment-load-title">{loadTitle}</span>
+            <span className="attachment-load-meta">
+              {attachment.mime_type} · {sizeLabel}
+            </span>
+          </div>
         </button>
       )}
     </div>

@@ -73,6 +73,9 @@ const AboutUpdateSection: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
 
+  // Developer Mode (TEMPORARY — remove before BETA)
+  const [developerMode, setDeveloperMode] = useState(false);
+
   const [logPath, setLogPath] = useState<string | null>(null);
   const [logPathCopied, setLogPathCopied] = useState(false);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -89,6 +92,7 @@ const AboutUpdateSection: React.FC = () => {
     globalThis.electron?.getVersion?.().then(setAppVersion);
     globalThis.electron?.getSystemInfo?.().then(setSystemInfo);
     globalThis.electron?.getAllowPrerelease?.().then(setAllowPrerelease);
+    globalThis.electron?.getDeveloperMode?.().then(setDeveloperMode);
     globalThis.electron?.getUpdateLogPath?.().then(setLogPath);
   }, []);
 
@@ -154,6 +158,11 @@ const AboutUpdateSection: React.FC = () => {
 
   const handleInstall = useCallback(() => {
     globalThis.electron?.installUpdate();
+  }, []);
+
+  const handleDeveloperModeToggle = useCallback((enabled: boolean) => {
+    setDeveloperMode(enabled);
+    globalThis.electron?.setDeveloperMode?.(enabled);
   }, []);
 
   const handlePrereleaseToggle = useCallback((enabled: boolean) => {
@@ -233,6 +242,25 @@ const AboutUpdateSection: React.FC = () => {
 
         <div className="about-legal">
           <span className="about-legal-text">BSL 1.1 License &middot; Concord Voice</span>
+        </div>
+      </CollapsibleSection>
+
+      {/* Developer (TEMPORARY — remove before BETA) */}
+      <CollapsibleSection id="section-developer" title="Developer" defaultOpen={false}>
+        <div className="about-setting-row">
+          <div className="about-setting-info">
+            <span className="about-setting-label">Developer Mode</span>
+            <span className="about-setting-description">
+              Enables Chromium DevTools (Cmd/Ctrl+Opt+I) for inspecting the renderer. Toggling this
+              opens or closes DevTools immediately and persists across restarts. Intended for
+              Alpha-phase debugging only.
+            </span>
+          </div>
+          <ToggleSwitch
+            checked={developerMode}
+            onChange={handleDeveloperModeToggle}
+            label="Developer Mode"
+          />
         </div>
       </CollapsibleSection>
 

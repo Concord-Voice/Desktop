@@ -23,8 +23,10 @@
  *        update:rollback event
  * - v5: Desktop notification support (#175): app:setBadgeCount,
  *        app:flashFrame, app:focusWindow handlers
+ * - v6: Developer Mode toggle (TEMPORARY — remove before BETA):
+ *        app:getDeveloperMode, app:setDeveloperMode handlers
  */
-export const IPC_CONTRACT_VERSION = 5;
+export const IPC_CONTRACT_VERSION = 6;
 
 /**
  * Result shape returned by performRefresh() in the main process and

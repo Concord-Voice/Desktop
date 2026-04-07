@@ -129,6 +129,11 @@ contextBridge.exposeInMainWorld('electron', {
       nodeVersion: string;
     }>,
 
+  // Developer Mode (REMOVE BEFORE BETA)
+  getDeveloperMode: () => ipcRenderer.invoke('app:getDeveloperMode') as Promise<boolean>,
+  setDeveloperMode: (enabled: boolean) =>
+    ipcRenderer.invoke('app:setDeveloperMode', enabled) as Promise<void>,
+
   // Auto-update (#155)
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   downloadUpdate: () => ipcRenderer.invoke('update:download'),
@@ -317,6 +322,10 @@ export interface ElectronAPI {
     chromiumVersion: string;
     nodeVersion: string;
   }>;
+
+  // Developer Mode (REMOVE BEFORE BETA)
+  getDeveloperMode: () => Promise<boolean>;
+  setDeveloperMode: (enabled: boolean) => Promise<void>;
 
   // Auto-update (#155)
   checkForUpdates: () => Promise<void>;

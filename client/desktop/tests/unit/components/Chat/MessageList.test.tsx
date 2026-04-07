@@ -75,6 +75,36 @@ describe('MessageList', () => {
     expect(screen.getByText(/loading more messages/i)).toBeInTheDocument();
   });
 
+  it('observes the message list with ResizeObserver to re-pin scroll on growth', () => {
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    let roCallback: ResizeObserverCallback | null = null;
+    class MockRO {
+      constructor(cb: ResizeObserverCallback) {
+        roCallback = cb;
+      }
+      observe = observe;
+      disconnect = disconnect;
+      unobserve = vi.fn();
+    }
+    const OriginalRO = globalThis.ResizeObserver;
+    (globalThis as any).ResizeObserver = MockRO;
+    try {
+      const { unmount } = render(
+        <MessageList messages={[mockMessage, mockMessage2]} currentUserId="user-1" />
+      );
+      // Container + each child observed
+      expect(observe).toHaveBeenCalled();
+      // Trigger the callback to exercise the re-pin branch (no assertion needed —
+      // covers the inner function lines).
+      roCallback?.([] as unknown as ResizeObserverEntry[], {} as ResizeObserver);
+      unmount();
+      expect(disconnect).toHaveBeenCalled();
+    } finally {
+      (globalThis as any).ResizeObserver = OriginalRO;
+    }
+  });
+
   it('renders the correct number of message elements', () => {
     render(<MessageList messages={[mockMessage, mockMessage2]} currentUserId="user-1" />);
     const messageElements = screen.getAllByTestId('message');

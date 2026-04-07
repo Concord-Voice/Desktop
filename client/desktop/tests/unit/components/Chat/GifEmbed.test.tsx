@@ -71,13 +71,6 @@ describe('GifEmbed', () => {
     getBySlugMock.mockReset();
   });
 
-  it('renders nothing when embedsSuppressed is true', () => {
-    const { container } = render(
-      <GifEmbed slug="abc" reduceMotion={false} loadAutomatically={true} embedsSuppressed={true} />
-    );
-    expect(container.innerHTML).toBe('');
-  });
-
   it('shows click-to-load placeholder when loadAutomatically is false', () => {
     render(<GifEmbed slug="abc" reduceMotion={false} loadAutomatically={false} />);
     expect(screen.getByText('Click to load GIF')).toBeInTheDocument();

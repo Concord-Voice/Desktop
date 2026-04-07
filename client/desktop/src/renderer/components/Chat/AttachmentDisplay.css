@@ -68,6 +68,33 @@
   background: var(--bg-tertiary);
 }
 
+.attachment-load-btn-rich {
+  min-width: 220px;
+  text-align: left;
+}
+
+.attachment-load-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.attachment-load-title {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachment-load-meta {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .attachment-file-card {
   display: flex;
   align-items: center;

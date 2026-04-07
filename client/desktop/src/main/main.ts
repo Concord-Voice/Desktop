@@ -65,6 +65,25 @@ function readHwAccelPref(): boolean {
   }
 }
 
+// Developer Mode preference (#TBD) — gates DevTools access in packaged builds.
+// MUST be removed before BETA release per security review.
+const devModePrefPath = path.join(app.getPath('userData'), 'developer-mode.json');
+function readDeveloperModePref(): boolean {
+  try {
+    const data = JSON.parse(fs.readFileSync(devModePrefPath, 'utf-8'));
+    return data.enabled === true;
+  } catch {
+    return false;
+  }
+}
+function writeDeveloperModePref(enabled: boolean): void {
+  try {
+    fs.writeFileSync(devModePrefPath, JSON.stringify({ enabled }), 'utf-8');
+  } catch (err) {
+    console.error('[DeveloperMode] Failed to persist preference:', err);
+  }
+}
+
 if (readHwAccelPref()) {
   // Hardware acceleration flags for video encode/decode (IGNIS insight: fastest preset wins)
   app.commandLine.appendSwitch(
@@ -88,6 +107,57 @@ if (require('electron-squirrel-startup')) {
 let mainWindow: BrowserWindow | null = null;
 let remoteSpaBaseUrl: string | null = null; // Set when loading remote SPA, used by PiP + navigation guard
 
+/**
+ * Probe the Vite dev server, then load it. Falls back to the bundled
+ * renderer on any failure (timeout, ECONNREFUSED, etc.). Extracted from
+ * createWindow to keep cognitive complexity in check.
+ */
+async function loadDevRendererWithFallback(
+  window: BrowserWindow,
+  bundledPath: string
+): Promise<void> {
+  const devServerUrl = 'http://localhost:3001';
+  const http = await import('node:http');
+  const httpGet = (http.default?.get ?? http.get) as typeof import('node:http').get;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const req = httpGet(devServerUrl, { timeout: 1000 }, (res) => {
+        res.resume();
+        resolve();
+      });
+      req.on('error', reject);
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('timeout'));
+      });
+    });
+    await window.loadURL(devServerUrl);
+  } catch {
+    await window.loadFile(bundledPath);
+  }
+}
+
+/**
+ * Load the packaged renderer: try the remote SPA first (Tier 3), fall back
+ * to the bundled file on any failure. Extracted to keep createWindow simple.
+ */
+async function loadPackagedRenderer(window: BrowserWindow, bundledPath: string): Promise<void> {
+  const decision = await resolveSpaSource();
+  console.log(`[SpaLoader] ${decision.mode}: ${decision.reason}`);
+
+  if (decision.mode === 'remote' && decision.url) {
+    try {
+      remoteSpaBaseUrl = decision.url;
+      await window.loadURL(decision.url);
+      return;
+    } catch {
+      console.warn('[SpaLoader] Failed to load remote SPA, falling back to bundled');
+      remoteSpaBaseUrl = null;
+    }
+  }
+  await window.loadFile(bundledPath);
+}
+
 const createWindow = async (): Promise<void> => {
   // Create the browser window
   mainWindow = new BrowserWindow({
@@ -99,7 +169,10 @@ const createWindow = async (): Promise<void> => {
       preload: path.join(__dirname, '../preload/preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      sandbox: true,
+      // Disabled in dev so the renderer can talk to the local Vite server
+      // and load arbitrary file:// assets without CORS friction.
+      sandbox: app.isPackaged,
+      webSecurity: app.isPackaged,
     },
     titleBarStyle: 'hidden',
     backgroundColor: '#1a1a1a',
@@ -117,48 +190,35 @@ const createWindow = async (): Promise<void> => {
   });
 
   if (app.isPackaged) {
-    // Tier 3: Attempt remote SPA loading with compatibility check.
-    // Falls back to bundled renderer on any failure.
-    const decision = await resolveSpaSource();
-    console.log(`[SpaLoader] ${decision.mode}: ${decision.reason}`);
-
-    if (decision.mode === 'remote' && decision.url) {
-      try {
-        remoteSpaBaseUrl = decision.url;
-        await mainWindow.loadURL(decision.url);
-      } catch {
-        console.warn('[SpaLoader] Failed to load remote SPA, falling back to bundled');
-        remoteSpaBaseUrl = null;
-        await mainWindow.loadFile(bundledPath);
-      }
-    } else {
-      await mainWindow.loadFile(bundledPath);
-    }
+    await loadPackagedRenderer(mainWindow, bundledPath);
   } else {
-    // Development: try Vite dev server, fall back to bundled
-    const devServerUrl = 'http://localhost:3001';
-    const http = await import('node:http');
-    const httpGet = (http.default?.get ?? http.get) as typeof import('node:http').get;
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const req = httpGet(devServerUrl, { timeout: 1000 }, (res) => {
-          res.resume();
-          resolve();
-        });
-        req.on('error', reject);
-        req.on('timeout', () => {
-          req.destroy();
-          reject(new Error('timeout'));
-        });
-      });
-      await mainWindow.loadURL(devServerUrl);
-      if (process.env.DEVTOOLS !== '0') {
-        mainWindow.webContents.openDevTools();
-      }
-    } catch {
-      await mainWindow.loadFile(bundledPath);
+    await loadDevRendererWithFallback(mainWindow, bundledPath);
+    // Always open DevTools in dev mode regardless of load path
+    if (process.env.DEVTOOLS !== '0') {
+      mainWindow.webContents.openDevTools();
     }
   }
+
+  // Open DevTools at startup if Developer Mode preference is enabled.
+  // Applies to packaged builds (bundled or remote SPA) and to dev fallback.
+  if (readDeveloperModePref() && !mainWindow.webContents.isDevToolsOpened()) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
+
+  // Cmd/Ctrl+Opt+I toggles DevTools when Developer Mode is enabled.
+  // (TEMPORARY — remove before BETA along with Developer Mode feature.)
+  mainWindow.webContents.on('before-input-event', (_event, input) => {
+    if (input.type !== 'keyDown') return;
+    const isToggleCombo =
+      input.key.toLowerCase() === 'i' && input.alt && (input.meta || input.control);
+    if (!isToggleCombo) return;
+    if (!readDeveloperModePref()) return;
+    if (mainWindow?.webContents.isDevToolsOpened()) {
+      mainWindow.webContents.closeDevTools();
+    } else {
+      mainWindow?.webContents.openDevTools({ mode: 'detach' });
+    }
+  });
 
   // Open external links in browser (validate protocol to prevent code injection)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
@@ -474,6 +534,20 @@ ipcMain.handle('update:setAllowPrerelease', (_event, enabled: boolean) =>
   setAllowPrerelease(enabled)
 );
 ipcMain.handle('update:getLogPath', () => getUpdateLogPath());
+
+// Developer Mode (gates DevTools in packaged builds — REMOVE BEFORE BETA)
+ipcMain.handle('app:getDeveloperMode', () => readDeveloperModePref());
+ipcMain.handle('app:setDeveloperMode', (_event, enabled: boolean) => {
+  writeDeveloperModePref(enabled);
+  if (!mainWindow) return;
+  if (enabled) {
+    if (!mainWindow.webContents.isDevToolsOpened()) {
+      mainWindow.webContents.openDevTools({ mode: 'detach' });
+    }
+  } else if (mainWindow.webContents.isDevToolsOpened()) {
+    mainWindow.webContents.closeDevTools();
+  }
+});
 
 // System info for About page (#155 Tier 4)
 ipcMain.handle('app:getSystemInfo', () => ({

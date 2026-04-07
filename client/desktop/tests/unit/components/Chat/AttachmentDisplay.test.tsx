@@ -204,6 +204,56 @@ describe('AttachmentDisplay', () => {
     });
   });
 
+  it('auto-loads video when scrolled into view (IntersectionObserver)', async () => {
+    mockFetchSuccess(new ArrayBuffer(100), 'video/mp4');
+    installImmediateIO();
+    const videoAttachment: AttachmentSummary = {
+      id: 'vid-auto',
+      file_type: 'video',
+      mime_type: 'video/mp4',
+      file_size: 5000000,
+    };
+    const { container } = render(
+      <AttachmentDisplay attachments={[videoAttachment]} channelId="ch-1" isEncrypted={false} />
+    );
+    await waitFor(() => {
+      expect(container.querySelector('video')).toBeInTheDocument();
+    });
+    expect(mockApiFetch).toHaveBeenCalledWith('/api/v1/media/attachments/vid-auto');
+  });
+
+  it('renders rich placeholder with mime type and file size for video', () => {
+    const videoAttachment: AttachmentSummary = {
+      id: 'vid-meta',
+      file_type: 'video',
+      mime_type: 'video/mp4',
+      file_size: 5_000_000,
+    };
+    render(
+      <AttachmentDisplay attachments={[videoAttachment]} channelId="ch-1" isEncrypted={false} />
+    );
+    // Mime + size shown in the rich placeholder meta line
+    expect(screen.getByText(/video\/mp4/)).toBeInTheDocument();
+    expect(screen.getByText(/4\.8 MB|5\.0 MB|4\.77 MB/)).toBeInTheDocument();
+  });
+
+  it('shows retry text when video load fails', async () => {
+    mockFetchFailure();
+    installImmediateIO();
+    const videoAttachment: AttachmentSummary = {
+      id: 'vid-fail',
+      file_type: 'video',
+      mime_type: 'video/mp4',
+      file_size: 1000,
+    };
+    render(
+      <AttachmentDisplay attachments={[videoAttachment]} channelId="ch-1" isEncrypted={false} />
+    );
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to load video — retry/)).toBeInTheDocument();
+    });
+  });
+
   // --- Audio attachments ---
   it('renders audio load button', () => {
     const audioAttachment: AttachmentSummary = {

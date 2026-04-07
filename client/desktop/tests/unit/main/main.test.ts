@@ -6,6 +6,8 @@ import { describe, it, expect, vi, beforeAll, type Mock } from 'vitest';
 const { mockMainWindow, mockWebContents, MockBrowserWindow } = vi.hoisted(() => {
   const mockWebContents = {
     openDevTools: vi.fn(),
+    closeDevTools: vi.fn(),
+    isDevToolsOpened: vi.fn(() => false),
     setWindowOpenHandler: vi.fn(),
     send: vi.fn(),
     on: vi.fn(),

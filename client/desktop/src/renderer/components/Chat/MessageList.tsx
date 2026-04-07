@@ -149,6 +149,29 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
       prevLastMessageIdRef.current = lastId;
     }, [messages, currentUserId]);
 
+    // Re-pin to bottom when message list content grows after initial render
+    // (e.g. a GIF embed or video frame resolves later and increases scrollHeight).
+    // Without this, late-loading media stays clipped below the viewport even
+    // though the user was at the bottom when the message arrived.
+    useEffect(() => {
+      const el = listRef.current;
+      if (!el || typeof ResizeObserver === 'undefined') return;
+      const observer = new ResizeObserver(() => {
+        if (isNearBottomRef.current) {
+          el.scrollTop = el.scrollHeight;
+        }
+      });
+      observer.observe(el);
+      // Only observe the newest rendered message — bottom growth is the only
+      // change that matters for re-pinning when the user is near bottom.
+      // Avoids per-message observer overhead on long histories.
+      const lastMessageElement = el.lastElementChild;
+      if (lastMessageElement instanceof Element) {
+        observer.observe(lastMessageElement);
+      }
+      return () => observer.disconnect();
+    }, [messages.length]);
+
     const scrollToBottom = useCallback((smooth = true) => {
       setNewMessageCount(0);
       if (listRef.current) {

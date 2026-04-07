@@ -7,6 +7,8 @@ const mockCheckForUpdates = vi.fn().mockResolvedValue(undefined);
 const mockDownloadUpdate = vi.fn().mockResolvedValue(undefined);
 const mockInstallUpdate = vi.fn();
 const mockSetAllowPrerelease = vi.fn();
+const mockGetDeveloperMode = vi.fn().mockResolvedValue(false);
+const mockSetDeveloperMode = vi.fn().mockResolvedValue(undefined);
 
 const mockWriteClipboard = vi.fn().mockResolvedValue(undefined);
 const mockGetUpdateLogPath = vi
@@ -31,6 +33,8 @@ beforeEach(() => {
     downloadUpdate: mockDownloadUpdate,
     installUpdate: mockInstallUpdate,
     setAllowPrerelease: mockSetAllowPrerelease,
+    getDeveloperMode: mockGetDeveloperMode,
+    setDeveloperMode: mockSetDeveloperMode,
     writeClipboard: mockWriteClipboard,
     getUpdateLogPath: mockGetUpdateLogPath,
     onUpdateAvailable: vi.fn((cb) => {
@@ -314,6 +318,24 @@ describe('AboutUpdateSection', () => {
       '/Users/test/Library/Logs/ConcordVoice/update-2026-03-25.log'
     );
     expect(screen.getByText('Copied')).toBeInTheDocument();
+  });
+
+  // --- Developer Mode (TEMPORARY — remove before BETA) ---
+  it('renders Developer Mode toggle and reflects current pref', async () => {
+    mockGetDeveloperMode.mockResolvedValueOnce(true);
+    render(<AboutUpdateSection />);
+    await vi.waitFor(() => {
+      const toggle = screen.getByRole('checkbox', { name: /Developer Mode/i });
+      expect((toggle as HTMLInputElement).checked).toBe(true);
+    });
+  });
+
+  it('toggles Developer Mode and calls setDeveloperMode', async () => {
+    const user = userEvent.setup();
+    render(<AboutUpdateSection />);
+    const toggle = await screen.findByRole('checkbox', { name: /Developer Mode/i });
+    await user.click(toggle);
+    expect(mockSetDeveloperMode).toHaveBeenCalledWith(true);
   });
 
   it('does not render log path row when getUpdateLogPath returns null', async () => {
