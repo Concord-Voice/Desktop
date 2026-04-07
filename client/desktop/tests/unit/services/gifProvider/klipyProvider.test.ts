@@ -93,7 +93,7 @@ describe('klipyProvider', () => {
     });
 
     it('exposes a logo asset path', () => {
-      expect(klipyProvider.logoAsset).toBe('/assets/klipy-logo.svg');
+      expect(klipyProvider.logoAsset).toBe('./assets/klipy-logo.svg');
     });
 
     it('includes the independence disclaimer required by the ToS', () => {
