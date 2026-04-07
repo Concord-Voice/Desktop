@@ -4,6 +4,7 @@ import { apiFetch, safeJson } from '../services/apiClient';
 import { e2eeService } from '../services/e2eeService';
 import type { MessageWithStatus } from '../types/chat';
 import { indexMessages } from '../services/searchService';
+import { unwrapGifEnvelope } from '../utils/gifEnvelope';
 
 const DEFAULT_LIMIT = 50;
 
@@ -137,7 +138,10 @@ async function decryptMessages(
           channelKey,
           versionedKeys
         );
-        return { ...m, content: plaintext, replied_to: decryptedRt };
+        // E2EE GIF messages encrypt a JSON envelope; unwrap so the renderer
+        // sees the same shape it gets from the real-time WebSocket path.
+        const { text: content, gifSlug } = unwrapGifEnvelope(plaintext);
+        return { ...m, content, gif_slug: gifSlug ?? m.gif_slug, replied_to: decryptedRt };
       } catch (err) {
         const isPending = err instanceof Error && err.message === 'PENDING_KEY';
         return { ...m, content: '', decryptFailed: !isPending, pendingKeys: isPending };

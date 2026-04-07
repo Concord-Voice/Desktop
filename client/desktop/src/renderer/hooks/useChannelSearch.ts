@@ -18,6 +18,7 @@ import {
   isIndexed,
 } from '../services/searchService';
 import type { MessageWithStatus, MessageWithUser } from '../types/chat';
+import { unwrapGifEnvelope } from '../utils/gifEnvelope';
 
 export const BACKFILL_BATCH_SIZE = 200;
 export const BACKFILL_DELAY_MS = 100;
@@ -76,14 +77,17 @@ export async function processBackfillMessage(
 ): Promise<void> {
   if (isIndexed(msg.id)) return;
 
-  const content = await decryptMessageContent(msg, scope);
-  if (content === null) return;
+  const decrypted = await decryptMessageContent(msg, scope);
+  if (decrypted === null) return;
 
+  // Unwrap GIF envelope so the search index sees the user-facing text, not
+  // the JSON wrapper.
+  const { text: content, gifSlug } = unwrapGifEnvelope(decrypted);
   indexMessage(msg.id, content, scope);
 
   if (contentMatchesQuery(content, query) && !allResultIds.has(msg.id)) {
     allResultIds.add(msg.id);
-    onNewResult({ ...msg, content, status: 'delivered' });
+    onNewResult({ ...msg, content, gif_slug: gifSlug ?? msg.gif_slug, status: 'delivered' });
   }
 }
 

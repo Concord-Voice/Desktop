@@ -25,6 +25,7 @@ import { useFriendStore } from '../stores/friendStore';
 import { speak as ttsSpeak } from '../services/ttsService';
 import { notificationSoundService } from '../services/notificationSoundService';
 import { indexMessage } from '../services/searchService';
+import { unwrapGifEnvelope } from '../utils/gifEnvelope';
 import {
   desktopNotificationService,
   type NotificationType,
@@ -259,17 +260,7 @@ function addEncryptedMessage(
   decryptPromise
     .then((plaintext) => {
       // E2EE GIF messages are encrypted as JSON: {"text":"...","gif_slug":"..."}
-      let content = plaintext;
-      let gifSlug: string | undefined;
-      try {
-        const parsed = JSON.parse(plaintext);
-        if (parsed && typeof parsed.gif_slug === 'string') {
-          content = parsed.text ?? '';
-          gifSlug = parsed.gif_slug;
-        }
-      } catch {
-        // Plain text message — no-op
-      }
+      const { text: content, gifSlug } = unwrapGifEnvelope(plaintext);
       addMessage(channelId, { ...baseMessage, content, gif_slug: gifSlug });
       // Passively index decrypted content for search
       indexMessage(baseMessage.id, content, channelId);
