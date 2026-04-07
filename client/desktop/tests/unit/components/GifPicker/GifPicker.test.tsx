@@ -92,10 +92,11 @@ describe('GifPicker', () => {
     await waitFor(() => expect(trendingMock).toHaveBeenCalled());
   });
 
-  it('shows Powered by KLIPY attribution and independence disclaimer', async () => {
+  it('shows Powered by KLIPY attribution', async () => {
     render(<GifPicker onSelect={onSelect} onClose={onClose} position={position} />);
     expect(screen.getByText('Powered by KLIPY')).toBeInTheDocument();
-    expect(screen.getByText(/independently developed/i)).toBeInTheDocument();
+    // Independence disclaimer lives in Settings > About, not the picker footer.
+    expect(screen.queryByText(/independently developed/i)).not.toBeInTheDocument();
     await waitFor(() => expect(trendingMock).toHaveBeenCalled());
   });
 
