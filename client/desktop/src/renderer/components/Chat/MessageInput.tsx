@@ -202,18 +202,17 @@ const MessageInput: React.FC<MessageInputProps> = ({
     [content, maxLength]
   );
 
-  const getPickerPosition = useCallback(() => {
-    if (!emojiBtnRef.current) return { x: 0, y: 0 };
-    const rect = emojiBtnRef.current.getBoundingClientRect();
-    const pickerWidth = 352;
-    const pickerHeight = 420;
+  const getPickerPosition = useCallback((anchor: HTMLButtonElement | null, width: number) => {
+    if (!anchor) return { x: 0, y: 0 };
+    const rect = anchor.getBoundingClientRect();
+    const pickerHeight = 520;
 
     // Position above the button, right-aligned to the button
-    let x = rect.right - pickerWidth;
+    let x = rect.right - width;
     let y = rect.top - pickerHeight - 8;
 
     // Viewport clamping
-    x = Math.max(8, Math.min(x, globalThis.innerWidth - pickerWidth - 8));
+    x = Math.max(8, Math.min(x, globalThis.innerWidth - width - 8));
     y = Math.max(8, y);
 
     return { x, y };
@@ -224,7 +223,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
       setShowEmojiPicker(false);
     } else {
       setShowGifPicker(false);
-      setEmojiPickerPos(getPickerPosition());
+      setEmojiPickerPos(getPickerPosition(emojiBtnRef.current, 352));
       setShowEmojiPicker(true);
     }
   }, [showEmojiPicker, getPickerPosition]);
@@ -234,7 +233,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
       setShowGifPicker(false);
     } else {
       setShowEmojiPicker(false);
-      setGifPickerPos(getPickerPosition());
+      setGifPickerPos(getPickerPosition(gifBtnRef.current, 370));
       setShowGifPicker(true);
     }
   }, [showGifPicker, getPickerPosition]);

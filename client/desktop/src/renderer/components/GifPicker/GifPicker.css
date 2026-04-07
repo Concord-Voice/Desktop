@@ -1,9 +1,10 @@
 /* Reset native <dialog> styling so it behaves like a normal popover */
 .gif-picker {
-  position: absolute;
+  position: fixed;
   z-index: 1000;
   width: 370px;
   max-height: 520px;
+  inset: auto;
   display: flex;
   flex-direction: column;
   margin: 0;

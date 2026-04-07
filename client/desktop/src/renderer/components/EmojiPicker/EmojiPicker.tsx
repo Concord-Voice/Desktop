@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { EmojiPickerProps, EmojiEntry, SkinTone, SKIN_TONES } from './types';
 import { useEmojiData } from './useEmojiData';
@@ -29,6 +29,35 @@ const EmojiPicker: React.FC<EmojiPickerProps> = ({
 
   const pickerRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
+
+  // Viewport-clamped position. Electron windows can't render popups beyond the
+  // BrowserWindow bounds, so we measure the picker after mount and shift it so
+  // it always fits inside the viewport (flipping above/left of the anchor when
+  // there's no room below/right).
+  const [clampedPos, setClampedPos] = useState<{ left: number; top: number } | null>(null);
+
+  useLayoutEffect(() => {
+    if (mode !== 'popover' || !position || !pickerRef.current) return;
+    const rect = pickerRef.current.getBoundingClientRect();
+    const margin = 8;
+    const vw = globalThis.innerWidth;
+    const vh = globalThis.innerHeight;
+
+    let left = position.x;
+    let top = position.y;
+
+    if (left + rect.width + margin > vw) left = vw - rect.width - margin;
+    if (left < margin) left = margin;
+
+    if (top + rect.height + margin > vh) {
+      // Flip above the anchor point if there's room; otherwise clamp to bottom.
+      const flipped = position.y - rect.height - 8;
+      top = flipped >= margin ? flipped : Math.max(margin, vh - rect.height - margin);
+    }
+    if (top < margin) top = margin;
+
+    setClampedPos({ left, top });
+  }, [mode, position]);
 
   // Load initial category on mount
   useEffect(() => {
@@ -127,7 +156,16 @@ const EmojiPicker: React.FC<EmojiPickerProps> = ({
     <div
       ref={pickerRef}
       className={`emoji-picker ${mode === 'popover' ? 'emoji-picker--popover' : 'emoji-picker--inline'}`}
-      style={mode === 'popover' && position ? { left: position.x, top: position.y } : undefined}
+      style={
+        mode === 'popover' && position
+          ? {
+              left: clampedPos?.left ?? position.x,
+              top: clampedPos?.top ?? position.y,
+              // Hide until clamped to avoid a one-frame flash off-screen.
+              visibility: clampedPos ? 'visible' : 'hidden',
+            }
+          : undefined
+      }
     >
       <EmojiSearch onSearch={setSearchQuery} autoFocus={mode === 'popover'} />
 

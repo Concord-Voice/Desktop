@@ -426,6 +426,22 @@ ipcMain.handle('app:relaunch', () => {
   app.quit();
 });
 
+// Hot SPA reload — main process re-runs spaLoader and points the window at the
+// freshly-discovered remote SPA URL. Used when clientConfigService notices a
+// new SPA build was deployed mid-session. Falls back to bundled if anything
+// in spaLoader's safety chain fails (no token, contract mismatch, etc).
+ipcMain.handle('app:reloadSpa', async () => {
+  if (!mainWindow) return;
+  const decision = await resolveSpaSource();
+  console.log(`[SpaLoader/hot] ${decision.mode}: ${decision.reason}`);
+  if (decision.mode === 'remote' && decision.url) {
+    await mainWindow.loadURL(decision.url);
+  } else {
+    const bundledPath = path.join(__dirname, '../renderer/index.html');
+    await mainWindow.loadFile(bundledPath);
+  }
+});
+
 // Clean app exit (preserves persisted auth/remember-me state)
 ipcMain.handle('app:quit', () => {
   app.quit();

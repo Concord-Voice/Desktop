@@ -28,6 +28,8 @@ import { useWebSocket } from './hooks/useWebSocket';
 import { e2eeService } from './services/e2eeService';
 import { preferencesSyncService } from './services/preferencesSync';
 import { savedGifsSyncService } from './services/savedGifsSync';
+import { usePrivacyStore } from './stores/privacyStore';
+import { klipyClient } from './services/gifProvider/klipyClient';
 import { clientConfigService } from './services/clientConfigService';
 import { detectCodecCapabilities, prewarmWebRTC } from './services/mediaCapabilities';
 import { useNotificationNavigationStore } from './stores/notificationNavigationStore';
@@ -116,6 +118,25 @@ function AuthenticatedLayout() {
   useEffect(() => {
     prewarmWebRTC();
   }, []);
+
+  // Load privacy settings + wire KLIPY client mode (proxy + personalization).
+  // Without this, klipyClient defaults to direct mode and the SPA's CSP blocks
+  // the cross-origin api.klipy.com requests, causing "Failed to load trending GIFs".
+  useEffect(() => {
+    if (!accessToken) return;
+    const applyKlipyMode = (s: ReturnType<typeof usePrivacyStore.getState>['settings']) => {
+      klipyClient.setProxyEnabled(s.enableKlipyProxy);
+      klipyClient.setPersonalizationEnabled(s.sharePersonalizationWithGifProvider);
+    };
+    usePrivacyStore
+      .getState()
+      .fetchPrivacy()
+      .then(() => {
+        applyKlipyMode(usePrivacyStore.getState().settings);
+      });
+    const unsub = usePrivacyStore.subscribe((state) => applyKlipyMode(state.settings));
+    return () => unsub();
+  }, [accessToken]);
 
   // Pre-cache codec capabilities, GPU info, and detect system HDR
   useEffect(() => {

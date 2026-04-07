@@ -333,7 +333,7 @@ const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose, position }) =>
       ref={pickerRef}
       open
       className={`gif-picker ${reduceAnimations ? 'reduce-motion' : ''}`}
-      style={{ left: position.x, bottom: `calc(100% - ${position.y}px + 8px)` }}
+      style={{ left: position.x, top: position.y }}
       aria-label="GIF picker"
     >
       <div className="gif-picker-header">
@@ -388,9 +388,6 @@ const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose, position }) =>
           <img src={gifProvider.logoAsset} alt={gifProvider.name} className="gif-picker-logo" />
         )}
         <span className="gif-picker-attribution">{gifProvider.poweredByText}</span>
-        {gifProvider.independenceDisclaimer && (
-          <span className="gif-picker-disclaimer">{gifProvider.independenceDisclaimer}</span>
-        )}
       </div>
     </dialog>
   );

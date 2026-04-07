@@ -66,6 +66,29 @@
   color: white;
 }
 
+/* ─── Third-party services ────────────────────────────────────────── */
+
+.about-third-party {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-primary);
+}
+
+.about-third-party-title {
+  font-size: calc(11px * var(--font-scale, 1));
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.about-third-party-item {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: var(--text-tertiary);
+  line-height: 1.5;
+}
+
 /* ─── Legal ────────────────────────────────────────────────────────── */
 
 .about-legal {

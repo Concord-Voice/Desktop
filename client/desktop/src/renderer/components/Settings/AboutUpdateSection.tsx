@@ -223,6 +223,14 @@ const AboutUpdateSection: React.FC = () => {
           )}
         </div>
 
+        <div className="about-third-party">
+          <div className="about-third-party-title">Third-party services</div>
+          <div className="about-third-party-item">
+            <strong>KLIPY</strong> &mdash; GIF search and delivery. Concord is independently
+            developed and not affiliated with or endorsed by KLIPY.
+          </div>
+        </div>
+
         <div className="about-legal">
           <span className="about-legal-text">BSL 1.1 License &middot; Concord Voice</span>
         </div>

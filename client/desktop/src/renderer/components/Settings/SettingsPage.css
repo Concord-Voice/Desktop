@@ -1058,6 +1058,22 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Reset native <button> styling so the labels render as text, not chips. */
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-weight: inherit;
+  appearance: none;
+}
+
+.settings-tier-label:focus {
+  outline: none;
+}
+
+.settings-tier-label:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 .settings-tier-label:hover {

@@ -76,7 +76,8 @@ export const klipyProvider: GifProvider = {
   name: 'KLIPY',
   searchPlaceholder: 'Search KLIPY',
   poweredByText: 'Powered by KLIPY',
-  logoAsset: '/assets/klipy-logo.svg',
+  logoAsset: './assets/klipy-logo.svg',
+  // Surfaced in Settings > About (third-party services), not in the picker.
   independenceDisclaimer:
     'Concord is independently developed and not affiliated with or endorsed by KLIPY.',
   supportsRecent: true,
