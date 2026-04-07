@@ -384,10 +384,10 @@ const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose, position }) =>
       </div>
 
       <div className="gif-picker-footer">
+        <span className="gif-picker-attribution">Powered by</span>
         {gifProvider.logoAsset && (
           <img src={gifProvider.logoAsset} alt={gifProvider.name} className="gif-picker-logo" />
         )}
-        <span className="gif-picker-attribution">{gifProvider.poweredByText}</span>
       </div>
     </dialog>
   );

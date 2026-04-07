@@ -54,9 +54,22 @@ export interface KlipyGifItem {
   still?: { url?: string };
 }
 
-export interface KlipyListResponse {
+/**
+ * KLIPY wraps every response in `{ result: boolean, data: <payload> }`. The
+ * inner payload for list endpoints is itself `{ data: KlipyGifItem[], has_more
+ * }`. We model both legacy flat shapes and the current nested envelope so the
+ * parser stays defensive against future API tweaks.
+ */
+export interface KlipyListPayload {
   data?: KlipyGifItem[];
   result?: KlipyGifItem[];
+  has_more?: boolean;
+  meta?: { has_more?: boolean };
+}
+
+export interface KlipyListResponse {
+  result?: boolean | KlipyGifItem[];
+  data?: KlipyGifItem[] | KlipyListPayload;
   has_more?: boolean;
   meta?: { has_more?: boolean };
 }
@@ -66,14 +79,19 @@ export interface KlipyCategoryItem {
   preview?: KlipyGifItem;
 }
 
-export interface KlipyCategoriesResponse {
+export interface KlipyCategoriesPayload {
   data?: KlipyCategoryItem[];
   result?: KlipyCategoryItem[];
 }
 
+export interface KlipyCategoriesResponse {
+  result?: boolean | KlipyCategoryItem[];
+  data?: KlipyCategoryItem[] | KlipyCategoriesPayload;
+}
+
 export interface KlipyRandomIDResponse {
+  result?: boolean | { random_id?: string };
   data?: { random_id?: string };
-  result?: { random_id?: string };
 }
 
 class KlipyClient {
@@ -138,7 +156,10 @@ class KlipyClient {
       const res = await this.doFetch('/randomid');
       if (!res.ok) return null;
       const data = (await res.json()) as KlipyRandomIDResponse;
-      const id = data.data?.random_id ?? data.result?.random_id ?? null;
+      // Envelope: { result: bool, data: { random_id } }. Fall back to legacy
+      // shapes where result was the payload object directly.
+      const legacy = typeof data.result === 'object' ? data.result : undefined;
+      const id = data.data?.random_id ?? legacy?.random_id ?? null;
       if (id) {
         this.cachedCustomerId = id;
         localStorage.setItem(CUSTOMER_ID_STORAGE_KEY, id);
@@ -221,7 +242,16 @@ class KlipyClient {
     const res = await this.doFetch(`/gifs/items?${params.toString()}`);
     if (!res.ok) return null;
     const data = (await res.json()) as KlipyListResponse;
-    const items = data.data ?? data.result ?? [];
+    // Same envelope-unwrap as the list endpoints. Inline here so we don't pull
+    // a circular dep on klipyProvider's helper.
+    let items: KlipyGifItem[] = [];
+    if (data.data && !Array.isArray(data.data)) {
+      items = data.data.data ?? data.data.result ?? [];
+    } else if (Array.isArray(data.data)) {
+      items = data.data;
+    } else if (Array.isArray(data.result)) {
+      items = data.result;
+    }
     return items[0] ?? null;
   }
 

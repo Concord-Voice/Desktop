@@ -61,10 +61,31 @@ function toResolved(item: KlipyGifItem): GifResolved | null {
   };
 }
 
+/** Unwrap KLIPY's nested `{ result, data: { data: [...], has_more } }` envelope.
+ *  Falls back to legacy flat shapes if the API ever returns them. */
+function unwrapList(resp: KlipyListResponse): {
+  items: KlipyGifItem[];
+  hasMore: boolean | undefined;
+} {
+  // Current shape: { result: bool, data: { data: [...], has_more: bool } }
+  if (resp.data && !Array.isArray(resp.data)) {
+    return {
+      items: resp.data.data ?? resp.data.result ?? [],
+      hasMore: resp.data.has_more ?? resp.data.meta?.has_more,
+    };
+  }
+  // Legacy flat shapes
+  const items =
+    (Array.isArray(resp.data) ? resp.data : undefined) ??
+    (Array.isArray(resp.result) ? resp.result : undefined) ??
+    [];
+  return { items, hasMore: resp.has_more ?? resp.meta?.has_more };
+}
+
 function toSearchResult(resp: KlipyListResponse, page: number, perPage: number): GifSearchResult {
-  const raw = resp.data ?? resp.result ?? [];
+  const { items: raw, hasMore: rawHasMore } = unwrapList(resp);
   const items = raw.map(toResolved).filter((g): g is GifResolved => g !== null);
-  const hasMore = resp.has_more ?? resp.meta?.has_more ?? raw.length >= perPage;
+  const hasMore = rawHasMore ?? raw.length >= perPage;
   return {
     items,
     hasMore,
@@ -105,7 +126,15 @@ export const klipyProvider: GifProvider = {
 
   async categories(opts: GifCategoryOpts): Promise<GifCategory[]> {
     const resp = await klipyClient.categories(opts.locale);
-    const raw = resp.data ?? resp.result ?? [];
+    // Same nested envelope as list responses: { data: { data: [...] } }.
+    let raw: { name: string; preview?: KlipyGifItem }[] = [];
+    if (resp.data && !Array.isArray(resp.data)) {
+      raw = resp.data.data ?? resp.data.result ?? [];
+    } else if (Array.isArray(resp.data)) {
+      raw = resp.data;
+    } else if (Array.isArray(resp.result)) {
+      raw = resp.result;
+    }
     const result: GifCategory[] = [];
     for (const cat of raw) {
       const preview = cat.preview ? toResolved(cat.preview) : null;
