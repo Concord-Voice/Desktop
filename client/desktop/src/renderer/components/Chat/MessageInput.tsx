@@ -83,9 +83,15 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const [cursorPos, setCursorPos] = useState(0);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const [emojiPickerPos, setEmojiPickerPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [emojiPickerPos, setEmojiPickerPos] = useState<{
+    x: number;
+    y: number;
+    anchorCenterX: number;
+  }>({ x: 0, y: 0, anchorCenterX: 0 });
   const [showGifPicker, setShowGifPicker] = useState(false);
-  const [gifPickerPos, setGifPickerPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [gifPickerPos, setGifPickerPos] = useState<{ x: number; y: number; anchorCenterX: number }>(
+    { x: 0, y: 0, anchorCenterX: 0 }
+  );
   const klipyApiKey = useClientConfigStore((s) => s.featureFlags.klipyApiKey);
   const [showMentions, setShowMentions] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -203,19 +209,21 @@ const MessageInput: React.FC<MessageInputProps> = ({
   );
 
   const getPickerPosition = useCallback((anchor: HTMLButtonElement | null, width: number) => {
-    if (!anchor) return { x: 0, y: 0 };
+    if (!anchor) return { x: 0, y: 0, anchorCenterX: 0 };
     const rect = anchor.getBoundingClientRect();
     const pickerHeight = 520;
+    const anchorCenterX = rect.left + rect.width / 2;
 
-    // Position above the button, right-aligned to the button
+    // Position above the button, right-aligned to the button so the arrow
+    // tail can point down at the anchor. 12px gap leaves room for the tail.
     let x = rect.right - width;
-    let y = rect.top - pickerHeight - 8;
+    let y = rect.top - pickerHeight - 12;
 
     // Viewport clamping
     x = Math.max(8, Math.min(x, globalThis.innerWidth - width - 8));
     y = Math.max(8, y);
 
-    return { x, y };
+    return { x, y, anchorCenterX };
   }, []);
 
   const toggleEmojiPicker = useCallback(() => {

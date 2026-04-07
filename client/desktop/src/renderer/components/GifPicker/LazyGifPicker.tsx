@@ -5,7 +5,7 @@ const GifPickerLazy = lazy(() => import('./GifPicker'));
 interface LazyGifPickerProps {
   onSelect: (gifSlug: string) => void;
   onClose: () => void;
-  position: { x: number; y: number };
+  position: { x: number; y: number; anchorCenterX: number };
 }
 
 const LazyGifPicker: React.FC<LazyGifPickerProps> = (props) => (

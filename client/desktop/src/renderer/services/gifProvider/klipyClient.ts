@@ -32,25 +32,40 @@ const KLIPY_DIRECT_BASE = 'https://api.klipy.com/api/v1';
 const KLIPY_PROXY_BASE = '/api/v1/klipy';
 const CUSTOMER_ID_STORAGE_KEY = 'concord:klipy-customer-id';
 
-/** Raw KLIPY GIF item shape (best-effort against documented contract). */
+/** A single rendition variant in a KLIPY response (one format at one quality). */
+export interface KlipyRendition {
+  url?: string;
+  width?: number;
+  height?: number;
+  size?: number;
+}
+
+/** A bundle of format variants at one quality tier (hd / md / sm). */
+export interface KlipyQualityBundle {
+  mp4?: KlipyRendition;
+  gif?: KlipyRendition;
+  webp?: KlipyRendition;
+  jpg?: KlipyRendition;
+}
+
+/** Raw KLIPY GIF item shape. KLIPY's actual API nests format variants under a
+ *  quality tier (hd / md / sm), e.g. `file.hd.gif.url`. We also keep the legacy
+ *  flat shape (`file.gif.url`) as a fallback in case the contract changes. */
 export interface KlipyGifItem {
   slug: string;
+  id?: number | string;
   title?: string;
   url?: string;
   width?: number;
   height?: number;
-  file?: {
-    mp4?: { url?: string; width?: number; height?: number };
-    gif?: { url?: string; width?: number; height?: number };
-    webp?: { url?: string; width?: number; height?: number };
+  file?: KlipyQualityBundle & {
+    hd?: KlipyQualityBundle;
+    md?: KlipyQualityBundle;
+    sm?: KlipyQualityBundle;
   };
   // Sometimes KLIPY returns format variants nested under a different key.
   // We handle both shapes defensively in klipyProvider.ts.
-  preview?: {
-    mp4?: { url?: string };
-    gif?: { url?: string };
-    webp?: { url?: string };
-  };
+  preview?: KlipyQualityBundle;
   still?: { url?: string };
 }
 

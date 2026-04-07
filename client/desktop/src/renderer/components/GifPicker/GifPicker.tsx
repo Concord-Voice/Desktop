@@ -9,7 +9,7 @@ import './GifPicker.css';
 interface GifPickerProps {
   onSelect: (slug: string) => void;
   onClose: () => void;
-  position: { x: number; y: number };
+  position: { x: number; y: number; anchorCenterX: number };
 }
 
 type Tab = 'trending' | 'recent' | 'categories' | 'saved';
@@ -333,7 +333,14 @@ const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose, position }) =>
       ref={pickerRef}
       open
       className={`gif-picker ${reduceAnimations ? 'reduce-motion' : ''}`}
-      style={{ left: position.x, top: position.y }}
+      style={
+        {
+          left: position.x,
+          top: position.y,
+          // Arrow tail x position relative to the picker's left edge.
+          ['--gif-picker-arrow-x' as string]: `${position.anchorCenterX - position.x}px`,
+        } as React.CSSProperties
+      }
       aria-label="GIF picker"
     >
       <div className="gif-picker-header">

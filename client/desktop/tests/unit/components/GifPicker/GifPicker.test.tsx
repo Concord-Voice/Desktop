@@ -56,7 +56,7 @@ import GifPicker from '@/renderer/components/GifPicker/GifPicker';
 describe('GifPicker', () => {
   const onSelect = vi.fn();
   const onClose = vi.fn();
-  const position = { x: 100, y: 200 };
+  const position = { x: 100, y: 200, anchorCenterX: 150 };
 
   beforeEach(() => {
     resetAllStores();
@@ -92,9 +92,10 @@ describe('GifPicker', () => {
     await waitFor(() => expect(trendingMock).toHaveBeenCalled());
   });
 
-  it('shows Powered by KLIPY attribution', async () => {
+  it('shows Powered by attribution with the provider logo', async () => {
     render(<GifPicker onSelect={onSelect} onClose={onClose} position={position} />);
-    expect(screen.getByText('Powered by KLIPY')).toBeInTheDocument();
+    expect(screen.getByText('Powered by')).toBeInTheDocument();
+    expect(screen.getByAltText('KLIPY')).toBeInTheDocument();
     // Independence disclaimer lives in Settings > About, not the picker footer.
     expect(screen.queryByText(/independently developed/i)).not.toBeInTheDocument();
     await waitFor(() => expect(trendingMock).toHaveBeenCalled());

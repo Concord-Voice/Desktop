@@ -33,19 +33,40 @@ import { klipyClient, type KlipyGifItem, type KlipyListResponse } from './klipyC
 /** Translate a single KLIPY GIF item into the vendor-neutral resolved shape.
  *  Defensive against missing fields — different KLIPY endpoints sometimes
  *  return slightly different shapes for the same GIF object. */
+/** Walk every plausible nesting path for a given format and return the first
+ *  rendition that has a URL. KLIPY's real API nests under quality tiers
+ *  (file.hd.gif.url) but the docs and demos sometimes show the flat shape
+ *  (file.gif.url), so we check both. */
+function pickRendition(
+  item: KlipyGifItem,
+  format: 'mp4' | 'gif' | 'webp'
+): { url?: string; width?: number; height?: number } | undefined {
+  return (
+    item.file?.hd?.[format] ??
+    item.file?.md?.[format] ??
+    item.file?.sm?.[format] ??
+    item.file?.[format] ??
+    item.preview?.[format]
+  );
+}
+
 function toResolved(item: KlipyGifItem): GifResolved | null {
   if (!item.slug) return null;
 
   // Pick the best animated rendition: MP4 first (renders as <video>), then
   // WEBP/GIF (rendered as <img>). Default `image` covers both fallback cases
   // so we only need to override when MP4 is selected.
-  const mp4Url = item.file?.mp4?.url ?? item.preview?.mp4?.url;
-  const webpUrl = item.file?.webp?.url ?? item.preview?.webp?.url;
-  const gifUrl = item.file?.gif?.url ?? item.preview?.gif?.url ?? item.url;
+  const mp4 = pickRendition(item, 'mp4');
+  const webp = pickRendition(item, 'webp');
+  const gif = pickRendition(item, 'gif');
 
-  const animatedUrl = mp4Url ?? webpUrl ?? gifUrl;
+  const animatedUrl = mp4?.url ?? webp?.url ?? gif?.url ?? item.url;
   if (!animatedUrl) return null;
-  const animatedKind: 'video' | 'image' = mp4Url ? 'video' : 'image';
+  const animatedKind: 'video' | 'image' = mp4?.url ? 'video' : 'image';
+  let chosen: { url?: string; width?: number; height?: number } | undefined;
+  if (mp4?.url) chosen = mp4;
+  else if (webp?.url) chosen = webp;
+  else chosen = gif;
 
   // Still rendition: prefer the explicit still URL, fall back to the
   // animated URL (the still will autoplay when used as <video poster> too)
@@ -53,8 +74,8 @@ function toResolved(item: KlipyGifItem): GifResolved | null {
 
   return {
     slug: item.slug,
-    width: item.file?.mp4?.width ?? item.file?.gif?.width ?? item.width,
-    height: item.file?.mp4?.height ?? item.file?.gif?.height ?? item.height,
+    width: chosen?.width ?? item.width,
+    height: chosen?.height ?? item.height,
     animatedUrl,
     animatedKind,
     stillUrl,

@@ -21,6 +21,24 @@
   background: transparent;
 }
 
+/* Arrow tail pointing down at the GIF button. The horizontal position is
+   driven by --gif-picker-arrow-x, set inline to (anchor.centerX - picker.left)
+   so the arrow always lines up with the button regardless of clamping. */
+.gif-picker::after {
+  content: '';
+  position: absolute;
+  left: var(--gif-picker-arrow-x, 50%);
+  bottom: -7px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  background: var(--bg-primary, #18181b);
+  border-right: 1px solid var(--border-primary, #333);
+  border-bottom: 1px solid var(--border-primary, #333);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+
 .gif-picker-header {
   display: flex;
   align-items: center;
