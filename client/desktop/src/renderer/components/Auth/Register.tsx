@@ -5,6 +5,7 @@ import LoadingSpinner from './LoadingSpinner';
 import { generateRegistrationKeys, exportPublicKey } from '../../utils/crypto';
 import { e2eeService } from '../../services/e2eeService';
 import { preferencesSyncService } from '../../services/preferencesSync';
+import { savedGifsSyncService } from '../../services/savedGifsSync';
 import { useAuthStore } from '../../stores/authStore';
 import { API_BASE, ensureMachineId } from '../../services/apiClient';
 import { UserProfile } from '../../stores/userStore';
@@ -175,6 +176,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
         keys.keyDerivationAlg
       );
       preferencesSyncService.startWatching();
+      savedGifsSyncService.startWatching();
 
       // Store refresh token securely in main process, set access token in renderer
       if (globalThis.electron?.storeRefreshToken) {

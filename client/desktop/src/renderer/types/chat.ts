@@ -32,6 +32,7 @@ export interface Message {
   content: string;
   is_encrypted: boolean;
   key_version?: number;
+  gif_slug?: string;
   edited_at?: string;
   reply_to_id?: string;
   pinned_at?: string;

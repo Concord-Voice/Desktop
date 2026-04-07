@@ -6,6 +6,7 @@ interface FeatureFlags {
   voice: boolean;
   video: boolean;
   e2ee: boolean;
+  klipyApiKey?: string;
 }
 
 // Backend uses omitempty on host/realm (may send `turn: {}`), but the

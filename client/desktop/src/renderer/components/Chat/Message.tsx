@@ -19,6 +19,9 @@ import {
   type MentionLookup,
 } from './messageUtils';
 import AttachmentDisplay from './AttachmentDisplay';
+import GifEmbed from './GifEmbed';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { usePrivacyStore } from '../../stores/privacyStore';
 import './Message.css';
 
 // Stable empty references to avoid infinite re-renders when DM context skips server data
@@ -399,6 +402,8 @@ const Message: React.FC<MessageProps> = ({
   shiftHeld = false,
 }) => {
   const isDM = chatContext === 'dm';
+  const reduceAnimations = useSettingsStore((s) => s.appearance.reduceAnimations);
+  const loadGifsAutomatically = usePrivacyStore((s) => s.settings.loadGifsAutomatically);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(message.content);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -499,6 +504,15 @@ const Message: React.FC<MessageProps> = ({
             message={message}
             showAvatar={showAvatar}
             mentionLookup={mentionLookup}
+          />
+        )}
+
+        {message.gif_slug && (
+          <GifEmbed
+            slug={message.gif_slug}
+            reduceMotion={reduceAnimations}
+            loadAutomatically={loadGifsAutomatically}
+            embedsSuppressed={message.embeds_suppressed}
           />
         )}
 

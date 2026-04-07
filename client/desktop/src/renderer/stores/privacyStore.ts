@@ -19,6 +19,10 @@ export interface PrivacySettings {
   searchableByEmail: boolean;
   searchableByPhone: boolean;
   allowEmbeddedContent: boolean;
+  // KLIPY GIF integration settings (decoupled from allowEmbeddedContent in v2)
+  loadGifsAutomatically: boolean;
+  enableKlipyProxy: boolean;
+  sharePersonalizationWithGifProvider: boolean;
 }
 
 const defaultSettings: PrivacySettings = {
@@ -31,6 +35,9 @@ const defaultSettings: PrivacySettings = {
   searchableByEmail: false,
   searchableByPhone: false,
   allowEmbeddedContent: false,
+  loadGifsAutomatically: false,
+  enableKlipyProxy: false,
+  sharePersonalizationWithGifProvider: true,
 };
 
 interface PrivacyState {
@@ -71,6 +78,10 @@ export const usePrivacyStore = create<PrivacyState>()(
               searchableByEmail: p.searchable_by_email ?? false,
               searchableByPhone: p.searchable_by_phone ?? false,
               allowEmbeddedContent: p.allow_embedded_content ?? false,
+              loadGifsAutomatically: p.load_gifs_automatically ?? false,
+              enableKlipyProxy: p.enable_klipy_proxy ?? false,
+              sharePersonalizationWithGifProvider:
+                p.share_personalization_with_gif_provider ?? true,
             },
             isLoading: false,
           });
@@ -101,6 +112,13 @@ export const usePrivacyStore = create<PrivacyState>()(
           body.searchable_by_phone = updates.searchableByPhone;
         if (updates.allowEmbeddedContent !== undefined)
           body.allow_embedded_content = updates.allowEmbeddedContent;
+        if (updates.loadGifsAutomatically !== undefined)
+          body.load_gifs_automatically = updates.loadGifsAutomatically;
+        if (updates.enableKlipyProxy !== undefined)
+          body.enable_klipy_proxy = updates.enableKlipyProxy;
+        if (updates.sharePersonalizationWithGifProvider !== undefined)
+          body.share_personalization_with_gif_provider =
+            updates.sharePersonalizationWithGifProvider;
 
         const response = await apiFetch('/api/v1/users/me/privacy', {
           method: 'PATCH',
@@ -126,6 +144,9 @@ export const usePrivacyStore = create<PrivacyState>()(
             searchableByEmail: p.searchable_by_email,
             searchableByPhone: p.searchable_by_phone,
             allowEmbeddedContent: p.allow_embedded_content ?? false,
+            loadGifsAutomatically: p.load_gifs_automatically ?? false,
+            enableKlipyProxy: p.enable_klipy_proxy ?? false,
+            sharePersonalizationWithGifProvider: p.share_personalization_with_gif_provider ?? true,
           },
         });
       },

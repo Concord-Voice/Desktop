@@ -30,6 +30,7 @@ export interface QueuedMessage {
   mentionMeta?: string;
   replyToId?: string;
   isEncrypted?: boolean; // Captured at enqueue time for DM queue processing
+  gifSlug?: string;
 }
 
 interface MessageQueueCallbacks {

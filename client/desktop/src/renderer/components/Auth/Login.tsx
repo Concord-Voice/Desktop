@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { unwrapLoginKeys, generateRegistrationKeys } from '../../utils/crypto';
 import { e2eeService } from '../../services/e2eeService';
 import { preferencesSyncService } from '../../services/preferencesSync';
+import { savedGifsSyncService } from '../../services/savedGifsSync';
 import { useAuthStore } from '../../stores/authStore';
 import { API_BASE, apiFetch, ensureMachineId } from '../../services/apiClient';
 import { UserProfile } from '../../stores/userStore';
@@ -273,6 +274,8 @@ const Login: React.FC<LoginProps> = ({
 
     preferencesSyncService.startWatching();
     await preferencesSyncService.fetchAndApply();
+    savedGifsSyncService.startWatching();
+    await savedGifsSyncService.fetchAndApply();
 
     onSuccess({
       accessToken: data.access_token,

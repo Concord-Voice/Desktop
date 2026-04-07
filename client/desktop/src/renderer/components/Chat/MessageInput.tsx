@@ -3,7 +3,9 @@ import { Smile, ImagePlay, Paperclip, Lock, Unlock } from 'lucide-react';
 import MessageInputContextMenu from './MessageInputContextMenu';
 import MentionAutocomplete, { type MentionAutocompleteHandle } from './MentionAutocomplete';
 import EmojiPicker from '../EmojiPicker/LazyEmojiPicker';
+import LazyGifPicker from '../GifPicker/LazyGifPicker';
 import UserPanel from '../User/UserPanel';
+import { useClientConfigStore } from '../../stores/clientConfigStore';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { buildAddendum, encodeMentionMeta, type ParsedMention } from '../../utils/mentions';
 import type { AttachmentSummary, MessageWithStatus } from '../../types/chat';
@@ -20,7 +22,8 @@ export interface MessageInputProps {
     mentionMeta?: string,
     replyToId?: string,
     attachmentIds?: string[],
-    attachments?: AttachmentSummary[]
+    attachments?: AttachmentSummary[],
+    gifSlug?: string
   ) => void;
   onTyping?: (isTyping: boolean) => void;
   placeholder?: string;
@@ -81,9 +84,13 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [emojiPickerPos, setEmojiPickerPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [showGifPicker, setShowGifPicker] = useState(false);
+  const [gifPickerPos, setGifPickerPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const klipyApiKey = useClientConfigStore((s) => s.featureFlags.klipyApiKey);
   const [showMentions, setShowMentions] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const emojiBtnRef = useRef<HTMLButtonElement>(null);
+  const gifBtnRef = useRef<HTMLButtonElement>(null);
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isTypingRef = useRef(false);
   // Track mentions selected via autocomplete (for building the addendum)
@@ -216,10 +223,30 @@ const MessageInput: React.FC<MessageInputProps> = ({
     if (showEmojiPicker) {
       setShowEmojiPicker(false);
     } else {
+      setShowGifPicker(false);
       setEmojiPickerPos(getPickerPosition());
       setShowEmojiPicker(true);
     }
   }, [showEmojiPicker, getPickerPosition]);
+
+  const toggleGifPicker = useCallback(() => {
+    if (showGifPicker) {
+      setShowGifPicker(false);
+    } else {
+      setShowEmojiPicker(false);
+      setGifPickerPos(getPickerPosition());
+      setShowGifPicker(true);
+    }
+  }, [showGifPicker, getPickerPosition]);
+
+  const handleGifSelect = useCallback(
+    (gifSlug: string) => {
+      onSendMessage(' ', undefined, replyingTo?.id, undefined, undefined, gifSlug);
+      setShowGifPicker(false);
+      onCancelReply?.();
+    },
+    [onSendMessage, replyingTo, onCancelReply]
+  );
 
   const adjustTextareaHeight = useCallback(() => {
     const textarea = textareaRef.current;
@@ -586,7 +613,13 @@ const MessageInput: React.FC<MessageInputProps> = ({
             >
               <Smile size={18} />
             </button>
-            <button className="media-btn" title="GIF" disabled>
+            <button
+              ref={gifBtnRef}
+              className={`media-btn ${showGifPicker ? 'active' : ''}`}
+              title="GIF"
+              disabled={!klipyApiKey}
+              onClick={toggleGifPicker}
+            >
               <ImagePlay size={18} />
             </button>
             <button
@@ -614,6 +647,14 @@ const MessageInput: React.FC<MessageInputProps> = ({
           position={emojiPickerPos}
           onSelect={handleEmojiSelect}
           onClose={() => setShowEmojiPicker(false)}
+        />
+      )}
+
+      {showGifPicker && (
+        <LazyGifPicker
+          position={gifPickerPos}
+          onSelect={handleGifSelect}
+          onClose={() => setShowGifPicker(false)}
         />
       )}
 

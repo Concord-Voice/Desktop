@@ -724,16 +724,62 @@ const PrivacySecuritySection: React.FC = () => {
           <div className="settings-row-info">
             <span className="settings-row-label">Allow Embedded Content</span>
             <span className="settings-row-hint">
-              Render link previews, image thumbnails, and other embedded content in messages. When
-              disabled, only the raw message text is shown — no external requests are made,
-              protecting your IP address from off-app tracking beacons. Server moderators with the
-              Manage All Messages permission can also suppress embeds on individual messages
-              regardless of this setting.
+              Render link previews, image thumbnails, and other embedded content in messages.{' '}
+              <strong>GIFs from KLIPY are controlled separately below.</strong> When disabled, only
+              the raw message text is shown — no external requests are made for previews, protecting
+              your IP address from off-app tracking beacons. Server moderators with the Manage All
+              Messages permission can also suppress embeds on individual messages regardless of this
+              setting.
             </span>
           </div>
           <ToggleSwitch
             checked={privacySettings.allowEmbeddedContent}
             onChange={(v) => updatePrivacy({ allowEmbeddedContent: v })}
+          />
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Load GIFs from KLIPY automatically</span>
+            <span className="settings-row-hint">
+              {privacySettings.loadGifsAutomatically
+                ? 'GIFs in messages render as soon as they enter view. Each GIF fetch reveals your IP address to KLIPY unless KLIPY Privacy Mode is also enabled below.'
+                : 'GIFs in messages show a "Click to load" placeholder until you tap them. No requests are sent to KLIPY until you choose to load each GIF, protecting your IP address from automatic tracking.'}
+            </span>
+          </div>
+          <ToggleSwitch
+            checked={privacySettings.loadGifsAutomatically}
+            onChange={(v) => updatePrivacy({ loadGifsAutomatically: v })}
+          />
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Enable KLIPY Privacy Mode</span>
+            <span className="settings-row-hint">
+              {privacySettings.enableKlipyProxy
+                ? 'All KLIPY traffic — search, trending, and the GIF images themselves — routes through Concord servers. KLIPY never sees your IP address or what you search for. Concord servers proxy the bytes but do not log GIF slugs or search terms.'
+                : 'GIF searches and image fetches go directly to KLIPY. This is faster but lets KLIPY log your IP address, search terms, and GIF view history. Enable this for full privacy from KLIPY at a small latency cost.'}
+            </span>
+          </div>
+          <ToggleSwitch
+            checked={privacySettings.enableKlipyProxy}
+            onChange={(v) => updatePrivacy({ enableKlipyProxy: v })}
+          />
+        </div>
+
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Share GIF personalization with provider</span>
+            <span className="settings-row-hint">
+              {privacySettings.sharePersonalizationWithGifProvider
+                ? 'Concord sends an opaque per-user ID to KLIPY so the GIF picker can show you personalized recent and trending results. The ID is not tied to your Concord account or any personally identifiable information.'
+                : 'GIF picker results are not personalized. The Recent tab is hidden because it requires personalization to function. Search and trending still work but show generic results.'}
+            </span>
+          </div>
+          <ToggleSwitch
+            checked={privacySettings.sharePersonalizationWithGifProvider}
+            onChange={(v) => updatePrivacy({ sharePersonalizationWithGifProvider: v })}
           />
         </div>
 

@@ -90,10 +90,11 @@ const ChatView: React.FC = () => {
       mentionMeta?: string,
       replyToId?: string,
       attachmentIds?: string[],
-      attachments?: import('../../types/chat').AttachmentSummary[]
+      attachments?: import('../../types/chat').AttachmentSummary[],
+      gifSlug?: string
     ) => {
       if (!activeChannelId) return;
-      sendMessage(content, { mentionMeta, replyToId, attachmentIds, attachments });
+      sendMessage(content, { mentionMeta, replyToId, attachmentIds, attachments, gifSlug });
     },
     [activeChannelId, sendMessage]
   );

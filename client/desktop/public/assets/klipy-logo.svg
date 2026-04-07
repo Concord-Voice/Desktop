@@ -1,0 +1,15 @@
+<!--
+  KLIPY brand logo placeholder.
+
+  TODO before merge: replace with the official KLIPY logo SVG from
+  https://drive.google.com/drive/u/3/folders/1ix5_5221kgbJHPqhCxwPsqHlHexhQP2w
+  per KLIPY API ToS Section 4 ("you must visibly include 'Powered by KLIPY' and
+  our logo within your Application").
+
+  This placeholder is just the wordmark "KLIPY" rendered as text — it satisfies
+  the visual requirement but should be replaced with the official asset before
+  shipping to users.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="56" height="14" viewBox="0 0 56 14" fill="none">
+  <text x="0" y="11" font-family="system-ui, -apple-system, sans-serif" font-size="11" font-weight="700" fill="currentColor">KLIPY</text>
+</svg>

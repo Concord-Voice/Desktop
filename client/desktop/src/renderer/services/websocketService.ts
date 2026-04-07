@@ -248,6 +248,7 @@ export class WebSocketService {
       mentionMeta?: string;
       replyToId?: string;
       attachmentIds?: string[];
+      gifSlug?: string;
     }
   ): void {
     const {
@@ -257,6 +258,7 @@ export class WebSocketService {
       mentionMeta,
       replyToId,
       attachmentIds,
+      gifSlug,
     } = opts ?? {};
     const data: Record<string, unknown> = {
       channel_id: channelId,
@@ -274,6 +276,9 @@ export class WebSocketService {
     }
     if (attachmentIds && attachmentIds.length > 0) {
       data.attachment_ids = attachmentIds;
+    }
+    if (gifSlug) {
+      data.gif_slug = gifSlug;
     }
     this.send({ type: 'message', data });
   }
@@ -353,6 +358,7 @@ export class WebSocketService {
       mentionMeta?: string;
       attachmentIds?: string[];
       replyToId?: string;
+      gifSlug?: string;
     } = {}
   ): void {
     const data: Record<string, unknown> = {
@@ -371,6 +377,9 @@ export class WebSocketService {
     }
     if (opts.replyToId) {
       data.reply_to_id = opts.replyToId;
+    }
+    if (opts.gifSlug) {
+      data.gif_slug = opts.gifSlug;
     }
     this.send({ type: 'dm_message', data });
   }

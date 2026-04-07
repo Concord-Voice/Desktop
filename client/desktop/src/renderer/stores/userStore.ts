@@ -5,6 +5,7 @@ import { apiFetch } from '../services/apiClient';
 import { getWebSocketService } from '../services/websocketService';
 import { e2eeService } from '../services/e2eeService';
 import { preferencesSyncService } from '../services/preferencesSync';
+import { savedGifsSyncService } from '../services/savedGifsSync';
 import {
   deriveKeyFromPassword,
   deriveKeyArgon2id,
@@ -115,8 +116,9 @@ export const useUserStore = create<UserState>()(
       },
 
       logout: async () => {
-        // Stop syncing preferences before tearing down
+        // Stop syncing preferences and saved GIFs before tearing down
         preferencesSyncService.stopWatching();
+        savedGifsSyncService.stopWatching();
         e2eeService.clearKeys();
 
         // Disconnect WebSocket FIRST so the server receives the close frame

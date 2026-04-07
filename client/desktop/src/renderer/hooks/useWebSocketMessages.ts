@@ -16,6 +16,7 @@ import { useUnreadStore } from '../stores/unreadStore';
 import { getWebSocketService, type WebSocketMessage } from '../services/websocketService';
 import { e2eeService } from '../services/e2eeService';
 import { preferencesSyncService } from '../services/preferencesSync';
+import { savedGifsSyncService } from '../services/savedGifsSync';
 import { apiFetch } from '../services/apiClient';
 import { useVoiceStore } from '../stores/voiceStore';
 import { useConnectionStore } from '../stores/connectionStore';
@@ -257,10 +258,22 @@ function addEncryptedMessage(
 
   decryptPromise
     .then((plaintext) => {
-      addMessage(channelId, { ...baseMessage, content: plaintext });
+      // E2EE GIF messages are encrypted as JSON: {"text":"...","gif_slug":"..."}
+      let content = plaintext;
+      let gifSlug: string | undefined;
+      try {
+        const parsed = JSON.parse(plaintext);
+        if (parsed && typeof parsed.gif_slug === 'string') {
+          content = parsed.text ?? '';
+          gifSlug = parsed.gif_slug;
+        }
+      } catch {
+        // Plain text message — no-op
+      }
+      addMessage(channelId, { ...baseMessage, content, gif_slug: gifSlug });
       // Passively index decrypted content for search
-      indexMessage(baseMessage.id, plaintext, channelId);
-      onPlaintext?.(plaintext);
+      indexMessage(baseMessage.id, content, channelId);
+      onPlaintext?.(content);
     })
     .catch((err) => {
       const isPending = err instanceof Error && err.message === 'PENDING_KEY';
@@ -305,6 +318,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         avatar_url: data.avatar_url || undefined,
         is_encrypted: isEncrypted,
         key_version: keyVersion,
+        gif_slug: data.gif_slug || undefined,
         reply_to_id: data.reply_to_id || undefined,
         replied_to: data.replied_to || undefined,
         attachments: data.attachments || undefined,
@@ -796,6 +810,11 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       preferencesSyncService.fetchAndApply();
     });
 
+    // Saved GIFs updated handler — another device saved/removed a GIF
+    const unsubSavedGifsUpdated = wsService.on('saved_gifs_updated', () => {
+      savedGifsSyncService.fetchAndApply();
+    });
+
     // Presence snapshot handler — received on connection with all online users and their statuses
     const unsubPresenceSnapshot = wsService.on('presence_snapshot', (msg: WebSocketMessage) => {
       // Enhanced format: array of { user_id, status } objects
@@ -895,6 +914,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         avatar_url: data.avatar_url || undefined,
         is_encrypted: isEncrypted,
         key_version: dmKeyVersion,
+        gif_slug: data.gif_slug || undefined,
         attachments: data.attachments || undefined,
         created_at: data.created_at || new Date().toISOString(),
         updated_at: data.updated_at || new Date().toISOString(),
@@ -1346,6 +1366,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       unsubKeyRevocation();
       unsubKeyDelivered();
       unsubPreferencesUpdated();
+      unsubSavedGifsUpdated();
       unsubPresenceSnapshot();
       unsubPresence();
       unsubServerOnlineCounts();

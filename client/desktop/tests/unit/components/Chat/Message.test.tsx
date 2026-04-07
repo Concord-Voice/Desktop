@@ -23,6 +23,10 @@ vi.mock('@/renderer/components/Chat/AttachmentDisplay', () => ({
     </div>
   ),
 }));
+// Mock GifEmbed to avoid KLIPY API calls
+vi.mock('@/renderer/components/Chat/GifEmbed', () => ({
+  default: ({ slug }: { slug: string }) => <div data-testid="gif-embed">{slug}</div>,
+}));
 import { useMemberStore } from '@/renderer/stores/memberStore';
 import { usePermissionStore } from '@/renderer/stores/permissionStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
@@ -819,5 +823,24 @@ describe('Message', () => {
     useMemberStore.getState().addMember(mockMember);
     render(<Message message={mockMessage} currentUserId="user-2" showAvatar={true} />);
     expect(screen.queryByTestId('attachment-display')).not.toBeInTheDocument();
+  });
+
+  it('renders GifEmbed when message has gif_slug', () => {
+    useMemberStore.getState().addMember(mockMember);
+    render(
+      <Message
+        message={{ ...mockMessage, gif_slug: 'happy-cat-dance' }}
+        currentUserId="user-2"
+        showAvatar={true}
+      />
+    );
+    expect(screen.getByTestId('gif-embed')).toBeInTheDocument();
+    expect(screen.getByText('happy-cat-dance')).toBeInTheDocument();
+  });
+
+  it('does not render GifEmbed when message has no gif_slug', () => {
+    useMemberStore.getState().addMember(mockMember);
+    render(<Message message={mockMessage} currentUserId="user-2" showAvatar={true} />);
+    expect(screen.queryByTestId('gif-embed')).not.toBeInTheDocument();
   });
 });

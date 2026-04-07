@@ -11,6 +11,7 @@ import { useFriendStore } from '../../src/renderer/stores/friendStore';
 import { useConnectionStore } from '../../src/renderer/stores/connectionStore';
 import { usePrivacyStore } from '../../src/renderer/stores/privacyStore';
 import { useMFAChallengeStore } from '../../src/renderer/stores/mfaChallengeStore';
+import { useSavedGifsStore } from '../../src/renderer/stores/savedGifsStore';
 
 /**
  * Resets all Zustand stores to their initial state.
@@ -32,6 +33,7 @@ export function resetAllStores(): void {
   useConnectionStore.getState().reset();
   usePrivacyStore.getState().clearPrivacy();
   useMFAChallengeStore.getState().clearChallenge();
+  useSavedGifsStore.setState({ gifs: [] });
 
   // Clear persisted state from localStorage
   localStorage.clear();

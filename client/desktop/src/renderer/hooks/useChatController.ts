@@ -32,6 +32,7 @@ export interface SendOpts {
   replyToId?: string;
   attachmentIds?: string[];
   attachments?: AttachmentSummary[];
+  gifSlug?: string;
 }
 
 export function useChatController(ctx: ChatContext) {
@@ -68,6 +69,7 @@ export function useChatController(ctx: ChatContext) {
         replyToId: opts?.replyToId,
         attachmentIds: opts?.attachmentIds,
         attachments: opts?.attachments,
+        gifSlug: opts?.gifSlug,
       };
 
       if (isDM) {
