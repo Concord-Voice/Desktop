@@ -17,6 +17,13 @@
 
 .message-avatar {
   flex-shrink: 0;
+  /* Pin a fixed footprint so a broken/404/CSP-blocked avatar still
+     occupies a 40x40 slot — otherwise the button shrink-wraps to its
+     alt-text width and content-wrappers shift left/right unpredictably,
+     misaligning non-grouped messages against grouped (.message-gutter)
+     siblings which have a hard 40px width. */
+  width: 40px;
+  height: 40px;
   cursor: pointer;
   border: none;
   background: none;
