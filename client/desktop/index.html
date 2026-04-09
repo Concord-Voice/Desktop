@@ -3,13 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      CSP chain for the desktop SPA:
+        1. services/control-plane/internal/middleware/security.go sets a strict
+           default-src 'none' Content-Security-Policy header globally.
+        2. services/control-plane/internal/spa/handler.go:80-84 deletes that
+           header on SPA asset responses, so the meta tag below is authoritative
+           for the renderer.
+        3. Cloudflare Web Analytics auto-injects https://static.cloudflareinsights.com/beacon.min.js
+           plus an inline bootstrap on any response served through the CF edge.
+           This CSP forbids both: script-src omits 'unsafe-inline' and scopes to
+           'self' + 'wasm-unsafe-eval' only, and connect-src does not list
+           cloudflareinsights.com, so the beacon is blocked at the parser even
+           if CF re-enables Auto Inject on the zone. The real fix is a dashboard
+           toggle on the concordvoice.chat zone (Analytics -> Web Analytics ->
+           disable Auto Inject).
+    -->
     <meta http-equiv="Content-Security-Policy"
           content="default-src 'self';
                    script-src 'self' 'wasm-unsafe-eval';
+                   script-src-elem 'self' 'wasm-unsafe-eval';
                    style-src 'self' 'unsafe-inline';
-                   connect-src 'self' ws://localhost:* http://localhost:* wss://localhost:* https://localhost:* ws://127.0.0.1:* http://127.0.0.1:* https://concordvoice.chat wss://concordvoice.chat https://*.concordvoice.chat wss://*.concordvoice.chat https://api.klipy.com https://*.klipy.com;
-                   img-src 'self' data: blob: https://cdn.jsdelivr.net https://*.klipy.com https://*.klipy.io;
-                   media-src 'self' blob: https://*.klipy.com https://*.klipy.io;
+                   connect-src 'self' ws://localhost:* http://localhost:* wss://localhost:* https://localhost:* ws://127.0.0.1:* http://127.0.0.1:* https://concordvoice.chat wss://concordvoice.chat https://*.concordvoice.chat wss://*.concordvoice.chat;
+                   img-src 'self' data: blob: https://cdn.jsdelivr.net;
+                   media-src 'self' blob:;
                    base-uri 'self';
                    form-action 'self';">
     <title>Concord Voice</title>

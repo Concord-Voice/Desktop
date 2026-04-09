@@ -11,6 +11,7 @@
 import { useEffect } from 'react';
 import { getWebSocketService } from '../services/websocketService';
 import { useChatStore } from '../stores/chatStore';
+import { pendingUnsubscribes, UNSUBSCRIBE_DELAY_MS } from './useDMSubscription';
 
 export function useChannelSubscription(channelId: string | null | undefined) {
   const isConnected = useChatStore((s) => s.isConnected);
@@ -21,13 +22,24 @@ export function useChannelSubscription(channelId: string | null | undefined) {
     }
 
     const wsService = getWebSocketService();
+    const key = `ch:${channelId}`;
 
-    // Subscribe to channel
-    wsService.subscribe(channelId);
+    // Cancel any pending unsubscribe for this channel — the debounce window
+    // exists so brief remounts (e.g. Settings overlay) don't generate churn.
+    const pending = pendingUnsubscribes.get(key);
+    if (pending) {
+      clearTimeout(pending);
+      pendingUnsubscribes.delete(key);
+    } else {
+      wsService.subscribe(channelId);
+    }
 
-    // Unsubscribe on cleanup
     return () => {
-      wsService.unsubscribe(channelId);
+      const timer = setTimeout(() => {
+        pendingUnsubscribes.delete(key);
+        wsService.unsubscribe(channelId);
+      }, UNSUBSCRIBE_DELAY_MS);
+      pendingUnsubscribes.set(key, timer);
     };
   }, [channelId, isConnected]);
 

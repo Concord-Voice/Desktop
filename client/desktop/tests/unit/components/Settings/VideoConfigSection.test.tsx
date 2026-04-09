@@ -562,12 +562,17 @@ describe('VideoConfigSection', () => {
       expect(screen.queryByText(/Your client will prefer this codec/)).not.toBeInTheDocument();
     });
 
-    it('renders codec info badge', () => {
+    it('renders structured codec metadata', () => {
       renderComponent();
-      expect(screen.getByText(/VP8 — Good quality/)).toBeInTheDocument();
+      const badge = document.querySelector('.settings-codec-info-badge');
+      expect(badge).toBeInTheDocument();
+      expect(badge?.textContent).toContain('Quality:');
+      expect(badge?.textContent).toContain('Efficiency:');
+      expect(badge?.textContent).toContain('HDR Capable:');
+      expect(badge?.textContent).toContain('Description:');
     });
 
-    it('renders codec info badge with HDR indicator', () => {
+    it('renders HDR Capable Yes when codec metadata is HDR-capable', () => {
       (getCodecInfo as ReturnType<typeof vi.fn>).mockReturnValue({
         name: 'VP9',
         quality: 'Excellent',
@@ -579,8 +584,7 @@ describe('VideoConfigSection', () => {
       renderComponent();
       const badge = document.querySelector('.settings-codec-info-badge');
       expect(badge).toBeInTheDocument();
-      expect(badge?.textContent).toContain('HDR');
-      expect(badge?.textContent).toContain('Profile 2');
+      expect(badge?.textContent).toContain('Yes');
     });
   });
 

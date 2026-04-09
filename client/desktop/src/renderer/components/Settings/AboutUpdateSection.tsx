@@ -210,7 +210,7 @@ const AboutUpdateSection: React.FC = () => {
               <span className="about-info-label">Update Log</span>
               <span className="about-info-value about-info-value--log">
                 <span className="about-info-log-path" title={logPath}>
-                  {logPath.split(/[/\\]/).slice(-2).join('/')}
+                  {logPath}
                 </span>
                 <button
                   className="about-info-copy-btn"
@@ -265,7 +265,7 @@ const AboutUpdateSection: React.FC = () => {
       </CollapsibleSection>
 
       {/* Update Settings */}
-      <CollapsibleSection id="section-update-settings" title="Update Settings" defaultOpen>
+      <CollapsibleSection id="section-update-settings" title="Update Settings">
         {/* Pre-release toggle */}
         <div className="about-setting-row">
           <div className="about-setting-info">

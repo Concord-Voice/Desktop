@@ -24,8 +24,9 @@ export const gifProvider: GifProvider = klipyProvider;
 export type { GifProvider, GifResolved, GifSearchResult, GifCategory } from './types';
 
 // Apply current settings immediately, then subscribe to future changes.
+// Note: KLIPY traffic is ALWAYS proxied through the control-plane now —
+// the legacy "Privacy Mode" toggle no longer has any effect on routing.
 const applySettings = (settings: ReturnType<typeof usePrivacyStore.getState>['settings']): void => {
-  gifProvider.setProxyEnabled(settings.enableKlipyProxy);
   gifProvider.setPersonalizationEnabled(settings.sharePersonalizationWithGifProvider);
 };
 applySettings(usePrivacyStore.getState().settings);

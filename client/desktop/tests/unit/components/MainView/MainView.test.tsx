@@ -305,6 +305,7 @@ vi.mock('@/renderer/services/apiClient', () => ({
   API_BASE: 'http://localhost:8080',
 }));
 
+import { useSettingsOverlayStore } from '@/renderer/stores/settingsOverlayStore';
 import MainView from '@/renderer/components/MainView/MainView';
 
 describe('MainView', () => {
@@ -640,5 +641,16 @@ describe('MainView', () => {
     render(<MainView />);
     fireEvent.click(screen.getByTestId('cl-empty-ctx'));
     expect(screen.getByTestId('channel-list-context-menu')).toBeInTheDocument();
+  });
+
+  // ── Settings overlay ───────────────────────────────────────────────────────
+
+  it('opens server settings overlay with serverId when edit server is triggered', () => {
+    useSettingsOverlayStore.setState({ open: null, payload: null });
+    render(<MainView />);
+    fireEvent.click(screen.getByTestId('sb-open-context'));
+    fireEvent.click(screen.getByTestId('ctx-edit'));
+    expect(useSettingsOverlayStore.getState().open).toBe('server');
+    expect(useSettingsOverlayStore.getState().payload?.serverId).toBe('server-1');
   });
 });

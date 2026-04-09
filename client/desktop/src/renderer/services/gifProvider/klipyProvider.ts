@@ -11,7 +11,8 @@
  * `<img>` element. The renderer chooses based on `GifResolved.animatedKind`.
  *
  * KLIPY ToS compliance:
- * - We pass through KLIPY's URLs verbatim — no construction or modification.
+ * - Media URLs are rewritten through the control-plane proxy (`/api/v1/klipy/media`)
+ *   via `rewriteMediaUrl` so the user's IP is never exposed to KLIPY's CDN.
  * - We do NOT cache or store any KLIPY-derived metadata; the only field we
  *   persist anywhere is the slug (per-user bookmarks in `savedGifsStore`).
  * - "Powered by KLIPY" attribution is rendered in the picker footer (Section 4).
@@ -28,7 +29,12 @@ import type {
   GifCategoryOpts,
   GifCategory,
 } from './types';
-import { klipyClient, type KlipyGifItem, type KlipyListResponse } from './klipyClient';
+import {
+  klipyClient,
+  rewriteMediaUrl,
+  type KlipyGifItem,
+  type KlipyListResponse,
+} from './klipyClient';
 
 /** Translate a single KLIPY GIF item into the vendor-neutral resolved shape.
  *  Defensive against missing fields — different KLIPY endpoints sometimes
@@ -60,7 +66,7 @@ function toResolved(item: KlipyGifItem): GifResolved | null {
   const webp = pickRendition(item, 'webp');
   const gif = pickRendition(item, 'gif');
 
-  const animatedUrl = mp4?.url ?? webp?.url ?? gif?.url ?? item.url;
+  const animatedUrl = rewriteMediaUrl(mp4?.url ?? webp?.url ?? gif?.url ?? item.url);
   if (!animatedUrl) return null;
   const animatedKind: 'video' | 'image' = mp4?.url ? 'video' : 'image';
   let chosen: { url?: string; width?: number; height?: number } | undefined;
@@ -70,7 +76,8 @@ function toResolved(item: KlipyGifItem): GifResolved | null {
 
   // Still rendition: prefer the explicit still URL, fall back to the
   // animated URL (the still will autoplay when used as <video poster> too)
-  const stillUrl = item.still?.url ?? animatedUrl;
+  const rawStill = item.still?.url ?? mp4?.url ?? webp?.url ?? gif?.url ?? item.url;
+  const stillUrl = rewriteMediaUrl(rawStill) ?? animatedUrl;
 
   return {
     slug: item.slug,
@@ -188,10 +195,6 @@ export const klipyProvider: GifProvider = {
 
   async report(slug: string): Promise<void> {
     await klipyClient.report(slug);
-  },
-
-  setProxyEnabled(enabled: boolean): void {
-    klipyClient.setProxyEnabled(enabled);
   },
 
   setPersonalizationEnabled(enabled: boolean): void {

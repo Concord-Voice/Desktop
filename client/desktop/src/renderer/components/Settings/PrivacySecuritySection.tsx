@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../stores/authStore';
 import { useUserStore } from '../../stores/userStore';
@@ -18,6 +18,7 @@ import {
   type OsPermissionType,
   type OsPermissionStatus,
 } from '../../stores/osPermissionStore';
+import { klipyClient } from '../../services/gifProvider/klipyClient';
 import './MFA.css';
 
 interface Session {
@@ -143,7 +144,7 @@ const SystemPermissionsSection: React.FC = () => {
   };
 
   return (
-    <CollapsibleSection id="section-system-permissions" title="System Permissions" defaultOpen>
+    <CollapsibleSection id="section-system-permissions" title="System Permissions">
       <p className="settings-section-description">
         Concord requests system permissions only when needed. If a permission is denied, you can
         grant it in your operating system&apos;s settings.
@@ -294,6 +295,33 @@ const PrivacySecuritySection: React.FC = () => {
   const [backupResetError, setBackupResetError] = useState('');
   const [backupResetLoading, setBackupResetLoading] = useState(false);
   const [backupResetCodes, setBackupResetCodes] = useState<string[] | null>(null);
+
+  // KLIPY personalization ID display + rotate
+  const [displayedCustomerId, setDisplayedCustomerId] = useState<string | null>(null);
+  const [isRotatingId, setIsRotatingId] = useState(false);
+  const rotationCooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Sync displayed ID whenever personalization setting or the client's ID changes
+  useEffect(() => {
+    setDisplayedCustomerId(klipyClient.getCurrentCustomerId());
+  }, [privacySettings.sharePersonalizationWithGifProvider]);
+  const handleRotateCustomerId = useCallback(async () => {
+    setIsRotatingId(true);
+    try {
+      const newId = await klipyClient.rotateCustomerId();
+      setDisplayedCustomerId(newId);
+    } finally {
+      // 3-second cooldown so the button can't be hammered
+      rotationCooldownRef.current = setTimeout(() => setIsRotatingId(false), 3_000);
+    }
+  }, []);
+  // Clear rotation cooldown timer on unmount
+  useEffect(() => {
+    return () => {
+      if (rotationCooldownRef.current !== null) {
+        clearTimeout(rotationCooldownRef.current);
+      }
+    };
+  }, []);
 
   // Local DM privacy level for responsive slider (debounces API calls)
   const [localDmLevel, setLocalDmLevel] = useState<DMPrivacyLevel>(privacySettings.dmPrivacyLevel);
@@ -743,8 +771,8 @@ const PrivacySecuritySection: React.FC = () => {
             <span className="settings-row-label">Load GIFs from KLIPY automatically</span>
             <span className="settings-row-hint">
               {privacySettings.loadGifsAutomatically
-                ? 'GIFs in messages render as soon as they enter view. Each GIF fetch reveals your IP address to KLIPY unless KLIPY Privacy Mode is also enabled below.'
-                : 'GIFs in messages show a "Click to load" placeholder until you tap them. No requests are sent to KLIPY until you choose to load each GIF, protecting your IP address from automatic tracking.'}
+                ? 'GIFs in messages render as soon as they enter view. All KLIPY traffic — searches, picks, and media — is routed through Concord servers, so KLIPY never sees your IP address.'
+                : 'GIFs in messages show a "Click to load" placeholder until you tap them. All KLIPY traffic is always routed through Concord servers regardless of this setting.'}
             </span>
           </div>
           <ToggleSwitch
@@ -755,32 +783,42 @@ const PrivacySecuritySection: React.FC = () => {
 
         <div className="settings-row">
           <div className="settings-row-info">
-            <span className="settings-row-label">Enable KLIPY Privacy Mode</span>
-            <span className="settings-row-hint">
-              {privacySettings.enableKlipyProxy
-                ? 'All KLIPY traffic — search, trending, and the GIF images themselves — routes through Concord servers. KLIPY never sees your IP address or what you search for. Concord servers proxy the bytes but do not log GIF slugs or search terms.'
-                : 'GIF searches and image fetches go directly to KLIPY. This is faster but lets KLIPY log your IP address, search terms, and GIF view history. Enable this for full privacy from KLIPY at a small latency cost.'}
-            </span>
-          </div>
-          <ToggleSwitch
-            checked={privacySettings.enableKlipyProxy}
-            onChange={(v) => updatePrivacy({ enableKlipyProxy: v })}
-          />
-        </div>
-
-        <div className="settings-row">
-          <div className="settings-row-info">
             <span className="settings-row-label">Share GIF personalization with provider</span>
             <span className="settings-row-hint">
               {privacySettings.sharePersonalizationWithGifProvider
-                ? 'Concord sends an opaque per-user ID to KLIPY so the GIF picker can show you personalized recent and trending results. The ID is not tied to your Concord account or any personally identifiable information.'
-                : 'GIF picker results are not personalized. The Recent tab is hidden because it requires personalization to function. Search and trending still work but show generic results.'}
+                ? 'Concord sends a stable per-device ID to KLIPY so the GIF picker can show you personalized recent and trending results. The ID is not tied to your Concord account or any personally identifiable information.'
+                : 'GIF picker results are not personalized. A rotating ephemeral ID is used so KLIPY cannot build a persistent profile. The Recent tab is hidden because it requires a stable ID to function.'}
             </span>
           </div>
           <ToggleSwitch
             checked={privacySettings.sharePersonalizationWithGifProvider}
             onChange={(v) => updatePrivacy({ sharePersonalizationWithGifProvider: v })}
           />
+        </div>
+
+        <div className="settings-row settings-row-child">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Personalization ID</span>
+            <span className="settings-row-hint">
+              {privacySettings.sharePersonalizationWithGifProvider
+                ? 'Your stable per-device identifier sent to KLIPY. Rotating it clears your personalization history.'
+                : 'Ephemeral ID — rotates automatically every 30 minutes. Rotating manually generates a new one immediately.'}
+            </span>
+            {displayedCustomerId && (
+              <span className="settings-estimated-bitrate settings-klipy-id-chip">
+                {displayedCustomerId}
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            className="settings-rotate-id-btn"
+            onClick={handleRotateCustomerId}
+            disabled={isRotatingId}
+            title={isRotatingId ? 'Rotate cooldown active' : 'Generate a new personalization ID'}
+          >
+            {isRotatingId ? 'Rotated' : 'Rotate'}
+          </button>
         </div>
 
         <h3 className="settings-subsection-title" style={{ marginTop: 20 }}>

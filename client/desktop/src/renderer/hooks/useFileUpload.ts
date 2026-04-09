@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { apiFetch, safeJson } from '../services/apiClient';
 import { e2eeService } from '../services/e2eeService';
 import {
@@ -20,6 +20,11 @@ export interface FileUploadState {
   status: 'pending' | 'uploading' | 'done' | 'error';
   error?: string;
   previewUrl?: string;
+  /** Natural pixel dimensions for image files. Captured locally before upload
+   *  so the optimistic message can render with reserved vertical space and
+   *  avoid layout shift when the bytes finish loading from the server. */
+  width?: number;
+  height?: number;
 }
 
 interface UploadResult {
@@ -64,7 +69,57 @@ function buildSummary(id: string, entry: FileUploadState): AttachmentSummary {
     file_type: classifyFileType(entry.file.type),
     mime_type: fileMime(entry),
     file_size: entry.file.size,
+    width: entry.width,
+    height: entry.height,
   };
+}
+
+type SetFilesFn = React.Dispatch<React.SetStateAction<FileUploadState[]>>;
+
+/** Patches a single matching pending entry with newly-known image dimensions.
+ *  Extracted from `addFiles` to keep that callback under SonarQube's nesting
+ *  depth limit and to make the dim-hydration flow easy to test. */
+function applyDimensionsToEntry(
+  setFiles: SetFilesFn,
+  file: File,
+  dims: { width: number; height: number }
+): void {
+  setFiles((prev) =>
+    prev.map((f) =>
+      f.file === file && f.width === undefined
+        ? { ...f, width: dims.width, height: dims.height }
+        : f
+    )
+  );
+}
+
+/** Fire-and-forget: read the image's natural dimensions and patch the
+ *  matching FileUploadState entry. Used by `addFiles` so the optimistic
+ *  send-time summary can carry width/height for layout-shift-free rendering. */
+function hydrateDimensions(file: File, setFiles: SetFilesFn): void {
+  readImageDimensions(file).then((dims) => {
+    if (dims) applyDimensionsToEntry(setFiles, file, dims);
+  });
+}
+
+/** Reads natural pixel dimensions of an image file by loading it into an
+ *  off-screen Image element. Returns null for non-images or load failures so
+ *  callers can fall back to renderer-side onLoad sizing. */
+async function readImageDimensions(file: File): Promise<{ width: number; height: number } | null> {
+  if (!isImageType(file.type)) return null;
+  const url = URL.createObjectURL(file);
+  try {
+    return await new Promise<{ width: number; height: number }>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      img.onerror = () => reject(new Error('failed to read image dimensions'));
+      img.src = url;
+    });
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 function isDoneWithId(f: FileUploadState): f is FileUploadState & { id: string } {
@@ -153,6 +208,15 @@ export function useFileUpload() {
       }));
       return [...prev, ...newEntries];
     });
+
+    // Asynchronously read image dimensions and patch the matching entries.
+    // Dim-reading races against the user clicking "Send", but uploadAll only
+    // builds summaries from the latest state, so a late-arriving dim still
+    // ends up on the optimistic message in practice.
+    for (const file of fileArray) {
+      if (!isImageType(file.type)) continue;
+      hydrateDimensions(file, setFiles);
+    }
 
     return validationResultRef.current;
   }, []);

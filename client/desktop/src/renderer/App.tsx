@@ -13,9 +13,7 @@ import MainView from './components/MainView/MainView';
 import DirectMessagesView from './components/DirectMessages/DirectMessagesView';
 import ContextMenuProvider from './components/ui/ContextMenuProvider';
 import ConnectionLostOverlay from './components/ui/ConnectionLostOverlay';
-const ProfilePage = lazy(() => import('./components/Profile/ProfilePage'));
-const SettingsPage = lazy(() => import('./components/Settings/SettingsPage'));
-const ServerSettingsPage = lazy(() => import('./components/Servers/ServerSettingsPage'));
+import SettingsOverlayHost from './components/Settings/SettingsOverlayHost';
 const PipWindow = lazy(() => import('./components/Voice/PipWindow'));
 import ForceUpdateOverlay from './components/ui/ForceUpdateOverlay';
 import UpdateBanner from './components/ui/UpdateBanner';
@@ -119,13 +117,12 @@ function AuthenticatedLayout() {
     prewarmWebRTC();
   }, []);
 
-  // Load privacy settings + wire KLIPY client mode (proxy + personalization).
-  // Without this, klipyClient defaults to direct mode and the SPA's CSP blocks
-  // the cross-origin api.klipy.com requests, causing "Failed to load trending GIFs".
+  // Load privacy settings + wire KLIPY personalization preference.
+  // KLIPY traffic always routes through the control-plane proxy now, so we
+  // only need to forward the personalization (customer_id) preference.
   useEffect(() => {
     if (!accessToken) return;
     const applyKlipyMode = (s: ReturnType<typeof usePrivacyStore.getState>['settings']) => {
-      klipyClient.setProxyEnabled(s.enableKlipyProxy);
       klipyClient.setPersonalizationEnabled(s.sharePersonalizationWithGifProvider);
     };
     usePrivacyStore
@@ -179,6 +176,7 @@ function AuthenticatedLayout() {
   return (
     <>
       <Outlet />
+      <SettingsOverlayHost />
       <ConnectionLostOverlay />
     </>
   );
@@ -327,9 +325,6 @@ function App() {
               <Route element={<AuthenticatedLayout />}>
                 <Route path="/app" element={<MainView />} />
                 <Route path="/app/dms" element={<DirectMessagesView />} />
-                <Route path="/app/profile" element={<ProfilePage />} />
-                <Route path="/app/settings" element={<SettingsPage />} />
-                <Route path="/app/server-settings/:serverId" element={<ServerSettingsPage />} />
               </Route>
               {/* PiP windows — separate Electron BrowserWindows, state synced via BroadcastChannel */}
               <Route path="/pip/:pipId" element={<PipWindow />} />

@@ -1,5 +1,5 @@
 import { vi, describe, it, expect, beforeEach } from 'vitest';
-import { pinMessage, unpinMessage, getChannelPins } from '@/renderer/services/pinService';
+import { pinMessage, unpinMessage, getChannelPins, getPins } from '@/renderer/services/pinService';
 
 vi.mock('@/renderer/services/apiClient', () => ({
   apiFetch: vi.fn(),
@@ -87,9 +87,37 @@ describe('pinService', () => {
     });
 
     it('throws on error response', async () => {
-      mockApiFetch.mockResolvedValue({ ok: false });
+      mockApiFetch.mockResolvedValue({ ok: false, status: 500 });
 
       await expect(getChannelPins('channel-1')).rejects.toThrow('Failed to fetch pinned messages');
+    });
+
+    it('throws on 404 (strict — channel must exist)', async () => {
+      mockApiFetch.mockResolvedValue({ ok: false, status: 404 });
+
+      await expect(getChannelPins('channel-1')).rejects.toThrow('Failed to fetch pinned messages');
+    });
+  });
+
+  describe('getPins (generic channel/DM conversation)', () => {
+    it('returns empty array on 404 (graceful degrade for DM pins)', async () => {
+      mockApiFetch.mockResolvedValue({ ok: false, status: 404 });
+      const result = await getPins('conv-123');
+      expect(result).toEqual([]);
+      expect(mockApiFetch).toHaveBeenCalledWith('/api/v1/channels/conv-123/pins');
+    });
+
+    it('returns pinned_messages on success', async () => {
+      const pins = [{ id: 'msg-1', content: 'pinned' }];
+      mockApiFetch.mockResolvedValue({ ok: true, status: 200 });
+      mockSafeJson.mockResolvedValue({ pinned_messages: pins, count: 1 });
+      const result = await getPins('conv-123');
+      expect(result).toEqual(pins);
+    });
+
+    it('throws on non-404 error responses', async () => {
+      mockApiFetch.mockResolvedValue({ ok: false, status: 500 });
+      await expect(getPins('conv-123')).rejects.toThrow('Failed to fetch pinned messages');
     });
   });
 });

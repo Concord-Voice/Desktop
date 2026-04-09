@@ -10,22 +10,26 @@ const categoriesMock = vi.fn();
 const getBySlugMock = vi.fn();
 const notifySharedMock = vi.fn();
 const reportMock = vi.fn();
-const setProxyEnabledMock = vi.fn();
 const setPersonalizationEnabledMock = vi.fn();
 
-vi.mock('@/renderer/services/gifProvider/klipyClient', () => ({
-  klipyClient: {
-    trending: (...args: unknown[]) => trendingMock(...args),
-    search: (...args: unknown[]) => searchMock(...args),
-    recent: (...args: unknown[]) => recentMock(...args),
-    categories: (...args: unknown[]) => categoriesMock(...args),
-    getBySlug: (...args: unknown[]) => getBySlugMock(...args),
-    notifyShared: (...args: unknown[]) => notifySharedMock(...args),
-    report: (...args: unknown[]) => reportMock(...args),
-    setProxyEnabled: (...args: unknown[]) => setProxyEnabledMock(...args),
-    setPersonalizationEnabled: (...args: unknown[]) => setPersonalizationEnabledMock(...args),
-  },
-}));
+vi.mock('@/renderer/services/gifProvider/klipyClient', async (importOriginal) => {
+  // Keep the real rewriteMediaUrl so URL-rewrite assertions stay accurate.
+  const original =
+    await importOriginal<typeof import('@/renderer/services/gifProvider/klipyClient')>();
+  return {
+    ...original,
+    klipyClient: {
+      trending: (...args: unknown[]) => trendingMock(...args),
+      search: (...args: unknown[]) => searchMock(...args),
+      recent: (...args: unknown[]) => recentMock(...args),
+      categories: (...args: unknown[]) => categoriesMock(...args),
+      getBySlug: (...args: unknown[]) => getBySlugMock(...args),
+      notifyShared: (...args: unknown[]) => notifySharedMock(...args),
+      report: (...args: unknown[]) => reportMock(...args),
+      setPersonalizationEnabled: (...args: unknown[]) => setPersonalizationEnabledMock(...args),
+    },
+  };
+});
 
 const mockMp4Item: KlipyGifItem = {
   slug: 'mp4-only',
@@ -76,7 +80,6 @@ describe('klipyProvider', () => {
     getBySlugMock.mockReset();
     notifySharedMock.mockReset();
     reportMock.mockReset();
-    setProxyEnabledMock.mockReset();
     setPersonalizationEnabledMock.mockReset();
   });
 
@@ -109,41 +112,53 @@ describe('klipyProvider', () => {
     it('prefers MP4 (animatedKind=video) when available', async () => {
       getBySlugMock.mockResolvedValue(mockMp4Item);
       const r = await klipyProvider.getBySlug('mp4-only');
-      expect(r.animatedUrl).toBe('https://media.klipy.com/m.mp4');
+      expect(r.animatedUrl).toBe(
+        '/api/v1/klipy/media?url=' + encodeURIComponent('https://media.klipy.com/m.mp4')
+      );
       expect(r.animatedKind).toBe('video');
     });
 
     it('falls back to GIF (animatedKind=image) when no MP4 is available', async () => {
       getBySlugMock.mockResolvedValue(mockGifItem);
       const r = await klipyProvider.getBySlug('gif-only');
-      expect(r.animatedUrl).toBe('https://media.klipy.com/g.gif');
+      expect(r.animatedUrl).toBe(
+        '/api/v1/klipy/media?url=' + encodeURIComponent('https://media.klipy.com/g.gif')
+      );
       expect(r.animatedKind).toBe('image');
     });
 
     it('falls back to WEBP when no MP4 or GIF is available', async () => {
       getBySlugMock.mockResolvedValue(mockWebpItem);
       const r = await klipyProvider.getBySlug('webp-only');
-      expect(r.animatedUrl).toBe('https://media.klipy.com/w.webp');
+      expect(r.animatedUrl).toBe(
+        '/api/v1/klipy/media?url=' + encodeURIComponent('https://media.klipy.com/w.webp')
+      );
       expect(r.animatedKind).toBe('image');
     });
 
     it('prefers MP4 over WEBP and GIF when all three are present', async () => {
       getBySlugMock.mockResolvedValue(mockMixedItem);
       const r = await klipyProvider.getBySlug('all-three');
-      expect(r.animatedUrl).toBe('https://media.klipy.com/all.mp4');
+      expect(r.animatedUrl).toBe(
+        '/api/v1/klipy/media?url=' + encodeURIComponent('https://media.klipy.com/all.mp4')
+      );
       expect(r.animatedKind).toBe('video');
     });
 
     it('uses the explicit still URL when present', async () => {
       getBySlugMock.mockResolvedValue(mockMp4Item);
       const r = await klipyProvider.getBySlug('mp4-only');
-      expect(r.stillUrl).toBe('https://media.klipy.com/m.jpg');
+      expect(r.stillUrl).toBe(
+        '/api/v1/klipy/media?url=' + encodeURIComponent('https://media.klipy.com/m.jpg')
+      );
     });
 
     it('falls back to the animated URL as still when no still is provided', async () => {
       getBySlugMock.mockResolvedValue(mockGifItem);
       const r = await klipyProvider.getBySlug('gif-only');
-      expect(r.stillUrl).toBe('https://media.klipy.com/g.gif');
+      expect(r.stillUrl).toBe(
+        '/api/v1/klipy/media?url=' + encodeURIComponent('https://media.klipy.com/g.gif')
+      );
     });
 
     it('captures width and height from the MP4 rendition', async () => {
@@ -281,14 +296,7 @@ describe('klipyProvider', () => {
     });
   });
 
-  describe('proxy + personalization toggles', () => {
-    it('forwards setProxyEnabled to the underlying client', () => {
-      klipyProvider.setProxyEnabled(true);
-      expect(setProxyEnabledMock).toHaveBeenCalledWith(true);
-      klipyProvider.setProxyEnabled(false);
-      expect(setProxyEnabledMock).toHaveBeenCalledWith(false);
-    });
-
+  describe('personalization toggle', () => {
     it('forwards setPersonalizationEnabled to the underlying client', () => {
       klipyProvider.setPersonalizationEnabled(false);
       expect(setPersonalizationEnabledMock).toHaveBeenCalledWith(false);

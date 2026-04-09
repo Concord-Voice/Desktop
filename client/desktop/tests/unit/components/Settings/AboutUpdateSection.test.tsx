@@ -149,6 +149,11 @@ describe('AboutUpdateSection', () => {
     render(<AboutUpdateSection />);
     expect(screen.getByText('Update Settings')).toBeInTheDocument();
   });
+  it('Update Settings section is collapsed by default (#4)', () => {
+    render(<AboutUpdateSection />);
+    const details = screen.getByText('Update Settings').closest('details');
+    expect(details?.hasAttribute('open')).toBe(false);
+  });
   it('renders pre-release toggle', () => {
     render(<AboutUpdateSection />);
     expect(screen.getByText('Allow Pre-release Updates')).toBeInTheDocument();
@@ -293,10 +298,12 @@ describe('AboutUpdateSection', () => {
     });
   });
 
-  it('renders abbreviated log path', async () => {
+  it('renders full log path', async () => {
     render(<AboutUpdateSection />);
     await vi.waitFor(() => {
-      expect(screen.getByText('ConcordVoice/update-2026-03-25.log')).toBeInTheDocument();
+      expect(
+        screen.getByText('/Users/test/Library/Logs/ConcordVoice/update-2026-03-25.log')
+      ).toBeInTheDocument();
     });
   });
 

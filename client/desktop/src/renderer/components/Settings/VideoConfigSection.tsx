@@ -13,6 +13,7 @@ import {
   getCodecInfo,
   type CodecCapability,
 } from '../../services/mediaCapabilities';
+import { humanizeProfileLabel, getCodecMetadata } from './codecMetadata';
 import { useDraftVideoSetting, setDraftVideoSetting } from '../../hooks/useDraftSettings';
 import ToggleSwitch from './ToggleSwitch';
 import CollapsibleSection from './CollapsibleSection';
@@ -496,21 +497,39 @@ const VideoConfigSection: React.FC = () => {
               const sortByPriority = (a: CodecCapability, b: CodecCapability) =>
                 (codecPriority[a.mimeType.replace('video/', '')] ?? 99) -
                 (codecPriority[b.mimeType.replace('video/', '')] ?? 99);
+              const humanProfile = (c: CodecCapability) =>
+                humanizeProfileLabel(c.profileId, c.profileLabel);
               const displayName = (c: CodecCapability) => {
                 const raw = c.mimeType.replace('video/', '');
                 const base = codecDisplayName[raw] ?? raw;
-                const profile = c.profileLabel ? ` (${c.profileLabel})` : '';
-                return `${base}${profile}`;
+                const profile = humanProfile(c);
+                return profile ? `${base} (${profile})` : base;
               };
               const isSupported = (c: CodecCapability) =>
                 routerSupported.has(c.mimeType.toLowerCase());
 
+              // Dedupe entries that resolve to the same (codec, human profile) pair.
+              // Raw profile-level-id hex strings that collapse to the same label
+              // (e.g. "42001f" and an already-labeled "Constrained Baseline 3.1")
+              // must not appear twice.
+              const dedupe = (list: CodecCapability[]): CodecCapability[] => {
+                const seen = new Set<string>();
+                const out: CodecCapability[] = [];
+                for (const c of list) {
+                  const key = `${c.mimeType.toLowerCase()}|${humanProfile(c) ?? ''}`;
+                  if (seen.has(key)) continue;
+                  seen.add(key);
+                  out.push(c);
+                }
+                return out;
+              };
+
               // HW column: codecs with GPU acceleration
               // SW column: ALL codecs (every codec has a software encoder fallback)
-              const hwCodecs = codecCapabilities
-                .filter((c) => c.powerEfficient)
-                .sort(sortByPriority);
-              const swCodecs = [...codecCapabilities].sort(sortByPriority);
+              const hwCodecs = dedupe(
+                codecCapabilities.filter((c) => c.powerEfficient).sort(sortByPriority)
+              );
+              const swCodecs = dedupe([...codecCapabilities].sort(sortByPriority));
 
               // Which column is active
               const hwHasSupported = hwCodecs.some((c) => isSupported(c));
@@ -679,16 +698,19 @@ const VideoConfigSection: React.FC = () => {
                       ...sdrCodecs.map((c) => {
                         const key = codecKey(c);
                         const name = c.mimeType.replace('video/', '');
-                        const profile = c.profileLabel ? ` (${c.profileLabel})` : '';
-                        return { value: key, label: `${name}${profile}` };
+                        const profile = humanizeProfileLabel(c.profileId, c.profileLabel);
+                        return {
+                          value: key,
+                          label: profile ? `${name} (${profile})` : name,
+                        };
                       }),
                       ...hdrCodecs.map((c) => {
                         const key = codecKey(c);
                         const name = c.mimeType.replace('video/', '');
-                        const profile = c.profileLabel ? ` (${c.profileLabel})` : '';
+                        const profile = humanizeProfileLabel(c.profileId, c.profileLabel);
                         return {
                           value: hdrEncoding ? key : `__disabled_${key}`,
-                          label: `${name}${profile}`,
+                          label: profile ? `${name} (${profile})` : name,
                           group: hdrEncoding ? 'HDR' : 'Requires HDR',
                         };
                       }),
@@ -703,13 +725,37 @@ const VideoConfigSection: React.FC = () => {
                   />
                 </div>
 
-                {info && (
-                  <span className="settings-codec-info-badge">
-                    {info.name} — {info.quality} quality · {info.efficiency} efficiency (
-                    {info.compressionRatio}){info.hdr ? ' \u00b7 HDR' : ''}
-                    {info.notes ? ` \u00b7 ${info.notes}` : ''}
-                  </span>
-                )}
+                {info &&
+                  (() => {
+                    const meta = effectiveKey ? getCodecMetadata(effectiveKey) : null;
+                    const quality = meta?.quality ?? info.quality;
+                    const efficiency = meta?.efficiency ?? info.efficiency;
+                    const compression = meta?.compression ?? info.compressionRatio;
+                    const hdrCapable = meta ? meta.hdrCapable : info.hdr;
+                    const description = meta?.description ?? info.notes;
+                    return (
+                      <dl className="settings-codec-info-badge settings-codec-meta">
+                        <div className="settings-codec-meta-row">
+                          <dt>Quality:</dt>
+                          <dd>{quality}</dd>
+                        </div>
+                        <div className="settings-codec-meta-row">
+                          <dt>Efficiency:</dt>
+                          <dd>
+                            {efficiency} <em>({compression})</em>
+                          </dd>
+                        </div>
+                        <div className="settings-codec-meta-row">
+                          <dt>HDR Capable:</dt>
+                          <dd>{hdrCapable ? 'Yes' : 'No'}</dd>
+                        </div>
+                        <div className="settings-codec-meta-row">
+                          <dt>Description:</dt>
+                          <dd>{description}</dd>
+                        </div>
+                      </dl>
+                    );
+                  })()}
 
                 {preferredVideoCodec && (
                   <div className="settings-codec-preference-notice">

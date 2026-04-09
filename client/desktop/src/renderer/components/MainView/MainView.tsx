@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
+import { useSettingsOverlayStore } from '../../stores/settingsOverlayStore';
 import { AudioOutputs } from '../Voice/ParticipantGrid';
 import { PipSignalingProxy } from '../../services/pipSignalingProxy';
 import ServerContextMenu from '../Servers/ServerContextMenu';
@@ -54,7 +54,6 @@ import { Channel, ChannelGroup } from '../../types/chat';
 import './MainView.css';
 
 const MainView: React.FC = () => {
-  const navigate = useNavigate();
   // Subscribe to ALL channels in the active server for unread tracking
   useServerChannelSubscriptions();
   useKeyboardShortcuts();
@@ -154,7 +153,7 @@ const MainView: React.FC = () => {
 
   const handleEditServer = (server: ServerWithRole) => {
     setServerContextMenu(null);
-    navigate(`/app/server-settings/${server.id}`);
+    useSettingsOverlayStore.getState().openSettings('server', { serverId: server.id });
   };
 
   const handleDeleteServer = (server: ServerWithRole) => {
@@ -350,7 +349,10 @@ const MainView: React.FC = () => {
           server={activeServer}
           onOpenCreateModal={() => setIsCreateChannelModalOpen(true)}
           onOpenCreateCategoryModal={() => setIsCreateCategoryModalOpen(true)}
-          onOpenSettings={() => activeServer && navigate(`/app/server-settings/${activeServer.id}`)}
+          onOpenSettings={() =>
+            activeServer &&
+            useSettingsOverlayStore.getState().openSettings('server', { serverId: activeServer.id })
+          }
         />
       )}
       <ChannelList

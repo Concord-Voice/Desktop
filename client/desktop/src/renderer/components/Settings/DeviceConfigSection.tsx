@@ -1,7 +1,9 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useVoiceStore } from '../../stores/voiceStore';
 import DeviceSelector from '../Voice/DeviceSelector';
 import { useMicTest } from '../../hooks/useMicTest';
+import { useOutputTest } from '../../hooks/useOutputTest';
+import { useCameraTest } from '../../hooks/useCameraTest';
 import { useDraftAudioSetting, setDraftAudioSetting } from '../../hooks/useDraftSettings';
 import CollapsibleSection from './CollapsibleSection';
 
@@ -15,6 +17,20 @@ const DeviceConfigSection: React.FC = () => {
       s.connectionState === 'reconnecting'
   );
   const { isTesting, dbfsLevel, error: micTestError, startTest, stopTest } = useMicTest();
+  const { isTesting: isOutputTesting, error: outputTestError, playTestTone } = useOutputTest();
+  const {
+    isTesting: isCameraTesting,
+    error: cameraTestError,
+    stream: cameraStream,
+    toggleTest: toggleCameraTest,
+  } = useCameraTest();
+  const cameraVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    if (cameraVideoRef.current) {
+      cameraVideoRef.current.srcObject = cameraStream;
+    }
+  }, [cameraStream]);
 
   return (
     <CollapsibleSection id="section-device-config" title="Device Configuration">
@@ -97,11 +113,44 @@ const DeviceConfigSection: React.FC = () => {
           />
         </div>
       </div>
+      <div className="settings-output-test-row">
+        <button
+          className={`settings-output-test-btn${isOutputTesting ? ' testing' : ''}`}
+          onClick={playTestTone}
+          disabled={isInVoiceCall || isOutputTesting}
+          title={isInVoiceCall ? 'Unavailable during a voice call' : undefined}
+        >
+          {isOutputTesting ? 'Playing...' : 'Test'}
+        </button>
+        {outputTestError && <span className="settings-output-test-error">{outputTestError}</span>}
+      </div>
 
       <h3 className="settings-subsection-title">Camera</h3>
       <div className="settings-device-row">
         <DeviceSelector kind="videoinput" />
       </div>
+      <div className="settings-camera-test-row">
+        <button
+          className={`settings-camera-test-btn${isCameraTesting ? ' testing' : ''}`}
+          onClick={toggleCameraTest}
+          disabled={isInVoiceCall}
+          title={isInVoiceCall ? 'Unavailable during a voice call' : undefined}
+        >
+          {isCameraTesting ? 'Stop Preview' : 'Test'}
+        </button>
+        {cameraTestError && <span className="settings-camera-test-error">{cameraTestError}</span>}
+      </div>
+      {isCameraTesting && (
+        <div className="settings-camera-preview">
+          <video
+            ref={cameraVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="settings-camera-preview-video"
+          />
+        </div>
+      )}
     </CollapsibleSection>
   );
 };

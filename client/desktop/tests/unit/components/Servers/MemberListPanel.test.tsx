@@ -1,8 +1,56 @@
 import { render, screen, fireEvent } from '../../../test-utils';
+import { resetAllStores } from '../../../helpers/store-helpers';
 import MemberListPanel from '@/renderer/components/Servers/MemberListPanel';
 import { vi } from 'vitest';
 import type { ServerMember } from '@/renderer/stores/memberStore';
 import type { Role } from '@/renderer/types/server';
+
+// Mock heavy child dependencies so right-click surfaces a simple test double
+vi.mock('@/renderer/components/Members/MemberContextMenu', () => ({
+  default: ({
+    member,
+    onClose,
+    onBan,
+    onKick,
+    onViewProfile,
+  }: {
+    member: ServerMember;
+    onClose: () => void;
+    onBan: (m: ServerMember) => void;
+    onKick: (m: ServerMember) => void;
+    onViewProfile: () => void;
+  }) => (
+    <div data-testid="ctx-menu">
+      <span data-testid="ctx-member">{member.username}</span>
+      <button onClick={onClose}>Close</button>
+      <button data-testid="ctx-ban" onClick={() => onBan(member)}>
+        Ban
+      </button>
+      <button data-testid="ctx-kick" onClick={() => onKick(member)}>
+        Kick
+      </button>
+      <button data-testid="ctx-view-profile" onClick={onViewProfile}>
+        View Profile
+      </button>
+    </div>
+  ),
+}));
+
+vi.mock('@/renderer/components/Members/UserProfileModal', () => ({
+  default: ({ isOpen, member }: { isOpen: boolean; member: ServerMember }) =>
+    isOpen ? <div data-testid="profile-modal">{member.username}</div> : null,
+}));
+
+vi.mock('@/renderer/components/ui/ConfirmActionModal', () => ({
+  default: ({ isOpen, title }: { isOpen: boolean; title: string }) =>
+    isOpen ? <div data-testid="confirm-modal">{title}</div> : null,
+}));
+
+vi.mock('@/renderer/services/apiClient', () => ({
+  apiFetch: vi.fn(),
+  safeJson: vi.fn(),
+  API_BASE: 'http://localhost:8080',
+}));
 
 const mockRoles: Role[] = [
   {
@@ -73,10 +121,13 @@ const defaultProps = {
   members: mockMembers,
   assignableRoles,
   onToggleRole: vi.fn(),
+  serverId: 's1',
+  ownerUserId: 'owner-1',
 };
 
 describe('MemberListPanel', () => {
   beforeEach(() => {
+    resetAllStores();
     vi.clearAllMocks();
   });
 
@@ -234,6 +285,90 @@ describe('MemberListPanel', () => {
     render(<MemberListPanel {...defaultProps} members={members} />);
     expect(screen.queryByTitle('Server Muted')).not.toBeInTheDocument();
     expect(screen.queryByTitle('Server Deafened')).not.toBeInTheDocument();
+  });
+
+  // ── Context menu (right-click) ──
+
+  it('right-click on a member row opens the context menu', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    expect(screen.queryByTestId('ctx-menu')).not.toBeInTheDocument();
+    const aliceRow = screen.getByText('Alice').closest('.member-row')!;
+    fireEvent.contextMenu(aliceRow);
+    expect(screen.getByTestId('ctx-menu')).toBeInTheDocument();
+    expect(screen.getByTestId('ctx-member')).toHaveTextContent('alice');
+  });
+
+  it('context menu close button dismisses the menu', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const aliceRow = screen.getByText('Alice').closest('.member-row')!;
+    fireEvent.contextMenu(aliceRow);
+    expect(screen.getByTestId('ctx-menu')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Close'));
+    expect(screen.queryByTestId('ctx-menu')).not.toBeInTheDocument();
+  });
+
+  it('clicking Ban in context menu opens the ban confirmation modal', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const aliceRow = screen.getByText('Alice').closest('.member-row')!;
+    fireEvent.contextMenu(aliceRow);
+    fireEvent.click(screen.getByTestId('ctx-ban'));
+    expect(screen.getByTestId('confirm-modal')).toHaveTextContent('Ban Alice');
+  });
+
+  it('clicking Kick in context menu opens the kick confirmation modal', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const aliceRow = screen.getByText('Alice').closest('.member-row')!;
+    fireEvent.contextMenu(aliceRow);
+    fireEvent.click(screen.getByTestId('ctx-kick'));
+    expect(screen.getByTestId('confirm-modal')).toHaveTextContent('Kick Alice');
+  });
+
+  it('clicking View Profile in context menu opens the profile modal', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const aliceRow = screen.getByText('Alice').closest('.member-row')!;
+    fireEvent.contextMenu(aliceRow);
+    fireEvent.click(screen.getByTestId('ctx-view-profile'));
+    expect(screen.getByTestId('profile-modal')).toHaveTextContent('alice');
+  });
+
+  it('right-click on a different member updates the context menu target', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    fireEvent.contextMenu(screen.getByText('Alice').closest('.member-row')!);
+    expect(screen.getByTestId('ctx-member')).toHaveTextContent('alice');
+    fireEvent.contextMenu(screen.getByText('bob').closest('.member-row')!);
+    expect(screen.getByTestId('ctx-member')).toHaveTextContent('bob');
+  });
+
+  // ── Keyboard accessibility (member-row-kbd-trigger button) ──
+
+  it('Enter key on the kbd-trigger button opens the context menu', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    expect(screen.queryByTestId('ctx-menu')).not.toBeInTheDocument();
+    const triggers = screen.getAllByRole('button', { name: /Open context menu for Alice/i });
+    fireEvent.keyDown(triggers[0], { key: 'Enter' });
+    expect(screen.getByTestId('ctx-menu')).toBeInTheDocument();
+    expect(screen.getByTestId('ctx-member')).toHaveTextContent('alice');
+  });
+
+  it('Space key on the kbd-trigger button opens the context menu', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const triggers = screen.getAllByRole('button', { name: /Open context menu for Alice/i });
+    fireEvent.keyDown(triggers[0], { key: ' ' });
+    expect(screen.getByTestId('ctx-menu')).toBeInTheDocument();
+  });
+
+  it('non-activating key on the kbd-trigger button does not open the context menu', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const triggers = screen.getAllByRole('button', { name: /Open context menu for Alice/i });
+    fireEvent.keyDown(triggers[0], { key: 'Tab' });
+    expect(screen.queryByTestId('ctx-menu')).not.toBeInTheDocument();
+  });
+
+  it('clicking the kbd-trigger button opens the context menu', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const triggers = screen.getAllByRole('button', { name: /Open context menu for Alice/i });
+    fireEvent.click(triggers[0]);
+    expect(screen.getByTestId('ctx-menu')).toBeInTheDocument();
   });
 
   it('shows only deafened badge when both server_muted and server_deafened are true', () => {

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useTransition, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useDraftSettingsLifecycle, useDraftActions } from '../../hooks/useDraftSettings';
+import { useSettingsOverlayStore } from '../../stores/settingsOverlayStore';
 import AppearanceSection from './AppearanceSection';
 import PrivacySecuritySection from './PrivacySecuritySection';
 import VoiceAudioSection from './VoiceAudioSection';
@@ -100,17 +100,23 @@ const navItems: NavItem[] = [
   },
   {
     id: 'voice',
-    label: 'Voice & Audio',
+    label: 'Audio & Video',
     enabled: true,
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
-        <rect x="6" y="1" width="6" height="10" rx="3" stroke="currentColor" strokeWidth="1.5" />
+        {/* Headphone arc */}
         <path
-          d="M3 8a6 6 0 0012 0M9 14v3M6 17h6"
+          d="M3.5 9a5.5 5.5 0 0111 0"
           stroke="currentColor"
           strokeWidth="1.5"
           strokeLinecap="round"
         />
+        {/* Left ear cup */}
+        <rect x="2" y="9" width="3" height="5" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+        {/* Right ear cup */}
+        <rect x="13" y="9" width="3" height="5" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
+        {/* Camera lens dot centered in arc — signals video */}
+        <circle cx="9" cy="6.5" r="1.5" fill="currentColor" />
       </svg>
     ),
   },
@@ -177,7 +183,7 @@ const NAV_SUBSECTIONS: Record<string, { id: string; label: string }[]> = {
 // ─── Settings Page ──────────────────────────────────────────────────────────
 
 const SettingsPage: React.FC = () => {
-  const navigate = useNavigate();
+  const closeOverlay = useSettingsOverlayStore((s) => s.close);
   const [activeSection, setActiveSection] = useState<SettingsSection>('appearance');
   const [isPending, startTransition] = useTransition();
   const [activeSubsection, setActiveSubsection] = useState<string | null>(null);
@@ -282,7 +288,7 @@ const SettingsPage: React.FC = () => {
                 <button
                   className={`settings-back-btn${hasPendingChanges ? ' settings-back-btn--blocked' : ''}`}
                   onClick={() => {
-                    if (!hasPendingChanges) navigate('/app');
+                    if (!hasPendingChanges) closeOverlay();
                   }}
                   onMouseEnter={() => {
                     if (hasPendingChanges) {

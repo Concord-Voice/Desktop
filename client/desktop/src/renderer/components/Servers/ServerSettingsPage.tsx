@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useSettingsOverlayStore } from '../../stores/settingsOverlayStore';
 import ImageCropEditor from '../ui/ImageCropEditor';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import ToggleSwitch from '../Settings/ToggleSwitch';
@@ -46,9 +46,12 @@ const NAV_SUBSECTIONS: Record<string, { id: string; label: string }[]> = {
   members: [{ id: 'member-list', label: 'Member List' }],
 };
 
-const ServerSettingsPage: React.FC = () => {
-  const navigate = useNavigate();
-  const { serverId } = useParams<{ serverId: string }>();
+interface ServerSettingsPageProps {
+  serverId: string;
+}
+
+const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({ serverId }) => {
+  const closeOverlay = useSettingsOverlayStore((s) => s.close);
   const servers = useServerStore((s) => s.servers);
   const server = servers.find((s) => s.id === serverId);
 
@@ -87,12 +90,12 @@ const ServerSettingsPage: React.FC = () => {
   const canManageInvites = server ? hasServerPerm(server.id, Permissions.INVITE) : false;
   const canManageRoles = server ? hasServerPerm(server.id, Permissions.MANAGE_ROLES) : false;
   const canAssignRoles = server ? hasServerPerm(server.id, Permissions.MANAGE_ROLES_ASSIGN) : false;
-  const invites = useInviteStore((state) => state.invites[serverId || ''] ?? EMPTY_INVITES);
+  const invites = useInviteStore((state) => state.invites[serverId] ?? EMPTY_INVITES);
   const fetchInvites = useInviteStore((state) => state.fetchInvites);
   const createInvite = useInviteStore((state) => state.createInvite);
 
   // Permission store - roles
-  const serverRoles = usePermissionStore((s) => s.serverRoles[serverId || ''] ?? EMPTY_ROLES);
+  const serverRoles = usePermissionStore((s) => s.serverRoles[serverId] ?? EMPTY_ROLES);
   const fetchRoles = usePermissionStore((s) => s.fetchRoles);
   const createRole = usePermissionStore((s) => s.createRole);
   const updateRole = usePermissionStore((s) => s.updateRole);
@@ -270,7 +273,7 @@ const ServerSettingsPage: React.FC = () => {
   }, []);
 
   // Redirect if server not found
-  if (!server || !serverId) {
+  if (!server) {
     return (
       <div className="view-container settings-fullpage">
         <div className="settings-page-content">
@@ -605,6 +608,8 @@ const ServerSettingsPage: React.FC = () => {
         members={members}
         assignableRoles={assignableRoles}
         onToggleRole={handleToggleRole}
+        serverId={server.id}
+        ownerUserId={server.owner_id}
       />
     </div>
   );
@@ -630,7 +635,7 @@ const ServerSettingsPage: React.FC = () => {
             {/* Left sidebar */}
             <nav className="settings-nav">
               <div className="settings-nav-scroll">
-                <button className="settings-back-btn" onClick={() => navigate('/app')}>
+                <button className="settings-back-btn" onClick={closeOverlay}>
                   <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                     <path
                       d="M10 12L6 8l4-4"

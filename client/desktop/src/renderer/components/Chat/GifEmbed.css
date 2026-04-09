@@ -1,6 +1,10 @@
 .gif-embed {
   position: relative;
   display: block;
+  /* Width/height are set inline from the resolved (clamped) GIF dimensions
+     so the container reserves the final rendered size from the first paint
+     and skeleton → media swap doesn't shift layout. Falls back to fit-content
+     for the placeholder/error states which size themselves intrinsically. */
   width: fit-content;
   max-width: 400px;
   margin-top: 2px;
@@ -12,8 +16,8 @@
 
 .gif-embed-image {
   display: block;
-  max-width: 100%;
-  max-height: 300px;
+  width: 100%;
+  height: 100%;
   border-radius: 8px;
   object-fit: contain;
   opacity: 0;
@@ -26,8 +30,8 @@
 
 .gif-embed-video {
   display: block;
-  max-width: 100%;
-  max-height: 300px;
+  width: 100%;
+  height: 100%;
   border-radius: 8px;
   object-fit: contain;
 }
@@ -37,8 +41,14 @@
 }
 
 .gif-embed-skeleton {
-  width: 250px;
-  height: 180px;
+  /* Fill the container's inline-sized box so the skeleton occupies the same
+     space the resolved GIF will, eliminating the size flip on resolve. When
+     the parent has no inline size yet (very first render of an unknown GIF),
+     fall back to a sensible default so the skeleton is visible. */
+  width: 100%;
+  height: 100%;
+  min-width: 250px;
+  min-height: 180px;
   border-radius: 8px;
   background: var(--bg-tertiary, #2a2a2e);
   animation: gif-skeleton-pulse 1.5s ease-in-out infinite;

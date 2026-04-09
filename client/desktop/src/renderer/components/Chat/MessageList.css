@@ -13,6 +13,16 @@
   padding: calc(16px * var(--sp, 1)) 0;
 }
 
+/* Inner wrapper whose height tracks the rendered messages. The
+   ResizeObserver in MessageList.tsx watches this element so it can re-pin
+   the scroll container to the bottom when message rows grow (e.g. a GIF
+   embed or image attachment finishes loading). The scroll container itself
+   is fixed by flex layout and never resizes. */
+.message-list-content {
+  display: flex;
+  flex-direction: column;
+}
+
 /* Scrollbar styling */
 .message-list::-webkit-scrollbar {
   width: 12px;

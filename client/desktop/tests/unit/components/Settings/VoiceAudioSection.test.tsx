@@ -243,11 +243,12 @@ describe('VoiceAudioSection', () => {
   });
   it('renders microphone test button', () => {
     render(<VoiceAudioSection />);
-    expect(screen.getByText('Test')).toBeInTheDocument();
+    // Multiple "Test" buttons exist now (mic, output, camera) — target the mic one.
+    expect(document.querySelector('.settings-mic-test-btn')).toBeInTheDocument();
   });
   it('calls startTest when test button clicked', () => {
     render(<VoiceAudioSection />);
-    fireEvent.click(screen.getByText('Test'));
+    fireEvent.click(document.querySelector('.settings-mic-test-btn')!);
     expect(mockStartTest).toHaveBeenCalled();
   });
   it('shows Stop Testing when mic test active', async () => {
@@ -298,7 +299,7 @@ describe('VoiceAudioSection', () => {
       })
     );
     render(<VoiceAudioSection />);
-    expect(screen.getByText('Test')).toBeDisabled();
+    expect(document.querySelector('.settings-mic-test-btn')).toBeDisabled();
   });
   it('renders quality section', () => {
     render(<VoiceAudioSection />);

@@ -23,6 +23,11 @@ export interface AttachmentSummary {
   file_type: 'photo' | 'animated' | 'video' | 'audio' | 'file';
   mime_type: string;
   file_size: number;
+  /** Intrinsic image dimensions, when known. Used by the renderer to reserve
+   *  the correct vertical space before the image bytes finish loading,
+   *  preventing layout shift on send. Only populated for photo/animated. */
+  width?: number;
+  height?: number;
 }
 
 export interface Message {

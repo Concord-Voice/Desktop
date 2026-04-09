@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Settings } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
+import { useSettingsOverlayStore } from '../../stores/settingsOverlayStore';
 import { useUserStore } from '../../stores/userStore';
 import { useMemberStore, PresenceStatus } from '../../stores/memberStore';
 import UserPopover from './UserPopover';
@@ -27,7 +27,6 @@ interface UserPanelProps {
 }
 
 const UserPanel: React.FC<UserPanelProps> = ({ compact = false }) => {
-  const navigate = useNavigate();
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const accessToken = useAuthStore((state) => state.accessToken);
   const user = useUserStore((state) => state.user);
@@ -88,7 +87,7 @@ const UserPanel: React.FC<UserPanelProps> = ({ compact = false }) => {
           {!compact && (
             <button
               className="user-panel-settings-btn"
-              onClick={() => navigate('/app/settings')}
+              onClick={() => useSettingsOverlayStore.getState().openSettings('app')}
               title="Settings"
               aria-label="Settings"
             >

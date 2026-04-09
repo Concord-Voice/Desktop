@@ -1681,7 +1681,19 @@ describe('useWebSocketMessages — coverage boost', () => {
 
     it('handles DM message with attachments in last message preview', () => {
       const { handler } = setupHandler('dm_message');
-      const updateSpy = vi.spyOn(useDMStore.getState(), 'updateLastMessage');
+      // Ensure the conversation exists so bumpConversation isn't a no-op
+      useDMStore.getState().addConversation({
+        id: 'conv-1',
+        isGroup: false,
+        isPersonal: false,
+        name: null,
+        isEncrypted: false,
+        participants: [],
+        lastMessage: null,
+        unreadCount: 0,
+        createdAt: '2025-01-01T00:00:00Z',
+      });
+      const updateSpy = vi.spyOn(useDMStore.getState(), 'bumpConversation');
 
       act(() => {
         handler({

@@ -228,6 +228,64 @@ describe('dmStore', () => {
     });
   });
 
+  // ── bumpConversation ──────────────────────────────────────────────────
+
+  describe('bumpConversation', () => {
+    it('updates last message and bumps conversation to top', () => {
+      useDMStore.getState().addConversation(mockConversation); // 2025-01-01
+      useDMStore.getState().addConversation(mockConversation2); // 2025-01-02 (prepended first)
+
+      const msg: DMLastMessage = {
+        content: 'Newest ping',
+        userId: 'user-2',
+        username: 'bob',
+        createdAt: '2025-09-01T00:00:00Z',
+        isEncrypted: false,
+      };
+      useDMStore.getState().bumpConversation('conv-1', msg);
+
+      const convs = useDMStore.getState().conversations;
+      expect(convs[0].id).toBe('conv-1');
+      expect(convs[0].lastMessage?.content).toBe('Newest ping');
+    });
+
+    it('re-sorts without mutating other conversations', () => {
+      useDMStore.getState().addConversation(mockConversation);
+      useDMStore.getState().addConversation(mockConversation2);
+
+      const msg: DMLastMessage = {
+        content: 'hi',
+        userId: 'user-1',
+        username: 'alice',
+        createdAt: '2025-12-01T00:00:00Z',
+        isEncrypted: false,
+      };
+      useDMStore.getState().bumpConversation('conv-1', msg);
+
+      const convs = useDMStore.getState().conversations;
+      expect(convs).toHaveLength(2);
+      const conv2 = convs.find((c) => c.id === 'conv-2');
+      expect(conv2?.lastMessage).toBeNull();
+    });
+
+    it('is a no-op when the conversation is not in state', () => {
+      useDMStore.getState().addConversation(mockConversation);
+      const before = useDMStore.getState().conversations;
+
+      const msg: DMLastMessage = {
+        content: 'ghost',
+        userId: 'user-9',
+        username: 'noone',
+        createdAt: '2025-12-01T00:00:00Z',
+        isEncrypted: false,
+      };
+      useDMStore.getState().bumpConversation('conv-unknown', msg);
+
+      // Same array reference — store did not mutate
+      expect(useDMStore.getState().conversations).toBe(before);
+    });
+  });
+
   // ── Unread management ─────────────────────────────────────────────────
 
   describe('unread management', () => {

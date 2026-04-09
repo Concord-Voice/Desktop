@@ -1,6 +1,8 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { MessageSquare, Users } from 'lucide-react';
-import MessageList from '../Chat/MessageList';
+import MessageList, { type MessageListHandle } from '../Chat/MessageList';
+import DMPinnedMessagesPanel from './DMPinnedMessagesPanel';
+import { getPins } from '../../services/pinService';
 import MessageInput from '../Chat/MessageInput';
 import TypingIndicator from '../Chat/TypingIndicator';
 import { useDMStore, type DMConversation } from '../../stores/dmStore';
@@ -40,6 +42,38 @@ function getThreadName(conv: DMConversation | undefined, currentUserId: string):
 
 const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
   const [showGroupInfo, setShowGroupInfo] = useState(false);
+  const [showPinnedPanel, setShowPinnedPanel] = useState(false);
+  const [pinnedCount, setPinnedCount] = useState(0);
+  const messageListRef = useRef<MessageListHandle>(null);
+
+  // Fetch pin count from API when the conversation changes. Degrades
+  // gracefully on 404 (getPins returns [] — no console error loop).
+  useEffect(() => {
+    if (!selectedThreadId) {
+      setPinnedCount(0);
+      return;
+    }
+    let cancelled = false;
+    getPins(selectedThreadId)
+      .then((pins) => {
+        if (!cancelled) setPinnedCount(pins.length);
+      })
+      .catch(() => {
+        if (!cancelled) setPinnedCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedThreadId]);
+
+  // Close pinned panel when switching threads
+  useEffect(() => {
+    setShowPinnedPanel(false);
+  }, [selectedThreadId]);
+
+  const handleScrollToMessage = useCallback((messageId: string) => {
+    messageListRef.current?.scrollToMessage(messageId);
+  }, []);
 
   const conversations = useDMStore((s) => s.conversations);
   const clearUnread = useDMStore((s) => s.clearUnread);
@@ -70,10 +104,23 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
     replyingTo,
     handleReply,
     cancelReply,
-    handlePinToggle,
+    handlePinToggle: handlePinToggleBase,
     sendTyping,
     chatContext,
   } = useChatController(ctx);
+
+  // Wrap the generic pin toggle to keep the badge count in sync (mirrors ChatView pattern).
+  const handlePinToggle = useCallback(
+    async (msg: Parameters<typeof handlePinToggleBase>[0]) => {
+      try {
+        await handlePinToggleBase(msg);
+        setPinnedCount((c) => (msg.pinned_at ? Math.max(0, c - 1) : c + 1));
+      } catch {
+        // error already logged by handlePinToggleBase
+      }
+    },
+    [handlePinToggleBase]
+  );
 
   // Mark conversation as read after messages are fetched
   const handleFetchComplete = useCallback(() => {
@@ -163,6 +210,25 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
               })()}
             </div>
           </div>
+          <button
+            type="button"
+            className="chat-header-pin-button"
+            onClick={() => setShowPinnedPanel((v) => !v)}
+            title="Pinned messages"
+            aria-label="Pinned messages"
+            aria-expanded={showPinnedPanel}
+          >
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+              <path
+                d="M9 2L5 8h3v6l4-6H9V2z"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            {pinnedCount > 0 && <span className="pin-count-badge">{pinnedCount}</span>}
+          </button>
           {activeConv?.isGroup && (
             <button
               type="button"
@@ -180,6 +246,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
 
         <div className="chat-messages" style={{ flex: 1, minHeight: 0 }}>
           <MessageList
+            ref={messageListRef}
             key={selectedThreadId}
             messages={messages}
             currentUserId={currentUserId}
@@ -192,8 +259,10 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
             onDeleteMessage={deleteMessage}
             onUnseenOnLeave={handleUnseenOnLeave}
             onReply={handleReply}
+            onScrollToMessage={handleScrollToMessage}
             onPinToggle={handlePinToggle}
             canPin={true}
+            persistenceKey={selectedThreadId || undefined}
           />
         </div>
 
@@ -221,6 +290,17 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
 
       {showGroupInfo && activeConv?.isGroup && (
         <GroupInfoPanel conversation={activeConv} onClose={() => setShowGroupInfo(false)} />
+      )}
+
+      {selectedThreadId && (
+        <DMPinnedMessagesPanel
+          conversationId={selectedThreadId}
+          isOpen={showPinnedPanel}
+          onClose={() => setShowPinnedPanel(false)}
+          onScrollToMessage={handleScrollToMessage}
+          canPin={true}
+          onUnpin={() => setPinnedCount((c) => Math.max(0, c - 1))}
+        />
       )}
     </div>
   );

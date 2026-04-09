@@ -14,7 +14,7 @@ const STARTUP_DELAY_MS = 2_000; // 2s after mount — let auth + profile settle 
 
 interface ServerConfigResponse {
   minVersion: string;
-  featureFlags: { voice: boolean; video: boolean; e2ee: boolean; klipyApiKey?: string };
+  featureFlags: { voice: boolean; video: boolean; e2ee: boolean; gifsEnabled?: boolean };
   mediaPlaneUrl: string;
   turn: { host?: string; realm?: string };
   spaUrl?: string;

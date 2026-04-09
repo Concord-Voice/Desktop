@@ -143,56 +143,90 @@ describe('ServerSettingsPage', () => {
   });
 
   it('renders Server Settings title', () => {
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     expect(screen.getByText('Server Settings')).toBeInTheDocument();
   });
 
   it('renders back button', () => {
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     expect(screen.getByText('Back to app')).toBeInTheDocument();
   });
 
-  it('navigates back on back button click', () => {
-    render(<ServerSettingsPage />);
+  it('closes the settings overlay on back button click', async () => {
+    const { useSettingsOverlayStore } = await import('@/renderer/stores/settingsOverlayStore');
+    useSettingsOverlayStore.getState().openSettings('server', { serverId: 'server-1' });
+    render(<ServerSettingsPage serverId="server-1" />);
     fireEvent.click(screen.getByText('Back to app'));
-    expect(mockNavigate).toHaveBeenCalledWith('/app');
+    expect(useSettingsOverlayStore.getState().open).toBeNull();
   });
 
   it('shows "Server not found" when server does not exist', () => {
     useServerStore.setState({ servers: [] });
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     expect(screen.getByText('Server not found.')).toBeInTheDocument();
   });
 
   it('shows General nav item', () => {
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     expect(screen.getByText('General')).toBeInTheDocument();
   });
 
   it('shows Roles nav item when user has MANAGE_ROLES permission', () => {
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     expect(screen.getByText('Roles')).toBeInTheDocument();
   });
 
   it('shows Members nav item when user has MANAGE_ROLES_ASSIGN permission', () => {
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     expect(screen.getByText('Members')).toBeInTheDocument();
   });
 
   it('hides Roles nav item when user lacks MANAGE_ROLES permission', () => {
     usePermissionStore.setState({ serverPermissions: { 'server-1': BASE_PERMISSIONS } });
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     expect(screen.queryByText('Roles')).not.toBeInTheDocument();
   });
 
   it('hides Members nav item when user lacks MANAGE_ROLES_ASSIGN permission', () => {
     usePermissionStore.setState({ serverPermissions: { 'server-1': BASE_PERMISSIONS } });
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     expect(screen.queryByText('Members')).not.toBeInTheDocument();
   });
 
+  it('renders server icon preview as a plain <img> from server.icon_url without sending an Authorization header', () => {
+    useServerStore.setState({
+      servers: [{ ...mockServer, icon_url: '/api/v1/media/server-icons/server-1' }],
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(''));
+    render(<ServerSettingsPage serverId="server-1" />);
+    const iconImg = document.querySelector('img.icon-preview') as HTMLImageElement | null;
+    expect(iconImg).not.toBeNull();
+    expect(iconImg!.getAttribute('src')).toBe('/api/v1/media/server-icons/server-1');
+    // Plain <img> src does not invoke our mocked fetch, so no Authorization header is set
+    const imageFetchCalls = fetchSpy.mock.calls.filter((c) =>
+      String(c[0]).includes('/api/v1/media/server-icons/')
+    );
+    expect(imageFetchCalls.length).toBe(0);
+    fetchSpy.mockRestore();
+  });
+
+  it('renders server banner preview as a plain <img> from server.banner_url', () => {
+    useServerStore.setState({
+      servers: [
+        {
+          ...mockServer,
+          banner_url: '/api/v1/media/server-banners/server-1',
+        },
+      ],
+    });
+    render(<ServerSettingsPage serverId="server-1" />);
+    const bannerImg = document.querySelector('img.banner-preview') as HTMLImageElement | null;
+    expect(bannerImg).not.toBeNull();
+    expect(bannerImg!.getAttribute('src')).toBe('/api/v1/media/server-banners/server-1');
+  });
+
   it('renders Server Info section with server name input', () => {
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     // "Server Info" appears in both nav tree and section heading
     expect(screen.getAllByText('Server Info').length).toBeGreaterThanOrEqual(1);
     const input = screen.getByPlaceholderText('My Awesome Server') as HTMLInputElement;
@@ -200,37 +234,37 @@ describe('ServerSettingsPage', () => {
   });
 
   it('renders Content Safety section', () => {
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     // "Content Safety" appears in both nav tree and section heading
     expect(screen.getAllByText('Content Safety').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('Allow Embedded Content')).toBeInTheDocument();
   });
 
   it('renders Invite Code section for users with INVITE permission', () => {
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     // "Invite Code" appears in both nav tree and section heading
     expect(screen.getAllByText('Invite Code').length).toBeGreaterThanOrEqual(1);
   });
 
   it('renders Save Changes button', () => {
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     expect(screen.getByText('Save Changes')).toBeInTheDocument();
   });
 
   it('updates name on input change', () => {
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     const input = screen.getByPlaceholderText('My Awesome Server') as HTMLInputElement;
     fireEvent.change(input, { target: { value: 'New Name' } });
     expect(input.value).toBe('New Name');
   });
 
   it('shows character count', () => {
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     expect(screen.getByText(/11\/100 characters/)).toBeInTheDocument();
   });
 
   it('validates empty server name on submit', () => {
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     const input = screen.getByPlaceholderText('My Awesome Server');
     fireEvent.change(input, { target: { value: '  ' } });
     fireEvent.click(screen.getByText('Save Changes'));
@@ -242,7 +276,7 @@ describe('ServerSettingsPage', () => {
       ok: true,
       json: async () => ({ server: { ...mockServer, name: 'Updated' } }),
     });
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     fireEvent.click(screen.getByText('Save Changes'));
     await vi.waitFor(() => {
       expect(mockApiFetch).toHaveBeenCalledWith(
@@ -257,7 +291,7 @@ describe('ServerSettingsPage', () => {
       ok: false,
       json: async () => ({ error: 'Server name taken' }),
     });
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     fireEvent.click(screen.getByText('Save Changes'));
     await vi.waitFor(() => {
       expect(screen.getByText('Server name taken')).toBeInTheDocument();
@@ -270,7 +304,7 @@ describe('ServerSettingsPage', () => {
       serverRoles: { 'server-1': mockRoles },
       fetchRoles: vi.fn().mockResolvedValue(undefined),
     });
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     fireEvent.click(screen.getByText('Roles'));
     expect(screen.getByText('+ Create Role')).toBeInTheDocument();
   });
@@ -293,7 +327,7 @@ describe('ServerSettingsPage', () => {
       ],
       fetchMembers: vi.fn().mockResolvedValue(undefined),
     });
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     fireEvent.click(screen.getByText('Members'));
     // "Member List" appears in both nav tree and section heading
     expect(screen.getAllByText('Member List').length).toBeGreaterThanOrEqual(1);
@@ -318,7 +352,7 @@ describe('ServerSettingsPage', () => {
       ],
       fetchMembers: vi.fn().mockResolvedValue(undefined),
     });
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     fireEvent.click(screen.getByText('Members'));
     // The fallback avatar should show the first letter of the display name
     const initial = screen.getByText('Z');
@@ -344,7 +378,7 @@ describe('ServerSettingsPage', () => {
       ],
       fetchMembers: vi.fn().mockResolvedValue(undefined),
     });
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     fireEvent.click(screen.getByText('Members'));
     const initial = screen.getByText('B');
     expect(initial).toBeInTheDocument();
@@ -357,7 +391,7 @@ describe('ServerSettingsPage', () => {
       serverRoles: { 'server-1': mockRoles },
       fetchRoles: vi.fn().mockResolvedValue(undefined),
     });
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     fireEvent.click(screen.getByText('Roles'));
     fireEvent.click(screen.getByText('Admin'));
     expect(screen.getByText('Role Name')).toBeInTheDocument();
@@ -372,7 +406,7 @@ describe('ServerSettingsPage', () => {
       serverRoles: { 'server-1': mockRoles },
       fetchRoles: vi.fn().mockResolvedValue(undefined),
     });
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     fireEvent.click(screen.getByText('Roles'));
     expect(screen.getByText('Select a role to edit, or create a new one.')).toBeInTheDocument();
   });
@@ -383,7 +417,7 @@ describe('ServerSettingsPage', () => {
       serverRoles: { 'server-1': mockRoles },
       fetchRoles: vi.fn().mockResolvedValue(undefined),
     });
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     fireEvent.click(screen.getByText('Roles'));
     fireEvent.click(screen.getByText('Admin'));
     expect(screen.getByText('Delete')).toBeInTheDocument();
@@ -395,7 +429,7 @@ describe('ServerSettingsPage', () => {
       serverRoles: { 'server-1': mockRoles },
       fetchRoles: vi.fn().mockResolvedValue(undefined),
     });
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     fireEvent.click(screen.getByText('Roles'));
     fireEvent.click(screen.getByText('@everyone'));
     expect(screen.queryByText('Delete')).not.toBeInTheDocument();
@@ -407,13 +441,13 @@ describe('ServerSettingsPage', () => {
       serverRoles: { 'server-1': mockRoles },
       fetchRoles: vi.fn().mockResolvedValue(undefined),
     });
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     fireEvent.click(screen.getByText('Members'));
     expect(screen.getByText('No members found.')).toBeInTheDocument();
   });
 
   it('shows Generate Invite Code when no active invite', () => {
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     expect(screen.getByText('Generate Invite Code')).toBeInTheDocument();
   });
 
@@ -436,12 +470,12 @@ describe('ServerSettingsPage', () => {
       fetchInvites: vi.fn().mockResolvedValue(undefined),
       createInvite: vi.fn().mockResolvedValue(null),
     });
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     expect(screen.getByText('TESTCODE')).toBeInTheDocument();
   });
 
   it('shows subsection nav items for general section', () => {
-    render(<ServerSettingsPage />);
+    render(<ServerSettingsPage serverId="server-1" />);
     // Each subsection label appears in both the nav tree and the section heading
     expect(screen.getAllByText('Server Info').length).toBeGreaterThanOrEqual(2);
     expect(screen.getAllByText('Content Safety').length).toBeGreaterThanOrEqual(2);

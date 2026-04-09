@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '../../../test-utils';
 import { useUserStore } from '@/renderer/stores/userStore';
 import { useMemberStore } from '@/renderer/stores/memberStore';
+import { useSettingsOverlayStore } from '@/renderer/stores/settingsOverlayStore';
 import { mockUser } from '../../../mocks/fixtures';
 
 // Mock websocketService
@@ -95,5 +96,21 @@ describe('UserPopover', () => {
     render(<UserPopover {...defaultProps} user={userWithAvatar} />);
     const img = screen.getByAltText('testuser');
     expect(img).toHaveAttribute('src', 'https://example.com/avatar.png');
+  });
+
+  it('clicks My Profile and opens profile settings overlay', () => {
+    useSettingsOverlayStore.setState({ open: null, payload: null });
+    render(<UserPopover {...defaultProps} />);
+    fireEvent.click(screen.getByText('My Profile'));
+    expect(useSettingsOverlayStore.getState().open).toBe('profile');
+    expect(mockOnClose).toHaveBeenCalled();
+  });
+
+  it('clicks Settings and opens app settings overlay', () => {
+    useSettingsOverlayStore.setState({ open: null, payload: null });
+    render(<UserPopover {...defaultProps} />);
+    fireEvent.click(screen.getByText('Settings'));
+    expect(useSettingsOverlayStore.getState().open).toBe('app');
+    expect(mockOnClose).toHaveBeenCalled();
   });
 });

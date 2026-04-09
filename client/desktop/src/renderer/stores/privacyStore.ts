@@ -21,7 +21,6 @@ export interface PrivacySettings {
   allowEmbeddedContent: boolean;
   // KLIPY GIF integration settings (decoupled from allowEmbeddedContent in v2)
   loadGifsAutomatically: boolean;
-  enableKlipyProxy: boolean;
   sharePersonalizationWithGifProvider: boolean;
 }
 
@@ -36,8 +35,7 @@ const defaultSettings: PrivacySettings = {
   searchableByPhone: false,
   allowEmbeddedContent: false,
   loadGifsAutomatically: false,
-  enableKlipyProxy: false,
-  sharePersonalizationWithGifProvider: true,
+  sharePersonalizationWithGifProvider: false,
 };
 
 interface PrivacyState {
@@ -79,9 +77,8 @@ export const usePrivacyStore = create<PrivacyState>()(
               searchableByPhone: p.searchable_by_phone ?? false,
               allowEmbeddedContent: p.allow_embedded_content ?? false,
               loadGifsAutomatically: p.load_gifs_automatically ?? false,
-              enableKlipyProxy: p.enable_klipy_proxy ?? false,
               sharePersonalizationWithGifProvider:
-                p.share_personalization_with_gif_provider ?? true,
+                p.share_personalization_with_gif_provider ?? false,
             },
             isLoading: false,
           });
@@ -114,8 +111,6 @@ export const usePrivacyStore = create<PrivacyState>()(
           body.allow_embedded_content = updates.allowEmbeddedContent;
         if (updates.loadGifsAutomatically !== undefined)
           body.load_gifs_automatically = updates.loadGifsAutomatically;
-        if (updates.enableKlipyProxy !== undefined)
-          body.enable_klipy_proxy = updates.enableKlipyProxy;
         if (updates.sharePersonalizationWithGifProvider !== undefined)
           body.share_personalization_with_gif_provider =
             updates.sharePersonalizationWithGifProvider;
@@ -145,8 +140,7 @@ export const usePrivacyStore = create<PrivacyState>()(
             searchableByPhone: p.searchable_by_phone,
             allowEmbeddedContent: p.allow_embedded_content ?? false,
             loadGifsAutomatically: p.load_gifs_automatically ?? false,
-            enableKlipyProxy: p.enable_klipy_proxy ?? false,
-            sharePersonalizationWithGifProvider: p.share_personalization_with_gif_provider ?? true,
+            sharePersonalizationWithGifProvider: p.share_personalization_with_gif_provider ?? false,
           },
         });
       },

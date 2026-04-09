@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useFileUpload, validateFiles } from '@/renderer/hooks/useFileUpload';
 
@@ -324,5 +324,125 @@ describe('useFileUpload', () => {
 
     expect(revokeSpy).toHaveBeenCalled();
     revokeSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Image-dimension hydration (used by ImageAttachment to reserve space and
+// avoid layout shift on send). The hook reads naturalWidth/naturalHeight
+// off-screen via an Image element after addFiles, then patches the matching
+// FileUploadState entry. We stub HTMLImageElement to fire onload synchronously
+// with controllable natural dims.
+// ---------------------------------------------------------------------------
+describe('useFileUpload — image dimension hydration', () => {
+  let originalImage: typeof globalThis.Image;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    originalImage = globalThis.Image;
+  });
+
+  afterEach(() => {
+    globalThis.Image = originalImage;
+  });
+
+  function stubImage(naturalWidth: number, naturalHeight: number, fail = false) {
+    class FakeImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      naturalWidth = 0;
+      naturalHeight = 0;
+      private _src = '';
+      get src() {
+        return this._src;
+      }
+      set src(v: string) {
+        this._src = v;
+        // jsdom doesn't actually decode the blob; fire load (or error) on
+        // the next microtask so React state updates can flush.
+        queueMicrotask(() => {
+          if (fail) {
+            this.onerror?.();
+          } else {
+            this.naturalWidth = naturalWidth;
+            this.naturalHeight = naturalHeight;
+            this.onload?.();
+          }
+        });
+      }
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (globalThis as any).Image = FakeImage;
+  }
+
+  it('hydrates width/height on the FileUploadState entry for image files', async () => {
+    stubImage(640, 480);
+    const { result } = renderHook(() => useFileUpload());
+
+    await act(async () => {
+      result.current.addFiles([createMockFile('photo.png', 1000, 'image/png')]);
+      // Let the queued microtask + setState flush
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.files[0].width).toBe(640);
+    expect(result.current.files[0].height).toBe(480);
+  });
+
+  it('does not hydrate dimensions for non-image files', async () => {
+    stubImage(100, 100);
+    const { result } = renderHook(() => useFileUpload());
+
+    await act(async () => {
+      result.current.addFiles([createMockFile('doc.pdf', 1000, 'application/pdf')]);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.files[0].width).toBeUndefined();
+    expect(result.current.files[0].height).toBeUndefined();
+  });
+
+  it('leaves width/height undefined when image decoding fails', async () => {
+    stubImage(0, 0, true);
+    const { result } = renderHook(() => useFileUpload());
+
+    await act(async () => {
+      result.current.addFiles([createMockFile('broken.png', 1000, 'image/png')]);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(result.current.files[0].width).toBeUndefined();
+    expect(result.current.files[0].height).toBeUndefined();
+  });
+
+  it('includes hydrated dimensions in the upload summary', async () => {
+    stubImage(800, 600);
+    mockApiFetch.mockResolvedValue({ ok: true, status: 201 });
+    mockSafeJson.mockResolvedValue({
+      file_id: 'attach-with-dims',
+      file_type: 'photo',
+      file_size: 1000,
+    });
+
+    const { result } = renderHook(() => useFileUpload());
+
+    await act(async () => {
+      result.current.addFiles([createMockFile('shot.jpg', 1000, 'image/jpeg')]);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    let uploadResult:
+      | { ids: string[]; summaries: { width?: number; height?: number }[] }
+      | undefined;
+    await act(async () => {
+      uploadResult = (await result.current.uploadAll('channel-1', false)) as typeof uploadResult;
+    });
+
+    expect(uploadResult?.summaries[0].width).toBe(800);
+    expect(uploadResult?.summaries[0].height).toBe(600);
   });
 });

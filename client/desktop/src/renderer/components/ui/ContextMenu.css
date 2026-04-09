@@ -8,7 +8,11 @@
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 500;
+  /* Context menus must float above every other in-app chrome (composer,
+     modals, force-update overlay at 10000, voice controls at 99999).
+     Using 100000+ guarantees the full menu is visible regardless of where
+     the right-click happens in the chat view — see QA bug #571 item #3. */
+  z-index: 100000;
 }
 
 .ctx-menu-overlay-closing {
@@ -22,7 +26,7 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 6px;
-  z-index: 501;
+  z-index: 100001;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
   animation: ctxMenuIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   transform-origin: top left;
@@ -186,7 +190,7 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 6px;
-  z-index: 502;
+  z-index: 100002;
   box-shadow:
     0 12px 32px rgba(0, 0, 0, 0.45),
     0 2px 8px rgba(0, 0, 0, 0.2);

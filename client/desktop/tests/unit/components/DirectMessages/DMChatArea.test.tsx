@@ -136,9 +136,14 @@ vi.mock('@/renderer/hooks/useMessaging', () => ({
   })),
 }));
 
+const mockGetPins = vi.fn().mockResolvedValue([]);
+const mockPinMessage = vi.fn().mockResolvedValue({});
+const mockUnpinMessage = vi.fn().mockResolvedValue({});
 vi.mock('@/renderer/services/pinService', () => ({
-  pinMessage: vi.fn().mockResolvedValue({}),
-  unpinMessage: vi.fn().mockResolvedValue({}),
+  pinMessage: (...args: unknown[]) => mockPinMessage(...args),
+  unpinMessage: (...args: unknown[]) => mockUnpinMessage(...args),
+  getPins: (...args: unknown[]) => mockGetPins(...args),
+  getChannelPins: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('@/renderer/services/e2eeService', () => ({
@@ -201,6 +206,9 @@ describe('DMChatArea', () => {
   beforeEach(() => {
     resetAllStores();
     vi.clearAllMocks();
+    mockGetPins.mockResolvedValue([]);
+    mockPinMessage.mockResolvedValue({});
+    mockUnpinMessage.mockResolvedValue({});
     capturedMLProps = {};
     capturedMIProps = {};
     useUserStore.setState({ user: mockUser });
@@ -1058,5 +1066,85 @@ describe('DMChatArea', () => {
     render(<DMChatArea selectedThreadId="conv-1" />);
     expect(capturedMLProps.onPinToggle).toBeInstanceOf(Function);
     expect(capturedMLProps.canPin).toBe(true);
+  });
+
+  // --- pinnedCount badge ---
+
+  it('does not show pin badge when pinnedCount is 0', () => {
+    mockGetPins.mockResolvedValue([]);
+    useDMStore.setState({ conversations: [makeConversation()] });
+    const { container } = render(<DMChatArea selectedThreadId="conv-1" />);
+    expect(container.querySelector('.pin-count-badge')).toBeNull();
+  });
+
+  it('shows pin badge when getPins returns items', async () => {
+    mockGetPins.mockResolvedValue([{ id: 'p1' }, { id: 'p2' }]);
+    useDMStore.setState({ conversations: [makeConversation()] });
+    const { container } = render(<DMChatArea selectedThreadId="conv-1" />);
+    await waitFor(() => {
+      expect(container.querySelector('.pin-count-badge')).toBeInTheDocument();
+      expect(container.querySelector('.pin-count-badge')?.textContent).toBe('2');
+    });
+  });
+
+  it('pin toggle on an unpinned message increments pinnedCount badge', async () => {
+    mockGetPins.mockResolvedValue([]);
+    mockPinMessage.mockResolvedValue({});
+    useDMStore.setState({ conversations: [makeConversation()] });
+    const { container } = render(<DMChatArea selectedThreadId="conv-1" />);
+
+    // Trigger pin on a message that is NOT currently pinned (pinned_at is null)
+    const unpinnedMsg = { id: 'msg-1', pinned_at: null };
+    await (capturedMLProps.onPinToggle as (m: unknown) => Promise<void>)(unpinnedMsg);
+
+    await waitFor(() => {
+      expect(container.querySelector('.pin-count-badge')).toBeInTheDocument();
+      expect(container.querySelector('.pin-count-badge')?.textContent).toBe('1');
+    });
+  });
+
+  it('pin toggle on a pinned message decrements pinnedCount badge', async () => {
+    mockGetPins.mockResolvedValue([{ id: 'p1' }]);
+    mockUnpinMessage.mockResolvedValue({});
+    useDMStore.setState({ conversations: [makeConversation()] });
+    const { container } = render(<DMChatArea selectedThreadId="conv-1" />);
+
+    // Wait for initial count to load
+    await waitFor(() => {
+      expect(container.querySelector('.pin-count-badge')?.textContent).toBe('1');
+    });
+
+    // Trigger unpin on a message that IS currently pinned (pinned_at is set)
+    const pinnedMsg = { id: 'msg-1', pinned_at: '2025-01-01T00:00:00Z' };
+    await (capturedMLProps.onPinToggle as (m: unknown) => Promise<void>)(pinnedMsg);
+
+    await waitFor(() => {
+      expect(container.querySelector('.pin-count-badge')).toBeNull();
+    });
+  });
+
+  // --- Pinned panel open/close ---
+
+  it('pinned panel is closed by default', () => {
+    useDMStore.setState({ conversations: [makeConversation()] });
+    render(<DMChatArea selectedThreadId="conv-1" />);
+    const pinBtn = screen.getByLabelText('Pinned messages');
+    expect(pinBtn).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('clicking pin button opens the pinned panel', () => {
+    useDMStore.setState({ conversations: [makeConversation()] });
+    render(<DMChatArea selectedThreadId="conv-1" />);
+    fireEvent.click(screen.getByLabelText('Pinned messages'));
+    expect(screen.getByLabelText('Pinned messages')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('clicking pin button again closes the pinned panel', () => {
+    useDMStore.setState({ conversations: [makeConversation()] });
+    render(<DMChatArea selectedThreadId="conv-1" />);
+    const pinBtn = screen.getByLabelText('Pinned messages');
+    fireEvent.click(pinBtn);
+    fireEvent.click(pinBtn);
+    expect(pinBtn).toHaveAttribute('aria-expanded', 'false');
   });
 });

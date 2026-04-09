@@ -240,10 +240,12 @@ describe('useKeyboardShortcuts', () => {
 
   // ── Handler: open-settings ─────────────────────────────────────────
 
-  it('open-settings navigates to /app/settings', () => {
+  it('open-settings opens the settings overlay', async () => {
+    const { useSettingsOverlayStore } = await import('@/renderer/stores/settingsOverlayStore');
+    useSettingsOverlayStore.getState().close();
     renderHook(() => useKeyboardShortcuts());
     getHandler('open-settings')();
-    expect(mockNavigate).toHaveBeenCalledWith('/app/settings');
+    expect(useSettingsOverlayStore.getState().open).toBe('app');
   });
 
   // ── Handler: toggle-mute ───────────────────────────────────────────

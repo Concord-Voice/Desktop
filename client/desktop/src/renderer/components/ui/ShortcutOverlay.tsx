@@ -39,7 +39,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   navigation: 'Navigation',
   messaging: 'Messaging',
   app: 'Application',
-  voice: 'Voice & Audio',
+  voice: 'Audio & Video',
 };
 
 const CATEGORY_ORDER = ['navigation', 'messaging', 'app', 'voice'];

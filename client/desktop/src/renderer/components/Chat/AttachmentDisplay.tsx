@@ -4,6 +4,7 @@ import { apiFetch } from '../../services/apiClient';
 import { e2eeService } from '../../services/e2eeService';
 import { decryptFile, formatFileSize } from '../../utils/attachmentCrypto';
 import type { AttachmentSummary } from '../../types/chat';
+import { useSettingsStore } from '../../stores/settingsStore';
 import './AttachmentDisplay.css';
 
 interface AttachmentDisplayProps {
@@ -76,10 +77,38 @@ function FileIcon({ fileType }: { readonly fileType: string }) {
   }
 }
 
+// Display constraints for image attachments — must match AttachmentDisplay.css
+// (.attachment-image-container max-width / .attachment-image max-height).
+// Kept in sync with the CSS so the JS clamp matches what the browser paints.
+const ATTACHMENT_MAX_W = 400;
+const ATTACHMENT_MAX_H = 300;
+
+/** Clamps an attachment's natural pixel dimensions into the display box,
+ *  preserving aspect ratio. Returns null if dimensions aren't known so the
+ *  caller can fall back to intrinsic sizing on first load. */
+function clampAttachmentSize(
+  w: number | undefined,
+  h: number | undefined
+): { width: number; height: number } | null {
+  if (!w || !h) return null;
+  const ratio = Math.min(ATTACHMENT_MAX_W / w, ATTACHMENT_MAX_H / h, 1);
+  return { width: Math.round(w * ratio), height: Math.round(h * ratio) };
+}
+
 function ImageAttachment({ attachment, channelId, isEncrypted }: AttachmentItemProps) {
+  const reduceAnimations = useSettingsStore((s) => s.appearance.reduceAnimations);
+  // Animated GIF attachments under Reduce Animations play only on hover/focus.
+  // See QA bug #571 item #6B. Static photos ignore this flag entirely.
+  const isAnimated = attachment.file_type === 'animated';
+  const gatedByHover = isAnimated && reduceAnimations;
+  const [hovering, setHovering] = useState(false);
   const [url, setUrl] = useState<string | null>(blobUrlCache.get(attachment.id) || null);
   const [loading, setLoading] = useState(!url);
   const [error, setError] = useState(false);
+  // Aspect ratio learned from <img onLoad> as a fallback for messages whose
+  // summary lacks pre-known width/height (e.g. older history rows fetched
+  // from the server before the dim-plumbing was in place).
+  const [naturalRatio, setNaturalRatio] = useState<number | null>(null);
   const observerRef = useRef<IntersectionObserver | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -115,21 +144,66 @@ function ImageAttachment({ attachment, channelId, isEncrypted }: AttachmentItemP
     return () => observerRef.current?.disconnect();
   }, [url, load]);
 
+  // Compute the reserved box from pre-known summary dims when available, so
+  // the optimistic message paints at the final size with no layout shift.
+  // Falls back to a learned aspect ratio (from a previous onLoad in this
+  // session) for legacy messages without dims, and finally to a min-height
+  // skeleton for the very first paint of a dim-less attachment.
+  const clamped = clampAttachmentSize(attachment.width, attachment.height);
+  let containerStyle: React.CSSProperties | undefined;
+  if (clamped) {
+    containerStyle = { width: `${clamped.width}px`, height: `${clamped.height}px` };
+  } else if (naturalRatio) {
+    containerStyle = { aspectRatio: String(naturalRatio), maxWidth: `${ATTACHMENT_MAX_W}px` };
+  }
+
+  // Under Reduce Animations, animated GIF attachments show a muted overlay
+  // with "Hover to play" and only render the live <img> while hovered/focused
+  // — the browser restarts the GIF animation every mount. Static photos and
+  // non-reduced-motion sessions skip the overlay and render the image as-is.
+  const showLiveImage = url && (!gatedByHover || hovering);
+  const hoverHandlers = gatedByHover
+    ? {
+        onMouseEnter: () => setHovering(true),
+        onMouseLeave: () => setHovering(false),
+        onFocus: () => setHovering(true),
+        onBlur: () => setHovering(false),
+        tabIndex: 0,
+      }
+    : {};
+
   return (
-    <div ref={containerRef} className="attachment-image-container">
+    <div
+      ref={containerRef}
+      className="attachment-image-container"
+      style={containerStyle}
+      {...hoverHandlers}
+    >
       {loading && (
         <div className="attachment-loading">
           <Loader2 size={20} className="spinner" />
         </div>
       )}
       {error && <div className="attachment-error">Failed to load image</div>}
-      {url && (
+      {showLiveImage && (
         <img
           src={url}
           alt={`Attachment ${attachment.id}`}
           className="attachment-image"
           loading="lazy"
+          onLoad={(e) => {
+            if (clamped) return;
+            const img = e.currentTarget;
+            if (img.naturalWidth && img.naturalHeight) {
+              setNaturalRatio(img.naturalWidth / img.naturalHeight);
+            }
+          }}
         />
+      )}
+      {gatedByHover && !hovering && !loading && !error && (
+        <div className="attachment-reduced-motion-hint" aria-hidden="true">
+          Hover to play
+        </div>
       )}
     </div>
   );

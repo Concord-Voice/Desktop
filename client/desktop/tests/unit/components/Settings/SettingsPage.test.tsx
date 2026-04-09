@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from '../../../test-utils';
 import { useSettingsStore } from '@/renderer/stores/settingsStore';
 import { useAuthStore } from '@/renderer/stores/authStore';
 import { useUserStore } from '@/renderer/stores/userStore';
+import { useSettingsOverlayStore } from '@/renderer/stores/settingsOverlayStore';
 import { mockUser } from '../../../mocks/fixtures';
 
 // Mock apiFetch for session fetching
@@ -57,7 +58,7 @@ describe('SettingsPage', () => {
     expect(screen.getByText('Privacy & Security')).toBeInTheDocument();
     expect(screen.getByText('Account')).toBeInTheDocument();
     expect(screen.getByText('Notifications')).toBeInTheDocument();
-    expect(screen.getByText('Voice & Audio')).toBeInTheDocument();
+    expect(screen.getByText('Audio & Video')).toBeInTheDocument();
     expect(screen.getByText('Accessibility')).toBeInTheDocument();
   });
 
@@ -218,7 +219,7 @@ describe('SettingsPage', () => {
       configurable: true,
     });
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Voice & Audio'));
+    fireEvent.click(screen.getByText('Audio & Video'));
     const deviceEls = screen.getAllByText('Device Configuration');
     expect(deviceEls.length).toBeGreaterThanOrEqual(1);
     const audioEls = screen.getAllByText('Audio Configuration');
@@ -477,6 +478,15 @@ describe('SettingsPage', () => {
     render(<SettingsPage />);
     const notifBtn = screen.getByText('Notifications').closest('button');
     expect(notifBtn).not.toBeDisabled();
+  });
+
+  // ─── Back button / overlay close ────────────────────────────────────────
+
+  it('clicking back button closes the settings overlay when no pending changes', () => {
+    useSettingsOverlayStore.setState({ open: 'app', payload: null });
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Back to app'));
+    expect(useSettingsOverlayStore.getState().open).toBeNull();
   });
 
   // ─── Notifications section ──────────────────────────────────────────────

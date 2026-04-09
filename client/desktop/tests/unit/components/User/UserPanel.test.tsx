@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from '../../../test-utils';
 import { useAuthStore } from '@/renderer/stores/authStore';
 import { useUserStore } from '@/renderer/stores/userStore';
 import { useMemberStore } from '@/renderer/stores/memberStore';
+import { useSettingsOverlayStore } from '@/renderer/stores/settingsOverlayStore';
 import { mockUser } from '../../../mocks/fixtures';
 
 // Mock UserPopover
@@ -62,6 +63,13 @@ describe('UserPanel', () => {
     render(<UserPanel />);
     fireEvent.click(screen.getByText('T'));
     expect(screen.getByTestId('user-popover')).toBeInTheDocument();
+  });
+
+  it('clicks settings button and opens app settings overlay', () => {
+    useSettingsOverlayStore.setState({ open: null, payload: null });
+    render(<UserPanel />);
+    fireEvent.click(screen.getByLabelText('Settings'));
+    expect(useSettingsOverlayStore.getState().open).toBe('app');
   });
 
   it('renders loading state when user not loaded', () => {

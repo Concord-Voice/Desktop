@@ -905,7 +905,7 @@
   margin-bottom: 16px;
 }
 
-/* ─── Voice & Audio Section ─────────────────────────────────────────── */
+/* ─── Audio & Video Section ─────────────────────────────────────────── */
 
 /* Widen device selectors in settings context */
 .settings-device-row .device-selector__select {
@@ -1204,6 +1204,44 @@
   width: fit-content;
 }
 
+/* KLIPY ID chip — inherits estimated-bitrate styling but allows text to wrap/shrink */
+.settings-klipy-id-chip {
+  font-family: monospace;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  word-break: break-all;
+  white-space: normal;
+  max-width: 100%;
+  padding: 4px 10px;
+}
+
+/* Rotate button next to the ID chip */
+.settings-rotate-id-btn {
+  flex-shrink: 0;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1.5px solid var(--accent-primary);
+  background: transparent;
+  color: var(--accent-primary);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+  align-self: center;
+}
+
+.settings-rotate-id-btn:hover:not(:disabled) {
+  background: var(--accent-primary);
+  color: var(--bg-primary);
+}
+
+.settings-rotate-id-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .settings-codec-info-badge {
   display: inline-flex;
   align-items: center;
@@ -1221,6 +1259,36 @@
   margin-top: 8px;
   width: fit-content;
   line-height: 1.5;
+}
+
+.settings-codec-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 10px;
+  row-gap: 4px;
+  padding: 8px 14px;
+  font-weight: 500;
+  max-width: 520px;
+}
+
+.settings-codec-meta .settings-codec-meta-row {
+  display: contents;
+}
+
+.settings-codec-meta dt {
+  font-weight: 700;
+  color: var(--accent-primary);
+}
+
+.settings-codec-meta dd {
+  margin: 0;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.settings-codec-meta dd em {
+  font-style: normal;
+  color: var(--text-tertiary);
 }
 
 .settings-tier-description {
@@ -1555,9 +1623,9 @@
 }
 
 .settings-mic-test-btn.testing {
-  background: rgba(239, 68, 68, 0.12);
-  border-color: rgba(239, 68, 68, 0.5);
-  color: #f87171;
+  background: #3b1515;
+  border-color: #b91c1c;
+  color: #fca5a5;
 }
 
 .settings-mic-test-btn.testing:hover {
@@ -1571,7 +1639,105 @@
 
 .settings-mic-test-error {
   font-size: calc(12px * var(--font-scale, 1));
-  color: #ef4444;
+  color: #f87171;
+}
+
+/* ─── Output Test ───────────────────────────────────────────────────────────── */
+
+.settings-output-test-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0 8px;
+}
+
+.settings-output-test-btn {
+  padding: 6px 18px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.settings-output-test-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.settings-output-test-btn.testing {
+  background: #3b1515;
+  border-color: #b91c1c;
+  color: #fca5a5;
+}
+
+.settings-output-test-btn.testing:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.settings-output-test-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.settings-output-test-error {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: #f87171;
+}
+
+/* ─── Camera Test ───────────────────────────────────────────────────────────── */
+
+.settings-camera-test-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0 8px;
+}
+
+.settings-camera-test-btn {
+  padding: 6px 18px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: calc(13px * var(--font-scale, 1));
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+  white-space: nowrap;
+}
+
+.settings-camera-test-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--accent-primary);
+}
+
+.settings-camera-test-btn.testing {
+  background: #3b1515;
+  border-color: #b91c1c;
+  color: #fca5a5;
+}
+
+.settings-camera-test-btn.testing:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.settings-camera-test-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.settings-camera-test-error {
+  font-size: calc(12px * var(--font-scale, 1));
+  color: #f87171;
 }
 
 .settings-mic-meter-container {

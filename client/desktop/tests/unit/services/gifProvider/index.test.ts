@@ -3,7 +3,6 @@ import { usePrivacyStore } from '@/renderer/stores/privacyStore';
 
 // Mock the underlying provider so we can verify the wiring without doing
 // any actual KLIPY work.
-const setProxyEnabledMock = vi.fn();
 const setPersonalizationEnabledMock = vi.fn();
 
 vi.mock('@/renderer/services/gifProvider/klipyProvider', () => ({
@@ -13,7 +12,6 @@ vi.mock('@/renderer/services/gifProvider/klipyProvider', () => ({
     poweredByText: 'Powered by KLIPY',
     supportsRecent: true,
     supportsCategories: true,
-    setProxyEnabled: (...args: unknown[]) => setProxyEnabledMock(...args),
     setPersonalizationEnabled: (...args: unknown[]) => setPersonalizationEnabledMock(...args),
     trending: vi.fn(),
     search: vi.fn(),
@@ -26,7 +24,6 @@ vi.mock('@/renderer/services/gifProvider/klipyProvider', () => ({
 describe('gifProvider index', () => {
   beforeEach(() => {
     resetAllStores();
-    setProxyEnabledMock.mockReset();
     setPersonalizationEnabledMock.mockReset();
   });
 
@@ -42,31 +39,26 @@ describe('gifProvider index', () => {
     usePrivacyStore.setState({
       settings: {
         ...usePrivacyStore.getState().settings,
-        enableKlipyProxy: true,
         sharePersonalizationWithGifProvider: false,
       },
     });
     // Re-import to trigger the module-level subscribe
     vi.resetModules();
     await import('@/renderer/services/gifProvider');
-    expect(setProxyEnabledMock).toHaveBeenCalledWith(true);
     expect(setPersonalizationEnabledMock).toHaveBeenCalledWith(false);
   });
 
   it('forwards subsequent privacy store updates to the provider', async () => {
     vi.resetModules();
     await import('@/renderer/services/gifProvider');
-    setProxyEnabledMock.mockClear();
     setPersonalizationEnabledMock.mockClear();
     // Trigger a store update
     usePrivacyStore.setState({
       settings: {
         ...usePrivacyStore.getState().settings,
-        enableKlipyProxy: true,
         sharePersonalizationWithGifProvider: false,
       },
     });
-    expect(setProxyEnabledMock).toHaveBeenCalledWith(true);
     expect(setPersonalizationEnabledMock).toHaveBeenCalledWith(false);
   });
 });

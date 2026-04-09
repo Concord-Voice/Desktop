@@ -9,6 +9,24 @@ interface GifEmbedProps {
   loadAutomatically: boolean;
 }
 
+const GIF_MAX_W = 400;
+const GIF_MAX_H = 300;
+// Default skeleton ratio used until we know the actual GIF dimensions.
+const SKELETON_W = 250;
+const SKELETON_H = 180;
+
+/** Clamp a (width, height) pair into the GIF embed display box, preserving
+ *  aspect ratio. We compute the final rendered size up-front so the container
+ *  reserves exactly that space — without this, the browser briefly paints the
+ *  natural intrinsic size before the CSS max-width/max-height clamp kicks in,
+ *  causing a visible vertical "expand then settle" jump on send.
+ */
+function clampGifSize(w: number | undefined, h: number | undefined) {
+  if (!w || !h) return { width: SKELETON_W, height: SKELETON_H };
+  const ratio = Math.min(GIF_MAX_W / w, GIF_MAX_H / h, 1);
+  return { width: Math.round(w * ratio), height: Math.round(h * ratio) };
+}
+
 /** Inline GIF embed for chat messages.
  *
  *  Resolves a `slug` to a vendor-specific URL via the active `gifProvider`,
@@ -28,6 +46,11 @@ const GifEmbed: React.FC<GifEmbedProps> = ({ slug, reduceMotion, loadAutomatical
   const [error, setError] = useState(false);
   const [userClicked, setUserClicked] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  // Hover/focus state for reduce-motion mode: show the still frame by default
+  // and play the animation only while the user is pointing at / focused on
+  // the embed. On mouseleave / blur we snap back to the still. See QA bug
+  // #571 item #6B.
+  const [hovering, setHovering] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Lazy load via IntersectionObserver — defer the network call until the
@@ -68,6 +91,11 @@ const GifEmbed: React.FC<GifEmbedProps> = ({ slug, reduceMotion, loadAutomatical
     };
   }, [isVisible, shouldLoad, slug, resolved, error]);
 
+  // Pre-compute the clamped display size so the embed reserves exactly the
+  // final rendered space from the first paint, eliminating the brief vertical
+  // expand-then-settle when the video/img replaces the skeleton.
+  const display = clampGifSize(resolved?.width, resolved?.height);
+
   let body: React.ReactNode;
   if (!shouldLoad) {
     body = (
@@ -89,16 +117,18 @@ const GifEmbed: React.FC<GifEmbedProps> = ({ slug, reduceMotion, loadAutomatical
     );
   } else if (!resolved) {
     body = <div className="gif-embed-skeleton" />;
-  } else if (reduceMotion) {
-    // Reduce-motion: render the still frame as a static image
+  } else if (reduceMotion && !hovering) {
+    // Reduce-motion, not hovering: render the still frame as a static image.
+    // Hover / focus will flip `hovering` true and fall through to the
+    // animated branches below.
     body = (
       <>
         <img
           src={resolved.stillUrl}
           alt={`GIF from ${gifProvider.name}`}
           className="gif-embed-image loaded"
-          width={resolved.width}
-          height={resolved.height}
+          width={display.width}
+          height={display.height}
           draggable={false}
         />
         <span className="gif-embed-attribution">{gifProvider.poweredByText}</span>
@@ -115,8 +145,8 @@ const GifEmbed: React.FC<GifEmbedProps> = ({ slug, reduceMotion, loadAutomatical
           loop
           muted
           playsInline
-          width={resolved.width}
-          height={resolved.height}
+          width={display.width}
+          height={display.height}
           className="gif-embed-video loaded"
           aria-label={`GIF from ${gifProvider.name}`}
         />
@@ -130,8 +160,8 @@ const GifEmbed: React.FC<GifEmbedProps> = ({ slug, reduceMotion, loadAutomatical
         <img
           src={resolved.animatedUrl}
           alt={`GIF from ${gifProvider.name}`}
-          width={resolved.width}
-          height={resolved.height}
+          width={display.width}
+          height={display.height}
           className="gif-embed-image loaded"
           onError={() => setError(true)}
           draggable={false}
@@ -141,8 +171,29 @@ const GifEmbed: React.FC<GifEmbedProps> = ({ slug, reduceMotion, loadAutomatical
     );
   }
 
+  // Lock the container to the (clamped) final size so the message bubble
+  // reserves the right vertical space from the first frame. The placeholder
+  // and error states use intrinsic sizing (no inline style) so they don't
+  // get stretched to a 250x180 box when nothing's loaded yet.
+  const containerStyle: React.CSSProperties | undefined =
+    shouldLoad && !error
+      ? { width: `${display.width}px`, height: `${display.height}px` }
+      : undefined;
+
+  // Hover/focus handlers only matter in reduce-motion mode — when motion is
+  // allowed the embed always autoplays and these are no-ops on the DOM.
+  const hoverHandlers = reduceMotion
+    ? {
+        onMouseEnter: () => setHovering(true),
+        onMouseLeave: () => setHovering(false),
+        onFocus: () => setHovering(true),
+        onBlur: () => setHovering(false),
+        tabIndex: 0,
+      }
+    : {};
+
   return (
-    <div ref={containerRef} className="gif-embed">
+    <div ref={containerRef} className="gif-embed" style={containerStyle} {...hoverHandlers}>
       {body}
     </div>
   );

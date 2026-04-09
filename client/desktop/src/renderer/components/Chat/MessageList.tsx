@@ -1,5 +1,6 @@
 import React, {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useCallback,
@@ -8,6 +9,7 @@ import React, {
 } from 'react';
 import { MessageWithStatus, type ChatContextType } from '../../types/chat';
 import Message from './Message';
+import { useChannelScrollStore } from '../../stores/channelScrollStore';
 import './MessageList.css';
 
 export interface MessageListProps {
@@ -25,6 +27,13 @@ export interface MessageListProps {
   onPinToggle?: (message: MessageWithStatus) => void;
   canPin?: boolean;
   onScrollToMessage?: (messageId: string) => void;
+  /**
+   * Optional key for scroll-position preservation across remounts.
+   * Pass the active channel ID for server channels or the DM conversation ID
+   * for DM threads. When provided, scroll offset is saved on unmount and
+   * restored on mount from channelScrollStore.
+   */
+  persistenceKey?: string;
 }
 
 export interface MessageListHandle {
@@ -52,10 +61,12 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
       onScrollToMessage,
       onPinToggle,
       canPin,
+      persistenceKey,
     },
     ref
   ) => {
     const listRef = useRef<HTMLDivElement>(null);
+    const contentRef = useRef<HTMLDivElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
     const isNearBottomRef = useRef(true);
     const [showScrollButton, setShowScrollButton] = useState(false);
@@ -121,6 +132,31 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
       };
     }, []);
 
+    // Scroll-position preservation across channel/DM switches.
+    //
+    // Uses useLayoutEffect so restoration happens after layout but before
+    // paint, avoiding a one-frame jump. When a saved offset exists we also
+    // flip isNearBottomRef to false so the sibling auto-pin effects (which
+    // watch ResizeObserver and the messages array) don't fight the restore
+    // and yank the user back to the bottom. On unmount we persist whatever
+    // the current scrollTop is so the next mount can restore it.
+    useLayoutEffect(() => {
+      if (!persistenceKey) return;
+      const list = listRef.current;
+      if (!list) return;
+      const saved = useChannelScrollStore.getState().getScroll(persistenceKey);
+      if (typeof saved === 'number') {
+        list.scrollTop = saved;
+        isNearBottomRef.current = false;
+      }
+      return () => {
+        const el = listRef.current;
+        if (el) {
+          useChannelScrollStore.getState().saveScroll(persistenceKey, el.scrollTop);
+        }
+      };
+    }, [persistenceKey]);
+
     // Auto-scroll when messages change (new message arrives) if user is near bottom.
     // Also track new messages arriving while the user is scrolled up.
     useEffect(() => {
@@ -130,7 +166,7 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
         return;
       }
 
-      const lastMessage = messages[messages.length - 1];
+      const lastMessage = messages.at(-1)!;
       const lastId = lastMessage.id;
 
       if (isNearBottomRef.current) {
@@ -149,28 +185,30 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
       prevLastMessageIdRef.current = lastId;
     }, [messages, currentUserId]);
 
-    // Re-pin to bottom when message list content grows after initial render
-    // (e.g. a GIF embed or video frame resolves later and increases scrollHeight).
-    // Without this, late-loading media stays clipped below the viewport even
-    // though the user was at the bottom when the message arrived.
+    // Re-pin to bottom when the rendered content grows after initial paint
+    // (e.g. a GIF embed resolves to its final size, or an image attachment's
+    // bytes finish decoding and the row gets taller). Without this, late-
+    // loading media stays clipped below the viewport even though the user
+    // was at the bottom when the message arrived — exactly the "have to
+    // manually scroll" symptom on send.
+    //
+    // We observe an inner content wrapper rather than the scroll container
+    // because the scroll container itself is fixed by flex (its content rect
+    // never changes), and observing the bottom sentinel <div> is also a
+    // no-op. Only the inner wrapper grows when child message rows grow, so
+    // it's the one element whose ResizeObserver actually fires on media load.
     useEffect(() => {
-      const el = listRef.current;
-      if (!el || typeof ResizeObserver === 'undefined') return;
+      const list = listRef.current;
+      const content = contentRef.current;
+      if (!list || !content || typeof ResizeObserver === 'undefined') return;
       const observer = new ResizeObserver(() => {
         if (isNearBottomRef.current) {
-          el.scrollTop = el.scrollHeight;
+          list.scrollTop = list.scrollHeight;
         }
       });
-      observer.observe(el);
-      // Only observe the newest rendered message — bottom growth is the only
-      // change that matters for re-pinning when the user is near bottom.
-      // Avoids per-message observer overhead on long histories.
-      const lastMessageElement = el.lastElementChild;
-      if (lastMessageElement instanceof Element) {
-        observer.observe(lastMessageElement);
-      }
+      observer.observe(content);
       return () => observer.disconnect();
-    }, [messages.length]);
+    }, []);
 
     const scrollToBottom = useCallback((smooth = true) => {
       setNewMessageCount(0);
@@ -277,48 +315,55 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
     return (
       <div className="message-list-container">
         <div className="message-list" ref={listRef} onScroll={handleScroll}>
-          {isLoading && hasMore && (
-            <div className="loading-more">
-              <div className="loading-spinner small">
-                <div className="message-list-spinner"></div>
-              </div>
-              <span>Loading more messages...</span>
-            </div>
-          )}
-
-          {messages.map((message, index) => {
-            const dateDividerLabel = shouldShowDateDivider(index);
-            return (
-              <React.Fragment key={message.id}>
-                {dateDividerLabel && (
-                  <div className="date-divider">
-                    <span className="date-divider-line"></span>
-                    <span className="date-divider-text">{dateDividerLabel}</span>
-                    <span className="date-divider-line"></span>
-                  </div>
-                )}
-                <div
-                  data-message-id={message.id}
-                  className={highlightedMessageId === message.id ? 'message-highlight' : undefined}
-                >
-                  <Message
-                    message={message}
-                    currentUserId={currentUserId}
-                    chatContext={chatContext}
-                    onEdit={onEditMessage}
-                    onDelete={onDeleteMessage}
-                    onReply={onReply}
-                    onScrollToMessage={onScrollToMessage}
-                    onPinToggle={onPinToggle}
-                    canPin={canPin}
-                    showAvatar={shouldShowAvatar(index)}
-                    shiftHeld={shiftHeld}
-                  />
+          {/* Inner content wrapper exists so the ResizeObserver above can
+              fire on media-load growth. The scroll container itself never
+              resizes (fixed by flex), but this wrapper grows with content. */}
+          <div className="message-list-content" ref={contentRef}>
+            {isLoading && hasMore && (
+              <div className="loading-more">
+                <div className="loading-spinner small">
+                  <div className="message-list-spinner"></div>
                 </div>
-              </React.Fragment>
-            );
-          })}
-          <div ref={bottomRef} />
+                <span>Loading more messages...</span>
+              </div>
+            )}
+
+            {messages.map((message, index) => {
+              const dateDividerLabel = shouldShowDateDivider(index);
+              return (
+                <React.Fragment key={message.id}>
+                  {dateDividerLabel && (
+                    <div className="date-divider">
+                      <span className="date-divider-line"></span>
+                      <span className="date-divider-text">{dateDividerLabel}</span>
+                      <span className="date-divider-line"></span>
+                    </div>
+                  )}
+                  <div
+                    data-message-id={message.id}
+                    className={
+                      highlightedMessageId === message.id ? 'message-highlight' : undefined
+                    }
+                  >
+                    <Message
+                      message={message}
+                      currentUserId={currentUserId}
+                      chatContext={chatContext}
+                      onEdit={onEditMessage}
+                      onDelete={onDeleteMessage}
+                      onReply={onReply}
+                      onScrollToMessage={onScrollToMessage}
+                      onPinToggle={onPinToggle}
+                      canPin={canPin}
+                      showAvatar={shouldShowAvatar(index)}
+                      shiftHeld={shiftHeld}
+                    />
+                  </div>
+                </React.Fragment>
+              );
+            })}
+            <div ref={bottomRef} />
+          </div>
         </div>
 
         {showScrollButton && (

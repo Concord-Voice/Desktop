@@ -435,6 +435,8 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
           members={members}
           assignableRoles={assignableRoles}
           onToggleRole={handleToggleRole}
+          serverId={server.id}
+          ownerUserId={server.owner_id}
         />
       )}
 

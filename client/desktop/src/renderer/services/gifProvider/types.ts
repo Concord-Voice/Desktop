@@ -104,9 +104,6 @@ export interface GifProvider {
   notifyShared?(slug: string): Promise<void>;
   /** Report inappropriate content to the vendor. */
   report?(slug: string): Promise<void>;
-  /** Set whether the proxy is enabled. Affects which base URL the provider hits.
-   *  Called by App.tsx when the privacy setting changes. */
-  setProxyEnabled(enabled: boolean): void;
   /** Set whether to send the personalization customer_id to the vendor. */
   setPersonalizationEnabled(enabled: boolean): void;
 }

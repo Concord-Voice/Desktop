@@ -4,6 +4,8 @@ import userEvent from '@testing-library/user-event';
 import AttachmentDisplay from '@/renderer/components/Chat/AttachmentDisplay';
 import type { AttachmentSummary } from '@/renderer/types/chat';
 import { mockAttachment, mockAttachment2 } from '../../../mocks/fixtures';
+import { useSettingsStore } from '@/renderer/stores/settingsStore';
+import { fireEvent } from '@testing-library/react';
 
 // Mock apiClient
 const mockApiFetch = vi.fn();
@@ -326,5 +328,219 @@ describe('AttachmentDisplay', () => {
       <AttachmentDisplay attachments={[unknownFile]} channelId="ch-1" isEncrypted={false} />
     );
     expect(container.querySelector('.attachment-file-card')).toBeInTheDocument();
+  });
+
+  // --- Layout-shift fixes (bug #1: vertical expand on send) ---
+
+  it('reserves the clamped display box on the container when summary has dimensions', () => {
+    // 1600×1200 → max-width 400 with 4:3 aspect → 400×300
+    const sized: AttachmentSummary = {
+      ...mockAttachment,
+      id: 'sized-1',
+      width: 1600,
+      height: 1200,
+    };
+    const { container } = render(
+      <AttachmentDisplay attachments={[sized]} channelId="ch-1" isEncrypted={false} />
+    );
+    const box = container.querySelector('.attachment-image-container') as HTMLElement;
+    expect(box.style.width).toBe('400px');
+    expect(box.style.height).toBe('300px');
+  });
+
+  it('clamps tall images by max-height while preserving aspect ratio', () => {
+    // 600×1200 → max-height 300 with 1:2 aspect → 150×300
+    const tall: AttachmentSummary = {
+      ...mockAttachment,
+      id: 'tall-1',
+      width: 600,
+      height: 1200,
+    };
+    const { container } = render(
+      <AttachmentDisplay attachments={[tall]} channelId="ch-1" isEncrypted={false} />
+    );
+    const box = container.querySelector('.attachment-image-container') as HTMLElement;
+    expect(box.style.width).toBe('150px');
+    expect(box.style.height).toBe('300px');
+  });
+
+  it('does not upscale small images beyond their natural size', () => {
+    const small: AttachmentSummary = {
+      ...mockAttachment,
+      id: 'small-1',
+      width: 100,
+      height: 80,
+    };
+    const { container } = render(
+      <AttachmentDisplay attachments={[small]} channelId="ch-1" isEncrypted={false} />
+    );
+    const box = container.querySelector('.attachment-image-container') as HTMLElement;
+    expect(box.style.width).toBe('100px');
+    expect(box.style.height).toBe('80px');
+  });
+
+  // --- Reduce Animations hover-to-play (#571 item #6B) ---
+
+  it('animated attachment under Reduce Animations shows the hover-to-play hint', async () => {
+    mockFetchSuccess(new ArrayBuffer(100), 'image/gif');
+    installImmediateIO();
+    useSettingsStore.setState((s) => ({
+      appearance: { ...s.appearance, reduceAnimations: true },
+    }));
+    const gif: AttachmentSummary = {
+      id: 'gif-reduced-1',
+      file_type: 'animated',
+      mime_type: 'image/gif',
+      file_size: 1000,
+    };
+    const { container } = render(
+      <AttachmentDisplay attachments={[gif]} channelId="ch-1" isEncrypted={false} />
+    );
+    await waitFor(() => {
+      expect(container.querySelector('.attachment-reduced-motion-hint')).toBeInTheDocument();
+    });
+    // The <img> is not rendered while the hint is shown
+    expect(container.querySelector('img')).toBeNull();
+  });
+
+  it('animated attachment renders the <img> on hover and removes it on mouseleave', async () => {
+    mockFetchSuccess(new ArrayBuffer(100), 'image/gif');
+    installImmediateIO();
+    useSettingsStore.setState((s) => ({
+      appearance: { ...s.appearance, reduceAnimations: true },
+    }));
+    const gif: AttachmentSummary = {
+      id: 'gif-reduced-hover',
+      file_type: 'animated',
+      mime_type: 'image/gif',
+      file_size: 1000,
+    };
+    const { container } = render(
+      <AttachmentDisplay attachments={[gif]} channelId="ch-1" isEncrypted={false} />
+    );
+    await waitFor(() =>
+      expect(container.querySelector('.attachment-reduced-motion-hint')).toBeInTheDocument()
+    );
+    const box = container.querySelector('.attachment-image-container') as HTMLElement;
+    fireEvent.mouseEnter(box);
+    await waitFor(() => expect(container.querySelector('img')).toBeInTheDocument());
+    fireEvent.mouseLeave(box);
+    await waitFor(() => expect(container.querySelector('img')).toBeNull());
+  });
+
+  it('animated attachment autoplays (no hint) when Reduce Animations is OFF', async () => {
+    mockFetchSuccess(new ArrayBuffer(100), 'image/gif');
+    installImmediateIO();
+    useSettingsStore.setState((s) => ({
+      appearance: { ...s.appearance, reduceAnimations: false },
+    }));
+    const gif: AttachmentSummary = {
+      id: 'gif-auto',
+      file_type: 'animated',
+      mime_type: 'image/gif',
+      file_size: 1000,
+    };
+    const { container } = render(
+      <AttachmentDisplay attachments={[gif]} channelId="ch-1" isEncrypted={false} />
+    );
+    await waitFor(() => expect(container.querySelector('img')).toBeInTheDocument());
+    expect(container.querySelector('.attachment-reduced-motion-hint')).toBeNull();
+  });
+
+  it('static photo ignores Reduce Animations', async () => {
+    mockFetchSuccess();
+    installImmediateIO();
+    useSettingsStore.setState((s) => ({
+      appearance: { ...s.appearance, reduceAnimations: true },
+    }));
+    const photo: AttachmentSummary = { ...mockAttachment, id: 'photo-reduced-1' };
+    const { container } = render(
+      <AttachmentDisplay attachments={[photo]} channelId="ch-1" isEncrypted={false} />
+    );
+    await waitFor(() => expect(container.querySelector('img')).toBeInTheDocument());
+    expect(container.querySelector('.attachment-reduced-motion-hint')).toBeNull();
+  });
+
+  it('leaves the container unsized when summary has no dimensions (legacy rows)', () => {
+    const noDims: AttachmentSummary = { ...mockAttachment, id: 'nodims-1' };
+    const { container } = render(
+      <AttachmentDisplay attachments={[noDims]} channelId="ch-1" isEncrypted={false} />
+    );
+    const box = container.querySelector('.attachment-image-container') as HTMLElement;
+    expect(box.style.width).toBe('');
+    expect(box.style.height).toBe('');
+  });
+
+  it('leaves the container unsized when only width is provided (no height)', () => {
+    const partialDims: AttachmentSummary = { ...mockAttachment, id: 'partial-w', width: 400 };
+    const { container } = render(
+      <AttachmentDisplay attachments={[partialDims]} channelId="ch-1" isEncrypted={false} />
+    );
+    const box = container.querySelector('.attachment-image-container') as HTMLElement;
+    expect(box.style.width).toBe('');
+    expect(box.style.height).toBe('');
+  });
+
+  it('leaves the container unsized when only height is provided (no width)', () => {
+    const partialDims: AttachmentSummary = { ...mockAttachment, id: 'partial-h', height: 300 };
+    const { container } = render(
+      <AttachmentDisplay attachments={[partialDims]} channelId="ch-1" isEncrypted={false} />
+    );
+    const box = container.querySelector('.attachment-image-container') as HTMLElement;
+    expect(box.style.width).toBe('');
+    expect(box.style.height).toBe('');
+  });
+
+  it('animated attachment under Reduce Animations shows hover-to-play hint and no img initially', async () => {
+    mockFetchSuccess(new ArrayBuffer(100), 'image/gif');
+    installImmediateIO();
+    useSettingsStore.setState((s) => ({
+      appearance: { ...s.appearance, reduceAnimations: true },
+    }));
+    const gif: AttachmentSummary = {
+      id: 'gif-hint-only',
+      file_type: 'animated',
+      mime_type: 'image/gif',
+      file_size: 2000,
+    };
+    const { container } = render(
+      <AttachmentDisplay attachments={[gif]} channelId="ch-1" isEncrypted={false} />
+    );
+    await waitFor(() => {
+      expect(container.querySelector('.attachment-reduced-motion-hint')).toBeInTheDocument();
+    });
+    expect(container.querySelector('img')).toBeNull();
+  });
+
+  it('width and height attributes are respected and clamped when provided', () => {
+    // 800×600 fits within 400×300 at 0.5 ratio → 400×300
+    const sized: AttachmentSummary = {
+      ...mockAttachment,
+      id: 'sized-wh',
+      width: 800,
+      height: 600,
+    };
+    const { container } = render(
+      <AttachmentDisplay attachments={[sized]} channelId="ch-1" isEncrypted={false} />
+    );
+    const box = container.querySelector('.attachment-image-container') as HTMLElement;
+    expect(box.style.width).toBe('400px');
+    expect(box.style.height).toBe('300px');
+  });
+
+  it('missing width/height leaves container without inline size constraints', () => {
+    const noDims: AttachmentSummary = {
+      id: 'no-wh-dims',
+      file_type: 'photo',
+      mime_type: 'image/jpeg',
+      file_size: 50000,
+    };
+    const { container } = render(
+      <AttachmentDisplay attachments={[noDims]} channelId="ch-1" isEncrypted={false} />
+    );
+    const box = container.querySelector('.attachment-image-container') as HTMLElement;
+    // No inline width/height — falls back to CSS max-width/max-height
+    expect(box.style.width).toBe('');
+    expect(box.style.height).toBe('');
   });
 });

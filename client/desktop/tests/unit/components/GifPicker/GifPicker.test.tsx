@@ -1,6 +1,8 @@
 import { render, screen, fireEvent, waitFor } from '../../../test-utils';
 import { resetAllStores } from '../../../helpers/store-helpers';
 import { useSavedGifsStore } from '@/renderer/stores/savedGifsStore';
+import { useSettingsStore } from '@/renderer/stores/settingsStore';
+import { usePrivacyStore } from '@/renderer/stores/privacyStore';
 
 // Mock the gifProvider entirely. The picker no longer talks to a vendor SDK
 // directly — it goes through the abstract gifProvider singleton, which we
@@ -47,7 +49,6 @@ vi.mock('@/renderer/services/gifProvider', () => ({
     categories: (opts: unknown) => categoriesMock(opts),
     getBySlug: (slug: string) => getBySlugMock(slug),
     notifyShared: (slug: string) => notifySharedMock(slug),
-    setProxyEnabled: vi.fn(),
     setPersonalizationEnabled: vi.fn(),
   },
 }));
@@ -69,6 +70,10 @@ describe('GifPicker', () => {
     categoriesMock.mockReset();
     getBySlugMock.mockReset();
     notifySharedMock.mockReset();
+    // Enable personalization so the Recent tab is visible in these tests
+    usePrivacyStore.setState((s) => ({
+      settings: { ...s.settings, sharePersonalizationWithGifProvider: true },
+    }));
     // Default trending returns one GIF
     trendingMock.mockResolvedValue({ items: [sampleVideoGif], hasMore: false });
     recentMock.mockResolvedValue({ items: [], hasMore: false });
@@ -231,6 +236,35 @@ describe('GifPicker', () => {
     await waitFor(() => expect(trendingMock).toHaveBeenCalled());
     fireEvent.mouseDown(screen.getByText('Trending'));
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // --- Reduce Animations: picker must always animate (#571 item #6A) ---
+
+  it('picker renders animated <video> tiles even when Reduce Animations is ON', async () => {
+    useSettingsStore.setState((s) => ({
+      appearance: { ...s.appearance, reduceAnimations: true },
+    }));
+    render(<GifPicker onSelect={onSelect} onClose={onClose} position={position} />);
+    await waitFor(() => expect(trendingMock).toHaveBeenCalled());
+    // Sample GIF is a video rendition — must appear as <video>, not the still <img>
+    await waitFor(() => {
+      expect(document.querySelector('video')).not.toBeNull();
+    });
+  });
+
+  it('picker renders animated <img> tiles (image rendition) regardless of Reduce Animations', async () => {
+    trendingMock.mockResolvedValue({ items: [sampleImageGif], hasMore: false });
+    useSettingsStore.setState((s) => ({
+      appearance: { ...s.appearance, reduceAnimations: true },
+    }));
+    render(<GifPicker onSelect={onSelect} onClose={onClose} position={position} />);
+    await waitFor(() => expect(trendingMock).toHaveBeenCalled());
+    await waitFor(() => {
+      const img = document.querySelector('.gif-tile img') as HTMLImageElement;
+      expect(img).not.toBeNull();
+      // Uses the animated URL, NOT the still — picker ignores reduceAnimations
+      expect(img.getAttribute('src')).toBe('https://media.klipy.com/g1.gif');
+    });
   });
 
   it('save overlay click adds the GIF to saved store without sending it', async () => {

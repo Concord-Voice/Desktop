@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { keyboardShortcutService } from '../services/keyboardShortcutService';
+import { useSettingsOverlayStore } from '../stores/settingsOverlayStore';
 import { useKeyboardShortcutStore } from '../stores/keyboardShortcutStore';
 import { useChannelStore } from '../stores/channelStore';
 import { useUnreadStore } from '../stores/unreadStore';
@@ -11,8 +11,6 @@ import { useVoiceStore } from '../stores/voiceStore';
  * Should be called once at the app's top level (MainView).
  */
 export function useKeyboardShortcuts(): void {
-  const navigate = useNavigate();
-
   useEffect(() => {
     const service = keyboardShortcutService;
     service.init();
@@ -95,7 +93,7 @@ export function useKeyboardShortcuts(): void {
     });
 
     service.registerHandler('open-settings', () => {
-      navigate('/app/settings');
+      useSettingsOverlayStore.getState().openSettings('app');
     });
 
     // Voice
@@ -112,5 +110,5 @@ export function useKeyboardShortcuts(): void {
     return () => {
       service.destroy();
     };
-  }, [navigate]);
+  }, []);
 }

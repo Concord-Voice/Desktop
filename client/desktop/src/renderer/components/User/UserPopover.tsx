@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useSettingsOverlayStore } from '../../stores/settingsOverlayStore';
 import { UserProfile, useUserStore } from '../../stores/userStore';
 import { useMemberStore, PresenceStatus } from '../../stores/memberStore';
 import { getWebSocketService } from '../../services/websocketService';
@@ -174,7 +175,7 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
         className="user-popover-item"
         onClick={() => {
           onClose();
-          navigate('/app/profile');
+          useSettingsOverlayStore.getState().openSettings('profile');
         }}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -193,7 +194,7 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
         className="user-popover-item"
         onClick={() => {
           onClose();
-          navigate('/app/settings');
+          useSettingsOverlayStore.getState().openSettings('app');
         }}
       >
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

@@ -17,11 +17,13 @@ type Tab = 'trending' | 'recent' | 'categories' | 'saved';
 const PAGE_SIZE = 25;
 const SEARCH_DEBOUNCE_MS = 300;
 
-/** Render the animated rendition (video or image) for a GIF, with reduce-motion fallback. */
-function GifMedia({ gif, reduceMotion }: Readonly<{ gif: GifResolved; reduceMotion: boolean }>) {
-  if (reduceMotion) {
-    return <img src={gif.stillUrl} alt="" draggable={false} />;
-  }
+/** Render the animated rendition (video or image) for a GIF.
+ *
+ *  The picker intentionally IGNORES the Reduce Animations setting — users
+ *  need to see the animation to choose a GIF. Reduce Animations only affects
+ *  inline chat embeds (GifEmbed), not the picker itself. See QA bug #571
+ *  item #6A. */
+function GifMedia({ gif }: Readonly<{ gif: GifResolved }>) {
   if (gif.animatedKind === 'video') {
     return (
       <video
@@ -66,11 +68,7 @@ function SaveOverlayButton({ slug }: Readonly<{ slug: string }>) {
 }
 
 /** Individual GIF tile with autoplay video / fallback image and the save overlay. */
-function GifTile({
-  gif,
-  reduceMotion,
-  onClick,
-}: Readonly<{ gif: GifResolved; reduceMotion: boolean; onClick: () => void }>) {
+function GifTile({ gif, onClick }: Readonly<{ gif: GifResolved; onClick: () => void }>) {
   return (
     <button
       className="gif-tile"
@@ -80,7 +78,7 @@ function GifTile({
       }}
       aria-label="Send GIF"
     >
-      <GifMedia gif={gif} reduceMotion={reduceMotion} />
+      <GifMedia gif={gif} />
       <SaveOverlayButton slug={gif.slug} />
     </button>
   );
@@ -89,16 +87,15 @@ function GifTile({
 /** Category tile — clicking it switches the picker into search mode for that category. */
 function CategoryTile({
   category,
-  reduceMotion,
   onClick,
-}: Readonly<{ category: GifCategory; reduceMotion: boolean; onClick: () => void }>) {
+}: Readonly<{ category: GifCategory; onClick: () => void }>) {
   return (
     <button
       className="gif-tile gif-category-tile"
       onClick={onClick}
       aria-label={`Browse ${category.name}`}
     >
-      <GifMedia gif={category.preview} reduceMotion={reduceMotion} />
+      <GifMedia gif={category.preview} />
       <span className="gif-category-name">{category.name}</span>
     </button>
   );
@@ -118,7 +115,6 @@ function PickerBody({
   activeTab,
   items,
   categories,
-  reduceMotion,
   onGifClick,
   onCategoryClick,
 }: Readonly<{
@@ -129,7 +125,6 @@ function PickerBody({
   activeTab: Tab;
   items: GifResolved[];
   categories: GifCategory[];
-  reduceMotion: boolean;
   onGifClick: (gif: GifResolved) => void;
   onCategoryClick: (name: string) => void;
 }>) {
@@ -141,12 +136,7 @@ function PickerBody({
     return (
       <div className="gif-picker-grid">
         {categories.map((cat) => (
-          <CategoryTile
-            key={cat.name}
-            category={cat}
-            reduceMotion={reduceMotion}
-            onClick={() => onCategoryClick(cat.name)}
-          />
+          <CategoryTile key={cat.name} category={cat} onClick={() => onCategoryClick(cat.name)} />
         ))}
       </div>
     );
@@ -164,12 +154,7 @@ function PickerBody({
   return (
     <div className="gif-picker-grid">
       {items.map((gif) => (
-        <GifTile
-          key={gif.slug}
-          gif={gif}
-          reduceMotion={reduceMotion}
-          onClick={() => onGifClick(gif)}
-        />
+        <GifTile key={gif.slug} gif={gif} onClick={() => onGifClick(gif)} />
       ))}
     </div>
   );
@@ -394,7 +379,6 @@ const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose, position }) =>
           activeTab={activeTab}
           items={items}
           categories={categories}
-          reduceMotion={reduceAnimations}
           onGifClick={handleGifClick}
           onCategoryClick={handleCategoryClick}
         />

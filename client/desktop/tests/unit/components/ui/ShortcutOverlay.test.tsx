@@ -99,7 +99,7 @@ describe('ShortcutOverlay', () => {
     expect(screen.getByText('Navigation')).toBeInTheDocument();
     expect(screen.getByText('Messaging')).toBeInTheDocument();
     expect(screen.getByText('Application')).toBeInTheDocument();
-    expect(screen.getByText('Voice & Audio')).toBeInTheDocument();
+    expect(screen.getByText('Audio & Video')).toBeInTheDocument();
   });
 
   it('filters shortcuts by search term', () => {

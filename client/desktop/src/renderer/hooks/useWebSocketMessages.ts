@@ -929,7 +929,9 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         addPlaintextMessage(conversationId, baseMessage, data.content, addMessage);
       }
 
-      useDMStore.getState().updateLastMessage(conversationId, lastMessagePreview);
+      // Bump conversation to the top of the DM list with updated preview.
+      // No-ops gracefully if the conversation isn't in state yet (initial-load race).
+      useDMStore.getState().bumpConversation(conversationId, lastMessagePreview);
 
       // Notification sound for DM messages (from other users)
       if (data.user_id !== useUserStore.getState().user?.id) {

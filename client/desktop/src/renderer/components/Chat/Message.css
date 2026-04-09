@@ -390,6 +390,45 @@
   border-left: 2px solid var(--accent-color);
 }
 
+/* ------------------------------------------------------------------ */
+/*  Compact mode — Settings > Appearance > Compact Mode                */
+/*  Subtly tightens message spacing and avatar size. The deltas are    */
+/*  intentionally small (~25% padding, 40→32 avatar, ~10% line-height) */
+/*  so the layout still breathes and the layout-shift fixes from       */
+/*  b31f591 continue to reserve correct space for GIFs / images.       */
+/* ------------------------------------------------------------------ */
+html[data-compact='true'] .message {
+  padding-top: calc(6px * var(--sp, 1));
+  padding-bottom: 0;
+  gap: calc(10px * var(--sp, 1));
+}
+
+html[data-compact='true'] .message.message-grouped {
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+
+html[data-compact='true'] .message-avatar,
+html[data-compact='true'] .message-gutter,
+html[data-compact='true'] .avatar-circle,
+html[data-compact='true'] .avatar-image {
+  width: 32px;
+  height: 32px;
+}
+
+html[data-compact='true'] .avatar-circle {
+  font-size: calc(13px * var(--font-scale, 1));
+}
+
+html[data-compact='true'] .message-header {
+  gap: calc(6px * var(--sp, 1));
+  margin-bottom: calc(2px * var(--sp, 1));
+}
+
+html[data-compact='true'] .message-text {
+  line-height: 1.35;
+}
+
 .message-pinned-indicator {
   display: inline-flex;
   align-items: center;

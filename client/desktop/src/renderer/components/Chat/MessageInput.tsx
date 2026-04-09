@@ -92,7 +92,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const [gifPickerPos, setGifPickerPos] = useState<{ x: number; y: number; anchorCenterX: number }>(
     { x: 0, y: 0, anchorCenterX: 0 }
   );
-  const klipyApiKey = useClientConfigStore((s) => s.featureFlags.klipyApiKey);
+  const gifsEnabled = useClientConfigStore((s) => s.featureFlags.gifsEnabled ?? false);
   const [showMentions, setShowMentions] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const emojiBtnRef = useRef<HTMLButtonElement>(null);
@@ -624,7 +624,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
               ref={gifBtnRef}
               className={`media-btn ${showGifPicker ? 'active' : ''}`}
               title="GIF"
-              disabled={!klipyApiKey}
+              disabled={!gifsEnabled}
               onClick={toggleGifPicker}
             >
               <ImagePlay size={18} />

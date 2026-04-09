@@ -226,6 +226,7 @@ const ChatView: React.FC = () => {
           onScrollToMessage={handleScrollToMessage}
           onPinToggle={handlePinToggle}
           canPin={canPin}
+          persistenceKey={activeChannelId || undefined}
         />
       </div>
 

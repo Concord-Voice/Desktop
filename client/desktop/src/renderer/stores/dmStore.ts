@@ -157,6 +157,11 @@ interface DMState {
   updateConversation: (id: string, updates: Partial<DMConversation>) => void;
   removeConversation: (id: string) => void;
   updateLastMessage: (convId: string, message: DMLastMessage) => void;
+  /**
+   * Bump a conversation to the top of the list with a new last-message preview.
+   * No-ops if the conversation isn't in state yet (covers initial-load races).
+   */
+  bumpConversation: (conversationId: string, message: DMLastMessage) => void;
   incrementUnread: (convId: string) => void;
   clearUnread: (convId: string) => void;
 
@@ -356,6 +361,21 @@ export const useDMStore = create<DMState>()(
               c.id === convId ? { ...c, lastMessage: message } : c
             );
             // Re-sort: most recent message first
+            updated.sort((a, b) => {
+              const aTime = a.lastMessage?.createdAt || a.createdAt;
+              const bTime = b.lastMessage?.createdAt || b.createdAt;
+              return new Date(bTime).getTime() - new Date(aTime).getTime();
+            });
+            return { conversations: updated };
+          }),
+
+        bumpConversation: (conversationId: string, message: DMLastMessage) =>
+          set((state) => {
+            const exists = state.conversations.some((c) => c.id === conversationId);
+            if (!exists) return state;
+            const updated = state.conversations.map((c) =>
+              c.id === conversationId ? { ...c, lastMessage: message } : c
+            );
             updated.sort((a, b) => {
               const aTime = a.lastMessage?.createdAt || a.createdAt;
               const bTime = b.lastMessage?.createdAt || b.createdAt;

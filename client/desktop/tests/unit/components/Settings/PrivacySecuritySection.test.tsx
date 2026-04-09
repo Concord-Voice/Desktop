@@ -227,6 +227,12 @@ describe('PrivacySecuritySection', () => {
     render(<PrivacySecuritySection />);
     await vi.waitFor(() => expect(screen.getByText('System Permissions')).toBeInTheDocument());
   });
+  it('System Permissions section is collapsed by default (#4)', async () => {
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('System Permissions')).toBeInTheDocument());
+    const details = screen.getByText('System Permissions').closest('details');
+    expect(details?.hasAttribute('open')).toBe(false);
+  });
   it('shows granted badges', async () => {
     render(<PrivacySecuritySection />);
     await vi.waitFor(() => expect(screen.getByText('Microphone')).toBeInTheDocument());
