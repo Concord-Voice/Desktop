@@ -235,6 +235,21 @@ contextBridge.exposeInMainWorld('electron', {
   setBadgeCount: (count: number) => ipcRenderer.invoke('app:setBadgeCount', count),
   flashFrame: (flash: boolean) => ipcRenderer.invoke('app:flashFrame', flash),
   focusWindow: () => ipcRenderer.invoke('app:focusWindow'),
+
+  // Sentry config (read-only, no callbacks, no side effects)
+  // Sentry config (read-only, no callbacks, no side effects)
+  sentry: (() => {
+    const env =
+      process.env.SENTRY_ENVIRONMENT ||
+      process.env.NODE_ENV ||
+      (process.defaultApp ? 'development' : 'production');
+    const dsn = process.env.SENTRY_DSN || '';
+    const enabled =
+      process.env.SENTRY_ENABLED != null
+        ? process.env.SENTRY_ENABLED.toLowerCase() === 'true'
+        : Boolean(dsn) && env === 'production';
+    return { dsn, environment: env, enabled };
+  })(),
 });
 
 // Type definitions for the exposed API
@@ -365,6 +380,13 @@ export interface ElectronAPI {
   setBadgeCount: (count: number) => Promise<void>;
   flashFrame: (flash: boolean) => Promise<void>;
   focusWindow: () => Promise<void>;
+
+  // Sentry config
+  sentry: {
+    dsn: string;
+    environment: string;
+    enabled: boolean;
+  };
 }
 
 declare global {

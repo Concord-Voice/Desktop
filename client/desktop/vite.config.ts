@@ -22,7 +22,7 @@ export default defineConfig({
     coverage: {
       provider: 'istanbul',
       reporter: ['text', 'html', 'lcov'],
-      include: ['src/renderer/**/*.{ts,tsx}'],
+      include: ['src/renderer/**/*.{ts,tsx}', 'src/shared/**/*.{ts,tsx}'],
       exclude: ['src/renderer/types/**', '**/*.d.ts'],
       // Coverage thresholds enforced by SonarQube Quality Gate, not here.
     },

@@ -108,6 +108,15 @@ vi.mock('electron', () => ({
   powerMonitor: { on: vi.fn() },
 }));
 
+// ── Sentry mock ───────────────────────────────────────────────────────
+
+vi.mock('@sentry/electron/main', () => ({
+  init: vi.fn(),
+  setTag: vi.fn(),
+  captureException: vi.fn(),
+  captureMessage: vi.fn(),
+}));
+
 // ── Node / internal module mocks ───────────────────────────────────────
 
 vi.mock('node:fs', () => ({

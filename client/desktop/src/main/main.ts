@@ -1,3 +1,4 @@
+import './sentry';
 import {
   app,
   BrowserWindow,

@@ -3,11 +3,11 @@
   "compilerOptions": {
     "module": "CommonJS",
     "moduleResolution": "node10",
-    "outDir": "./dist/main",
-    "rootDir": "./src/main",
+    "outDir": "./dist",
+    "rootDir": "./src",
     "lib": ["ES2022"],
     "ignoreDeprecations": "6.0"
   },
-  "include": ["src/main/**/*"],
+  "include": ["src/main/**/*", "src/shared/**/*"],
   "exclude": ["node_modules", "dist", "src/renderer"]
 }

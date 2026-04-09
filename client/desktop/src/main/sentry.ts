@@ -1,0 +1,26 @@
+import * as Sentry from '@sentry/electron/main';
+import { app } from 'electron';
+import { scrubEvent, scrubBreadcrumb } from '../shared/sentry-scrubbers';
+
+const sentryEnvironment =
+  process.env.SENTRY_ENVIRONMENT ||
+  process.env.NODE_ENV ||
+  (app.isPackaged ? 'production' : 'development');
+const sentryEnabled =
+  process.env.SENTRY_ENABLED == null
+    ? Boolean(process.env.SENTRY_DSN) && sentryEnvironment === 'production'
+    : process.env.SENTRY_ENABLED.toLowerCase() === 'true';
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: sentryEnvironment,
+  enabled: sentryEnabled,
+  release: `concord-desktop@${app.getVersion()}`,
+  // 100% error capture during beta — tune down before GA once baseline rates are established.
+  sampleRate: 1,
+  // Tracing disabled until a beforeSendTransaction scrubber is implemented.
+  // Transaction events bypass beforeSend and would reach Sentry unscrubbed.
+  tracesSampleRate: 0,
+  beforeSend: scrubEvent,
+  beforeBreadcrumb: scrubBreadcrumb,
+});

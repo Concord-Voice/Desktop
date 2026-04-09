@@ -16,7 +16,13 @@ if (fs.existsSync('./app-update.yml')) {
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: true,
+    asar: {
+      // Exclude source maps from the packaged ASAR archive. Source maps are
+      // uploaded to Sentry in CI for server-side stack trace resolution;
+      // they must NOT ship to end users (exposes full source code).
+      unpackDir: undefined,
+    },
+    ignore: [/\.map$/],
     name: 'Concord Voice',
     executableName: 'concord-voice',
     icon: './build/icon',
@@ -34,8 +40,7 @@ const config: ForgeConfig = {
     extendInfo: {
       NSMicrophoneUsageDescription:
         'Concord Voice needs microphone access for voice calls and audio communication.',
-      NSCameraUsageDescription:
-        'Concord Voice needs camera access for video calls.',
+      NSCameraUsageDescription: 'Concord Voice needs camera access for video calls.',
     },
   },
   makers: [
