@@ -2,16 +2,16 @@
 
 Test suite for the Concord Voice Desktop Client (Electron/React/TypeScript).
 
-**195 test files** across unit, component, hook, service, and E2E categories.
+Test files span unit, component, hook, service, shared, and E2E categories. See internal reference omitted for current count.
 
 ## Structure
 
-```
+```text
 tests/
 ├── setup.ts                        # Global test setup (jest-dom, crypto polyfill, window.electron mock)
 ├── test-utils.tsx                  # Custom render() with BrowserRouter, re-exports Testing Library
 ├── helpers/
-│   ├── store-helpers.ts            # resetAllStores() for all 24 Zustand stores
+│   ├── store-helpers.ts            # resetAllStores() for all 30 Zustand stores
 │   └── crypto-helpers.ts           # mockE2EEService() stubs
 ├── mocks/
 │   ├── fixtures.ts                 # Typed mock data: mockUser, mockServer, mockChannel, mockMessage, mockMember
@@ -58,6 +58,9 @@ tests/
 │   │   └── websocketService.test.ts
 │   └── utils/
 │       └── crypto.test.ts          # Key derivation, key pair generation, wrap/unwrap, encrypt/decrypt (uses real Node webcrypto)
+├── shared/                         # Cross-process module tests
+│   ├── sentry-scrubbers.test.ts    # Privacy scrubbing rules (PII, key material, breadcrumb stripping)
+│   └── sentry.test.ts              # Sentry init, DSN gating, beforeSend pipeline
 └── e2e/                            # Playwright E2E tests
     ├── helpers.ts                  # registerUser, loginUser, createServer, createChannel helpers
     ├── auth.spec.ts
@@ -97,31 +100,35 @@ npx playwright test
 ## Test Tools
 
 | Tool | Purpose |
-|------|---------|
+| ---- | ------- |
 | **Vitest** | Test runner (Vite-native, jest-compatible API) |
 | **@testing-library/react** | Component rendering and querying |
 | **@testing-library/jest-dom** | Custom DOM matchers (`toBeInTheDocument`, etc.) |
 | **@testing-library/user-event** | Realistic user interaction simulation |
 | **MSW v2** | API mocking for store tests (Mock Service Worker) |
 | **jsdom** | Browser environment simulation |
-| **@vitest/coverage-v8** | V8-based code coverage |
+| **@vitest/coverage-istanbul** | Istanbul-based code coverage (avoids OOM vs v8 provider) |
 | **Playwright** | E2E browser testing |
 
 ## Testing Patterns
 
 ### Component Tests
+
 Components are tested with the custom `render()` from `test-utils.tsx` which wraps with `BrowserRouter`. Zustand stores are set directly via `setState()` for setup and read via `getState()` for assertions.
 
 ### Store Tests
+
 Zustand stores are tested directly — call actions, assert state changes. MSW intercepts API calls made by async actions. Stores are reset between tests.
 
 ### Mocking
+
 - **`vi.mock()`** for module mocks (crypto, e2eeService, preferencesSync)
 - **`vi.stubGlobal('fetch', mockFetch)`** for direct fetch mocking in component submission tests
 - **MSW** for store-level API mocking (avoids `credentials: 'include'` hang in jsdom)
 - **`vi.fn()`** for callback props and function mocks
 
 ### Known Limitations
+
 - `window.matchMedia` is unavailable in jsdom — system theme tests must be skipped
 - `InviteToServerModal` causes OOM in jsdom — excluded from test suite
 - Components that fetch in `useEffect` on mount will override manually-set store state — mock the fetch function or API client

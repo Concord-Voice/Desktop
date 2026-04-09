@@ -47,10 +47,12 @@ desktop/
 │   │   └── main.ts    # App entry point, window management
 │   ├── preload/       # Preload scripts (IPC bridge)
 │   │   └── preload.ts
+│   ├── shared/        # Cross-process modules (main + renderer)
+│   │   └── sentry-scrubbers.ts  # Privacy scrubbing rules for Sentry events
 │   └── renderer/      # React application
 │       ├── components/ # React components
 │       ├── hooks/     # Custom React hooks
-│       ├── store/     # State management (Zustand)
+│       ├── stores/    # State management (30 Zustand stores)
 │       ├── utils/     # Utility functions
 │       ├── styles/    # CSS styles
 │       ├── App.tsx    # Main app component
@@ -132,16 +134,24 @@ This will create platform-specific installers in the `out/` directory.
 - Channel groups with drag-and-drop ordering
 - Custom context menus
 - Profile popovers
-- **24 Zustand stores** (Zustand 5.0.12) for state management
+- **30 Zustand stores** (Zustand 5.0.12) for state management — see [STATE_MANAGEMENT.md](docs/STATE_MANAGEMENT.md) and internal-reference for authoritative counts
 
 ### Security ✅
 - Electron hardening: safeStorage, ASAR, sandbox, context isolation
 - Secure IPC via preload scripts (no @electron/remote)
 - CSP configured
 - E2EE: AES-256-GCM message encryption, RSA-OAEP 4096-bit key wrapping
+- **Sentry error tracking** — fail-closed privacy model; key material, message content, and PII are scrubbed before any event leaves the client (see `src/shared/sentry-scrubbers.ts`)
+- **Developer mode toggle** — in-app flag for enabling diagnostic tooling without a production build
 
 ### Phase 2+ 📋
-- [ ] GIF integration, file uploads, @mention tagging
+
+- [x] GIF integration (Klipy, savedGifsStore, privacy controls)
+- [x] DM message pinning (migration 000057)
+- [x] Server mute/deafen (migration 000054)
+- [x] Message reactions
+- [x] Reply/quote messages
+- [ ] File uploads, @mention tagging
 - [ ] Push-to-talk with global shortcuts
 - [ ] System tray integration
 - [ ] Auto-updates
