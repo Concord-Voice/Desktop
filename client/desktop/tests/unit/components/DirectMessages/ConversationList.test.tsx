@@ -362,6 +362,18 @@ describe('ConversationList', () => {
     expect(groupAvatar).toBeInTheDocument();
   });
 
+  it('opens context menu on right-click', () => {
+    useDMStore.setState({
+      conversations: [makeConversation()],
+      fetchConversations: vi.fn().mockResolvedValue(undefined),
+    });
+    render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
+    const item = screen.getByLabelText('Alice');
+    fireEvent.contextMenu(item);
+    // DMConversationContextMenu renders — unencrypted conversation shows fallback text
+    expect(screen.getByText('No actions available')).toBeInTheDocument();
+  });
+
   it('renders multiple conversations', () => {
     useDMStore.setState({
       conversations: [

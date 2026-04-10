@@ -179,9 +179,7 @@ const MentionAutocomplete = forwardRef<MentionAutocompleteHandle, MentionAutocom
         };
       }
       const basePerm = serverPermissions[serverId] ?? 0n;
-      // TODO: Apply channel SBAC overrides when channelId is provided
-      // For now, use base server permissions (SBAC resolution is complex and
-      // the server enforces the real permission check anyway)
+      // Deferred: see #600 — requires SBAC permission resolver in component context
       const hasMentionEveryone = hasPermission(basePerm, MENTION_EVERYONE);
       return {
         canMentionEveryone: hasMentionEveryone,

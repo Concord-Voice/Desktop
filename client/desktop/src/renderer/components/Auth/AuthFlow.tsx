@@ -58,7 +58,7 @@ const AuthFlow: React.FC = () => {
     setServerUrl(url);
     setStep('self-hosted-auth');
 
-    // TODO: Discover server capabilities and forward to server's auth
+    // Deferred: see #602 — requires self-hosted installer (#210)
     console.debug('Connecting to self-hosted server:', url);
   };
 

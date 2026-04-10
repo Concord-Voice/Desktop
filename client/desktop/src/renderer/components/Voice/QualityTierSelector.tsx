@@ -20,7 +20,7 @@ const QualityTierSelector: React.FC = () => {
   const handleSelect = async (tier: AudioQualityTier) => {
     const config = AUDIO_QUALITY_TIERS[tier];
     if (config.premium) {
-      // TODO: Check subscription status; for now, allow all tiers
+      // Deferred: see #601 — requires subscription system (#211)
     }
     const { voiceService } = await import('../../services/voiceService');
     await voiceService.setQualityTier(tier);

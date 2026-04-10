@@ -6,6 +6,7 @@ import { e2eeService } from '../../services/e2eeService';
 import { useDraftMessageStore } from '../../stores/draftMessageStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 import CreateGroupModal from './CreateGroupModal';
+import DMConversationContextMenu from './DMConversationContextMenu';
 import './DirectMessages.css';
 
 interface ConversationListProps {
@@ -54,6 +55,10 @@ const ConversationList: React.FC<ConversationListProps> = ({
 }) => {
   const [search, setSearch] = useState('');
   const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{
+    conversation: DMConversation;
+    position: { x: number; y: number };
+  } | null>(null);
   const conversations = useDMStore((s) => s.conversations);
   const fetchConversations = useDMStore((s) => s.fetchConversations);
   const openPersonalThread = useDMStore((s) => s.openPersonalThread);
@@ -198,6 +203,13 @@ const ConversationList: React.FC<ConversationListProps> = ({
               key={conv.id}
               className={`conversation-item${selectedThreadId === conv.id ? ' active' : ''}${conv.unreadCount > 0 ? ' unread' : ''}`}
               onClick={() => onSelectThread(conv.id)}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setContextMenu({
+                  conversation: conv,
+                  position: { x: e.clientX, y: e.clientY },
+                });
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' || e.key === ' ') {
                   e.preventDefault();
@@ -249,6 +261,14 @@ const ConversationList: React.FC<ConversationListProps> = ({
         })
       )}
       <CreateGroupModal isOpen={isCreateGroupOpen} onClose={() => setIsCreateGroupOpen(false)} />
+      {contextMenu && (
+        <DMConversationContextMenu
+          conversation={contextMenu.conversation}
+          currentUserId={currentUserId}
+          position={contextMenu.position}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   );
 };
