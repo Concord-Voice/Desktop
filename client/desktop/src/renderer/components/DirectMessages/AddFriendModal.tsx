@@ -331,16 +331,17 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
               />
             </div>
             <div className="add-friend-option-group">
-              <span>Auto-accept</span>
-              <label className="add-friend-toggle">
+              <label htmlFor="auto-accept-toggle">Auto-accept</label>
+              <span className="add-friend-toggle">
                 <input
+                  id="auto-accept-toggle"
                   type="checkbox"
                   checked={autoAccept}
                   onChange={(e) => setAutoAccept(e.target.checked)}
                 />
                 <span className="add-friend-toggle-track" />
                 <span className="add-friend-toggle-thumb" />
-              </label>
+              </span>
             </div>
           </div>
 

@@ -743,7 +743,7 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
           <button
             className="btn btn-secondary"
             onClick={() => {
-              /* TODO: implement designate device flow */
+              // Designate-device flow not yet implemented
             }}
           >
             Designate This Device

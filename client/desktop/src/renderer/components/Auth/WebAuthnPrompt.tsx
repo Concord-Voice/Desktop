@@ -1,5 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 
+/** Extract an error message from a WebAuthn ceremony failure. */
+function extractCeremonyErrorMessage(err: unknown): string {
+  if (err instanceof DOMException && err.name === 'NotAllowedError') {
+    return 'Request cancelled or timed out. Try again.';
+  }
+  if (err instanceof DOMException && err.name === 'AbortError') {
+    return ''; // Silently ignore aborts from cleanup
+  }
+  if (err instanceof Error) {
+    return err.message;
+  }
+  return 'WebAuthn verification failed';
+}
+
 interface WebAuthnPromptProps {
   /** For registration: CredentialCreationOptions from the server */
   creationOptions?: PublicKeyCredentialCreationOptions;
@@ -62,16 +76,7 @@ const WebAuthnPrompt: React.FC<WebAuthnPromptProps> = ({
         onSuccessRef.current(credential);
       } catch (err) {
         if (abortController.signal.aborted) return;
-        let message: string;
-        if (err instanceof DOMException && err.name === 'NotAllowedError') {
-          message = 'Request cancelled or timed out. Try again.';
-        } else if (err instanceof DOMException && err.name === 'AbortError') {
-          message = ''; // Silently ignore aborts from cleanup
-        } else if (err instanceof Error) {
-          message = err.message;
-        } else {
-          message = 'WebAuthn verification failed';
-        }
+        const message = extractCeremonyErrorMessage(err);
         if (message) {
           setStatus('error');
           setErrorMsg(message);

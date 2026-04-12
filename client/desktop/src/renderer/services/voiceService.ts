@@ -128,6 +128,44 @@ function resolveOpusSettings(
 
 type RtpPriority = 'low' | 'medium' | 'high' | 'very-low';
 
+/** Compute retry delay: double the base delay for PENDING_KEY errors. */
+function retryDelayForError(err: unknown, baseDelay: number): number {
+  const isPending = err instanceof Error && err.message === 'PENDING_KEY';
+  return isPending ? baseDelay * 2 : baseDelay;
+}
+
+/** Handle screen capture NotAllowedError — show error and open OS settings. Returns true if handled. */
+function handleScreenCaptureNotAllowed(captureErr: unknown): boolean {
+  if (captureErr instanceof DOMException && captureErr.name === 'NotAllowedError') {
+    useVoiceStore
+      .getState()
+      .setVideoSlotError(
+        'Screen recording access denied. On macOS, enable Screen Recording in ' +
+          'System Settings > Privacy & Security, then restart Concord.'
+      );
+    useOsPermissionStore.getState().openSettings('screen');
+    return true;
+  }
+  return false;
+}
+
+/** Update voice/user stores when screen sharing starts. */
+function updateStoreForScreenShare(producerId: string, screenStream: MediaStream | null): void {
+  const store = useVoiceStore.getState();
+  store.setScreenSharing(true);
+  const localUserId = useUserStore.getState().user?.id;
+  if (localUserId && screenStream) {
+    store.updateParticipant(localUserId, {
+      screenStream,
+      isScreenSharing: true,
+    });
+  }
+  store.tuneIn(producerId, 'local-screen');
+  if (!store.dominantScreenShareId) {
+    store.setDominantScreenShare(producerId);
+  }
+}
+
 /** Build DSCP priority params for RTP encoding (empty object when 'off'). */
 function buildPriorityParams(
   priority: 'off' | RtpPriority
@@ -840,41 +878,60 @@ class VoiceService {
 
     // Video settings subscription
     this.liveVideoUnsub = useVideoSettingsStore.subscribe((state, prev) => {
-      // --- Camera: instant parameter updates ---
-      const cameraProducer = this.producers.get('camera');
-      if (cameraProducer) {
-        if (state.degradationPreference !== prev.degradationPreference) {
-          this.applyDegradationPreference(cameraProducer);
-        }
-        if (state.cameraPriority !== prev.cameraPriority) {
-          this.liveUpdateVideoPriority(cameraProducer, state.cameraPriority);
-        }
-        // Camera preset change → replaceTrack with new constraints
-        if (state.cameraPreset !== prev.cameraPreset) {
-          this.liveReplaceCameraTrack();
-        }
-        // Codec change → re-produce camera (and screen if active)
-        if (state.preferredVideoCodec !== prev.preferredVideoCodec) {
-          this.liveReproduceCamera();
-          if (this.producers.get('screen')) {
-            this.fastReproduceScreen();
-          }
-        }
-      }
-
-      // --- Screen share: instant parameter updates ---
-      const screenProducer = this.producers.get('screen');
-      if (screenProducer) {
-        if (state.screenSharePriority !== prev.screenSharePriority) {
-          this.liveUpdateVideoPriority(screenProducer, state.screenSharePriority);
-        }
-        if (state.screenShareBitrate !== prev.screenShareBitrate) {
-          this.liveUpdateScreenBitrate(screenProducer, state.screenShareBitrate);
-        }
-        // Note: screen resolution/FPS/contentType changes cannot use replaceTrack
-        // because getDisplayMedia requires a user gesture. Apply on next session.
-      }
+      this.handleVideoSettingsChange(state, prev);
     });
+  }
+
+  /** Handle video settings store changes — extracted to reduce cognitive complexity. */
+  private handleVideoSettingsChange(
+    state: ReturnType<typeof useVideoSettingsStore.getState>,
+    prev: ReturnType<typeof useVideoSettingsStore.getState>
+  ): void {
+    this.applyCameraSettingsChange(state, prev);
+    this.applyScreenShareSettingsChange(state, prev);
+  }
+
+  /** Camera instant parameter updates — extracted for complexity reduction. */
+  private applyCameraSettingsChange(
+    state: ReturnType<typeof useVideoSettingsStore.getState>,
+    prev: ReturnType<typeof useVideoSettingsStore.getState>
+  ): void {
+    const cameraProducer = this.producers.get('camera');
+    if (!cameraProducer) return;
+
+    if (state.degradationPreference !== prev.degradationPreference) {
+      this.applyDegradationPreference(cameraProducer);
+    }
+    if (state.cameraPriority !== prev.cameraPriority) {
+      this.liveUpdateVideoPriority(cameraProducer, state.cameraPriority);
+    }
+    if (state.cameraPreset !== prev.cameraPreset) {
+      this.liveReplaceCameraTrack();
+    }
+    if (state.preferredVideoCodec !== prev.preferredVideoCodec) {
+      this.liveReproduceCamera();
+      if (this.producers.get('screen')) {
+        this.fastReproduceScreen();
+      }
+    }
+  }
+
+  /** Screen share instant parameter updates — extracted for complexity reduction. */
+  private applyScreenShareSettingsChange(
+    state: ReturnType<typeof useVideoSettingsStore.getState>,
+    prev: ReturnType<typeof useVideoSettingsStore.getState>
+  ): void {
+    const screenProducer = this.producers.get('screen');
+    if (!screenProducer) return;
+
+    if (state.screenSharePriority !== prev.screenSharePriority) {
+      this.liveUpdateVideoPriority(screenProducer, state.screenSharePriority);
+    }
+    if (state.screenShareBitrate !== prev.screenShareBitrate) {
+      this.liveUpdateScreenBitrate(screenProducer, state.screenShareBitrate);
+    }
+    // Note: screen resolution/FPS/contentType changes cannot use replaceTrack
+    // because getDisplayMedia requires a user gesture. Apply on next session.
   }
 
   private teardownLiveSubscriptions(): void {
@@ -2092,16 +2149,7 @@ class VoiceService {
     try {
       stream = await this.captureScreen(sourceId, screenRes, screenFps);
     } catch (captureErr) {
-      if (captureErr instanceof DOMException && captureErr.name === 'NotAllowedError') {
-        useVoiceStore
-          .getState()
-          .setVideoSlotError(
-            'Screen recording access denied. On macOS, enable Screen Recording in ' +
-              'System Settings > Privacy & Security, then restart Concord.'
-          );
-        useOsPermissionStore.getState().openSettings('screen');
-        return;
-      }
+      if (handleScreenCaptureNotAllowed(captureErr)) return;
       throw captureErr;
     }
 
@@ -2132,20 +2180,7 @@ class VoiceService {
       this.producers.set('screen', producer);
       useVoiceStore.getState().setActiveScreenCodec(codec?.mimeType?.toLowerCase() ?? null);
 
-      const store = useVoiceStore.getState();
-      store.setScreenSharing(true);
-      const localUserId = useUserStore.getState().user?.id;
-      if (localUserId && this.localScreenStream) {
-        store.updateParticipant(localUserId, {
-          screenStream: this.localScreenStream,
-          isScreenSharing: true,
-        });
-      }
-
-      store.tuneIn(producer.id, 'local-screen');
-      if (!store.dominantScreenShareId) {
-        store.setDominantScreenShare(producer.id);
-      }
+      updateStoreForScreenShare(producer.id, this.localScreenStream);
 
       if (this.isEncrypted && this.mediaEncryption) {
         this.applyEncryptTransform(producer);
@@ -3522,16 +3557,14 @@ class VoiceService {
         return;
       } catch (err) {
         lastError = err;
-        const isPending = err instanceof Error && err.message === 'PENDING_KEY';
         console.warn('E2EE: initEncryption attempt failed', {
           channelId,
           attempt: attempt + 1,
-          isPending,
           error: err instanceof Error ? err.message : err,
         });
 
         if (attempt < retryDelays.length) {
-          const delay = isPending ? retryDelays[attempt] * 2 : retryDelays[attempt];
+          const delay = retryDelayForError(err, retryDelays[attempt]);
           await new Promise((r) => setTimeout(r, delay));
         }
       }

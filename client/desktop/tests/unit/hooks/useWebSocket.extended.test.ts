@@ -12,19 +12,20 @@ import { useChatStore } from '@/renderer/stores/chatStore';
 import { resetAllStores } from '../../helpers/store-helpers';
 
 // Capture registered handlers so we can invoke them in tests
-const registeredHandlers = new Map<string, Function>();
-let connectionChangeHandler: Function | null = null;
+type HandlerFn = (...args: unknown[]) => void;
+const registeredHandlers = new Map<string, HandlerFn>();
+let connectionChangeHandler: HandlerFn | null = null;
 
 const mockWsService = {
   connect: vi.fn(),
   disconnect: vi.fn(),
-  on: vi.fn((type: string, handler: Function) => {
+  on: vi.fn((type: string, handler: HandlerFn) => {
     registeredHandlers.set(type, handler);
     return () => {
       registeredHandlers.delete(type);
     };
   }),
-  onConnectionChange: vi.fn((handler: Function) => {
+  onConnectionChange: vi.fn((handler: HandlerFn) => {
     connectionChangeHandler = handler;
     handler('disconnected');
     return () => {

@@ -4,12 +4,18 @@ import { useAudioSettingsStore } from '@/renderer/stores/audioSettingsStore';
 import { useTTSSettingsStore } from '@/renderer/stores/ttsSettingsStore';
 import { resetAllStores } from '../../helpers/store-helpers';
 
-// Mock settingsStore's syncColorSchemeToServer (called in apply)
+// Mock settingsStore's syncColorSchemeToServer and spy on setSyncSuppressed (called in apply)
+const setSyncSuppressedSpy = vi.fn();
 vi.mock('@/renderer/stores/settingsStore', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/renderer/stores/settingsStore')>();
+  const originalSetSyncSuppressed = actual.setSyncSuppressed;
   return {
     ...actual,
     syncColorSchemeToServer: vi.fn(),
+    setSyncSuppressed: (...args: Parameters<typeof originalSetSyncSuppressed>) => {
+      setSyncSuppressedSpy(...args);
+      return originalSetSyncSuppressed(...args);
+    },
   };
 });
 
@@ -524,6 +530,42 @@ describe('draftSettingsStore', () => {
       useDraftSettingsStore.getState().setAudioDraft('inputVolume', 20);
       useDraftSettingsStore.getState().setAudioDraft('inputVolume', 30);
       expect(useDraftSettingsStore.getState().drafts.audio.inputVolume).toBe(30);
+    });
+  });
+
+  // ── setSyncSuppressed integration ─────────────────────────────────────
+
+  describe('setSyncSuppressed integration', () => {
+    beforeEach(() => {
+      setSyncSuppressedSpy.mockClear();
+    });
+
+    it('initialize calls setSyncSuppressed(true)', () => {
+      useDraftSettingsStore.getState().initialize();
+      expect(setSyncSuppressedSpy).toHaveBeenCalledWith(true);
+    });
+
+    it('teardown calls setSyncSuppressed(false)', () => {
+      useDraftSettingsStore.getState().initialize();
+      setSyncSuppressedSpy.mockClear();
+
+      useDraftSettingsStore.getState().teardown();
+      expect(setSyncSuppressedSpy).toHaveBeenCalledWith(false);
+    });
+
+    it('apply temporarily lifts suppression then re-enables it', () => {
+      useDraftSettingsStore.getState().initialize();
+      setSyncSuppressedSpy.mockClear();
+
+      useDraftSettingsStore.getState().setAudioDraft('inputVolume', 42);
+      useDraftSettingsStore.getState().apply();
+
+      // apply calls setSyncSuppressed(false) then setSyncSuppressed(true)
+      const calls = setSyncSuppressedSpy.mock.calls.map((c: [boolean]) => c[0]);
+      expect(calls).toContain(false);
+      expect(calls).toContain(true);
+      // The last call should re-enable suppression
+      expect(calls[calls.length - 1]).toBe(true);
     });
   });
 });

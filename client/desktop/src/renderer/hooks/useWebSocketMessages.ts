@@ -108,40 +108,50 @@ function handleUnreadNotify(msg: WebSocketMessage): void {
   }
 }
 
-/** Handle voice state updates — sidebar members + active participants. */
-function handleVoiceStateUpdate(msg: WebSocketMessage): void {
-  const { data } = msg;
-  const channelId = data.channel_id as string | undefined;
-  const action = data.action as string | undefined;
-  const userId = data.user_id as string | undefined;
-  const serverId = data.server_id as string | undefined;
-  if (!channelId || !action) return;
+/** Context bag for voice membership change handling — reduces parameter count. */
+interface VoiceMembershipContext {
+  channelId: string;
+  action: string;
+  userId: string | undefined;
+  serverId: string | undefined;
+  username: string;
+  displayName: string | undefined;
+  localUserId: string | undefined;
+  isLocalUserInChannel: boolean;
+  voiceStore: ReturnType<typeof useVoiceStore.getState>;
+}
 
-  const voiceStore = useVoiceStore.getState();
+/** Play join/leave notification sound when a remote user enters or exits the local channel. */
+function playVoicePresenceSound(
+  action: string,
+  userId: string | undefined,
+  localUserId: string | undefined,
+  isLocalUserInChannel: boolean
+): void {
+  if (!isLocalUserInChannel || !userId || userId === localUserId) return;
+  notificationSoundService.play(action === 'joined' ? 'user-join' : 'user-leave');
+}
 
-  // Update channel voice members (sidebar display)
-  const localUserId = useUserStore.getState().user?.id;
-  const isLocalUserInChannel = voiceStore.activeChannelId === channelId;
+/** Handle joined/left/room_empty — sidebar member list + sounds + debounced refetch. */
+function handleVoiceMembershipChange(ctx: VoiceMembershipContext): void {
+  const { action, channelId, userId, serverId, voiceStore, isLocalUserInChannel, localUserId } =
+    ctx;
 
   if (action === 'joined' && userId) {
     voiceStore.addChannelVoiceMember(channelId, {
       userId,
-      username: (data.username as string) || 'Unknown',
-      displayName: data.display_name as string | undefined,
+      username: ctx.username,
+      displayName: ctx.displayName,
       isMuted: false,
       serverMuted: false,
       serverDeafened: false,
     });
     if (serverId) voiceStore.incrementServerVoiceCount(serverId);
-    if (isLocalUserInChannel && userId !== localUserId) {
-      notificationSoundService.play('user-join');
-    }
+    playVoicePresenceSound(action, userId, localUserId, isLocalUserInChannel);
   } else if (action === 'left' && userId) {
     voiceStore.removeChannelVoiceMember(channelId, userId);
     if (serverId) voiceStore.decrementServerVoiceCount(serverId);
-    if (isLocalUserInChannel && userId !== localUserId) {
-      notificationSoundService.play('user-leave');
-    }
+    playVoicePresenceSound(action, userId, localUserId, isLocalUserInChannel);
   } else if (action === 'room_empty') {
     voiceStore.setChannelVoiceMembers(channelId, []);
   }
@@ -150,35 +160,89 @@ function handleVoiceStateUpdate(msg: WebSocketMessage): void {
   if (action === 'joined' || action === 'left') {
     scheduleVoiceRefetch(channelId, voiceStore);
   }
+}
 
-  // Update detailed participants for the active channel
-  if (voiceStore.activeChannelId === channelId && userId) {
-    const update = VOICE_PARTICIPANT_UPDATES[action];
-    if (update) voiceStore.updateParticipant(userId, update);
+/** Enforcement actions: server_muted / server_unmuted / server_deafened / server_undeafened. */
+const ENFORCEMENT_ACTIONS = new Set([
+  'server_muted',
+  'server_unmuted',
+  'server_deafened',
+  'server_undeafened',
+]);
+
+/** Toast messages for enforcement actions targeting the local user. */
+const ENFORCEMENT_TOAST_MESSAGES: Record<string, string> = {
+  server_muted: 'You have been server-muted by a moderator',
+  server_unmuted: 'A moderator has removed your server mute',
+  server_deafened: 'You have been server-deafened by a moderator',
+  server_undeafened: 'A moderator has removed your server deafen',
+};
+
+/** Handle server mute/deafen enforcement — update sidebar member + notify local user. */
+function handleVoiceEnforcementAction(
+  action: string,
+  channelId: string,
+  userId: string,
+  localUserId: string | undefined,
+  voiceStore: ReturnType<typeof useVoiceStore.getState>
+): void {
+  const update = VOICE_PARTICIPANT_UPDATES[action];
+  if (update) {
+    voiceStore.updateChannelVoiceMember(channelId, userId, update);
   }
 
-  // Update sidebar voice members for enforcement changes
-  if (
-    ['server_muted', 'server_unmuted', 'server_deafened', 'server_undeafened'].includes(action) &&
-    userId
-  ) {
-    const update = VOICE_PARTICIPANT_UPDATES[action];
-    if (update) {
-      voiceStore.updateChannelVoiceMember(channelId, userId, update);
+  // Toast notification when local user is targeted
+  if (userId === localUserId) {
+    const message = ENFORCEMENT_TOAST_MESSAGES[action];
+    if (message) {
+      console.debug('[Voice]', message);
     }
+  }
+}
 
-    // Toast notification when local user is targeted
-    if (userId === localUserId) {
-      const messages: Record<string, string> = {
-        server_muted: 'You have been server-muted by a moderator',
-        server_unmuted: 'A moderator has removed your server mute',
-        server_deafened: 'You have been server-deafened by a moderator',
-        server_undeafened: 'A moderator has removed your server deafen',
-      };
-      if (messages[action]) {
-        console.debug('[Voice]', messages[action]);
-      }
-    }
+/** Update detailed participants when the active channel matches — extracted for complexity. */
+function updateActiveParticipant(
+  voiceStore: ReturnType<typeof useVoiceStore.getState>,
+  channelId: string,
+  action: string,
+  userId: string | undefined
+): void {
+  if (voiceStore.activeChannelId !== channelId || !userId) return;
+  const update = VOICE_PARTICIPANT_UPDATES[action];
+  if (update) voiceStore.updateParticipant(userId, update);
+}
+
+/** Handle voice state updates — sidebar members + active participants. */
+function handleVoiceStateUpdate(msg: WebSocketMessage): void {
+  const { data } = msg;
+  const channelId = data.channel_id as string | undefined;
+  const action = data.action as string | undefined;
+  if (!channelId || !action) return;
+
+  const userId = data.user_id as string | undefined;
+  const serverId = data.server_id as string | undefined;
+  const voiceStore = useVoiceStore.getState();
+  const localUserId = useUserStore.getState().user?.id;
+
+  // Update channel voice members (sidebar display)
+  handleVoiceMembershipChange({
+    action,
+    channelId,
+    userId,
+    serverId,
+    username: (data.username as string) || 'Unknown',
+    displayName: data.display_name as string | undefined,
+    localUserId,
+    isLocalUserInChannel: voiceStore.activeChannelId === channelId,
+    voiceStore,
+  });
+
+  // Update detailed participants for the active channel
+  updateActiveParticipant(voiceStore, channelId, action, userId);
+
+  // Update sidebar voice members for enforcement changes
+  if (ENFORCEMENT_ACTIONS.has(action) && userId) {
+    handleVoiceEnforcementAction(action, channelId, userId, localUserId, voiceStore);
   }
 }
 

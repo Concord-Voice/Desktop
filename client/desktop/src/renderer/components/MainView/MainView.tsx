@@ -363,6 +363,55 @@ const MainView: React.FC = () => {
     </>
   );
 
+  // ─── Primary content area selector ───
+  const renderPrimaryContent = (): React.ReactNode => {
+    if (activeServer && channels.length === 0) {
+      return (
+        <div className="main-content-placeholder">
+          <div className="empty-server-graphic">
+            <svg
+              width="48"
+              height="48"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="10" y1="10" x2="14" y2="10" />
+            </svg>
+          </div>
+          <h2>This server appears empty.</h2>
+          <p className="empty-server-hint">Add some channels to start chatting!</p>
+        </div>
+      );
+    }
+    if (activeChannel?.type === 'voice') {
+      return <VoiceView channelId={activeChannel.id} channelName={activeChannel.name} />;
+    }
+    if (activeChannelId) {
+      return <ChatView />;
+    }
+    return (
+      <div className="main-content-placeholder">
+        {activeServer ? (
+          <>
+            <h2>{activeServer.name}</h2>
+            <p className="empty-server-hint">Select a channel to start chatting.</p>
+          </>
+        ) : (
+          <>
+            <h2>Welcome to Concord Voice</h2>
+            <p>Privacy-first, self-hostable voice communication.</p>
+          </>
+        )}
+      </div>
+    );
+  };
+
   // ─── Chat area content ───
   const chatContent = (
     <div
@@ -374,53 +423,7 @@ const MainView: React.FC = () => {
         className={`main-content__body ${showVerticalSideChat ? 'main-content__body--with-side-chat' : ''}`}
       >
         <div className="main-content__primary">
-          {(() => {
-            if (activeServer && channels.length === 0) {
-              return (
-                <div className="main-content-placeholder">
-                  <div className="empty-server-graphic">
-                    <svg
-                      width="48"
-                      height="48"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                      <line x1="12" y1="8" x2="12" y2="12" />
-                      <line x1="10" y1="10" x2="14" y2="10" />
-                    </svg>
-                  </div>
-                  <h2>This server appears empty.</h2>
-                  <p className="empty-server-hint">Add some channels to start chatting!</p>
-                </div>
-              );
-            }
-            if (activeChannel?.type === 'voice') {
-              return <VoiceView channelId={activeChannel.id} channelName={activeChannel.name} />;
-            }
-            if (activeChannelId) {
-              return <ChatView />;
-            }
-            return (
-              <div className="main-content-placeholder">
-                {activeServer ? (
-                  <>
-                    <h2>{activeServer.name}</h2>
-                    <p className="empty-server-hint">Select a channel to start chatting.</p>
-                  </>
-                ) : (
-                  <>
-                    <h2>Welcome to Concord Voice</h2>
-                    <p>Privacy-first, self-hostable voice communication.</p>
-                  </>
-                )}
-              </div>
-            );
-          })()}
+          {renderPrimaryContent()}
 
           {/* Persistent voice controls bar — shown when in voice but viewing another channel */}
           {showPersistentBar && <PersistentVoiceBar />}

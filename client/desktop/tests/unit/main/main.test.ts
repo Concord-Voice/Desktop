@@ -222,13 +222,14 @@ vi.mock('../../../src/main/permissionManager', () => ({
 // ── Import + extract ───────────────────────────────────────────────────
 
 type HandlerFn = (...args: unknown[]) => unknown;
+type CallbackFn = (...args: unknown[]) => void;
 let handlers: Map<string, HandlerFn>;
-let appOnCallbacks: Map<string, Function>;
+let appOnCallbacks: Map<string, CallbackFn>;
 let sessionHandlers: {
-  permissionRequest?: Function;
-  permissionCheck?: Function;
-  devicePermission?: Function;
-  hidSelect?: Function;
+  permissionRequest?: CallbackFn;
+  permissionCheck?: CallbackFn;
+  devicePermission?: CallbackFn;
+  hidSelect?: CallbackFn;
 };
 
 beforeAll(async () => {
@@ -249,20 +250,20 @@ beforeAll(async () => {
   // Extract app.on callbacks
   appOnCallbacks = new Map();
   for (const call of (electron.app.on as Mock).mock.calls) {
-    appOnCallbacks.set(call[0] as string, call[1] as Function);
+    appOnCallbacks.set(call[0] as string, call[1] as CallbackFn);
   }
 
   // Extract session permission handlers
   const sess = electron.session.defaultSession;
   sessionHandlers = {};
   const prh = (sess.setPermissionRequestHandler as Mock).mock.calls;
-  if (prh.length > 0) sessionHandlers.permissionRequest = prh[0][0] as Function;
+  if (prh.length > 0) sessionHandlers.permissionRequest = prh[0][0] as CallbackFn;
   const pch = (sess.setPermissionCheckHandler as Mock).mock.calls;
-  if (pch.length > 0) sessionHandlers.permissionCheck = pch[0][0] as Function;
+  if (pch.length > 0) sessionHandlers.permissionCheck = pch[0][0] as CallbackFn;
   const dph = (sess.setDevicePermissionHandler as Mock).mock.calls;
-  if (dph.length > 0) sessionHandlers.devicePermission = dph[0][0] as Function;
+  if (dph.length > 0) sessionHandlers.devicePermission = dph[0][0] as CallbackFn;
   const hid = (sess.on as Mock).mock.calls.find((c: unknown[]) => c[0] === 'select-hid-device');
-  if (hid) sessionHandlers.hidSelect = hid[1] as Function;
+  if (hid) sessionHandlers.hidSelect = hid[1] as CallbackFn;
 });
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -623,7 +624,7 @@ describe('main.ts', () => {
 
     it('proactive refresh callback sends to renderer', async () => {
       const { setProactiveRefreshCallback } = await import('../../../src/main/tokenManager');
-      const cb = (setProactiveRefreshCallback as Mock).mock.calls[0]?.[0] as Function;
+      const cb = (setProactiveRefreshCallback as Mock).mock.calls[0]?.[0] as (...args: unknown[]) => void;
       expect(cb).toBeDefined();
       mockWebContents.send.mockClear();
       cb('new-access-token', 'new-session-id');

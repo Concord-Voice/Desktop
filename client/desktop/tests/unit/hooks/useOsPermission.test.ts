@@ -1,8 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useOsPermissionStore } from '@/renderer/stores/osPermissionStore';
+import { useOsPermissionStore, type OsPermissionStatus, type OsPermissionType } from '@/renderer/stores/osPermissionStore';
 import { useOsPermission } from '@/renderer/hooks/useOsPermission';
-import type { OsPermissionStatus, OsPermissionType } from '@/renderer/stores/osPermissionStore';
 import { resetAllStores } from '../../helpers/store-helpers';
 
 // Reset store state before each test

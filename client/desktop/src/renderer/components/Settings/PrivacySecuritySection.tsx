@@ -106,6 +106,160 @@ const DM_FOF_HINTS: Record<number, string> = {
   3: 'Everyone can already DM you — friends-of-friends is included.',
 };
 
+/** Get the description for the current revocation mode. */
+function revocationModeDescription(mode: 'simple' | 'secure'): string {
+  return mode === 'secure'
+    ? 'Authentication via Password or MFA is required to revoke sessions under certain circumstances.'
+    : 'Authenticate once to freely manage sessions for a short period.';
+}
+
+/** Get the description text for the GIF auto-load setting. */
+function gifAutoLoadHint(enabled: boolean): string {
+  return enabled
+    ? 'GIFs in messages render as soon as they enter view. All KLIPY traffic — searches, picks, and media — is routed through Concord servers, so KLIPY never sees your IP address.'
+    : 'GIFs in messages show a "Click to load" placeholder until you tap them. All KLIPY traffic is always routed through Concord servers regardless of this setting.';
+}
+
+/** Get the description text for the GIF personalization setting. */
+function gifPersonalizationHint(enabled: boolean): string {
+  return enabled
+    ? 'Concord sends a stable per-device ID to KLIPY so the GIF picker can show you personalized recent and trending results. The ID is not tied to your Concord account or any personally identifiable information.'
+    : 'GIF picker results are not personalized. A rotating ephemeral ID is used so KLIPY cannot build a persistent profile. The Recent tab is hidden because it requires a stable ID to function.';
+}
+
+/** Get the description text for the personalization ID row. */
+function personalizationIdHint(enabled: boolean): string {
+  return enabled
+    ? 'Your stable per-device identifier sent to KLIPY. Rotating it clears your personalization history.'
+    : 'Ephemeral ID — rotates automatically every 30 minutes. Rotating manually generates a new one immediately.';
+}
+
+/** Compute the effective friends-of-friends toggle value for a given DM level. */
+function computeFofChecked(dmLevel: DMPrivacyLevel, storeSetting: boolean): boolean {
+  if (dmLevel === 3) return true;
+  if (dmLevel === 0) return false;
+  return storeSetting;
+}
+
+/** Whether the friends-of-friends toggle is disabled at the given DM level. */
+function isFofDisabled(dmLevel: DMPrivacyLevel): boolean {
+  return dmLevel === 0 || dmLevel === 3;
+}
+
+/** Renders either an MFA verify prompt or a password input, depending on whether MFA is active. */
+const AuthVerifyField: React.FC<{
+  hasMFA: boolean;
+  mfaMethods: string[];
+  mfaRecoveryOnly: string[];
+  password: string;
+  onPasswordChange: (v: string) => void;
+  onMfaVerify: (code: string) => void;
+  error: string;
+  onClearError: () => void;
+  disabled: boolean;
+  inputId: string;
+  onEnterKey?: () => void;
+  excludeBackupCodes?: boolean;
+}> = ({
+  hasMFA,
+  mfaMethods,
+  mfaRecoveryOnly,
+  password,
+  onPasswordChange,
+  onMfaVerify,
+  error,
+  onClearError,
+  disabled,
+  inputId,
+  onEnterKey,
+  excludeBackupCodes,
+}) => {
+  if (hasMFA) {
+    return (
+      <MFAVerifyPrompt
+        methods={mfaMethods}
+        recoveryOnlyMethods={mfaRecoveryOnly}
+        onVerify={(code) => {
+          onMfaVerify(code);
+          onClearError();
+        }}
+        disabled={disabled}
+        error={error || undefined}
+        excludeBackupCodes={excludeBackupCodes}
+      />
+    );
+  }
+  return (
+    <div className="revoke-password-input">
+      <label htmlFor={inputId}>Password</label>
+      <input
+        id={inputId}
+        type="password"
+        value={password}
+        onChange={(e) => {
+          onPasswordChange(e.target.value);
+          onClearError();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && password && onEnterKey) onEnterKey();
+        }}
+        placeholder="Enter your password"
+        autoFocus
+      />
+      {error && <span className="revoke-password-error">{error}</span>}
+    </div>
+  );
+};
+
+/** Compute the disabled state for an auth-gated confirm button. */
+function isAuthConfirmDisabled(hasMFA: boolean, mfaCode: string, password: string): boolean {
+  return hasMFA ? !mfaCode : !password;
+}
+
+/** Session card revoke/confirm action buttons. */
+const SessionCardActions: React.FC<{
+  sessionId: string;
+  isConfirming: boolean;
+  isRevoking: boolean;
+  onRevoke: (id: string) => void;
+  onCancelConfirm: () => void;
+}> = ({ sessionId, isConfirming, isRevoking, onRevoke, onCancelConfirm }) => (
+  <div className="session-card-actions">
+    {isConfirming ? (
+      <>
+        <button
+          className="session-revoke-btn confirm"
+          onClick={() => onRevoke(sessionId)}
+          disabled={isRevoking}
+        >
+          {isRevoking ? 'Revoking...' : 'Confirm'}
+        </button>
+        <button className="session-cancel-btn" onClick={onCancelConfirm}>
+          Cancel
+        </button>
+      </>
+    ) : (
+      <button
+        className="session-revoke-btn"
+        onClick={() => onRevoke(sessionId)}
+        disabled={isRevoking}
+      >
+        {isRevoking ? 'Revoking...' : 'Revoke'}
+      </button>
+    )}
+  </div>
+);
+
+/** Inline display of backup code count with low-count warning styling. */
+const BackupCodesCount: React.FC<{ remaining: number | undefined }> = ({ remaining }) => (
+  <>
+    <strong className={(remaining ?? 0) <= 2 ? 'mfa-status-warn' : ''}>
+      {remaining}
+    </strong>{' '}
+    / 8
+  </>
+);
+
 function permissionStatusBadge(status: OsPermissionStatus): {
   className: string;
   label: string;
@@ -707,7 +861,7 @@ const PrivacySecuritySection: React.FC = () => {
         </div>
 
         <div
-          className={`settings-row ${localDmLevel === 0 || localDmLevel === 3 ? 'settings-row-disabled' : ''}`}
+          className={`settings-row ${isFofDisabled(localDmLevel) ? 'settings-row-disabled' : ''}`}
         >
           <div className="settings-row-info">
             <span className="settings-row-label">Allow Friends-of-Friends</span>
@@ -717,17 +871,13 @@ const PrivacySecuritySection: React.FC = () => {
             </span>
           </div>
           <ToggleSwitch
-            checked={(() => {
-              if (localDmLevel === 3) return true;
-              if (localDmLevel === 0) return false;
-              return privacySettings.dmFriendsOfFriends;
-            })()}
+            checked={computeFofChecked(localDmLevel, privacySettings.dmFriendsOfFriends)}
             onChange={(v) => {
-              if (localDmLevel !== 0 && localDmLevel !== 3) {
+              if (!isFofDisabled(localDmLevel)) {
                 updatePrivacy({ dmFriendsOfFriends: v });
               }
             }}
-            disabled={localDmLevel === 0 || localDmLevel === 3}
+            disabled={isFofDisabled(localDmLevel)}
           />
         </div>
 
@@ -770,9 +920,7 @@ const PrivacySecuritySection: React.FC = () => {
           <div className="settings-row-info">
             <span className="settings-row-label">Load GIFs from KLIPY automatically</span>
             <span className="settings-row-hint">
-              {privacySettings.loadGifsAutomatically
-                ? 'GIFs in messages render as soon as they enter view. All KLIPY traffic — searches, picks, and media — is routed through Concord servers, so KLIPY never sees your IP address.'
-                : 'GIFs in messages show a "Click to load" placeholder until you tap them. All KLIPY traffic is always routed through Concord servers regardless of this setting.'}
+              {gifAutoLoadHint(privacySettings.loadGifsAutomatically)}
             </span>
           </div>
           <ToggleSwitch
@@ -785,9 +933,7 @@ const PrivacySecuritySection: React.FC = () => {
           <div className="settings-row-info">
             <span className="settings-row-label">Share GIF personalization with provider</span>
             <span className="settings-row-hint">
-              {privacySettings.sharePersonalizationWithGifProvider
-                ? 'Concord sends a stable per-device ID to KLIPY so the GIF picker can show you personalized recent and trending results. The ID is not tied to your Concord account or any personally identifiable information.'
-                : 'GIF picker results are not personalized. A rotating ephemeral ID is used so KLIPY cannot build a persistent profile. The Recent tab is hidden because it requires a stable ID to function.'}
+              {gifPersonalizationHint(privacySettings.sharePersonalizationWithGifProvider)}
             </span>
           </div>
           <ToggleSwitch
@@ -800,9 +946,7 @@ const PrivacySecuritySection: React.FC = () => {
           <div className="settings-row-info">
             <span className="settings-row-label">Personalization ID</span>
             <span className="settings-row-hint">
-              {privacySettings.sharePersonalizationWithGifProvider
-                ? 'Your stable per-device identifier sent to KLIPY. Rotating it clears your personalization history.'
-                : 'Ephemeral ID — rotates automatically every 30 minutes. Rotating manually generates a new one immediately.'}
+              {personalizationIdHint(privacySettings.sharePersonalizationWithGifProvider)}
             </span>
             {displayedCustomerId && (
               <span className="settings-estimated-bitrate settings-klipy-id-chip">
@@ -903,12 +1047,7 @@ const PrivacySecuritySection: React.FC = () => {
               {mfaMethods.length === 0 ? (
                 <em className="mfa-status-muted">Requires MFA</em>
               ) : (
-                <>
-                  <strong className={(mfaBackupRemaining ?? 0) <= 2 ? 'mfa-status-warn' : ''}>
-                    {mfaBackupRemaining}
-                  </strong>{' '}
-                  / 8
-                </>
+                <BackupCodesCount remaining={mfaBackupRemaining} />
               )}
             </span>
             <button
@@ -1176,9 +1315,7 @@ const PrivacySecuritySection: React.FC = () => {
             <div className="session-revocation-mode-info">
               <span className="session-revocation-mode-label">Session Revocation</span>
               <span className="session-revocation-mode-description">
-                {revocationMode === 'secure'
-                  ? 'Authentication via Password or MFA is required to revoke sessions under certain circumstances.'
-                  : 'Authenticate once to freely manage sessions for a short period.'}
+                {revocationModeDescription(revocationMode)}
               </span>
             </div>
             <div className="session-revocation-mode-toggle">
@@ -1266,33 +1403,13 @@ const PrivacySecuritySection: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  <div className="session-card-actions">
-                    {confirmRevoke === session.id ? (
-                      <>
-                        <button
-                          className="session-revoke-btn confirm"
-                          onClick={() => handleRevoke(session.id)}
-                          disabled={revokingId === session.id}
-                        >
-                          {revokingId === session.id ? 'Revoking...' : 'Confirm'}
-                        </button>
-                        <button
-                          className="session-cancel-btn"
-                          onClick={() => setConfirmRevoke(null)}
-                        >
-                          Cancel
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        className="session-revoke-btn"
-                        onClick={() => handleRevoke(session.id)}
-                        disabled={revokingId === session.id}
-                      >
-                        {revokingId === session.id ? 'Revoking...' : 'Revoke'}
-                      </button>
-                    )}
-                  </div>
+                  <SessionCardActions
+                    sessionId={session.id}
+                    isConfirming={confirmRevoke === session.id}
+                    isRevoking={revokingId === session.id}
+                    onRevoke={handleRevoke}
+                    onCancelConfirm={() => setConfirmRevoke(null)}
+                  />
                 </div>
               ))}
             </div>
@@ -1313,39 +1430,19 @@ const PrivacySecuritySection: React.FC = () => {
                 ? 'Verify your identity to continue.'
                 : 'In order to continue, please input your password.'}
             </p>
-            {hasMFA ? (
-              <MFAVerifyPrompt
-                methods={mfaMethods}
-                recoveryOnlyMethods={mfaRecoveryOnly}
-                onVerify={(code) => {
-                  setRevokeMfaCode(code);
-                  setRevokePasswordError('');
-                }}
-                disabled={isRevokingAll}
-                error={revokePasswordError || undefined}
-              />
-            ) : (
-              <div className="revoke-password-input">
-                <label htmlFor="revoke-all-password">Password</label>
-                <input
-                  id="revoke-all-password"
-                  type="password"
-                  value={revokePassword}
-                  onChange={(e) => {
-                    setRevokePassword(e.target.value);
-                    setRevokePasswordError('');
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && revokePassword) handleRevokeAll();
-                  }}
-                  placeholder="Enter your password"
-                  autoFocus
-                />
-                {revokePasswordError && (
-                  <span className="revoke-password-error">{revokePasswordError}</span>
-                )}
-              </div>
-            )}
+            <AuthVerifyField
+              hasMFA={hasMFA}
+              mfaMethods={mfaMethods}
+              mfaRecoveryOnly={mfaRecoveryOnly}
+              password={revokePassword}
+              onPasswordChange={setRevokePassword}
+              onMfaVerify={setRevokeMfaCode}
+              error={revokePasswordError}
+              onClearError={() => setRevokePasswordError('')}
+              disabled={isRevokingAll}
+              inputId="revoke-all-password"
+              onEnterKey={handleRevokeAll}
+            />
             <div className="revoke-all-modal-actions">
               <button className="revoke-all-modal-cancel-btn" onClick={closeRevokeAllModal}>
                 No, Cancel
@@ -1353,7 +1450,7 @@ const PrivacySecuritySection: React.FC = () => {
               <button
                 className="revoke-all-modal-confirm-btn"
                 onClick={handleRevokeAll}
-                disabled={isRevokingAll || (hasMFA ? !revokeMfaCode : !revokePassword)}
+                disabled={isRevokingAll || isAuthConfirmDisabled(hasMFA, revokeMfaCode, revokePassword)}
               >
                 {isRevokingAll ? 'Revoking...' : 'Yes, Revoke All Sessions'}
               </button>
@@ -1373,41 +1470,23 @@ const PrivacySecuritySection: React.FC = () => {
               For your security, {hasMFA ? 'verify your identity' : 'please enter your password'} to
               revoke this session.
             </p>
-            {hasMFA ? (
-              <MFAVerifyPrompt
-                methods={mfaMethods}
-                recoveryOnlyMethods={mfaRecoveryOnly}
-                onVerify={(code) => {
-                  setSessionMfaCode(code);
-                  setSessionPasswordError('');
-                }}
-                disabled={revokingId === sessionPasswordTarget}
-                error={sessionPasswordError || undefined}
-              />
-            ) : (
-              <div className="revoke-password-input">
-                <label htmlFor="session-revoke-password">Password</label>
-                <input
-                  id="session-revoke-password"
-                  type="password"
-                  value={sessionPassword}
-                  onChange={(e) => {
-                    setSessionPassword(e.target.value);
-                    setSessionPasswordError('');
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && sessionPassword && sessionPasswordTarget) {
-                      handleRevoke(sessionPasswordTarget, sessionPassword);
-                    }
-                  }}
-                  placeholder="Enter your password"
-                  autoFocus
-                />
-                {sessionPasswordError && (
-                  <span className="revoke-password-error">{sessionPasswordError}</span>
-                )}
-              </div>
-            )}
+            <AuthVerifyField
+              hasMFA={hasMFA}
+              mfaMethods={mfaMethods}
+              mfaRecoveryOnly={mfaRecoveryOnly}
+              password={sessionPassword}
+              onPasswordChange={setSessionPassword}
+              onMfaVerify={setSessionMfaCode}
+              error={sessionPasswordError}
+              onClearError={() => setSessionPasswordError('')}
+              disabled={revokingId === sessionPasswordTarget}
+              inputId="session-revoke-password"
+              onEnterKey={
+                sessionPasswordTarget
+                  ? () => handleRevoke(sessionPasswordTarget, sessionPassword)
+                  : undefined
+              }
+            />
             <div className="revoke-all-modal-actions">
               <button className="revoke-all-modal-cancel-btn" onClick={closeSessionPasswordModal}>
                 Cancel
@@ -1423,7 +1502,7 @@ const PrivacySecuritySection: React.FC = () => {
                   )
                 }
                 disabled={
-                  (hasMFA ? !sessionMfaCode : !sessionPassword) ||
+                  isAuthConfirmDisabled(hasMFA, sessionMfaCode, sessionPassword) ||
                   revokingId === sessionPasswordTarget
                 }
               >
@@ -1446,40 +1525,20 @@ const PrivacySecuritySection: React.FC = () => {
                 ? 'Switching to Simple Revocation. You will be able to authenticate once and freely manage sessions for a short period.'
                 : 'Switching to Secure Revocation. Authentication will be required to revoke sessions under certain circumstances.'}
             </p>
-            {hasMFA ? (
-              <MFAVerifyPrompt
-                methods={mfaMethods}
-                recoveryOnlyMethods={mfaRecoveryOnly}
-                onVerify={(code) => {
-                  setModeChangeMfaCode(code);
-                  setModeChangeError('');
-                }}
-                disabled={isChangingMode}
-                error={modeChangeError || undefined}
-                excludeBackupCodes
-              />
-            ) : (
-              <div className="revoke-password-input">
-                <label htmlFor="mode-change-password">Password</label>
-                <input
-                  id="mode-change-password"
-                  type="password"
-                  value={modeChangePassword}
-                  onChange={(e) => {
-                    setModeChangePassword(e.target.value);
-                    setModeChangeError('');
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && modeChangePassword) handleModeChange();
-                  }}
-                  placeholder="Enter your password"
-                  autoFocus
-                />
-                {modeChangeError && (
-                  <span className="revoke-password-error">{modeChangeError}</span>
-                )}
-              </div>
-            )}
+            <AuthVerifyField
+              hasMFA={hasMFA}
+              mfaMethods={mfaMethods}
+              mfaRecoveryOnly={mfaRecoveryOnly}
+              password={modeChangePassword}
+              onPasswordChange={setModeChangePassword}
+              onMfaVerify={setModeChangeMfaCode}
+              error={modeChangeError}
+              onClearError={() => setModeChangeError('')}
+              disabled={isChangingMode}
+              inputId="mode-change-password"
+              onEnterKey={handleModeChange}
+              excludeBackupCodes
+            />
             <div className="revoke-all-modal-actions">
               <button className="revoke-all-modal-cancel-btn" onClick={closeModeChangeModal}>
                 Cancel
@@ -1487,7 +1546,7 @@ const PrivacySecuritySection: React.FC = () => {
               <button
                 className="revoke-all-modal-confirm-btn"
                 onClick={handleModeChange}
-                disabled={isChangingMode || (hasMFA ? !modeChangeMfaCode : !modeChangePassword)}
+                disabled={isChangingMode || isAuthConfirmDisabled(hasMFA, modeChangeMfaCode, modeChangePassword)}
               >
                 {isChangingMode ? 'Changing...' : 'Confirm'}
               </button>

@@ -1,8 +1,7 @@
 import { render, screen } from '../../../test-utils';
 import { ParticipantContextMenu } from '@/renderer/components/Voice/ParticipantContextMenu';
-import { useVoiceStore } from '@/renderer/stores/voiceStore';
+import { useVoiceStore, type VoiceParticipant } from '@/renderer/stores/voiceStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
-import type { VoiceParticipant } from '@/renderer/stores/voiceStore';
 
 vi.mock('@/renderer/components/ui/ContextMenu.css', () => ({}));
 vi.mock('@/renderer/components/ui/EnforcementMenuItems.css', () => ({}));

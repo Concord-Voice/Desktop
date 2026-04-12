@@ -640,6 +640,96 @@ describe('MFASetup', () => {
     });
   });
 
+  // ── ErrorBanner sub-component ───────────────────────────────────────
+
+  describe('ErrorBanner (extracted sub-component)', () => {
+    it('shows error banner for general error field', async () => {
+      mockApiFetch.mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: 'Server unavailable' }),
+      });
+
+      const user = userEvent.setup();
+      render(<MFASetup method="totp" onComplete={onComplete} onCancel={onCancel} />);
+      await user.type(screen.getByPlaceholderText('Your password'), 'testpw');
+      await user.click(screen.getByText('Continue'));
+
+      await vi.waitFor(() => {
+        expect(screen.getByText('Server unavailable')).toBeInTheDocument();
+      });
+      // The error banner should render (general classification, not password/mfa)
+      const banner = document.querySelector('.mfa-setup-error-banner');
+      expect(banner).toBeInTheDocument();
+    });
+
+    it('does not show error banner when errorField is mfa', async () => {
+      mockApiFetch.mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: 'Invalid MFA code' }),
+      });
+
+      const user = userEvent.setup();
+      render(
+        <MFASetup
+          method="totp"
+          mfaActive
+          activeMethods={['totp']}
+          onComplete={onComplete}
+          onCancel={onCancel}
+        />
+      );
+      await user.type(screen.getByPlaceholderText('Your password'), 'testpw');
+      // Type an MFA code
+      const mfaInput = screen.getByTestId('mfa-verify-input');
+      await user.type(mfaInput, '123456');
+      await user.click(screen.getByText('Continue'));
+
+      await vi.waitFor(() => {
+        // MFA error should be sent to the MFAVerifyPrompt, not shown as a banner
+        expect(screen.getByTestId('mfa-verify-error')).toHaveTextContent('Invalid MFA code');
+      });
+    });
+  });
+
+  // ── Recovery key exception handling ─────────────────────────────────
+
+  describe('Recovery key generation exception', () => {
+    it('skips to done when generateAndStoreRecoveryKey throws', async () => {
+      // Make crypto functions throw
+      const { generateRecoveryKey } = await import('@/renderer/utils/crypto');
+      vi.mocked(generateRecoveryKey).mockImplementationOnce(() => {
+        throw new Error('crypto failure');
+      });
+
+      mockApiFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ otpauth_url: 'otpauth://totp/test', secret: 'S' }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ backup_codes: ['CODE1'] }),
+        })
+        .mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+
+      const user = userEvent.setup();
+      render(<MFASetup method="totp" onComplete={onComplete} onCancel={onCancel} />);
+      await user.type(screen.getByPlaceholderText('Your password'), 'pw');
+      await user.click(screen.getByText('Continue'));
+
+      await vi.waitFor(() => expect(screen.getByTestId('totp-submit')).toBeInTheDocument());
+      await user.click(screen.getByTestId('totp-submit'));
+
+      await vi.waitFor(() => expect(screen.getByTestId('backup-confirm')).toBeInTheDocument());
+      await user.click(screen.getByTestId('backup-confirm'));
+
+      // Should skip recovery and go to done since recovery key generation threw
+      await vi.waitFor(() => {
+        expect(screen.getByText('MFA Activated!')).toBeInTheDocument();
+      });
+    });
+  });
+
   // ── WebAuthn Flow ──────────────────────────────────────────────────────
 
   describe('WebAuthn Flow', () => {
@@ -807,6 +897,219 @@ describe('MFASetup', () => {
       );
       await user.type(screen.getByPlaceholderText('Your password'), 'mypassword');
       expect(screen.getByText('Register Key')).toBeDisabled();
+    });
+
+    it('returns to password step on generic credentials.create error', async () => {
+      // Begin succeeds, browser credentials.create rejects with a generic error.
+      // Because the React state closure captures webauthnStep='password',
+      // shouldResetToPasswordStep returns true, resetting to the password step.
+      mockApiFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          publicKey: {
+            challenge: 'dGVzdC1jaGFsbGVuZ2U',
+            rp: { name: 'Concord', id: 'localhost' },
+            user: { id: 'dXNlci0x', name: 'test@example.com', displayName: 'Test' },
+            pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+          },
+        }),
+      });
+
+      Object.defineProperty(navigator, 'credentials', {
+        value: {
+          create: vi.fn().mockRejectedValue(new Error('Something went wrong')),
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      const user = userEvent.setup();
+      render(<MFASetup method="webauthn" onComplete={onComplete} onCancel={onCancel} />);
+      await user.type(screen.getByPlaceholderText('Your password'), 'mypassword');
+      await user.click(screen.getByText('Register Key'));
+
+      await vi.waitFor(() => {
+        // Returns to password step with the error banner shown
+        expect(screen.getByPlaceholderText('Your password')).toBeInTheDocument();
+        expect(screen.getByText('Something went wrong')).toBeInTheDocument();
+      });
+    });
+
+    it('shows Cancel button on registering step when no error (key waiting)', async () => {
+      mockApiFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          publicKey: {
+            challenge: 'dGVzdC1jaGFsbGVuZ2U',
+            rp: { name: 'Concord', id: 'localhost' },
+            user: { id: 'dXNlci0x', name: 'test@example.com', displayName: 'Test' },
+            pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+          },
+        }),
+      });
+
+      Object.defineProperty(navigator, 'credentials', {
+        value: {
+          create: vi.fn().mockReturnValue(new Promise(() => {})),
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      const user = userEvent.setup();
+      render(<MFASetup method="webauthn" onComplete={onComplete} onCancel={onCancel} />);
+      await user.type(screen.getByPlaceholderText('Your password'), 'mypassword');
+      await user.click(screen.getByText('Register Key'));
+
+      await vi.waitFor(() => {
+        expect(screen.getByText('Waiting for your security key...')).toBeInTheDocument();
+        // In waiting state (no error), Cancel button should be shown, not Try Again
+        expect(screen.queryByText('Try Again')).not.toBeInTheDocument();
+        expect(screen.getByText('Cancel')).toBeInTheDocument();
+      });
+    });
+
+    it('returns to password step when NotAllowedError occurs (user cancelled)', async () => {
+      mockApiFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          publicKey: {
+            challenge: 'dGVzdC1jaGFsbGVuZ2U',
+            rp: { name: 'Concord', id: 'localhost' },
+            user: { id: 'dXNlci0x', name: 'test@example.com', displayName: 'Test' },
+            pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+          },
+        }),
+      });
+
+      const notAllowedError = new DOMException('User cancelled', 'NotAllowedError');
+      Object.defineProperty(navigator, 'credentials', {
+        value: {
+          create: vi.fn().mockRejectedValue(notAllowedError),
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      const user = userEvent.setup();
+      render(<MFASetup method="webauthn" onComplete={onComplete} onCancel={onCancel} />);
+      await user.type(screen.getByPlaceholderText('Your password'), 'mypassword');
+      await user.click(screen.getByText('Register Key'));
+
+      await vi.waitFor(() => {
+        // NotAllowedError classifies to "Registration cancelled or timed out"
+        // and shouldResetToPasswordStep returns true, so we're back to password step
+        expect(screen.getByPlaceholderText('Your password')).toBeInTheDocument();
+        expect(
+          screen.getByText('Registration cancelled or timed out. Try again.')
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('shows WebAuthn done step with Security Key Registered message', async () => {
+      // Simulate full WebAuthn success — need to complete the begin+finish flow
+      const mockCredential = {
+        id: 'mock-cred-id',
+        rawId: new ArrayBuffer(16),
+        type: 'public-key',
+        response: {
+          attestationObject: new ArrayBuffer(32),
+          clientDataJSON: new ArrayBuffer(32),
+        },
+      };
+
+      mockApiFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            publicKey: {
+              challenge: 'dGVzdC1jaGFsbGVuZ2U',
+              rp: { name: 'Concord', id: 'localhost' },
+              user: { id: 'dXNlci0x', name: 'test@example.com', displayName: 'Test' },
+              pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+            },
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({}),
+        });
+
+      Object.defineProperty(navigator, 'credentials', {
+        value: {
+          create: vi.fn().mockResolvedValue(mockCredential),
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      const user = userEvent.setup();
+      render(<MFASetup method="webauthn" onComplete={onComplete} onCancel={onCancel} />);
+      await user.type(screen.getByPlaceholderText('Your password'), 'mypassword');
+      await user.click(screen.getByText('Register Key'));
+
+      await vi.waitFor(() => {
+        expect(screen.getByText('Security Key Registered!')).toBeInTheDocument();
+        expect(
+          screen.getByText('Your security key is now active and protecting your account.')
+        ).toBeInTheDocument();
+      });
+
+      await user.click(screen.getByText('Done'));
+      expect(onComplete).toHaveBeenCalled();
+    });
+
+    it('renders platform authenticator title for WebAuthn done step', async () => {
+      const mockCredential = {
+        id: 'mock-cred-id',
+        rawId: new ArrayBuffer(16),
+        type: 'public-key',
+        response: {
+          attestationObject: new ArrayBuffer(32),
+          clientDataJSON: new ArrayBuffer(32),
+        },
+      };
+
+      mockApiFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({
+            publicKey: {
+              challenge: 'dGVzdC1jaGFsbGVuZ2U',
+              rp: { name: 'Concord', id: 'localhost' },
+              user: { id: 'dXNlci0x', name: 'test@example.com', displayName: 'Test' },
+              pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+            },
+          }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({}),
+        });
+
+      Object.defineProperty(navigator, 'credentials', {
+        value: {
+          create: vi.fn().mockResolvedValue(mockCredential),
+        },
+        writable: true,
+        configurable: true,
+      });
+
+      const user = userEvent.setup();
+      render(
+        <MFASetup
+          method="webauthn"
+          credentialType="platform"
+          onComplete={onComplete}
+          onCancel={onCancel}
+        />
+      );
+      await user.type(screen.getByPlaceholderText('Your password'), 'mypassword');
+      await user.click(screen.getByText('Register Key'));
+
+      await vi.waitFor(() => {
+        expect(screen.getByText('Security Key Registered!')).toBeInTheDocument();
+      });
     });
   });
 });

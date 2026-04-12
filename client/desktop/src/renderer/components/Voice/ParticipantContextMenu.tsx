@@ -1,7 +1,6 @@
 import ContextMenu from '../ui/ContextMenu';
 import { EnforcementMenuItems } from '../ui/EnforcementMenuItems';
-import { useVoiceStore } from '../../stores/voiceStore';
-import type { VoiceParticipant } from '../../stores/voiceStore';
+import { useVoiceStore, type VoiceParticipant } from '../../stores/voiceStore';
 import { MUTE_MEMBERS, DEAFEN_MEMBERS } from '../../utils/permissions';
 
 interface ParticipantContextMenuProps {

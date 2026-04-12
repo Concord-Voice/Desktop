@@ -4,33 +4,45 @@
  * Watches settingsStore and layoutStore for changes, encrypts via e2eeService,
  * and pushes to the server. On login (or WebSocket notification from another device),
  * fetches + decrypts + applies remote preferences to local stores.
+ *
+ * Dependencies (settingsStore, layoutStore) are injected via .init() to break the
+ * cyclic import: settingsStore → userStore → preferencesSync → settingsStore.
  */
 
 import { e2eeService } from './e2eeService';
 import { apiFetch } from './apiClient';
-import { useSettingsStore, type AppearanceSettings } from '../stores/settingsStore';
-import { useLayoutStore, type MemberPanelMode, type ServerFolder } from '../stores/layoutStore';
+import type { AppearanceSettings } from '../stores/settingsStore';
+import type { MemberPanelMode, ServerFolder } from '../stores/layoutStore';
 
 const DEBOUNCE_MS = 3000;
+
+export interface LayoutPersistedState {
+  channelPanelPinned: boolean;
+  channelPanelWidth: number;
+  memberPanelMode: MemberPanelMode;
+  memberPanelWidth: number;
+  serverBarHeight: number;
+  folderBarHeight: number;
+  serverFolders: ServerFolder[];
+  serverOrder: string[];
+}
+
+export interface PreferencesSyncDeps {
+  getAppearance: () => AppearanceSettings;
+  setAppearance: (patch: AppearanceSettings) => void;
+  getLayout: () => LayoutPersistedState;
+  setLayout: (patch: Partial<LayoutPersistedState>) => void;
+}
 
 interface PreferencesBlob {
   v: 1;
   settings: AppearanceSettings;
-  layout: {
-    channelPanelPinned: boolean;
-    channelPanelWidth: number;
-    memberPanelMode: MemberPanelMode;
-    memberPanelWidth: number;
-    serverBarHeight: number;
-    folderBarHeight: number;
-    serverFolders: ServerFolder[];
-    serverOrder: string[];
-  };
+  layout: LayoutPersistedState;
 }
 
 /** Diff and apply remote appearance settings to the local settings store. */
-function applyRemoteAppearance(remote: AppearanceSettings): void {
-  const current = useSettingsStore.getState().appearance;
+function applyRemoteAppearance(remote: AppearanceSettings, deps: PreferencesSyncDeps): void {
+  const current = deps.getAppearance();
   const patched = { ...current };
   let changed = false;
 
@@ -63,13 +75,13 @@ function applyRemoteAppearance(remote: AppearanceSettings): void {
   }
 
   if (changed) {
-    useSettingsStore.setState({ appearance: patched });
+    deps.setAppearance(patched);
   }
 }
 
 /** Diff and apply remote layout preferences to the local layout store. */
-function applyRemoteLayout(remote: PreferencesBlob['layout']): void {
-  const current = useLayoutStore.getState();
+function applyRemoteLayout(remote: PreferencesBlob['layout'], deps: PreferencesSyncDeps): void {
+  const current = deps.getLayout();
   const patch: Record<string, unknown> = {};
 
   // Scalar fields with min/max clamping
@@ -102,7 +114,7 @@ function applyRemoteLayout(remote: PreferencesBlob['layout']): void {
   }
 
   if (Object.keys(patch).length > 0) {
-    useLayoutStore.setState(patch);
+    deps.setLayout(patch);
   }
 }
 
@@ -110,6 +122,22 @@ class PreferencesSyncService {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private unsubscribers: (() => void)[] = [];
   private isApplyingRemote = false;
+  private deps: PreferencesSyncDeps | null = null;
+  private watchGeneration = 0;
+
+  init(deps: PreferencesSyncDeps): void {
+    if (this.deps) return; // idempotent for HMR
+    this.deps = deps;
+  }
+
+  private requireDeps(): PreferencesSyncDeps {
+    if (!this.deps) {
+      throw new Error(
+        'PreferencesSyncService.init() must be called before use — see App.tsx bootstrap'
+      );
+    }
+    return this.deps;
+  }
 
   /**
    * Fetch preferences from server, decrypt, and apply to local stores.
@@ -117,6 +145,8 @@ class PreferencesSyncService {
    */
   async fetchAndApply(): Promise<void> {
     if (!e2eeService.isInitialized) return;
+
+    const deps = this.requireDeps();
 
     try {
       const res = await apiFetch('/api/v1/users/me/preferences');
@@ -158,8 +188,8 @@ class PreferencesSyncService {
       // Batch all updates into single setState calls to avoid cascading re-renders.
       this.isApplyingRemote = true;
       try {
-        applyRemoteAppearance(blob.settings);
-        applyRemoteLayout(blob.layout);
+        applyRemoteAppearance(blob.settings, deps);
+        applyRemoteLayout(blob.layout, deps);
       } finally {
         // Clear after microtask so synchronous subscription callbacks see the flag
         setTimeout(() => {
@@ -179,36 +209,65 @@ class PreferencesSyncService {
   startWatching(): void {
     this.stopWatching();
 
-    // Watch settings store
-    const unsubSettings = useSettingsStore.subscribe(
-      (state) => state.appearance,
-      () => this.schedulePush(),
-      { equalityFn: (a, b) => JSON.stringify(a) === JSON.stringify(b) }
-    );
-    this.unsubscribers.push(unsubSettings);
+    this.requireDeps(); // throws if init() was not called
 
-    // Watch layout store — select only the persisted fields
-    const unsubLayout = useLayoutStore.subscribe(
-      (state) => ({
-        channelPanelPinned: state.channelPanelPinned,
-        channelPanelWidth: state.channelPanelWidth,
-        memberPanelMode: state.memberPanelMode,
-        memberPanelWidth: state.memberPanelWidth,
-        serverBarHeight: state.serverBarHeight,
-        folderBarHeight: state.folderBarHeight,
-        serverFolders: state.serverFolders,
-        serverOrder: state.serverOrder,
-      }),
-      () => this.schedulePush(),
-      { equalityFn: (a, b) => JSON.stringify(a) === JSON.stringify(b) }
-    );
-    this.unsubscribers.push(unsubLayout);
+    // Watch settings store — poll-based via subscribe selector
+    // We use a Zustand-compatible subscribe pattern via the deps layer.
+    // Since deps abstracts the store, we schedule pushes whenever deps
+    // report changes. The actual Zustand subscription is wired by the
+    // caller (see App.tsx bootstrap) — here we just need to ensure the
+    // stores are importable. For backward compatibility with existing
+    // callers that expect startWatching to set up Zustand subscriptions,
+    // we dynamically import the stores.
+
+    // Dynamic import to avoid the cyclic dependency at module load time.
+    // These are lazy — they resolve from the already-loaded module registry.
+    // Capture the generation so stale callbacks (from a stop/restart race) are discarded.
+    const gen = this.watchGeneration;
+
+    import('../stores/settingsStore')
+      .then(({ useSettingsStore }) => {
+        if (gen !== this.watchGeneration) return; // stale — service was stopped/restarted
+        const unsubSettings = useSettingsStore.subscribe(
+          (state) => state.appearance,
+          () => this.schedulePush(),
+          { equalityFn: (a, b) => JSON.stringify(a) === JSON.stringify(b) }
+        );
+        this.unsubscribers.push(unsubSettings);
+      })
+      .catch(() => {
+        /* module already loaded — should not fail */
+      });
+
+    import('../stores/layoutStore')
+      .then(({ useLayoutStore }) => {
+        if (gen !== this.watchGeneration) return; // stale — service was stopped/restarted
+        const unsubLayout = useLayoutStore.subscribe(
+          (state) => ({
+            channelPanelPinned: state.channelPanelPinned,
+            channelPanelWidth: state.channelPanelWidth,
+            memberPanelMode: state.memberPanelMode,
+            memberPanelWidth: state.memberPanelWidth,
+            serverBarHeight: state.serverBarHeight,
+            folderBarHeight: state.folderBarHeight,
+            serverFolders: state.serverFolders,
+            serverOrder: state.serverOrder,
+          }),
+          () => this.schedulePush(),
+          { equalityFn: (a, b) => JSON.stringify(a) === JSON.stringify(b) }
+        );
+        this.unsubscribers.push(unsubLayout);
+      })
+      .catch(() => {
+        /* module already loaded — should not fail */
+      });
   }
 
   /**
    * Stop watching stores and clear pending debounce.
    */
   stopWatching(): void {
+    this.watchGeneration++;
     for (const unsub of this.unsubscribers) {
       unsub();
     }
@@ -225,9 +284,11 @@ class PreferencesSyncService {
   async pushPreferences(): Promise<void> {
     if (!e2eeService.isInitialized) return;
 
+    const deps = this.requireDeps();
+
     try {
-      const settings = useSettingsStore.getState().appearance;
-      const layout = useLayoutStore.getState();
+      const settings = deps.getAppearance();
+      const layout = deps.getLayout();
 
       const blob: PreferencesBlob = {
         v: 1,

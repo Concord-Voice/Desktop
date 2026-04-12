@@ -5,6 +5,8 @@ import LoadingSpinner from './LoadingSpinner';
 import { generateRegistrationKeys, exportPublicKey } from '../../utils/crypto';
 import { e2eeService } from '../../services/e2eeService';
 import { preferencesSyncService } from '../../services/preferencesSync';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { useLayoutStore } from '../../stores/layoutStore';
 import { savedGifsSyncService } from '../../services/savedGifsSync';
 import { useAuthStore } from '../../stores/authStore';
 import { API_BASE, ensureMachineId } from '../../services/apiClient';
@@ -175,6 +177,25 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
         keys.keyDerivationSalt,
         keys.keyDerivationAlg
       );
+      preferencesSyncService.init({
+        getAppearance: () => useSettingsStore.getState().appearance,
+        setAppearance: (patch) =>
+          useSettingsStore.setState((s) => ({ appearance: { ...s.appearance, ...patch } })),
+        getLayout: () => {
+          const s = useLayoutStore.getState();
+          return {
+            channelPanelPinned: s.channelPanelPinned,
+            channelPanelWidth: s.channelPanelWidth,
+            memberPanelMode: s.memberPanelMode,
+            memberPanelWidth: s.memberPanelWidth,
+            serverBarHeight: s.serverBarHeight,
+            folderBarHeight: s.folderBarHeight,
+            serverFolders: s.serverFolders,
+            serverOrder: s.serverOrder,
+          };
+        },
+        setLayout: (patch) => useLayoutStore.setState(patch),
+      });
       preferencesSyncService.startWatching();
       savedGifsSyncService.startWatching();
 
@@ -383,9 +404,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
                 onChange={handleChange('ageConfirmed')}
                 disabled={isSubmitting}
               />
-              <div className="checkbox-content">
-                <span className="checkbox-title">I confirm I am at least 16 years old</span>
-              </div>
+              <span className="checkbox-title">I confirm I am at least 16 years old</span>
             </label>
             {errors.ageConfirmed && <span className="form-error">{errors.ageConfirmed}</span>}
           </div>

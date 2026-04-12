@@ -37,6 +37,7 @@ vi.mock('@/renderer/services/e2eeService', () => ({
 
 vi.mock('@/renderer/services/preferencesSync', () => ({
   preferencesSyncService: {
+    init: vi.fn(),
     startWatching: vi.fn(),
     fetchAndApply: vi.fn().mockResolvedValue(undefined),
   },
@@ -693,6 +694,46 @@ describe('Login', () => {
 
     await vi.waitFor(() => {
       expect(screen.getByText('Signing In...')).toBeInTheDocument();
+    });
+  });
+
+  // ── PreferencesSync init flow ───────────────────────────────────────
+
+  it('calls preferencesSyncService.init() on successful login', async () => {
+    const { preferencesSyncService } = await import('@/renderer/services/preferencesSync');
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => makeLoginResponse(),
+    });
+
+    const user = userEvent.setup();
+    render(<Login {...defaultProps} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'MySecurePassword123!');
+    await user.click(screen.getByText('Sign In'));
+
+    await vi.waitFor(() => {
+      expect(preferencesSyncService.init).toHaveBeenCalled();
+    });
+  });
+
+  it('calls preferencesSyncService.startWatching() after init on login', async () => {
+    const { preferencesSyncService } = await import('@/renderer/services/preferencesSync');
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => makeLoginResponse(),
+    });
+
+    const user = userEvent.setup();
+    render(<Login {...defaultProps} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'MySecurePassword123!');
+    await user.click(screen.getByText('Sign In'));
+
+    await vi.waitFor(() => {
+      expect(preferencesSyncService.startWatching).toHaveBeenCalled();
     });
   });
 

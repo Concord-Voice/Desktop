@@ -24,7 +24,9 @@ import { useVideoSettingsStore } from './stores/videoSettingsStore';
 import { useOsPermissionStore, type OsPermissionType } from './stores/osPermissionStore';
 import { useWebSocket } from './hooks/useWebSocket';
 import { e2eeService } from './services/e2eeService';
-import { preferencesSyncService } from './services/preferencesSync';
+import { preferencesSyncService, type PreferencesSyncDeps } from './services/preferencesSync';
+import { useSettingsStore } from './stores/settingsStore';
+import { useLayoutStore } from './stores/layoutStore';
 import { savedGifsSyncService } from './services/savedGifsSync';
 import { usePrivacyStore } from './stores/privacyStore';
 import { klipyClient } from './services/gifProvider/klipyClient';
@@ -189,6 +191,29 @@ function AuthenticatedLayout() {
 // can trigger two sequential token rotations.
 let restoreSessionCalled = false;
 
+/** Build the dependency bag for preferencesSyncService — extracted to reduce nesting depth. */
+function buildPreferencesSyncDeps(): PreferencesSyncDeps {
+  return {
+    getAppearance: () => useSettingsStore.getState().appearance,
+    setAppearance: (patch) =>
+      useSettingsStore.setState((s) => ({ appearance: { ...s.appearance, ...patch } })),
+    getLayout: () => {
+      const s = useLayoutStore.getState();
+      return {
+        channelPanelPinned: s.channelPanelPinned,
+        channelPanelWidth: s.channelPanelWidth,
+        memberPanelMode: s.memberPanelMode,
+        memberPanelWidth: s.memberPanelWidth,
+        serverBarHeight: s.serverBarHeight,
+        folderBarHeight: s.folderBarHeight,
+        serverFolders: s.serverFolders,
+        serverOrder: s.serverOrder,
+      };
+    },
+    setLayout: (patch) => useLayoutStore.setState(patch),
+  };
+}
+
 function App() {
   const [version, setVersion] = useState<string>('');
   const [platform, setPlatform] = useState<string>('');
@@ -233,6 +258,7 @@ function App() {
         if (result.e2eeKeys) {
           try {
             await e2eeService.initializeFromStoredKeys(result.e2eeKeys);
+            preferencesSyncService.init(buildPreferencesSyncDeps());
             preferencesSyncService.startWatching();
             await preferencesSyncService.fetchAndApply();
             savedGifsSyncService.startWatching();

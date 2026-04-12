@@ -405,21 +405,18 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
         <div className="image-crop-loading">Loading image...</div>
       ) : (
         <>
-          <div
+          <button
+            type="button"
             className="image-crop-preview"
+            aria-label="Image crop editor — drag to reposition, scroll to zoom"
             onWheel={handleWheel}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
           >
-            <canvas
-              ref={canvasRef}
-              className="image-crop-canvas"
-              role="img"
-              aria-label="Crop preview"
-            />
-          </div>
+            <canvas ref={canvasRef} className="image-crop-canvas" />
+          </button>
 
           <div className="image-crop-hint">Drag to reposition, scroll to zoom</div>
 

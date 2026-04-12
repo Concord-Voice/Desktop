@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import {
   useSettingsStore,
   syncColorSchemeToServer,
+  setSyncSuppressed,
   type AppearanceSettings,
   type CustomColors,
 } from './settingsStore';
@@ -207,13 +208,6 @@ function callSetter(store: Record<string, unknown>, field: string, value: unknow
 }
 
 // ---------------------------------------------------------------------------
-// Module-level flag for suppressing server sync during draft mode
-// ---------------------------------------------------------------------------
-
-let _draftModeActive = false;
-export const isDraftModeActive = () => _draftModeActive;
-
-// ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
 
@@ -281,7 +275,7 @@ export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => 
   // ── Lifecycle ────────────────────────────────────────────────────────────
 
   initialize: () => {
-    _draftModeActive = true;
+    setSyncSuppressed(true);
     set({
       snapshot: takeSnapshot(),
       drafts: emptyDrafts(),
@@ -296,7 +290,7 @@ export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => 
     if (snapshot && Object.keys(drafts.appearance).length > 0) {
       restoreAppearanceFromSnapshot(snapshot);
     }
-    _draftModeActive = false;
+    setSyncSuppressed(false);
     set({
       snapshot: null,
       drafts: emptyDrafts(),
@@ -484,7 +478,7 @@ export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => 
 
     // Re-snapshot and clear drafts
     // Temporarily allow server sync to fire for appearance changes
-    _draftModeActive = false;
+    setSyncSuppressed(false);
 
     set({
       snapshot: takeSnapshot(),
@@ -493,7 +487,7 @@ export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => 
     });
 
     // Re-enable draft mode (settings page is still open)
-    _draftModeActive = true;
+    setSyncSuppressed(true);
 
     // Hardware acceleration restart — must happen AFTER all stores are saved
     if (willRestart) {

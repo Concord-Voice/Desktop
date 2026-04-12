@@ -6,6 +6,23 @@ const VOICE_MAX_SCALE = 1.12; // 12% magnification
 const RAMP_UP_MS = 120; // fast attack
 const RAMP_DOWN_MS = 300; // slower release
 
+/** Compute the next scale value for a single participant. */
+function nextScale(
+  prev: number,
+  isSpeaking: boolean,
+  dt: number
+): { value: number; changed: boolean } {
+  const target = isSpeaking ? VOICE_MAX_SCALE : 1;
+
+  if (Math.abs(prev - target) < 0.001) {
+    return { value: target, changed: prev !== target };
+  }
+
+  const rampMs = target > prev ? RAMP_UP_MS : RAMP_DOWN_MS;
+  const alpha = Math.min(1, dt / rampMs);
+  return { value: prev + (target - prev) * alpha, changed: true };
+}
+
 /**
  * Returns a Record<userId, scale> that smoothly animates between 1.0 and 1.12
  * based on each participant's isSpeaking state. Uses requestAnimationFrame
@@ -33,21 +50,10 @@ export function useVoiceMagnification(
       const next: Record<string, number> = {};
 
       for (const [userId, p] of Object.entries(participants)) {
-        const target = p.isSpeaking ? VOICE_MAX_SCALE : 1;
         const prev = current[userId] ?? 1;
-
-        if (Math.abs(prev - target) < 0.001) {
-          next[userId] = target;
-          if (prev !== target) changed = true;
-          continue;
-        }
-
-        // Asymmetric lerp: different rate for ramp up vs ramp down
-        const rampMs = target > prev ? RAMP_UP_MS : RAMP_DOWN_MS;
-        const alpha = Math.min(1, dt / rampMs);
-        const value = prev + (target - prev) * alpha;
-        next[userId] = value;
-        changed = true;
+        const result = nextScale(prev, p.isSpeaking, dt);
+        next[userId] = result.value;
+        if (result.changed) changed = true;
       }
 
       // Clean up entries for participants that left

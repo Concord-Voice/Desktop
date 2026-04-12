@@ -1,4 +1,4 @@
-import { useSettingsStore } from '@/renderer/stores/settingsStore';
+import { useSettingsStore, setSyncSuppressed } from '@/renderer/stores/settingsStore';
 import { resetAllStores } from '../../helpers/store-helpers';
 
 describe('settingsStore', () => {
@@ -64,6 +64,17 @@ describe('settingsStore', () => {
     it('applies reduce animations to data-reduce-animations attribute', () => {
       useSettingsStore.getState().setReduceAnimations(true);
       expect(document.documentElement.dataset.reduceAnimations).toBe('true');
+    });
+  });
+
+  describe('setSyncSuppressed', () => {
+    it('exports setSyncSuppressed as a function', () => {
+      expect(typeof setSyncSuppressed).toBe('function');
+    });
+
+    it('can be called with true and false without throwing', () => {
+      expect(() => setSyncSuppressed(true)).not.toThrow();
+      expect(() => setSyncSuppressed(false)).not.toThrow();
     });
   });
 

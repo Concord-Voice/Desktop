@@ -25,6 +25,35 @@ vi.mock('@/renderer/services/e2eeService', () => ({
 
 import { e2eeService } from '@/renderer/services/e2eeService';
 
+/** Reset the singleton's DI deps so init() can be called again in each test. */
+function resetSyncServiceDeps() {
+  (preferencesSyncService as unknown as { deps: unknown }).deps = null;
+}
+
+/** Wire DI deps pointing at the real test-scoped stores. */
+function initSyncServiceDeps() {
+  resetSyncServiceDeps();
+  preferencesSyncService.init({
+    getAppearance: () => useSettingsStore.getState().appearance,
+    setAppearance: (patch) =>
+      useSettingsStore.setState((s) => ({ appearance: { ...s.appearance, ...patch } })),
+    getLayout: () => {
+      const s = useLayoutStore.getState();
+      return {
+        channelPanelPinned: s.channelPanelPinned,
+        channelPanelWidth: s.channelPanelWidth,
+        memberPanelMode: s.memberPanelMode,
+        memberPanelWidth: s.memberPanelWidth,
+        serverBarHeight: s.serverBarHeight,
+        folderBarHeight: s.folderBarHeight,
+        serverFolders: s.serverFolders,
+        serverOrder: s.serverOrder,
+      };
+    },
+    setLayout: (patch) => useLayoutStore.setState(patch),
+  });
+}
+
 beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }));
 afterAll(() => server.close());
 afterEach(() => {
@@ -57,6 +86,7 @@ describe('preferencesSyncService — extended', () => {
     useAuthStore.getState().setAccessToken('mock-token');
     vi.mocked(e2eeService.encryptPreferences).mockResolvedValue('encrypted-blob');
     (e2eeService as any).isInitialized = true;
+    initSyncServiceDeps();
     vi.clearAllMocks();
   });
 

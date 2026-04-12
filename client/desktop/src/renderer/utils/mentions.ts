@@ -128,6 +128,27 @@ export function parseMentions(text: string, ctx: MentionResolveContext): ParsedM
  * Build a MentionAddendum from a list of parsed (and autocomplete-selected) mentions.
  * Returns null if there are no mention targets.
  */
+/** Accumulate a single mention into the user/role sets and broadcast flags. */
+function accumulateMention(
+  m: ParsedMention,
+  users: Set<string>,
+  roles: Set<string>
+): { everyone: boolean; here: boolean } {
+  switch (m.type) {
+    case 'user':
+      if (m.id) users.add(m.id);
+      break;
+    case 'role':
+      if (m.id) roles.add(m.id);
+      break;
+    case 'everyone':
+      return { everyone: true, here: false };
+    case 'here':
+      return { everyone: false, here: true };
+  }
+  return { everyone: false, here: false };
+}
+
 export function buildAddendum(mentions: ParsedMention[]): MentionAddendum | null {
   if (mentions.length === 0) return null;
 
@@ -137,20 +158,9 @@ export function buildAddendum(mentions: ParsedMention[]): MentionAddendum | null
   let here = false;
 
   for (const m of mentions) {
-    switch (m.type) {
-      case 'user':
-        if (m.id) users.add(m.id);
-        break;
-      case 'role':
-        if (m.id) roles.add(m.id);
-        break;
-      case 'everyone':
-        everyone = true;
-        break;
-      case 'here':
-        here = true;
-        break;
-    }
+    const result = accumulateMention(m, users, roles);
+    if (result.everyone) everyone = true;
+    if (result.here) here = true;
   }
 
   const addendum: MentionAddendum = {};

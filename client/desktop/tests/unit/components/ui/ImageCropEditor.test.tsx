@@ -208,6 +208,73 @@ describe('ImageCropEditor', () => {
     global.Image = originalImage;
   });
 
+  // ── ARIA / a11y attributes ───────────────────────────────────────────
+
+  it('renders canvas element inside crop button', async () => {
+    const originalImage = global.Image;
+    global.Image = class MockImage {
+      naturalWidth = 1024;
+      naturalHeight = 1024;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_: string) {
+        setTimeout(() => this.onload?.(), 0);
+      }
+    } as unknown as typeof Image;
+
+    const { container } = render(<ImageCropEditor {...defaultProps} />);
+    await screen.findByText('Cancel');
+    const canvas = container.querySelector('canvas');
+    expect(canvas).toBeInTheDocument();
+    // Canvas is a child of the interactive crop button — no aria-hidden needed
+    expect(canvas?.closest('button')).toBeInTheDocument();
+
+    global.Image = originalImage;
+  });
+
+  it('renders crop area as interactive button with aria-label', async () => {
+    const originalImage = global.Image;
+    global.Image = class MockImage {
+      naturalWidth = 1024;
+      naturalHeight = 1024;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_: string) {
+        setTimeout(() => this.onload?.(), 0);
+      }
+    } as unknown as typeof Image;
+
+    render(<ImageCropEditor {...defaultProps} />);
+    await screen.findByText('Cancel');
+    const cropArea = screen.getByRole('button', {
+      name: 'Image crop editor — drag to reposition, scroll to zoom',
+    });
+    expect(cropArea).toBeInTheDocument();
+    expect(cropArea).toHaveClass('image-crop-preview');
+
+    global.Image = originalImage;
+  });
+
+  it('renders zoom slider with aria-label "Zoom level"', async () => {
+    const originalImage = global.Image;
+    global.Image = class MockImage {
+      naturalWidth = 1024;
+      naturalHeight = 1024;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_: string) {
+        setTimeout(() => this.onload?.(), 0);
+      }
+    } as unknown as typeof Image;
+
+    render(<ImageCropEditor {...defaultProps} />);
+    const slider = await screen.findByLabelText('Zoom level');
+    expect(slider).toBeInTheDocument();
+    expect(slider).toHaveAttribute('aria-label', 'Zoom level');
+
+    global.Image = originalImage;
+  });
+
   it('shows upload error on failure', async () => {
     const { apiFetch } = await import('@/renderer/services/apiClient');
     (apiFetch as Mock).mockResolvedValue({

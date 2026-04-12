@@ -8,7 +8,12 @@ import {
 } from '../utils/colorUtils';
 import { useUserStore } from './userStore';
 import { useMemberStore } from './memberStore';
-import { isDraftModeActive } from './draftSettingsStore';
+let syncSuppressed = false;
+
+/** Called by draftSettingsStore to suppress color-scheme sync during draft mode. */
+export function setSyncSuppressed(suppressed: boolean): void {
+  syncSuppressed = suppressed;
+}
 
 export interface AppearanceSettings {
   theme: 'dark' | 'light' | 'system';
@@ -272,7 +277,7 @@ useSettingsStore.subscribe(
     }
 
     // Suppress server sync during draft mode — sync happens on Apply
-    if (isDraftModeActive()) return;
+    if (syncSuppressed) return;
 
     // Debounced sync
     if (colorSyncTimer) clearTimeout(colorSyncTimer);

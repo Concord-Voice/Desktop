@@ -311,6 +311,50 @@ describe('ChannelList — extended coverage', () => {
     });
   });
 
+  // --- ARIA / a11y attributes ---
+
+  describe('ARIA tree structure', () => {
+    const setupWithGroupAndChannel = () => {
+      useServerStore.setState({ activeServerId: 'server-1' });
+      useChannelStore.setState({
+        channels: [{ ...mockChannel, id: 'ch-1', group_id: 'group-1', position: 0 }],
+        channelGroups: [mockGroup1],
+        collapsedGroups: [],
+        isLoading: false,
+        error: null,
+      });
+    };
+
+    it('renders the channel list with role="tree" and aria-label', () => {
+      setupWithGroupAndChannel();
+      renderChannelList();
+      const tree = screen.getByRole('tree', { name: 'Server channels' });
+      expect(tree).toBeInTheDocument();
+    });
+
+    it('renders channel group headers as <section> elements', () => {
+      setupWithGroupAndChannel();
+      renderChannelList();
+      const regions = screen.getAllByRole('region');
+      expect(regions.length).toBeGreaterThanOrEqual(1);
+      expect(regions[0]).toHaveAttribute('aria-label', 'Text Channels channel group');
+    });
+
+    it('renders drag gap zones with aria-hidden (no ARIA role)', () => {
+      setupWithGroupAndChannel();
+      usePermissionStore.setState({
+        serverPermissions: { 'server-1': ADMIN_PERMISSIONS | MANAGE_CHANNELS },
+      });
+      const { container } = renderChannelList();
+      const gaps = container.querySelectorAll('.channel-drag-gap');
+      expect(gaps.length).toBeGreaterThan(0);
+      gaps.forEach((gap) => {
+        expect(gap).toHaveAttribute('aria-hidden', 'true');
+        expect(gap).not.toHaveAttribute('role');
+      });
+    });
+  });
+
   // --- DnD gap zones ---
 
   describe('drag-and-drop gap zones', () => {
@@ -387,6 +431,107 @@ describe('buildNormalDropUpdates — insert position', () => {
     );
     const srcUpdate = updates.find((u) => u.channel_id === 'src');
     expect(srcUpdate?.position).toBe(1);
+  });
+});
+
+// --- parseGapSlot edge cases ---
+
+describe('parseGapSlot — edge cases', () => {
+  const groups: ChannelGroup[] = [mockGroup1, mockGroup2];
+
+  it('returns sortedGroups.length for __gap-bottom', () => {
+    expect(parseGapSlot('__gap-bottom', groups)).toBe(2);
+  });
+
+  it('returns sortedGroups.length for __gap-uncategorized', () => {
+    expect(parseGapSlot('__gap-uncategorized', groups)).toBe(2);
+  });
+
+  it('returns correct index for __gap-before-{catId}', () => {
+    expect(parseGapSlot('__gap-before-group-1', groups)).toBe(0);
+    expect(parseGapSlot('__gap-before-group-2', groups)).toBe(1);
+  });
+
+  it('returns 0 for __gap-before- with unknown category', () => {
+    expect(parseGapSlot('__gap-before-unknown', groups)).toBe(0);
+  });
+
+  it('returns 0 for unrecognized gap ID', () => {
+    expect(parseGapSlot('something-else', groups)).toBe(0);
+  });
+});
+
+// --- Multiple categories with drag-gap zones ---
+
+describe('ChannelList — multiple categories with drag gap zones', () => {
+  const onContextMenu = vi.fn();
+  const onEmptyContextMenu = vi.fn();
+  const onCategoryContextMenu = vi.fn();
+
+  beforeEach(() => {
+    resetAllStores();
+    vi.clearAllMocks();
+    useChannelStore.setState({
+      fetchChannels: vi.fn() as unknown as (serverId: string) => Promise<void>,
+      clearChannels: vi.fn() as unknown as () => void,
+    });
+  });
+
+  it('renders multiple category headers when multiple groups exist', () => {
+    useServerStore.setState({ activeServerId: 'server-1' });
+    useChannelStore.setState({
+      channels: [
+        { ...mockChannel, id: 'ch-1', group_id: 'group-1', position: 0 },
+        { ...mockChannel, id: 'ch-2', name: 'voice-general', group_id: 'group-2', position: 0 },
+      ],
+      channelGroups: [mockGroup1, mockGroup2],
+      collapsedGroups: [],
+      isLoading: false,
+      error: null,
+    });
+
+    render(
+      <ChannelList
+        onContextMenu={onContextMenu}
+        onEmptyContextMenu={onEmptyContextMenu}
+        onCategoryContextMenu={onCategoryContextMenu}
+      />
+    );
+
+    // Both group headers should render as <section> elements (names are uppercased in the component)
+    const regions = screen.getAllByRole('region');
+    expect(regions.length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByText('TEXT CHANNELS')).toBeInTheDocument();
+    expect(screen.getByText('VOICE CHANNELS')).toBeInTheDocument();
+  });
+
+  it('renders gap zones between categories when user has manage permission', () => {
+    useServerStore.setState({ activeServerId: 'server-1' });
+    useChannelStore.setState({
+      channels: [
+        { ...mockChannel, id: 'ch-1', group_id: 'group-1', position: 0 },
+        { ...mockChannel, id: 'ch-2', name: 'voice-general', group_id: 'group-2', position: 0 },
+      ],
+      channelGroups: [mockGroup1, mockGroup2],
+      collapsedGroups: [],
+      isLoading: false,
+      error: null,
+    });
+    usePermissionStore.setState({
+      serverPermissions: { 'server-1': ADMIN_PERMISSIONS | MANAGE_CHANNELS },
+    });
+
+    const { container } = render(
+      <ChannelList
+        onContextMenu={onContextMenu}
+        onEmptyContextMenu={onEmptyContextMenu}
+        onCategoryContextMenu={onCategoryContextMenu}
+      />
+    );
+
+    const gaps = container.querySelectorAll('.channel-drag-gap');
+    // With 2 categories there should be gap zones between/around them
+    expect(gaps.length).toBeGreaterThanOrEqual(2);
   });
 });
 

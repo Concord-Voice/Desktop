@@ -1,8 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { getChannelPins, unpinMessage } from '../../services/pinService';
-import { renderPinContent, decryptPins } from './pinnedMessageUtils';
-import type { DecryptedPin } from './pinnedMessageUtils';
+import { renderPinContent, decryptPins, type DecryptedPin } from './pinnedMessageUtils';
 import './PinnedMessagesPanel.css';
 
 export interface PinnedMessagesPanelProps {

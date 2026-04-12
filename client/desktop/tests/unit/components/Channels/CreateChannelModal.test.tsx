@@ -2,7 +2,8 @@ import { render, screen, fireEvent, waitFor, act } from '../../../test-utils';
 import { resetAllStores } from '../../../helpers/store-helpers';
 import { useServerStore } from '@/renderer/stores/serverStore';
 import { useChannelStore } from '@/renderer/stores/channelStore';
-import { mockServer, mockChannel } from '../../../mocks/fixtures';
+import { useMemberStore } from '@/renderer/stores/memberStore';
+import { mockServer, mockChannel, mockMember } from '../../../mocks/fixtures';
 
 // Mock apiFetch to avoid timing issues in jsdom
 vi.mock('@/renderer/services/apiClient', () => ({
@@ -22,6 +23,7 @@ vi.mock('emoji-picker-react', () => ({
 }));
 
 import { apiFetch } from '@/renderer/services/apiClient';
+import { e2eeService } from '@/renderer/services/e2eeService';
 import CreateChannelModal from '@/renderer/components/Channels/CreateChannelModal';
 
 const mockedApiFetch = vi.mocked(apiFetch);
@@ -145,5 +147,174 @@ describe('CreateChannelModal', () => {
       target: { value: 'Test' },
     });
     expect(screen.getByText('4/100 characters')).toBeInTheDocument();
+  });
+
+  it('submits encrypted channel with wrapped keys', async () => {
+    vi.useFakeTimers();
+
+    // Set up a member so public key fetch has a target
+    useMemberStore.setState({ members: [mockMember] });
+
+    const wrappedKeyMap = new Map([['user-1', 'wrapped-key-data']]);
+    vi.mocked(e2eeService.createChannelKeys).mockResolvedValue(wrappedKeyMap);
+
+    // First call: public key fetch; second call: channel creation
+    mockedApiFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ public_key: 'mock-public-key' }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          channel: { ...mockChannel, name: 'secret-channel', is_encrypted: true },
+        }),
+      } as Response);
+
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+
+    // Enter channel name
+    fireEvent.change(screen.getByPlaceholderText('general-chat'), {
+      target: { value: 'secret-channel' },
+    });
+
+    // Enable encryption
+    const toggleBtn = screen.getByText('Encryption Disabled').closest('button')!;
+    fireEvent.click(toggleBtn);
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Create Channel', { selector: 'button[type="submit"]' }));
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(e2eeService.createChannelKeys).toHaveBeenCalled();
+    expect(screen.getByText('Channel created successfully!')).toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
+
+  it('shows error when E2EE is not initialized', async () => {
+    // Temporarily set isInitialized to false
+    const original = e2eeService.isInitialized;
+    Object.defineProperty(e2eeService, 'isInitialized', { value: false, writable: true });
+
+    useMemberStore.setState({ members: [mockMember] });
+
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+
+    fireEvent.change(screen.getByPlaceholderText('general-chat'), {
+      target: { value: 'encrypted-channel' },
+    });
+
+    // Enable encryption
+    const toggleBtn = screen.getByText('Encryption Disabled').closest('button')!;
+    fireEvent.click(toggleBtn);
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Create Channel', { selector: 'button[type="submit"]' }));
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('E2EE is not initialized. Please log out and log back in.')
+      ).toBeInTheDocument();
+    });
+
+    // Restore
+    Object.defineProperty(e2eeService, 'isInitialized', { value: original, writable: true });
+  });
+
+  it('shows error when no member public keys are available', async () => {
+    useMemberStore.setState({ members: [mockMember] });
+
+    // Public key fetch fails
+    mockedApiFetch.mockResolvedValueOnce({
+      ok: false,
+      json: async () => ({}),
+    } as Response);
+
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+
+    fireEvent.change(screen.getByPlaceholderText('general-chat'), {
+      target: { value: 'encrypted-channel' },
+    });
+
+    const toggleBtn = screen.getByText('Encryption Disabled').closest('button')!;
+    fireEvent.click(toggleBtn);
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Create Channel', { selector: 'button[type="submit"]' }));
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('No member public keys available for E2EE channel creation')
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('renders channel group selector when groups exist', () => {
+    useChannelStore.setState({
+      channelGroups: [{ id: 'group-1', name: 'General', server_id: 'server-1', position: 0 }],
+    });
+
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+    expect(screen.getByText('Channel Group')).toBeInTheDocument();
+  });
+
+  it('calls onSuccess callback after successful creation', async () => {
+    vi.useFakeTimers();
+
+    const createdChannel = { ...mockChannel, name: 'callback-channel' };
+    mockedApiFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ channel: createdChannel }),
+    } as Response);
+
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+
+    fireEvent.change(screen.getByPlaceholderText('general-chat'), {
+      target: { value: 'callback-channel' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Create Channel', { selector: 'button[type="submit"]' }));
+    });
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+
+    expect(mockOnSuccess).toHaveBeenCalledWith(createdChannel);
+
+    vi.useRealTimers();
+  });
+
+  it('handles non-Error thrown exceptions', async () => {
+    mockedApiFetch.mockRejectedValue('string-error');
+
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+
+    fireEvent.change(screen.getByPlaceholderText('general-chat'), {
+      target: { value: 'new-channel' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Create Channel', { selector: 'button[type="submit"]' }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Failed to create channel')).toBeInTheDocument();
+    });
+  });
+
+  it('selects bulletin channel type', () => {
+    render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+    const bulletinBtn = screen.getByText('Bulletin').closest('button');
+    fireEvent.click(bulletinBtn!);
+    expect(bulletinBtn).toHaveClass('selected');
   });
 });

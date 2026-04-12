@@ -25,12 +25,14 @@ const { mockSetVideoAdvancedMode, mockSetDraftVideoSetting } = vi.hoisted(() => 
 // ─── Mocks (MUST be before component imports) ───────────────────────────────
 
 vi.mock('@/renderer/stores/voiceStore', () => ({
-  useVoiceStore: vi.fn((s: Function) => s({ activeCameraCodec: null, activeScreenCodec: null })),
+  useVoiceStore: vi.fn((s: (state: Record<string, unknown>) => unknown) =>
+    s({ activeCameraCodec: null, activeScreenCodec: null })
+  ),
 }));
 
 vi.mock('@/renderer/stores/videoSettingsStore', () => ({
   useVideoSettingsStore: Object.assign(
-    vi.fn((s: Function) =>
+    vi.fn((s: (state: Record<string, unknown>) => unknown) =>
       s({ codecCapabilities: [], gpuInfo: null, videoAdvancedMode: false, systemHdr: false })
     ),
     { getState: vi.fn(() => ({ setVideoAdvancedMode: mockSetVideoAdvancedMode })) }
@@ -143,8 +145,8 @@ function mockVideoSettingsStore(overrides: Record<string, unknown>) {
     videoAdvancedMode: false,
     systemHdr: false,
   };
-  (useVideoSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((s: Function) =>
-    s({ ...defaults, ...overrides })
+  (useVideoSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+    (s: (state: Record<string, unknown>) => unknown) => s({ ...defaults, ...overrides })
   );
 }
 
@@ -157,8 +159,8 @@ function mockDraftSettings(overrides: Record<string, unknown>) {
 
 function mockVoiceStore(overrides: Record<string, unknown>) {
   const defaults = { activeCameraCodec: null, activeScreenCodec: null };
-  (useVoiceStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((s: Function) =>
-    s({ ...defaults, ...overrides })
+  (useVoiceStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+    (s: (state: Record<string, unknown>) => unknown) => s({ ...defaults, ...overrides })
   );
 }
 
@@ -183,14 +185,16 @@ beforeEach(() => {
   } as unknown as typeof globalThis.electron;
 
   // Reset to defaults
-  (useVideoSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((s: Function) =>
-    s({ codecCapabilities: [], gpuInfo: null, videoAdvancedMode: false, systemHdr: false })
+  (useVideoSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+    (s: (state: Record<string, unknown>) => unknown) =>
+      s({ codecCapabilities: [], gpuInfo: null, videoAdvancedMode: false, systemHdr: false })
   );
   (useDraftVideoSetting as unknown as ReturnType<typeof vi.fn>).mockImplementation(
     (key: string) => defaultVideoSettings[key] ?? false
   );
-  (useVoiceStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((s: Function) =>
-    s({ activeCameraCodec: null, activeScreenCodec: null })
+  (useVoiceStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+    (s: (state: Record<string, unknown>) => unknown) =>
+      s({ activeCameraCodec: null, activeScreenCodec: null })
   );
 });
 

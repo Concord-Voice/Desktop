@@ -1,7 +1,6 @@
 import { render, screen, fireEvent } from '../../../test-utils';
-import ChannelItem from '@/renderer/components/Channels/ChannelItem';
+import ChannelItem, { type VoiceMemberInfo } from '@/renderer/components/Channels/ChannelItem';
 import type { Channel } from '@/renderer/types/chat';
-import type { VoiceMemberInfo } from '@/renderer/components/Channels/ChannelItem';
 import { vi } from 'vitest';
 
 const mockTextChannel: Channel = {

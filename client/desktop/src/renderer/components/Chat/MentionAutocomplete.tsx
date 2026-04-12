@@ -289,11 +289,14 @@ const MentionAutocomplete = forwardRef<MentionAutocompleteHandle, MentionAutocom
         className="mention-autocomplete"
         role="listbox"
         aria-label="Mention suggestions"
+        aria-activedescendant={options[selectedIndex] ? `mention-opt-${selectedIndex}` : undefined}
+        tabIndex={-1}
         ref={listRef}
       >
         {options.map((option, i) => (
           <div
             key={`${option.type}-${option.id || option.label}`}
+            id={`mention-opt-${i}`}
             className={`mention-option ${i === selectedIndex ? 'selected' : ''}`}
             role="option"
             tabIndex={-1}

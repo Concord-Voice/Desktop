@@ -1,6 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '../../../test-utils';
-import { useVoiceStore } from '@/renderer/stores/voiceStore';
+import { useVoiceStore, type AvailableScreenShare } from '@/renderer/stores/voiceStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
 vi.mock('@/renderer/components/Voice/TuneInButton.css', () => ({}));
@@ -14,7 +14,6 @@ vi.mock('@/renderer/services/voiceService', () => ({
 }));
 
 import TuneInButton, { TuneInOverlay } from '@/renderer/components/Voice/TuneInButton';
-import type { AvailableScreenShare } from '@/renderer/stores/voiceStore';
 
 const mockShare: AvailableScreenShare = {
   producerId: 'producer-1',

@@ -194,9 +194,10 @@ const CategoryGroupHeader: React.FC<CategoryGroupHeaderProps> = React.memo(
     onCategoryDragOver,
     itemRef,
   }) => (
-    <div
+    <section
       ref={(el) => itemRef(group.id, el)}
       className={`channel-group-header channel-group-header--collapsible ${isCategoryDragging ? 'dragging' : ''} ${isCategoryDragOver ? 'drag-over' : ''}`}
+      aria-label={`${group.name} channel group`}
       draggable={canReorder}
       onDragStart={(e) => onDragStart(e, group.id, 'category')}
       onDragOver={(e) => {
@@ -234,7 +235,7 @@ const CategoryGroupHeader: React.FC<CategoryGroupHeaderProps> = React.memo(
           </span>
         )}
       </button>
-    </div>
+    </section>
   )
 );
 
@@ -851,6 +852,9 @@ const ChannelList: React.FC<ChannelListProps> = ({
   return (
     <div
       className="channel-list"
+      role="tree"
+      aria-label="Server channels"
+      tabIndex={0}
       onContextMenu={handleEmptyContextMenu}
       onDragOver={canReorder ? (e) => e.preventDefault() : undefined}
       onDrop={canReorder ? handleDrop : undefined}
@@ -937,6 +941,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
                 {/* Gap zone before category — drop here to ungroup a channel */}
                 <div
                   className={`channel-drag-gap ${draggingType === 'channel' ? 'channel-drag-gap--visible' : ''} ${isGapActive ? 'channel-drag-gap--active' : ''}`}
+                  aria-hidden="true"
                   onDragOver={(e) => handleGapDragOver(e, gapId)}
                   onDrop={handleDrop}
                 />
@@ -971,6 +976,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
           {channelGroups.length > 0 && (
             <div
               className={`channel-drag-gap ${draggingType === 'channel' ? 'channel-drag-gap--visible' : ''} ${dragInsertPos?.targetId === '__gap-bottom' ? 'channel-drag-gap--active' : ''}`}
+              aria-hidden="true"
               onDragOver={(e) => handleGapDragOver(e, '__gap-bottom')}
               onDrop={handleDrop}
             />

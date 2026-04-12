@@ -1217,10 +1217,10 @@ describe('VoiceService Extended', () => {
 
     it('resolves on connect event', async () => {
       const svc = voiceService as any;
-      const onceHandlers: Record<string, Function> = {};
+      const onceHandlers: Record<string, (...args: unknown[]) => void> = {};
       svc.socket = {
         connected: false,
-        once: vi.fn().mockImplementation((ev: string, cb: Function) => {
+        once: vi.fn().mockImplementation((ev: string, cb: (...args: unknown[]) => void) => {
           onceHandlers[ev] = cb;
         }),
       };
@@ -1234,10 +1234,10 @@ describe('VoiceService Extended', () => {
 
     it('rejects on connect_error', async () => {
       const svc = voiceService as any;
-      const onceHandlers: Record<string, Function> = {};
+      const onceHandlers: Record<string, (...args: unknown[]) => void> = {};
       svc.socket = {
         connected: false,
-        once: vi.fn().mockImplementation((ev: string, cb: Function) => {
+        once: vi.fn().mockImplementation((ev: string, cb: (...args: unknown[]) => void) => {
           onceHandlers[ev] = cb;
         }),
       };
@@ -1294,7 +1294,7 @@ describe('VoiceService Extended', () => {
     it('rejects on server error response', async () => {
       const svc = voiceService as any;
       svc.socket = {
-        emit: vi.fn().mockImplementation((_ev: string, _data: unknown, cb: Function) => {
+        emit: vi.fn().mockImplementation((_ev: string, _data: unknown, cb: (...args: unknown[]) => void) => {
           cb({ error: 'bad request' });
         }),
       };
@@ -1304,7 +1304,7 @@ describe('VoiceService Extended', () => {
     it('resolves with response', async () => {
       const svc = voiceService as any;
       svc.socket = {
-        emit: vi.fn().mockImplementation((_ev: string, _data: unknown, cb: Function) => {
+        emit: vi.fn().mockImplementation((_ev: string, _data: unknown, cb: (...args: unknown[]) => void) => {
           cb({ id: '123' });
         }),
       };

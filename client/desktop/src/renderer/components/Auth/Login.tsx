@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { unwrapLoginKeys, generateRegistrationKeys } from '../../utils/crypto';
 import { e2eeService } from '../../services/e2eeService';
 import { preferencesSyncService } from '../../services/preferencesSync';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { useLayoutStore } from '../../stores/layoutStore';
 import { savedGifsSyncService } from '../../services/savedGifsSync';
 import { useAuthStore } from '../../stores/authStore';
 import { API_BASE, apiFetch, ensureMachineId } from '../../services/apiClient';
@@ -272,6 +274,25 @@ const Login: React.FC<LoginProps> = ({
       await globalThis.electron.storeE2EEKeys(sessionKeys);
     }
 
+    preferencesSyncService.init({
+      getAppearance: () => useSettingsStore.getState().appearance,
+      setAppearance: (patch) =>
+        useSettingsStore.setState((s) => ({ appearance: { ...s.appearance, ...patch } })),
+      getLayout: () => {
+        const s = useLayoutStore.getState();
+        return {
+          channelPanelPinned: s.channelPanelPinned,
+          channelPanelWidth: s.channelPanelWidth,
+          memberPanelMode: s.memberPanelMode,
+          memberPanelWidth: s.memberPanelWidth,
+          serverBarHeight: s.serverBarHeight,
+          folderBarHeight: s.folderBarHeight,
+          serverFolders: s.serverFolders,
+          serverOrder: s.serverOrder,
+        };
+      },
+      setLayout: (patch) => useLayoutStore.setState(patch),
+    });
     preferencesSyncService.startWatching();
     await preferencesSyncService.fetchAndApply();
     savedGifsSyncService.startWatching();

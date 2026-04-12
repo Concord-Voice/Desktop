@@ -119,6 +119,8 @@ export const useUserStore = create<UserState>()(
         // Stop syncing preferences and saved GIFs before tearing down
         preferencesSyncService.stopWatching();
         savedGifsSyncService.stopWatching();
+        // Reset sync suppression flag in case Settings was open during logout
+        import('./settingsStore').then(({ setSyncSuppressed }) => setSyncSuppressed(false));
         e2eeService.clearKeys();
 
         // Disconnect WebSocket FIRST so the server receives the close frame

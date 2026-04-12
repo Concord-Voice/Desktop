@@ -26,6 +26,39 @@ interface FormErrors {
   general?: string;
 }
 
+interface ServerMemberLike {
+  user_id: string;
+}
+
+/** Fetch public keys for all server members and generate wrapped E2EE channel keys. */
+async function generateWrappedKeysForMembers(
+  members: ServerMemberLike[]
+): Promise<Record<string, string>> {
+  if (!e2eeService.isInitialized) {
+    throw new Error('E2EE is not initialized. Please log out and log back in.');
+  }
+
+  const memberPublicKeys = new Map<string, string>();
+  for (const member of members) {
+    try {
+      const pkRes = await apiFetch(`/api/v1/users/${member.user_id}/public-key`);
+      if (pkRes.ok) {
+        const pkData = await pkRes.json();
+        memberPublicKeys.set(member.user_id, pkData.public_key);
+      }
+    } catch {
+      // Skip members without public keys — they won't have E2EE access until key distribution
+    }
+  }
+
+  if (memberPublicKeys.size === 0) {
+    throw new Error('No member public keys available for E2EE channel creation');
+  }
+
+  const wrappedKeyMap = await e2eeService.createChannelKeys(memberPublicKeys);
+  return Object.fromEntries(wrappedKeyMap);
+}
+
 const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState('');
@@ -96,36 +129,9 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
     setErrors({});
 
     try {
-      // If E2EE is enabled, generate channel key and wrap for all members
-      let wrappedKeys: Record<string, string> | undefined;
-
-      if (isEncrypted) {
-        if (!e2eeService.isInitialized) {
-          throw new Error('E2EE is not initialized. Please log out and log back in.');
-        }
-
-        // Fetch public keys for all server members
-        const memberPublicKeys = new Map<string, string>();
-        for (const member of members) {
-          try {
-            const pkRes = await apiFetch(`/api/v1/users/${member.user_id}/public-key`);
-            if (pkRes.ok) {
-              const pkData = await pkRes.json();
-              memberPublicKeys.set(member.user_id, pkData.public_key);
-            }
-          } catch {
-            // Skip members without public keys — they won't have E2EE access until key distribution
-          }
-        }
-
-        if (memberPublicKeys.size === 0) {
-          throw new Error('No member public keys available for E2EE channel creation');
-        }
-
-        // Generate CSK and wrap for each member
-        const wrappedKeyMap = await e2eeService.createChannelKeys(memberPublicKeys);
-        wrappedKeys = Object.fromEntries(wrappedKeyMap);
-      }
+      const wrappedKeys = isEncrypted
+        ? await generateWrappedKeysForMembers(members)
+        : undefined;
 
       const response = await apiFetch('/api/v1/channels', {
         method: 'POST',
@@ -154,9 +160,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
       setSuccessMessage('Channel created successfully!');
 
       // Call onSuccess callback if provided
-      if (onSuccess) {
-        onSuccess(data.channel);
-      }
+      onSuccess?.(data.channel);
 
       // Close modal after short delay
       setTimeout(() => {

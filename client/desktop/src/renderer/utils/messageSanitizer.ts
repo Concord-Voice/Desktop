@@ -30,20 +30,23 @@
  */
 
 import type { MessageWithStatus } from '../types/chat';
-import { usePrivacyStore } from '../stores/privacyStore';
 
 /**
  * Sanitize a single message's embed flag based on the user's local preference.
  * Called at every message entry point (addMessage, updateMessage, setMessages, prependMessages).
+ *
+ * The caller is responsible for reading the privacy store and passing the current
+ * `allowEmbeddedContent` setting — this keeps the utils/ layer free of store imports.
  *
  * Rules:
  * 1. User allowEmbeddedContent OFF → force embeds_suppressed = true (local override)
  * 2. Server/moderator set embeds_suppressed = true → preserve it (never un-suppress)
  * 3. Only when user allows AND the server flag allows → embeds may render
  */
-export function sanitizeMessageEmbeds(message: MessageWithStatus): MessageWithStatus {
-  const { allowEmbeddedContent } = usePrivacyStore.getState().settings;
-
+export function sanitizeMessageEmbeds(
+  message: MessageWithStatus,
+  allowEmbeddedContent: boolean
+): MessageWithStatus {
   // User has embeds disabled locally — force suppression regardless of server flag
   if (!allowEmbeddedContent) {
     if (message.embeds_suppressed) return message; // Already suppressed, no clone needed
@@ -56,10 +59,14 @@ export function sanitizeMessageEmbeds(message: MessageWithStatus): MessageWithSt
 
 /**
  * Sanitize an array of messages. Used for bulk operations (setMessages, prependMessages).
+ *
+ * The caller is responsible for reading the privacy store and passing the current
+ * `allowEmbeddedContent` setting — this keeps the utils/ layer free of store imports.
  */
-export function sanitizeMessagesEmbeds(messages: MessageWithStatus[]): MessageWithStatus[] {
-  const { allowEmbeddedContent } = usePrivacyStore.getState().settings;
-
+export function sanitizeMessagesEmbeds(
+  messages: MessageWithStatus[],
+  allowEmbeddedContent: boolean
+): MessageWithStatus[] {
   // Fast path: if user allows embeds, no transformation needed — trust the server flags
   if (allowEmbeddedContent) return messages;
 

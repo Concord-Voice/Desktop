@@ -66,7 +66,8 @@ describe('clientConfigService', () => {
     it('stops clears timers', () => {
       clientConfigService.start();
       clientConfigService.stop();
-      // No error means timers were properly cleaned up
+      // Calling stop again should be idempotent (no double-clear errors)
+      expect(() => clientConfigService.stop()).not.toThrow();
     });
   });
 });

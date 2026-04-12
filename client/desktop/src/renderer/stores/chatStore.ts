@@ -8,6 +8,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import type { MessageWithStatus } from '../types/chat';
 import { sanitizeMessageEmbeds, sanitizeMessagesEmbeds } from '../utils/messageSanitizer';
+import { usePrivacyStore } from './privacyStore';
 
 export interface TypingUser {
   userId: string;
@@ -85,7 +86,8 @@ export const useChatStore = create<ChatState>()(
       // Add a new message to a channel
       addMessage: (channelId, message) =>
         set((state) => {
-          const sanitized = sanitizeMessageEmbeds(message);
+          const { allowEmbeddedContent } = usePrivacyStore.getState().settings;
+          const sanitized = sanitizeMessageEmbeds(message, allowEmbeddedContent);
           const messages = state.messagesByChannel.get(channelId) || [];
 
           // Check if message already exists (deduplication)
@@ -113,10 +115,14 @@ export const useChatStore = create<ChatState>()(
 
           if (index >= 0) {
             const updatedMessages = [...messages];
-            updatedMessages[index] = sanitizeMessageEmbeds({
-              ...updatedMessages[index],
-              ...updates,
-            });
+            const { allowEmbeddedContent } = usePrivacyStore.getState().settings;
+            updatedMessages[index] = sanitizeMessageEmbeds(
+              {
+                ...updatedMessages[index],
+                ...updates,
+              },
+              allowEmbeddedContent
+            );
             state.messagesByChannel.set(channelId, updatedMessages);
           }
 
@@ -163,7 +169,11 @@ export const useChatStore = create<ChatState>()(
       // Set all messages for a channel (replace)
       setMessages: (channelId, messages) =>
         set((state) => {
-          state.messagesByChannel.set(channelId, sanitizeMessagesEmbeds(messages));
+          const { allowEmbeddedContent } = usePrivacyStore.getState().settings;
+          state.messagesByChannel.set(
+            channelId,
+            sanitizeMessagesEmbeds(messages, allowEmbeddedContent)
+          );
           return {
             messagesByChannel: new Map(state.messagesByChannel),
           };
@@ -172,7 +182,8 @@ export const useChatStore = create<ChatState>()(
       // Prepend messages (for pagination - loading older messages)
       prependMessages: (channelId, messages) =>
         set((state) => {
-          const sanitized = sanitizeMessagesEmbeds(messages);
+          const { allowEmbeddedContent } = usePrivacyStore.getState().settings;
+          const sanitized = sanitizeMessagesEmbeds(messages, allowEmbeddedContent);
           const existing = state.messagesByChannel.get(channelId) || [];
 
           // Deduplicate by ID

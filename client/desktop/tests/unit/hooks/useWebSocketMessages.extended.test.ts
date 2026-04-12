@@ -56,10 +56,11 @@ import { notificationSoundService } from '@/renderer/services/notificationSoundS
 
 // Build a mock wsService with on() that captures handlers
 function createMockWsService() {
-  const handlers = new Map<string, Function>();
+  type HandlerFn = (...args: unknown[]) => void;
+  const handlers = new Map<string, HandlerFn>();
   return {
     handlers,
-    on: vi.fn((type: string, handler: Function) => {
+    on: vi.fn((type: string, handler: HandlerFn) => {
       handlers.set(type, handler);
       return () => handlers.delete(type);
     }),

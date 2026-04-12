@@ -344,7 +344,7 @@ describe('permissionManager', () => {
       const call = mockHandle.mock.calls.find(
         (c: unknown[]) => (c as string[])[0] === 'permission:check'
       );
-      const handler = (call as [string, Function])[1];
+      const handler = (call as [string, (...args: unknown[]) => unknown])[1];
       expect(() => handler({}, 'invalid')).toThrow('Unknown permission type');
     });
 
@@ -353,7 +353,7 @@ describe('permissionManager', () => {
       const call = mockHandle.mock.calls.find(
         (c: unknown[]) => (c as string[])[0] === 'permission:check'
       );
-      const handler = (call as [string, Function])[1];
+      const handler = (call as [string, (...args: unknown[]) => unknown])[1];
       mockIsEncryptionAvailable.mockReturnValue(true);
       expect(handler({}, 'secureStorage')).toBe('granted');
     });
@@ -364,7 +364,7 @@ describe('permissionManager', () => {
       const call = mockHandle.mock.calls.find(
         (c: unknown[]) => (c as string[])[0] === 'permission:request'
       );
-      const handler = (call as [string, Function])[1];
+      const handler = (call as [string, (...args: unknown[]) => unknown])[1];
       mockIsEncryptionAvailable.mockReturnValue(true);
       await handler({}, 'secureStorage');
       expect(mockSend).toHaveBeenCalledWith('permission:changed', {
@@ -379,7 +379,7 @@ describe('permissionManager', () => {
       const call = mockHandle.mock.calls.find(
         (c: unknown[]) => (c as string[])[0] === 'permission:request'
       );
-      const handler = (call as [string, Function])[1];
+      const handler = (call as [string, (...args: unknown[]) => unknown])[1];
       mockIsEncryptionAvailable.mockReturnValue(true);
       await handler({}, 'secureStorage');
       expect(mockSend).not.toHaveBeenCalled();
@@ -390,7 +390,7 @@ describe('permissionManager', () => {
       const call = mockHandle.mock.calls.find(
         (c: unknown[]) => (c as string[])[0] === 'permission:request'
       );
-      const handler = (call as [string, Function])[1];
+      const handler = (call as [string, (...args: unknown[]) => unknown])[1];
       mockIsEncryptionAvailable.mockReturnValue(true);
       await handler({}, 'secureStorage');
       expect(mockSend).not.toHaveBeenCalled();
@@ -401,7 +401,7 @@ describe('permissionManager', () => {
       const call = mockHandle.mock.calls.find(
         (c: unknown[]) => (c as string[])[0] === 'permission:request'
       );
-      const handler = (call as [string, Function])[1];
+      const handler = (call as [string, (...args: unknown[]) => unknown])[1];
       await expect(handler({}, 'bogus')).rejects.toThrow('Unknown permission type');
     });
 
@@ -410,7 +410,7 @@ describe('permissionManager', () => {
       const call = mockHandle.mock.calls.find(
         (c: unknown[]) => (c as string[])[0] === 'permission:openSettings'
       );
-      const handler = (call as [string, Function])[1];
+      const handler = (call as [string, (...args: unknown[]) => unknown])[1];
       expect(() => handler({}, 'bogus')).toThrow('Unknown permission type');
     });
   });

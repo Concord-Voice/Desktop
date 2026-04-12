@@ -29,6 +29,7 @@ vi.mock('@/renderer/services/e2eeService', () => ({
 
 vi.mock('@/renderer/services/preferencesSync', () => ({
   preferencesSyncService: {
+    init: vi.fn(),
     startWatching: vi.fn(),
     fetchAndApply: vi.fn().mockResolvedValue(undefined),
   },

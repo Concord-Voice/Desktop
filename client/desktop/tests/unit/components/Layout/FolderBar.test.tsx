@@ -433,6 +433,45 @@ describe('FolderBar', () => {
     expect(initial?.textContent).toBe('T');
   });
 
+  // ===== ARIA / a11y attributes =====
+
+  it('renders folder chips with role="treeitem"', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'My Folder', serverIds: [], collapsed: false }],
+    });
+    render(<FolderBar />);
+    const treeItems = screen.getAllByRole('treeitem');
+    expect(treeItems.length).toBeGreaterThanOrEqual(1);
+    expect(treeItems[0]).toHaveAttribute('aria-label', 'My Folder folder');
+  });
+
+  it('folder chip inner element is a <button>', () => {
+    useLayoutStore.setState({
+      serverFolders: [{ id: 'folder-1', name: 'My Folder', serverIds: [], collapsed: false }],
+    });
+    render(<FolderBar />);
+    const chip = document.querySelector('.folder-chip-inner');
+    expect(chip).toBeInTheDocument();
+    expect(chip?.tagName).toBe('BUTTON');
+    expect(chip).toHaveAttribute('type', 'button');
+  });
+
+  it('folder treeitem has aria-expanded matching open state', () => {
+    useLayoutStore.setState({
+      serverFolders: [
+        { id: 'folder-1', name: 'My Folder', serverIds: ['server-1'], collapsed: false },
+      ],
+    });
+    useServerStore.setState({ servers: [mockServer] });
+    render(<FolderBar />);
+    const treeItem = screen.getByRole('treeitem', { name: 'My Folder folder' });
+    expect(treeItem).toHaveAttribute('aria-expanded', 'false');
+
+    // Open the folder
+    fireEvent.click(screen.getByText('My Folder'));
+    expect(treeItem).toHaveAttribute('aria-expanded', 'true');
+  });
+
   // ===== Folder scale from height =====
 
   it('applies folder scale CSS custom property', () => {
@@ -443,6 +482,55 @@ describe('FolderBar', () => {
   });
 
   // ===== Clicking inside rename prevents folder toggle =====
+
+  // ===== Add button is a native button element =====
+
+  it('add button is a <button> element', () => {
+    const { container } = render(<FolderBar />);
+    const addBtn = container.querySelector('.folder-add-btn');
+    expect(addBtn).toBeInTheDocument();
+    expect(addBtn?.tagName).toBe('BUTTON');
+  });
+
+  // ===== Folder chip click fires server activation =====
+
+  it('clicking server in dropdown calls setActiveServer and navigates', () => {
+    useLayoutStore.setState({
+      serverFolders: [
+        {
+          id: 'folder-1',
+          name: 'My Folder',
+          serverIds: ['server-1', 'server-2'],
+          collapsed: false,
+        },
+      ],
+    });
+    useServerStore.setState({ servers: [mockServer, mockServer2] });
+    render(<FolderBar />);
+    // Open folder dropdown
+    fireEvent.click(screen.getByText('My Folder'));
+    // Click second server
+    fireEvent.click(screen.getByText('Second Server'));
+    expect(useServerStore.getState().activeServerId).toBe('server-2');
+  });
+
+  // ===== Folder scale edge cases =====
+
+  it('applies minimum folder scale at folderBarHeight=24', () => {
+    useLayoutStore.setState({ folderBarHeight: 24 });
+    const { container } = render(<FolderBar />);
+    const folderBar = container.querySelector('.folder-bar') as HTMLElement;
+    const scale = folderBar.style.getPropertyValue('--folder-scale');
+    expect(Number.parseFloat(scale)).toBeCloseTo(0.75);
+  });
+
+  it('applies maximum folder scale at folderBarHeight=48', () => {
+    useLayoutStore.setState({ folderBarHeight: 48 });
+    const { container } = render(<FolderBar />);
+    const folderBar = container.querySelector('.folder-bar') as HTMLElement;
+    const scale = folderBar.style.getPropertyValue('--folder-scale');
+    expect(Number.parseFloat(scale)).toBeCloseTo(1.25);
+  });
 
   it('does not toggle folder when clicking rename input', () => {
     useLayoutStore.setState({

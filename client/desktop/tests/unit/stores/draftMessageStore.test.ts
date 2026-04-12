@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useDraftMessageStore } from '../../../src/renderer/stores/draftMessageStore';
-import type { DraftContent } from '../../../src/renderer/stores/draftMessageStore';
+import {
+  useDraftMessageStore,
+  type DraftContent,
+} from '../../../src/renderer/stores/draftMessageStore';
 import { resetAllStores } from '../../helpers/store-helpers';
 
 describe('draftMessageStore', () => {

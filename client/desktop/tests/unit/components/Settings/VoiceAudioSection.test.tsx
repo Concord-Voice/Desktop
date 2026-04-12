@@ -289,14 +289,15 @@ describe('VoiceAudioSection', () => {
   });
   it('disables test button during voice call', async () => {
     const { useVoiceStore } = await import('@/renderer/stores/voiceStore');
-    (useVoiceStore as unknown as ReturnType<typeof vi.fn>).mockImplementation((s: Function) =>
-      s({
-        qualityTier: 'standard',
-        setQualityTier: mockSetQualityTier,
-        activeCameraCodec: null,
-        activeScreenCodec: null,
-        connectionState: 'connected',
-      })
+    (useVoiceStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (s: (state: Record<string, unknown>) => unknown) =>
+        s({
+          qualityTier: 'standard',
+          setQualityTier: mockSetQualityTier,
+          activeCameraCodec: null,
+          activeScreenCodec: null,
+          connectionState: 'connected',
+        })
     );
     render(<VoiceAudioSection />);
     expect(document.querySelector('.settings-mic-test-btn')).toBeDisabled();
@@ -345,7 +346,8 @@ describe('VoiceAudioSection', () => {
   it('shows advanced sections when enabled', async () => {
     const { useAudioSettingsStore } = await import('@/renderer/stores/audioSettingsStore');
     (useAudioSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (s: Function) => s({ advancedMode: true, setAdvancedMode: vi.fn() })
+      (s: (state: Record<string, unknown>) => unknown) =>
+        s({ advancedMode: true, setAdvancedMode: vi.fn() })
     );
     render(<VoiceAudioSection />);
     expect(screen.getByText('Opus Codec')).toBeInTheDocument();
@@ -556,7 +558,8 @@ describe('VoiceAudioSection', () => {
   it('shows advanced audio features: FEC, NACK, Silence Detection, Frame Size, QoS, Stereo', async () => {
     const { useAudioSettingsStore } = await import('@/renderer/stores/audioSettingsStore');
     (useAudioSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (s: Function) => s({ advancedMode: true, setAdvancedMode: vi.fn() })
+      (s: (state: Record<string, unknown>) => unknown) =>
+        s({ advancedMode: true, setAdvancedMode: vi.fn() })
     );
     render(<VoiceAudioSection />);
     expect(screen.getByText('Music Mode')).toBeInTheDocument();
@@ -572,7 +575,8 @@ describe('VoiceAudioSection', () => {
   it('shows Error Correction & Reliability and Transport subsection headers in advanced mode', async () => {
     const { useAudioSettingsStore } = await import('@/renderer/stores/audioSettingsStore');
     (useAudioSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (s: Function) => s({ advancedMode: true, setAdvancedMode: vi.fn() })
+      (s: (state: Record<string, unknown>) => unknown) =>
+        s({ advancedMode: true, setAdvancedMode: vi.fn() })
     );
     render(<VoiceAudioSection />);
     expect(screen.getByText('Error Correction & Reliability')).toBeInTheDocument();
@@ -582,7 +586,8 @@ describe('VoiceAudioSection', () => {
   it('shows advanced mode notice banner', async () => {
     const { useAudioSettingsStore } = await import('@/renderer/stores/audioSettingsStore');
     (useAudioSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (s: Function) => s({ advancedMode: true, setAdvancedMode: vi.fn() })
+      (s: (state: Record<string, unknown>) => unknown) =>
+        s({ advancedMode: true, setAdvancedMode: vi.fn() })
     );
     render(<VoiceAudioSection />);
     expect(
@@ -678,7 +683,7 @@ describe('VoiceAudioSection', () => {
   it('shows video advanced features when videoAdvancedMode is true', async () => {
     const { useVideoSettingsStore } = await import('@/renderer/stores/videoSettingsStore');
     (useVideoSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (s: Function) =>
+      (s: (state: Record<string, unknown>) => unknown) =>
         s({
           codecCapabilities: [],
           gpuInfo: null,
@@ -697,7 +702,7 @@ describe('VoiceAudioSection', () => {
   it('shows video transport QoS selectors in advanced mode', async () => {
     const { useVideoSettingsStore } = await import('@/renderer/stores/videoSettingsStore');
     (useVideoSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (s: Function) =>
+      (s: (state: Record<string, unknown>) => unknown) =>
         s({
           codecCapabilities: [],
           gpuInfo: null,
@@ -713,7 +718,7 @@ describe('VoiceAudioSection', () => {
   it('shows Bandwidth subsection in video advanced mode', async () => {
     const { useVideoSettingsStore } = await import('@/renderer/stores/videoSettingsStore');
     (useVideoSettingsStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (s: Function) =>
+      (s: (state: Record<string, unknown>) => unknown) =>
         s({
           codecCapabilities: [],
           gpuInfo: null,

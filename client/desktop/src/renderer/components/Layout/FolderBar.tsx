@@ -11,6 +11,11 @@ import ContextMenu from '../ui/ContextMenu';
 import Modal from '../ui/Modal';
 import './FolderBar.css';
 
+/** Remove a cloned drag-image element on the next animation frame. */
+function scheduleDragImageCleanup(clone: HTMLElement): void {
+  requestAnimationFrame(() => clone.remove());
+}
+
 const FolderBar: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -270,7 +275,7 @@ const FolderBar: React.FC = () => {
   return (
     <>
       <div className="folder-bar" style={folderStyle}>
-        <div className="folder-bar-scroll">
+        <div className="folder-bar-scroll" role="tree" aria-label="Server folders">
           {serverFolders.map((folder) => {
             const isOpen = openFolderId === folder.id;
             const isDragOver = dragOverFolderId === folder.id;
@@ -285,16 +290,32 @@ const FolderBar: React.FC = () => {
                   else chipRefs.current.delete(folder.id);
                 }}
                 className={`folder-chip ${isOpen ? 'open' : ''} ${isDragOver ? 'drag-over' : ''}`}
+                role="treeitem"
+                tabIndex={0}
+                aria-label={`${folder.name} folder`}
+                aria-expanded={isOpen}
+                aria-selected={isOpen}
                 onDragEnter={(e) => handleFolderDragEnter(e, folder.id)}
                 onDragOver={handleFolderDragOver}
                 onDragLeave={() => handleFolderDragLeave(folder.id)}
                 onDrop={(e) => handleFolderDrop(e, folder.id)}
                 onContextMenu={(e) => handleContextMenu(e, folder)}
               >
-                <div
+                <button
+                  type="button"
                   className="folder-chip-inner"
                   onClick={() => handleFolderClick(folder.id)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 'inherit' }}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 'inherit',
+                    background: 'none',
+                    border: 0,
+                    padding: 0,
+                    cursor: 'pointer',
+                    color: 'inherit',
+                    font: 'inherit',
+                  }}
                 >
                   {isRenaming ? (
                     <input
@@ -314,7 +335,7 @@ const FolderBar: React.FC = () => {
                       <ChevronDown size={12} className="folder-chip-arrow" />
                     </>
                   )}
-                </div>
+                </button>
               </div>
             );
           })}
@@ -426,12 +447,20 @@ const FolderBar: React.FC = () => {
                       {ghostBefore && ghost}
                       <div
                         className={`folder-dropdown-item ${draggingServerId === server.id ? 'dragging' : ''}`}
+                        role="menuitem"
+                        tabIndex={0}
                         draggable
                         onMouseEnter={(e) => {
                           const rect = e.currentTarget.getBoundingClientRect();
                           setHoveredServer({ server: server as ServerWithRole, rect });
                         }}
                         onMouseLeave={() => setHoveredServer(null)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            handleServerClick(server.id);
+                          }
+                        }}
                         onDragStart={(e) => {
                           e.dataTransfer.setData('text/plain', server.id);
                           e.dataTransfer.setData('application/concord-server', server.id);
@@ -454,7 +483,7 @@ const FolderBar: React.FC = () => {
                             clone.offsetWidth / 2,
                             clone.offsetHeight / 2
                           );
-                          requestAnimationFrame(() => clone.remove());
+                          scheduleDragImageCleanup(clone);
                         }}
                         onDragOver={(e) => {
                           e.preventDefault();

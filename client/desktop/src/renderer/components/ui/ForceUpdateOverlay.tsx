@@ -142,7 +142,7 @@ const ForceUpdateOverlay: React.FC = () => {
         </div>
         <h2 className="force-update-title">Update Required</h2>
         <p className="force-update-message">
-          Your version (<strong>v{appVersion}</strong>) is below the minimum required version (
+          Your version (<strong>v{appVersion}</strong>) is below the minimum required version ({' '}
           <strong>v{minVersion}</strong>). Please update to continue using Concord.
         </p>
 
