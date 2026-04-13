@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import { SENTRY_DSN } from '../shared/sentry-config.generated';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -237,18 +238,16 @@ contextBridge.exposeInMainWorld('electron', {
   focusWindow: () => ipcRenderer.invoke('app:focusWindow'),
 
   // Sentry config (read-only, no callbacks, no side effects)
-  // Sentry config (read-only, no callbacks, no side effects)
   sentry: (() => {
     const env =
       process.env.SENTRY_ENVIRONMENT ||
       process.env.NODE_ENV ||
       (process.defaultApp ? 'development' : 'production');
-    const dsn = process.env.SENTRY_DSN || '';
     const enabled =
-      process.env.SENTRY_ENABLED != null
-        ? process.env.SENTRY_ENABLED.toLowerCase() === 'true'
-        : Boolean(dsn) && env === 'production';
-    return { dsn, environment: env, enabled };
+      process.env.SENTRY_ENABLED == null
+        ? Boolean(SENTRY_DSN) && env === 'production'
+        : process.env.SENTRY_ENABLED.toLowerCase() === 'true';
+    return { dsn: SENTRY_DSN, environment: env, enabled };
   })(),
 });
 

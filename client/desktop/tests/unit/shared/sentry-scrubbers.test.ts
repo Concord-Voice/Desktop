@@ -95,6 +95,17 @@ describe('scrubEvent', () => {
     expect(result!.tags).toHaveProperty('release');
     expect(result!.tags).not.toHaveProperty('customTag');
   });
+
+  it('preserves the boundary tag set by ErrorBoundary beforeCapture', () => {
+    const event = {
+      tags: {
+        environment: 'production',
+        boundary: 'app-root',
+      },
+    };
+    const result = scrubEvent(event as any);
+    expect(result!.tags).toHaveProperty('boundary', 'app-root');
+  });
 });
 
 describe('redactSensitivePatterns', () => {
@@ -145,16 +156,13 @@ describe('scrubBreadcrumb', () => {
     expect(scrubBreadcrumb(breadcrumb as any)).toBeNull();
   });
 
-  it('strips data from navigation breadcrumbs', () => {
+  it('drops navigation breadcrumbs entirely', () => {
     const breadcrumb = {
       category: 'navigation',
-      message: 'navigated to /settings',
-      data: { from: '/chat', to: '/settings', params: { userId: '123' } },
+      message: '/dm/user-abc123',
+      data: { from: '/app', to: '/dm/user-abc123' },
     };
-    const result = scrubBreadcrumb(breadcrumb as any);
-    expect(result).not.toBeNull();
-    expect(result!.data).toBeUndefined();
-    expect(result!.category).toBe('navigation');
+    expect(scrubBreadcrumb(breadcrumb as any)).toBeNull();
   });
 
   it('redacts sensitive patterns in breadcrumb messages', () => {

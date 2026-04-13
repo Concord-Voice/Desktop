@@ -3,11 +3,11 @@
   "compilerOptions": {
     "module": "CommonJS",
     "moduleResolution": "node",
-    "outDir": "./dist/preload",
-    "rootDir": "./src/preload",
+    "outDir": "./dist",
+    "rootDir": "./src",
     "lib": ["ES2022"],
     "ignoreDeprecations": "6.0"
   },
-  "include": ["src/preload/**/*"],
+  "include": ["src/preload/**/*", "src/shared/sentry-config.generated.ts"],
   "exclude": ["node_modules", "dist", "src/renderer", "src/main"]
 }

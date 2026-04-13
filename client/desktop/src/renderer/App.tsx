@@ -1,12 +1,5 @@
-import {
-  Component,
-  Suspense,
-  lazy,
-  useEffect,
-  useState,
-  type ErrorInfo,
-  type ReactNode,
-} from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
+import * as Sentry from '@sentry/react';
 import { Routes, Route, Navigate, Outlet, useNavigate } from 'react-router-dom';
 import AuthFlow from './components/Auth/AuthFlow';
 import MainView from './components/MainView/MainView';
@@ -39,34 +32,69 @@ import { useDMStore } from './stores/dmStore';
 import { desktopNotificationService } from './services/desktopNotificationService';
 // resetService is loaded on-demand via dynamic import() to allow code splitting
 
-// ─── Error Boundary ────────────────────────────────────────────────────
-// Catches unhandled rendering errors. Instead of going nuclear (which wipes
-// auth tokens and shows login), marks the renderer as crashed and performs a
-// soft restart — preserving the session for automatic recovery.
+// ─── Sentry Error Boundary Fallbacks ──────────────────────────────────
+// Static text only — no user data, no display names, no avatars.
+// showDialog={false} is mandatory on every boundary (Sentry's default
+// feedback dialog collects email, violating our PII allowlist).
 
-interface ErrorBoundaryState {
-  hasError: boolean;
+export function AppRootFallback() {
+  return (
+    <div className="error-boundary-fallback error-boundary-fallback--fatal">
+      <h2>Something went wrong</h2>
+      <p>The error has been reported. Please restart the application.</p>
+      <button onClick={() => globalThis.location.reload()}>Reload</button>
+    </div>
+  );
 }
 
-class AppErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
-  state: ErrorBoundaryState = { hasError: false };
+export function AuthenticatedViewFallback() {
+  return (
+    <div className="error-boundary-fallback">
+      <h2>This view failed to load</h2>
+      <p>The error has been reported. Try selecting a different view.</p>
+    </div>
+  );
+}
 
-  static getDerivedStateFromError(): ErrorBoundaryState {
-    return { hasError: true };
-  }
+export function SettingsFallback() {
+  return (
+    <div className="error-boundary-fallback">
+      <h2>Settings failed to load</h2>
+      <p>The error has been reported. Close and reopen settings to try again.</p>
+    </div>
+  );
+}
 
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('[AppErrorBoundary] Unhandled error — soft restart:', error, info.componentStack);
-    import('./services/recoveryService').then((m) => m.markRendererCrashed());
-    import('./services/resetService').then((m) => m.softRestart());
-  }
+export function PipFallback() {
+  return (
+    <div className="error-boundary-fallback">
+      <h2>Voice UI crashed</h2>
+      <p>Your call is still active. Close this window and rejoin from the main app.</p>
+    </div>
+  );
+}
 
-  render() {
-    if (this.state.hasError) {
-      return <AuthFlow />;
-    }
-    return this.props.children;
-  }
+export function AuthFallback() {
+  return (
+    <div className="error-boundary-fallback">
+      <h2>Authentication UI failed to load</h2>
+      <p>The error has been reported.</p>
+      <button onClick={() => globalThis.location.reload()}>Reload</button>
+    </div>
+  );
+}
+
+/** Soft-restart on fatal render crash — preserves session, avoids nuclear reset. */
+export function handleAppRootError() {
+  import('./services/recoveryService')
+    .then((m) => m.markRendererCrashed())
+    .catch((err) => console.error('[App] Failed to mark renderer crashed:', err));
+  import('./services/resetService')
+    .then((m) => m.softRestart())
+    .catch((err) => {
+      console.error('[App] Failed to soft-restart, forcing reload:', err);
+      globalThis.location.reload();
+    });
 }
 
 // ─── Authenticated Layout ──────────────────────────────────────────────
@@ -177,8 +205,20 @@ function AuthenticatedLayout() {
 
   return (
     <>
-      <Outlet />
-      <SettingsOverlayHost />
+      <Sentry.ErrorBoundary
+        fallback={<AuthenticatedViewFallback />}
+        showDialog={false}
+        beforeCapture={(scope) => scope.setTag('boundary', 'authenticated-view')}
+      >
+        <Outlet />
+      </Sentry.ErrorBoundary>
+      <Sentry.ErrorBoundary
+        fallback={<SettingsFallback />}
+        showDialog={false}
+        beforeCapture={(scope) => scope.setTag('boundary', 'settings')}
+      >
+        <SettingsOverlayHost />
+      </Sentry.ErrorBoundary>
       <ConnectionLostOverlay />
     </>
   );
@@ -325,7 +365,12 @@ function App() {
   }
 
   return (
-    <AppErrorBoundary>
+    <Sentry.ErrorBoundary
+      fallback={<AppRootFallback />}
+      showDialog={false}
+      beforeCapture={(scope) => scope.setTag('boundary', 'app-root')}
+      onError={handleAppRootError}
+    >
       <ContextMenuProvider>
         <div className="app">
           <div className="title-bar">
@@ -345,7 +390,17 @@ function App() {
               <Route
                 path="/"
                 element={
-                  accessToken && emailVerified ? <Navigate to="/app/dms" replace /> : <AuthFlow />
+                  accessToken && emailVerified ? (
+                    <Navigate to="/app/dms" replace />
+                  ) : (
+                    <Sentry.ErrorBoundary
+                      fallback={<AuthFallback />}
+                      showDialog={false}
+                      beforeCapture={(scope) => scope.setTag('boundary', 'auth-flow')}
+                    >
+                      <AuthFlow />
+                    </Sentry.ErrorBoundary>
+                  )
                 }
               />
               <Route element={<AuthenticatedLayout />}>
@@ -353,12 +408,23 @@ function App() {
                 <Route path="/app/dms" element={<DirectMessagesView />} />
               </Route>
               {/* PiP windows — separate Electron BrowserWindows, state synced via BroadcastChannel */}
-              <Route path="/pip/:pipId" element={<PipWindow />} />
+              <Route
+                path="/pip/:pipId"
+                element={
+                  <Sentry.ErrorBoundary
+                    fallback={<PipFallback />}
+                    showDialog={false}
+                    beforeCapture={(scope) => scope.setTag('boundary', 'pip-window')}
+                  >
+                    <PipWindow />
+                  </Sentry.ErrorBoundary>
+                }
+              />
             </Routes>
           </Suspense>
         </div>
       </ContextMenuProvider>
-    </AppErrorBoundary>
+    </Sentry.ErrorBoundary>
   );
 }
 

@@ -1,6 +1,7 @@
 import * as Sentry from '@sentry/electron/main';
 import { app } from 'electron';
 import { scrubEvent, scrubBreadcrumb } from '../shared/sentry-scrubbers';
+import { SENTRY_DSN } from '../shared/sentry-config.generated';
 
 const sentryEnvironment =
   process.env.SENTRY_ENVIRONMENT ||
@@ -8,11 +9,11 @@ const sentryEnvironment =
   (app.isPackaged ? 'production' : 'development');
 const sentryEnabled =
   process.env.SENTRY_ENABLED == null
-    ? Boolean(process.env.SENTRY_DSN) && sentryEnvironment === 'production'
+    ? Boolean(SENTRY_DSN) && sentryEnvironment === 'production'
     : process.env.SENTRY_ENABLED.toLowerCase() === 'true';
 
 Sentry.init({
-  dsn: process.env.SENTRY_DSN,
+  dsn: SENTRY_DSN,
   environment: sentryEnvironment,
   enabled: sentryEnabled,
   release: `concord-desktop@${app.getVersion()}`,

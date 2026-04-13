@@ -24,6 +24,7 @@ export const ALLOWED_TAG_KEYS = new Set([
   'transaction',
   'electron.process',
   'handled',
+  'boundary',
 ]);
 
 // ─── Sensitive pattern redaction ────────────────────────────────────────────
@@ -131,6 +132,14 @@ export function scrubBreadcrumb(breadcrumb: any): any | null {
 
   // Drop console breadcrumbs — too likely to contain logged state objects
   if (breadcrumb.category === 'console') {
+    return null;
+  }
+
+  // Drop navigation breadcrumbs — route paths leak DM partners and channel
+  // membership (e.g. /dm/user-abc123, /servers/xyz/channels/qrs).
+  // Defense-in-depth: catches data even if React Router integration is
+  // accidentally enabled in the future.
+  if (breadcrumb.category === 'navigation') {
     return null;
   }
 
