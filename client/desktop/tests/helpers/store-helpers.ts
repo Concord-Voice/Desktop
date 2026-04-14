@@ -13,6 +13,7 @@ import { usePrivacyStore } from '../../src/renderer/stores/privacyStore';
 import { useMFAChallengeStore } from '../../src/renderer/stores/mfaChallengeStore';
 import { useSavedGifsStore } from '../../src/renderer/stores/savedGifsStore';
 import { useChannelScrollStore } from '../../src/renderer/stores/channelScrollStore';
+import { useTelemetryConsentStore } from '../../src/renderer/stores/telemetryConsentStore';
 
 /**
  * Resets all Zustand stores to their initial state.
@@ -36,6 +37,12 @@ export function resetAllStores(): void {
   useMFAChallengeStore.getState().clearChallenge();
   useSavedGifsStore.setState({ gifs: [] });
   useChannelScrollStore.setState({ positions: {} });
+  useTelemetryConsentStore.setState({
+    telemetryOptIn: false,
+    firstPromptCompleted: false,
+    policyAcknowledgedVersion: 0,
+    isLoaded: false,
+  });
 
   // Clear persisted state from localStorage
   localStorage.clear();

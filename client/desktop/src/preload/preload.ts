@@ -237,7 +237,39 @@ contextBridge.exposeInMainWorld('electron', {
   flashFrame: (flash: boolean) => ipcRenderer.invoke('app:flashFrame', flash),
   focusWindow: () => ipcRenderer.invoke('app:focusWindow'),
 
-  // Sentry config (read-only, no callbacks, no side effects)
+  // Telemetry consent (#618)
+  getConsentState: () =>
+    ipcRenderer.invoke('consent:getState') as Promise<{
+      telemetryOptIn: boolean;
+      firstPromptCompleted: boolean;
+      policyAcknowledgedVersion: number;
+      updatedAt: string | null;
+    }>,
+  setConsentState: (updates: {
+    telemetryOptIn?: boolean;
+    firstPromptCompleted?: boolean;
+    policyAcknowledgedVersion?: number;
+  }) => ipcRenderer.invoke('consent:setState', updates) as Promise<void>,
+  onConsentChanged: (
+    callback: (state: {
+      telemetryOptIn: boolean;
+      firstPromptCompleted: boolean;
+      policyAcknowledgedVersion: number;
+      updatedAt: string | null;
+    }) => void
+  ) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: Parameters<typeof callback>[0]) =>
+      callback(data);
+    ipcRenderer.on('consent:changed', handler);
+    return () => {
+      ipcRenderer.removeListener('consent:changed', handler);
+    };
+  },
+
+  // Sentry config (read-only — consent gating happens at runtime via onConsentChanged)
+  // Renderer Sentry starts disabled; App.tsx toggles it after consent hydration.
+  // We cannot read the consent file here because `electron.app` is unavailable
+  // in the preload context when sandbox is enabled.
   sentry: (() => {
     const env =
       process.env.SENTRY_ENVIRONMENT ||
@@ -245,7 +277,7 @@ contextBridge.exposeInMainWorld('electron', {
       (process.defaultApp ? 'development' : 'production');
     const enabled =
       process.env.SENTRY_ENABLED == null
-        ? Boolean(SENTRY_DSN) && env === 'production'
+        ? false // Always disabled at preload time; consent gate toggles at runtime
         : process.env.SENTRY_ENABLED.toLowerCase() === 'true';
     return { dsn: SENTRY_DSN, environment: env, enabled };
   })(),
@@ -379,6 +411,27 @@ export interface ElectronAPI {
   setBadgeCount: (count: number) => Promise<void>;
   flashFrame: (flash: boolean) => Promise<void>;
   focusWindow: () => Promise<void>;
+
+  // Telemetry consent (#618)
+  getConsentState: () => Promise<{
+    telemetryOptIn: boolean;
+    firstPromptCompleted: boolean;
+    policyAcknowledgedVersion: number;
+    updatedAt: string | null;
+  }>;
+  setConsentState: (updates: {
+    telemetryOptIn?: boolean;
+    firstPromptCompleted?: boolean;
+    policyAcknowledgedVersion?: number;
+  }) => Promise<void>;
+  onConsentChanged: (
+    callback: (state: {
+      telemetryOptIn: boolean;
+      firstPromptCompleted: boolean;
+      policyAcknowledgedVersion: number;
+      updatedAt: string | null;
+    }) => void
+  ) => () => void;
 
   // Sentry config
   sentry: {

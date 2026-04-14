@@ -35,3 +35,22 @@ if (sentryConfig?.dsn) {
       // stack traces may not resolve source maps without a release tag.
     });
 }
+
+// Listen for consent changes from the main process and toggle Sentry at runtime.
+// This handles both the initial consent dialog and Settings toggle changes.
+// Note: toggling `enabled` on a client initialized with enabled=false works for
+// @sentry/electron as of v8 but is not part of the documented SDK API contract.
+// The main process Sentry is the primary crash capture path; renderer Sentry
+// supplements it for React-specific errors.
+// The renderer follows the preload's sentry config for the SENTRY_ENABLED override.
+// If the override was set, consent changes should not toggle Sentry.
+const sentryOverrideActive =
+  sentryConfig != null && typeof process !== 'undefined' && process.env?.SENTRY_ENABLED != null;
+if (globalThis.electron?.onConsentChanged && !sentryOverrideActive) {
+  globalThis.electron.onConsentChanged((state) => {
+    const client = Sentry.getClient();
+    if (client) {
+      client.getOptions().enabled = state.telemetryOptIn;
+    }
+  });
+}

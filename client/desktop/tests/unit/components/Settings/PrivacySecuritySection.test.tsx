@@ -77,11 +77,7 @@ vi.mock('@/renderer/components/Auth/MFAVerifyPrompt', () => ({
     excludeBackupCodes?: boolean;
   }) => (
     <div data-testid="mfa-verify-prompt">
-      <button
-        data-testid="mfa-verify-btn"
-        onClick={() => onVerify('123456')}
-        disabled={disabled}
-      >
+      <button data-testid="mfa-verify-btn" onClick={() => onVerify('123456')} disabled={disabled}>
         Verify
       </button>
     </div>
@@ -119,6 +115,31 @@ vi.mock('@/renderer/components/ui/Modal', () => ({
         <button onClick={onClose}>Close</button>
       </div>
     ) : null,
+}));
+
+const { mockSetConsent } = vi.hoisted(() => ({
+  mockSetConsent: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock('@/renderer/stores/telemetryConsentStore', () => {
+  const defaultState = {
+    telemetryOptIn: false,
+    isLoaded: true,
+    firstPromptCompleted: false,
+    policyAcknowledgedVersion: 1,
+    hydrate: vi.fn().mockResolvedValue(undefined),
+    setConsent: mockSetConsent,
+    applyRemoteState: vi.fn(),
+  };
+  const hook = vi.fn((s: (state: typeof defaultState) => unknown) => s(defaultState));
+  (hook as unknown as { getState: () => typeof defaultState }).getState = () => defaultState;
+  return { useTelemetryConsentStore: hook };
+});
+vi.mock('@/renderer/stores/clientConfigStore', () => ({
+  useClientConfigStore: vi.fn((s) =>
+    s({
+      telemetryPolicyVersion: 1,
+    })
+  ),
 }));
 
 import PrivacySecuritySection from '@/renderer/components/Settings/PrivacySecuritySection';
@@ -956,17 +977,13 @@ describe('PrivacySecuritySection', () => {
 
   it('renders personalization ID row with customer ID', async () => {
     render(<PrivacySecuritySection />);
-    await vi.waitFor(() =>
-      expect(screen.getByText('Personalization ID')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Personalization ID')).toBeInTheDocument());
     expect(screen.getByText('mock-customer-id-123')).toBeInTheDocument();
   });
 
   it('renders Rotate button for personalization ID', async () => {
     render(<PrivacySecuritySection />);
-    await vi.waitFor(() =>
-      expect(screen.getByText('Rotate')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Rotate')).toBeInTheDocument());
   });
 
   it('renders GIF settings section labels', async () => {
@@ -1002,13 +1019,9 @@ describe('PrivacySecuritySection', () => {
       })
     );
     render(<PrivacySecuritySection />);
-    await vi.waitFor(() =>
-      expect(screen.getByText(/Click to load/)).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText(/Click to load/)).toBeInTheDocument());
     expect(screen.getByText(/GIF picker results are not personalized/)).toBeInTheDocument();
-    expect(
-      screen.getByText(/Ephemeral ID — rotates automatically/)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Ephemeral ID — rotates automatically/)).toBeInTheDocument();
   });
 
   // ── Mode change modal ──────────────────────────────────────────────────
@@ -1017,9 +1030,7 @@ describe('PrivacySecuritySection', () => {
     render(<PrivacySecuritySection />);
     await vi.waitFor(() => expect(screen.getByText('Session Revocation')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Simple'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Change Revocation Mode')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Change Revocation Mode')).toBeInTheDocument());
     expect(screen.getByText(/Switching to Simple Revocation/)).toBeInTheDocument();
   });
 
@@ -1080,9 +1091,7 @@ describe('PrivacySecuritySection', () => {
     );
     const row = screen.getByText('Allow Friends-of-Friends').closest('.settings-row')!;
     expect(row.classList.contains('settings-row-disabled')).toBe(true);
-    expect(
-      screen.getByText(/Everyone can already DM you/)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Everyone can already DM you/)).toBeInTheDocument();
   });
 
   // ── DM privacy level 1 (Friends Only) ─────────────────────────────────
@@ -1110,9 +1119,7 @@ describe('PrivacySecuritySection', () => {
       })
     );
     render(<PrivacySecuritySection />);
-    await vi.waitFor(() =>
-      expect(screen.getByText(/Inner circle only/)).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText(/Inner circle only/)).toBeInTheDocument());
   });
 
   // ── Cancel revoke confirmation ─────────────────────────────────────────
@@ -1274,9 +1281,7 @@ describe('PrivacySecuritySection', () => {
     await vi.waitFor(() => expect(screen.getByText('No One')).toBeInTheDocument());
     fireEvent.click(screen.getByText('No One'));
     // The local level changes — verify the description updates
-    await vi.waitFor(() =>
-      expect(screen.getByText(/Hermit mode/)).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText(/Hermit mode/)).toBeInTheDocument());
   });
 
   // ── Relative time formatting ───────────────────────────────────────────
@@ -1422,9 +1427,7 @@ describe('PrivacySecuritySection', () => {
       json: async () => ({ error: 'Incorrect password' }),
     });
     fireEvent.click(screen.getByText('Yes, Revoke All Sessions'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Incorrect password')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Incorrect password')).toBeInTheDocument());
   });
 
   // ── Mode change submission ─────────────────────────────────────────────
@@ -1435,9 +1438,7 @@ describe('PrivacySecuritySection', () => {
 
     // Click Simple to open mode change modal
     fireEvent.click(screen.getByText('Simple'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Change Revocation Mode')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Change Revocation Mode')).toBeInTheDocument());
 
     // Enter password in the modal
     const pwInput = screen.getByPlaceholderText('Enter your password');
@@ -1465,9 +1466,7 @@ describe('PrivacySecuritySection', () => {
     await vi.waitFor(() => expect(screen.getByText('Session Revocation')).toBeInTheDocument());
 
     fireEvent.click(screen.getByText('Simple'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Change Revocation Mode')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Change Revocation Mode')).toBeInTheDocument());
 
     fireEvent.change(screen.getByPlaceholderText('Enter your password'), {
       target: { value: 'wrong-pw' },
@@ -1480,9 +1479,7 @@ describe('PrivacySecuritySection', () => {
     });
 
     fireEvent.click(screen.getByText('Confirm'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Authentication failed')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Authentication failed')).toBeInTheDocument());
   });
 
   // ── Session password modal submission ──────────────────────────────────
@@ -1524,9 +1521,7 @@ describe('PrivacySecuritySection', () => {
       json: async () => ({ error: 'password_required' }),
     });
     fireEvent.click(screen.getByText('Revoke'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Verify Your Identity')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Verify Your Identity')).toBeInTheDocument());
 
     // Enter password
     fireEvent.change(screen.getByPlaceholderText('Enter your password'), {
@@ -1534,12 +1529,10 @@ describe('PrivacySecuritySection', () => {
     });
 
     // Mock successful revoke + fetchSessions
-    mockApiFetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ sessions: [], past_sessions: [], revocation_mode: 'secure' }),
-      });
+    mockApiFetch.mockResolvedValueOnce({ ok: true, json: async () => ({}) }).mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ sessions: [], past_sessions: [], revocation_mode: 'secure' }),
+    });
 
     fireEvent.click(screen.getByText('Confirm & Revoke'));
     await vi.waitFor(() =>
@@ -1628,9 +1621,7 @@ describe('PrivacySecuritySection', () => {
       json: async () => ({ error: 'password_required' }),
     });
     fireEvent.click(screen.getByText('Revoke'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Verify Your Identity')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Verify Your Identity')).toBeInTheDocument());
 
     // Enter wrong password and submit
     fireEvent.change(screen.getByPlaceholderText('Enter your password'), {
@@ -1642,9 +1633,7 @@ describe('PrivacySecuritySection', () => {
       json: async () => ({ error: 'Incorrect password' }),
     });
     fireEvent.click(screen.getByText('Confirm & Revoke'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Incorrect password')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Incorrect password')).toBeInTheDocument());
   });
 
   // ── DM slider interaction ──────────────────────────────────────────────
@@ -1654,9 +1643,7 @@ describe('PrivacySecuritySection', () => {
     await vi.waitFor(() => expect(screen.getByText('Who Can DM You')).toBeInTheDocument());
     const slider = screen.getByRole('slider');
     fireEvent.change(slider, { target: { value: '0' } });
-    await vi.waitFor(() =>
-      expect(screen.getByText(/Hermit mode/)).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText(/Hermit mode/)).toBeInTheDocument());
   });
 
   // ── Embedded content description ───────────────────────────────────────
@@ -1715,9 +1702,7 @@ describe('PrivacySecuritySection', () => {
       json: async () => ({ error: 'Internal error' }),
     });
     fireEvent.click(screen.getByText('Yes, Revoke All Sessions'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Internal error')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Internal error')).toBeInTheDocument());
   });
 
   // ── Mode change non-ok non-403 error ───────────────────────────────────
@@ -1727,9 +1712,7 @@ describe('PrivacySecuritySection', () => {
     await vi.waitFor(() => expect(screen.getByText('Session Revocation')).toBeInTheDocument());
 
     fireEvent.click(screen.getByText('Simple'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Change Revocation Mode')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Change Revocation Mode')).toBeInTheDocument());
 
     fireEvent.change(screen.getByPlaceholderText('Enter your password'), {
       target: { value: 'pw' },
@@ -1742,9 +1725,7 @@ describe('PrivacySecuritySection', () => {
     });
 
     fireEvent.click(screen.getByText('Confirm'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Server error')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Server error')).toBeInTheDocument());
   });
 
   // ── Close Revoke All modal ─────────────────────────────────────────────
@@ -1779,9 +1760,7 @@ describe('PrivacySecuritySection', () => {
     render(<PrivacySecuritySection />);
     await vi.waitFor(() => expect(screen.getByText('Revoke All Sessions')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Revoke All Sessions'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('No, Cancel')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('No, Cancel')).toBeInTheDocument());
     fireEvent.click(screen.getByText('No, Cancel'));
     await vi.waitFor(() =>
       expect(screen.queryByText(/revoke all of your active session tokens/)).not.toBeInTheDocument()
@@ -1826,14 +1805,14 @@ describe('PrivacySecuritySection', () => {
       json: async () => ({ error: 'password_required' }),
     });
     fireEvent.click(screen.getByText('Revoke'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Verify Your Identity')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Verify Your Identity')).toBeInTheDocument());
 
     // Find and click Cancel in the modal
     const dialogs = screen.getAllByRole('dialog');
     const sessionDialog = dialogs.find((d) => d.textContent?.includes('Verify Your Identity'))!;
-    const cancelBtn = sessionDialog.querySelector('.revoke-all-modal-cancel-btn') as HTMLButtonElement;
+    const cancelBtn = sessionDialog.querySelector(
+      '.revoke-all-modal-cancel-btn'
+    ) as HTMLButtonElement;
     fireEvent.click(cancelBtn);
     await vi.waitFor(() =>
       expect(screen.queryByText('Verify Your Identity')).not.toBeInTheDocument()
@@ -1847,9 +1826,7 @@ describe('PrivacySecuritySection', () => {
     await vi.waitFor(() => expect(screen.getByText('Session Revocation')).toBeInTheDocument());
 
     fireEvent.click(screen.getByText('Simple'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Change Revocation Mode')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Change Revocation Mode')).toBeInTheDocument());
 
     const dialogs = screen.getAllByRole('dialog');
     const modeDialog = dialogs.find((d) => d.textContent?.includes('Change Revocation Mode'))!;
@@ -2122,9 +2099,7 @@ describe('PrivacySecuritySection', () => {
       json: async () => ({ error: 'auth_required' }),
     });
     fireEvent.click(screen.getByText('Revoke'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Verify Your Identity')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Verify Your Identity')).toBeInTheDocument());
   });
 
   // ── Session revoke non-403 error ───────────────────────────────────────
@@ -2166,9 +2141,7 @@ describe('PrivacySecuritySection', () => {
       json: async () => ({ error: 'Server exploded' }),
     });
     fireEvent.click(screen.getByText('Revoke'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Server exploded')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Server exploded')).toBeInTheDocument());
   });
 
   // ── Permission Request button click (notifications) ────────────────────
@@ -2285,9 +2258,7 @@ describe('PrivacySecuritySection', () => {
       json: async () => ({ error: 'unknown_403_code' }),
     });
     fireEvent.click(screen.getByText('Revoke'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('unknown_403_code')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('unknown_403_code')).toBeInTheDocument());
   });
 
   // ── MFA fetch failure is non-critical ──────────────────────────────────
@@ -2382,9 +2353,7 @@ describe('PrivacySecuritySection', () => {
       expect(resetBtn).not.toBeDisabled();
     });
     fireEvent.click(screen.getByText(/Reset/));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Reset Backup Codes')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Reset Backup Codes')).toBeInTheDocument());
     expect(screen.getByText(/This will invalidate all existing backup codes/)).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Enter your password')).toBeInTheDocument();
   });
@@ -2416,9 +2385,7 @@ describe('PrivacySecuritySection', () => {
     });
     // Open backup reset modal
     fireEvent.click(screen.getByText(/Reset/));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Reset Backup Codes')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Reset Backup Codes')).toBeInTheDocument());
 
     // Fill in password
     fireEvent.change(screen.getByPlaceholderText('Enter your password'), {
@@ -2458,9 +2425,7 @@ describe('PrivacySecuritySection', () => {
       )
     );
     // BackupCodeDisplay mock should be shown
-    await vi.waitFor(() =>
-      expect(screen.getByTestId('backup-code-display')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByTestId('backup-code-display')).toBeInTheDocument());
   });
 
   it('handles backup reset error', async () => {
@@ -2487,9 +2452,7 @@ describe('PrivacySecuritySection', () => {
       expect(resetBtn).not.toBeDisabled();
     });
     fireEvent.click(screen.getByText(/Reset/));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Reset Backup Codes')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Reset Backup Codes')).toBeInTheDocument());
     // Cancel button should be present
     expect(screen.getByText('Cancel')).toBeInTheDocument();
     // Click cancel to close
@@ -2551,7 +2514,9 @@ describe('PrivacySecuritySection', () => {
 
   it('shows Requesting state when requesting notification permission', async () => {
     let resolveRequest: (value: string) => void;
-    const requestPromise = new Promise<string>((res) => { resolveRequest = res; });
+    const requestPromise = new Promise<string>((res) => {
+      resolveRequest = res;
+    });
     const mockRequestOne = vi.fn().mockReturnValue(requestPromise);
     vi.mocked(
       await import('@/renderer/stores/osPermissionStore').then((m) => m.useOsPermissionStore)
@@ -2686,9 +2651,7 @@ describe('PrivacySecuritySection', () => {
     render(<PrivacySecuritySection />);
     await vi.waitFor(() => expect(screen.getByText('Session Revocation')).toBeInTheDocument());
     fireEvent.click(screen.getByText('Simple'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Change Revocation Mode')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Change Revocation Mode')).toBeInTheDocument());
     expect(screen.getAllByTestId('mfa-verify-prompt').length).toBeGreaterThanOrEqual(1);
   });
 
@@ -2734,10 +2697,96 @@ describe('PrivacySecuritySection', () => {
       json: async () => ({ error: 'auth_required' }),
     });
     fireEvent.click(screen.getByText('Revoke'));
-    await vi.waitFor(() =>
-      expect(screen.getByText('Verify Your Identity')).toBeInTheDocument()
-    );
+    await vi.waitFor(() => expect(screen.getByText('Verify Your Identity')).toBeInTheDocument());
     expect(screen.getAllByTestId('mfa-verify-prompt').length).toBeGreaterThanOrEqual(1);
+  });
+
+  // ── Crash Reporting toggle ────────────────────────────────────────────
+
+  it('renders the Crash Reporting section with toggle', async () => {
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('Crash Reporting')).toBeInTheDocument());
+    expect(screen.getByText('Send anonymous crash reports')).toBeInTheDocument();
+  });
+
+  it('crash reporting toggle reflects telemetryOptIn=false from store', async () => {
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() =>
+      expect(screen.getByText('Send anonymous crash reports')).toBeInTheDocument()
+    );
+    const checkbox = screen
+      .getByText('Send anonymous crash reports')
+      .closest('.settings-row')!
+      .querySelector('input[type="checkbox"]')!;
+    expect(checkbox).not.toBeChecked();
+  });
+
+  it('crash reporting toggle reflects telemetryOptIn=true from store', async () => {
+    vi.mocked(
+      await import('@/renderer/stores/telemetryConsentStore').then(
+        (m) => m.useTelemetryConsentStore
+      )
+    ).mockImplementation((s) =>
+      s({
+        telemetryOptIn: true,
+        isLoaded: true,
+        firstPromptCompleted: true,
+        policyAcknowledgedVersion: 1,
+        hydrate: vi.fn().mockResolvedValue(undefined),
+        setConsent: mockSetConsent,
+        applyRemoteState: vi.fn(),
+      })
+    );
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() =>
+      expect(screen.getByText('Send anonymous crash reports')).toBeInTheDocument()
+    );
+    const checkbox = screen
+      .getByText('Send anonymous crash reports')
+      .closest('.settings-row')!
+      .querySelector('input[type="checkbox"]')!;
+    expect(checkbox).toBeChecked();
+  });
+
+  it('crash reporting toggle is disabled when isConsentLoaded=false', async () => {
+    vi.mocked(
+      await import('@/renderer/stores/telemetryConsentStore').then(
+        (m) => m.useTelemetryConsentStore
+      )
+    ).mockImplementation((s) =>
+      s({
+        telemetryOptIn: false,
+        isLoaded: false,
+        firstPromptCompleted: false,
+        policyAcknowledgedVersion: 1,
+        hydrate: vi.fn().mockResolvedValue(undefined),
+        setConsent: mockSetConsent,
+        applyRemoteState: vi.fn(),
+      })
+    );
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() =>
+      expect(screen.getByText('Send anonymous crash reports')).toBeInTheDocument()
+    );
+    const checkbox = screen
+      .getByText('Send anonymous crash reports')
+      .closest('.settings-row')!
+      .querySelector('input[type="checkbox"]')!;
+    expect(checkbox).toBeDisabled();
+  });
+
+  it('clicking the crash reporting toggle calls setConsent with correct args', async () => {
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() =>
+      expect(screen.getByText('Send anonymous crash reports')).toBeInTheDocument()
+    );
+    fireEvent.click(
+      screen
+        .getByText('Send anonymous crash reports')
+        .closest('.settings-row')!
+        .querySelector('input[type="checkbox"]')!
+    );
+    expect(mockSetConsent).toHaveBeenCalledWith(true, 1);
   });
 
   // ── Permissions loading state ──────────────────────────────────────────

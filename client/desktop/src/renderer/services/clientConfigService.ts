@@ -19,6 +19,7 @@ interface ServerConfigResponse {
   turn: { host?: string; realm?: string };
   spaUrl?: string;
   spaIpcContract?: number;
+  telemetryPolicyVersion?: number;
 }
 
 class ClientConfigService {
@@ -44,6 +45,7 @@ class ClientConfigService {
         turn: { host: data.turn?.host ?? '', realm: data.turn?.realm ?? '' },
         spaUrl: nextSpaUrl,
         spaIpcContract: data.spaIpcContract || 0,
+        telemetryPolicyVersion: data.telemetryPolicyVersion ?? 1,
       });
 
       // Hot SPA reload: if a new SPA build was deployed mid-session, reload the

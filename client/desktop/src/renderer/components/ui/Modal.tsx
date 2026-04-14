@@ -8,9 +8,17 @@ export interface ModalProps {
   title: string;
   children: React.ReactNode;
   width?: 'small' | 'medium' | 'large';
+  dismissable?: boolean;
 }
 
-const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, width = 'medium' }) => {
+const Modal: React.FC<ModalProps> = ({
+  isOpen,
+  onClose,
+  title,
+  children,
+  width = 'medium',
+  dismissable = true,
+}) => {
   const overlayRef = useRef<HTMLDivElement>(null);
   const modalId = useId();
   const depth = useContext(ModalDepthContext);
@@ -27,17 +35,17 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, width =
     if (!isOpen) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isTopmost(modalId)) {
+      if (e.key === 'Escape' && dismissable && isTopmost(modalId)) {
         e.stopImmediatePropagation();
         onClose();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose, modalId, isTopmost]);
+  }, [isOpen, onClose, modalId, isTopmost, dismissable]);
 
   const handleOverlayClick = (e: React.MouseEvent) => {
-    if (e.target === overlayRef.current && isTopmost(modalId)) {
+    if (e.target === overlayRef.current && dismissable && isTopmost(modalId)) {
       e.stopPropagation();
       onClose();
     }
@@ -51,16 +59,18 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, title, children, width =
         <div className={`modal-container modal-${width}`}>
           <div className="modal-header">
             <h3 className="modal-title">{title}</h3>
-            <button className="modal-close" onClick={onClose} aria-label="Close">
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                <path
-                  d="M4 4l8 8M12 4l-8 8"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </button>
+            {dismissable && (
+              <button className="modal-close" onClick={onClose} aria-label="Close">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                  <path
+                    d="M4 4l8 8M12 4l-8 8"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </button>
+            )}
           </div>
           <div className="modal-body">{children}</div>
         </div>

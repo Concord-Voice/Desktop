@@ -72,6 +72,72 @@ describe('Modal', () => {
     expect(container?.classList.contains('modal-small')).toBe(true);
   });
 
+  describe('dismissable prop', () => {
+    it('dismissable={false} suppresses the close button', () => {
+      render(
+        <Modal isOpen={true} onClose={onClose} title="Test Modal" dismissable={false}>
+          <p>Modal content</p>
+        </Modal>
+      );
+      expect(screen.queryByLabelText('Close')).not.toBeInTheDocument();
+    });
+
+    it('dismissable={false} blocks Escape key from calling onClose', async () => {
+      const user = userEvent.setup();
+      render(
+        <Modal isOpen={true} onClose={onClose} title="Test Modal" dismissable={false}>
+          <p>Modal content</p>
+        </Modal>
+      );
+      await user.keyboard('{Escape}');
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('dismissable={false} blocks overlay click from calling onClose', async () => {
+      const user = userEvent.setup();
+      render(
+        <Modal isOpen={true} onClose={onClose} title="Test Modal" dismissable={false}>
+          <p>Modal content</p>
+        </Modal>
+      );
+      const overlay = document.querySelector('.modal-overlay')!;
+      await user.click(overlay);
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it('default (no dismissable prop) still renders the close button', () => {
+      render(
+        <Modal isOpen={true} onClose={onClose} title="Test Modal">
+          <p>Modal content</p>
+        </Modal>
+      );
+      expect(screen.getByLabelText('Close')).toBeInTheDocument();
+    });
+
+    it('default (no dismissable prop) still calls onClose on Escape', async () => {
+      const user = userEvent.setup();
+      render(
+        <Modal isOpen={true} onClose={onClose} title="Test Modal">
+          <p>Modal content</p>
+        </Modal>
+      );
+      await user.keyboard('{Escape}');
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    it('default (no dismissable prop) still calls onClose on overlay click', async () => {
+      const user = userEvent.setup();
+      render(
+        <Modal isOpen={true} onClose={onClose} title="Test Modal">
+          <p>Modal content</p>
+        </Modal>
+      );
+      const overlay = document.querySelector('.modal-overlay')!;
+      await user.click(overlay);
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
   describe('nested modals', () => {
     const onCloseOuter = vi.fn();
     const onCloseInner = vi.fn();

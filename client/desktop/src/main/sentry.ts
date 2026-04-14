@@ -2,14 +2,16 @@ import * as Sentry from '@sentry/electron/main';
 import { app } from 'electron';
 import { scrubEvent, scrubBreadcrumb } from '../shared/sentry-scrubbers';
 import { SENTRY_DSN } from '../shared/sentry-config.generated';
+import { readTelemetryConsent } from './telemetryConsent';
 
 const sentryEnvironment =
   process.env.SENTRY_ENVIRONMENT ||
   process.env.NODE_ENV ||
   (app.isPackaged ? 'production' : 'development');
+const consentState = readTelemetryConsent();
 const sentryEnabled =
   process.env.SENTRY_ENABLED == null
-    ? Boolean(SENTRY_DSN) && sentryEnvironment === 'production'
+    ? consentState.telemetryOptIn && Boolean(SENTRY_DSN) && sentryEnvironment === 'production'
     : process.env.SENTRY_ENABLED.toLowerCase() === 'true';
 
 Sentry.init({

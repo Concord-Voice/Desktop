@@ -25,8 +25,10 @@
  *        app:flashFrame, app:focusWindow handlers
  * - v6: Developer Mode toggle (TEMPORARY — remove before BETA):
  *        app:getDeveloperMode, app:setDeveloperMode handlers
+ * - v7: Telemetry consent (#618): consent:getState, consent:setState
+ *        handlers, consent:changed event
  */
-export const IPC_CONTRACT_VERSION = 6;
+export const IPC_CONTRACT_VERSION = 7;
 
 /**
  * Result shape returned by performRefresh() in the main process and

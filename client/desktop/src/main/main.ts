@@ -50,6 +50,7 @@ import { IPC_CONTRACT_VERSION } from './ipcContract';
 import { registerIpcHandlers as registerPermissionHandlers } from './permissionManager';
 import { migrateUserData } from './userDataMigration';
 import { showSplash, closeSplash, updateSplashError } from './splashWindow';
+import { registerConsentIpcHandlers } from './telemetryConsent';
 
 // One-time migration: rename "Concord Voice" → "ConcordVoice" userData directory (#385).
 // Must run before any app.getPath('userData') reads (e.g. hw-accel prefs below).
@@ -328,6 +329,10 @@ app.whenReady().then(() => {
       );
     }
   }
+
+  // Telemetry consent IPC — registered once at app init, NOT inside createWindow(),
+  // to prevent duplicate-registration errors when macOS re-opens the window (#618).
+  registerConsentIpcHandlers();
 
   createWindow();
 

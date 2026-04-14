@@ -7,6 +7,8 @@ import DirectMessagesView from './components/DirectMessages/DirectMessagesView';
 import ContextMenuProvider from './components/ui/ContextMenuProvider';
 import ConnectionLostOverlay from './components/ui/ConnectionLostOverlay';
 import SettingsOverlayHost from './components/Settings/SettingsOverlayHost';
+import TelemetryConsentDialog from './components/TelemetryConsentDialog';
+import { useTelemetryConsentStore } from './stores/telemetryConsentStore';
 const PipWindow = lazy(() => import('./components/Voice/PipWindow'));
 import ForceUpdateOverlay from './components/ui/ForceUpdateOverlay';
 import UpdateBanner from './components/ui/UpdateBanner';
@@ -165,6 +167,37 @@ function AuthenticatedLayout() {
     return () => unsub();
   }, [accessToken]);
 
+  // Hydrate telemetry consent store from persisted storage on mount.
+  // After hydration, toggle renderer Sentry on for users who previously consented.
+  // Preload always starts Sentry disabled; we enable here after reading stored consent.
+  useEffect(() => {
+    const init = async () => {
+      await useTelemetryConsentStore.getState().hydrate();
+      const { telemetryOptIn } = useTelemetryConsentStore.getState();
+      // Only toggle if SENTRY_ENABLED override is not active.
+      // When the override is set, Sentry's enabled state is fixed at init time.
+      const overrideActive = typeof process !== 'undefined' && process.env?.SENTRY_ENABLED != null;
+      if (telemetryOptIn && !overrideActive) {
+        const client = Sentry.getClient();
+        if (client) {
+          client.getOptions().enabled = true;
+        }
+      }
+    };
+    void init().catch((err: unknown) => {
+      console.error('[App] Failed to hydrate telemetry consent:', err);
+    });
+  }, []);
+
+  // Listen for consent:changed events pushed from the main process
+  useEffect(() => {
+    if (!globalThis.electron?.onConsentChanged) return;
+    const unsubscribe = globalThis.electron.onConsentChanged((state) => {
+      useTelemetryConsentStore.getState().applyRemoteState(state);
+    });
+    return unsubscribe;
+  }, []);
+
   // Pre-cache codec capabilities, GPU info, and detect system HDR
   useEffect(() => {
     Promise.all([
@@ -220,6 +253,7 @@ function AuthenticatedLayout() {
         <SettingsOverlayHost />
       </Sentry.ErrorBoundary>
       <ConnectionLostOverlay />
+      <TelemetryConsentDialog />
     </>
   );
 }

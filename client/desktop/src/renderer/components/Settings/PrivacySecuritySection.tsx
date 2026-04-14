@@ -19,6 +19,8 @@ import {
   type OsPermissionStatus,
 } from '../../stores/osPermissionStore';
 import { klipyClient } from '../../services/gifProvider/klipyClient';
+import { useTelemetryConsentStore } from '../../stores/telemetryConsentStore';
+import { useClientConfigStore } from '../../stores/clientConfigStore';
 import './MFA.css';
 
 interface Session {
@@ -253,10 +255,7 @@ const SessionCardActions: React.FC<{
 /** Inline display of backup code count with low-count warning styling. */
 const BackupCodesCount: React.FC<{ remaining: number | undefined }> = ({ remaining }) => (
   <>
-    <strong className={(remaining ?? 0) <= 2 ? 'mfa-status-warn' : ''}>
-      {remaining}
-    </strong>{' '}
-    / 8
+    <strong className={(remaining ?? 0) <= 2 ? 'mfa-status-warn' : ''}>{remaining}</strong> / 8
   </>
 );
 
@@ -400,6 +399,9 @@ const PrivacySecuritySection: React.FC = () => {
   const privacySettings = usePrivacyStore((s) => s.settings);
   const fetchPrivacy = usePrivacyStore((s) => s.fetchPrivacy);
   const updatePrivacy = usePrivacyStore((s) => s.updatePrivacy);
+  const telemetryOptIn = useTelemetryConsentStore((s) => s.telemetryOptIn);
+  const isConsentLoaded = useTelemetryConsentStore((s) => s.isLoaded);
+  const policyVersion = useClientConfigStore((s) => s.telemetryPolicyVersion);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [pastSessions, setPastSessions] = useState<PastSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -815,6 +817,31 @@ const PrivacySecuritySection: React.FC = () => {
 
   return (
     <>
+      <CollapsibleSection id="section-crash-reporting" title="Crash Reporting">
+        <p className="settings-section-description">
+          Help improve Concord by sending anonymous crash data when errors occur. No message content
+          or personal information is included.
+        </p>
+        <div className="settings-row">
+          <div className="settings-row-info">
+            <span className="settings-row-label">Send anonymous crash reports</span>
+            <span className="settings-row-hint">
+              Crash reports help us identify and fix bugs faster
+            </span>
+          </div>
+          <ToggleSwitch
+            checked={telemetryOptIn}
+            disabled={!isConsentLoaded}
+            onChange={async (enabled: boolean) => {
+              try {
+                await useTelemetryConsentStore.getState().setConsent(enabled, policyVersion);
+              } catch (err) {
+                console.error('[Settings] Failed to update telemetry consent:', err);
+              }
+            }}
+          />
+        </div>
+      </CollapsibleSection>
       <CollapsibleSection id="section-privacy-settings" title="Privacy">
         <p className="settings-section-description">
           Control who can message you and how others can find you.
@@ -1450,7 +1477,9 @@ const PrivacySecuritySection: React.FC = () => {
               <button
                 className="revoke-all-modal-confirm-btn"
                 onClick={handleRevokeAll}
-                disabled={isRevokingAll || isAuthConfirmDisabled(hasMFA, revokeMfaCode, revokePassword)}
+                disabled={
+                  isRevokingAll || isAuthConfirmDisabled(hasMFA, revokeMfaCode, revokePassword)
+                }
               >
                 {isRevokingAll ? 'Revoking...' : 'Yes, Revoke All Sessions'}
               </button>
@@ -1546,7 +1575,10 @@ const PrivacySecuritySection: React.FC = () => {
               <button
                 className="revoke-all-modal-confirm-btn"
                 onClick={handleModeChange}
-                disabled={isChangingMode || isAuthConfirmDisabled(hasMFA, modeChangeMfaCode, modeChangePassword)}
+                disabled={
+                  isChangingMode ||
+                  isAuthConfirmDisabled(hasMFA, modeChangeMfaCode, modeChangePassword)
+                }
               >
                 {isChangingMode ? 'Changing...' : 'Confirm'}
               </button>
