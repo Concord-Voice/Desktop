@@ -2,8 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as Sentry from '@sentry/electron/renderer';
 
 // Mock @sentry/electron/renderer before any imports that pull it in
+const mockOptions: Record<string, unknown> = {};
 vi.mock('@sentry/electron/renderer', () => ({
   init: vi.fn(),
+  getClient: vi.fn(() => ({
+    getOptions: vi.fn(() => mockOptions),
+  })),
 }));
 
 // Mock the shared scrubbers via relative path so Istanbul tracks correctly
@@ -19,6 +23,8 @@ describe('renderer/sentry.ts', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    // Reset mock options between tests
+    for (const key of Object.keys(mockOptions)) delete mockOptions[key];
     // Restore the default electron mock before each test
     globalThis.window.electron = originalElectron;
   });
@@ -41,7 +47,7 @@ describe('renderer/sentry.ts', () => {
     expect(Sentry.init).not.toHaveBeenCalled();
   });
 
-  it('calls Sentry.init with correct config when DSN is present', async () => {
+  it('calls Sentry.init immediately and sets release after version fetch', async () => {
     const mockGetVersion = vi.fn().mockResolvedValue('1.0.0');
     globalThis.window.electron = {
       ...originalElectron,
@@ -51,25 +57,32 @@ describe('renderer/sentry.ts', () => {
 
     await import('../../../src/renderer/sentry');
 
-    // Allow the getVersion().then() callback to resolve
-    await new Promise((r) => setTimeout(r, 0));
-
-    expect(mockGetVersion).toHaveBeenCalled();
+    // Init is called immediately (phase 1) without release
     expect(Sentry.init).toHaveBeenCalledOnce();
     expect(Sentry.init).toHaveBeenCalledWith(
       expect.objectContaining({
         dsn: 'https://test@sentry.io/123',
         environment: 'production',
         enabled: true,
-        release: 'concord-desktop@1.0.0',
         sampleRate: 1,
         tracesSampleRate: 0,
-      })
+      }),
     );
+    // Phase 1 init should NOT have a release field
+    const callArgs = vi.mocked(Sentry.init).mock.calls[0][0];
+    expect(callArgs).not.toHaveProperty('release');
+
+    // Allow the getVersion().then() callback to resolve
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Version is fetched and release is set on the client options
+    expect(mockGetVersion).toHaveBeenCalled();
+    expect(mockOptions.release).toBe('concord-desktop@1.0.0');
   });
 
-  it('falls back to init without release when getVersion rejects', async () => {
+  it('logs warning and continues without release when getVersion rejects', async () => {
     const mockGetVersion = vi.fn().mockRejectedValue(new Error('IPC failed'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     globalThis.window.electron = {
       ...originalElectron,
       sentry: { dsn: 'https://test@sentry.io/123', environment: 'production', enabled: true },
@@ -81,17 +94,21 @@ describe('renderer/sentry.ts', () => {
     // Allow the .catch() callback to resolve
     await new Promise((r) => setTimeout(r, 0));
 
+    // Init was still called once (phase 1, no release)
     expect(Sentry.init).toHaveBeenCalledOnce();
-    expect(Sentry.init).toHaveBeenCalledWith(
-      expect.objectContaining({
-        dsn: 'https://test@sentry.io/123',
-        environment: 'production',
-        enabled: true,
-      })
-    );
-    // Should NOT have a release field in the fallback
     const callArgs = vi.mocked(Sentry.init).mock.calls[0][0];
     expect(callArgs).not.toHaveProperty('release');
+
+    // Version fetch failure was logged
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[sentry] Failed to fetch app version'),
+      expect.any(Error),
+    );
+
+    // Release was NOT set on client options
+    expect(mockOptions.release).toBeUndefined();
+
+    warnSpy.mockRestore();
   });
 
   it('does not call Sentry.init when globalThis.electron is undefined', async () => {
