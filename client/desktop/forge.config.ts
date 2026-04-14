@@ -6,6 +6,35 @@ import { MakerRpm } from '@electron-forge/maker-rpm';
 import { MakerAppImage } from '@reforged/maker-appimage';
 import fs from 'fs';
 
+// macOS signing & notarization — active only when CI provides all required env vars.
+// Local developer builds without these env vars produce unsigned .app bundles.
+//
+// Per the Electron Forge signing docs (https://www.electronforge.io/guides/
+// code-signing/code-signing-macos), `osxSign: {}` — empty object — is the
+// recommended default. @electron/osx-sign ships a tested-in-the-wild set of
+// entitlements (https://github.com/electron/osx-sign/tree/main/entitlements)
+// and per-file signing logic for Electron's nested helper apps. We previously
+// tried overriding these defaults via `optionsForFile` + a custom entitlements
+// plist and hit a silent codesign hang during outer-bundle signing; trusting
+// the defaults resolves it (see issue #403 debugging history).
+//
+// Forge auto-detects the signing identity by scanning the keychain for a
+// `Developer ID Application` cert, so the identity string does not need to
+// be hardcoded as long as exactly one such cert is imported.
+const macSigning: Pick<
+  NonNullable<ForgeConfig['packagerConfig']>,
+  'osxSign' | 'osxNotarize'
+> = process.env.APPLE_ID && process.env.APPLE_ID_PASSWORD && process.env.APPLE_TEAM_ID
+  ? {
+      osxSign: {},
+      osxNotarize: {
+        appleId: process.env.APPLE_ID,
+        appleIdPassword: process.env.APPLE_ID_PASSWORD,
+        teamId: process.env.APPLE_TEAM_ID,
+      },
+    }
+  : {};
+
 // electron-updater needs app-update.yml in Resources. The file is generated
 // by CI (build-desktop.yml) before packaging. Include it only when present
 // so local dev builds don't fail.
@@ -35,7 +64,7 @@ const config: ForgeConfig = {
       ProductName: 'Concord Voice',
     },
     extraResource,
-    osxSign: undefined, // allow unsigned dev builds
+    ...macSigning,
     darwinDarkModeSupport: true,
     extendInfo: {
       NSMicrophoneUsageDescription:
