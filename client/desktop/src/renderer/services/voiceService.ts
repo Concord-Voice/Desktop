@@ -1475,6 +1475,33 @@ class VoiceService {
     }
   }
 
+  /** Resolve effective audio quality tier from channel override or personal setting. */
+  private resolveQualityTier(
+    store: ReturnType<typeof useVoiceStore.getState>,
+    channelTier: string | undefined
+  ): void {
+    const validTiers = ['minimum', 'low', 'moderate', 'standard', 'high', 'hifi', 'studio'];
+    if (channelTier && validTiers.includes(channelTier)) {
+      store.setEffectiveQualityTier(channelTier as AudioQualityTier);
+    } else {
+      store.setEffectiveQualityTier(store.qualityTier);
+    }
+  }
+
+  /** Apply server enforcement flags to the local participant record. */
+  private applyEnforcementToParticipant(
+    store: ReturnType<typeof useVoiceStore.getState>,
+    joinData: JoinResponse
+  ): void {
+    if (!joinData.server_muted && !joinData.server_deafened) return;
+    const localUserId = useUserStore.getState().user?.id;
+    if (!localUserId) return;
+    store.updateParticipant(localUserId, {
+      serverMuted: joinData.server_muted || false,
+      serverDeafened: joinData.server_deafened || false,
+    });
+  }
+
   /** Authorize and join a voice channel */
   async joinChannel(channelId: string, joinType: 'channel' | 'dm' = 'channel'): Promise<void> {
     const store = useVoiceStore.getState();
@@ -1510,14 +1537,10 @@ class VoiceService {
 
       this.applyJoinMetadata(store, joinData, joinType, channelId);
 
-      // Resolve effective quality tier: channel override takes priority over personal setting
-      const channelTier = channel.audio_quality_tier;
-      const validTiers = ['minimum', 'low', 'moderate', 'standard', 'high', 'hifi', 'studio'];
-      if (channelTier && validTiers.includes(channelTier)) {
-        store.setEffectiveQualityTier(channelTier as AudioQualityTier);
-      } else {
-        store.setEffectiveQualityTier(store.qualityTier);
-      }
+      // Start outgoing ringback for DM calls
+      if (joinType === 'dm') notificationSoundService.playLoop('call-outgoing');
+
+      this.resolveQualityTier(store, channel.audio_quality_tier);
 
       // Pre-acquire mic stream in parallel with socket connection + room join.
       // getUserMedia can take 500ms+ (device enumeration, permission prompt).
@@ -1576,15 +1599,7 @@ class VoiceService {
       store.setParticipants(this.buildParticipantList(roomJoined));
 
       // Apply enforcement flags after participants are populated
-      if (joinData.server_muted || joinData.server_deafened) {
-        const localUserId = useUserStore.getState().user?.id;
-        if (localUserId) {
-          store.updateParticipant(localUserId, {
-            serverMuted: joinData.server_muted || false,
-            serverDeafened: joinData.server_deafened || false,
-          });
-        }
-      }
+      this.applyEnforcementToParticipant(store, joinData);
 
       // Step 8: Produce audio (using pre-acquired mic stream)
       const preAcquiredStream = await micPromise;
@@ -1595,13 +1610,15 @@ class VoiceService {
       await this.consumeExistingProducers(roomJoined.existingProducers);
 
       store.setConnectionState('connected');
-      notificationSoundService.play('voice-join');
+      notificationSoundService.stopAllLoops();
+      notificationSoundService.play(joinType === 'dm' ? 'call-connected' : 'voice-join');
 
       // Step 10: Start decoder budget profiling (IGNIS insight)
       // Profiles decode performance and adjusts SVC layers to avoid queue buildup
       this.startDecoderBudgetProfiling();
     } catch (err) {
       console.error('Failed to join voice channel:', err);
+      notificationSoundService.stopAllLoops();
       store.setConnectionState('error');
       await this.cleanup();
       throw err;
@@ -1612,6 +1629,7 @@ class VoiceService {
   async leaveChannel(): Promise<void> {
     const store = useVoiceStore.getState();
     const channelId = store.activeChannelId;
+    const isDMCall = store.isDMCall;
     const localUserId = useUserStore.getState().user?.id;
 
     if (this.socket?.connected) {
@@ -1619,7 +1637,8 @@ class VoiceService {
     }
     await this.cleanup();
 
-    notificationSoundService.play('voice-leave');
+    notificationSoundService.stopAllLoops();
+    notificationSoundService.play(isDMCall ? 'call-ended' : 'voice-leave');
 
     // Remove local user from channel voice members immediately so the
     // channel sidebar updates without waiting for the server roundtrip.

@@ -19,7 +19,16 @@ export type VoiceSoundType =
   | 'screen-off'
   | 'disconnect';
 
-export type NotificationSoundType = ChatSoundType | VoiceSoundType;
+/** DM call sound types */
+export type CallSoundType =
+  | 'call-ringing'
+  | 'call-outgoing'
+  | 'call-connected'
+  | 'call-ended'
+  | 'call-declined'
+  | 'call-busy';
+
+export type NotificationSoundType = ChatSoundType | VoiceSoundType | CallSoundType;
 
 const SOUND_PATHS: Record<NotificationSoundType, string> = {
   message: './sounds/message.wav',
@@ -39,6 +48,12 @@ const SOUND_PATHS: Record<NotificationSoundType, string> = {
   'screen-on': './sounds/screen-on.wav',
   'screen-off': './sounds/screen-off.wav',
   disconnect: './sounds/disconnect.wav',
+  'call-ringing': './sounds/call-ringing.wav',
+  'call-outgoing': './sounds/call-outgoing.wav',
+  'call-connected': './sounds/call-connected.wav',
+  'call-ended': './sounds/call-ended.wav',
+  'call-declined': './sounds/call-declined.wav',
+  'call-busy': './sounds/call-busy.wav',
 };
 
 /** Minimum interval between chat notification sounds (ms) */
@@ -74,10 +89,20 @@ const VOICE_SOUNDS = new Set<NotificationSoundType>([
   'screen-on',
   'screen-off',
   'disconnect',
+  'call-ringing',
+  'call-outgoing',
+  'call-connected',
+  'call-ended',
+  'call-declined',
+  'call-busy',
 ]);
+
+/** Sound types that loop until explicitly stopped */
+const LOOPING_SOUNDS = new Set<NotificationSoundType>(['call-ringing', 'call-outgoing']);
 
 class NotificationSoundService {
   private readonly sounds = new Map<NotificationSoundType, HTMLAudioElement>();
+  private readonly activeLoops = new Set<NotificationSoundType>();
   private lastChatSoundTime = 0;
   private initialized = false;
 
@@ -141,6 +166,54 @@ class NotificationSoundService {
     if (!isVoice) {
       this.lastChatSoundTime = Date.now();
     }
+  }
+
+  /**
+   * Start a looping sound (e.g., ringtone, ringback).
+   * Only works for sound types in LOOPING_SOUNDS.
+   * Call stopLoop() to stop. Starting a loop that's already playing is a no-op.
+   */
+  playLoop(type: NotificationSoundType): void {
+    if (!LOOPING_SOUNDS.has(type)) return;
+    if (this.activeLoops.has(type)) return;
+    if (!this.initialized) this.init();
+
+    const state = useNotificationStore.getState();
+    if (!state.enabled || !state.voiceEventSounds) return;
+
+    const audio = this.sounds.get(type);
+    if (!audio) return;
+
+    audio.loop = true;
+    audio.volume = state.volume / 100;
+    audio.currentTime = 0;
+    Promise.resolve(audio.play()).catch(noop);
+    this.activeLoops.add(type);
+  }
+
+  /**
+   * Stop a looping sound. No-op if the sound isn't currently looping.
+   */
+  stopLoop(type: NotificationSoundType): void {
+    const audio = this.sounds.get(type);
+    if (!audio) return;
+
+    audio.loop = false;
+    audio.pause();
+    audio.currentTime = 0;
+    this.activeLoops.delete(type);
+  }
+
+  /** Stop all currently looping sounds */
+  stopAllLoops(): void {
+    for (const type of this.activeLoops) {
+      this.stopLoop(type);
+    }
+  }
+
+  /** Check if a specific sound is currently looping */
+  isLooping(type: NotificationSoundType): boolean {
+    return this.activeLoops.has(type);
   }
 }
 

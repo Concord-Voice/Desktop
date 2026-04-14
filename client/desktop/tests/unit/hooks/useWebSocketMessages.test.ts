@@ -3,6 +3,8 @@ import { renderHook, act } from '@testing-library/react';
 import { useChatStore } from '@/renderer/stores/chatStore';
 import { useChannelStore } from '@/renderer/stores/channelStore';
 import { useAuthStore } from '@/renderer/stores/authStore';
+import { useVoiceStore } from '@/renderer/stores/voiceStore';
+import { useUserStore } from '@/renderer/stores/userStore';
 import { resetAllStores } from '../../helpers/store-helpers';
 import { mockChannel } from '../../mocks/fixtures';
 
@@ -30,9 +32,17 @@ vi.mock('@/renderer/services/apiClient', () => ({
 }));
 
 const mockPlay = vi.fn();
+const mockPlayLoop = vi.fn();
+const mockStopLoop = vi.fn();
+const mockStopAllLoops = vi.fn();
+const mockIsLooping = vi.fn().mockReturnValue(false);
 vi.mock('@/renderer/services/notificationSoundService', () => ({
   notificationSoundService: {
     play: (...args: unknown[]) => mockPlay(...args),
+    playLoop: (...args: unknown[]) => mockPlayLoop(...args),
+    stopLoop: (...args: unknown[]) => mockStopLoop(...args),
+    stopAllLoops: () => mockStopAllLoops(),
+    isLooping: (...args: unknown[]) => mockIsLooping(...args),
     init: vi.fn(),
   },
 }));
@@ -57,6 +67,10 @@ function createMockWsService() {
 beforeEach(() => {
   resetAllStores();
   mockPlay.mockClear();
+  mockPlayLoop.mockClear();
+  mockStopLoop.mockClear();
+  mockStopAllLoops.mockClear();
+  mockIsLooping.mockReset().mockReturnValue(false);
   useAuthStore.getState().setAccessToken('mock-token');
   useChannelStore.getState().addChannel(mockChannel);
   useChatStore.setState({ isConnected: true });
@@ -293,6 +307,120 @@ describe('useWebSocketMessages', () => {
         });
         expect(mockPlay).toHaveBeenCalledWith('friend-request');
       }
+    });
+
+    describe('DM call sounds', () => {
+      it('plays incoming ring when someone starts a DM call we are not in', () => {
+        const ws = createMockWsService();
+        useUserStore.setState({ user: { id: 'user-1', username: 'me' } as never });
+        renderHook(() => useWebSocketMessages(ws as never));
+
+        const handler = ws.handlers.get('dm_voice_state_update');
+        if (handler) {
+          act(() => {
+            handler({
+              type: 'dm_voice_state_update',
+              data: {
+                conversation_id: 'dm-conv-1',
+                action: 'joined',
+                user_id: 'user-2',
+              },
+            });
+          });
+          expect(mockPlayLoop).toHaveBeenCalledWith('call-ringing');
+        }
+      });
+
+      it('plays call-connected when someone joins our active DM call', () => {
+        const ws = createMockWsService();
+        useUserStore.setState({ user: { id: 'user-1', username: 'me' } as never });
+        useVoiceStore.setState({
+          isDMCall: true,
+          dmConversationId: 'dm-conv-1',
+        });
+        renderHook(() => useWebSocketMessages(ws as never));
+
+        const handler = ws.handlers.get('dm_voice_state_update');
+        if (handler) {
+          act(() => {
+            handler({
+              type: 'dm_voice_state_update',
+              data: {
+                conversation_id: 'dm-conv-1',
+                action: 'joined',
+                user_id: 'user-2',
+              },
+            });
+          });
+          expect(mockStopAllLoops).toHaveBeenCalled();
+          expect(mockPlay).toHaveBeenCalledWith('call-connected');
+        }
+      });
+
+      it('plays call-declined when caller leaves while ringing', () => {
+        const ws = createMockWsService();
+        useUserStore.setState({ user: { id: 'user-1', username: 'me' } as never });
+        mockIsLooping.mockImplementation((type: string) => type === 'call-ringing');
+        renderHook(() => useWebSocketMessages(ws as never));
+
+        const handler = ws.handlers.get('dm_voice_state_update');
+        if (handler) {
+          act(() => {
+            handler({
+              type: 'dm_voice_state_update',
+              data: {
+                conversation_id: 'dm-conv-1',
+                action: 'left',
+                user_id: 'user-2',
+              },
+            });
+          });
+          expect(mockStopLoop).toHaveBeenCalledWith('call-ringing');
+          expect(mockPlay).toHaveBeenCalledWith('call-declined');
+        }
+      });
+
+      it('stops all loops on room_empty', () => {
+        const ws = createMockWsService();
+        useUserStore.setState({ user: { id: 'user-1', username: 'me' } as never });
+        renderHook(() => useWebSocketMessages(ws as never));
+
+        const handler = ws.handlers.get('dm_voice_state_update');
+        if (handler) {
+          act(() => {
+            handler({
+              type: 'dm_voice_state_update',
+              data: {
+                conversation_id: 'dm-conv-1',
+                action: 'room_empty',
+              },
+            });
+          });
+          expect(mockStopAllLoops).toHaveBeenCalled();
+        }
+      });
+
+      it('ignores own dm_voice_state_update events', () => {
+        const ws = createMockWsService();
+        useUserStore.setState({ user: { id: 'user-1', username: 'me' } as never });
+        renderHook(() => useWebSocketMessages(ws as never));
+
+        const handler = ws.handlers.get('dm_voice_state_update');
+        if (handler) {
+          act(() => {
+            handler({
+              type: 'dm_voice_state_update',
+              data: {
+                conversation_id: 'dm-conv-1',
+                action: 'joined',
+                user_id: 'user-1', // Self
+              },
+            });
+          });
+          expect(mockPlayLoop).not.toHaveBeenCalled();
+          expect(mockPlay).not.toHaveBeenCalled();
+        }
+      });
     });
   });
 });

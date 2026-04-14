@@ -341,6 +341,41 @@ function addEncryptedMessage(
     });
 }
 
+/** Handle DM call sound notifications based on voice state changes */
+function handleDMCallSounds(
+  conversationId: string,
+  action: string,
+  userId: string | undefined
+): void {
+  const voiceState = useVoiceStore.getState();
+  const selfId = useUserStore.getState().user?.id;
+  const isFromSelf = userId === selfId;
+
+  if (isFromSelf) return;
+
+  const isInThisCall = voiceState.isDMCall && voiceState.dmConversationId === conversationId;
+
+  if (action === 'joined') {
+    if (isInThisCall) {
+      // Other party answered our call — stop ringback, play connected
+      notificationSoundService.stopAllLoops();
+      notificationSoundService.play('call-connected');
+    } else {
+      // Someone started a call in a DM we're not in — incoming ring
+      notificationSoundService.playLoop('call-ringing');
+    }
+  } else if (action === 'left') {
+    if (notificationSoundService.isLooping('call-ringing')) {
+      // Caller hung up before we answered — treat as declined/missed
+      notificationSoundService.stopLoop('call-ringing');
+      notificationSoundService.play('call-declined');
+    }
+  } else if (action === 'room_empty') {
+    // Everyone left — stop any ringing
+    notificationSoundService.stopAllLoops();
+  }
+}
+
 export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketService>) {
   const {
     addMessage,
@@ -1349,8 +1384,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         }
       }
 
-      // DM voice state is handled by voiceStore when the user is in the call
-      // and by dmStore for showing call indicators in the conversation list
+      // DM call sound notifications
+      handleDMCallSounds(conversationId, action, userId);
     });
 
     // Subscribed confirmation handler

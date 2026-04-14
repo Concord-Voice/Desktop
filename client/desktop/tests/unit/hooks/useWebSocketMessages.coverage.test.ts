@@ -55,6 +55,11 @@ const mockNotificationPlay = vi.fn();
 vi.mock('@/renderer/services/notificationSoundService', () => ({
   notificationSoundService: {
     play: (...args: unknown[]) => mockNotificationPlay(...args),
+    playLoop: vi.fn(),
+    stopLoop: vi.fn(),
+    stopAllLoops: vi.fn(),
+    isLooping: vi.fn().mockReturnValue(false),
+    init: vi.fn(),
   },
 }));
 

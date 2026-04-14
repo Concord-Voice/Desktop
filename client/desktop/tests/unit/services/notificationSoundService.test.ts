@@ -3,12 +3,15 @@ import { useNotificationStore } from '../../../src/renderer/stores/notificationS
 
 // Must mock Audio before importing the service
 const mockPlay = vi.fn().mockResolvedValue(undefined);
+const mockPause = vi.fn();
 
 class MockAudio {
   preload = '';
   volume = 1;
   currentTime = 0;
+  loop = false;
   play = mockPlay;
+  pause = mockPause;
   constructor(_src?: string) {
     // Track creation
   }
@@ -41,6 +44,7 @@ describe('NotificationSoundService', () => {
     (notificationSoundService as Record<string, unknown>)['initialized'] = false;
     (notificationSoundService as Record<string, unknown>)['lastChatSoundTime'] = 0;
     (notificationSoundService as Record<string, unknown>)['sounds'] = new Map();
+    ((notificationSoundService as Record<string, unknown>)['activeLoops'] as Set<string>).clear();
   });
 
   it('initializes and preloads all sounds', () => {
@@ -49,7 +53,7 @@ describe('NotificationSoundService', () => {
       string,
       unknown
     >;
-    expect(sounds.size).toBe(17);
+    expect(sounds.size).toBe(23);
   });
 
   it('auto-initializes on first play', () => {
@@ -58,7 +62,7 @@ describe('NotificationSoundService', () => {
       string,
       unknown
     >;
-    expect(sounds.size).toBe(17);
+    expect(sounds.size).toBe(23);
   });
 
   it('does not play when master toggle is off', () => {
@@ -256,5 +260,118 @@ describe('NotificationSoundService', () => {
     >;
     const audio = sounds.get('message');
     expect(audio?.currentTime).toBe(0);
+  });
+
+  // Call sound tests
+  it('all call sound types play correctly', () => {
+    const callTypes = ['call-connected', 'call-ended', 'call-declined', 'call-busy'] as const;
+
+    for (const type of callTypes) {
+      mockPlay.mockClear();
+      notificationSoundService.play(type);
+      expect(mockPlay).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('does not play call sounds when voiceEventSounds is off', () => {
+    useNotificationStore.getState().setVoiceEventSounds(false);
+    notificationSoundService.play('call-connected');
+    expect(mockPlay).not.toHaveBeenCalled();
+  });
+
+  // Looping sound tests
+  describe('looping sounds', () => {
+    beforeEach(() => {
+      mockPlay.mockClear();
+      mockPause.mockClear();
+    });
+
+    it('playLoop starts a looping sound', () => {
+      notificationSoundService.playLoop('call-ringing');
+      expect(mockPlay).toHaveBeenCalledTimes(1);
+      expect(notificationSoundService.isLooping('call-ringing')).toBe(true);
+
+      const sounds = (notificationSoundService as Record<string, unknown>)['sounds'] as Map<
+        string,
+        MockAudio
+      >;
+      const audio = sounds.get('call-ringing');
+      expect(audio?.loop).toBe(true);
+    });
+
+    it('playLoop is a no-op for non-looping sound types', () => {
+      notificationSoundService.playLoop('message');
+      expect(mockPlay).not.toHaveBeenCalled();
+      expect(notificationSoundService.isLooping('message')).toBe(false);
+    });
+
+    it('playLoop is a no-op if already looping', () => {
+      notificationSoundService.playLoop('call-ringing');
+      expect(mockPlay).toHaveBeenCalledTimes(1);
+
+      notificationSoundService.playLoop('call-ringing');
+      expect(mockPlay).toHaveBeenCalledTimes(1); // Still 1, not 2
+    });
+
+    it('stopLoop stops a looping sound', () => {
+      notificationSoundService.playLoop('call-ringing');
+      expect(notificationSoundService.isLooping('call-ringing')).toBe(true);
+
+      notificationSoundService.stopLoop('call-ringing');
+      expect(mockPause).toHaveBeenCalledTimes(1);
+      expect(notificationSoundService.isLooping('call-ringing')).toBe(false);
+
+      const sounds = (notificationSoundService as Record<string, unknown>)['sounds'] as Map<
+        string,
+        MockAudio
+      >;
+      const audio = sounds.get('call-ringing');
+      expect(audio?.loop).toBe(false);
+      expect(audio?.currentTime).toBe(0);
+    });
+
+    it('stopLoop is a no-op for non-looping sound', () => {
+      notificationSoundService.stopLoop('call-ringing');
+      expect(mockPause).not.toHaveBeenCalled();
+    });
+
+    it('stopAllLoops stops all active loops', () => {
+      notificationSoundService.playLoop('call-ringing');
+      notificationSoundService.playLoop('call-outgoing');
+      expect(notificationSoundService.isLooping('call-ringing')).toBe(true);
+      expect(notificationSoundService.isLooping('call-outgoing')).toBe(true);
+
+      notificationSoundService.stopAllLoops();
+      expect(notificationSoundService.isLooping('call-ringing')).toBe(false);
+      expect(notificationSoundService.isLooping('call-outgoing')).toBe(false);
+      expect(mockPause).toHaveBeenCalledTimes(2);
+    });
+
+    it('playLoop respects master toggle', () => {
+      useNotificationStore.getState().setEnabled(false);
+      notificationSoundService.playLoop('call-ringing');
+      expect(mockPlay).not.toHaveBeenCalled();
+    });
+
+    it('playLoop respects voiceEventSounds toggle', () => {
+      useNotificationStore.getState().setVoiceEventSounds(false);
+      notificationSoundService.playLoop('call-ringing');
+      expect(mockPlay).not.toHaveBeenCalled();
+    });
+
+    it('playLoop sets volume from store', () => {
+      useNotificationStore.getState().setVolume(40);
+      notificationSoundService.playLoop('call-outgoing');
+      const sounds = (notificationSoundService as Record<string, unknown>)['sounds'] as Map<
+        string,
+        MockAudio
+      >;
+      const audio = sounds.get('call-outgoing');
+      expect(audio?.volume).toBe(0.4);
+    });
+
+    it('isLooping returns false for non-active loop', () => {
+      expect(notificationSoundService.isLooping('call-ringing')).toBe(false);
+    });
   });
 });

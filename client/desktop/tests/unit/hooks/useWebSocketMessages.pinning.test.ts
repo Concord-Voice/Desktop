@@ -26,7 +26,14 @@ vi.mock('@/renderer/services/apiClient', () => ({
   }),
 }));
 vi.mock('@/renderer/services/notificationSoundService', () => ({
-  notificationSoundService: { play: vi.fn(), init: vi.fn() },
+  notificationSoundService: {
+    play: vi.fn(),
+    playLoop: vi.fn(),
+    stopLoop: vi.fn(),
+    stopAllLoops: vi.fn(),
+    isLooping: vi.fn().mockReturnValue(false),
+    init: vi.fn(),
+  },
 }));
 
 import { useWebSocketMessages } from '@/renderer/hooks/useWebSocketMessages';

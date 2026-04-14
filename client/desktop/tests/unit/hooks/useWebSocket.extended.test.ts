@@ -71,7 +71,14 @@ vi.mock('@/renderer/services/preferencesSync', () => ({
 }));
 
 vi.mock('@/renderer/services/notificationSoundService', () => ({
-  notificationSoundService: { play: vi.fn() },
+  notificationSoundService: {
+    play: vi.fn(),
+    playLoop: vi.fn(),
+    stopLoop: vi.fn(),
+    stopAllLoops: vi.fn(),
+    isLooping: vi.fn().mockReturnValue(false),
+    init: vi.fn(),
+  },
 }));
 
 // Mock apiFetch for validate-epochs
