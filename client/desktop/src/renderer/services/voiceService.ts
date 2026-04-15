@@ -1540,7 +1540,7 @@ class VoiceService {
       // Start outgoing ringback for DM calls
       if (joinType === 'dm') notificationSoundService.playLoop('call-outgoing');
 
-      this.resolveQualityTier(store, channel.audio_quality_tier);
+      this.resolveQualityTier(store, channel.audio_quality_tier ?? undefined);
 
       // Pre-acquire mic stream in parallel with socket connection + room join.
       // getUserMedia can take 500ms+ (device enumeration, permission prompt).

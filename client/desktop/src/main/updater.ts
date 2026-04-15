@@ -11,6 +11,14 @@ import { updateSplashStatus, showSplashProgress, updateSplashError } from './spl
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 const STARTUP_CHECK_DELAY_MS = 10_000;
 
+// Windows-only: electron-updater verifies the downloaded Setup.exe's
+// Authenticode signer subject against this list before running the
+// installer. Defeats MITM of the update feed on Windows. Ignored on
+// macOS and Linux. Array syntax supports multiple allowed publishers
+// (useful during cert-rotation transitions across LLC renames).
+// See issue #404 and spec internal-reference
+const ALLOWED_WINDOWS_PUBLISHERS: readonly string[] = Object.freeze(['Concord Voice LLC']);
+
 // Persisted preference for pre-release updates (same pattern as hw-accel.json)
 const prereleasePrefPath = path.join(app.getPath('userData'), 'update-prefs.json');
 
@@ -117,11 +125,18 @@ function ensureUpdaterReady(): void {
   });
 
   autoUpdater.on('error', (error: Error) => {
-    logger!.error(`Error: ${error.message}${error.stack ? '\n' + error.stack : ''}`);
-    // Themed brief copy intentional — full error reaches the renderer via update:error
-    // and is captured in the update log for diagnostics.
-    updateSplashError('Houston, we have a problem');
-    sendToRenderer('update:error', { message: error.message });
+    const msg = error.message;
+    const isPublisherFailure = /publisher|signature|not signed/i.test(msg);
+    if (isPublisherFailure) {
+      logger!.error(
+        `SECURITY: Update signer verification failed — ${msg}${error.stack ? '\n' + error.stack : ''}`
+      );
+      updateSplashError('Update blocked: signature verification failed');
+    } else {
+      logger!.error(`Error: ${msg}${error.stack ? '\n' + error.stack : ''}`);
+      updateSplashError('Houston, we have a problem');
+    }
+    sendToRenderer('update:error', { message: msg, securityEvent: isPublisherFailure });
   });
 }
 
@@ -130,7 +145,9 @@ function startScheduledChecks(): void {
   if (checkInterval) return;
 
   const scheduledCheck = () => {
-    checkForUpdates().catch(() => {});
+    checkForUpdates().catch((err: unknown) => {
+      logger?.error(`Scheduled update check failed: ${(err as Error).message}`);
+    });
   };
   setTimeout(scheduledCheck, STARTUP_CHECK_DELAY_MS);
   checkInterval = setInterval(scheduledCheck, UPDATE_CHECK_INTERVAL_MS);
@@ -153,11 +170,25 @@ export function initAutoUpdater(mainWindowGetter: () => BrowserWindow | null): v
   // The server serves release assets from disk via GET /api/v1/updates/*
   const apiBase = getPersistedApiBase();
   if (apiBase) {
-    autoUpdater.setFeedURL({
-      provider: 'generic',
-      url: `${apiBase}/api/v1/updates`,
-    });
-    startScheduledChecks();
+    if (apiBase.startsWith('https://')) {
+      autoUpdater.setFeedURL({
+        provider: 'generic',
+        url: `${apiBase}/api/v1/updates`,
+        publisherName: [...ALLOWED_WINDOWS_PUBLISHERS],
+      });
+      if (process.platform === 'win32') {
+        logger?.info(`Publisher verification active: ${ALLOWED_WINDOWS_PUBLISHERS.join(', ')}`);
+      } else if (process.platform === 'darwin') {
+        logger?.info('Publisher verification delegated to macOS Gatekeeper/notarization');
+      } else {
+        logger?.warn(
+          'Publisher verification NOT enforced on this platform — updates trust the feed'
+        );
+      }
+      startScheduledChecks();
+    } else {
+      logger?.warn(`Refusing to configure update feed with non-HTTPS apiBase: ${apiBase}`);
+    }
   } else {
     // No persisted API base (first launch, never logged in).
     // Updates will be enabled after login via setUpdateFeedUrl().
@@ -231,12 +262,28 @@ function formatBytes(bytes: number): string {
 
 /** Set the update feed URL after login (when apiBase becomes available). */
 export function setUpdateFeedUrl(apiBase: string): void {
-  if (!app.isPackaged) return; // No-op in development
+  if (!app.isPackaged) {
+    console.log('[updater] setUpdateFeedUrl: no-op in development mode');
+    return;
+  }
+  if (!apiBase.startsWith('https://')) {
+    // Refuse non-HTTPS in packaged production builds only (dev bypassed above).
+    logger?.warn(`Refusing to configure update feed with non-HTTPS apiBase: ${apiBase}`);
+    return;
+  }
   ensureUpdaterReady();
   autoUpdater.setFeedURL({
     provider: 'generic',
     url: `${apiBase}/api/v1/updates`,
+    publisherName: [...ALLOWED_WINDOWS_PUBLISHERS],
   });
+  if (process.platform === 'win32') {
+    logger?.info(`Publisher verification active: ${ALLOWED_WINDOWS_PUBLISHERS.join(', ')}`);
+  } else if (process.platform === 'darwin') {
+    logger?.info('Publisher verification delegated to macOS Gatekeeper/notarization');
+  } else {
+    logger?.warn('Publisher verification NOT enforced on this platform — updates trust the feed');
+  }
   logger!.info(`Feed URL set to ${apiBase}/api/v1/updates`);
   startScheduledChecks();
 }
