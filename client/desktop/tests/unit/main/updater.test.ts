@@ -13,6 +13,7 @@ const mockAutoUpdater = vi.hoisted(() => ({
   checkForUpdates: vi.fn().mockResolvedValue(undefined),
   downloadUpdate: vi.fn().mockResolvedValue([]),
   quitAndInstall: vi.fn(),
+  verifyUpdateCodeSignature: null as unknown,
 }));
 
 const mockLogger = vi.hoisted(() => ({
@@ -42,11 +43,13 @@ vi.mock('node:fs', () => ({
       throw new Error('ENOENT');
     }),
     writeFileSync: vi.fn(),
+    renameSync: vi.fn(),
   },
   readFileSync: vi.fn().mockImplementation(() => {
     throw new Error('ENOENT');
   }),
   writeFileSync: vi.fn(),
+  renameSync: vi.fn(),
 }));
 
 vi.mock('../../../src/main/tokenManager', () => ({
@@ -158,6 +161,140 @@ describe('updater', () => {
       getEventHandler('error')(new Error('Network failure'));
 
       expect(splash.updateSplashError).toHaveBeenCalledWith('Houston, we have a problem');
+    });
+  });
+
+  describe('readUpdatePrefs error handling', () => {
+    it('returns default on ENOENT without logging', async () => {
+      vi.resetModules();
+      const fs = await import('node:fs');
+      const err = Object.assign(new Error('ENOENT: no such file'), { code: 'ENOENT' });
+      // updater.ts uses `import fs from 'node:fs'` (default import), so mock the default export
+      vi.mocked(fs.default.readFileSync).mockImplementationOnce(() => {
+        throw err;
+      });
+
+      // Re-import updater so module-level code re-runs with the new mock
+      const { initAutoUpdater } = await import('../../../src/main/updater');
+      initAutoUpdater(() => null);
+
+      // ENOENT should NOT surface to logger.error or console.error
+      expect(mockLogger.error).not.toHaveBeenCalled();
+      // Default is allowPrerelease: true
+      expect(mockAutoUpdater.allowPrerelease).toBe(true);
+    });
+
+    it('logs and renames the file on SyntaxError', async () => {
+      vi.resetModules();
+      const fs = await import('node:fs');
+      // updater.ts uses `import fs from 'node:fs'` (default import), so mock the default export
+      vi.mocked(fs.default.readFileSync).mockImplementationOnce(() => 'not-json{{{');
+      const renameSpy = vi.mocked(fs.default.renameSync);
+
+      const { initAutoUpdater } = await import('../../../src/main/updater');
+      initAutoUpdater(() => null);
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringMatching(/corrupt.*update-prefs|SyntaxError/i)
+      );
+      expect(renameSpy).toHaveBeenCalledWith(
+        expect.stringMatching(/update-prefs\.json$/),
+        expect.stringMatching(/update-prefs\.json\.corrupt\.\d+$/)
+      );
+      expect(mockAutoUpdater.allowPrerelease).toBe(true);
+    });
+
+    it('logs and returns default on EACCES', async () => {
+      vi.resetModules();
+      const fs = await import('node:fs');
+      const err = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+      // updater.ts uses `import fs from 'node:fs'` (default import), so mock the default export
+      vi.mocked(fs.default.readFileSync).mockImplementationOnce(() => {
+        throw err;
+      });
+
+      const { initAutoUpdater } = await import('../../../src/main/updater');
+      initAutoUpdater(() => null);
+
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringMatching(/EACCES|permission/i));
+      expect(mockAutoUpdater.allowPrerelease).toBe(true);
+    });
+  });
+
+  describe('verifyUpdateCodeSignature hook (Windows)', () => {
+    let originalPlatform: PropertyDescriptor | undefined;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      vi.resetModules();
+      originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+      Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+    });
+
+    afterEach(() => {
+      if (originalPlatform) Object.defineProperty(process, 'platform', originalPlatform);
+    });
+
+    it('returns a non-null rejection string when extractChain throws (fail-closed)', async () => {
+      vi.doMock('../../../src/main/verifyWindowsSignature', () => ({
+        extractChain: vi.fn().mockRejectedValue(new Error('PS failed')),
+        verifyChain: vi.fn(),
+      }));
+      const { initAutoUpdater } = await import('../../../src/main/updater');
+      initAutoUpdater(() => null);
+      const hook = (
+        mockAutoUpdater as unknown as {
+          verifyUpdateCodeSignature: (p: string[], f: string) => Promise<string | null>;
+        }
+      ).verifyUpdateCodeSignature;
+      expect(hook).toBeTypeOf('function');
+      const result = await hook(['Concord Voice LLC'], 'C:\\fake\\installer.exe');
+      expect(result).toMatch(/PS failed|extractChain threw/);
+    });
+
+    it('returns null (pass) when verifyChain returns null', async () => {
+      vi.doMock('../../../src/main/verifyWindowsSignature', () => ({
+        extractChain: vi.fn().mockResolvedValue([
+          {
+            subjectCN: 'Concord Voice LLC',
+            issuerCN: 'Microsoft ID Verified CS EOC CA 01',
+          },
+          {
+            subjectCN: 'Microsoft ID Verified CS EOC CA 01',
+            issuerCN: 'Microsoft Identity Verification Root CA 2020',
+          },
+        ]),
+        verifyChain: vi.fn().mockReturnValue(null),
+      }));
+      const { initAutoUpdater } = await import('../../../src/main/updater');
+      initAutoUpdater(() => null);
+      const hook = (
+        mockAutoUpdater as unknown as {
+          verifyUpdateCodeSignature: (p: string[], f: string) => Promise<string | null>;
+        }
+      ).verifyUpdateCodeSignature;
+      const result = await hook(['Concord Voice LLC'], 'C:\\fake\\installer.exe');
+      expect(result).toBeNull();
+    });
+
+    it('returns a rejection string and logs SECURITY when verifyChain rejects', async () => {
+      vi.doMock('../../../src/main/verifyWindowsSignature', () => ({
+        extractChain: vi.fn().mockResolvedValue([
+          { subjectCN: 'Evil Co', issuerCN: 'Evil CA' },
+          { subjectCN: 'Evil CA', issuerCN: 'Evil Root' },
+        ]),
+        verifyChain: vi.fn().mockReturnValue('unauthorized publisher: Evil Co'),
+      }));
+      const { initAutoUpdater } = await import('../../../src/main/updater');
+      initAutoUpdater(() => null);
+      const hook = (
+        mockAutoUpdater as unknown as {
+          verifyUpdateCodeSignature: (p: string[], f: string) => Promise<string | null>;
+        }
+      ).verifyUpdateCodeSignature;
+      const result = await hook(['Concord Voice LLC'], 'C:\\fake\\installer.exe');
+      expect(result).toMatch(/unauthorized publisher/);
+      expect(mockLogger.error).toHaveBeenCalledWith(expect.stringMatching(/SECURITY/));
     });
   });
 });

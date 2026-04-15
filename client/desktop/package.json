@@ -1,7 +1,7 @@
 {
   "name": "@concordvoice/desktop",
   "productName": "ConcordVoice",
-  "version": "0.1.21",
+  "version": "0.1.22",
   "description": "Concord Voice Desktop Client - Privacy-first voice communication",
   "main": "dist/main/main.js",
   "author": "Concord Voice Team",
@@ -86,7 +86,8 @@
     "typescript-eslint": "^8.58.0",
     "unicode-emoji-json": "^0.8.0",
     "vite": "^8.0.8",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "yaml": "^2.8.3"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0",

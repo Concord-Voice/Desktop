@@ -6,6 +6,7 @@ import { getPersistedApiBase } from './tokenManager';
 import { createUpdateLogger, type UpdateLogger } from './updateLogger';
 import { prepareForUpdate } from './updateSafety';
 import { updateSplashStatus, showSplashProgress, updateSplashError } from './splashWindow';
+import { extractChain, verifyChain } from './verifyWindowsSignature';
 
 // Check every 4 hours; delay first check 10s so it doesn't block app startup
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
@@ -26,12 +27,37 @@ interface UpdatePrefs {
   allowPrerelease: boolean;
 }
 
+function logReadError(msg: string): void {
+  if (logger) logger.error(msg);
+  else console.error('[updater]', msg);
+}
+
 function readUpdatePrefs(): UpdatePrefs {
   try {
     const data = JSON.parse(fs.readFileSync(prereleasePrefPath, 'utf-8'));
     return { allowPrerelease: data.allowPrerelease !== false };
-  } catch {
-    return { allowPrerelease: true }; // Default: true (all 0.x releases are pre-release)
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    if (e.code === 'ENOENT') {
+      // Expected on first run; silently return default.
+      return { allowPrerelease: true };
+    }
+    if (err instanceof SyntaxError) {
+      const corruptPath = `${prereleasePrefPath}.corrupt.${Date.now()}`;
+      try {
+        fs.renameSync(prereleasePrefPath, corruptPath);
+        logReadError(
+          `Corrupt update-prefs.json (SyntaxError); moved to ${corruptPath}. Resetting to defaults.`
+        );
+      } catch (renameErr) {
+        logReadError(
+          `Corrupt update-prefs.json (SyntaxError); also failed to rename it: ${(renameErr as Error).message}`
+        );
+      }
+      return { allowPrerelease: true };
+    }
+    logReadError(`Failed to read update prefs (${e.code ?? 'unknown'}): ${e.message}`);
+    return { allowPrerelease: true };
   }
 }
 
@@ -75,6 +101,36 @@ function ensureUpdaterReady(): void {
 
   // Read persisted preference (defaults to true for 0.x pre-release cycle)
   autoUpdater.allowPrerelease = readUpdatePrefs().allowPrerelease;
+
+  // Windows-only runtime cert-chain verification. Defeats MITM scenarios
+  // where an attacker obtains a CN-matching cert from a different CA —
+  // pinning the Microsoft Trusted Signing intermediate blocks that.
+  //
+  // Leaf-thumbprint pinning is intentionally NOT used: Microsoft Trusted
+  // Signing leaf certs are 72-hour short-lived, auto-renewed daily. See
+  // spec internal-reference
+  if (process.platform === 'win32') {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (autoUpdater as any).verifyUpdateCodeSignature = async (
+      publisherNames: string[],
+      filePath: string
+    ): Promise<string | null> => {
+      try {
+        const chain = await extractChain(filePath);
+        const result = verifyChain(chain, publisherNames);
+        if (result === null) {
+          logger?.info('Runtime chain verification passed');
+        } else {
+          logger?.error(`SECURITY: chain verification rejected update — ${result}`);
+        }
+        return result;
+      } catch (err) {
+        const msg = `extractChain threw: ${(err as Error).message}`;
+        logger?.error(`SECURITY: ${msg}`);
+        return msg;
+      }
+    };
+  }
 
   // ─── Event handlers ─────────────────────────────────────────────────
 
