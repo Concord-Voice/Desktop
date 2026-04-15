@@ -79,7 +79,7 @@
     "eslint-plugin-react-hooks": "^5.0.0",
     "globals": "^17.0.0",
     "jsdom": "^29.0.2",
-    "msw": "^2.13.0",
+    "msw": "^2.13.3",
     "prettier": "^3.8.1",
     "tsx": "^4.21.0",
     "typescript": "~6.0.2",
