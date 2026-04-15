@@ -281,6 +281,23 @@ contextBridge.exposeInMainWorld('electron', {
         : process.env.SENTRY_ENABLED.toLowerCase() === 'true';
     return { dsn: SENTRY_DSN, environment: env, enabled };
   })(),
+
+  // Returns the main-process clientId (anonymized host identifier) so
+  // renderer events carry the same user.id as main-process events.
+  getClientId: () => ipcRenderer.invoke('sentry:getClientId') as Promise<string>,
+
+  // Post-login: upgrade the main-process Sentry user.id from the per-launch
+  // random fallback to the stable userUUID+hardware hash. See
+  // client/desktop/src/main/sentry.ts for the upgrade lifecycle rationale.
+  upgradeSentryUser: (userUUID: string) => ipcRenderer.invoke('sentry:upgradeUser', userUUID),
+  onClientIdUpgraded: (callback: (clientId: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { clientId: string }) =>
+      callback(data.clientId);
+    ipcRenderer.on('sentry:clientIdUpgraded', handler);
+    return () => {
+      ipcRenderer.removeListener('sentry:clientIdUpgraded', handler);
+    };
+  },
 });
 
 // Type definitions for the exposed API
@@ -439,6 +456,9 @@ export interface ElectronAPI {
     environment: string;
     enabled: boolean;
   };
+  getClientId: () => Promise<string>;
+  upgradeSentryUser: (userUUID: string) => Promise<void>;
+  onClientIdUpgraded: (callback: (clientId: string) => void) => () => void;
 }
 
 declare global {

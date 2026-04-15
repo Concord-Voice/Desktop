@@ -176,3 +176,153 @@ describe('scrubBreadcrumb', () => {
     expect(result!.message).not.toContain('eyJ');
   });
 });
+
+describe('path prefix scrubbing', () => {
+  it('rewrites /Users/{username}/ to $HOME/ in frame filenames', () => {
+    const event = {
+      exception: {
+        values: [
+          {
+            stacktrace: {
+              frames: [
+                {
+                  filename: '/Users/alice/Concord/src/main.ts',
+                  abs_path: '/Users/alice/Concord/src/main.ts',
+                },
+              ],
+            },
+          },
+        ],
+      },
+    };
+    const scrubbed = scrubEvent(event);
+    expect(scrubbed.exception.values[0].stacktrace.frames[0].filename).toBe(
+      '$HOME/Concord/src/main.ts'
+    );
+    expect(scrubbed.exception.values[0].stacktrace.frames[0].abs_path).toBe(
+      '$HOME/Concord/src/main.ts'
+    );
+  });
+
+  it('rewrites /home/{username}/ to $HOME/ in frame filenames', () => {
+    const event = {
+      exception: {
+        values: [
+          {
+            stacktrace: { frames: [{ filename: '/home/bob/app/index.js' }] },
+          },
+        ],
+      },
+    };
+    const scrubbed = scrubEvent(event);
+    expect(scrubbed.exception.values[0].stacktrace.frames[0].filename).toBe('$HOME/app/index.js');
+  });
+
+  it('rewrites C:\\Users\\{username}\\ to %USERPROFILE%\\ in frame filenames', () => {
+    const event = {
+      exception: {
+        values: [
+          {
+            stacktrace: { frames: [{ filename: 'C:\\Users\\charlie\\app\\index.js' }] },
+          },
+        ],
+      },
+    };
+    const scrubbed = scrubEvent(event);
+    expect(scrubbed.exception.values[0].stacktrace.frames[0].filename).toBe(
+      '%USERPROFILE%\\app\\index.js'
+    );
+  });
+
+  it('rewrites user-prefixed paths in exception values', () => {
+    const event = {
+      exception: {
+        values: [{ value: 'ENOENT at /Users/dan/secret/keys.json line 42' }],
+      },
+    };
+    const scrubbed = scrubEvent(event);
+    expect(scrubbed.exception.values[0].value).toBe('ENOENT at $HOME/secret/keys.json line 42');
+  });
+
+  it('leaves non-user paths untouched', () => {
+    const event = {
+      exception: {
+        values: [
+          {
+            stacktrace: { frames: [{ filename: '/usr/local/lib/node/foo.js' }] },
+          },
+        ],
+      },
+    };
+    const scrubbed = scrubEvent(event);
+    expect(scrubbed.exception.values[0].stacktrace.frames[0].filename).toBe(
+      '/usr/local/lib/node/foo.js'
+    );
+  });
+});
+
+describe('device context subfield drops', () => {
+  const DROPPED_DEVICE_FIELDS = [
+    'model',
+    'model_id',
+    'cpu_description',
+    'processor_frequency',
+    'boot_time',
+    'screen_resolution',
+    'screen_density',
+    'timezone',
+    'locale',
+  ];
+
+  it.each(DROPPED_DEVICE_FIELDS)('drops device.%s', (field) => {
+    const event: any = { contexts: { device: { [field]: 'sensitive-value' } } };
+    const scrubbed = scrubEvent(event);
+    expect(scrubbed.contexts.device[field]).toBeUndefined();
+  });
+
+  it('preserves device context object itself', () => {
+    const event = { contexts: { device: { family: 'Mac', model: 'MacBookPro18,1' } } };
+    const scrubbed = scrubEvent(event);
+    expect(scrubbed.contexts.device).toBeDefined();
+    expect(scrubbed.contexts.device.family).toBe('Mac');
+    expect(scrubbed.contexts.device.model).toBeUndefined();
+  });
+});
+
+describe('OS version coarsening', () => {
+  it('coarsens 15.4.1 to 15.4', () => {
+    const event = { contexts: { os: { version: '15.4.1' } } };
+    const scrubbed = scrubEvent(event);
+    expect(scrubbed.contexts.os.version).toBe('15.4');
+  });
+
+  it('coarsens 10.0.22621 to 10.0', () => {
+    const event = { contexts: { os: { version: '10.0.22621' } } };
+    const scrubbed = scrubEvent(event);
+    expect(scrubbed.contexts.os.version).toBe('10.0');
+  });
+
+  it('leaves single-segment versions untouched', () => {
+    const event = { contexts: { os: { version: '22' } } };
+    const scrubbed = scrubEvent(event);
+    expect(scrubbed.contexts.os.version).toBe('22');
+  });
+
+  it('drops os.build', () => {
+    const event = { contexts: { os: { version: '15.4', build: '24E263' } } };
+    const scrubbed = scrubEvent(event);
+    expect(scrubbed.contexts.os.build).toBeUndefined();
+  });
+
+  it('drops os.kernel_version', () => {
+    const event = { contexts: { os: { kernel_version: 'Darwin 24.5.0 ...' } } };
+    const scrubbed = scrubEvent(event);
+    expect(scrubbed.contexts.os.kernel_version).toBeUndefined();
+  });
+
+  it('drops os.raw_description', () => {
+    const event = { contexts: { os: { raw_description: 'macOS 15.4.1 (24E263)' } } };
+    const scrubbed = scrubEvent(event);
+    expect(scrubbed.contexts.os.raw_description).toBeUndefined();
+  });
+});

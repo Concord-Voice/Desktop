@@ -1,4 +1,5 @@
-import './sentry';
+import { initSentry, upgradeSentryUserId } from './sentry';
+import { registerClientIdHandler } from './ipc/clientIdHandler';
 import {
   app,
   BrowserWindow,
@@ -149,7 +150,13 @@ async function loadPackagedRenderer(window: BrowserWindow, bundledPath: string):
 
   if (decision.mode === 'remote' && decision.url) {
     try {
-      remoteSpaBaseUrl = decision.url;
+      // Normalize to origin (scheme+host+port) — isPermittedFrameUrl expects
+      // an origin, but decision.url may include a path like /index.html.
+      try {
+        remoteSpaBaseUrl = new URL(decision.url).origin;
+      } catch {
+        remoteSpaBaseUrl = null;
+      }
       await window.loadURL(decision.url);
       return;
     } catch {
@@ -248,8 +255,17 @@ const createWindow = async (): Promise<void> => {
 // Track rollback result so we can notify the renderer after window creation
 let rollbackResult: SentinelResult | null = null;
 
+// Await Sentry init BEFORE any window logic so all crashes are tagged.
+// See client/desktop/src/main/sentry.ts for rationale.
+const sentryInitPromise = initSentry().catch((err) => {
+  console.error('[main] initSentry failed:', err);
+  // Do not crash startup — Sentry simply won't be active this session.
+});
+
 // App lifecycle handlers
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await sentryInitPromise;
+  registerClientIdHandler(() => remoteSpaBaseUrl);
   // Permission request handler: explicitly allow app-required permissions, deny risky ones.
   // Notifications are allowed (JIT-managed by permissionManager #197).
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -659,6 +675,18 @@ ipcMain.handle('auth:getCapabilities', () => {
 
 ipcMain.handle('auth:getMachineId', () => {
   return getMachineId();
+});
+
+// Upgrade the Sentry user.id from the per-launch random fallback to the
+// stable userUUID+hardware hash after login completes. The renderer supplies
+// the authenticated user's account UUID (decoded from the JWT `sub` claim).
+// The main process MUST be the one calling Sentry.setUser — the renderer's
+// Sentry client is separate, and receives the broadcast to update its own tag.
+ipcMain.handle('sentry:upgradeUser', async (_event, userUUID: string) => {
+  if (typeof userUUID !== 'string' || userUUID.length < 8 || userUUID.length > 128) {
+    throw new Error('invalid userUUID');
+  }
+  await upgradeSentryUserId(userUUID);
 });
 
 // ─── PiP (Picture-in-Picture) Window Management ──────────────────────

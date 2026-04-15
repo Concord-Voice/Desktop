@@ -107,6 +107,24 @@ function decodeJwtExp(token: string): number | null {
 }
 
 /**
+ * Decode the `sub` claim (user UUID) from a JWT access token.
+ * JWTs are base64url-encoded — no secret needed to read the payload.
+ * Used to feed upgradeSentryUserId() post-login so the Sentry user.id
+ * transitions from the per-launch fallback to the stable hardware hash.
+ */
+function decodeJwtSub(token: string): string | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const payload = Buffer.from(parts[1], 'base64url').toString('utf-8');
+    const claims = JSON.parse(payload) as { sub?: string };
+    return typeof claims.sub === 'string' ? claims.sub : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Schedule a proactive token refresh based on the JWT's exp claim.
  * Called after every successful refresh (renderer-initiated or proactive).
  */
@@ -430,6 +448,24 @@ export function performRefresh(): Promise<RefreshResult> {
 
       // Schedule next proactive refresh based on new token's exp (#254)
       scheduleProactiveRefresh(newAccessToken);
+
+      // Upgrade Sentry user.id from per-launch random fallback to the stable
+      // userUUID+hardware hash (issue #642). Decoded from the JWT `sub` claim.
+      // Failures are swallowed — Sentry tagging is best-effort and must never
+      // block token refresh. The upgrade is idempotent on identical UUIDs.
+      const userUUID = decodeJwtSub(newAccessToken);
+      if (userUUID) {
+        try {
+          // Dynamic import — sentry.ts transitively requires @sentry/electron/main
+          // which some unit test harnesses don't stub. Lazy-loading defers the
+          // dependency to the actual refresh path and is a no-op overhead once
+          // the module is cached after first call.
+          const { upgradeSentryUserId } = await import('./sentry');
+          await upgradeSentryUserId(userUUID);
+        } catch (err) {
+          console.warn('[TokenManager] Sentry user.id upgrade failed:', err);
+        }
+      }
 
       return { status: 'ok', accessToken: newAccessToken, sessionId: newSessionId };
     } catch (err) {

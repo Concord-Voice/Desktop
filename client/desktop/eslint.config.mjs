@@ -74,6 +74,18 @@ export default [
       'no-duplicate-imports': 'error',
       'prefer-const': 'warn',
       eqeqeq: ['error', 'always', { null: 'ignore' }],
+
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group: ['**/main/clientId', '**/main/clientId.ts', '**/main/clientId.js'],
+          message: 'clientId.ts is RESERVED FOR SENTRY ANONYMIZATION. Any new import site requires security-reviewer approval.',
+        }],
+      }],
     },
+  },
+
+  {
+    files: ['src/main/sentry.ts', 'tests/**/*'],
+    rules: { 'no-restricted-imports': 'off' },
   },
 ];

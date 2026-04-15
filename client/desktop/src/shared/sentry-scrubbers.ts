@@ -27,6 +27,19 @@ export const ALLOWED_TAG_KEYS = new Set([
   'boundary',
 ]);
 
+/** Device context subfields that fingerprint hardware and must be dropped. */
+export const DROPPED_DEVICE_SUBFIELDS = new Set([
+  'model',
+  'model_id',
+  'cpu_description',
+  'processor_frequency',
+  'boot_time',
+  'screen_resolution',
+  'screen_density',
+  'timezone',
+  'locale',
+]);
+
 // ─── Sensitive pattern redaction ────────────────────────────────────────────
 
 const SENSITIVE_PATTERNS: RegExp[] = [
@@ -58,6 +71,25 @@ export function redactSensitivePatterns(message: string): string {
   return scrubbed;
 }
 
+// ─── Path prefix scrubbing ──────────────────────────────────────────────────
+
+const PATH_PREFIX_RULES: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /\/Users\/[^/]+\//g, replacement: '$HOME/' },
+  { pattern: /\/home\/[^/]+\//g, replacement: '$HOME/' },
+  { pattern: /C:\\Users\\[^\\]+\\/g, replacement: '%USERPROFILE%\\' },
+];
+
+/** Rewrite per-user path prefixes to env-var placeholders. */
+export function scrubPathPrefixes(input: string): string {
+  if (typeof input !== 'string') return input;
+  let out = input;
+  for (const { pattern, replacement } of PATH_PREFIX_RULES) {
+    pattern.lastIndex = 0;
+    out = out.replace(pattern, replacement);
+  }
+  return out;
+}
+
 // ─── Event scrubber ─────────────────────────────────────────────────────────
 
 // Using `any` here because the Sentry Event type comes from different packages
@@ -77,6 +109,24 @@ function stripUnknownContexts(event: any): void {
   }
 }
 
+function stripFingerprintingDeviceFields(event: any): void {
+  if (!event.contexts?.device) return;
+  for (const field of DROPPED_DEVICE_SUBFIELDS) {
+    delete event.contexts.device[field];
+  }
+}
+
+function coarsenOsVersion(event: any): void {
+  if (!event.contexts?.os) return;
+  const os = event.contexts.os;
+  if (typeof os.version === 'string') {
+    os.version = os.version.split('.').slice(0, 2).join('.');
+  }
+  delete os.build;
+  delete os.kernel_version;
+  delete os.raw_description;
+}
+
 function stripUnknownTags(event: any): void {
   if (!event.tags) return;
   for (const key of Object.keys(event.tags)) {
@@ -86,12 +136,26 @@ function stripUnknownTags(event: any): void {
   }
 }
 
+function scrubFrame(frame: any): void {
+  if (frame.filename) frame.filename = scrubPathPrefixes(frame.filename);
+  if (frame.abs_path) frame.abs_path = scrubPathPrefixes(frame.abs_path);
+}
+
+function scrubSingleExceptionValue(exc: any): void {
+  if (exc.value) {
+    exc.value = scrubPathPrefixes(redactSensitivePatterns(exc.value));
+  }
+  if (exc.stacktrace?.frames) {
+    for (const frame of exc.stacktrace.frames) {
+      scrubFrame(frame);
+    }
+  }
+}
+
 function scrubExceptionValues(event: any): void {
   if (!event.exception?.values) return;
   for (const exc of event.exception.values) {
-    if (exc.value) {
-      exc.value = redactSensitivePatterns(exc.value);
-    }
+    scrubSingleExceptionValue(exc);
   }
 }
 
@@ -103,6 +167,8 @@ export function scrubEvent(event: any): any | null {
   if (!event) return null;
 
   stripUnknownContexts(event);
+  stripFingerprintingDeviceFields(event);
+  coarsenOsVersion(event);
   event.extra = undefined;
   event.request = undefined;
 

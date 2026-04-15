@@ -115,6 +115,14 @@ vi.mock('@sentry/electron/main', () => ({
   setTag: vi.fn(),
   captureException: vi.fn(),
   captureMessage: vi.fn(),
+  addBreadcrumb: vi.fn(),
+}));
+
+// Mock sentry module so initSentry() resolves immediately without real hardware retrievers.
+vi.mock('../../../src/main/sentry', () => ({
+  initSentry: vi.fn(() => Promise.resolve()),
+  upgradeSentryUserId: vi.fn(() => Promise.resolve()),
+  getClientId: vi.fn(() => ({ kind: 'stable', id: 'test-client-id' })),
 }));
 
 // ── Node / internal module mocks ───────────────────────────────────────
@@ -624,7 +632,9 @@ describe('main.ts', () => {
 
     it('proactive refresh callback sends to renderer', async () => {
       const { setProactiveRefreshCallback } = await import('../../../src/main/tokenManager');
-      const cb = (setProactiveRefreshCallback as Mock).mock.calls[0]?.[0] as (...args: unknown[]) => void;
+      const cb = (setProactiveRefreshCallback as Mock).mock.calls[0]?.[0] as (
+        ...args: unknown[]
+      ) => void;
       expect(cb).toBeDefined();
       mockWebContents.send.mockClear();
       cb('new-access-token', 'new-session-id');
@@ -850,6 +860,7 @@ describe('main.ts', () => {
         'auth:clearTokens',
         'auth:getCapabilities',
         'auth:getMachineId',
+        'sentry:upgradeUser',
         'update:check',
         'update:download',
         'update:install',

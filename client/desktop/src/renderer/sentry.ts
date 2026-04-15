@@ -20,6 +20,27 @@ if (sentryConfig?.dsn) {
     beforeBreadcrumb: scrubBreadcrumb,
   });
 
+  // Fetch clientId from the main process so renderer events carry the same
+  // user.id as main-process events. The main process computed this from
+  // hardware inputs in initSentry; the renderer just mirrors it.
+  globalThis.electron
+    .getClientId()
+    .then((clientId: string) => {
+      Sentry.setUser({ id: clientId });
+    })
+    .catch((err: unknown) => {
+      console.warn('[sentry] Failed to fetch clientId for renderer user tag:', err);
+    });
+
+  // When the main process upgrades from the per-launch fallback to the stable
+  // userUUID+hardware hash (post-login), mirror the change in the renderer's
+  // own Sentry client so events from both processes carry the same user.id.
+  if (globalThis.electron?.onClientIdUpgraded) {
+    globalThis.electron.onClientIdUpgraded((clientId: string) => {
+      Sentry.setUser({ id: clientId });
+    });
+  }
+
   // Fetch version and stamp release on all subsequent events via the client options.
   globalThis.electron
     .getVersion()
