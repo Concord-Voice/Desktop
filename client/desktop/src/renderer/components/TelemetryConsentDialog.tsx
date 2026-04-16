@@ -1,7 +1,7 @@
 import React from 'react';
 import Modal from './ui/Modal';
 import { useTelemetryConsentStore } from '../stores/telemetryConsentStore';
-import { useClientConfigStore } from '../stores/clientConfigStore';
+import { TELEMETRY_POLICY_VERSION } from '../../shared/sentry-policy-version';
 import './TelemetryConsentDialog.css';
 
 const TELEMETRY_CHANGELOG_URL = 'https://concordvoice.com/telemetry-policy';
@@ -11,19 +11,17 @@ type DialogMode = 'first-launch' | 'policy-update' | null;
 function useDialogMode(): DialogMode {
   const isLoaded = useTelemetryConsentStore((s) => s.isLoaded);
   const firstPromptCompleted = useTelemetryConsentStore((s) => s.firstPromptCompleted);
-  const telemetryOptIn = useTelemetryConsentStore((s) => s.telemetryOptIn);
-  const acknowledgedVersion = useTelemetryConsentStore((s) => s.policyAcknowledgedVersion);
-  const policyVersion = useClientConfigStore((s) => s.telemetryPolicyVersion);
+  const pendingReConsent = useTelemetryConsentStore((s) => s.pendingReConsent);
 
   if (!isLoaded) return null;
   if (!firstPromptCompleted) return 'first-launch';
-  if (telemetryOptIn && policyVersion > acknowledgedVersion) return 'policy-update';
+  if (pendingReConsent) return 'policy-update';
   return null;
 }
 
 const TelemetryConsentDialog: React.FC = () => {
   const mode = useDialogMode();
-  const policyVersion = useClientConfigStore((s) => s.telemetryPolicyVersion);
+  const policyVersion = TELEMETRY_POLICY_VERSION;
   const setConsent = useTelemetryConsentStore((s) => s.setConsent);
 
   if (!mode) return null;

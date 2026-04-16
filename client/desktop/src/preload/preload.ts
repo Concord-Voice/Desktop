@@ -243,18 +243,21 @@ contextBridge.exposeInMainWorld('electron', {
       telemetryOptIn: boolean;
       firstPromptCompleted: boolean;
       policyAcknowledgedVersion: number;
+      pendingReConsent: boolean;
       updatedAt: string | null;
     }>,
   setConsentState: (updates: {
     telemetryOptIn?: boolean;
     firstPromptCompleted?: boolean;
     policyAcknowledgedVersion?: number;
+    pendingReConsent?: boolean;
   }) => ipcRenderer.invoke('consent:setState', updates) as Promise<void>,
   onConsentChanged: (
     callback: (state: {
       telemetryOptIn: boolean;
       firstPromptCompleted: boolean;
       policyAcknowledgedVersion: number;
+      pendingReConsent: boolean;
       updatedAt: string | null;
     }) => void
   ) => {
@@ -263,6 +266,22 @@ contextBridge.exposeInMainWorld('electron', {
     ipcRenderer.on('consent:changed', handler);
     return () => {
       ipcRenderer.removeListener('consent:changed', handler);
+    };
+  },
+
+  onConsentRevoked: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('sentry:consentRevoked', handler);
+    return () => {
+      ipcRenderer.removeListener('sentry:consentRevoked', handler);
+    };
+  },
+
+  onConsentRestored: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('sentry:consentRestored', handler);
+    return () => {
+      ipcRenderer.removeListener('sentry:consentRestored', handler);
     };
   },
 
@@ -434,21 +453,26 @@ export interface ElectronAPI {
     telemetryOptIn: boolean;
     firstPromptCompleted: boolean;
     policyAcknowledgedVersion: number;
+    pendingReConsent: boolean;
     updatedAt: string | null;
   }>;
   setConsentState: (updates: {
     telemetryOptIn?: boolean;
     firstPromptCompleted?: boolean;
     policyAcknowledgedVersion?: number;
+    pendingReConsent?: boolean;
   }) => Promise<void>;
   onConsentChanged: (
     callback: (state: {
       telemetryOptIn: boolean;
       firstPromptCompleted: boolean;
       policyAcknowledgedVersion: number;
+      pendingReConsent: boolean;
       updatedAt: string | null;
     }) => void
   ) => () => void;
+  onConsentRevoked: (callback: () => void) => () => void;
+  onConsentRestored: (callback: () => void) => () => void;
 
   // Sentry config
   sentry: {

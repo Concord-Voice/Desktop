@@ -2,7 +2,8 @@ import * as Sentry from '@sentry/electron/main';
 import { app } from 'electron';
 import { scrubEvent, scrubBreadcrumb } from '../shared/sentry-scrubbers';
 import { SENTRY_DSN } from '../shared/sentry-config.generated';
-import { readTelemetryConsent } from './telemetryConsent';
+import { TELEMETRY_POLICY_VERSION } from '../shared/sentry-policy-version';
+import { readTelemetryConsent, writeTelemetryConsent } from './telemetryConsent';
 import {
   computeClientId,
   getPlatformRetrievers,
@@ -35,10 +36,25 @@ export function getClientId(): ClientIdResult {
  * event goes out untagged.
  */
 export async function initSentry(): Promise<void> {
+  // Eager revert: if the user's acknowledged policy version is stale and they
+  // were previously opted-in, flip them to opted-out BEFORE Sentry.init runs.
+  // The renderer surfaces the re-consent dialog via the pendingReConsent flag.
+  const currentConsent = readTelemetryConsent();
+  if (
+    currentConsent.telemetryOptIn &&
+    currentConsent.policyAcknowledgedVersion < TELEMETRY_POLICY_VERSION
+  ) {
+    writeTelemetryConsent({
+      telemetryOptIn: false,
+      pendingReConsent: true,
+    });
+  }
+
   const sentryEnvironment =
     process.env.SENTRY_ENVIRONMENT ||
     process.env.NODE_ENV ||
     (app.isPackaged ? 'production' : 'development');
+  // Re-read after potential eager-revert so sentryEnabled reflects the updated state.
   const consentState = readTelemetryConsent();
   const sentryEnabled =
     process.env.SENTRY_ENABLED == null

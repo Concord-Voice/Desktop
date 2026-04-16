@@ -51,14 +51,25 @@ vi.mock('../../../src/main/clientId', () => ({
   })),
 }));
 
-// Mock telemetryConsent
+// Mock telemetryConsent — policyAcknowledgedVersion matches TELEMETRY_POLICY_VERSION (2)
+// so the eager-revert block is NOT triggered; writeTelemetryConsent is a no-op stub.
 vi.mock('../../../src/main/telemetryConsent', () => ({
-  readTelemetryConsent: () => ({
-    telemetryOptIn: true,
-    firstPromptCompleted: true,
-    policyAcknowledgedVersion: 1,
-    updatedAt: null,
-  }),
+  readTelemetryConsent: () => {
+    // NOTE: This mock deliberately returns telemetryOptIn=true with a current
+    // policyAcknowledgedVersion so the eager-revert path in initSentry does NOT
+    // fire here. These tests exercise the SENTRY_ENABLED env override path,
+    // which bypasses consent entirely — the consent mock just needs to not
+    // trigger the stale-version eager revert. See telemetryConsent.test.ts
+    // for the consent-gated enablement tests.
+    return {
+      telemetryOptIn: true,
+      firstPromptCompleted: true,
+      policyAcknowledgedVersion: 2, // matches TELEMETRY_POLICY_VERSION — no eager revert
+      pendingReConsent: false,
+      updatedAt: null,
+    };
+  },
+  writeTelemetryConsent: vi.fn(),
 }));
 
 // Mock sentry-config.generated

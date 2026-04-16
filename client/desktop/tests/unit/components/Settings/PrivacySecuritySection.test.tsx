@@ -135,11 +135,7 @@ vi.mock('@/renderer/stores/telemetryConsentStore', () => {
   return { useTelemetryConsentStore: hook };
 });
 vi.mock('@/renderer/stores/clientConfigStore', () => ({
-  useClientConfigStore: vi.fn((s) =>
-    s({
-      telemetryPolicyVersion: 1,
-    })
-  ),
+  useClientConfigStore: vi.fn((s) => s({})),
 }));
 
 import PrivacySecuritySection from '@/renderer/components/Settings/PrivacySecuritySection';
@@ -2786,7 +2782,7 @@ describe('PrivacySecuritySection', () => {
         .closest('.settings-row')!
         .querySelector('input[type="checkbox"]')!
     );
-    expect(mockSetConsent).toHaveBeenCalledWith(true, 1);
+    expect(mockSetConsent).toHaveBeenCalledWith(true, 2);
   });
 
   // ── Permissions loading state ──────────────────────────────────────────

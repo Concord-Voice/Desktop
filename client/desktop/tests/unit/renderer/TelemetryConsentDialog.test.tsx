@@ -3,7 +3,7 @@ import { screen, fireEvent } from '@testing-library/react';
 import { render } from '../../test-utils';
 import { resetAllStores } from '../../helpers/store-helpers';
 import { useTelemetryConsentStore } from '../../../src/renderer/stores/telemetryConsentStore';
-import { useClientConfigStore } from '../../../src/renderer/stores/clientConfigStore';
+import { TELEMETRY_POLICY_VERSION } from '../../../src/shared/sentry-policy-version';
 
 const mockSetConsentState = vi.fn();
 const mockGetConsentState = vi.fn();
@@ -36,14 +36,12 @@ describe('TelemetryConsentDialog — first-launch mode', () => {
     expect(screen.getByText('Help improve Concord Voice')).toBeInTheDocument();
   });
 
-  it('does NOT render when firstPromptCompleted=true', async () => {
+  it('does NOT render when firstPromptCompleted=true and pendingReConsent=false', async () => {
     useTelemetryConsentStore.setState({
       isLoaded: true,
       firstPromptCompleted: true,
-      telemetryOptIn: false,
-      policyAcknowledgedVersion: 1,
+      pendingReConsent: false,
     });
-    useClientConfigStore.setState({ telemetryPolicyVersion: 1 });
     await renderDialog();
     expect(screen.queryByText('Help improve Concord Voice')).not.toBeInTheDocument();
   });
@@ -54,9 +52,8 @@ describe('TelemetryConsentDialog — first-launch mode', () => {
     expect(screen.queryByText('Help improve Concord Voice')).not.toBeInTheDocument();
   });
 
-  it('"Yes, send crash reports" calls setConsent with optIn=true and current policy version', async () => {
+  it('"Yes, send crash reports" calls setConsent with optIn=true and bundled policy version', async () => {
     useTelemetryConsentStore.setState({ isLoaded: true, firstPromptCompleted: false });
-    useClientConfigStore.setState({ telemetryPolicyVersion: 2 });
     await renderDialog();
 
     fireEvent.click(screen.getByRole('button', { name: 'Yes, send crash reports' }));
@@ -64,13 +61,13 @@ describe('TelemetryConsentDialog — first-launch mode', () => {
     expect(mockSetConsentState).toHaveBeenCalledWith({
       telemetryOptIn: true,
       firstPromptCompleted: true,
-      policyAcknowledgedVersion: 2,
+      policyAcknowledgedVersion: TELEMETRY_POLICY_VERSION,
+      pendingReConsent: false,
     });
   });
 
-  it('"No thanks" calls setConsent with optIn=false and current policy version', async () => {
+  it('"No thanks" calls setConsent with optIn=false and bundled policy version', async () => {
     useTelemetryConsentStore.setState({ isLoaded: true, firstPromptCompleted: false });
-    useClientConfigStore.setState({ telemetryPolicyVersion: 2 });
     await renderDialog();
 
     fireEvent.click(screen.getByRole('button', { name: 'No thanks' }));
@@ -78,7 +75,8 @@ describe('TelemetryConsentDialog — first-launch mode', () => {
     expect(mockSetConsentState).toHaveBeenCalledWith({
       telemetryOptIn: false,
       firstPromptCompleted: true,
-      policyAcknowledgedVersion: 2,
+      policyAcknowledgedVersion: TELEMETRY_POLICY_VERSION,
+      pendingReConsent: false,
     });
   });
 
@@ -90,50 +88,46 @@ describe('TelemetryConsentDialog — first-launch mode', () => {
 });
 
 describe('TelemetryConsentDialog — policy-update mode', () => {
-  it('renders when opted in and policy version is ahead of acknowledged version', async () => {
-    useTelemetryConsentStore.setState({
-      isLoaded: true,
-      firstPromptCompleted: true,
-      telemetryOptIn: true,
-      policyAcknowledgedVersion: 1,
-    });
-    useClientConfigStore.setState({ telemetryPolicyVersion: 2 });
-    await renderDialog();
-    expect(screen.getByText('Telemetry policy updated')).toBeInTheDocument();
-  });
-
-  it('does NOT render for opted-out users even when policy is ahead', async () => {
+  it('renders when pendingReConsent=true regardless of telemetryOptIn', async () => {
     useTelemetryConsentStore.setState({
       isLoaded: true,
       firstPromptCompleted: true,
       telemetryOptIn: false,
-      policyAcknowledgedVersion: 1,
+      pendingReConsent: true,
     });
-    useClientConfigStore.setState({ telemetryPolicyVersion: 2 });
     await renderDialog();
-    expect(screen.queryByText('Telemetry policy updated')).not.toBeInTheDocument();
+    expect(screen.getByText('Telemetry policy updated')).toBeInTheDocument();
   });
 
-  it('does NOT render when policy version matches acknowledged version', async () => {
+  it('renders when pendingReConsent=true and telemetryOptIn=true', async () => {
     useTelemetryConsentStore.setState({
       isLoaded: true,
       firstPromptCompleted: true,
       telemetryOptIn: true,
-      policyAcknowledgedVersion: 2,
+      pendingReConsent: true,
     });
-    useClientConfigStore.setState({ telemetryPolicyVersion: 2 });
     await renderDialog();
-    expect(screen.queryByText('Telemetry policy updated')).not.toBeInTheDocument();
+    expect(screen.getByText('Telemetry policy updated')).toBeInTheDocument();
   });
 
-  it('"Yes, continue" calls setConsent with optIn=true and current policy version', async () => {
+  it('does NOT render when pendingReConsent=false', async () => {
     useTelemetryConsentStore.setState({
       isLoaded: true,
       firstPromptCompleted: true,
       telemetryOptIn: true,
-      policyAcknowledgedVersion: 1,
+      pendingReConsent: false,
     });
-    useClientConfigStore.setState({ telemetryPolicyVersion: 3 });
+    await renderDialog();
+    expect(screen.queryByText('Telemetry policy updated')).not.toBeInTheDocument();
+  });
+
+  it('"Yes, continue" calls setConsent with optIn=true and bundled policy version', async () => {
+    useTelemetryConsentStore.setState({
+      isLoaded: true,
+      firstPromptCompleted: true,
+      telemetryOptIn: false,
+      pendingReConsent: true,
+    });
     await renderDialog();
 
     fireEvent.click(screen.getByRole('button', { name: 'Yes, continue' }));
@@ -141,18 +135,18 @@ describe('TelemetryConsentDialog — policy-update mode', () => {
     expect(mockSetConsentState).toHaveBeenCalledWith({
       telemetryOptIn: true,
       firstPromptCompleted: true,
-      policyAcknowledgedVersion: 3,
+      policyAcknowledgedVersion: TELEMETRY_POLICY_VERSION,
+      pendingReConsent: false,
     });
   });
 
-  it('"Opt out" calls setConsent with optIn=false and current policy version', async () => {
+  it('"Opt out" calls setConsent with optIn=false and bundled policy version', async () => {
     useTelemetryConsentStore.setState({
       isLoaded: true,
       firstPromptCompleted: true,
-      telemetryOptIn: true,
-      policyAcknowledgedVersion: 1,
+      telemetryOptIn: false,
+      pendingReConsent: true,
     });
-    useClientConfigStore.setState({ telemetryPolicyVersion: 3 });
     await renderDialog();
 
     fireEvent.click(screen.getByRole('button', { name: 'Opt out' }));
@@ -160,7 +154,8 @@ describe('TelemetryConsentDialog — policy-update mode', () => {
     expect(mockSetConsentState).toHaveBeenCalledWith({
       telemetryOptIn: false,
       firstPromptCompleted: true,
-      policyAcknowledgedVersion: 3,
+      policyAcknowledgedVersion: TELEMETRY_POLICY_VERSION,
+      pendingReConsent: false,
     });
   });
 });

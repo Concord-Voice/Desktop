@@ -27,7 +27,6 @@ interface ClientConfigState {
   turn: TURNConfig;
   spaUrl: string;
   spaIpcContract: number;
-  telemetryPolicyVersion: number;
   lastFetchedAt: number | null;
   setConfig: (config: Omit<ClientConfigState, 'lastFetchedAt' | 'setConfig'>) => void;
 }
@@ -39,7 +38,6 @@ export const useClientConfigStore = create<ClientConfigState>()((set) => ({
   turn: { host: '', realm: '' },
   spaUrl: '',
   spaIpcContract: 0,
-  telemetryPolicyVersion: 1,
   lastFetchedAt: null,
   setConfig: (config) => set({ ...config, lastFetchedAt: Date.now() }),
 }));

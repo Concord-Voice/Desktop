@@ -27,6 +27,12 @@ export interface ConsentState {
   telemetryOptIn: boolean;
   firstPromptCompleted: boolean;
   policyAcknowledgedVersion: number;
+  /**
+   * True between eager-revert at launch and the user answering the
+   * re-consent dialog. Persisted so a renderer crash mid-dialog does
+   * not lose the prompt. Default false.
+   */
+  pendingReConsent: boolean;
   updatedAt: string | null;
 }
 
@@ -36,6 +42,7 @@ const CONSENT_DEFAULTS: ConsentState = {
   telemetryOptIn: false,
   firstPromptCompleted: false,
   policyAcknowledgedVersion: 0,
+  pendingReConsent: false,
   updatedAt: null,
 };
 
@@ -68,6 +75,10 @@ export function readTelemetryConsent(): ConsentState {
         typeof parsed.policyAcknowledgedVersion === 'number'
           ? parsed.policyAcknowledgedVersion
           : CONSENT_DEFAULTS.policyAcknowledgedVersion,
+      pendingReConsent:
+        typeof parsed.pendingReConsent === 'boolean'
+          ? parsed.pendingReConsent
+          : CONSENT_DEFAULTS.pendingReConsent,
       updatedAt:
         typeof parsed.updatedAt === 'string' ? parsed.updatedAt : CONSENT_DEFAULTS.updatedAt,
     };
@@ -129,6 +140,9 @@ function sanitizeConsentUpdates(raw: unknown): Partial<ConsentState> {
   if (typeof obj.policyAcknowledgedVersion === 'number') {
     safe.policyAcknowledgedVersion = obj.policyAcknowledgedVersion;
   }
+  if (typeof obj.pendingReConsent === 'boolean') {
+    safe.pendingReConsent = obj.pendingReConsent;
+  }
   return safe;
 }
 
@@ -146,39 +160,98 @@ function toggleSentry(enabled: boolean): void {
   }
 }
 
+/**
+ * In-flight mutex for consent:setState. Racing off→on (or on→off) calls
+ * would otherwise let a still-pending Sentry.close(0) interfere with a
+ * subsequent re-init. The chain is private to this module.
+ */
+let consentMutex: Promise<void> = Promise.resolve();
+function serializeConsent(run: () => Promise<void>): Promise<void> {
+  const next = consentMutex.then(run, run);
+  // Swallow errors on the mutex chain itself so one failure does not
+  // permanently wedge subsequent calls.
+  consentMutex = next.catch(() => undefined);
+  return next;
+}
+
 export function registerConsentIpcHandlers(): void {
   ipcMain.handle('consent:getState', (): ConsentState => {
     return readTelemetryConsent();
   });
 
-  ipcMain.handle('consent:setState', (_event, raw: unknown): void => {
-    const safe = sanitizeConsentUpdates(raw);
+  ipcMain.handle('consent:setState', (_event, raw: unknown): Promise<void> => {
+    return serializeConsent(async () => {
+      const safe = sanitizeConsentUpdates(raw);
 
-    // Fail-closed: for opt-out, disable Sentry eagerly BEFORE attempting the write.
-    // This ensures the current session respects the opt-out even if the file
-    // write subsequently fails — crash data stops flowing immediately on user intent.
-    if (safe.telemetryOptIn === false) {
-      toggleSentry(false);
-    }
+      // Capture prior persisted state BEFORE any write so we can detect
+      // a true revoked→granted transition for sentry:consentRestored.
+      const previousConsent = readTelemetryConsent();
 
-    try {
-      writeTelemetryConsent(safe);
-    } catch (err) {
-      console.error('[TelemetryConsent] Failed to write consent file:', err);
-      throw err; // Propagate to renderer via IPC rejection
-    }
+      // Fail-closed: opt-off path performs the teardown BEFORE persisting.
+      // If anything throws, the user's intent (disable) is already honored
+      // for the current session.
+      if (safe.telemetryOptIn === false) {
+        // 1. Eager in-memory disable (takes effect immediately for main).
+        toggleSentry(false);
 
-    const newState = readTelemetryConsent();
+        // 2. Zero-timeout close = drop queued in-memory events, then replace
+        //    the client with a disabled stub. Subsequent captureException
+        //    calls are no-ops.
+        try {
+          await Sentry.close(0);
+        } catch (err) {
+          console.warn('[TelemetryConsent] Sentry.close(0) rejected; continuing opt-out:', err);
+        }
 
-    // Toggle Sentry based on persisted state (handles opt-in; opt-out already
-    // applied eagerly above).
-    toggleSentry(newState.telemetryOptIn);
-
-    // Broadcast to all open windows (handles PiP + macOS re-open scenarios)
-    for (const win of BrowserWindow.getAllWindows()) {
-      if (!win.isDestroyed()) {
-        win.webContents.send('consent:changed', newState);
+        // 3. Delete the on-disk offline queue. @sentry/electron writes
+        //    envelopes and queue state under `{userData}/sentry/queue/`.
+        //    We remove the parent `{userData}/sentry/` dir to tolerate any
+        //    future SDK layout changes within that directory.
+        //    Directory verified at implementation time against @sentry/electron
+        //    v7.11.0 (see esm/main/electron-normalize.js: getSentryCachePath
+        //    returns join(app.getPath('userData'), 'sentry')).
+        const queueDir = path.join(app.getPath('userData'), 'sentry');
+        try {
+          await fs.promises.rm(queueDir, { recursive: true, force: true });
+        } catch (err) {
+          console.warn('[TelemetryConsent] offline queue cleanup failed:', err);
+        }
       }
-    }
+
+      // 4. Persist.
+      try {
+        writeTelemetryConsent(safe);
+      } catch (err) {
+        console.error('[TelemetryConsent] Failed to write consent file:', err);
+        throw err; // Propagate to renderer via IPC rejection
+      }
+
+      const newState = readTelemetryConsent();
+
+      // 5. If opt-on, restore Sentry enablement on the (still-present) client.
+      //    On renderers, a separate sentry:consentRestored broadcast triggers
+      //    re-init (see Task 3.4).
+      toggleSentry(newState.telemetryOptIn);
+
+      // 6. Broadcast to all open windows (handles PiP + macOS re-open scenarios).
+      //    sentry:consentRevoked fires on opt-off so renderer Sentry clients can
+      //    close immediately. sentry:consentRestored fires ONLY on a true
+      //    revoked→granted transition (previousConsent.telemetryOptIn === false →
+      //    new telemetryOptIn === true) so renderers re-init exactly once per
+      //    revocation. A redundant opt-in update on an already-opted-in account
+      //    must NOT trigger a spurious renderer Sentry re-init.
+      const wasOptOff = safe.telemetryOptIn === false;
+      const wasTrueTransition =
+        safe.telemetryOptIn === true && previousConsent.telemetryOptIn === false;
+      for (const win of BrowserWindow.getAllWindows()) {
+        if (win.isDestroyed()) continue;
+        win.webContents.send('consent:changed', newState);
+        if (wasOptOff) {
+          win.webContents.send('sentry:consentRevoked');
+        } else if (wasTrueTransition) {
+          win.webContents.send('sentry:consentRestored');
+        }
+      }
+    });
   });
 }

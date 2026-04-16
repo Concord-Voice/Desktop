@@ -20,7 +20,8 @@ import {
 } from '../../stores/osPermissionStore';
 import { klipyClient } from '../../services/gifProvider/klipyClient';
 import { useTelemetryConsentStore } from '../../stores/telemetryConsentStore';
-import { useClientConfigStore } from '../../stores/clientConfigStore';
+import { TELEMETRY_POLICY_VERSION } from '../../../shared/sentry-policy-version';
+import TelemetryAllowlistDisclosure from '../TelemetryAllowlistDisclosure';
 import './MFA.css';
 
 interface Session {
@@ -401,7 +402,7 @@ const PrivacySecuritySection: React.FC = () => {
   const updatePrivacy = usePrivacyStore((s) => s.updatePrivacy);
   const telemetryOptIn = useTelemetryConsentStore((s) => s.telemetryOptIn);
   const isConsentLoaded = useTelemetryConsentStore((s) => s.isLoaded);
-  const policyVersion = useClientConfigStore((s) => s.telemetryPolicyVersion);
+  const policyVersion = TELEMETRY_POLICY_VERSION;
   const [sessions, setSessions] = useState<Session[]>([]);
   const [pastSessions, setPastSessions] = useState<PastSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -841,6 +842,7 @@ const PrivacySecuritySection: React.FC = () => {
             }}
           />
         </div>
+        <TelemetryAllowlistDisclosure />
       </CollapsibleSection>
       <CollapsibleSection id="section-privacy-settings" title="Privacy">
         <p className="settings-section-description">

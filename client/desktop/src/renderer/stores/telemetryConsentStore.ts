@@ -5,6 +5,7 @@ interface TelemetryConsentState {
   telemetryOptIn: boolean;
   firstPromptCompleted: boolean;
   policyAcknowledgedVersion: number;
+  pendingReConsent: boolean;
   isLoaded: boolean;
 
   hydrate: () => Promise<void>;
@@ -13,6 +14,7 @@ interface TelemetryConsentState {
     telemetryOptIn: boolean;
     firstPromptCompleted: boolean;
     policyAcknowledgedVersion: number;
+    pendingReConsent: boolean;
   }) => void;
 }
 
@@ -22,6 +24,7 @@ export const useTelemetryConsentStore = create<TelemetryConsentState>()(
       telemetryOptIn: false,
       firstPromptCompleted: false,
       policyAcknowledgedVersion: 0,
+      pendingReConsent: false,
       isLoaded: false,
 
       hydrate: async () => {
@@ -31,6 +34,7 @@ export const useTelemetryConsentStore = create<TelemetryConsentState>()(
             telemetryOptIn: state.telemetryOptIn,
             firstPromptCompleted: state.firstPromptCompleted,
             policyAcknowledgedVersion: state.policyAcknowledgedVersion,
+            pendingReConsent: state.pendingReConsent,
             isLoaded: true,
           });
         } catch (err) {
@@ -44,6 +48,7 @@ export const useTelemetryConsentStore = create<TelemetryConsentState>()(
           telemetryOptIn: optIn,
           firstPromptCompleted: true,
           policyAcknowledgedVersion: policyVersion,
+          pendingReConsent: false,
         };
         try {
           await globalThis.electron.setConsentState(updates);
@@ -66,6 +71,7 @@ export const useTelemetryConsentStore = create<TelemetryConsentState>()(
           telemetryOptIn: state.telemetryOptIn,
           firstPromptCompleted: state.firstPromptCompleted,
           policyAcknowledgedVersion: state.policyAcknowledgedVersion,
+          pendingReConsent: state.pendingReConsent,
         });
       },
     }),
