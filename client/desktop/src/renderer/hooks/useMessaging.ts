@@ -340,9 +340,9 @@ export function useMessaging() {
       addMessage(conversationId, optimisticMessage);
 
       // Capture previous lastMessage for rollback if send fails
-      const prevLastMessage = useDMStore.getState().conversations.find(
-        (c) => c.id === conversationId
-      )?.lastMessage ?? null;
+      const prevLastMessage =
+        useDMStore.getState().conversations.find((c) => c.id === conversationId)?.lastMessage ??
+        null;
 
       // Optimistically bump conversation to top of DM list (#656)
       useDMStore.getState().bumpConversation(conversationId, {
@@ -387,9 +387,7 @@ export function useMessaging() {
             const errMsg = isEncrypted ? 'Encryption failed — message not sent' : String(error);
             messageQueue.markAsFailed(clientMessageId, errMsg);
             updateMessageStatus(conversationId, clientMessageId, 'failed', undefined, errMsg);
-            if (prevLastMessage) {
-              useDMStore.getState().bumpConversation(conversationId, prevLastMessage);
-            }
+            useDMStore.getState().bumpConversation(conversationId, prevLastMessage);
           }
         };
         doSend();

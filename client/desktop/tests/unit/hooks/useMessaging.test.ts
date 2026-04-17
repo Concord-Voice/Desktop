@@ -3,6 +3,7 @@ import { useMessaging } from '@/renderer/hooks/useMessaging';
 import { useChatStore } from '@/renderer/stores/chatStore';
 import { useUserStore } from '@/renderer/stores/userStore';
 import { useChannelStore } from '@/renderer/stores/channelStore';
+import { useDMStore } from '@/renderer/stores/dmStore';
 import { mockUser, mockChannel, mockEncryptedChannel } from '../../mocks/fixtures';
 import { ConnectionState } from '@/renderer/services/websocketService';
 
@@ -388,6 +389,36 @@ describe('useMessaging', () => {
         'Encryption failed — message not sent'
       );
     });
+  });
+
+  it('sendDMMessage rolls back bumpConversation when send fails on new conversation', async () => {
+    useDMStore.setState({
+      conversations: [
+        {
+          id: 'dm-conv-new',
+          participants: [],
+          lastMessage: null,
+          unreadCount: 0,
+          createdAt: '2026-01-01T00:00:00Z',
+          updatedAt: '2026-01-01T00:00:00Z',
+        },
+      ] as ReturnType<typeof useDMStore.getState>['conversations'],
+    });
+    mockSendDMMessage.mockImplementationOnce(() => {
+      throw new Error('send failed');
+    });
+
+    const { result } = renderHook(() => useMessaging());
+    act(() => {
+      result.current.sendDMMessage('dm-conv-new', 'First message', false, 'testuser');
+    });
+
+    await vi.waitFor(() => {
+      expect(mockMarkAsFailed).toHaveBeenCalled();
+    });
+
+    const conv = useDMStore.getState().conversations.find((c) => c.id === 'dm-conv-new');
+    expect(conv?.lastMessage).toBeNull();
   });
 
   it('sendDMMessage does not send via websocket when disconnected', () => {

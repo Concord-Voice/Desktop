@@ -733,6 +733,35 @@ describe('VoiceService', () => {
         producerId: micProducer.id,
       });
     });
+
+    it('reverts producer state on error during unmute', async () => {
+      const { micProducer } = await joinVoiceChannel();
+      await voiceService.toggleMute();
+      expect(useVoiceStore.getState().isMuted).toBe(true);
+
+      micProducer.resume.mockRejectedValueOnce(new Error('resume failed'));
+      await voiceService.toggleMute();
+      expect(useVoiceStore.getState().isMuted).toBe(true);
+      expect(micProducer.pause).toHaveBeenCalled();
+    });
+
+    it('reverts producer state on error during mute', async () => {
+      const { micProducer } = await joinVoiceChannel();
+      micProducer.pause.mockRejectedValueOnce(new Error('pause failed'));
+      await voiceService.toggleMute();
+      expect(useVoiceStore.getState().isMuted).toBe(false);
+      expect(micProducer.resume).toHaveBeenCalled();
+    });
+
+    it('swallows producer revert failure gracefully', async () => {
+      const { micProducer } = await joinVoiceChannel();
+      micProducer.pause.mockRejectedValueOnce(new Error('pause failed'));
+      micProducer.resume.mockImplementationOnce(() => {
+        throw new Error('resume also failed');
+      });
+      await expect(voiceService.toggleMute()).resolves.not.toThrow();
+      expect(useVoiceStore.getState().isMuted).toBe(false);
+    });
   });
 
   // ===== toggleDeafen =====

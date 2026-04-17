@@ -159,10 +159,11 @@ interface DMState {
   removeConversation: (id: string) => void;
   updateLastMessage: (convId: string, message: DMLastMessage) => void;
   /**
-   * Bump a conversation to the top of the list with a new last-message preview.
+   * Bump a conversation to the top of the list and update its last-message preview.
+   * Pass `null` to clear or roll back the stored `lastMessage` preview.
    * No-ops if the conversation isn't in state yet (covers initial-load races).
    */
-  bumpConversation: (conversationId: string, message: DMLastMessage) => void;
+  bumpConversation: (conversationId: string, message: DMLastMessage | null) => void;
   incrementUnread: (convId: string) => void;
   clearUnread: (convId: string) => void;
 
@@ -188,341 +189,345 @@ interface DMState {
   deleteGroup: (conversationId: string) => Promise<void>;
 }
 
-export const useDMStore = wrapStore(create<DMState>()(
-  devtools(
-    persist(
-      (set, get) => ({
-        conversations: [],
-        activeConversationId: null,
-        isLoading: false,
-        error: null,
-        dmCallActive: false,
-        dmCallConversationId: null,
+export const useDMStore = wrapStore(
+  create<DMState>()(
+    devtools(
+      persist(
+        (set, get) => ({
+          conversations: [],
+          activeConversationId: null,
+          isLoading: false,
+          error: null,
+          dmCallActive: false,
+          dmCallConversationId: null,
 
-        fetchConversations: async () => {
-          if (get().isLoading) return;
-          set({ isLoading: true, error: null });
+          fetchConversations: async () => {
+            if (get().isLoading) return;
+            set({ isLoading: true, error: null });
 
-          try {
-            const response = await apiFetch('/api/v1/dm/conversations');
+            try {
+              const response = await apiFetch('/api/v1/dm/conversations');
+              if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to load conversations');
+              }
+
+              const data = await response.json();
+              const conversations: DMConversation[] = (data.conversations || []).map(
+                (c: Record<string, unknown>) => mapConversation(c)
+              );
+
+              // Validate persisted activeConversationId still exists
+              const currentActiveId = get().activeConversationId;
+              const validActiveId =
+                currentActiveId && conversations.some((c) => c.id === currentActiveId)
+                  ? currentActiveId
+                  : null;
+
+              set({ conversations, activeConversationId: validActiveId, isLoading: false });
+            } catch (error) {
+              set({
+                error: error instanceof Error ? error.message : 'Failed to load conversations',
+                isLoading: false,
+              });
+            }
+          },
+
+          openDM: async (userId: string) => {
+            const response = await apiFetch('/api/v1/dm/conversations', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id: userId }),
+            });
+
             if (!response.ok) {
               const data = await response.json();
-              throw new Error(data.error || 'Failed to load conversations');
+              if (data.error === 'dm_disabled' || data.error === 'privacy_blocked') {
+                throw new Error(
+                  "This user isn't accepting DMs right now due to their privacy settings. Please try again later."
+                );
+              }
+              throw new Error(data.error || 'Failed to open DM');
             }
 
             const data = await response.json();
-            const conversations: DMConversation[] = (data.conversations || []).map(
-              (c: Record<string, unknown>) => mapConversation(c)
-            );
-
-            // Validate persisted activeConversationId still exists
-            const currentActiveId = get().activeConversationId;
-            const validActiveId =
-              currentActiveId && conversations.some((c) => c.id === currentActiveId)
-                ? currentActiveId
-                : null;
-
-            set({ conversations, activeConversationId: validActiveId, isLoading: false });
-          } catch (error) {
-            set({
-              error: error instanceof Error ? error.message : 'Failed to load conversations',
-              isLoading: false,
-            });
-          }
-        },
-
-        openDM: async (userId: string) => {
-          const response = await apiFetch('/api/v1/dm/conversations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: userId }),
-          });
-
-          if (!response.ok) {
-            const data = await response.json();
-            if (data.error === 'dm_disabled' || data.error === 'privacy_blocked') {
-              throw new Error(
-                "This user isn't accepting DMs right now due to their privacy settings. Please try again later."
-              );
-            }
-            throw new Error(data.error || 'Failed to open DM');
-          }
-
-          const data = await response.json();
-          const conv = mapConversation(data.conversation);
-
-          await ensureE2EEKey(conv);
-
-          // Add to list if not already present
-          set((state) => {
-            const exists = state.conversations.some((c) => c.id === conv.id);
-            return {
-              conversations: exists ? state.conversations : [conv, ...state.conversations],
-              activeConversationId: conv.id,
-            };
-          });
-
-          return conv;
-        },
-
-        createGroupDM: async (userIds: string[], name?: string) => {
-          const body: Record<string, unknown> = { user_ids: userIds };
-          if (name) body.name = name;
-
-          const response = await apiFetch('/api/v1/dm/conversations/group', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-          });
-
-          if (!response.ok) {
-            const data = await response.json();
-            throw new Error(data.error || 'Failed to create group DM');
-          }
-
-          const data = await response.json();
-          const conv = mapConversation(data.conversation);
-
-          await ensureE2EEKey(conv);
-
-          set((state) => ({
-            conversations: [conv, ...state.conversations],
-            activeConversationId: conv.id,
-          }));
-
-          return conv;
-        },
-
-        openPersonalThread: async () => {
-          const response = await apiFetch('/api/v1/dm/conversations/personal', {
-            method: 'POST',
-          });
-
-          if (!response.ok) {
-            const data = await response.json();
-            throw new Error(data.error || 'Failed to open personal thread');
-          }
-
-          const data = await response.json();
-          const conv = mapConversation(data.conversation);
-
-          // Ensure E2EE channel key exists for encrypted personal threads.
-          // Not gated on isNewlyCreated — covers key distribution failures,
-          // post-reset recovery, and first-open when E2EE wasn't ready at creation.
-          await ensurePersonalThreadKey(conv);
-
-          set((state) => {
-            const exists = state.conversations.some((c) => c.id === conv.id);
-            return {
-              conversations: exists ? state.conversations : [conv, ...state.conversations],
-              activeConversationId: conv.id,
-            };
-          });
-
-          return conv;
-        },
-
-        setActiveConversation: (id: string | null) => set({ activeConversationId: id }),
-
-        addConversation: (conv: DMConversation) =>
-          set((state) => {
-            if (state.conversations.some((c) => c.id === conv.id)) return state;
-            return { conversations: [conv, ...state.conversations] };
-          }),
-
-        updateConversation: (id: string, updates: Partial<DMConversation>) =>
-          set((state) => ({
-            conversations: state.conversations.map((c) => (c.id === id ? { ...c, ...updates } : c)),
-          })),
-
-        removeConversation: (id: string) =>
-          set((state) => ({
-            conversations: state.conversations.filter((c) => c.id !== id),
-            activeConversationId:
-              state.activeConversationId === id ? null : state.activeConversationId,
-          })),
-
-        updateParticipantProfile: (
-          userId: string,
-          updates: Partial<Omit<DMParticipant, 'userId'>>
-        ) => {
-          const applyUpdate = (p: DMParticipant) =>
-            p.userId === userId ? { ...p, ...updates } : p;
-          set((state) => ({
-            conversations: state.conversations.map((c) => ({
-              ...c,
-              participants: c.participants.map(applyUpdate),
-            })),
-          }));
-        },
-
-        updateLastMessage: (convId: string, message: DMLastMessage) =>
-          set((state) => {
-            const updated = state.conversations.map((c) =>
-              c.id === convId ? { ...c, lastMessage: message } : c
-            );
-            // Re-sort: most recent message first
-            updated.sort((a, b) => {
-              const aTime = a.lastMessage?.createdAt || a.createdAt;
-              const bTime = b.lastMessage?.createdAt || b.createdAt;
-              return new Date(bTime).getTime() - new Date(aTime).getTime();
-            });
-            return { conversations: updated };
-          }),
-
-        bumpConversation: (conversationId: string, message: DMLastMessage) =>
-          set((state) => {
-            const exists = state.conversations.some((c) => c.id === conversationId);
-            if (!exists) return state;
-            const updated = state.conversations.map((c) =>
-              c.id === conversationId ? { ...c, lastMessage: message } : c
-            );
-            updated.sort((a, b) => {
-              const aTime = a.lastMessage?.createdAt || a.createdAt;
-              const bTime = b.lastMessage?.createdAt || b.createdAt;
-              return new Date(bTime).getTime() - new Date(aTime).getTime();
-            });
-            return { conversations: updated };
-          }),
-
-        incrementUnread: (convId: string) =>
-          set((state) => ({
-            conversations: state.conversations.map((c) =>
-              c.id === convId ? { ...c, unreadCount: c.unreadCount + 1 } : c
-            ),
-          })),
-
-        clearUnread: (convId: string) =>
-          set((state) => ({
-            conversations: state.conversations.map((c) =>
-              c.id === convId ? { ...c, unreadCount: 0 } : c
-            ),
-          })),
-
-        setDMCallActive: (active: boolean, conversationId?: string | null) =>
-          set({
-            dmCallActive: active,
-            dmCallConversationId: active ? (conversationId ?? null) : null,
-          }),
-
-        clearDMs: () =>
-          set({
-            conversations: [],
-            activeConversationId: null,
-            dmCallActive: false,
-            dmCallConversationId: null,
-          }),
-
-        addGroupMember: async (conversationId: string, userId: string) => {
-          const response = await apiFetch(`/api/v1/dm/conversations/${conversationId}/members`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: userId }),
-          });
-          if (!response.ok) {
-            const data = await response.json();
-            throw new Error(data.error || 'Failed to add member');
-          }
-          const data = await response.json();
-          if (data.conversation) {
             const conv = mapConversation(data.conversation);
-            set((state) => ({
-              conversations: state.conversations.map((c) => (c.id === conv.id ? conv : c)),
-            }));
-          }
-        },
 
-        removeGroupMember: async (conversationId: string, userId: string) => {
-          const response = await apiFetch(
-            `/api/v1/dm/conversations/${conversationId}/members/${userId}`,
-            {
-              method: 'DELETE',
-            }
-          );
-          if (!response.ok) {
-            const data = await response.json();
-            throw new Error(data.error || 'Failed to remove member');
-          }
-        },
+            await ensureE2EEKey(conv);
 
-        leaveGroup: async (conversationId: string) => {
-          const userStore = await import('../stores/userStore');
-          const userId = userStore.useUserStore.getState().user?.id;
-          if (!userId) throw new Error('Not authenticated');
+            // Add to list if not already present
+            set((state) => {
+              const exists = state.conversations.some((c) => c.id === conv.id);
+              return {
+                conversations: exists ? state.conversations : [conv, ...state.conversations],
+                activeConversationId: conv.id,
+              };
+            });
 
-          const response = await apiFetch(
-            `/api/v1/dm/conversations/${conversationId}/members/${userId}`,
-            {
-              method: 'DELETE',
-            }
-          );
-          if (!response.ok) {
-            const data = await response.json();
-            throw new Error(data.error || 'Failed to leave group');
-          }
-          // Remove conversation from local state
-          set((state) => ({
-            conversations: state.conversations.filter((c) => c.id !== conversationId),
-            activeConversationId:
-              state.activeConversationId === conversationId ? null : state.activeConversationId,
-          }));
-        },
+            return conv;
+          },
 
-        updateMemberRole: async (
-          conversationId: string,
-          userId: string,
-          role: 'admin' | 'member'
-        ) => {
-          const response = await apiFetch(
-            `/api/v1/dm/conversations/${conversationId}/members/${userId}`,
-            {
-              method: 'PATCH',
+          createGroupDM: async (userIds: string[], name?: string) => {
+            const body: Record<string, unknown> = { user_ids: userIds };
+            if (name) body.name = name;
+
+            const response = await apiFetch('/api/v1/dm/conversations/group', {
+              method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ role }),
-            }
-          );
-          if (!response.ok) {
-            const data = await response.json();
-            throw new Error(data.error || 'Failed to update role');
-          }
-          // Optimistically update the participant's role
-          const updateRole = (conv: DMConversation) =>
-            conv.id === conversationId
-              ? {
-                  ...conv,
-                  participants: conv.participants.map((p) =>
-                    p.userId === userId ? { ...p, role } : p
-                  ),
-                }
-              : conv;
-          set((state) => ({ conversations: state.conversations.map(updateRole) }));
-        },
+              body: JSON.stringify(body),
+            });
 
-        deleteGroup: async (conversationId: string) => {
-          const response = await apiFetch(`/api/v1/dm/conversations/${conversationId}`, {
-            method: 'DELETE',
-          });
-          if (!response.ok) {
+            if (!response.ok) {
+              const data = await response.json();
+              throw new Error(data.error || 'Failed to create group DM');
+            }
+
             const data = await response.json();
-            throw new Error(data.error || 'Failed to delete group');
-          }
-          set((state) => ({
-            conversations: state.conversations.filter((c) => c.id !== conversationId),
-            activeConversationId:
-              state.activeConversationId === conversationId ? null : state.activeConversationId,
-          }));
-        },
-      }),
-      {
-        name: 'concord:dm-store',
-        partialize: (state) => ({
-          activeConversationId: state.activeConversationId,
+            const conv = mapConversation(data.conversation);
+
+            await ensureE2EEKey(conv);
+
+            set((state) => ({
+              conversations: [conv, ...state.conversations],
+              activeConversationId: conv.id,
+            }));
+
+            return conv;
+          },
+
+          openPersonalThread: async () => {
+            const response = await apiFetch('/api/v1/dm/conversations/personal', {
+              method: 'POST',
+            });
+
+            if (!response.ok) {
+              const data = await response.json();
+              throw new Error(data.error || 'Failed to open personal thread');
+            }
+
+            const data = await response.json();
+            const conv = mapConversation(data.conversation);
+
+            // Ensure E2EE channel key exists for encrypted personal threads.
+            // Not gated on isNewlyCreated — covers key distribution failures,
+            // post-reset recovery, and first-open when E2EE wasn't ready at creation.
+            await ensurePersonalThreadKey(conv);
+
+            set((state) => {
+              const exists = state.conversations.some((c) => c.id === conv.id);
+              return {
+                conversations: exists ? state.conversations : [conv, ...state.conversations],
+                activeConversationId: conv.id,
+              };
+            });
+
+            return conv;
+          },
+
+          setActiveConversation: (id: string | null) => set({ activeConversationId: id }),
+
+          addConversation: (conv: DMConversation) =>
+            set((state) => {
+              if (state.conversations.some((c) => c.id === conv.id)) return state;
+              return { conversations: [conv, ...state.conversations] };
+            }),
+
+          updateConversation: (id: string, updates: Partial<DMConversation>) =>
+            set((state) => ({
+              conversations: state.conversations.map((c) =>
+                c.id === id ? { ...c, ...updates } : c
+              ),
+            })),
+
+          removeConversation: (id: string) =>
+            set((state) => ({
+              conversations: state.conversations.filter((c) => c.id !== id),
+              activeConversationId:
+                state.activeConversationId === id ? null : state.activeConversationId,
+            })),
+
+          updateParticipantProfile: (
+            userId: string,
+            updates: Partial<Omit<DMParticipant, 'userId'>>
+          ) => {
+            const applyUpdate = (p: DMParticipant) =>
+              p.userId === userId ? { ...p, ...updates } : p;
+            set((state) => ({
+              conversations: state.conversations.map((c) => ({
+                ...c,
+                participants: c.participants.map(applyUpdate),
+              })),
+            }));
+          },
+
+          updateLastMessage: (convId: string, message: DMLastMessage) =>
+            set((state) => {
+              const updated = state.conversations.map((c) =>
+                c.id === convId ? { ...c, lastMessage: message } : c
+              );
+              // Re-sort: most recent message first
+              updated.sort((a, b) => {
+                const aTime = a.lastMessage?.createdAt || a.createdAt;
+                const bTime = b.lastMessage?.createdAt || b.createdAt;
+                return new Date(bTime).getTime() - new Date(aTime).getTime();
+              });
+              return { conversations: updated };
+            }),
+
+          bumpConversation: (conversationId: string, message: DMLastMessage | null) =>
+            set((state) => {
+              const exists = state.conversations.some((c) => c.id === conversationId);
+              if (!exists) return state;
+              const updated = state.conversations.map((c) =>
+                c.id === conversationId ? { ...c, lastMessage: message } : c
+              );
+              updated.sort((a, b) => {
+                const aTime = a.lastMessage?.createdAt || a.createdAt;
+                const bTime = b.lastMessage?.createdAt || b.createdAt;
+                return new Date(bTime).getTime() - new Date(aTime).getTime();
+              });
+              return { conversations: updated };
+            }),
+
+          incrementUnread: (convId: string) =>
+            set((state) => ({
+              conversations: state.conversations.map((c) =>
+                c.id === convId ? { ...c, unreadCount: c.unreadCount + 1 } : c
+              ),
+            })),
+
+          clearUnread: (convId: string) =>
+            set((state) => ({
+              conversations: state.conversations.map((c) =>
+                c.id === convId ? { ...c, unreadCount: 0 } : c
+              ),
+            })),
+
+          setDMCallActive: (active: boolean, conversationId?: string | null) =>
+            set({
+              dmCallActive: active,
+              dmCallConversationId: active ? (conversationId ?? null) : null,
+            }),
+
+          clearDMs: () =>
+            set({
+              conversations: [],
+              activeConversationId: null,
+              dmCallActive: false,
+              dmCallConversationId: null,
+            }),
+
+          addGroupMember: async (conversationId: string, userId: string) => {
+            const response = await apiFetch(`/api/v1/dm/conversations/${conversationId}/members`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id: userId }),
+            });
+            if (!response.ok) {
+              const data = await response.json();
+              throw new Error(data.error || 'Failed to add member');
+            }
+            const data = await response.json();
+            if (data.conversation) {
+              const conv = mapConversation(data.conversation);
+              set((state) => ({
+                conversations: state.conversations.map((c) => (c.id === conv.id ? conv : c)),
+              }));
+            }
+          },
+
+          removeGroupMember: async (conversationId: string, userId: string) => {
+            const response = await apiFetch(
+              `/api/v1/dm/conversations/${conversationId}/members/${userId}`,
+              {
+                method: 'DELETE',
+              }
+            );
+            if (!response.ok) {
+              const data = await response.json();
+              throw new Error(data.error || 'Failed to remove member');
+            }
+          },
+
+          leaveGroup: async (conversationId: string) => {
+            const userStore = await import('../stores/userStore');
+            const userId = userStore.useUserStore.getState().user?.id;
+            if (!userId) throw new Error('Not authenticated');
+
+            const response = await apiFetch(
+              `/api/v1/dm/conversations/${conversationId}/members/${userId}`,
+              {
+                method: 'DELETE',
+              }
+            );
+            if (!response.ok) {
+              const data = await response.json();
+              throw new Error(data.error || 'Failed to leave group');
+            }
+            // Remove conversation from local state
+            set((state) => ({
+              conversations: state.conversations.filter((c) => c.id !== conversationId),
+              activeConversationId:
+                state.activeConversationId === conversationId ? null : state.activeConversationId,
+            }));
+          },
+
+          updateMemberRole: async (
+            conversationId: string,
+            userId: string,
+            role: 'admin' | 'member'
+          ) => {
+            const response = await apiFetch(
+              `/api/v1/dm/conversations/${conversationId}/members/${userId}`,
+              {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ role }),
+              }
+            );
+            if (!response.ok) {
+              const data = await response.json();
+              throw new Error(data.error || 'Failed to update role');
+            }
+            // Optimistically update the participant's role
+            const updateRole = (conv: DMConversation) =>
+              conv.id === conversationId
+                ? {
+                    ...conv,
+                    participants: conv.participants.map((p) =>
+                      p.userId === userId ? { ...p, role } : p
+                    ),
+                  }
+                : conv;
+            set((state) => ({ conversations: state.conversations.map(updateRole) }));
+          },
+
+          deleteGroup: async (conversationId: string) => {
+            const response = await apiFetch(`/api/v1/dm/conversations/${conversationId}`, {
+              method: 'DELETE',
+            });
+            if (!response.ok) {
+              const data = await response.json();
+              throw new Error(data.error || 'Failed to delete group');
+            }
+            set((state) => ({
+              conversations: state.conversations.filter((c) => c.id !== conversationId),
+              activeConversationId:
+                state.activeConversationId === conversationId ? null : state.activeConversationId,
+            }));
+          },
         }),
-      }
-    ),
-    { name: 'DMStore' }
+        {
+          name: 'concord:dm-store',
+          partialize: (state) => ({
+            activeConversationId: state.activeConversationId,
+          }),
+        }
+      ),
+      { name: 'DMStore' }
+    )
   )
-));
+);
 
 // Map API response to DMConversation
 function mapConversation(c: Record<string, unknown>): DMConversation {

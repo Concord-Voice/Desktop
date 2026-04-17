@@ -2231,10 +2231,15 @@ class VoiceService {
 
   // ─── Producer Controls ─────────────────────────────────────────────
 
-  private applyOptimisticMute(store: ReturnType<typeof useVoiceStore.getState>, muted: boolean): void {
+  private applyOptimisticMute(
+    store: ReturnType<typeof useVoiceStore.getState>,
+    muted: boolean
+  ): void {
     const localUserId = useUserStore.getState().user?.id;
     if (!localUserId) {
-      console.warn('[VoiceService] applyOptimisticMute: no local user ID — sidebar state may be stale');
+      console.warn(
+        '[VoiceService] applyOptimisticMute: no local user ID — sidebar state may be stale'
+      );
       return;
     }
     store.updateParticipant(localUserId, { isMuted: muted });
@@ -2275,6 +2280,15 @@ class VoiceService {
       console.error('[VoiceService] toggleMute failed:', error);
       store.setMuted(wasMuted);
       this.applyOptimisticMute(store, wasMuted);
+      try {
+        if (wasMuted) {
+          await producer.pause();
+        } else {
+          await producer.resume();
+        }
+      } catch {
+        // Best-effort producer revert — UI state is already rolled back
+      }
     }
   }
 
