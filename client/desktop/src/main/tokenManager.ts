@@ -29,7 +29,21 @@ function clientHashToken(token: string): string {
 let inMemoryRefreshToken: string | null = null;
 let inMemoryRememberMe = true;
 let inMemoryApiBase = '';
+let cachedAccessToken: string | null = null;
 let refreshPromise: Promise<RefreshResult> | null = null;
+
+export function getCachedAccessToken(): string | null {
+  return cachedAccessToken;
+}
+
+export function getApiBaseOrigin(): string | null {
+  if (!inMemoryApiBase) return null;
+  try {
+    return new URL(inMemoryApiBase).origin;
+  } catch {
+    return null;
+  }
+}
 
 // ─── Proactive Refresh State (#254) ──────────────────────────────────
 // Main process timer — immune to Chromium's renderer throttling during
@@ -247,12 +261,14 @@ export function storeRefreshToken(data: {
   refreshToken: string;
   rememberMe: boolean;
   apiBase: string;
+  accessToken?: string;
 }): void {
   const suffix = data.refreshToken?.slice(-8) ?? '(empty)';
   const hash = data.refreshToken ? clientHashToken(data.refreshToken).slice(0, 16) : '(none)';
   inMemoryRefreshToken = data.refreshToken;
   inMemoryRememberMe = data.rememberMe;
   inMemoryApiBase = data.apiBase;
+  cachedAccessToken = data.accessToken ?? null;
 
   if (!data.rememberMe) {
     // Session-only: clear any persisted token
@@ -467,6 +483,7 @@ export function performRefresh(): Promise<RefreshResult> {
         }
       }
 
+      cachedAccessToken = newAccessToken;
       return { status: 'ok', accessToken: newAccessToken, sessionId: newSessionId };
     } catch (err) {
       console.error('[TokenManager] Refresh request failed:', err);
@@ -514,6 +531,7 @@ export function clearTokens(): void {
   inMemoryRefreshToken = null;
   inMemoryRememberMe = true;
   inMemoryApiBase = '';
+  cachedAccessToken = null;
   deleteFiles();
 }
 
@@ -586,6 +604,7 @@ export function _resetForTesting(): void {
   inMemoryRefreshToken = null;
   inMemoryRememberMe = true;
   inMemoryApiBase = '';
+  cachedAccessToken = null;
   refreshPromise = null;
   proactiveRefreshCallback = null;
   lastProactiveRefreshTimestamp = 0;

@@ -57,6 +57,7 @@ import {
   performLogout,
   setProactiveRefreshCallback,
   onSystemResume,
+  getCachedAccessToken,
   _resetForTesting,
 } from '@/main/tokenManager';
 
@@ -699,6 +700,140 @@ describe('tokenManager', () => {
       const [, opts] = mockNetFetch.mock.calls[0];
       expect(opts.headers['Authorization']).toBeUndefined();
       expect(opts.headers['X-Refresh-Token']).toBe('rt-abc');
+    });
+  });
+
+  // ─── getCachedAccessToken (#626) ──────────────────────────────────
+
+  describe('getCachedAccessToken', () => {
+    it('returns null before any refresh', () => {
+      expect(getCachedAccessToken()).toBeNull();
+    });
+
+    it('returns access token after successful performRefresh', async () => {
+      storeRefreshToken({
+        refreshToken: 'rt-abc',
+        rememberMe: false,
+        apiBase: 'http://localhost:8080',
+      });
+      const jwt = makeJwt(Math.floor(Date.now() / 1000) + 900);
+      mockNetFetch.mockResolvedValueOnce(jsonResponse({ access_token: jwt }));
+
+      await performRefresh();
+
+      expect(getCachedAccessToken()).toBe(jwt);
+    });
+
+    it('returns null after clearTokens', async () => {
+      storeRefreshToken({
+        refreshToken: 'rt-abc',
+        rememberMe: false,
+        apiBase: 'http://localhost:8080',
+      });
+      const jwt = makeJwt(Math.floor(Date.now() / 1000) + 900);
+      mockNetFetch.mockResolvedValueOnce(jsonResponse({ access_token: jwt }));
+      await performRefresh();
+
+      clearTokens();
+
+      expect(getCachedAccessToken()).toBeNull();
+    });
+
+    it('returns null after _resetForTesting', async () => {
+      storeRefreshToken({
+        refreshToken: 'rt-abc',
+        rememberMe: false,
+        apiBase: 'http://localhost:8080',
+      });
+      const jwt = makeJwt(Math.floor(Date.now() / 1000) + 900);
+      mockNetFetch.mockResolvedValueOnce(jsonResponse({ access_token: jwt }));
+      await performRefresh();
+
+      _resetForTesting();
+
+      expect(getCachedAccessToken()).toBeNull();
+    });
+
+    it('does not cache token on failed refresh', async () => {
+      storeRefreshToken({
+        refreshToken: 'rt-abc',
+        rememberMe: false,
+        apiBase: 'http://localhost:8080',
+      });
+      mockNetFetch.mockResolvedValueOnce(new Response('Unauthorized', { status: 401 }));
+
+      await performRefresh();
+
+      expect(getCachedAccessToken()).toBeNull();
+    });
+
+    it('caches token passed via storeRefreshToken accessToken field', () => {
+      storeRefreshToken({
+        refreshToken: 'rt-abc',
+        rememberMe: false,
+        apiBase: 'http://localhost:8080',
+        accessToken: 'initial-jwt',
+      });
+
+      expect(getCachedAccessToken()).toBe('initial-jwt');
+    });
+
+    it('does not cache when accessToken field is omitted', () => {
+      storeRefreshToken({
+        refreshToken: 'rt-abc',
+        rememberMe: false,
+        apiBase: 'http://localhost:8080',
+      });
+
+      expect(getCachedAccessToken()).toBeNull();
+    });
+
+    it('clears stale token when storeRefreshToken called without accessToken', async () => {
+      storeRefreshToken({
+        refreshToken: 'rt-abc',
+        rememberMe: false,
+        apiBase: 'http://localhost:8080',
+        accessToken: 'old-jwt',
+      });
+      expect(getCachedAccessToken()).toBe('old-jwt');
+
+      storeRefreshToken({
+        refreshToken: 'rt-def',
+        rememberMe: false,
+        apiBase: 'http://localhost:8080',
+      });
+      expect(getCachedAccessToken()).toBeNull();
+    });
+
+    it('updates cached token on successive refreshes', async () => {
+      storeRefreshToken({
+        refreshToken: 'rt-abc',
+        rememberMe: false,
+        apiBase: 'http://localhost:8080',
+      });
+      const jwt1 = makeJwt(Math.floor(Date.now() / 1000) + 900);
+      mockNetFetch.mockResolvedValueOnce(jsonResponse({ access_token: jwt1 }));
+      await performRefresh();
+      expect(getCachedAccessToken()).toBe(jwt1);
+
+      const jwt2 = makeJwt(Math.floor(Date.now() / 1000) + 1800);
+      mockNetFetch.mockResolvedValueOnce(jsonResponse({ access_token: jwt2 }));
+      await performRefresh();
+      expect(getCachedAccessToken()).toBe(jwt2);
+    });
+
+    it('clears cached token via performLogout', async () => {
+      storeRefreshToken({
+        refreshToken: 'rt-abc',
+        rememberMe: false,
+        apiBase: 'http://localhost:8080',
+        accessToken: 'my-jwt',
+      });
+      expect(getCachedAccessToken()).toBe('my-jwt');
+
+      mockNetFetch.mockResolvedValueOnce(new Response('', { status: 200 }));
+      await performLogout('my-jwt');
+      expect(getCachedAccessToken()).toBeNull();
     });
   });
 });

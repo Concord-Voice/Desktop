@@ -70,8 +70,12 @@ contextBridge.exposeInMainWorld('electron', {
   },
 
   // Secure auth token management (safeStorage via main process)
-  storeRefreshToken: (data: { refreshToken: string; rememberMe: boolean; apiBase: string }) =>
-    ipcRenderer.invoke('auth:storeRefreshToken', data),
+  storeRefreshToken: (data: {
+    refreshToken: string;
+    rememberMe: boolean;
+    apiBase: string;
+    accessToken?: string;
+  }) => ipcRenderer.invoke('auth:storeRefreshToken', data),
   restoreSession: () =>
     ipcRenderer.invoke('auth:restoreSession') as Promise<{
       status: string;
@@ -358,6 +362,7 @@ export interface ElectronAPI {
     refreshToken: string;
     rememberMe: boolean;
     apiBase: string;
+    accessToken?: string;
   }) => Promise<void>;
   restoreSession: () => Promise<{
     status: string;

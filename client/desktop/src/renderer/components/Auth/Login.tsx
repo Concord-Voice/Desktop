@@ -234,6 +234,7 @@ const Login: React.FC<LoginProps> = ({
           refreshToken: data.refresh_token,
           rememberMe: formData.rememberMe,
           apiBase: API_BASE,
+          accessToken: data.access_token,
         });
       }
       useAuthStore.getState().setAccessToken(data.access_token);
@@ -264,6 +265,7 @@ const Login: React.FC<LoginProps> = ({
         refreshToken: data.refresh_token,
         rememberMe: data.remember_me ?? formData.rememberMe,
         apiBase: API_BASE,
+        accessToken: data.access_token,
       });
     }
     useAuthStore.getState().setAccessToken(data.access_token);

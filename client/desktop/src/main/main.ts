@@ -25,6 +25,8 @@ import {
   restoreE2EEKeys,
   setProactiveRefreshCallback,
   onSystemResume,
+  getCachedAccessToken,
+  getApiBaseOrigin,
 } from './tokenManager';
 import { getMachineId } from './machineId';
 import {
@@ -302,6 +304,29 @@ app.whenReady().then(async () => {
   // OS permission management (#197) — JIT prompting replaces proactive startup requests.
   // Camera/mic/screen/notifications are requested when the feature is first used.
   registerPermissionHandlers(() => mainWindow);
+
+  // KLIPY media proxy auth injection (#626): <img>/<video> src attributes
+  // send plain GETs without Authorization headers. This interceptor injects
+  // the cached JWT so the authenticated media proxy returns 200 instead of 401.
+  // Origin-restricted: only injects when the request targets the known API base.
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ['*://*/api/v1/klipy/media*'] },
+    (details, callback) => {
+      const token = getCachedAccessToken();
+      const apiOrigin = getApiBaseOrigin();
+      if (token && apiOrigin) {
+        try {
+          const requestOrigin = new URL(details.url).origin;
+          if (requestOrigin === apiOrigin) {
+            details.requestHeaders['Authorization'] = `Bearer ${token}`;
+          }
+        } catch {
+          // Malformed URL — skip injection
+        }
+      }
+      callback({ requestHeaders: details.requestHeaders });
+    }
+  );
 
   // ─── Update safety: startup validation (#384) ─────────────────────
   // Must run before createWindow() so we can stash rollback info,
@@ -590,6 +615,7 @@ ipcMain.handle(
       refreshToken: string;
       rememberMe: boolean;
       apiBase: string;
+      accessToken?: string;
     }
   ) => {
     storeRefreshToken(data);

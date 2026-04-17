@@ -102,6 +102,9 @@ vi.mock('electron', () => ({
       setPermissionCheckHandler: vi.fn(),
       setDevicePermissionHandler: vi.fn(),
       on: vi.fn(),
+      webRequest: {
+        onBeforeSendHeaders: vi.fn(),
+      },
     },
   },
   shell: { openExternal: vi.fn() },
@@ -180,6 +183,8 @@ vi.mock('../../../src/main/tokenManager', () => ({
   })),
   setProactiveRefreshCallback: vi.fn(),
   onSystemResume: vi.fn(),
+  getCachedAccessToken: vi.fn(() => null),
+  getApiBaseOrigin: vi.fn(() => null),
 }));
 
 vi.mock('../../../src/main/machineId', () => ({
@@ -239,6 +244,13 @@ let sessionHandlers: {
   devicePermission?: CallbackFn;
   hidSelect?: CallbackFn;
 };
+let klipyInterceptor: {
+  filter: { urls: string[] };
+  callback: (
+    details: { url: string; requestHeaders: Record<string, string> },
+    cb: (opts: { requestHeaders: Record<string, string> }) => void
+  ) => void;
+} | null = null;
 
 beforeAll(async () => {
   // Import triggers all module-scope side effects + whenReady resolves
@@ -272,6 +284,15 @@ beforeAll(async () => {
   if (dph.length > 0) sessionHandlers.devicePermission = dph[0][0] as CallbackFn;
   const hid = (sess.on as Mock).mock.calls.find((c: unknown[]) => c[0] === 'select-hid-device');
   if (hid) sessionHandlers.hidSelect = hid[1] as CallbackFn;
+
+  // Extract KLIPY media proxy webRequest interceptor (#626)
+  const wrCalls = (sess.webRequest.onBeforeSendHeaders as Mock).mock.calls;
+  if (wrCalls.length > 0) {
+    klipyInterceptor = {
+      filter: wrCalls[0][0] as { urls: string[] },
+      callback: wrCalls[0][1] as NonNullable<typeof klipyInterceptor>['callback'],
+    };
+  }
 });
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -874,6 +895,81 @@ describe('main.ts', () => {
       for (const channel of expected) {
         expect(handlers.has(channel), `missing handler: ${channel}`).toBe(true);
       }
+    });
+  });
+
+  // ── KLIPY media proxy webRequest interceptor (#626) ──────────────────
+
+  describe('KLIPY media proxy interceptor', () => {
+    it('registers onBeforeSendHeaders with the correct URL filter', () => {
+      expect(klipyInterceptor).not.toBeNull();
+      expect(klipyInterceptor!.filter.urls).toEqual(['*://*/api/v1/klipy/media*']);
+    });
+
+    it('injects Authorization header when token and matching origin are available', async () => {
+      const tokenManager = await import('../../../src/main/tokenManager');
+      (tokenManager.getCachedAccessToken as Mock).mockReturnValueOnce('test-jwt-token');
+      (tokenManager.getApiBaseOrigin as Mock).mockReturnValueOnce('http://localhost:8080');
+
+      const details = {
+        url: 'http://localhost:8080/api/v1/klipy/media?url=https%3A%2F%2Fstatic.klipy.com%2Fimg.gif',
+        requestHeaders: {} as Record<string, string>,
+      };
+      const callback = vi.fn();
+
+      klipyInterceptor!.callback(details, callback);
+
+      expect(callback).toHaveBeenCalledWith({
+        requestHeaders: { Authorization: 'Bearer test-jwt-token' },
+      });
+    });
+
+    it('does not inject header when token is null (pre-login)', async () => {
+      const tokenManager = await import('../../../src/main/tokenManager');
+      (tokenManager.getCachedAccessToken as Mock).mockReturnValueOnce(null);
+
+      const details = {
+        url: 'http://localhost:8080/api/v1/klipy/media?url=https%3A%2F%2Fstatic.klipy.com%2Fimg.gif',
+        requestHeaders: {} as Record<string, string>,
+      };
+      const callback = vi.fn();
+
+      klipyInterceptor!.callback(details, callback);
+
+      expect(callback).toHaveBeenCalledWith({ requestHeaders: {} });
+    });
+
+    it('does not inject header when request origin does not match API base', async () => {
+      const tokenManager = await import('../../../src/main/tokenManager');
+      (tokenManager.getCachedAccessToken as Mock).mockReturnValueOnce('test-jwt-token');
+      (tokenManager.getApiBaseOrigin as Mock).mockReturnValueOnce('http://localhost:8080');
+
+      const details = {
+        url: 'https://attacker.tld/api/v1/klipy/media?steal=true',
+        requestHeaders: {} as Record<string, string>,
+      };
+      const callback = vi.fn();
+
+      klipyInterceptor!.callback(details, callback);
+
+      expect(callback).toHaveBeenCalledWith({ requestHeaders: {} });
+      expect(details.requestHeaders['Authorization']).toBeUndefined();
+    });
+
+    it('does not inject header when API base origin is null', async () => {
+      const tokenManager = await import('../../../src/main/tokenManager');
+      (tokenManager.getCachedAccessToken as Mock).mockReturnValueOnce('test-jwt-token');
+      (tokenManager.getApiBaseOrigin as Mock).mockReturnValueOnce(null);
+
+      const details = {
+        url: 'http://localhost:8080/api/v1/klipy/media?url=test',
+        requestHeaders: {} as Record<string, string>,
+      };
+      const callback = vi.fn();
+
+      klipyInterceptor!.callback(details, callback);
+
+      expect(callback).toHaveBeenCalledWith({ requestHeaders: {} });
     });
   });
 });

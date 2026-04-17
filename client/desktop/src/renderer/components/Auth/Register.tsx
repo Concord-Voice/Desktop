@@ -205,6 +205,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
           refreshToken: data.refresh_token,
           rememberMe: true, // Registration always remembers
           apiBase: API_BASE,
+          accessToken: data.access_token,
         });
       }
       useAuthStore.getState().setAccessToken(data.access_token);
