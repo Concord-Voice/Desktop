@@ -191,34 +191,32 @@ const ScreenShareLayout: React.FC<ScreenShareLayoutProps> = ({
 );
 
 const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
-  const {
-    activeChannelId,
-    connectionState,
-    isEncrypted,
-    participants,
-    channelVoiceMembers,
-    effectiveQualityTier,
-    decoderHealth,
-    showVoiceTextChat,
-    voiceTextChatHeight,
-    setVoiceTextChatHeight,
-    voiceTextChatLayout,
-    voiceTextChatWidth,
-    setVoiceTextChatWidth,
-    tunedInScreenShares,
-    availableScreenShares,
-    showUserFrameBar,
-    showStreamBar,
-    userFrameBarHeight,
-    streamBarHeight,
-    setUserFrameBarHeight,
-    setStreamBarHeight,
-    toggleUserFrameBar,
-    toggleStreamBar,
-    stageLayout,
-    isScreenSharing,
-    keepActiveWhileUnfocused,
-  } = useVoiceStore();
+  const activeChannelId = useVoiceStore((s) => s.activeChannelId);
+  const connectionState = useVoiceStore((s) => s.connectionState);
+  const isEncrypted = useVoiceStore((s) => s.isEncrypted);
+  const participants = useVoiceStore((s) => s.participants);
+  const channelVoiceMembers = useVoiceStore((s) => s.channelVoiceMembers);
+  const effectiveQualityTier = useVoiceStore((s) => s.effectiveQualityTier);
+  const decoderHealth = useVoiceStore((s) => s.decoderHealth);
+  const showVoiceTextChat = useVoiceStore((s) => s.showVoiceTextChat);
+  const voiceTextChatHeight = useVoiceStore((s) => s.voiceTextChatHeight);
+  const setVoiceTextChatHeight = useVoiceStore((s) => s.setVoiceTextChatHeight);
+  const voiceTextChatLayout = useVoiceStore((s) => s.voiceTextChatLayout);
+  const voiceTextChatWidth = useVoiceStore((s) => s.voiceTextChatWidth);
+  const setVoiceTextChatWidth = useVoiceStore((s) => s.setVoiceTextChatWidth);
+  const tunedInScreenShares = useVoiceStore((s) => s.tunedInScreenShares);
+  const availableScreenShares = useVoiceStore((s) => s.availableScreenShares);
+  const showUserFrameBar = useVoiceStore((s) => s.showUserFrameBar);
+  const showStreamBar = useVoiceStore((s) => s.showStreamBar);
+  const userFrameBarHeight = useVoiceStore((s) => s.userFrameBarHeight);
+  const streamBarHeight = useVoiceStore((s) => s.streamBarHeight);
+  const setUserFrameBarHeight = useVoiceStore((s) => s.setUserFrameBarHeight);
+  const setStreamBarHeight = useVoiceStore((s) => s.setStreamBarHeight);
+  const toggleUserFrameBar = useVoiceStore((s) => s.toggleUserFrameBar);
+  const toggleStreamBar = useVoiceStore((s) => s.toggleStreamBar);
+  const stageLayout = useVoiceStore((s) => s.stageLayout);
+  const isScreenSharing = useVoiceStore((s) => s.isScreenSharing);
+  const keepActiveWhileUnfocused = useVoiceStore((s) => s.keepActiveWhileUnfocused);
 
   const getLinkedTextChannel = useChannelStore((s) => s.getLinkedTextChannel);
   const hasLinkedText = !!getLinkedTextChannel(channelId);

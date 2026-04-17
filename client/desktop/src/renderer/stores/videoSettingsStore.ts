@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 import type { CodecCapability } from '../services/mediaCapabilities';
 
 // ---------------------------------------------------------------------------
@@ -141,7 +142,7 @@ const defaults: VideoSettings = {
   gpuInfo: null,
 };
 
-export const useVideoSettingsStore = create<VideoSettingsState>()(
+export const useVideoSettingsStore = wrapStore(create<VideoSettingsState>()(
   persist(
     (set) => ({
       ...defaults,
@@ -171,4 +172,4 @@ export const useVideoSettingsStore = create<VideoSettingsState>()(
       },
     }
   )
-);
+));

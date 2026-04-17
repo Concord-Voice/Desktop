@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { createStore } from '../utils/createStore';
 
 interface MFAChallengeState {
   /** The MFA challenge token from the server */
@@ -25,7 +25,7 @@ interface MFAChallengeState {
   clearChallenge: () => void;
 }
 
-export const useMFAChallengeStore = create<MFAChallengeState>((set, get) => ({
+export const useMFAChallengeStore = createStore<MFAChallengeState>()((set, get) => ({
   challengeToken: null,
   methods: [],
   recoveryOnlyMethods: [],

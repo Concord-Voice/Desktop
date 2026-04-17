@@ -20,16 +20,14 @@ const MAX_CHAT_RATIO = 0.7;
  * as a side column instead of inside this bar.
  */
 const PersistentVoiceBar: React.FC = () => {
-  const {
-    activeChannelId,
-    voiceControlsPinned,
-    voiceControlsPoppedOut,
-    setVoiceControlsPoppedOut,
-    showVoiceTextChat,
-    voiceTextChatLayout,
-    persistentTextChatHeight,
-    setPersistentTextChatHeight,
-  } = useVoiceStore();
+  const activeChannelId = useVoiceStore((s) => s.activeChannelId);
+  const voiceControlsPinned = useVoiceStore((s) => s.voiceControlsPinned);
+  const voiceControlsPoppedOut = useVoiceStore((s) => s.voiceControlsPoppedOut);
+  const setVoiceControlsPoppedOut = useVoiceStore((s) => s.setVoiceControlsPoppedOut);
+  const showVoiceTextChat = useVoiceStore((s) => s.showVoiceTextChat);
+  const voiceTextChatLayout = useVoiceStore((s) => s.voiceTextChatLayout);
+  const persistentTextChatHeight = useVoiceStore((s) => s.persistentTextChatHeight);
+  const setPersistentTextChatHeight = useVoiceStore((s) => s.setPersistentTextChatHeight);
 
   const getLinkedTextChannel = useChannelStore((s) => s.getLinkedTextChannel);
   const hasLinkedText = !!(activeChannelId && getLinkedTextChannel(activeChannelId));

@@ -8,7 +8,7 @@
  * NOT persisted across app restarts: positions are session-scoped, since
  * saved scroll offsets only make sense against a live message cache.
  */
-import { create } from 'zustand';
+import { createStore } from '../utils/createStore';
 
 export interface ChannelScrollState {
   positions: Record<string, number>;
@@ -17,7 +17,7 @@ export interface ChannelScrollState {
   clearScroll: (id: string) => void;
 }
 
-export const useChannelScrollStore = create<ChannelScrollState>((set, get) => ({
+export const useChannelScrollStore = createStore<ChannelScrollState>()((set, get) => ({
   positions: {},
   saveScroll: (id, scrollTop) =>
     set((state) => ({ positions: { ...state.positions, [id]: scrollTop } })),

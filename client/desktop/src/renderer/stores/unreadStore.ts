@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 
 interface UnreadState {
   // Channel ID -> unread count (per-channel, active server only)
@@ -30,7 +31,7 @@ interface UnreadState {
   clearServerMention: (serverId: string) => void;
 }
 
-export const useUnreadStore = create<UnreadState>()(
+export const useUnreadStore = wrapStore(create<UnreadState>()(
   devtools(
     (set) => ({
       unreadCounts: new Map(),
@@ -137,4 +138,4 @@ export const useUnreadStore = create<UnreadState>()(
     }),
     { name: 'UnreadStore' }
   )
-);
+));

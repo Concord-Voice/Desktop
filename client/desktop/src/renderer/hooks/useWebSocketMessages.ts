@@ -377,14 +377,12 @@ function handleDMCallSounds(
 }
 
 export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketService>) {
-  const {
-    addMessage,
-    updateMessage,
-    updateMessageStatus,
-    updateUserInMessages,
-    deleteMessage,
-    setTyping,
-  } = useChatStore();
+  const addMessage = useChatStore((s) => s.addMessage);
+  const updateMessage = useChatStore((s) => s.updateMessage);
+  const updateMessageStatus = useChatStore((s) => s.updateMessageStatus);
+  const updateUserInMessages = useChatStore((s) => s.updateUserInMessages);
+  const deleteMessage = useChatStore((s) => s.deleteMessage);
+  const setTyping = useChatStore((s) => s.setTyping);
 
   useEffect(() => {
     // Message handler
@@ -1030,10 +1028,14 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
       // Bump conversation to the top of the DM list with updated preview.
       // No-ops gracefully if the conversation isn't in state yet (initial-load race).
-      useDMStore.getState().bumpConversation(conversationId, lastMessagePreview);
+      // Only bump for messages from OTHER users — local sends already bumped optimistically.
+      const selfId = useUserStore.getState().user?.id;
+      if (data.user_id !== selfId) {
+        useDMStore.getState().bumpConversation(conversationId, lastMessagePreview);
+      }
 
       // Notification sound for DM messages (from other users)
-      if (data.user_id !== useUserStore.getState().user?.id) {
+      if (data.user_id !== selfId) {
         notificationSoundService.play('dm', { focused: true });
 
         // Desktop notification for DM messages (#175)
@@ -1171,8 +1173,32 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         const { data } = msg;
         const conversationId = data.conversation_id;
         if (!conversationId) return;
-        // Refetch the full conversation to get updated participant list
-        useDMStore.getState().fetchConversations();
+
+        const dmStore = useDMStore.getState();
+        const conv = dmStore.conversations.find((c) => c.id === conversationId);
+        if (!conv) {
+          console.debug('[WebSocket] dm_participant_added: conversation not loaded, fetching', conversationId);
+          dmStore.fetchConversations();
+          return;
+        }
+
+        // Add participant locally if not already present
+        const userId = data.user_id as string;
+        if (userId && !conv.participants.some((p) => p.userId === userId)) {
+          dmStore.updateConversation(conversationId, {
+            participants: [
+              ...conv.participants,
+              {
+                userId,
+                username: (data.username as string) || 'Unknown',
+                displayName: (data.display_name as string) ?? undefined,
+                avatarUrl: (data.avatar_url as string) ?? undefined,
+                colorScheme: (data.color_scheme as string) ?? undefined,
+                role: 'member',
+              },
+            ],
+          });
+        }
       }
     );
 

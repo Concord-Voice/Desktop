@@ -12,8 +12,11 @@ import MFAMethodPicker, {
 import './TOTPInput.css';
 
 const MFAChallengeModal: React.FC = () => {
-  const { challengeToken, methods, recoveryOnlyMethods, completeChallenge, clearChallenge } =
-    useMFAChallengeStore();
+  const challengeToken = useMFAChallengeStore((s) => s.challengeToken);
+  const methods = useMFAChallengeStore((s) => s.methods);
+  const recoveryOnlyMethods = useMFAChallengeStore((s) => s.recoveryOnlyMethods);
+  const completeChallenge = useMFAChallengeStore((s) => s.completeChallenge);
+  const clearChallenge = useMFAChallengeStore((s) => s.clearChallenge);
 
   const defaultMethod = useMemo(
     () => (methods.length > 0 ? getDefaultMethod(methods, recoveryOnlyMethods) : 'totp'),

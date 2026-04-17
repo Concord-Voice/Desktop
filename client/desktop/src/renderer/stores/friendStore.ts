@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 import { apiFetch, safeJson } from '../services/apiClient';
 import type { PresenceStatus } from './memberStore';
 
@@ -97,7 +98,7 @@ interface FriendState {
   clearFriends: () => void;
 }
 
-export const useFriendStore = create<FriendState>()(
+export const useFriendStore = wrapStore(create<FriendState>()(
   devtools(
     (set, get) => ({
       friends: [],
@@ -434,4 +435,4 @@ export const useFriendStore = create<FriendState>()(
     }),
     { name: 'FriendStore' }
   )
-);
+));

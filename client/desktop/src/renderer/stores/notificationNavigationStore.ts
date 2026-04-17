@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 
 interface PendingNavigation {
   type: 'channel' | 'dm';
@@ -13,7 +14,7 @@ interface NotificationNavigationState {
   clearPendingNavigation: () => void;
 }
 
-export const useNotificationNavigationStore = create<NotificationNavigationState>()(
+export const useNotificationNavigationStore = wrapStore(create<NotificationNavigationState>()(
   devtools(
     (set) => ({
       pendingNavigation: null,
@@ -22,4 +23,4 @@ export const useNotificationNavigationStore = create<NotificationNavigationState
     }),
     { name: 'NotificationNavigationStore' }
   )
-);
+));

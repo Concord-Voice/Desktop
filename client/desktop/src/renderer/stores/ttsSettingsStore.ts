@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 
 export interface TTSSettings {
   ttsEnabled: boolean;
@@ -17,7 +18,7 @@ interface TTSSettingsState extends TTSSettings {
   setTtsVolume: (volume: number) => void;
 }
 
-export const useTTSSettingsStore = create<TTSSettingsState>()(
+export const useTTSSettingsStore = wrapStore(create<TTSSettingsState>()(
   persist(
     (set) => ({
       ttsEnabled: false,
@@ -34,4 +35,4 @@ export const useTTSSettingsStore = create<TTSSettingsState>()(
     }),
     { name: 'concord:tts-settings' }
   )
-);
+));

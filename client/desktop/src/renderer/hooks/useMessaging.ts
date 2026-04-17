@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useChatStore } from '../stores/chatStore';
 import { useUserStore } from '../stores/userStore';
 import { useChannelStore } from '../stores/channelStore';
+import { useDMStore } from '../stores/dmStore';
 import { getWebSocketService, ConnectionState } from '../services/websocketService';
 import { getMessageQueue, type QueuedMessage } from '../services/messageQueue';
 import { e2eeService } from '../services/e2eeService';
@@ -73,7 +74,8 @@ export function useMessaging() {
     })
   ).current;
 
-  const { updateMessageStatus, addMessage } = useChatStore();
+  const updateMessageStatus = useChatStore((s) => s.updateMessageStatus);
+  const addMessage = useChatStore((s) => s.addMessage);
   const userId = useUserStore((s) => s.user?.id);
 
   // Process a single queued message: encrypt if needed, then send via correct transport
@@ -337,6 +339,23 @@ export function useMessaging() {
 
       addMessage(conversationId, optimisticMessage);
 
+      // Capture previous lastMessage for rollback if send fails
+      const prevLastMessage = useDMStore.getState().conversations.find(
+        (c) => c.id === conversationId
+      )?.lastMessage ?? null;
+
+      // Optimistically bump conversation to top of DM list (#656)
+      useDMStore.getState().bumpConversation(conversationId, {
+        content,
+        userId: userId || 'unknown',
+        username,
+        createdAt: optimisticMessage.created_at,
+        isEncrypted,
+        ...(opts?.attachments?.length
+          ? { attachmentType: opts.attachments[0].file_type as string }
+          : {}),
+      });
+
       // If connected, send immediately (with encryption if needed)
       if (wsService.getState() === ConnectionState.CONNECTED) {
         const doSend = async () => {
@@ -368,6 +387,9 @@ export function useMessaging() {
             const errMsg = isEncrypted ? 'Encryption failed — message not sent' : String(error);
             messageQueue.markAsFailed(clientMessageId, errMsg);
             updateMessageStatus(conversationId, clientMessageId, 'failed', undefined, errMsg);
+            if (prevLastMessage) {
+              useDMStore.getState().bumpConversation(conversationId, prevLastMessage);
+            }
           }
         };
         doSend();

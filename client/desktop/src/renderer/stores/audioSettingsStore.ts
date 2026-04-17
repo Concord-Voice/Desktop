@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 
 // ---------------------------------------------------------------------------
 // Advanced audio settings — persisted to localStorage
@@ -95,7 +96,7 @@ const defaults: AudioSettings = {
   packetLossWarningThreshold: 3,
 };
 
-export const useAudioSettingsStore = create<AudioSettingsState>()(
+export const useAudioSettingsStore = wrapStore(create<AudioSettingsState>()(
   persist(
     (set) => ({
       ...defaults,
@@ -156,4 +157,4 @@ export const useAudioSettingsStore = create<AudioSettingsState>()(
       },
     }
   )
-);
+));

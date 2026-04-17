@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { createStore } from '../utils/createStore';
 
 // Mirrors the backend ClientConfigResponse from services/control-plane/internal/clientconfig/handlers.go
 
@@ -31,7 +31,7 @@ interface ClientConfigState {
   setConfig: (config: Omit<ClientConfigState, 'lastFetchedAt' | 'setConfig'>) => void;
 }
 
-export const useClientConfigStore = create<ClientConfigState>()((set) => ({
+export const useClientConfigStore = createStore<ClientConfigState>()((set) => ({
   minVersion: '',
   featureFlags: { voice: true, video: true, e2ee: true },
   mediaPlaneUrl: '',

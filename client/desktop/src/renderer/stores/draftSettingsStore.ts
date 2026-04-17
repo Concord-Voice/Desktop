@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { createStore } from '../utils/createStore';
 import {
   useSettingsStore,
   syncColorSchemeToServer,
@@ -266,7 +266,7 @@ interface DraftSettingsState {
   revert: () => void;
 }
 
-export const useDraftSettingsStore = create<DraftSettingsState>()((set, get) => ({
+export const useDraftSettingsStore = createStore<DraftSettingsState>()((set, get) => ({
   snapshot: null,
   drafts: emptyDrafts(),
   audioBasicStash: null,

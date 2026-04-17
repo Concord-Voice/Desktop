@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, devtools, subscribeWithSelector } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 
 export interface ServerFolder {
   id: string;
@@ -57,7 +58,7 @@ interface LayoutState {
   reorderFolderServers: (folderId: string, serverIds: string[]) => void;
 }
 
-export const useLayoutStore = create<LayoutState>()(
+export const useLayoutStore = wrapStore(create<LayoutState>()(
   devtools(
     subscribeWithSelector(
       persist(
@@ -182,4 +183,4 @@ export const useLayoutStore = create<LayoutState>()(
     ),
     { name: 'LayoutStore' }
   )
-);
+));

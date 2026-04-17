@@ -6,6 +6,7 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 import type { MessageWithStatus } from '../types/chat';
 import { sanitizeMessageEmbeds, sanitizeMessagesEmbeds } from '../utils/messageSanitizer';
 import { usePrivacyStore } from './privacyStore';
@@ -73,7 +74,7 @@ interface ChatState {
   reset: () => void;
 }
 
-export const useChatStore = create<ChatState>()(
+export const useChatStore = wrapStore(create<ChatState>()(
   devtools(
     (set, get) => ({
       messagesByChannel: new Map(),
@@ -327,4 +328,4 @@ export const useChatStore = create<ChatState>()(
     }),
     { name: 'ChatStore' }
   )
-);
+));

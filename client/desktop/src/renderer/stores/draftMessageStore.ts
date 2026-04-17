@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 
 export interface DraftContent {
   text: string;
@@ -22,7 +23,7 @@ interface DraftMessageState {
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
-export const useDraftMessageStore = create<DraftMessageState>()(
+export const useDraftMessageStore = wrapStore(create<DraftMessageState>()(
   devtools(
     persist(
       (set, get) => ({
@@ -73,4 +74,4 @@ export const useDraftMessageStore = create<DraftMessageState>()(
     ),
     { name: 'DraftMessageStore' }
   )
-);
+));

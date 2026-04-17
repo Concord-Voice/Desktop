@@ -39,7 +39,10 @@ const mockNotificationState = {
 };
 
 vi.mock('@/renderer/stores/notificationStore', () => ({
-  useNotificationStore: vi.fn(() => ({ ...mockNotificationState })),
+  useNotificationStore: vi.fn((selector?: (s: Record<string, unknown>) => unknown) => {
+    const state = { ...mockNotificationState };
+    return selector ? selector(state) : state;
+  }),
 }));
 
 const mockRequestOne = vi.fn();

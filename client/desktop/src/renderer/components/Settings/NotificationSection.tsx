@@ -5,40 +5,40 @@ import ToggleSwitch from './ToggleSwitch';
 import CollapsibleSection from './CollapsibleSection';
 
 const NotificationSection: React.FC = () => {
-  const {
-    enabled,
-    volume,
-    messageSound,
-    mentionSound,
-    dmSound,
-    friendRequestSound,
-    voiceEventSounds,
-    suppressWhenFocused,
-    desktopNotificationsEnabled,
-    desktopNotifyDMs,
-    desktopNotifyMentions,
-    desktopNotifyAllMessages,
-    doNotDisturb,
-    quietHoursEnabled,
-    quietHoursStart,
-    quietHoursEnd,
-    setEnabled,
-    setVolume,
-    setMessageSound,
-    setMentionSound,
-    setDmSound,
-    setFriendRequestSound,
-    setVoiceEventSounds,
-    setSuppressWhenFocused,
-    setDesktopNotificationsEnabled,
-    setDesktopNotifyDMs,
-    setDesktopNotifyMentions,
-    setDesktopNotifyAllMessages,
-    setDoNotDisturb,
-    setQuietHoursEnabled,
-    setQuietHoursStart,
-    setQuietHoursEnd,
-  } = useNotificationStore();
+  const enabled = useNotificationStore((s) => s.enabled);
+  const volume = useNotificationStore((s) => s.volume);
+  const messageSound = useNotificationStore((s) => s.messageSound);
+  const mentionSound = useNotificationStore((s) => s.mentionSound);
+  const dmSound = useNotificationStore((s) => s.dmSound);
+  const friendRequestSound = useNotificationStore((s) => s.friendRequestSound);
+  const voiceEventSounds = useNotificationStore((s) => s.voiceEventSounds);
+  const suppressWhenFocused = useNotificationStore((s) => s.suppressWhenFocused);
+  const desktopNotificationsEnabled = useNotificationStore((s) => s.desktopNotificationsEnabled);
+  const desktopNotifyDMs = useNotificationStore((s) => s.desktopNotifyDMs);
+  const desktopNotifyMentions = useNotificationStore((s) => s.desktopNotifyMentions);
+  const desktopNotifyAllMessages = useNotificationStore((s) => s.desktopNotifyAllMessages);
+  const doNotDisturb = useNotificationStore((s) => s.doNotDisturb);
+  const quietHoursEnabled = useNotificationStore((s) => s.quietHoursEnabled);
+  const quietHoursStart = useNotificationStore((s) => s.quietHoursStart);
+  const quietHoursEnd = useNotificationStore((s) => s.quietHoursEnd);
+  const setEnabled = useNotificationStore((s) => s.setEnabled);
+  const setVolume = useNotificationStore((s) => s.setVolume);
+  const setMessageSound = useNotificationStore((s) => s.setMessageSound);
+  const setMentionSound = useNotificationStore((s) => s.setMentionSound);
+  const setDmSound = useNotificationStore((s) => s.setDmSound);
+  const setFriendRequestSound = useNotificationStore((s) => s.setFriendRequestSound);
+  const setVoiceEventSounds = useNotificationStore((s) => s.setVoiceEventSounds);
+  const setSuppressWhenFocused = useNotificationStore((s) => s.setSuppressWhenFocused);
+  const setDesktopNotificationsEnabled = useNotificationStore(
+    (s) => s.setDesktopNotificationsEnabled
+  );
+  const setDesktopNotifyDMs = useNotificationStore((s) => s.setDesktopNotifyDMs);
+  const setDesktopNotifyMentions = useNotificationStore((s) => s.setDesktopNotifyMentions);
+  const setDesktopNotifyAllMessages = useNotificationStore((s) => s.setDesktopNotifyAllMessages);
+  const setDoNotDisturb = useNotificationStore((s) => s.setDoNotDisturb);
+  const setQuietHoursEnabled = useNotificationStore((s) => s.setQuietHoursEnabled);
+  const setQuietHoursStart = useNotificationStore((s) => s.setQuietHoursStart);
+  const setQuietHoursEnd = useNotificationStore((s) => s.setQuietHoursEnd);
 
   const notificationPermission = useOsPermissionStore((s) => s.notifications);
   const requestOne = useOsPermissionStore((s) => s.requestOne);

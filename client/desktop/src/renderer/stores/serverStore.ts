@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, devtools } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 import { ServerWithRole } from '../types/server';
 import { apiFetch } from '../services/apiClient';
 import { useChannelStore } from './channelStore';
@@ -21,7 +22,7 @@ interface ServerState {
   clearServers: () => void;
 }
 
-export const useServerStore = create<ServerState>()(
+export const useServerStore = wrapStore(create<ServerState>()(
   devtools(
     persist(
       (set, get) => ({
@@ -127,4 +128,4 @@ export const useServerStore = create<ServerState>()(
     ),
     { name: 'ServerStore' }
   )
-);
+));

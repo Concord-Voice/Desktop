@@ -7,7 +7,7 @@
  * always fetched fresh from the main process via IPC.
  */
 
-import { create } from 'zustand';
+import { createStore } from '../utils/createStore';
 
 // ─── Types (mirror permissionManager.ts in main process) ──────────────
 
@@ -56,7 +56,7 @@ interface OsPermissionStoreState {
   updateStatus: (type: OsPermissionType, status: OsPermissionStatus) => void;
 }
 
-export const useOsPermissionStore = create<OsPermissionStoreState>((set, get) => ({
+export const useOsPermissionStore = createStore<OsPermissionStoreState>()((set, get) => ({
   microphone: INITIAL_STATUS,
   camera: INITIAL_STATUS,
   screen: INITIAL_STATUS,

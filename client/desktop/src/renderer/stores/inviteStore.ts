@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 import {
   ServerInviteWithCreator,
   CreateInviteRequest,
@@ -24,7 +25,7 @@ interface InviteState {
   clearInvites: () => void;
 }
 
-export const useInviteStore = create<InviteState>()(
+export const useInviteStore = wrapStore(create<InviteState>()(
   devtools(
     (set, _get) => ({
       invites: {},
@@ -154,4 +155,4 @@ export const useInviteStore = create<InviteState>()(
     }),
     { name: 'InviteStore' }
   )
-);
+));

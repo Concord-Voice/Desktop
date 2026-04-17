@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 import { apiFetch } from '../services/apiClient';
 
 // DM Privacy Levels:
@@ -48,7 +49,7 @@ interface PrivacyState {
   clearPrivacy: () => void;
 }
 
-export const usePrivacyStore = create<PrivacyState>()(
+export const usePrivacyStore = wrapStore(create<PrivacyState>()(
   devtools(
     (set) => ({
       settings: { ...defaultSettings },
@@ -149,4 +150,4 @@ export const usePrivacyStore = create<PrivacyState>()(
     }),
     { name: 'PrivacyStore' }
   )
-);
+));

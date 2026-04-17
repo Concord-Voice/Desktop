@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 import { apiFetch } from '../services/apiClient';
 import type { MemberRoleInfo } from '../types/server';
 
@@ -52,7 +53,7 @@ interface MemberState {
   clearMembers: () => void;
 }
 
-export const useMemberStore = create<MemberState>()(
+export const useMemberStore = wrapStore(create<MemberState>()(
   devtools(
     (set, get) => ({
       members: [],
@@ -202,4 +203,4 @@ export const useMemberStore = create<MemberState>()(
     }),
     { name: 'MemberStore' }
   )
-);
+));

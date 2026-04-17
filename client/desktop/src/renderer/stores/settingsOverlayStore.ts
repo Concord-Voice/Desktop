@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { createStore } from '../utils/createStore';
 
 /**
  * Settings Overlay Store
@@ -25,7 +25,7 @@ interface SettingsOverlayState {
   close: () => void;
 }
 
-export const useSettingsOverlayStore = create<SettingsOverlayState>((set) => ({
+export const useSettingsOverlayStore = createStore<SettingsOverlayState>()((set) => ({
   open: null,
   payload: null,
   openSettings: (kind, payload) => set({ open: kind, payload: payload ?? null }),

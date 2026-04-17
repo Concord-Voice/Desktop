@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 
 interface TelemetryConsentState {
   telemetryOptIn: boolean;
@@ -18,7 +19,7 @@ interface TelemetryConsentState {
   }) => void;
 }
 
-export const useTelemetryConsentStore = create<TelemetryConsentState>()(
+export const useTelemetryConsentStore = wrapStore(create<TelemetryConsentState>()(
   devtools(
     (set) => ({
       telemetryOptIn: false,
@@ -77,4 +78,4 @@ export const useTelemetryConsentStore = create<TelemetryConsentState>()(
     }),
     { name: 'TelemetryConsentStore' }
   )
-);
+));

@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { createStore } from '../utils/createStore';
 
 export type RecoveryPhase =
   | 'stable' // Normal operation
@@ -60,7 +60,7 @@ interface ConnectionState {
   reset: () => void;
 }
 
-export const useConnectionStore = create<ConnectionState>()((set) => ({
+export const useConnectionStore = createStore<ConnectionState>()((set) => ({
   phase: 'stable',
   diagnostics: null,
   lostAt: null,

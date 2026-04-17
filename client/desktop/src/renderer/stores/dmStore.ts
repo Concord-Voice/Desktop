@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, devtools } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 import { apiFetch } from '../services/apiClient';
 import { e2eeService } from '../services/e2eeService';
 
@@ -187,7 +188,7 @@ interface DMState {
   deleteGroup: (conversationId: string) => Promise<void>;
 }
 
-export const useDMStore = create<DMState>()(
+export const useDMStore = wrapStore(create<DMState>()(
   devtools(
     persist(
       (set, get) => ({
@@ -521,7 +522,7 @@ export const useDMStore = create<DMState>()(
     ),
     { name: 'DMStore' }
   )
-);
+));
 
 // Map API response to DMConversation
 function mapConversation(c: Record<string, unknown>): DMConversation {

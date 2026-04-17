@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 
 export interface KeyCombo {
   key: string; // e.g. 'k', 'ArrowUp', '/', 'Escape', ','
@@ -124,7 +125,7 @@ interface KeyboardShortcutState {
   getShortcut: (id: string) => ShortcutDefinition | undefined;
 }
 
-export const useKeyboardShortcutStore = create<KeyboardShortcutState>()(
+export const useKeyboardShortcutStore = wrapStore(create<KeyboardShortcutState>()(
   devtools(
     (set, get) => ({
       shortcuts: DEFAULT_SHORTCUTS,
@@ -140,4 +141,4 @@ export const useKeyboardShortcutStore = create<KeyboardShortcutState>()(
     }),
     { name: 'KeyboardShortcutStore' }
   )
-);
+));

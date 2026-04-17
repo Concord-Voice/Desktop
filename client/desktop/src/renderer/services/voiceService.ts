@@ -2231,35 +2231,50 @@ class VoiceService {
 
   // ─── Producer Controls ─────────────────────────────────────────────
 
+  private applyOptimisticMute(store: ReturnType<typeof useVoiceStore.getState>, muted: boolean): void {
+    const localUserId = useUserStore.getState().user?.id;
+    if (!localUserId) {
+      console.warn('[VoiceService] applyOptimisticMute: no local user ID — sidebar state may be stale');
+      return;
+    }
+    store.updateParticipant(localUserId, { isMuted: muted });
+    if (store.activeChannelId) {
+      store.updateChannelVoiceMember(store.activeChannelId, localUserId, { isMuted: muted });
+    }
+  }
+
   /** Toggle mute (pause/resume mic producer) */
   async toggleMute(): Promise<void> {
     const store = useVoiceStore.getState();
     const producer = this.producers.get('mic');
     if (!producer) return;
 
-    if (store.isMuted) {
-      // Check server-mute enforcement — cannot unmute while server-muted
-      const localUserId = useUserStore.getState().user?.id;
-      if (localUserId) {
-        const participant = store.participants[localUserId];
-        if (participant?.serverMuted) {
-          return; // Cannot unmute while server-muted
+    const wasMuted = store.isMuted;
+    try {
+      if (wasMuted) {
+        const localUserId = useUserStore.getState().user?.id;
+        if (localUserId && store.participants[localUserId]?.serverMuted) {
+          return;
         }
-      }
 
-      await producer.resume();
-      this.socket?.emit('resume-producer', { producerId: producer.id });
-      store.setMuted(false);
-      notificationSoundService.play('unmute');
-      // Restart VAD when unmuting
-      if (this.localMicStream) this.startLocalVAD(this.localMicStream);
-    } else {
-      await producer.pause();
-      this.socket?.emit('pause-producer', { producerId: producer.id });
-      store.setMuted(true);
-      notificationSoundService.play('mute');
-      // Stop VAD when muted — user shouldn't show as speaking
-      this.stopLocalVAD();
+        await producer.resume();
+        this.socket?.emit('resume-producer', { producerId: producer.id });
+        store.setMuted(false);
+        this.applyOptimisticMute(store, false);
+        notificationSoundService.play('unmute');
+        if (this.localMicStream) this.startLocalVAD(this.localMicStream);
+      } else {
+        await producer.pause();
+        this.socket?.emit('pause-producer', { producerId: producer.id });
+        store.setMuted(true);
+        this.applyOptimisticMute(store, true);
+        notificationSoundService.play('mute');
+        this.stopLocalVAD();
+      }
+    } catch (error) {
+      console.error('[VoiceService] toggleMute failed:', error);
+      store.setMuted(wasMuted);
+      this.applyOptimisticMute(store, wasMuted);
     }
   }
 
@@ -2281,6 +2296,10 @@ class VoiceService {
 
     const newDeafened = !store.isDeafened;
     store.setDeafened(newDeafened);
+    const deafLocalUserId = useUserStore.getState().user?.id;
+    if (deafLocalUserId) {
+      store.updateParticipant(deafLocalUserId, { isDeafened: newDeafened });
+    }
     notificationSoundService.play(newDeafened ? 'deafen' : 'undeafen');
 
     // Mute/unmute all audio consumers

@@ -24,14 +24,12 @@ const ICONS: Record<DeviceKind, React.ReactNode> = {
 
 const DeviceSelector: React.FC<DeviceSelectorProps> = ({ kind }) => {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  const {
-    audioInputDeviceId,
-    audioOutputDeviceId,
-    videoDeviceId,
-    setAudioInputDevice,
-    setAudioOutputDevice,
-    setVideoDevice,
-  } = useVoiceStore();
+  const audioInputDeviceId = useVoiceStore((s) => s.audioInputDeviceId);
+  const audioOutputDeviceId = useVoiceStore((s) => s.audioOutputDeviceId);
+  const videoDeviceId = useVoiceStore((s) => s.videoDeviceId);
+  const setAudioInputDevice = useVoiceStore((s) => s.setAudioInputDevice);
+  const setAudioOutputDevice = useVoiceStore((s) => s.setAudioOutputDevice);
+  const setVideoDevice = useVoiceStore((s) => s.setVideoDevice);
 
   const deviceIdByKind = {
     audioinput: audioInputDeviceId,

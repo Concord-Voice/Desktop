@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 
 export interface NotificationSoundSettings {
   /** Master toggle for all notification sounds */
@@ -55,7 +56,7 @@ interface NotificationStore extends NotificationSoundSettings {
   setQuietHoursEnd: (end: string) => void;
 }
 
-export const useNotificationStore = create<NotificationStore>()(
+export const useNotificationStore = wrapStore(create<NotificationStore>()(
   persist(
     (set) => ({
       enabled: true,
@@ -118,4 +119,4 @@ export const useNotificationStore = create<NotificationStore>()(
       }),
     }
   )
-);
+));

@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { createStore } from '../utils/createStore';
 
 interface AuthState {
   accessToken: string | null;
@@ -14,7 +14,7 @@ interface AuthState {
   clearAccessToken: () => void;
 }
 
-export const useAuthStore = create<AuthState>()((set) => ({
+export const useAuthStore = createStore<AuthState>()((set) => ({
   accessToken: null,
   sessionId: null,
   rememberMe: true,

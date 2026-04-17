@@ -26,7 +26,7 @@ export function useWebSocket() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const wsService = useRef(getWebSocketService()).current;
 
-  const { setConnectionStatus } = useChatStore();
+  const setConnectionStatus = useChatStore((s) => s.setConnectionStatus);
 
   /**
    * Validate key epochs on reconnect — pull-based catch-up for missed key_revocation events.

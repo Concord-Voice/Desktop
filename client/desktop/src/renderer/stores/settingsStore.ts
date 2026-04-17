@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, subscribeWithSelector } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 import {
   type CustomColors,
   deriveThemeVariables,
@@ -92,7 +93,7 @@ function applyReduceAnimations(enabled: boolean) {
   document.documentElement.dataset.reduceAnimations = enabled ? 'true' : 'false';
 }
 
-export const useSettingsStore = create<SettingsState>()(
+export const useSettingsStore = wrapStore(create<SettingsState>()(
   persist(
     subscribeWithSelector((set) => ({
       appearance: defaultAppearance,
@@ -139,7 +140,7 @@ export const useSettingsStore = create<SettingsState>()(
       },
     }
   )
-);
+));
 
 // Subscribe to theme changes and apply to DOM
 let systemThemeCleanup: (() => void) | null = null;

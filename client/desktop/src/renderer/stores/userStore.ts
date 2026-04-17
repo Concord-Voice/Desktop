@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 import { useAuthStore } from './authStore';
 import { apiFetch } from '../services/apiClient';
 import { getWebSocketService } from '../services/websocketService';
@@ -59,7 +60,7 @@ interface UserState {
   ) => Promise<{ success: boolean; error?: string }>;
 }
 
-export const useUserStore = create<UserState>()(
+export const useUserStore = wrapStore(create<UserState>()(
   devtools(
     (set) => ({
       user: null,
@@ -258,4 +259,4 @@ export const useUserStore = create<UserState>()(
     }),
     { name: 'UserStore' }
   )
-);
+));

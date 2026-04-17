@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { createStore } from '../utils/createStore';
 
 // ---------------------------------------------------------------------------
 // Persisted device settings (per-machine via localStorage)
@@ -487,7 +487,7 @@ const initialState = {
   activeScreenCodec: null as string | null,
 };
 
-export const useVoiceStore = create<VoiceState>()((set) => ({
+export const useVoiceStore = createStore<VoiceState>()((set) => ({
   ...initialState,
 
   setConnectionState: (connectionState) => set({ connectionState }),

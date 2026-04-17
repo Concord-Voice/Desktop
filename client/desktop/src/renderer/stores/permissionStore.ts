@@ -3,7 +3,7 @@
  * Integrates with the backend RBAC/SBAC system.
  */
 
-import { create } from 'zustand';
+import { createStore } from '../utils/createStore';
 import { apiFetch } from '../services/apiClient';
 import { Role } from '../types/server';
 import { hasPermission, parsePermissions } from '../utils/permissions';
@@ -77,7 +77,7 @@ interface PermissionState {
   setCategorySync: (channelId: string, sync: boolean) => Promise<boolean>;
 }
 
-export const usePermissionStore = create<PermissionState>((set, get) => ({
+export const usePermissionStore = createStore<PermissionState>()((set, get) => ({
   serverRoles: {},
   serverPermissions: {},
   channelOverrides: {},

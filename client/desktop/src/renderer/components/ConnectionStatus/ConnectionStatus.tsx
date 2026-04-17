@@ -7,7 +7,8 @@ import { useChatStore } from '../../stores/chatStore';
 import './ConnectionStatus.css';
 
 const ConnectionStatus: React.FC = () => {
-  const { connectionState, connectionClientId } = useChatStore();
+  const connectionState = useChatStore((s) => s.connectionState);
+  const connectionClientId = useChatStore((s) => s.connectionClientId);
 
   if (connectionState === 'connected') {
     return (

@@ -14,6 +14,7 @@ import { useMFAChallengeStore } from '../../src/renderer/stores/mfaChallengeStor
 import { useSavedGifsStore } from '../../src/renderer/stores/savedGifsStore';
 import { useChannelScrollStore } from '../../src/renderer/stores/channelScrollStore';
 import { useTelemetryConsentStore } from '../../src/renderer/stores/telemetryConsentStore';
+import { useVoiceStore } from '../../src/renderer/stores/voiceStore';
 
 /**
  * Resets all Zustand stores to their initial state.
@@ -37,6 +38,8 @@ export function resetAllStores(): void {
   useMFAChallengeStore.getState().clearChallenge();
   useSavedGifsStore.setState({ gifs: [] });
   useChannelScrollStore.setState({ positions: {} });
+  useVoiceStore.getState().reset();
+  useVoiceStore.setState({ channelVoiceMembers: {}, serverVoiceCounts: {} });
   useTelemetryConsentStore.setState({
     telemetryOptIn: false,
     firstPromptCompleted: false,

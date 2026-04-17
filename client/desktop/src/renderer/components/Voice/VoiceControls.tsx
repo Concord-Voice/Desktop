@@ -225,24 +225,22 @@ interface VoiceControlsProps {
 }
 
 const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', onPopOut }) => {
-  const {
-    activeChannelId,
-    connectionState,
-    isMuted,
-    isDeafened,
-    isVideoOn,
-    isScreenSharing,
-    showVoiceTextChat,
-    toggleVoiceTextChat,
-    participants,
-    videoSlotError,
-    setVideoSlotError,
-    tunedInScreenShares,
-    keepActiveWhileUnfocused,
-    setKeepActiveWhileUnfocused,
-    voiceControlsPinned,
-    toggleVoiceControlsPinned,
-  } = useVoiceStore();
+  const activeChannelId = useVoiceStore((s) => s.activeChannelId);
+  const connectionState = useVoiceStore((s) => s.connectionState);
+  const isMuted = useVoiceStore((s) => s.isMuted);
+  const isDeafened = useVoiceStore((s) => s.isDeafened);
+  const isVideoOn = useVoiceStore((s) => s.isVideoOn);
+  const isScreenSharing = useVoiceStore((s) => s.isScreenSharing);
+  const showVoiceTextChat = useVoiceStore((s) => s.showVoiceTextChat);
+  const toggleVoiceTextChat = useVoiceStore((s) => s.toggleVoiceTextChat);
+  const participants = useVoiceStore((s) => s.participants);
+  const videoSlotError = useVoiceStore((s) => s.videoSlotError);
+  const setVideoSlotError = useVoiceStore((s) => s.setVideoSlotError);
+  const tunedInScreenShares = useVoiceStore((s) => s.tunedInScreenShares);
+  const keepActiveWhileUnfocused = useVoiceStore((s) => s.keepActiveWhileUnfocused);
+  const setKeepActiveWhileUnfocused = useVoiceStore((s) => s.setKeepActiveWhileUnfocused);
+  const voiceControlsPinned = useVoiceStore((s) => s.voiceControlsPinned);
+  const toggleVoiceControlsPinned = useVoiceStore((s) => s.toggleVoiceControlsPinned);
 
   const localUserId = useUserStore((s) => s.user?.id);
   const localParticipant = useVoiceStore((s) =>

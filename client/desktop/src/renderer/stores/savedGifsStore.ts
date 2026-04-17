@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { createStore } from '../utils/createStore';
 
 export interface SavedGif {
   slug: string;
@@ -14,7 +14,7 @@ interface SavedGifsState {
   _setGifs: (gifs: SavedGif[]) => void;
 }
 
-export const useSavedGifsStore = create<SavedGifsState>()((set, get) => ({
+export const useSavedGifsStore = createStore<SavedGifsState>()((set, get) => ({
   gifs: [],
 
   saveGif: (gifSlug) =>

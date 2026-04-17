@@ -81,6 +81,15 @@ export default [
           message: 'clientId.ts is RESERVED FOR SENTRY ANONYMIZATION. Any new import site requires security-reviewer approval.',
         }],
       }],
+
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: String.raw`CallExpression[callee.name=/^use\w+Store$/][arguments.length=0]`,
+          message:
+            'Use a selector: useXStore(s => s.field), not useXStore(). Whole-store subscriptions cause unnecessary re-renders. See #656.',
+        },
+      ],
     },
   },
 

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
+import { wrapStore } from '../utils/createStore';
 import { Channel, ChannelGroup } from '../types/chat';
 import { apiFetch } from '../services/apiClient';
 import { useChatStore } from './chatStore';
@@ -35,7 +36,7 @@ interface ChannelState {
   getLinkedTextChannel: (voiceChannelId: string) => Channel | undefined;
 }
 
-export const useChannelStore = create<ChannelState>()(
+export const useChannelStore = wrapStore(create<ChannelState>()(
   devtools(
     persist(
       (set, get) => ({
@@ -244,4 +245,4 @@ export const useChannelStore = create<ChannelState>()(
     ),
     { name: 'ChannelStore' }
   )
-);
+));
