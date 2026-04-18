@@ -32,6 +32,7 @@ import { useServerStore } from './stores/serverStore';
 import { useChannelStore } from './stores/channelStore';
 import { useDMStore } from './stores/dmStore';
 import { desktopNotificationService } from './services/desktopNotificationService';
+import { usePendingRegistrationStore } from './stores/pendingRegistrationStore';
 // resetService is loaded on-demand via dynamic import() to allow code splitting
 
 // ─── Sentry Error Boundary Fallbacks ──────────────────────────────────
@@ -297,6 +298,15 @@ function App() {
   const [isRestoring, setIsRestoring] = useState(!isPipWindow);
   const accessToken = useAuthStore((state) => state.accessToken);
   const emailVerified = useAuthStore((state) => state.emailVerified);
+
+  // Clear any expired pending registration on startup so stale sessionStorage
+  // state doesn't route the user to an unreachable verification screen.
+  useEffect(() => {
+    const pending = usePendingRegistrationStore.getState();
+    if (pending.pendingId && pending.isExpired()) {
+      pending.clearPending();
+    }
+  }, []);
 
   // Restore session on startup: ask main process to decrypt the
   // safeStorage-encrypted refresh token and exchange it for a fresh

@@ -2,38 +2,95 @@ import React, { useState, useEffect, useCallback } from 'react';
 import TOTPInput from './TOTPInput';
 import LoadingSpinner from './LoadingSpinner';
 import { useAuthStore } from '../../stores/authStore';
+import { usePendingRegistrationStore } from '../../stores/pendingRegistrationStore';
 import { API_BASE } from '../../services/apiClient';
 import './EmailVerification.css';
 import './TOTPInput.css';
 
-interface EmailVerificationProps {
-  email: string;
-  onVerified: (newAccessToken: string) => void;
-  onBack: () => void;
+function pluralAttempts(count: number): string {
+  return count === 1 ? 'attempt' : 'attempts';
 }
 
-function maskEmail(email: string): string {
+interface ConfirmErrorResult {
+  message: string;
+  attemptsRemaining?: number;
+  shouldCancel?: boolean;
+}
+
+function mapConfirmError(
+  status: number,
+  errCode: string | undefined,
+  attemptsRemaining: number | undefined
+): ConfirmErrorResult {
+  if (status === 401 && errCode === 'invalid_code') {
+    if (attemptsRemaining !== undefined) {
+      return {
+        message: `Incorrect code. ${attemptsRemaining} ${pluralAttempts(attemptsRemaining)} remaining.`,
+        attemptsRemaining,
+      };
+    }
+    return { message: 'Incorrect code.' };
+  }
+  if (status === 410 && errCode === 'code_expired') {
+    return { message: 'Code expired — tap resend.' };
+  }
+  if (status === 410 && errCode === 'pending_expired') {
+    return {
+      message: 'Registration session expired. Please register again.',
+      shouldCancel: true,
+    };
+  }
+  if (status === 429 && errCode === 'too_many_attempts') {
+    return { message: 'Too many attempts — request a new code.' };
+  }
+  return { message: 'Verification failed. Please try again.' };
+}
+
+interface EmailVerificationProps {
+  maskEmail?: boolean;
+  onSuccess: () => void;
+  onChangeEmail?: () => void;
+  onCancel?: () => void;
+}
+
+function maskEmailAddress(email: string): string {
   const [local, domain] = email.split('@');
   if (!domain) return email;
   if (local.length <= 2) return `${local[0]}***@${domain}`;
   return `${local[0]}${'*'.repeat(Math.min(local.length - 2, 6))}${local.at(-1)}@${domain}`;
 }
 
-const RESEND_COOLDOWN = 60; // seconds
+interface ConfirmResponse {
+  access_token: string;
+  refresh_token: string;
+  session_id?: string;
+  user?: { email_verified?: boolean };
+}
 
-const EmailVerification: React.FC<EmailVerificationProps> = ({ email, onVerified, onBack }) => {
-  const accessToken = useAuthStore((state) => state.accessToken);
+interface ResendResponse {
+  code_expires_at: string;
+  resends_remaining: number;
+}
+
+const EmailVerification: React.FC<EmailVerificationProps> = ({
+  maskEmail = true,
+  onSuccess,
+  onChangeEmail,
+  onCancel,
+}) => {
+  const pendingId = usePendingRegistrationStore((s) => s.pendingId);
+  const email = usePendingRegistrationStore((s) => s.email);
+  const resendsRemaining = usePendingRegistrationStore((s) => s.resendsRemaining);
+  const updateAfterResend = usePendingRegistrationStore((s) => s.updateAfterResend);
+  const clearPending = usePendingRegistrationStore((s) => s.clearPending);
+
   const [error, setError] = useState<string>('');
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [attemptsRemaining, setAttemptsRemaining] = useState<number | null>(null);
-  const [showChangeEmail, setShowChangeEmail] = useState(false);
-  const [newEmail, setNewEmail] = useState('');
-  const [changeEmailError, setChangeEmailError] = useState('');
-  const [currentEmail, setCurrentEmail] = useState(email);
 
-  // Countdown timer for resend button
   useEffect(() => {
     if (resendCooldown <= 0) return;
     const timer = setInterval(() => {
@@ -42,114 +99,134 @@ const EmailVerification: React.FC<EmailVerificationProps> = ({ email, onVerified
     return () => clearInterval(timer);
   }, [resendCooldown]);
 
+  const displayEmail = email ?? '';
+  const shownEmail = maskEmail ? maskEmailAddress(displayEmail) : displayEmail;
+
   const handleSubmitCode = useCallback(
     async (code: string) => {
-      if (isVerifying || !accessToken) return;
+      if (isVerifying || !pendingId) return;
       setIsVerifying(true);
       setError('');
 
       try {
-        const response = await fetch(`${API_BASE}/api/v1/auth/verify-email/confirm`, {
+        const response = await fetch(`${API_BASE}/api/v1/auth/register/confirm`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${accessToken}`,
-          },
-          body: JSON.stringify({ code }),
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ pending_id: pendingId, code }),
         });
 
-        const data = await response.json();
+        const data = (await response.json()) as ConfirmResponse & {
+          code?: string;
+          attempts_remaining?: number;
+          retry_after_seconds?: number;
+        };
 
-        if (!response.ok) {
-          if (data.attempts_remaining !== undefined) {
-            setAttemptsRemaining(data.attempts_remaining);
+        if (response.ok) {
+          if (globalThis.electron?.storeRefreshToken) {
+            await globalThis.electron.storeRefreshToken({
+              refreshToken: data.refresh_token,
+              rememberMe: true,
+              apiBase: API_BASE,
+              accessToken: data.access_token,
+            });
           }
-          throw new Error(data.error || 'Verification failed');
+          useAuthStore.getState().setAccessToken(data.access_token);
+          if (data.session_id) useAuthStore.getState().setSessionId(data.session_id);
+          useAuthStore.getState().setEmailVerified(true);
+          clearPending();
+          onSuccess();
+          return;
         }
 
-        // Success — update token and notify parent
-        if (data.access_token) {
-          useAuthStore.getState().setAccessToken(data.access_token);
-          useAuthStore.getState().setEmailVerified(true);
-          onVerified(data.access_token);
+        const result = mapConfirmError(response.status, data.code, data.attempts_remaining);
+        setError(result.message);
+        if (result.attemptsRemaining !== undefined) {
+          setAttemptsRemaining(result.attemptsRemaining);
         }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Verification failed');
+        if (result.shouldCancel) {
+          clearPending();
+          onCancel?.();
+        }
       } finally {
         setIsVerifying(false);
       }
     },
-    [accessToken, isVerifying, onVerified]
+    [pendingId, isVerifying, clearPending, onSuccess, onCancel]
   );
 
   const handleResend = async () => {
-    if (resendCooldown > 0 || isResending || !accessToken) return;
+    if (resendCooldown > 0 || isResending || !pendingId) return;
     setIsResending(true);
     setError('');
 
     try {
-      const response = await fetch(`${API_BASE}/api/v1/auth/verify-email/send`, {
+      const response = await fetch(`${API_BASE}/api/v1/auth/register/resend`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pending_id: pendingId }),
       });
 
-      const data = await response.json();
+      const data = (await response.json()) as ResendResponse & {
+        code?: string;
+        retry_after_seconds?: number;
+      };
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to resend code');
+        const errCode = data.code;
+        if (response.status === 429 && errCode === 'cooldown_active') {
+          const after = data.retry_after_seconds ?? 120;
+          setResendCooldown(after);
+          setError('');
+        } else if (response.status === 429 && errCode === 'resends_exhausted') {
+          setError("You've used all 4 resend attempts. Please start over.");
+        } else {
+          setError('Failed to resend code. Please try again.');
+        }
+        return;
       }
 
-      setResendCooldown(RESEND_COOLDOWN);
+      updateAfterResend({
+        code_expires_at: data.code_expires_at,
+        resends_remaining: data.resends_remaining,
+      });
+      setResendCooldown(120);
       setAttemptsRemaining(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to resend');
     } finally {
       setIsResending(false);
     }
   };
 
-  const handleChangeEmail = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newEmail.trim() || !accessToken) return;
-    setChangeEmailError('');
-
+  const handleCancel = async () => {
+    if (!pendingId || isCancelling) return;
+    setIsCancelling(true);
     try {
-      const response = await fetch(`${API_BASE}/api/v1/auth/verify-email/change-email`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-        body: JSON.stringify({ new_email: newEmail.trim() }),
+      const res = await fetch(`${API_BASE}/api/v1/auth/register/${pendingId}`, {
+        method: 'DELETE',
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to change email');
+      if (res.status === 204 || res.status === 404) {
+        // 204 = deleted, 404 = already gone — both acceptable terminal states
+        clearPending();
+        onCancel?.();
+      } else {
+        // Surface the error; keep local pending state so retry is possible
+        setError('Failed to cancel registration. Please try again.');
       }
-
-      setCurrentEmail(newEmail.trim());
-      useAuthStore.getState().setPendingVerificationEmail(newEmail.trim());
-      setShowChangeEmail(false);
-      setNewEmail('');
-      setResendCooldown(RESEND_COOLDOWN);
-      setAttemptsRemaining(null);
-      setError('');
-    } catch (err) {
-      setChangeEmailError(err instanceof Error ? err.message : 'Failed to change email');
+    } catch {
+      setError('Network error canceling registration. Please try again.');
+    } finally {
+      setIsCancelling(false);
     }
   };
+
+  const resendDisabled = resendCooldown > 0 || isResending || resendsRemaining <= 0;
 
   return (
     <div className="email-verification">
       <div className="email-verification-header">
         <h2>Verify your email</h2>
         <p className="email-verification-subtitle">
-          Enter the 6-digit code sent to <strong>{maskEmail(currentEmail)}</strong>
+          Enter the 6-digit code sent to <strong>{shownEmail}</strong>
         </p>
       </div>
 
@@ -164,7 +241,7 @@ const EmailVerification: React.FC<EmailVerificationProps> = ({ email, onVerified
 
       {attemptsRemaining !== null && attemptsRemaining > 0 && (
         <p className="email-verification-attempts">
-          {attemptsRemaining} attempt{attemptsRemaining === 1 ? '' : 's'} remaining
+          {attemptsRemaining} {pluralAttempts(attemptsRemaining)} remaining
         </p>
       )}
 
@@ -173,7 +250,7 @@ const EmailVerification: React.FC<EmailVerificationProps> = ({ email, onVerified
           type="button"
           className="email-verification-resend"
           onClick={handleResend}
-          disabled={resendCooldown > 0 || isResending}
+          disabled={resendDisabled}
         >
           {(() => {
             if (isResending) return 'Sending...';
@@ -182,35 +259,25 @@ const EmailVerification: React.FC<EmailVerificationProps> = ({ email, onVerified
           })()}
         </button>
 
-        <button
-          type="button"
-          className="email-verification-change"
-          onClick={() => setShowChangeEmail(!showChangeEmail)}
-        >
-          {showChangeEmail ? 'Cancel' : 'Change email'}
-        </button>
+        {onChangeEmail && (
+          <button type="button" className="email-verification-change" onClick={onChangeEmail}>
+            Change email
+          </button>
+        )}
       </div>
 
-      {showChangeEmail && (
-        <form className="email-verification-change-form" onSubmit={handleChangeEmail}>
-          <input
-            type="email"
-            value={newEmail}
-            onChange={(e) => setNewEmail(e.target.value)}
-            placeholder="New email address"
-            autoFocus
-            required
-          />
-          <button type="submit" disabled={!newEmail.trim()}>
-            Update & send code
-          </button>
-          {changeEmailError && <p className="email-verification-error">{changeEmailError}</p>}
-        </form>
-      )}
+      {error && <p className="email-verification-error">{error}</p>}
 
-      <button type="button" className="email-verification-back" onClick={onBack}>
-        ← Back to registration
-      </button>
+      {onCancel && (
+        <button
+          type="button"
+          className="email-verification-back"
+          onClick={handleCancel}
+          disabled={isCancelling}
+        >
+          {isCancelling ? 'Cancelling...' : '← Cancel registration'}
+        </button>
+      )}
     </div>
   );
 };

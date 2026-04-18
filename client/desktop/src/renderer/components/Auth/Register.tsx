@@ -3,19 +3,16 @@ import PasswordStrength from './PasswordStrength';
 import InfoTooltip from './InfoTooltip';
 import LoadingSpinner from './LoadingSpinner';
 import { generateRegistrationKeys, exportPublicKey } from '../../utils/crypto';
-import { e2eeService } from '../../services/e2eeService';
-import { preferencesSyncService } from '../../services/preferencesSync';
-import { useSettingsStore } from '../../stores/settingsStore';
-import { useLayoutStore } from '../../stores/layoutStore';
-import { savedGifsSyncService } from '../../services/savedGifsSync';
-import { useAuthStore } from '../../stores/authStore';
 import { API_BASE, ensureMachineId } from '../../services/apiClient';
-import { UserProfile } from '../../stores/userStore';
+import {
+  usePendingRegistrationStore,
+  type PendingRegistrationResponse,
+} from '../../stores/pendingRegistrationStore';
 import './Register.css';
 
 export interface RegisterProps {
   onBack: () => void;
-  onSuccess: (data: { accessToken: string; user?: UserProfile }) => void;
+  onSuccess: (data: { pendingId: string; email: string }) => void;
   onSwitchToLogin: () => void;
 }
 
@@ -162,65 +159,16 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
         }),
       });
 
-      const data = await response.json();
+      const data = (await response.json()) as PendingRegistrationResponse & { error?: string };
 
       if (!response.ok) {
-        throw new Error(data.error || 'Registration failed');
+        throw new Error(data.error ?? 'Registration failed');
       }
 
-      console.debug('Registration successful, initializing E2EE service...');
+      console.debug('Registration successful, pending email verification...');
 
-      // Initialize E2EE service so encryption works immediately after registration
-      await e2eeService.initialize(
-        formData.password,
-        keys.wrappedPrivateKey,
-        keys.keyDerivationSalt,
-        keys.keyDerivationAlg
-      );
-      preferencesSyncService.init({
-        getAppearance: () => useSettingsStore.getState().appearance,
-        setAppearance: (patch) =>
-          useSettingsStore.setState((s) => ({ appearance: { ...s.appearance, ...patch } })),
-        getLayout: () => {
-          const s = useLayoutStore.getState();
-          return {
-            channelPanelPinned: s.channelPanelPinned,
-            channelPanelWidth: s.channelPanelWidth,
-            memberPanelMode: s.memberPanelMode,
-            memberPanelWidth: s.memberPanelWidth,
-            serverBarHeight: s.serverBarHeight,
-            folderBarHeight: s.folderBarHeight,
-            serverFolders: s.serverFolders,
-            serverOrder: s.serverOrder,
-          };
-        },
-        setLayout: (patch) => useLayoutStore.setState(patch),
-      });
-      preferencesSyncService.startWatching();
-      savedGifsSyncService.startWatching();
-
-      // Store refresh token securely in main process, set access token in renderer
-      if (globalThis.electron?.storeRefreshToken) {
-        await globalThis.electron.storeRefreshToken({
-          refreshToken: data.refresh_token,
-          rememberMe: true, // Registration always remembers
-          apiBase: API_BASE,
-          accessToken: data.access_token,
-        });
-      }
-      useAuthStore.getState().setAccessToken(data.access_token);
-      if (data.session_id) useAuthStore.getState().setSessionId(data.session_id);
-
-      // Persist E2EE session keys in safeStorage for session restore
-      const sessionKeys = e2eeService.getSessionKeys();
-      if (sessionKeys && globalThis.electron?.storeE2EEKeys) {
-        await globalThis.electron.storeE2EEKeys(sessionKeys);
-      }
-
-      onSuccess({
-        accessToken: data.access_token,
-        user: data.user,
-      });
+      usePendingRegistrationStore.getState().setPending(data);
+      onSuccess({ pendingId: data.pending_id, email: data.email });
     } catch (error) {
       console.error('Registration error:', error);
       setErrors({

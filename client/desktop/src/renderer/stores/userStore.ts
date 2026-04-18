@@ -60,203 +60,198 @@ interface UserState {
   ) => Promise<{ success: boolean; error?: string }>;
 }
 
-export const useUserStore = wrapStore(create<UserState>()(
-  devtools(
-    (set) => ({
-      user: null,
-      isLoading: false,
-      error: null,
+export const useUserStore = wrapStore(
+  create<UserState>()(
+    devtools(
+      (set) => ({
+        user: null,
+        isLoading: false,
+        error: null,
 
-      fetchUser: async () => {
-        set({ isLoading: true, error: null });
+        fetchUser: async () => {
+          set({ isLoading: true, error: null });
 
-        try {
-          const response = await apiFetch('/api/v1/users/me');
+          try {
+            const response = await apiFetch('/api/v1/users/me');
 
-          if (response.status === 401) {
-            // Token expired and refresh failed — clear auth
-            useAuthStore.getState().clearAccessToken();
-            globalThis.electron?.clearTokens?.();
-            set({ user: null, isLoading: false, error: null });
-            return;
-          }
-
-          if (!response.ok) {
-            const data = await response.json();
-            throw new Error(data.error || 'Failed to fetch user');
-          }
-
-          const data = await response.json();
-          set({ user: data.user, isLoading: false });
-
-          // Sync email_verified to authStore so route guards reflect DB state
-          if (data.user && typeof data.user.email_verified === 'boolean') {
-            useAuthStore.getState().setEmailVerified(data.user.email_verified);
-            if (!data.user.email_verified && data.user.email) {
-              // Set pending email for unverified users so AuthFlow can route to verification
-              useAuthStore.getState().setPendingVerificationEmail(data.user.email);
-            } else if (data.user.email_verified) {
-              // Clear stale pending email when user is verified
-              useAuthStore.getState().setPendingVerificationEmail(null);
+            if (response.status === 401) {
+              // Token expired and refresh failed — clear auth
+              useAuthStore.getState().clearAccessToken();
+              globalThis.electron?.clearTokens?.();
+              set({ user: null, isLoading: false, error: null });
+              return;
             }
-          }
-        } catch (error) {
-          set({
-            error: error instanceof Error ? error.message : 'Failed to fetch user',
-            isLoading: false,
-          });
-        }
-      },
 
-      setUser: (user: UserProfile) => {
-        set({ user, isLoading: false, error: null });
-      },
+            if (!response.ok) {
+              const data = await response.json();
+              throw new Error(data.error || 'Failed to fetch user');
+            }
 
-      clearUser: () => {
-        set({ user: null, isLoading: false, error: null });
-      },
+            const data = await response.json();
+            set({ user: data.user, isLoading: false });
 
-      logout: async () => {
-        // Stop syncing preferences and saved GIFs before tearing down
-        preferencesSyncService.stopWatching();
-        savedGifsSyncService.stopWatching();
-        // Reset sync suppression flag in case Settings was open during logout
-        import('./settingsStore').then(({ setSyncSuppressed }) => setSyncSuppressed(false));
-        e2eeService.clearKeys();
-
-        // Disconnect WebSocket FIRST so the server receives the close frame
-        // and broadcasts offline presence while the connection is still healthy.
-        getWebSocketService().disconnect();
-
-        try {
-          // Main process handles logout API call (it holds the refresh token)
-          if (globalThis.electron?.logout) {
-            await globalThis.electron.logout({
-              accessToken: useAuthStore.getState().accessToken ?? undefined,
+            // Sync email_verified to authStore so route guards reflect DB state
+            if (data.user && typeof data.user.email_verified === 'boolean') {
+              useAuthStore.getState().setEmailVerified(data.user.email_verified);
+            }
+          } catch (error) {
+            set({
+              error: error instanceof Error ? error.message : 'Failed to fetch user',
+              isLoading: false,
             });
           }
-        } catch (error) {
-          console.error('Logout API error:', error);
-        }
+        },
 
-        // Nuclear reset: login screen will appear, so wipe everything
-        const { nuclearReset } = await import('../services/resetService');
-        nuclearReset();
-      },
+        setUser: (user: UserProfile) => {
+          set({ user, isLoading: false, error: null });
+        },
 
-      updateProfile: async (updates: UpdateProfileData) => {
-        const response = await apiFetch('/api/v1/users/me', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updates),
-        });
-
-        if (response.status === 401) {
-          useAuthStore.getState().clearAccessToken();
-          globalThis.electron?.clearTokens?.();
+        clearUser: () => {
           set({ user: null, isLoading: false, error: null });
-          throw new Error('Session expired');
-        }
+        },
 
-        const text = await response.text();
-        let data;
-        try {
-          data = JSON.parse(text);
-        } catch {
-          throw new Error(
-            'Server returned an unexpected response. Make sure the backend is running the latest version.'
-          );
-        }
+        logout: async () => {
+          // Stop syncing preferences and saved GIFs before tearing down
+          preferencesSyncService.stopWatching();
+          savedGifsSyncService.stopWatching();
+          // Reset sync suppression flag in case Settings was open during logout
+          import('./settingsStore').then(({ setSyncSuppressed }) => setSyncSuppressed(false));
+          e2eeService.clearKeys();
 
-        if (!response.ok) {
-          throw new Error(data.error || 'Failed to update profile');
-        }
+          // Disconnect WebSocket FIRST so the server receives the close frame
+          // and broadcasts offline presence while the connection is still healthy.
+          getWebSocketService().disconnect();
 
-        set({ user: data.user });
-
-        // Notify other clients via WebSocket so their cached user info updates
-        getWebSocketService().sendProfileUpdate();
-      },
-
-      changePassword: async (currentPassword: string, newPassword: string) => {
-        try {
-          // Step 1: Fetch current E2EE keys from the server
-          const keysRes = await apiFetch('/api/v1/users/me/keys');
-
-          if (!keysRes.ok) {
-            const keysData = await keysRes.json();
-            return { success: false, error: keysData.error || 'Failed to fetch encryption keys' };
+          try {
+            // Main process handles logout API call (it holds the refresh token)
+            if (globalThis.electron?.logout) {
+              await globalThis.electron.logout({
+                accessToken: useAuthStore.getState().accessToken ?? undefined,
+              });
+            }
+          } catch (error) {
+            console.error('Logout API error:', error);
           }
 
-          const keysData = await keysRes.json();
-          const { wrapped_private_key, key_derivation_salt } = keysData.e2ee_keys;
-          const currentAlg: KeyDerivationAlgorithm =
-            keysData.e2ee_keys.key_derivation_alg || 'pbkdf2';
+          // Nuclear reset: login screen will appear, so wipe everything
+          const { nuclearReset } = await import('../services/resetService');
+          nuclearReset();
+        },
 
-          // Step 2: Unwrap private key with current password (using stored algorithm)
-          const currentSalt = new Uint8Array(base64ToArrayBuffer(key_derivation_salt));
-          const currentWrappingKey =
-            currentAlg === 'argon2id'
-              ? await deriveKeyArgon2id(currentPassword, currentSalt)
-              : await deriveKeyFromPassword(currentPassword, currentSalt);
-          const wrappedKeyBuffer = base64ToArrayBuffer(wrapped_private_key);
-          const privateKey = await unwrapPrivateKey(wrappedKeyBuffer, currentWrappingKey);
-
-          // Step 3: Re-wrap private key with new password (always Argon2id)
-          const newSalt = generateSalt();
-          const newWrappingKey = await deriveKeyArgon2id(newPassword, newSalt);
-          const newWrappedKey = await wrapPrivateKey(privateKey, newWrappingKey);
-
-          // Step 4: Send password change with re-wrapped keys
-          const response = await apiFetch('/api/v1/users/me/password', {
-            method: 'POST',
+        updateProfile: async (updates: UpdateProfileData) => {
+          const response = await apiFetch('/api/v1/users/me', {
+            method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              current_password: currentPassword,
-              new_password: newPassword,
-              wrapped_private_key: arrayBufferToBase64(newWrappedKey),
-              key_derivation_salt: arrayBufferToBase64(newSalt.buffer as ArrayBuffer),
-              key_derivation_alg: 'argon2id',
-            }),
+            body: JSON.stringify(updates),
           });
 
           if (response.status === 401) {
-            const data = await response.json();
-            if (data.error === 'Current password is incorrect') {
-              return { success: false, error: data.error };
-            }
             useAuthStore.getState().clearAccessToken();
             globalThis.electron?.clearTokens?.();
             set({ user: null, isLoading: false, error: null });
-            return { success: false, error: 'Session expired' };
+            throw new Error('Session expired');
           }
 
-          const data = await response.json();
+          const text = await response.text();
+          let data;
+          try {
+            data = JSON.parse(text);
+          } catch {
+            throw new Error(
+              'Server returned an unexpected response. Make sure the backend is running the latest version.'
+            );
+          }
 
           if (!response.ok) {
-            return { success: false, error: data.error || 'Failed to change password' };
+            throw new Error(data.error || 'Failed to update profile');
           }
 
-          // Re-initialize E2EE service with new password (always Argon2id after change)
-          await e2eeService.initialize(
-            newPassword,
-            arrayBufferToBase64(newWrappedKey),
-            arrayBufferToBase64(newSalt.buffer as ArrayBuffer),
-            'argon2id'
-          );
+          set({ user: data.user });
 
-          // Re-encrypt and push preferences with the new key
-          await preferencesSyncService.pushPreferences();
+          // Notify other clients via WebSocket so their cached user info updates
+          getWebSocketService().sendProfileUpdate();
+        },
 
-          return { success: true };
-        } catch (error) {
-          return {
-            success: false,
-            error: error instanceof Error ? error.message : 'Failed to change password',
-          };
-        }
-      },
-    }),
-    { name: 'UserStore' }
+        changePassword: async (currentPassword: string, newPassword: string) => {
+          try {
+            // Step 1: Fetch current E2EE keys from the server
+            const keysRes = await apiFetch('/api/v1/users/me/keys');
+
+            if (!keysRes.ok) {
+              const keysData = await keysRes.json();
+              return { success: false, error: keysData.error || 'Failed to fetch encryption keys' };
+            }
+
+            const keysData = await keysRes.json();
+            const { wrapped_private_key, key_derivation_salt } = keysData.e2ee_keys;
+            const currentAlg: KeyDerivationAlgorithm =
+              keysData.e2ee_keys.key_derivation_alg || 'pbkdf2';
+
+            // Step 2: Unwrap private key with current password (using stored algorithm)
+            const currentSalt = new Uint8Array(base64ToArrayBuffer(key_derivation_salt));
+            const currentWrappingKey =
+              currentAlg === 'argon2id'
+                ? await deriveKeyArgon2id(currentPassword, currentSalt)
+                : await deriveKeyFromPassword(currentPassword, currentSalt);
+            const wrappedKeyBuffer = base64ToArrayBuffer(wrapped_private_key);
+            const privateKey = await unwrapPrivateKey(wrappedKeyBuffer, currentWrappingKey);
+
+            // Step 3: Re-wrap private key with new password (always Argon2id)
+            const newSalt = generateSalt();
+            const newWrappingKey = await deriveKeyArgon2id(newPassword, newSalt);
+            const newWrappedKey = await wrapPrivateKey(privateKey, newWrappingKey);
+
+            // Step 4: Send password change with re-wrapped keys
+            const response = await apiFetch('/api/v1/users/me/password', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                current_password: currentPassword,
+                new_password: newPassword,
+                wrapped_private_key: arrayBufferToBase64(newWrappedKey),
+                key_derivation_salt: arrayBufferToBase64(newSalt.buffer as ArrayBuffer),
+                key_derivation_alg: 'argon2id',
+              }),
+            });
+
+            if (response.status === 401) {
+              const data = await response.json();
+              if (data.error === 'Current password is incorrect') {
+                return { success: false, error: data.error };
+              }
+              useAuthStore.getState().clearAccessToken();
+              globalThis.electron?.clearTokens?.();
+              set({ user: null, isLoading: false, error: null });
+              return { success: false, error: 'Session expired' };
+            }
+
+            const data = await response.json();
+
+            if (!response.ok) {
+              return { success: false, error: data.error || 'Failed to change password' };
+            }
+
+            // Re-initialize E2EE service with new password (always Argon2id after change)
+            await e2eeService.initialize(
+              newPassword,
+              arrayBufferToBase64(newWrappedKey),
+              arrayBufferToBase64(newSalt.buffer as ArrayBuffer),
+              'argon2id'
+            );
+
+            // Re-encrypt and push preferences with the new key
+            await preferencesSyncService.pushPreferences();
+
+            return { success: true };
+          } catch (error) {
+            return {
+              success: false,
+              error: error instanceof Error ? error.message : 'Failed to change password',
+            };
+          }
+        },
+      }),
+      { name: 'UserStore' }
+    )
   )
-));
+);

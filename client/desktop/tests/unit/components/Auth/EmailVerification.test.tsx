@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '../../../test-utils';
 import EmailVerification from '@/renderer/components/Auth/EmailVerification';
 import { useAuthStore } from '@/renderer/stores/authStore';
+import { usePendingRegistrationStore } from '@/renderer/stores/pendingRegistrationStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
 // Mock fetch
@@ -13,306 +14,78 @@ vi.mock('@/renderer/services/apiClient', () => ({
   API_BASE: 'http://localhost:8080',
 }));
 
+const MOCK_PENDING_ID = 'test-pending-id';
+const MOCK_EMAIL = 'test@example.com';
+
+function seedPendingStore() {
+  usePendingRegistrationStore.getState().setPending({
+    pending_id: MOCK_PENDING_ID,
+    email: MOCK_EMAIL,
+    expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+    code_expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+  });
+}
+
 describe('EmailVerification', () => {
-  const mockOnVerified = vi.fn();
-  const mockOnBack = vi.fn();
+  const mockOnSuccess = vi.fn();
+  const mockOnChangeEmail = vi.fn();
+  const mockOnCancel = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     resetAllStores();
-    useAuthStore.setState({ accessToken: 'test-token', emailVerified: false });
+    seedPendingStore();
   });
 
   // ── Rendering ──────────────────────────────────────────────────────────
 
-  it('renders with masked email', () => {
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
+  it('renders with masked email by default', () => {
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
     expect(screen.getByText('Verify your email')).toBeInTheDocument();
     expect(screen.getByText(/t\*+t@example\.com/)).toBeInTheDocument();
   });
 
+  it('renders with unmasked email when maskEmail=false', () => {
+    render(<EmailVerification onSuccess={mockOnSuccess} maskEmail={false} />);
+    expect(screen.getByText(MOCK_EMAIL)).toBeInTheDocument();
+  });
+
   it('renders 6 digit input fields', () => {
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
     const inputs = screen.getAllByRole('textbox');
     expect(inputs).toHaveLength(6);
   });
 
-  it('masks short emails correctly', () => {
-    render(
-      <EmailVerification email="ab@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-    // For 2-char local part: first char + *** + @domain
-    expect(screen.getByText(/a\*\*\*@example\.com/)).toBeInTheDocument();
+  it('shows change-email button when onChangeEmail prop provided', () => {
+    render(<EmailVerification onSuccess={mockOnSuccess} onChangeEmail={mockOnChangeEmail} />);
+    expect(screen.getByText('Change email')).toBeInTheDocument();
   });
 
-  it('masks single-char emails correctly', () => {
-    render(
-      <EmailVerification email="a@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-    expect(screen.getByText(/a\*\*\*@example\.com/)).toBeInTheDocument();
+  it('does not show change-email button when onChangeEmail not provided', () => {
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
+    expect(screen.queryByText('Change email')).not.toBeInTheDocument();
   });
 
-  it('masks long emails with max 6 asterisks', () => {
-    render(
-      <EmailVerification
-        email="longusername@example.com"
-        onVerified={mockOnVerified}
-        onBack={mockOnBack}
-      />
-    );
-    // First char + up to 6 asterisks + last char
-    expect(screen.getByText(/l\*{6}e@example\.com/)).toBeInTheDocument();
-  });
-
-  // ── Resend Functionality ───────────────────────────────────────────────
-
-  it('shows resend button enabled on mount (no initial cooldown)', () => {
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-    const resendButton = screen.getByText(/Send new code/);
-    expect(resendButton).toBeInTheDocument();
-    expect(resendButton).not.toBeDisabled();
-  });
-
-  it('disables resend button and shows cooldown after successful resend', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ message: 'Code sent' }),
-    });
-
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-
-    fireEvent.click(screen.getByText('Send new code'));
-
-    await waitFor(() => {
-      expect(screen.getByText(/Send new code \(\d+s\)/)).toBeInTheDocument();
-    });
-  });
-
-  it('sends resend request with auth header', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ message: 'Code sent' }),
-    });
-
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-
-    fireEvent.click(screen.getByText('Send new code'));
-
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8080/api/v1/auth/verify-email/send',
-        expect.objectContaining({
-          method: 'POST',
-          headers: expect.objectContaining({
-            Authorization: 'Bearer test-token',
-          }),
-        })
-      );
-    });
-  });
-
-  it('shows error when resend fails', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      json: () => Promise.resolve({ error: 'Rate limited' }),
-    });
-
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-
-    fireEvent.click(screen.getByText('Send new code'));
-
-    await waitFor(() => {
-      expect(screen.getByText('Rate limited')).toBeInTheDocument();
-    });
-  });
-
-  // ── Change Email ───────────────────────────────────────────────────────
-
-  it('shows change email form when clicked', () => {
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-
+  it('calls onChangeEmail when change email button clicked', () => {
+    render(<EmailVerification onSuccess={mockOnSuccess} onChangeEmail={mockOnChangeEmail} />);
     fireEvent.click(screen.getByText('Change email'));
-    expect(screen.getByPlaceholderText('New email address')).toBeInTheDocument();
-    expect(screen.getByText('Update & send code')).toBeInTheDocument();
-  });
-
-  it('toggles change email form off when clicked again', () => {
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-
-    fireEvent.click(screen.getByText('Change email'));
-    expect(screen.getByPlaceholderText('New email address')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByText('Cancel'));
-    expect(screen.queryByPlaceholderText('New email address')).not.toBeInTheDocument();
-  });
-
-  it('disables submit when new email is empty', () => {
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-
-    fireEvent.click(screen.getByText('Change email'));
-    const submitBtn = screen.getByText('Update & send code');
-    expect(submitBtn).toBeDisabled();
-  });
-
-  it('sends change email request to server', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ message: 'Email changed, code sent' }),
-    });
-
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-
-    fireEvent.click(screen.getByText('Change email'));
-    fireEvent.change(screen.getByPlaceholderText('New email address'), {
-      target: { value: 'newemail@example.com' },
-    });
-    fireEvent.submit(screen.getByPlaceholderText('New email address').closest('form')!);
-
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8080/api/v1/auth/verify-email/change-email',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ new_email: 'newemail@example.com' }),
-        })
-      );
-    });
-  });
-
-  it('updates displayed email after successful change', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ message: 'Email changed' }),
-    });
-
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-
-    fireEvent.click(screen.getByText('Change email'));
-    fireEvent.change(screen.getByPlaceholderText('New email address'), {
-      target: { value: 'new@example.com' },
-    });
-    fireEvent.submit(screen.getByPlaceholderText('New email address').closest('form')!);
-
-    await waitFor(() => {
-      // New email should be masked and displayed
-      expect(screen.getByText(/n\*+w@example\.com/)).toBeInTheDocument();
-    });
-  });
-
-  it('updates pendingVerificationEmail in auth store after change', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () => Promise.resolve({ message: 'Email changed' }),
-    });
-
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-
-    fireEvent.click(screen.getByText('Change email'));
-    fireEvent.change(screen.getByPlaceholderText('New email address'), {
-      target: { value: 'new@example.com' },
-    });
-    fireEvent.submit(screen.getByPlaceholderText('New email address').closest('form')!);
-
-    await waitFor(() => {
-      expect(useAuthStore.getState().pendingVerificationEmail).toBe('new@example.com');
-    });
-  });
-
-  it('shows error on change email failure', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      json: () => Promise.resolve({ error: 'Email already in use' }),
-    });
-
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-
-    fireEvent.click(screen.getByText('Change email'));
-    fireEvent.change(screen.getByPlaceholderText('New email address'), {
-      target: { value: 'taken@example.com' },
-    });
-    fireEvent.submit(screen.getByPlaceholderText('New email address').closest('form')!);
-
-    await waitFor(() => {
-      expect(screen.getByText('Email already in use')).toBeInTheDocument();
-    });
+    expect(mockOnChangeEmail).toHaveBeenCalledOnce();
   });
 
   // ── Code Verification ──────────────────────────────────────────────────
 
-  it('submits code and calls onVerified on success', async () => {
+  it('submits code to confirm endpoint and calls onSuccess', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       json: () =>
         Promise.resolve({
-          message: 'Email verified successfully',
-          access_token: 'new-verified-token',
-          expires_in: 900,
+          access_token: 'new-access-token',
+          refresh_token: 'new-refresh-token',
+          session_id: 'sess-1',
         }),
     });
 
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-
-    const inputs = screen.getAllByRole('textbox');
-    const code = '123456';
-    for (let i = 0; i < 6; i++) {
-      fireEvent.change(inputs[i], { target: { value: code[i] } });
-    }
-
-    await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith(
-        'http://localhost:8080/api/v1/auth/verify-email/confirm',
-        expect.objectContaining({
-          method: 'POST',
-          body: JSON.stringify({ code: '123456' }),
-        })
-      );
-    });
-
-    await waitFor(() => {
-      expect(mockOnVerified).toHaveBeenCalledWith('new-verified-token');
-    });
-  });
-
-  it('sets emailVerified in auth store on success', async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          access_token: 'new-token',
-        }),
-    });
-
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
 
     const inputs = screen.getAllByRole('textbox');
     for (let i = 0; i < 6; i++) {
@@ -320,121 +93,338 @@ describe('EmailVerification', () => {
     }
 
     await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:8080/api/v1/auth/register/confirm',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ pending_id: MOCK_PENDING_ID, code: '123456' }),
+        })
+      );
+    });
+
+    await waitFor(() => expect(mockOnSuccess).toHaveBeenCalledOnce());
+  });
+
+  it('sets accessToken and emailVerified in auth store on success', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          access_token: 'verified-token',
+          refresh_token: 'refresh',
+          session_id: 'sess-1',
+        }),
+    });
+
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
+
+    const inputs = screen.getAllByRole('textbox');
+    for (let i = 0; i < 6; i++) {
+      fireEvent.change(inputs[i], { target: { value: String(i + 1) } });
+    }
+
+    await waitFor(() => {
+      expect(useAuthStore.getState().accessToken).toBe('verified-token');
       expect(useAuthStore.getState().emailVerified).toBe(true);
     });
   });
 
-  it('shows error on invalid code', async () => {
+  it('clears pending store on success', async () => {
     mockFetch.mockResolvedValueOnce({
-      ok: false,
+      ok: true,
       json: () =>
-        Promise.resolve({
-          error: 'Invalid verification code',
-          attempts_remaining: 4,
-        }),
+        Promise.resolve({ access_token: 'tok', refresh_token: 'ref', session_id: 'sess' }),
     });
 
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
+    const inputs = screen.getAllByRole('textbox');
+    for (let i = 0; i < 6; i++) {
+      fireEvent.change(inputs[i], { target: { value: String(i + 1) } });
+    }
 
+    await waitFor(() => {
+      expect(usePendingRegistrationStore.getState().pendingId).toBeNull();
+    });
+  });
+
+  it('shows error on invalid_code with attempts remaining', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      json: () => Promise.resolve({ code: 'invalid_code', attempts_remaining: 4 }),
+    });
+
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
     const inputs = screen.getAllByRole('textbox');
     for (let i = 0; i < 6; i++) {
       fireEvent.change(inputs[i], { target: { value: '0' } });
     }
 
     await waitFor(() => {
-      expect(screen.getByText('4 attempts remaining')).toBeInTheDocument();
+      // Error text appears in both TOTPInput and the component's own error paragraph
+      expect(screen.getAllByText('Incorrect code. 4 attempts remaining.')).toHaveLength(2);
     });
+    expect(screen.getByText('4 attempts remaining')).toBeInTheDocument();
   });
 
-  it('shows singular "attempt" when 1 attempt remaining', async () => {
+  it('uses singular "attempt" for 1 remaining', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
-      json: () =>
-        Promise.resolve({
-          error: 'Invalid code',
-          attempts_remaining: 1,
-        }),
+      status: 401,
+      json: () => Promise.resolve({ code: 'invalid_code', attempts_remaining: 1 }),
     });
 
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
     const inputs = screen.getAllByRole('textbox');
     for (let i = 0; i < 6; i++) {
       fireEvent.change(inputs[i], { target: { value: '0' } });
     }
 
     await waitFor(() => {
-      expect(screen.getByText('1 attempt remaining')).toBeInTheDocument();
+      expect(screen.getAllByText('Incorrect code. 1 attempt remaining.')).toHaveLength(2);
     });
   });
 
-  it('does not show attempts remaining when not provided by server', async () => {
+  it('shows code_expired error', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
-      json: () =>
-        Promise.resolve({
-          error: 'Invalid code',
-        }),
+      status: 410,
+      json: () => Promise.resolve({ code: 'code_expired' }),
     });
 
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
     const inputs = screen.getAllByRole('textbox');
     for (let i = 0; i < 6; i++) {
       fireEvent.change(inputs[i], { target: { value: '0' } });
     }
 
     await waitFor(() => {
-      expect(screen.getByText('Invalid code')).toBeInTheDocument();
+      // Error text appears in TOTPInput and the component's own error paragraph
+      expect(screen.getAllByText('Code expired — tap resend.')).toHaveLength(2);
     });
-    expect(screen.queryByText(/attempts? remaining/)).not.toBeInTheDocument();
   });
 
-  // ── Navigation ─────────────────────────────────────────────────────────
+  it('clears pending and calls onCancel on pending_expired', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 410,
+      json: () => Promise.resolve({ code: 'pending_expired' }),
+    });
 
-  it('calls onBack when back button clicked', () => {
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-
-    fireEvent.click(screen.getByText(/Back to registration/));
-    expect(mockOnBack).toHaveBeenCalledOnce();
-  });
-
-  // ── Edge Cases ─────────────────────────────────────────────────────────
-
-  it('does not submit when accessToken is null', async () => {
-    useAuthStore.setState({ accessToken: null });
-
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
-
+    render(<EmailVerification onSuccess={mockOnSuccess} onCancel={mockOnCancel} />);
     const inputs = screen.getAllByRole('textbox');
     for (let i = 0; i < 6; i++) {
-      fireEvent.change(inputs[i], { target: { value: String(i) } });
+      fireEvent.change(inputs[i], { target: { value: '0' } });
     }
 
-    // Wait briefly to confirm fetch was not called
-    await new Promise((r) => setTimeout(r, 100));
-    expect(mockFetch).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(usePendingRegistrationStore.getState().pendingId).toBeNull();
+      expect(mockOnCancel).toHaveBeenCalledOnce();
+    });
   });
 
-  it('does not resend when accessToken is null', async () => {
-    useAuthStore.setState({ accessToken: null });
+  // ── Resend ─────────────────────────────────────────────────────────────
 
-    render(
-      <EmailVerification email="test@example.com" onVerified={mockOnVerified} onBack={mockOnBack} />
-    );
+  it('shows resend button enabled on mount', () => {
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
+    const btn = screen.getByText('Send new code');
+    expect(btn).not.toBeDisabled();
+  });
 
+  it('sends resend request with pending_id', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          code_expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+          resends_remaining: 3,
+        }),
+    });
+
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
     fireEvent.click(screen.getByText('Send new code'));
-    await new Promise((r) => setTimeout(r, 100));
-    expect(mockFetch).not.toHaveBeenCalled();
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        'http://localhost:8080/api/v1/auth/register/resend',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ pending_id: MOCK_PENDING_ID }),
+        })
+      );
+    });
+  });
+
+  it('disables resend button and shows cooldown after resend', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          code_expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+          resends_remaining: 3,
+        }),
+    });
+
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
+    fireEvent.click(screen.getByText('Send new code'));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Send new code \(\d+s\)/)).toBeInTheDocument();
+    });
+  });
+
+  // ── Cancel ─────────────────────────────────────────────────────────────
+
+  it('shows cancel button when onCancel provided', () => {
+    render(<EmailVerification onSuccess={mockOnSuccess} onCancel={mockOnCancel} />);
+    expect(screen.getByText('← Cancel registration')).toBeInTheDocument();
+  });
+
+  it('DELETEs pending registration and calls onCancel', async () => {
+    // handleCancel only calls clearPending + onCancel on 204 or 404
+    mockFetch.mockResolvedValueOnce({ status: 204 });
+
+    render(<EmailVerification onSuccess={mockOnSuccess} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByText('← Cancel registration'));
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith(
+        `http://localhost:8080/api/v1/auth/register/${MOCK_PENDING_ID}`,
+        expect.objectContaining({ method: 'DELETE' })
+      );
+      expect(mockOnCancel).toHaveBeenCalledOnce();
+    });
+  });
+
+  it('clears pending store after cancel', async () => {
+    // handleCancel only calls clearPending on 204 or 404
+    mockFetch.mockResolvedValueOnce({ status: 204 });
+
+    render(<EmailVerification onSuccess={mockOnSuccess} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByText('← Cancel registration'));
+
+    await waitFor(() => {
+      expect(usePendingRegistrationStore.getState().pendingId).toBeNull();
+    });
+  });
+
+  it('shows error and keeps pending state when cancel returns unexpected status', async () => {
+    mockFetch.mockResolvedValueOnce({ status: 500 });
+
+    render(<EmailVerification onSuccess={mockOnSuccess} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByText('← Cancel registration'));
+
+    await waitFor(() => {
+      // queryAllByText because the error may appear in both the TOTP error
+      // slot and the email-verification-error paragraph.
+      expect(screen.queryAllByText(/Failed to cancel registration/).length).toBeGreaterThan(0);
+    });
+    expect(usePendingRegistrationStore.getState().pendingId).toBe(MOCK_PENDING_ID);
+    expect(mockOnCancel).not.toHaveBeenCalled();
+  });
+
+  it('accepts 404 as terminal cancel state and clears pending', async () => {
+    mockFetch.mockResolvedValueOnce({ status: 404 });
+
+    render(<EmailVerification onSuccess={mockOnSuccess} onCancel={mockOnCancel} />);
+    fireEvent.click(screen.getByText('← Cancel registration'));
+
+    await waitFor(() => {
+      expect(usePendingRegistrationStore.getState().pendingId).toBeNull();
+    });
+    expect(mockOnCancel).toHaveBeenCalledOnce();
+  });
+
+  // ── Resend error branches ───────────────────────────────────────────────
+
+  it('shows cooldown and hides error on cooldown_active resend response', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      json: () => Promise.resolve({ code: 'cooldown_active', retry_after_seconds: 45 }),
+    });
+
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
+    fireEvent.click(screen.getByText('Send new code'));
+
+    await waitFor(() => {
+      // Button should show cooldown (45s) and no error message
+      expect(screen.getByText(/Send new code \(45s\)/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/failed/i)).not.toBeInTheDocument();
+  });
+
+  it('shows resends_exhausted error', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      json: () => Promise.resolve({ code: 'resends_exhausted' }),
+    });
+
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
+    fireEvent.click(screen.getByText('Send new code'));
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText("You've used all 4 resend attempts. Please start over.").length
+      ).toBeGreaterThan(0);
+    });
+  });
+
+  it('shows generic error on unknown resend failure', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: () => Promise.resolve({ code: 'server_error' }),
+    });
+
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
+    fireEvent.click(screen.getByText('Send new code'));
+
+    await waitFor(() => {
+      expect(
+        screen.getAllByText('Failed to resend code. Please try again.').length
+      ).toBeGreaterThan(0);
+    });
+  });
+
+  it('shows too_many_attempts error on code submit', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      json: () => Promise.resolve({ code: 'too_many_attempts' }),
+    });
+
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
+    const inputs = screen.getAllByRole('textbox');
+    for (let i = 0; i < 6; i++) {
+      fireEvent.change(inputs[i], { target: { value: '0' } });
+    }
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Too many attempts — request a new code.').length).toBeGreaterThan(
+        0
+      );
+    });
+  });
+
+  it('shows fallback error for unrecognized status', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 503,
+      json: () => Promise.resolve({ code: 'some_unknown_code' }),
+    });
+
+    render(<EmailVerification onSuccess={mockOnSuccess} />);
+    const inputs = screen.getAllByRole('textbox');
+    for (let i = 0; i < 6; i++) {
+      fireEvent.change(inputs[i], { target: { value: '0' } });
+    }
+
+    await waitFor(() => {
+      expect(screen.getAllByText('Verification failed. Please try again.').length).toBeGreaterThan(
+        0
+      );
+    });
   });
 });

@@ -3,12 +3,14 @@ import { useNavigate } from 'react-router-dom';
 import { ConnectionMode } from '../../types/auth';
 import { useAuthStore } from '../../stores/authStore';
 import { useUserStore, UserProfile } from '../../stores/userStore';
+import { usePendingRegistrationStore } from '../../stores/pendingRegistrationStore';
 import ConnectionSelector from './ConnectionSelector';
 import ServerInput from './ServerInput';
 import Register from './Register';
 import Login from './Login';
 import AccountRecovery from './AccountRecovery';
 import EmailVerification from './EmailVerification';
+import { ChangeEmail } from './ChangeEmail';
 import './AuthFlow.css';
 
 type AuthStep =
@@ -18,38 +20,42 @@ type AuthStep =
   | 'hosted-login'
   | 'self-hosted-auth'
   | 'email-verification'
+  | 'change-email'
   | 'forgot-password';
 
 const AuthFlow: React.FC = () => {
   const navigate = useNavigate();
   const accessToken = useAuthStore((state) => state.accessToken);
   const emailVerified = useAuthStore((state) => state.emailVerified);
-  const pendingEmail = useAuthStore((state) => state.pendingVerificationEmail);
 
-  // Derive initial step: if user has a token but isn't verified, go straight to verification
-  const initialStep: AuthStep =
-    accessToken && !emailVerified && pendingEmail ? 'email-verification' : 'connection-select';
-  const [step, setStep] = useState<AuthStep>(initialStep);
+  const hasPending = usePendingRegistrationStore((s) => s.pendingId !== null && !s.isExpired());
+
+  // Derive initial step: pending registration resumes at email-verification,
+  // otherwise a token without verified email goes to verification (login gate),
+  // otherwise start at connection selection.
+  const getInitialStep = (): AuthStep => {
+    if (hasPending) return 'email-verification';
+    if (accessToken && !emailVerified) return 'email-verification';
+    return 'connection-select';
+  };
+
+  const [step, setStep] = useState<AuthStep>(getInitialStep);
+  const [serverUrl, setServerUrl] = useState<string>('');
 
   // Watch for async verification state changes (e.g. session restore → /users/me fetch
   // flips emailVerified to false after mount). Transition to verification when needed.
   useEffect(() => {
-    if (accessToken && !emailVerified && pendingEmail) {
+    if (accessToken && !emailVerified) {
       setStep('email-verification');
     }
-  }, [accessToken, emailVerified, pendingEmail]);
-  const [, setSelectedMode] = useState<ConnectionMode | null>(null);
-  const [serverUrl, setServerUrl] = useState<string>('');
+  }, [accessToken, emailVerified]);
 
   const handleConnectionSelect = (mode: ConnectionMode) => {
-    setSelectedMode(mode);
-
     if (mode === 'hosted') {
       setStep('hosted-register');
     } else if (mode === 'hosted-login') {
       setStep('hosted-login');
     } else {
-      // Go to server input for self-hosted
       setStep('server-input');
     }
   };
@@ -57,41 +63,22 @@ const AuthFlow: React.FC = () => {
   const handleServerConnect = (url: string) => {
     setServerUrl(url);
     setStep('self-hosted-auth');
-
     // Deferred: see #602 — requires self-hosted installer (#210)
     console.debug('Connecting to self-hosted server:', url);
   };
 
   const handleBack = () => {
     setStep('connection-select');
-    setSelectedMode(null);
     setServerUrl('');
   };
 
-  const handleRegistrationSuccess = (data: { accessToken: string; user?: UserProfile }) => {
-    console.debug('Registration successful, access token received');
-    useAuthStore.getState().setAccessToken(data.accessToken);
-    useAuthStore.getState().setRememberMe(true); // Registration always remembers
-    if (data.user) {
-      useUserStore.getState().setUser(data.user);
-
-      // Check if email verification is needed (new registrations have email_verified=false)
-      if (data.user.email_verified === false) {
-        useAuthStore.getState().setEmailVerified(false);
-        useAuthStore.getState().setPendingVerificationEmail(data.user.email || '');
-        setStep('email-verification');
-        return;
-      }
-    }
-    useAuthStore.getState().setEmailVerified(true);
-    navigate('/app/dms');
+  const handleRegistrationSuccess = (_data: { pendingId: string; email: string }) => {
+    console.debug('Registration successful, pending email verification');
+    setStep('email-verification');
   };
 
-  const handleEmailVerified = (newAccessToken: string) => {
+  const handleVerificationSuccess = () => {
     console.debug('Email verified, navigating to app');
-    useAuthStore.getState().setAccessToken(newAccessToken);
-    useAuthStore.getState().setEmailVerified(true);
-    useAuthStore.getState().setPendingVerificationEmail(null);
     navigate('/app/dms');
   };
 
@@ -109,7 +96,6 @@ const AuthFlow: React.FC = () => {
       // Gate unverified users behind email verification (same as registration)
       if (data.user.email_verified === false) {
         useAuthStore.getState().setEmailVerified(false);
-        useAuthStore.getState().setPendingVerificationEmail(data.user.email || '');
         setStep('email-verification');
         return;
       }
@@ -168,9 +154,19 @@ const AuthFlow: React.FC = () => {
       {step === 'email-verification' && (
         <div key="email-verification" className="auth-screen">
           <EmailVerification
-            email={pendingEmail || ''}
-            onVerified={handleEmailVerified}
-            onBack={handleBack}
+            maskEmail={false}
+            onSuccess={handleVerificationSuccess}
+            onChangeEmail={() => setStep('change-email')}
+            onCancel={handleBack}
+          />
+        </div>
+      )}
+
+      {step === 'change-email' && (
+        <div key="change-email" className="auth-screen">
+          <ChangeEmail
+            onDone={() => setStep('email-verification')}
+            onCancel={() => setStep('email-verification')}
           />
         </div>
       )}

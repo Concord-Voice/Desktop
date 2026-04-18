@@ -1,6 +1,7 @@
 import { render, screen, fireEvent } from '../../../test-utils';
 import { useAuthStore } from '@/renderer/stores/authStore';
 import { useUserStore } from '@/renderer/stores/userStore';
+import { usePendingRegistrationStore } from '@/renderer/stores/pendingRegistrationStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
 // Mock child components to isolate AuthFlow logic
@@ -30,8 +31,8 @@ vi.mock('@/renderer/components/Auth/Register', () => ({
       <button
         onClick={() =>
           onSuccess({
-            accessToken: 'reg-token',
-            user: { id: 'u1', username: 'newuser', e2ee_preference: false },
+            pendingId: 'mock-pending-id',
+            email: 'newuser@example.com',
           })
         }
       >
@@ -43,7 +44,7 @@ vi.mock('@/renderer/components/Auth/Register', () => ({
 }));
 
 vi.mock('@/renderer/components/Auth/Login', () => ({
-  default: ({ onBack, onSuccess, onSwitchToRegister }: any) => (
+  default: ({ onBack, onSuccess, onSwitchToRegister, onForgotPassword }: any) => (
     <div data-testid="login">
       <button onClick={onBack}>Back</button>
       <button
@@ -57,7 +58,33 @@ vi.mock('@/renderer/components/Auth/Login', () => ({
       >
         Login Success
       </button>
+      <button
+        onClick={() =>
+          onSuccess({
+            accessToken: 'unverified-token',
+            user: {
+              id: 'u2',
+              username: 'unverified',
+              e2ee_preference: false,
+              email_verified: false,
+            },
+            rememberMe: false,
+          })
+        }
+      >
+        Login Unverified
+      </button>
       <button onClick={onSwitchToRegister}>Switch to Register</button>
+      <button onClick={onForgotPassword}>Forgot Password</button>
+    </div>
+  ),
+}));
+
+vi.mock('@/renderer/components/Auth/AccountRecovery', () => ({
+  default: ({ onBack, onComplete }: any) => (
+    <div data-testid="account-recovery">
+      <button onClick={onBack}>Recovery Back</button>
+      <button onClick={onComplete}>Recovery Complete</button>
     </div>
   ),
 }));
@@ -67,6 +94,25 @@ vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return { ...actual, useNavigate: () => mockNavigate };
 });
+
+vi.mock('@/renderer/components/Auth/EmailVerification', () => ({
+  default: ({ onSuccess, onChangeEmail, onCancel }: any) => (
+    <div data-testid="email-verification">
+      <button onClick={onSuccess}>Verify Success</button>
+      {onChangeEmail && <button onClick={onChangeEmail}>Change Email</button>}
+      {onCancel && <button onClick={onCancel}>Cancel Verification</button>}
+    </div>
+  ),
+}));
+
+vi.mock('@/renderer/components/Auth/ChangeEmail', () => ({
+  ChangeEmail: ({ onDone, onCancel }: any) => (
+    <div data-testid="change-email">
+      <button onClick={onDone}>Change Done</button>
+      <button onClick={onCancel}>Change Cancel</button>
+    </div>
+  ),
+}));
 
 import AuthFlow from '@/renderer/components/Auth/AuthFlow';
 
@@ -130,14 +176,13 @@ describe('AuthFlow', () => {
     expect(screen.getByText('Connecting to: https://my.server.com')).toBeInTheDocument();
   });
 
-  it('handles registration success', () => {
+  it('handles registration success — routes to email-verification', () => {
     render(<AuthFlow />);
     fireEvent.click(screen.getByText('Select Hosted'));
     fireEvent.click(screen.getByText('Register Success'));
 
-    expect(useAuthStore.getState().accessToken).toBe('reg-token');
-    expect(useUserStore.getState().user?.username).toBe('newuser');
-    expect(mockNavigate).toHaveBeenCalledWith('/app/dms');
+    expect(screen.getByTestId('email-verification')).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('handles login success', () => {
@@ -148,5 +193,89 @@ describe('AuthFlow', () => {
     expect(useAuthStore.getState().accessToken).toBe('login-token');
     expect(useUserStore.getState().user?.username).toBe('existing');
     expect(mockNavigate).toHaveBeenCalledWith('/app/dms');
+  });
+
+  it('navigates to /app/dms after email verification success', () => {
+    render(<AuthFlow />);
+    fireEvent.click(screen.getByText('Select Hosted'));
+    fireEvent.click(screen.getByText('Register Success'));
+    fireEvent.click(screen.getByText('Verify Success'));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/app/dms');
+  });
+
+  it('routes to change-email step when onChangeEmail triggered', () => {
+    render(<AuthFlow />);
+    fireEvent.click(screen.getByText('Select Hosted'));
+    fireEvent.click(screen.getByText('Register Success'));
+    fireEvent.click(screen.getByText('Change Email'));
+
+    expect(screen.getByTestId('change-email')).toBeInTheDocument();
+  });
+
+  it('returns to email-verification from change-email on done', () => {
+    render(<AuthFlow />);
+    fireEvent.click(screen.getByText('Select Hosted'));
+    fireEvent.click(screen.getByText('Register Success'));
+    fireEvent.click(screen.getByText('Change Email'));
+    fireEvent.click(screen.getByText('Change Done'));
+
+    expect(screen.getByTestId('email-verification')).toBeInTheDocument();
+  });
+
+  it('returns to email-verification from change-email on cancel', () => {
+    render(<AuthFlow />);
+    fireEvent.click(screen.getByText('Select Hosted'));
+    fireEvent.click(screen.getByText('Register Success'));
+    fireEvent.click(screen.getByText('Change Email'));
+    fireEvent.click(screen.getByText('Change Cancel'));
+
+    expect(screen.getByTestId('email-verification')).toBeInTheDocument();
+  });
+
+  it('shows forgot-password step when onForgotPassword triggered', () => {
+    render(<AuthFlow />);
+    fireEvent.click(screen.getByText('Select Login'));
+    fireEvent.click(screen.getByText('Forgot Password'));
+
+    expect(screen.getByTestId('account-recovery')).toBeInTheDocument();
+  });
+
+  it('returns to login from forgot-password on back', () => {
+    render(<AuthFlow />);
+    fireEvent.click(screen.getByText('Select Login'));
+    fireEvent.click(screen.getByText('Forgot Password'));
+    fireEvent.click(screen.getByText('Recovery Back'));
+
+    expect(screen.getByTestId('login')).toBeInTheDocument();
+  });
+
+  it('returns to login from forgot-password on complete', () => {
+    render(<AuthFlow />);
+    fireEvent.click(screen.getByText('Select Login'));
+    fireEvent.click(screen.getByText('Forgot Password'));
+    fireEvent.click(screen.getByText('Recovery Complete'));
+
+    expect(screen.getByTestId('login')).toBeInTheDocument();
+  });
+
+  it('routes to email-verification when login returns unverified user', () => {
+    render(<AuthFlow />);
+    fireEvent.click(screen.getByText('Select Login'));
+    fireEvent.click(screen.getByText('Login Unverified'));
+
+    expect(screen.getByTestId('email-verification')).toBeInTheDocument();
+  });
+
+  it('starts at email-verification when pending registration exists', () => {
+    usePendingRegistrationStore.getState().setPending({
+      pending_id: 'existing-pending-id',
+      email: 'existing@example.com',
+      expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+      code_expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+    });
+
+    render(<AuthFlow />);
+    expect(screen.getByTestId('email-verification')).toBeInTheDocument();
   });
 });

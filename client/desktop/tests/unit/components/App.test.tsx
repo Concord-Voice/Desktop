@@ -4,6 +4,7 @@ import { useUserStore } from '@/renderer/stores/userStore';
 import { useChannelStore } from '@/renderer/stores/channelStore';
 import { useDMStore } from '@/renderer/stores/dmStore';
 import { useNotificationNavigationStore } from '@/renderer/stores/notificationNavigationStore';
+import { usePendingRegistrationStore } from '@/renderer/stores/pendingRegistrationStore';
 // Mock child components to prevent complex rendering
 vi.mock('@/renderer/components/Auth/AuthFlow', () => ({
   default: () => <div data-testid="auth-flow">AuthFlow</div>,
@@ -63,6 +64,35 @@ describe('App', () => {
     vi.clearAllMocks();
     useAuthStore.getState().clearAccessToken();
     useUserStore.setState({ user: null });
+    usePendingRegistrationStore.getState().clearPending();
+  });
+
+  // ── Pending registration cleanup on startup ─────────────────────────────
+
+  it('clears expired pending registration on mount', () => {
+    usePendingRegistrationStore.getState().setPending({
+      pending_id: 'stale-pid',
+      email: 'old@example.com',
+      expires_at: new Date(Date.now() - 60_000).toISOString(),
+      code_expires_at: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    render(<App />);
+
+    expect(usePendingRegistrationStore.getState().pendingId).toBeNull();
+  });
+
+  it('preserves non-expired pending registration on mount', () => {
+    usePendingRegistrationStore.getState().setPending({
+      pending_id: 'fresh-pid',
+      email: 'new@example.com',
+      expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
+      code_expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+    });
+
+    render(<App />);
+
+    expect(usePendingRegistrationStore.getState().pendingId).toBe('fresh-pid');
   });
 
   it('renders title bar', () => {

@@ -16,17 +16,57 @@ export const handlers = [
   http.post(`${API_BASE}/api/v1/auth/register`, () => {
     return HttpResponse.json(
       {
-        access_token: 'mock-access-token',
-        expires_in: 900,
-        remember_me: true,
-        user: {
-          id: mockUser.id,
-          username: mockUser.username,
-          e2ee_preference: false,
-        },
+        pending_id: 'mock-pending-id',
+        email: 'test@example.com',
+        expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+        code_expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
       },
       { status: 201 }
     );
+  }),
+
+  http.post(`${API_BASE}/api/v1/auth/register/confirm`, () => {
+    return HttpResponse.json(
+      {
+        access_token: 'mock-access-token',
+        refresh_token: 'mock-refresh-token',
+        session_id: 'mock-session',
+        expires_in: 900,
+        remember_me: true,
+        user: {
+          id: 'mock-user-id',
+          username: 'mockuser',
+          email: 'test@example.com',
+          email_verified: true,
+          e2ee_preference: true,
+        },
+      },
+      { status: 200 }
+    );
+  }),
+
+  http.post(`${API_BASE}/api/v1/auth/register/resend`, () => {
+    return HttpResponse.json(
+      {
+        code_expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+        resends_remaining: 3,
+      },
+      { status: 200 }
+    );
+  }),
+
+  http.post(`${API_BASE}/api/v1/auth/register/change-email`, () => {
+    return HttpResponse.json(
+      {
+        email: 'updated@example.com',
+        code_expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+      },
+      { status: 200 }
+    );
+  }),
+
+  http.delete(`${API_BASE}/api/v1/auth/register/:pendingId`, () => {
+    return new HttpResponse(null, { status: 204 });
   }),
 
   http.post(`${API_BASE}/api/v1/auth/login`, () => {

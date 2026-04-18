@@ -1,38 +1,23 @@
 import { render, screen, userEvent } from '../../../test-utils';
 import Register from '@/renderer/components/Auth/Register';
 import { vi } from 'vitest';
+import { usePendingRegistrationStore } from '@/renderer/stores/pendingRegistrationStore';
+import { useAuthStore } from '@/renderer/stores/authStore';
+import { resetAllStores } from '../../../helpers/store-helpers';
 
 // Mock global fetch
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-// Mock crypto and services
+// Mock crypto
 vi.mock('@/renderer/utils/crypto', () => ({
   generateRegistrationKeys: vi.fn().mockResolvedValue({
     wrappedPrivateKey: 'mock',
     keyDerivationSalt: 'mock',
+    keyDerivationAlg: 'argon2id',
     publicKey: {},
   }),
   exportPublicKey: vi.fn().mockResolvedValue('mock-public-key'),
-}));
-
-vi.mock('@/renderer/services/e2eeService', () => ({
-  e2eeService: {
-    initialize: vi.fn().mockResolvedValue(undefined),
-    getSessionKeys: vi.fn().mockReturnValue({
-      wrappingKeyBase64: 'mock-wrapping-key',
-      preferencesKeyBase64: 'mock-preferences-key',
-      wrappedPrivateKeyBase64: 'mock-wrapped-private-key',
-    }),
-  },
-}));
-
-vi.mock('@/renderer/services/preferencesSync', () => ({
-  preferencesSyncService: {
-    init: vi.fn(),
-    startWatching: vi.fn(),
-    fetchAndApply: vi.fn().mockResolvedValue(undefined),
-  },
 }));
 
 describe('Register', () => {
@@ -42,6 +27,8 @@ describe('Register', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetAllStores();
+    usePendingRegistrationStore.getState().clearPending();
   });
 
   it('renders registration form', () => {
@@ -148,12 +135,15 @@ describe('Register', () => {
     expect(screen.getByText(/Terms of Service and Privacy Policy/)).toBeInTheDocument();
   });
 
-  it('submits registration and calls onSuccess', async () => {
+  it('on 201 response, writes pending registration to store', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
+      status: 201,
       json: async () => ({
-        access_token: 'mock-access',
-        user: { id: 'user-1', username: 'testuser', email: 'test@example.com' },
+        pending_id: 'mock-pending-id',
+        email: 'test@example.com',
+        expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+        code_expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
       }),
     });
 
@@ -166,16 +156,16 @@ describe('Register', () => {
       'MySecurePassword123!'
     );
     await user.type(screen.getByPlaceholderText('Confirm your password'), 'MySecurePassword123!');
-    // Click age confirmation checkbox
     await user.click(screen.getByText(/at least 16 years old/));
     await user.click(screen.getByText('Create Account'));
 
     await vi.waitFor(() => {
-      expect(onSuccess).toHaveBeenCalledWith(
-        expect.objectContaining({
-          accessToken: 'mock-access',
-        })
-      );
+      expect(usePendingRegistrationStore.getState().pendingId).toBe('mock-pending-id');
+    });
+    expect(useAuthStore.getState().accessToken).toBeNull();
+    expect(onSuccess).toHaveBeenCalledWith({
+      pendingId: 'mock-pending-id',
+      email: 'test@example.com',
     });
   });
 
