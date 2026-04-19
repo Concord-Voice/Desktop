@@ -28,9 +28,9 @@ const StreamThumbnail: React.FC<{
       el.srcObject = null;
     }
     return () => {
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
-      }
+      // Copy ref to local so cleanup acts on the element captured at setup,
+      // not whatever videoRef.current might point at by the time cleanup runs.
+      el.srcObject = null;
     };
   }, [stream]);
 

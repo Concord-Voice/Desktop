@@ -185,47 +185,52 @@ const AppearanceSection: React.FC = () => {
         {/* Custom theme color picker panel */}
         {appearance.colorScheme === 'custom' && appearance.customColors && (
           <div className="custom-theme-picker">
-            {[
-              { key: 'background' as const, label: 'Background' },
-              { key: 'accentPrimary' as const, label: 'Primary Accent' },
-              { key: 'accentSecondary' as const, label: 'Secondary Accent' },
-            ].map(({ key, label }) => (
-              <div key={key} className="custom-theme-picker-row">
-                <label htmlFor={`custom-theme-${key}`} className="custom-theme-picker-label">
-                  {label}
-                </label>
-                <div className="custom-theme-picker-input-group">
-                  <input
-                    id={`custom-theme-${key}`}
-                    type="color"
-                    value={appearance.customColors![key]}
-                    onChange={(e) =>
-                      setDraftAppearanceSetting('customColors', {
-                        ...appearance.customColors!,
-                        [key]: e.target.value,
-                      })
-                    }
-                    className="custom-theme-color-input"
-                  />
-                  <input
-                    type="text"
-                    value={appearance.customColors![key]}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (isValidHex(val)) {
+            {(() => {
+              // Capture narrowed value so the map callbacks can reference it
+              // without TypeScript losing the narrowing across the closure.
+              const customColors = appearance.customColors;
+              return [
+                { key: 'background' as const, label: 'Background' },
+                { key: 'accentPrimary' as const, label: 'Primary Accent' },
+                { key: 'accentSecondary' as const, label: 'Secondary Accent' },
+              ].map(({ key, label }) => (
+                <div key={key} className="custom-theme-picker-row">
+                  <label htmlFor={`custom-theme-${key}`} className="custom-theme-picker-label">
+                    {label}
+                  </label>
+                  <div className="custom-theme-picker-input-group">
+                    <input
+                      id={`custom-theme-${key}`}
+                      type="color"
+                      value={customColors[key]}
+                      onChange={(e) =>
                         setDraftAppearanceSetting('customColors', {
-                          ...appearance.customColors!,
-                          [key]: val,
-                        });
+                          ...customColors,
+                          [key]: e.target.value,
+                        })
                       }
-                    }}
-                    className="custom-theme-hex-input"
-                    maxLength={7}
-                    spellCheck={false}
-                  />
+                      className="custom-theme-color-input"
+                    />
+                    <input
+                      type="text"
+                      value={customColors[key]}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (isValidHex(val)) {
+                          setDraftAppearanceSetting('customColors', {
+                            ...customColors,
+                            [key]: val,
+                          });
+                        }
+                      }}
+                      className="custom-theme-hex-input"
+                      maxLength={7}
+                      spellCheck={false}
+                    />
+                  </div>
                 </div>
-              </div>
-            ))}
+              ));
+            })()}
           </div>
         )}
       </CollapsibleSection>

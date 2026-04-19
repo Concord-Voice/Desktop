@@ -183,7 +183,12 @@ export function useMicTest(): UseMicTestReturn {
 
       const outputDeviceId = voiceState.audioOutputDeviceId;
       if (outputDeviceId && 'setSinkId' in audioEl) {
-        await (audioEl as any).setSinkId(outputDeviceId);
+        // Chrome-exclusive API not in the stock HTMLAudioElement lib types.
+        // Widening to a minimal interface that declares only the field we
+        // use avoids `any` while keeping the guard above as the safety net.
+        await (audioEl as HTMLAudioElement & { setSinkId(id: string): Promise<void> }).setSinkId(
+          outputDeviceId
+        );
       }
       await audioEl.play();
 

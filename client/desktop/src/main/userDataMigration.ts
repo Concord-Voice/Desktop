@@ -58,7 +58,7 @@ export function migrateUserData(): void {
 
   try {
     fs.renameSync(oldPath, newPath);
-    console.log(
+    console.debug(
       `[migration] Renamed userData directory: "${OLD_DIR_NAME}" → "${path.basename(newPath)}"`
     );
   } catch (err: unknown) {

@@ -237,13 +237,17 @@ const SettingsPage: React.FC = () => {
       const sections = root.querySelectorAll('[id^="section-"]');
       for (const el of sections) observer.observe(el);
 
-      // Store observer ref for cleanup
-      (root as any).__settingsObserver = observer;
+      // Store observer ref for cleanup.
+      // Custom expando property on the DOM element; narrow via a local
+      // structural type rather than casting through `any`.
+      (root as HTMLElement & { __settingsObserver?: IntersectionObserver }).__settingsObserver =
+        observer;
     }, 50);
 
     return () => {
       clearTimeout(timer);
-      const obs = (root as any)?.__settingsObserver as IntersectionObserver | undefined;
+      const obs = (root as (HTMLElement & { __settingsObserver?: IntersectionObserver }) | null)
+        ?.__settingsObserver;
       obs?.disconnect();
     };
   }, [activeSection]);

@@ -1,7 +1,7 @@
 {
   "name": "@concordvoice/desktop",
   "productName": "ConcordVoice",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "description": "Concord Voice Desktop Client - Privacy-first voice communication",
   "main": "dist/main/main.js",
   "author": "Concord Voice Team",
@@ -57,6 +57,7 @@
     "@electron-forge/maker-rpm": "^7.11.1",
     "@electron-forge/maker-squirrel": "^7.11.1",
     "@electron-forge/maker-zip": "^7.11.1",
+    "@eslint-community/eslint-plugin-eslint-comments": "^4.7.1",
     "@playwright/test": "^1.59.1",
     "@reforged/maker-appimage": "^5.2.0",
     "@sentry/vite-plugin": "^5.2.0",

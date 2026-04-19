@@ -159,7 +159,7 @@ export function useWebSocket() {
       for (const id of timers) clearTimeout(id);
       timers.clear();
     };
-  }, []);
+  }, [performKeyRotation]);
 
   // Connect when token is available
   useEffect(() => {

@@ -216,24 +216,26 @@ export const AudioOutputs: React.FC = () => {
 
   return (
     <>
-      {participantList
-        .filter((p) => p.userId !== localUserId && p.audioStream)
-        .map((p) => (
+      {participantList.flatMap((p) => {
+        if (p.userId === localUserId || !p.audioStream) return [];
+        return [
           <AudioOutput
             key={`audio-${p.userId}`}
-            stream={p.audioStream!}
+            stream={p.audioStream}
             outputDeviceId={audioOutputDeviceId || undefined}
-          />
-        ))}
-      {participantList
-        .filter((p) => p.userId !== localUserId && p.screenAudioStream)
-        .map((p) => (
+          />,
+        ];
+      })}
+      {participantList.flatMap((p) => {
+        if (p.userId === localUserId || !p.screenAudioStream) return [];
+        return [
           <AudioOutput
             key={`screen-audio-${p.userId}`}
-            stream={p.screenAudioStream!}
+            stream={p.screenAudioStream}
             outputDeviceId={audioOutputDeviceId || undefined}
-          />
-        ))}
+          />,
+        ];
+      })}
     </>
   );
 };

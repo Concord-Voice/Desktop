@@ -322,7 +322,7 @@ const FramesPipContent: React.FC<{
       client.dispose().catch(console.error);
       clientRef.current = null;
     };
-  }, [pipId, onClose]);
+  }, [pipId, onClose, consumeAndAttach]);
 
   const scales = useVoiceMagnification(participants);
   const participantList = Object.values(participants);

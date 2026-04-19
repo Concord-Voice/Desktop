@@ -29,7 +29,7 @@ const AttachmentUploadPreview: React.FC<AttachmentUploadPreviewProps> = ({ files
   return (
     <div className="attachment-upload-preview">
       {files.map((entry, index) => {
-        const isImage = entry.previewUrl != null;
+        const previewUrl = entry.previewUrl;
         return (
           <div
             key={`${entry.file.name}-${index}`}
@@ -44,9 +44,9 @@ const AttachmentUploadPreview: React.FC<AttachmentUploadPreviewProps> = ({ files
               <X size={14} />
             </button>
 
-            {isImage ? (
+            {previewUrl ? (
               <img
-                src={entry.previewUrl!}
+                src={previewUrl}
                 alt={entry.file.name}
                 className="attachment-preview-thumbnail"
               />

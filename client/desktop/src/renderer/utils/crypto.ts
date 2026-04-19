@@ -313,13 +313,19 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): string {
 }
 
 /**
- * Convert base64 string to ArrayBuffer
+ * Convert base64 string to ArrayBuffer.
+ *
+ * atob() produces a binary string where every character is a single code
+ * unit in the range 0x00..0xFF. Since `i` is strictly bounded by
+ * `binary.length`, `codePointAt(i)` is always defined — but the type
+ * signature returns `number | undefined`, so we explicitly narrow via
+ * `?? 0` (unreachable fallback) instead of using a non-null assertion.
  */
 export function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.codePointAt(i)!;
+    bytes[i] = binary.codePointAt(i) ?? 0;
   }
   return bytes.buffer;
 }

@@ -37,7 +37,7 @@ describe('userDataMigration', () => {
       return tmpDir;
     });
 
-    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'debug').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
@@ -72,7 +72,7 @@ describe('userDataMigration', () => {
       expect(fs.existsSync(newDir)).toBe(true);
       expect(fs.existsSync(path.join(newDir, 'hw-accel.json'))).toBe(true);
       expect(fs.existsSync(path.join(newDir, 'update-prefs.json'))).toBe(true);
-      expect(console.log).toHaveBeenCalledWith(
+      expect(console.debug).toHaveBeenCalledWith(
         expect.stringContaining('[migration] Renamed userData directory')
       );
     });
@@ -84,7 +84,7 @@ describe('userDataMigration', () => {
       // Neither dir should exist (no migration attempted)
       expect(fs.existsSync(path.join(parentDir, 'Concord Voice'))).toBe(false);
       expect(fs.existsSync(path.join(parentDir, 'ConcordVoice'))).toBe(false);
-      expect(console.log).not.toHaveBeenCalled();
+      expect(console.debug).not.toHaveBeenCalled();
     });
 
     it('does nothing when new dir already exists (already migrated)', async () => {
@@ -101,7 +101,7 @@ describe('userDataMigration', () => {
       // Both dirs should still exist, neither modified
       expect(fs.existsSync(path.join(oldDir, 'old-data.json'))).toBe(true);
       expect(fs.existsSync(path.join(newDir, 'new-data.json'))).toBe(true);
-      expect(console.log).not.toHaveBeenCalled();
+      expect(console.debug).not.toHaveBeenCalled();
     });
 
     it('skips migration when old path is a file not a directory', async () => {
@@ -114,7 +114,7 @@ describe('userDataMigration', () => {
       // File should remain untouched
       expect(fs.existsSync(oldPath)).toBe(true);
       expect(fs.readFileSync(oldPath, 'utf-8')).toBe('not a directory');
-      expect(console.log).not.toHaveBeenCalled();
+      expect(console.debug).not.toHaveBeenCalled();
     });
 
     it('logs warning and continues when rename fails', async () => {

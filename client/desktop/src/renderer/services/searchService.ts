@@ -54,8 +54,8 @@ function needsEviction(): boolean {
 }
 
 function evictOldestScope(): void {
-  if (scopeAccessOrder.length === 0) return;
-  const oldestScope = scopeAccessOrder.shift()!;
+  const oldestScope = scopeAccessOrder.shift();
+  if (oldestScope === undefined) return;
   removeScope(oldestScope);
 }
 

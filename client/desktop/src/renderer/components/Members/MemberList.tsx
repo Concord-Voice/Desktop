@@ -107,12 +107,15 @@ const MemberList: React.FC = () => {
 
   // Get status for a member (with fallback)
   // For the self user, use selfStatus as the source of truth
-  const getMemberStatus = (userId: string): PresenceStatus => {
-    if (selfUser?.id === userId) {
-      return selfStatus;
-    }
-    return userStatuses.get(userId) || (onlineUserIds.has(userId) ? 'online' : 'offline');
-  };
+  const getMemberStatus = useCallback(
+    (userId: string): PresenceStatus => {
+      if (selfUser?.id === userId) {
+        return selfStatus;
+      }
+      return userStatuses.get(userId) || (onlineUserIds.has(userId) ? 'online' : 'offline');
+    },
+    [selfUser, selfStatus, userStatuses, onlineUserIds]
+  );
 
   // Sort: online first, dnd second, away third, offline/invisible last, then alphabetical
   const sortMembers = useCallback(
@@ -130,9 +133,8 @@ const MemberList: React.FC = () => {
         const bOrder = statusOrder[bStatus];
         if (aOrder !== bOrder) return aOrder - bOrder;
         return a.username.localeCompare(b.username);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
       }),
-    [selfUser, selfStatus, userStatuses, onlineUserIds]
+    [getMemberStatus]
   );
 
   // Filter members by search query
@@ -210,7 +212,7 @@ const MemberList: React.FC = () => {
     }
 
     return groups;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- voice state (useVoiceStore) is read synchronously inside the computation but intentionally omitted from deps: member grouping recomputes on roster/role/server changes, and voice-presence badging is separately reactive through the store subscription on the rendered rows — including voice state here would re-run the entire grouping on every mic-unmute event
   }, [filteredMembers, serverRoles, activeServerId, sortMembers]);
 
   const renderGroup = (group: {

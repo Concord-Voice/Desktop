@@ -15,14 +15,8 @@
 import { app, safeStorage, net } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
-import crypto from 'node:crypto';
 import { getMachineId } from './machineId';
 import type { RefreshResult } from './ipcContract';
-
-/** Compute the same SHA-256 hex hash the server uses for DB lookups */
-function clientHashToken(token: string): string {
-  return crypto.createHash('sha256').update(token).digest('hex');
-}
 
 // ─── Module State (never leaves this process) ────────────────────────
 
@@ -162,7 +156,7 @@ function scheduleProactiveRefresh(accessToken: string): void {
   const delaySeconds = exp - nowSeconds - PROACTIVE_BUFFER_SECONDS;
 
   if (delaySeconds > 0) {
-    console.log(
+    console.debug(
       `[TokenManager] Proactive refresh scheduled in ${Math.round(delaySeconds / 60)}m ${delaySeconds % 60}s`
     );
     scheduleProactiveTimer(delaySeconds * 1000);
@@ -174,12 +168,12 @@ function scheduleProactiveRefresh(accessToken: string): void {
   if (sinceLastRefresh < MIN_PROACTIVE_INTERVAL_MS) {
     // Recently refreshed — schedule after cooldown to avoid tight loop
     const retryMs = MIN_PROACTIVE_INTERVAL_MS - sinceLastRefresh;
-    console.log(`[TokenManager] Token near expiry, retrying in ${retryMs}ms (rate-limited)`);
+    console.debug(`[TokenManager] Token near expiry, retrying in ${retryMs}ms (rate-limited)`);
     scheduleProactiveTimer(retryMs);
     return;
   }
 
-  console.log('[TokenManager] Token near expiry, refreshing immediately');
+  console.debug('[TokenManager] Token near expiry, refreshing immediately');
   void doProactiveRefresh();
 }
 
@@ -193,7 +187,7 @@ async function doProactiveRefresh(): Promise<void> {
   lastProactiveRefreshTimestamp = Date.now();
   const result = await performRefresh();
   if (result.status === 'ok' && result.accessToken) {
-    console.log('[TokenManager] Proactive refresh succeeded');
+    console.debug('[TokenManager] Proactive refresh succeeded');
     proactiveRefreshCallback?.(result.accessToken, result.sessionId);
   } else if (inMemoryRefreshToken && inMemoryApiBase) {
     // Refresh failed but we still have credentials — schedule a retry
@@ -240,12 +234,12 @@ export function onSystemResume(): void {
   const sinceLastRefresh = Date.now() - lastProactiveRefreshTimestamp;
   if (sinceLastRefresh < MIN_PROACTIVE_INTERVAL_MS) {
     const retryMs = MIN_PROACTIVE_INTERVAL_MS - sinceLastRefresh;
-    console.log(`[TokenManager] System resumed, refreshing in ${retryMs}ms (rate-limited)`);
+    console.debug(`[TokenManager] System resumed, refreshing in ${retryMs}ms (rate-limited)`);
     scheduleProactiveTimer(retryMs);
     return;
   }
 
-  console.log('[TokenManager] System resumed from sleep, refreshing token');
+  console.debug('[TokenManager] System resumed from sleep, refreshing token');
   void doProactiveRefresh();
 }
 
@@ -263,18 +257,15 @@ export function storeRefreshToken(data: {
   apiBase: string;
   accessToken?: string;
 }): void {
-  const suffix = data.refreshToken?.slice(-8) ?? '(empty)';
-  const hash = data.refreshToken ? clientHashToken(data.refreshToken).slice(0, 16) : '(none)';
   inMemoryRefreshToken = data.refreshToken;
   inMemoryRememberMe = data.rememberMe;
   inMemoryApiBase = data.apiBase;
   cachedAccessToken = data.accessToken ?? null;
 
   if (!data.rememberMe) {
-    // Session-only: clear any persisted token
-    console.log(
-      `[TokenManager] storeRefreshToken: rememberMe=false, deleting disk files (token …${suffix}, hash=${hash})`
-    );
+    // Session-only: clear any persisted token.
+    // Key-material audit: previously logged the token's last-8 chars + a
+    // sha256 fingerprint — removed to keep refresh-token bytes off stdout.
     deleteFiles();
     return;
   }
@@ -290,16 +281,19 @@ export function storeRefreshToken(data: {
     fs.writeFileSync(TOKEN_FILE, encrypted);
     writeMeta(data.apiBase, data.rememberMe);
 
-    // Verify disk round-trip: read back and compare
+    // Verify disk round-trip: read back and compare.
+    // Key-material audit (#667): no token bytes in any log output, even rare-
+    // path diagnostics. A mismatch on the decrypted-vs-intended comparison is
+    // the signal on its own; emitting suffix bytes would give an operator no
+    // actionable information while creating a session-correlation primitive
+    // for anyone with access to stdout, crash dumps, or Sentry breadcrumbs.
+    // See internal-reference "Private keys, channel keys, and session keys
+    // NEVER logged" — refresh tokens are in scope.
     const readBack = fs.readFileSync(TOKEN_FILE);
     const decrypted = safeStorage.decryptString(readBack);
-    if (decrypted === data.refreshToken) {
-      console.log(
-        `[TokenManager] storeRefreshToken: persisted to disk ✓ (token …${suffix}, hash=${hash}, rememberMe=true)`
-      );
-    } else {
+    if (decrypted !== data.refreshToken) {
       console.error(
-        `[TokenManager] DISK ROUND-TRIP MISMATCH! Stored …${suffix}, read back …${decrypted.slice(-8)}`
+        '[TokenManager] DISK ROUND-TRIP MISMATCH on refresh token (safeStorage integrity failure)'
       );
     }
   } catch (err) {
@@ -315,14 +309,14 @@ export function restoreRefreshToken():
   | { status: 'ok'; token: string; apiBase: string }
   | { status: 'no_session' | 'tampered' | 'unavailable' } {
   if (!canPersist()) {
-    console.log('[TokenManager] restoreRefreshToken: safeStorage unavailable');
+    console.debug('[TokenManager] restoreRefreshToken: safeStorage unavailable');
     return { status: 'unavailable' };
   }
 
   const meta = readMeta();
   if (!meta) {
     const tokenFileExists = fs.existsSync(TOKEN_FILE);
-    console.log(
+    console.debug(
       `[TokenManager] restoreRefreshToken: no meta file (token file exists: ${tokenFileExists})`
     );
     return { status: 'no_session' };
@@ -331,11 +325,9 @@ export function restoreRefreshToken():
   try {
     const encrypted = fs.readFileSync(TOKEN_FILE);
     const token = safeStorage.decryptString(encrypted);
-    const suffix = token.slice(-8);
-    const hash = clientHashToken(token).slice(0, 16);
-    console.log(
-      `[TokenManager] restoreRefreshToken: restored from disk (token …${suffix}, hash=${hash}, rememberMe=${meta.rememberMe}, apiBase=${meta.apiBase})`
-    );
+    // Key-material audit: previously logged the token's last-8 chars + a
+    // sha256 fingerprint plus rememberMe + apiBase — removed to keep
+    // refresh-token bytes off stdout.
     inMemoryRefreshToken = token;
     inMemoryRememberMe = meta.rememberMe;
     inMemoryApiBase = meta.apiBase;
@@ -348,10 +340,7 @@ export function restoreRefreshToken():
   }
 }
 
-async function tryParseMfaChallenge(
-  response: Response,
-  tokenSuffix: string
-): Promise<RefreshResult | null> {
+async function tryParseMfaChallenge(response: Response): Promise<RefreshResult | null> {
   if (response.status !== 403) return null;
 
   try {
@@ -365,7 +354,7 @@ async function tryParseMfaChallenge(
       (errData.error === 'suspicious_session_mfa' || errData.error === 'mfa_upgrade_required') &&
       errData.mfa_challenge_token
     ) {
-      console.warn(`[TokenManager] ${errData.error} — MFA required (token …${tokenSuffix})`);
+      console.warn(`[TokenManager] ${errData.error} — MFA required`);
       return {
         status: 'mfa_required',
         mfaChallengeToken: errData.mfa_challenge_token,
@@ -381,10 +370,8 @@ async function tryParseMfaChallenge(
 }
 
 function persistRotatedToken(newRefreshToken: string): void {
-  const newSuffix = newRefreshToken.slice(-8);
-
   if (!inMemoryRememberMe || !canPersist()) {
-    console.log(
+    console.debug(
       `[TokenManager] Rotated token NOT persisted (rememberMe=${inMemoryRememberMe}, canPersist=${canPersist()})`
     );
     return;
@@ -393,7 +380,8 @@ function persistRotatedToken(newRefreshToken: string): void {
   try {
     const encrypted = safeStorage.encryptString(newRefreshToken);
     fs.writeFileSync(TOKEN_FILE, encrypted);
-    console.log(`[TokenManager] Rotated token persisted to disk ✓ (…${newSuffix})`);
+    // Key-material audit: previously logged the new refresh token's last-8
+    // chars — removed to keep token bytes off stdout.
   } catch (err) {
     console.error('[TokenManager] Failed to re-encrypt rotated token:', err);
   }
@@ -414,10 +402,10 @@ export function performRefresh(): Promise<RefreshResult> {
     }
 
     try {
-      const tokenSuffix = inMemoryRefreshToken.slice(-8);
-      const tokenHash = clientHashToken(inMemoryRefreshToken).slice(0, 16);
-      console.log(`[TokenManager] Refreshing token (…${tokenSuffix}, hash=${tokenHash})`);
-
+      // Key-material audit (#667): no token bytes in any log output, including
+      // failure-path console.warn. HTTP status + error classification are
+      // sufficient diagnostics; deriving a suffix correlation handle from
+      // inMemoryRefreshToken violates internal-reference
       const response = await net.fetch(`${inMemoryApiBase}/api/v1/auth/refresh`, {
         method: 'POST',
         headers: {
@@ -432,11 +420,9 @@ export function performRefresh(): Promise<RefreshResult> {
       });
 
       if (!response.ok) {
-        const mfaResult = await tryParseMfaChallenge(response, tokenSuffix);
+        const mfaResult = await tryParseMfaChallenge(response);
         if (mfaResult) return mfaResult;
-        console.warn(
-          `[TokenManager] Refresh failed: HTTP ${response.status} (token …${tokenSuffix})`
-        );
+        console.warn(`[TokenManager] Refresh failed: HTTP ${response.status}`);
         return { status: 'refresh_failed' };
       }
 
@@ -453,11 +439,10 @@ export function performRefresh(): Promise<RefreshResult> {
         return { status: 'refresh_failed' };
       }
 
-      // Rotate: update in-memory refresh token and re-encrypt to disk
+      // Rotate: update in-memory refresh token and re-encrypt to disk.
+      // Key-material audit: previously logged suffix of both old and new
+      // refresh tokens — removed to keep token bytes off stdout.
       if (newRefreshToken) {
-        console.log(
-          `[TokenManager] Token rotated: …${tokenSuffix} → …${newRefreshToken.slice(-8)}`
-        );
         inMemoryRefreshToken = newRefreshToken;
         persistRotatedToken(newRefreshToken);
       }

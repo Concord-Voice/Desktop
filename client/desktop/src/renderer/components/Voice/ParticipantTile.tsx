@@ -90,8 +90,10 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
       el.play().catch(() => {});
     }
     return () => {
-      if (videoRef.current) {
-        videoRef.current.srcObject = null;
+      // Copy ref value to a local so cleanup acts on the element from setup,
+      // not whatever videoRef.current might point at when cleanup runs.
+      if (el) {
+        el.srcObject = null;
       }
     };
   }, [participant.videoStream]);

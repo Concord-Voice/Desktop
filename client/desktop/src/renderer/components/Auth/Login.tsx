@@ -31,7 +31,7 @@ function base64urlToBuffer(base64url: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- server options arrive as JSON with base64url-encoded buffers; the whole purpose of this helper is to decode those into typed `PublicKeyCredentialRequestOptions` — accepting `any` at the boundary and narrowing field-by-field is the right discipline
 function parseWebAuthnOptions(serverOptions: any): PublicKeyCredentialRequestOptions {
   const pk = serverOptions.publicKey || serverOptions;
   const opts: PublicKeyCredentialRequestOptions = {
@@ -40,7 +40,7 @@ function parseWebAuthnOptions(serverOptions: any): PublicKeyCredentialRequestOpt
     rpId: pk.rpId,
   };
   if (pk.allowCredentials) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same rationale as the enclosing `parseWebAuthnOptions` — server-side JSON credentials are narrowed here into typed `PublicKeyCredentialDescriptor` entries
     opts.allowCredentials = pk.allowCredentials.map((cred: any) => ({
       type: cred.type,
       id: base64urlToBuffer(cred.id),
@@ -201,7 +201,7 @@ const Login: React.FC<LoginProps> = ({
   };
 
   // Complete login after receiving tokens (shared between direct login and MFA verify)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- server login payload shape varies across direct-login and MFA-verify endpoints (different e2ee_keys wrapping, optional session_id); field-by-field narrowing inside the function is clearer than a 30-line union type
   const completeLoginFromResponse = async (data: any) => {
     console.debug('Login successful, unwrapping private key...');
 

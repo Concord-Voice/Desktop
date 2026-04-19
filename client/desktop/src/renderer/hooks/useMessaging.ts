@@ -143,7 +143,7 @@ export function useMessaging() {
       unsubscribe();
       messageQueue.stopProcessing();
     };
-  }, [wsService, messageQueue]);
+  }, [wsService, messageQueue, processQueuedMessage]);
 
   /**
    * Send a message with delivery tracking.

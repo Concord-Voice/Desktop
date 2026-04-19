@@ -23,7 +23,8 @@ export function useDraftAudioSetting<K extends keyof DraftableAudioSettings>(
   return useDraftSettingsStore(
     useCallback(
       (s) => {
-        if (s.drafts.audio[key] !== undefined) return s.drafts.audio[key]!;
+        const draft = s.drafts.audio[key];
+        if (draft !== undefined) return draft;
         if (s.snapshot) return s.snapshot.audio[key];
         return useAudioSettingsStore.getState()[key];
       },
@@ -38,7 +39,8 @@ export function useDraftVideoSetting<K extends keyof DraftableVideoSettings>(
   return useDraftSettingsStore(
     useCallback(
       (s) => {
-        if (s.drafts.video[key] !== undefined) return s.drafts.video[key]!;
+        const draft = s.drafts.video[key];
+        if (draft !== undefined) return draft;
         if (s.snapshot) return s.snapshot.video[key];
         return useVideoSettingsStore.getState()[key];
       },
@@ -53,7 +55,8 @@ export function useDraftTtsSetting<K extends keyof DraftableTTSSettings>(
   return useDraftSettingsStore(
     useCallback(
       (s) => {
-        if (s.drafts.tts[key] !== undefined) return s.drafts.tts[key]!;
+        const draft = s.drafts.tts[key];
+        if (draft !== undefined) return draft;
         if (s.snapshot) return s.snapshot.tts[key];
         return useTTSSettingsStore.getState()[key];
       },

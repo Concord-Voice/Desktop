@@ -4,6 +4,94 @@ import { wrapStore } from '../utils/createStore';
 import { apiFetch, safeJson } from '../services/apiClient';
 import type { PresenceStatus } from './memberStore';
 
+// ── API response DTOs (server → client) ────────────────────────────────
+// The control-plane returns snake_case. These types describe what we
+// consume; the store maps them to camelCase Friend / FriendRequest /
+// FriendCode domain types above.
+
+interface ApiErrorBody {
+  error?: string;
+}
+
+interface ApiFriendDTO {
+  id: string;
+  user_id: string;
+  username: string;
+  display_name?: string;
+  avatar_url?: string;
+  color_scheme?: string;
+  status?: PresenceStatus;
+}
+
+interface ApiFriendRequestDTO {
+  id: string;
+  from_user_id: string;
+  from_username: string;
+  from_display_name?: string;
+  from_avatar_url?: string;
+  to_user_id: string;
+  to_username: string;
+  to_display_name?: string;
+  to_avatar_url?: string;
+  direction: 'sent' | 'received';
+  created_at: string;
+}
+
+interface ApiFriendCodeDTO {
+  id: string;
+  code: string;
+  max_uses: number | null;
+  use_count: number;
+  expires_at: string | null;
+  is_revoked: boolean;
+  auto_accept: boolean;
+  created_at: string;
+}
+
+interface ApiFriendsListResponse extends ApiErrorBody {
+  friends?: ApiFriendDTO[];
+}
+
+interface ApiFriendRequestsResponse extends ApiErrorBody {
+  requests?: ApiFriendRequestDTO[];
+}
+
+interface ApiFriendCodesResponse extends ApiErrorBody {
+  friend_codes?: ApiFriendCodeDTO[];
+}
+
+interface ApiFriendCodeResponse extends ApiErrorBody {
+  friend_code: ApiFriendCodeDTO;
+}
+
+interface ApiFriendCodePreviewResponse extends ApiErrorBody {
+  user_id: string;
+  username: string;
+  display_name?: string;
+  avatar_url?: string;
+  valid: boolean;
+}
+
+interface ApiFriendCodeClaimResponse extends ApiErrorBody {
+  status: string;
+  friendship_id: string;
+  user: {
+    user_id: string;
+    username: string;
+    display_name?: string;
+    avatar_url?: string;
+  };
+}
+
+interface ApiUserSearchResponse extends ApiErrorBody {
+  users?: Array<{
+    id: string;
+    username: string;
+    display_name?: string;
+    avatar_url?: string;
+  }>;
+}
+
 export interface Friend {
   id: string; // friendship ID
   userId: string;
@@ -98,58 +186,58 @@ interface FriendState {
   clearFriends: () => void;
 }
 
-export const useFriendStore = wrapStore(create<FriendState>()(
-  devtools(
-    (set, get) => ({
-      friends: [],
-      pendingRequests: [],
-      blockedUserIds: [],
-      friendCodes: [],
-      isLoading: false,
-      error: null,
+export const useFriendStore = wrapStore(
+  create<FriendState>()(
+    devtools(
+      (set, get) => ({
+        friends: [],
+        pendingRequests: [],
+        blockedUserIds: [],
+        friendCodes: [],
+        isLoading: false,
+        error: null,
 
-      fetchFriends: async () => {
-        if (get().isLoading) return;
-        set({ isLoading: true, error: null });
+        fetchFriends: async () => {
+          if (get().isLoading) return;
+          set({ isLoading: true, error: null });
 
-        try {
-          const response = await apiFetch('/api/v1/friends');
-          if (!response.ok) {
-            const data = await safeJson<Record<string, any>>(response);
-            throw new Error(data.error || 'Failed to load friends');
+          try {
+            const response = await apiFetch('/api/v1/friends');
+            if (!response.ok) {
+              const data = await safeJson<ApiErrorBody>(response);
+              throw new Error(data.error || 'Failed to load friends');
+            }
+
+            const data = await safeJson<ApiFriendsListResponse>(response);
+            const friends: Friend[] = (data.friends || []).map((f) => ({
+              id: f.id,
+              userId: f.user_id,
+              username: f.username,
+              displayName: f.display_name,
+              avatarUrl: f.avatar_url,
+              colorScheme: f.color_scheme,
+              status: f.status || 'offline',
+            }));
+
+            set({ friends, isLoading: false });
+          } catch (error) {
+            set({
+              error: error instanceof Error ? error.message : 'Failed to load friends',
+              isLoading: false,
+            });
           }
+        },
 
-          const data = await safeJson<Record<string, any>>(response);
-          const friends: Friend[] = (data.friends || []).map((f: Record<string, unknown>) => ({
-            id: f.id,
-            userId: f.user_id,
-            username: f.username,
-            displayName: f.display_name,
-            avatarUrl: f.avatar_url,
-            colorScheme: f.color_scheme as string | undefined,
-            status: (f.status as PresenceStatus) || 'offline',
-          }));
+        fetchRequests: async () => {
+          try {
+            const response = await apiFetch('/api/v1/friends/requests');
+            if (!response.ok) {
+              const data = await safeJson<ApiErrorBody>(response);
+              throw new Error(data.error || 'Failed to load friend requests');
+            }
 
-          set({ friends, isLoading: false });
-        } catch (error) {
-          set({
-            error: error instanceof Error ? error.message : 'Failed to load friends',
-            isLoading: false,
-          });
-        }
-      },
-
-      fetchRequests: async () => {
-        try {
-          const response = await apiFetch('/api/v1/friends/requests');
-          if (!response.ok) {
-            const data = await safeJson<Record<string, any>>(response);
-            throw new Error(data.error || 'Failed to load friend requests');
-          }
-
-          const data = await safeJson<Record<string, any>>(response);
-          const requests: FriendRequest[] = (data.requests || []).map(
-            (r: Record<string, unknown>) => ({
+            const data = await safeJson<ApiFriendRequestsResponse>(response);
+            const requests: FriendRequest[] = (data.requests || []).map((r) => ({
               id: r.id,
               fromUserId: r.from_user_id,
               fromUsername: r.from_username,
@@ -159,280 +247,280 @@ export const useFriendStore = wrapStore(create<FriendState>()(
               toUsername: r.to_username,
               toDisplayName: r.to_display_name,
               toAvatarUrl: r.to_avatar_url,
-              direction: r.direction as 'sent' | 'received',
-              createdAt: r.created_at as string,
-            })
-          );
+              direction: r.direction,
+              createdAt: r.created_at,
+            }));
 
-          set({ pendingRequests: requests });
-        } catch (error) {
-          console.error('Failed to fetch friend requests:', error);
-        }
-      },
+            set({ pendingRequests: requests });
+          } catch (error) {
+            console.error('Failed to fetch friend requests:', error);
+          }
+        },
 
-      sendRequest: async (userIdOrUsername: string, byUsername = false) => {
-        const body = byUsername ? { username: userIdOrUsername } : { user_id: userIdOrUsername };
+        sendRequest: async (userIdOrUsername: string, byUsername = false) => {
+          const body = byUsername ? { username: userIdOrUsername } : { user_id: userIdOrUsername };
 
-        const response = await apiFetch('/api/v1/friends/request', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
+          const response = await apiFetch('/api/v1/friends/request', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
 
-        if (!response.ok) {
-          const data = await safeJson<Record<string, any>>(response);
-          throw new Error(data.error || 'Failed to send friend request');
-        }
-      },
+          if (!response.ok) {
+            const data = await safeJson<ApiErrorBody>(response);
+            throw new Error(data.error || 'Failed to send friend request');
+          }
+        },
 
-      acceptRequest: async (requestId: string) => {
-        // Grab the pending request data before the API call so we can
-        // optimistically add the new friend to the list immediately.
-        const pending = get().pendingRequests.find((r) => r.id === requestId);
+        acceptRequest: async (requestId: string) => {
+          // Grab the pending request data before the API call so we can
+          // optimistically add the new friend to the list immediately.
+          const pending = get().pendingRequests.find((r) => r.id === requestId);
 
-        const response = await apiFetch(`/api/v1/friends/request/${requestId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'accept' }),
-        });
+          const response = await apiFetch(`/api/v1/friends/request/${requestId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'accept' }),
+          });
 
-        if (!response.ok) {
-          const data = await safeJson<Record<string, any>>(response);
-          throw new Error(data.error || 'Failed to accept friend request');
-        }
-
-        set((state) => {
-          const pendingRequests = state.pendingRequests.filter((r) => r.id !== requestId);
-
-          // Build a Friend from the pending request so the new friend
-          // appears in the list immediately without waiting for a WS event.
-          let { friends } = state;
-          if (pending) {
-            const newFriend: Friend = {
-              id: requestId,
-              userId: pending.fromUserId,
-              username: pending.fromUsername,
-              displayName: pending.fromDisplayName,
-              avatarUrl: pending.fromAvatarUrl,
-              status: 'online',
-            };
-            if (!friends.some((f) => f.userId === newFriend.userId)) {
-              friends = [...friends, newFriend];
-            }
+          if (!response.ok) {
+            const data = await safeJson<ApiErrorBody>(response);
+            throw new Error(data.error || 'Failed to accept friend request');
           }
 
-          return { pendingRequests, friends };
-        });
-      },
+          set((state) => {
+            const pendingRequests = state.pendingRequests.filter((r) => r.id !== requestId);
 
-      declineRequest: async (requestId: string) => {
-        const response = await apiFetch(`/api/v1/friends/request/${requestId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'decline' }),
-        });
+            // Build a Friend from the pending request so the new friend
+            // appears in the list immediately without waiting for a WS event.
+            let { friends } = state;
+            if (pending) {
+              const newFriend: Friend = {
+                id: requestId,
+                userId: pending.fromUserId,
+                username: pending.fromUsername,
+                displayName: pending.fromDisplayName,
+                avatarUrl: pending.fromAvatarUrl,
+                status: 'online',
+              };
+              if (!friends.some((f) => f.userId === newFriend.userId)) {
+                friends = [...friends, newFriend];
+              }
+            }
 
-        if (!response.ok) {
-          const data = await safeJson<Record<string, any>>(response);
-          throw new Error(data.error || 'Failed to decline friend request');
-        }
+            return { pendingRequests, friends };
+          });
+        },
 
-        set((state) => ({
-          pendingRequests: state.pendingRequests.filter((r) => r.id !== requestId),
-        }));
-      },
+        declineRequest: async (requestId: string) => {
+          const response = await apiFetch(`/api/v1/friends/request/${requestId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'decline' }),
+          });
 
-      removeFriend: async (userId: string) => {
-        const response = await apiFetch(`/api/v1/friends/${userId}`, {
-          method: 'DELETE',
-        });
+          if (!response.ok) {
+            const data = await safeJson<ApiErrorBody>(response);
+            throw new Error(data.error || 'Failed to decline friend request');
+          }
 
-        if (!response.ok) {
-          const data = await safeJson<Record<string, any>>(response);
-          throw new Error(data.error || 'Failed to remove friend');
-        }
+          set((state) => ({
+            pendingRequests: state.pendingRequests.filter((r) => r.id !== requestId),
+          }));
+        },
 
-        set((state) => ({
-          friends: state.friends.filter((f) => f.userId !== userId),
-        }));
-      },
+        removeFriend: async (userId: string) => {
+          const response = await apiFetch(`/api/v1/friends/${userId}`, {
+            method: 'DELETE',
+          });
 
-      blockUser: async (userId: string) => {
-        const response = await apiFetch(`/api/v1/friends/${userId}/block`, {
-          method: 'POST',
-        });
+          if (!response.ok) {
+            const data = await safeJson<ApiErrorBody>(response);
+            throw new Error(data.error || 'Failed to remove friend');
+          }
 
-        if (!response.ok) {
-          const data = await safeJson<Record<string, any>>(response);
-          throw new Error(data.error || 'Failed to block user');
-        }
+          set((state) => ({
+            friends: state.friends.filter((f) => f.userId !== userId),
+          }));
+        },
 
-        set((state) => ({
-          friends: state.friends.filter((f) => f.userId !== userId),
-          blockedUserIds: [...state.blockedUserIds, userId],
-        }));
-      },
+        blockUser: async (userId: string) => {
+          const response = await apiFetch(`/api/v1/friends/${userId}/block`, {
+            method: 'POST',
+          });
 
-      // Friend code methods
-      fetchFriendCodes: async () => {
-        try {
-          const response = await apiFetch('/api/v1/friends/codes');
-          if (!response.ok) return;
-          const data = await safeJson<Record<string, any>>(response);
-          const codes: FriendCode[] = (data.friend_codes || []).map(
-            (fc: Record<string, unknown>) => ({
-              id: fc.id as string,
-              code: fc.code as string,
-              maxUses: fc.max_uses as number | null,
-              useCount: fc.use_count as number,
-              expiresAt: fc.expires_at as string | null,
-              isRevoked: fc.is_revoked as boolean,
-              autoAccept: fc.auto_accept as boolean,
-              createdAt: fc.created_at as string,
-            })
-          );
-          set({ friendCodes: codes });
-        } catch (error) {
-          console.error('Failed to fetch friend codes:', error);
-        }
-      },
+          if (!response.ok) {
+            const data = await safeJson<ApiErrorBody>(response);
+            throw new Error(data.error || 'Failed to block user');
+          }
 
-      generateFriendCode: async (opts) => {
-        const body: Record<string, unknown> = {};
-        if (opts?.maxUses !== undefined) body.max_uses = opts.maxUses;
-        if (opts?.expiresIn !== undefined) body.expires_in = opts.expiresIn;
-        if (opts?.autoAccept !== undefined) body.auto_accept = opts.autoAccept;
+          set((state) => ({
+            friends: state.friends.filter((f) => f.userId !== userId),
+            blockedUserIds: [...state.blockedUserIds, userId],
+          }));
+        },
 
-        const response = await apiFetch('/api/v1/friends/codes', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
+        // Friend code methods
+        fetchFriendCodes: async () => {
+          try {
+            const response = await apiFetch('/api/v1/friends/codes');
+            if (!response.ok) return;
+            const data = await safeJson<ApiFriendCodesResponse>(response);
+            const codes: FriendCode[] = (data.friend_codes || []).map((fc) => ({
+              id: fc.id,
+              code: fc.code,
+              maxUses: fc.max_uses,
+              useCount: fc.use_count,
+              expiresAt: fc.expires_at,
+              isRevoked: fc.is_revoked,
+              autoAccept: fc.auto_accept,
+              createdAt: fc.created_at,
+            }));
+            set({ friendCodes: codes });
+          } catch (error) {
+            console.error('Failed to fetch friend codes:', error);
+          }
+        },
 
-        if (!response.ok) {
-          const data = await safeJson<Record<string, any>>(response);
-          throw new Error(data.error || 'Failed to generate friend code');
-        }
+        generateFriendCode: async (opts) => {
+          const body: Record<string, unknown> = {};
+          if (opts?.maxUses !== undefined) body.max_uses = opts.maxUses;
+          if (opts?.expiresIn !== undefined) body.expires_in = opts.expiresIn;
+          if (opts?.autoAccept !== undefined) body.auto_accept = opts.autoAccept;
 
-        const data = await safeJson<Record<string, any>>(response);
-        const fc = data.friend_code;
-        const code: FriendCode = {
-          id: fc.id,
-          code: fc.code,
-          maxUses: fc.max_uses,
-          useCount: fc.use_count,
-          expiresAt: fc.expires_at,
-          isRevoked: fc.is_revoked,
-          autoAccept: fc.auto_accept,
-          createdAt: fc.created_at,
-        };
+          const response = await apiFetch('/api/v1/friends/codes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
 
-        set((state) => ({ friendCodes: [code, ...state.friendCodes] }));
-        return code;
-      },
+          if (!response.ok) {
+            const data = await safeJson<ApiErrorBody>(response);
+            throw new Error(data.error || 'Failed to generate friend code');
+          }
 
-      revokeFriendCode: async (id: string) => {
-        const response = await apiFetch(`/api/v1/friends/codes/${id}`, { method: 'DELETE' });
-        if (!response.ok) {
-          const data = await safeJson<Record<string, any>>(response);
-          throw new Error(data.error || 'Failed to revoke friend code');
-        }
-        set((state) => ({
-          friendCodes: state.friendCodes.filter((fc) => fc.id !== id),
-        }));
-      },
+          const data = await safeJson<ApiFriendCodeResponse>(response);
+          const fc = data.friend_code;
+          const code: FriendCode = {
+            id: fc.id,
+            code: fc.code,
+            maxUses: fc.max_uses,
+            useCount: fc.use_count,
+            expiresAt: fc.expires_at,
+            isRevoked: fc.is_revoked,
+            autoAccept: fc.auto_accept,
+            createdAt: fc.created_at,
+          };
 
-      previewFriendCode: async (code: string) => {
-        const response = await apiFetch(`/api/v1/friends/codes/${code}`);
-        if (!response.ok) {
-          const data = await safeJson<Record<string, any>>(response);
-          throw new Error(data.error || 'Invalid friend code');
-        }
-        const data = await safeJson<Record<string, any>>(response);
-        return {
-          userId: data.user_id,
-          username: data.username,
-          displayName: data.display_name,
-          avatarUrl: data.avatar_url,
-          valid: data.valid,
-        } as FriendCodePreview;
-      },
+          set((state) => ({ friendCodes: [code, ...state.friendCodes] }));
+          return code;
+        },
 
-      claimFriendCode: async (code: string) => {
-        const response = await apiFetch(`/api/v1/friends/codes/${code}/claim`, { method: 'POST' });
-        if (!response.ok) {
-          const data = await safeJson<Record<string, any>>(response);
-          throw new Error(data.error || 'Failed to claim friend code');
-        }
-        const data = await safeJson<Record<string, any>>(response);
-        return {
-          status: data.status as string,
-          friendshipId: data.friendship_id as string,
-          user: {
-            id: data.user.user_id,
-            username: data.user.username,
-            displayName: data.user.display_name,
-            avatarUrl: data.user.avatar_url,
-          } as SearchResult,
-        };
-      },
+        revokeFriendCode: async (id: string) => {
+          const response = await apiFetch(`/api/v1/friends/codes/${id}`, { method: 'DELETE' });
+          if (!response.ok) {
+            const data = await safeJson<ApiErrorBody>(response);
+            throw new Error(data.error || 'Failed to revoke friend code');
+          }
+          set((state) => ({
+            friendCodes: state.friendCodes.filter((fc) => fc.id !== id),
+          }));
+        },
 
-      searchUsers: async (query: string) => {
-        const response = await apiFetch(`/api/v1/users/search?q=${encodeURIComponent(query)}`);
-        if (!response.ok) return [];
-        const data = await safeJson<Record<string, any>>(response);
-        return (data.users || []).map((u: Record<string, unknown>) => ({
-          id: u.id as string,
-          username: u.username as string,
-          displayName: u.display_name as string | undefined,
-          avatarUrl: u.avatar_url as string | undefined,
-        })) as SearchResult[];
-      },
+        previewFriendCode: async (code: string) => {
+          const response = await apiFetch(`/api/v1/friends/codes/${code}`);
+          if (!response.ok) {
+            const data = await safeJson<ApiErrorBody>(response);
+            throw new Error(data.error || 'Invalid friend code');
+          }
+          const data = await safeJson<ApiFriendCodePreviewResponse>(response);
+          return {
+            userId: data.user_id,
+            username: data.username,
+            displayName: data.display_name,
+            avatarUrl: data.avatar_url,
+            valid: data.valid,
+          };
+        },
 
-      // Real-time WebSocket updates
-      addFriend: (friend: Friend) =>
-        set((state) => {
-          if (state.friends.some((f) => f.userId === friend.userId)) return state;
-          return { friends: [...state.friends, friend] };
-        }),
+        claimFriendCode: async (code: string) => {
+          const response = await apiFetch(`/api/v1/friends/codes/${code}/claim`, {
+            method: 'POST',
+          });
+          if (!response.ok) {
+            const data = await safeJson<ApiErrorBody>(response);
+            throw new Error(data.error || 'Failed to claim friend code');
+          }
+          const data = await safeJson<ApiFriendCodeClaimResponse>(response);
+          return {
+            status: data.status,
+            friendshipId: data.friendship_id,
+            user: {
+              id: data.user.user_id,
+              username: data.user.username,
+              displayName: data.user.display_name,
+              avatarUrl: data.user.avatar_url,
+            },
+          };
+        },
 
-      removeFriendByUserId: (userId: string) =>
-        set((state) => ({
-          friends: state.friends.filter((f) => f.userId !== userId),
-        })),
+        searchUsers: async (query: string) => {
+          const response = await apiFetch(`/api/v1/users/search?q=${encodeURIComponent(query)}`);
+          if (!response.ok) return [];
+          const data = await safeJson<ApiUserSearchResponse>(response);
+          return (data.users || []).map((u) => ({
+            id: u.id,
+            username: u.username,
+            displayName: u.display_name,
+            avatarUrl: u.avatar_url,
+          }));
+        },
 
-      addRequest: (request: FriendRequest) =>
-        set((state) => {
-          if (state.pendingRequests.some((r) => r.id === request.id)) return state;
-          return { pendingRequests: [...state.pendingRequests, request] };
-        }),
+        // Real-time WebSocket updates
+        addFriend: (friend: Friend) =>
+          set((state) => {
+            if (state.friends.some((f) => f.userId === friend.userId)) return state;
+            return { friends: [...state.friends, friend] };
+          }),
 
-      removeRequest: (requestId: string) =>
-        set((state) => ({
-          pendingRequests: state.pendingRequests.filter((r) => r.id !== requestId),
-        })),
+        removeFriendByUserId: (userId: string) =>
+          set((state) => ({
+            friends: state.friends.filter((f) => f.userId !== userId),
+          })),
 
-      updateFriendPresence: (userId: string, status: PresenceStatus) =>
-        set((state) => ({
-          friends: state.friends.map((f) => (f.userId === userId ? { ...f, status } : f)),
-        })),
+        addRequest: (request: FriendRequest) =>
+          set((state) => {
+            if (state.pendingRequests.some((r) => r.id === request.id)) return state;
+            return { pendingRequests: [...state.pendingRequests, request] };
+          }),
 
-      updateFriendProfile: (
-        userId: string,
-        updates: Partial<Omit<Friend, 'id' | 'userId' | 'status'>>
-      ) =>
-        set((state) => ({
-          friends: state.friends.map((f) => (f.userId === userId ? { ...f, ...updates } : f)),
-        })),
+        removeRequest: (requestId: string) =>
+          set((state) => ({
+            pendingRequests: state.pendingRequests.filter((r) => r.id !== requestId),
+          })),
 
-      refreshFriendCodeUseCounts: () => {
-        // Re-fetch friend codes to get updated use_count
-        get().fetchFriendCodes();
-      },
+        updateFriendPresence: (userId: string, status: PresenceStatus) =>
+          set((state) => ({
+            friends: state.friends.map((f) => (f.userId === userId ? { ...f, status } : f)),
+          })),
 
-      clearFriends: () =>
-        set({ friends: [], pendingRequests: [], blockedUserIds: [], friendCodes: [] }),
-    }),
-    { name: 'FriendStore' }
+        updateFriendProfile: (
+          userId: string,
+          updates: Partial<Omit<Friend, 'id' | 'userId' | 'status'>>
+        ) =>
+          set((state) => ({
+            friends: state.friends.map((f) => (f.userId === userId ? { ...f, ...updates } : f)),
+          })),
+
+        refreshFriendCodeUseCounts: () => {
+          // Re-fetch friend codes to get updated use_count
+          get().fetchFriendCodes();
+        },
+
+        clearFriends: () =>
+          set({ friends: [], pendingRequests: [], blockedUserIds: [], friendCodes: [] }),
+      }),
+      { name: 'FriendStore' }
+    )
   )
-));
+);

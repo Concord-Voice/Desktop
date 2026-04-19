@@ -148,7 +148,7 @@ async function loadDevRendererWithFallback(
  */
 async function loadPackagedRenderer(window: BrowserWindow, bundledPath: string): Promise<void> {
   const decision = await resolveSpaSource();
-  console.log(`[SpaLoader] ${decision.mode}: ${decision.reason}`);
+  console.debug(`[SpaLoader] ${decision.mode}: ${decision.reason}`);
 
   if (decision.mode === 'remote' && decision.url) {
     try {
@@ -379,12 +379,14 @@ app.whenReady().then(async () => {
 
   // Notify renderer of rollback after window is created (#384)
   if (rollbackResult) {
+    // Capture to local const so TypeScript narrows through the setTimeout closure.
+    const rollback = rollbackResult;
     // Delay slightly to ensure renderer IPC listeners are registered
     setTimeout(() => {
       mainWindow?.webContents.send('update:rollback', {
-        fromVersion: rollbackResult!.fromVersion,
-        toVersion: rollbackResult!.toVersion,
-        message: `Update to v${rollbackResult!.toVersion} failed. You are still on v${rollbackResult!.fromVersion}.`,
+        fromVersion: rollback.fromVersion,
+        toVersion: rollback.toVersion,
+        message: `Update to v${rollback.toVersion} failed. You are still on v${rollback.fromVersion}.`,
       });
     }, 2000);
   }
@@ -540,7 +542,7 @@ ipcMain.handle('app:relaunch', () => {
 ipcMain.handle('app:reloadSpa', async () => {
   if (!mainWindow) return;
   const decision = await resolveSpaSource();
-  console.log(`[SpaLoader/hot] ${decision.mode}: ${decision.reason}`);
+  console.debug(`[SpaLoader/hot] ${decision.mode}: ${decision.reason}`);
   if (decision.mode === 'remote' && decision.url) {
     await mainWindow.loadURL(decision.url);
   } else {
@@ -721,8 +723,9 @@ const pipWindows = new Map<string, BrowserWindow>();
 ipcMain.handle(
   'pip:open',
   (_event, opts: { id: string; width?: number; height?: number; title?: string }) => {
-    if (pipWindows.has(opts.id)) {
-      pipWindows.get(opts.id)!.focus();
+    const existing = pipWindows.get(opts.id);
+    if (existing) {
+      existing.focus();
       return;
     }
 

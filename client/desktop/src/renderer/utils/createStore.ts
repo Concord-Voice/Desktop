@@ -20,7 +20,7 @@ function applyDevWarning<T>(store: BoundStore<T>): BoundStore<T> {
         );
       }
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Zustand's overloaded UseBoundStore call signature (selector + optional equalityFn across 4 arities) doesn't re-expose cleanly through a wrapper; the cast preserves the runtime behavior while the wrapper's own signature retains full generic typing
     return (originalUseStore as any)(selector, equalityFn);
   }) as BoundStore<T>;
 

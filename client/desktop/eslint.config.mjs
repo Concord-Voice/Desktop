@@ -2,12 +2,18 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import eslintPluginReact from 'eslint-plugin-react';
 import eslintPluginReactHooks from 'eslint-plugin-react-hooks';
+import eslintPluginEslintComments from '@eslint-community/eslint-plugin-eslint-comments';
 import eslintConfigPrettier from 'eslint-config-prettier';
 
 export default [
   // Global ignores (replaces ignorePatterns)
   {
-    ignores: ['dist/', 'node_modules/', '*.js'],
+    ignores: [
+      'dist/',
+      'node_modules/',
+      'coverage/**', // Istanbul HTML report artifacts
+      '*.js',
+    ],
   },
 
   // ESLint recommended + typescript-eslint recommended
@@ -27,6 +33,10 @@ export default [
 
   // Project-specific configuration
   {
+    plugins: {
+      '@eslint-community/eslint-comments': eslintPluginEslintComments,
+    },
+
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -46,17 +56,19 @@ export default [
 
     rules: {
       // TypeScript — practical strictness
+      // no-unused-vars / no-explicit-any / no-non-null-assertion promoted to
+      // error severity repo-wide per #667. Test-file exemption below.
       '@typescript-eslint/no-unused-vars': [
-        'warn',
+        'error',
         {
           argsIgnorePattern: '^_',
           varsIgnorePattern: '^_',
           destructuredArrayIgnorePattern: '^_',
         },
       ],
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-empty-function': 'off',
-      '@typescript-eslint/no-non-null-assertion': 'warn',
+      '@typescript-eslint/no-non-null-assertion': 'error',
       '@typescript-eslint/no-require-imports': 'off', // Electron main process uses require()
 
       // React
@@ -90,11 +102,62 @@ export default [
             'Use a selector: useXStore(s => s.field), not useXStore(). Whole-store subscriptions cause unnecessary re-renders. See #656.',
         },
       ],
+
+      // Require a `--` rationale on every eslint-disable directive so future
+      // readers and auditors (SonarQube AI-Code Assurance, code review) can
+      // evaluate each suppression on its merits. "intentional" alone is
+      // insufficient — rationales must cite the specific invariant.
+      '@eslint-community/eslint-comments/require-description': [
+        'error',
+        { ignore: [] },
+      ],
+    },
+  },
+
+  // Test files: relaxed rules for mocks, partial fixtures, and scaffolding imports.
+  // Production-code discipline (src/) still runs at error severity for all
+  // three typing rules below. Test files get different posture because:
+  //   - no-explicit-any: mocks often need `any` to spoof narrow interfaces
+  //   - no-non-null-assertion: test fixtures set up known-good state where
+  //     `!` on .find()/.get() is semantically equivalent to a "fail the
+  //     test if the setup is wrong" assertion
+  //   - no-unused-vars: scaffolding imports (React for JSX type inference,
+  //     helper util imports kept for readability) are idiomatic
+  //   - @eslint-community/eslint-comments/require-description: test-file
+  //     disables don't need the same audit trail as production; new
+  //     disables in src/ still require rationales
+  // See spec: internal-reference
+  {
+    files: [
+      'tests/**',
+      '**/*.test.ts',
+      '**/*.test.tsx',
+      '**/*.spec.ts',
+      '**/*.spec.tsx',
+    ],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
+      '@eslint-community/eslint-comments/require-description': 'off',
     },
   },
 
   {
     files: ['src/main/sentry.ts', 'tests/**/*'],
     rules: { 'no-restricted-imports': 'off' },
+  },
+
+  // sentry-scrubbers.ts is content-hashed against TELEMETRY_POLICY_VERSION —
+  // any source edit forces a policy-version bump that re-prompts every user
+  // for telemetry consent. Adding `--` rationales to its two eslint-disable
+  // directives would cosmetically edit the file for no behavioral reason.
+  // Exempt this one file from require-description; the block comments at
+  // lines 95-99 + 190-194 already document WHY the disables exist.
+  {
+    files: ['src/shared/sentry-scrubbers.ts'],
+    rules: {
+      '@eslint-community/eslint-comments/require-description': 'off',
+    },
   },
 ];

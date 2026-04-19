@@ -2591,7 +2591,7 @@ class VoiceService {
   }
 
   /** Proxy a signaling event to the media plane (used by PiP signaling proxy) */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- T defaults to `any` to avoid forcing PiP-proxy callers to parameterize every signaling forward; callers that care about the response type set T explicitly
   forwardToServer<T = any>(event: string, data?: unknown): Promise<T> {
     return this.emitAsync<T>(event, data);
   }
@@ -2611,7 +2611,7 @@ class VoiceService {
     const transport = this.sendTransport;
     if (!transport || transport.closed) return;
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mediasoup-client's internal `_awaitQueue` is not in the public Transport type; documented workaround for the Chromium PT 45 BUNDLE collision (see comment above method)
       await (transport as any)._awaitQueue.push(async () => {
         /* no-op — just wait for our turn */
       }, 'drainSendTransportQueue');
@@ -2847,7 +2847,7 @@ class VoiceService {
   private logTransportSdp(transport: mediasoupTypes.Transport, label: string): void {
     if (!E2EE_VERBOSE) return; // Only log SDP when verbose debugging is enabled
     try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mediasoup-client's internal `_handler.pc` is needed to diagnose the BUNDLE PT 45 collision; no public API exposes the underlying RTCPeerConnection
       const handler = (transport as any)._handler;
       if (!handler?._pc) return;
       const pc = handler._pc as RTCPeerConnection;
@@ -3675,7 +3675,7 @@ class VoiceService {
 
       case 'log':
         // Forward Worker logs to renderer console
-        // eslint-disable-next-line no-console
+        // eslint-disable-next-line no-console -- worker log bridge; levels beyond .warn/.error/.debug need to propagate as the worker emitted them for parity with worker-side output
         console[msg.level](msg.message, msg.data || '');
         break;
     }
@@ -3811,7 +3811,7 @@ class VoiceService {
     // Legacy path: createEncodedStreams (Chromium 86-130)
     if (!this.mediaEncryption) return;
     const encryption = this.mediaEncryption;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- createEncodedStreams is a non-standard Chromium 86-130 API not in RTCRtpSender's typed surface; runtime check below gates usage
     const senderAny = sender as any;
 
     if (typeof senderAny.createEncodedStreams === 'function') {

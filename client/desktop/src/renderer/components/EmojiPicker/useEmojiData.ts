@@ -89,7 +89,7 @@ export function useEmojiData() {
       }
       return results;
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- The search closure reads `categories` (imported module constant, stable) and `lower`/`results` (local); only `loadedCategories` should trigger re-memoization when a new category batch loads. Including the other values would invalidate the callback on every keystroke.
     [loadedCategories] // Re-create when new categories are loaded
   );
 

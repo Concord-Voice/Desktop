@@ -53,17 +53,23 @@ const ProfileInfoForm: React.FC = () => {
     ? usernameChangeEligibleAt > new Date()
     : false;
 
+  // Extract stable reset functions so the init effect can depend on them
+  // without churning on every render (useImageUpload returns a fresh object
+  // each render; reset itself is memoized with [] deps inside the hook).
+  const avatarReset = avatar.reset;
+  const headerReset = header.reset;
+
   // Initialize form from user store
   useEffect(() => {
     if (user) {
       setUsername(user.username);
       setDisplayName(user.display_name || '');
       setBio(user.bio || '');
-      avatar.reset(user.avatar_url || null);
-      header.reset(user.header_image_url || null);
+      avatarReset(user.avatar_url || null);
+      headerReset(user.header_image_url || null);
       setLinks(user.links || []);
     }
-  }, [user]);
+  }, [user, avatarReset, headerReset]);
 
   // Link handlers
   const handleAddLink = () => {

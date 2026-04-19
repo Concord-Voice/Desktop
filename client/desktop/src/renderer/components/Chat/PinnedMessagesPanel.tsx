@@ -74,7 +74,7 @@ const PinnedMessagesPanel: React.FC<PinnedMessagesPanelProps> = ({
             <div className="pinned-panel-empty">
               <p>No pinned messages</p>
               <p className="pinned-panel-empty-hint">
-                Pin important messages so they're easy to find.
+                Pin important messages so they&apos;re easy to find.
               </p>
             </div>
           )}

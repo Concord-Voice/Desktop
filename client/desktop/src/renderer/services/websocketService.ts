@@ -26,7 +26,10 @@ export enum ConnectionState {
 
 export interface WebSocketMessage {
   type: string;
-  data: Record<string, any>;
+  // Untyped JSON payload from the server. Handlers must narrow at the
+  // boundary (e.g. `const channelId = data.channel_id as string | undefined`)
+  // or validate via a type guard.
+  data: Record<string, unknown>;
 }
 
 export interface ConnectionInfo {
@@ -421,11 +424,13 @@ export class WebSocketService {
    * Add a message handler for a specific message type
    */
   on(messageType: string, handler: MessageHandler): () => void {
-    if (!this.messageHandlers.has(messageType)) {
-      this.messageHandlers.set(messageType, new Set());
+    let handlers = this.messageHandlers.get(messageType);
+    if (!handlers) {
+      handlers = new Set();
+      this.messageHandlers.set(messageType, handlers);
     }
 
-    this.messageHandlers.get(messageType)!.add(handler);
+    handlers.add(handler);
 
     // Return unsubscribe function
     return () => {
@@ -528,8 +533,8 @@ export class WebSocketService {
       switch (message.type) {
         case 'connected':
           this.connectionInfo = {
-            clientId: message.data.client_id,
-            userId: message.data.user_id,
+            clientId: message.data.client_id as string,
+            userId: message.data.user_id as string,
           };
           console.debug('[WebSocket] connected:', this.connectionInfo);
 

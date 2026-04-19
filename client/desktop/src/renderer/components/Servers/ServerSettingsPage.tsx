@@ -184,12 +184,35 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({ serverId }) => 
     return true;
   });
 
-  // Reset form when server changes
+  // Extract stable reset functions so the init effect can depend on them
+  // without churning on every render (useImageUpload returns a fresh object
+  // each render; reset itself is memoized with [] deps inside the hook).
+  const iconReset = icon.reset;
+  const bannerReset = banner.reset;
+
+  // Reset form when the selected server changes. Keyed on server?.id so we
+  // only reinitialize on server switch — not when the server record is
+  // mutated in place (e.g. after this form saves a name change). Reading
+  // server.name/icon_url/etc. inside is intentional: we want the snapshot
+  // at switch time, not a live binding. Hence server/icon/banner are
+  // deliberately omitted from deps.
+  //
+  // Rationale for the eslint-disable below:
+  //  - Fields are read as a snapshot-at-switch so that an in-place mutation
+  //    in the store (e.g., from this form's own save) does NOT reset the
+  //    user's unsaved edits.
+  //  - iconReset / bannerReset are stable useCallback references from
+  //    useImageUpload (extracted at :190-191) and don't need to be listed.
+  //  - Edge case: if `server` goes from undefined → defined without its id
+  //    changing (e.g., a race where serverId is set before the store has
+  //    the record), the `server?.id` key flips from `undefined` to a
+  //    string, so this effect re-runs. Verified by inspection of the
+  //    `servers.find(s => s.id === serverId)` upstream at :56.
   useEffect(() => {
     if (server) {
       setName(server.name);
-      icon.reset(server.icon_url || null);
-      banner.reset(server.banner_url || null);
+      iconReset(server.icon_url || null);
+      bannerReset(server.banner_url || null);
       setErrors({});
       setIsSubmitting(false);
       setSuccessMessage(null);
@@ -198,29 +221,30 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({ serverId }) => 
       setAllowEmbeddedContent(server.allow_embedded_content ?? false);
       setActiveSection('general');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot-on-switch; see block comment above effect
   }, [server?.id]);
 
   // Fetch invites
   useEffect(() => {
-    if (server && canManageInvites) {
-      fetchInvites(server.id);
+    if (serverId && canManageInvites) {
+      fetchInvites(serverId);
     }
-  }, [server?.id, canManageInvites, fetchInvites]);
+  }, [serverId, canManageInvites, fetchInvites]);
 
   // Fetch roles when roles tab is active
   useEffect(() => {
-    if (server && activeSection === 'roles' && canManageRoles) {
-      fetchRoles(server.id);
+    if (serverId && activeSection === 'roles' && canManageRoles) {
+      fetchRoles(serverId);
     }
-  }, [activeSection, canManageRoles, server?.id, fetchRoles]);
+  }, [activeSection, canManageRoles, serverId, fetchRoles]);
 
   // Fetch members when members tab is active
   useEffect(() => {
-    if (server && activeSection === 'members' && canAssignRoles) {
-      fetchMembers(server.id);
-      fetchRoles(server.id);
+    if (serverId && activeSection === 'members' && canAssignRoles) {
+      fetchMembers(serverId);
+      fetchRoles(serverId);
     }
-  }, [activeSection, canAssignRoles, server?.id, fetchMembers, fetchRoles]);
+  }, [activeSection, canAssignRoles, serverId, fetchMembers, fetchRoles]);
 
   // IntersectionObserver for subsection tracking
   const visibleSectionsRef = useRef<Map<string, IntersectionObserverEntry>>(new Map());
@@ -256,12 +280,14 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({ serverId }) => 
 
       const sections = root.querySelectorAll('[id^="section-"]');
       for (const el of sections) observer.observe(el);
-      (root as any).__settingsObserver = observer;
+      (root as HTMLElement & { __settingsObserver?: IntersectionObserver }).__settingsObserver =
+        observer;
     }, 50);
 
     return () => {
       clearTimeout(timer);
-      const obs = (root as any)?.__settingsObserver as IntersectionObserver | undefined;
+      const obs = (root as (HTMLElement & { __settingsObserver?: IntersectionObserver }) | null)
+        ?.__settingsObserver;
       obs?.disconnect();
     };
   }, [activeSection]);

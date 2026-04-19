@@ -185,7 +185,7 @@ export class PipSignalingProxy {
     // which cannot serialize MediaStream instances.
     const sanitizedParticipants: Record<string, unknown> = {};
     for (const [key, p] of Object.entries(store.participants)) {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- rest-pattern destructure: the four MediaStream keys must be NAMED (not `_`-prefixed) so they are excluded from `...rest`; BroadcastChannel's structured clone cannot serialize MediaStream instances, so stripping them here prevents DataCloneError in the PiP bridge
       const { videoStream, screenStream, audioStream, screenAudioStream, ...rest } = p;
       sanitizedParticipants[key] = rest;
     }
@@ -352,10 +352,13 @@ export class PipSignalingProxy {
     // the structured clone algorithm which cannot serialize MediaStreams.
     const sanitized: Record<string, unknown> = {};
     for (const [key, p] of Object.entries(participants)) {
-      const { videoStream, screenStream, audioStream, screenAudioStream, ...rest } = p as Record<
-        string,
-        unknown
-      > & {
+      const {
+        videoStream: _videoStream,
+        screenStream: _screenStream,
+        audioStream: _audioStream,
+        screenAudioStream: _screenAudioStream,
+        ...rest
+      } = p as Record<string, unknown> & {
         videoStream?: unknown;
         screenStream?: unknown;
         audioStream?: unknown;
@@ -368,7 +371,7 @@ export class PipSignalingProxy {
     this.broadcast({
       kind: 'broadcast',
       type: 'state-update',
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- `sanitized` is already shape-compatible with StateUpdateBroadcast['participants'] at runtime, but the TS types (with their many optional mediasoup-client fields) aren't ergonomic to convert without another pass; widening to `any` at the broadcast boundary is intentional
       participants: sanitized as any,
       tunedInScreenShares,
       localUserId,

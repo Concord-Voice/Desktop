@@ -233,7 +233,7 @@ const MainView: React.FC = () => {
       .then(({ voiceService }) => {
         if (cancelled) return;
         capturedVoiceService = voiceService;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PipSignalingProxy's voiceService parameter expects an internal interface that isn't exported from voiceService's public module; typing it would require re-exporting internal mediasoup handler types
         proxy = new PipSignalingProxy(voiceService as any);
 
         // Wire producer lifecycle events so PiP windows learn about new/removed producers
@@ -257,7 +257,7 @@ const MainView: React.FC = () => {
     return () => {
       cancelled = true;
       if (proxy) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- `_ipcCleanup` is a private cleanup-callback slot stored on the proxy instance via `(proxy as PipSignalingProxy & { _ipcCleanup? })` at attach time; optional chaining here handles the case where the IPC bridge was never registered
         (proxy as any)._ipcCleanup?.();
         proxy.dispose();
       }

@@ -90,7 +90,7 @@ const DMPinnedMessagesPanel: React.FC<DMPinnedMessagesPanelProps> = ({
             <div className="pinned-panel-empty">
               <p>No pinned messages in this conversation.</p>
               <p className="pinned-panel-empty-hint">
-                Pin important messages so they're easy to find.
+                Pin important messages so they&apos;re easy to find.
               </p>
             </div>
           )}

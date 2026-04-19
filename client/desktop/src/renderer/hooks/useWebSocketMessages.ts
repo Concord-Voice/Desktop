@@ -7,7 +7,7 @@
 
 import { useEffect } from 'react';
 import { useChatStore } from '../stores/chatStore';
-import type { MessageWithStatus } from '../types/chat';
+import type { MessageWithStatus, Channel, ChannelGroup } from '../types/chat';
 import { useChannelStore } from '../stores/channelStore';
 import { useServerStore } from '../stores/serverStore';
 import { useMemberStore, PresenceStatus } from '../stores/memberStore';
@@ -79,8 +79,8 @@ function markServerUnreadWithMention(serverId: string, isMentioned: boolean): vo
 /** Handle unread notification from server subscription. */
 function handleUnreadNotify(msg: WebSocketMessage): void {
   const { data } = msg;
-  const channelId = data.channel_id;
-  const serverId = data.server_id;
+  const channelId = data.channel_id as string | undefined;
+  const serverId = data.server_id as string | undefined;
 
   if (channelId && shouldSuppressLinkedTextNotification(channelId)) return;
 
@@ -387,20 +387,50 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
   useEffect(() => {
     // Message handler
     const unsubMessage = wsService.on('message', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      // user_id is typed optional/unknown here (rather than required `string`)
+      // so the runtime guard below is type-coherent with the cast: the cast
+      // describes the trust boundary (what the wire might send), and narrowing
+      // happens explicitly at the guard.
+      const data = msg.data as {
+        channel_id?: string;
+        id?: string;
+        user_id?: unknown;
+        username?: string;
+        display_name?: string;
+        avatar_url?: string;
+        content?: string;
+        is_encrypted?: boolean;
+        key_version?: number;
+        gif_slug?: string;
+        reply_to_id?: string;
+        replied_to?: MessageWithStatus['replied_to'];
+        attachments?: MessageWithStatus['attachments'];
+        created_at?: string;
+        updated_at?: string;
+        mentioned?: boolean;
+        server_id?: string;
+      };
       const channelId = data.channel_id;
 
       if (!channelId) {
         console.error('Message missing channel_id:', msg);
         return;
       }
+      // Runtime guard: the cast above types user_id as `unknown` to reflect
+      // the actual trust boundary; narrow here and capture into a typed local
+      // so closures below don't lose the narrowing.
+      if (typeof data.user_id !== 'string' || data.user_id.length === 0) {
+        console.error('Message missing user_id:', msg);
+        return;
+      }
+      const userId: string = data.user_id;
 
       const isEncrypted = data.is_encrypted || false;
-      const keyVersion = data.key_version as number | undefined;
+      const keyVersion = data.key_version;
       const baseMessage = {
         id: data.id || crypto.randomUUID(),
         channel_id: channelId,
-        user_id: data.user_id,
+        user_id: userId,
         username: data.username || 'Unknown',
         display_name: data.display_name || undefined,
         avatar_url: data.avatar_url || undefined,
@@ -415,19 +445,19 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       };
 
       const maybeSpeakTTS = (text: string) =>
-        speakIfVoiceLinked(text, channelId, data.user_id, data.display_name || data.username);
+        speakIfVoiceLinked(text, channelId, userId, data.display_name || data.username || '');
 
       if (isEncrypted) {
         addEncryptedMessage(
           channelId,
           baseMessage,
-          data.content,
+          data.content ?? '',
           keyVersion,
           addMessage,
           maybeSpeakTTS
         );
       } else {
-        addPlaintextMessage(channelId, baseMessage, data.content, addMessage, maybeSpeakTTS);
+        addPlaintextMessage(channelId, baseMessage, data.content ?? '', addMessage, maybeSpeakTTS);
       }
 
       // Decrypt replied_to content if the original message was encrypted
@@ -489,7 +519,13 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Message update handler
     const unsubUpdate = wsService.on('message_update', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        channel_id?: string;
+        id?: string;
+        content?: string;
+        edited_at?: string;
+        updated_at?: string;
+      };
       const channelId = data.channel_id;
       const messageId = data.id;
 
@@ -507,7 +543,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Message delete handler
     const unsubDelete = wsService.on('message_delete', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as { channel_id?: string; id?: string };
       const channelId = data.channel_id;
       const messageId = data.id;
 
@@ -555,24 +591,51 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       updateMessage(channelId, messageId, { reactions: updatedReactions });
     };
 
+    type ReactionPayload = {
+      channel_id?: string;
+      message_id?: string;
+      emoji?: string;
+      reaction_summary?: {
+        emoji: string;
+        count: number;
+        users: Array<{ user_id: string; username: string; display_name?: string }>;
+        me: boolean;
+      } | null;
+    };
+
     const unsubReactionAdded = wsService.on('message_reaction_added', (msg: WebSocketMessage) => {
-      const { data } = msg;
-      if (!data.channel_id || !data.message_id) return;
-      applyReactionUpdate(data.channel_id, data.message_id, data.emoji, data.reaction_summary);
+      const data = msg.data as ReactionPayload;
+      if (!data.channel_id || !data.message_id || !data.emoji) return;
+      applyReactionUpdate(
+        data.channel_id,
+        data.message_id,
+        data.emoji,
+        data.reaction_summary ?? null
+      );
     });
 
     const unsubReactionRemoved = wsService.on(
       'message_reaction_removed',
       (msg: WebSocketMessage) => {
-        const { data } = msg;
-        if (!data.channel_id || !data.message_id) return;
-        applyReactionUpdate(data.channel_id, data.message_id, data.emoji, data.reaction_summary);
+        const data = msg.data as ReactionPayload;
+        if (!data.channel_id || !data.message_id || !data.emoji) return;
+        applyReactionUpdate(
+          data.channel_id,
+          data.message_id,
+          data.emoji,
+          data.reaction_summary ?? null
+        );
       }
     );
 
     // Pin event handlers
     const unsubMessagePinned = wsService.on('message_pinned', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        channel_id?: string;
+        message_id?: string;
+        pinned_at?: string;
+        pinned_by?: string;
+      };
       if (!data.channel_id || !data.message_id) return;
       updateMessage(data.channel_id, data.message_id, {
         pinned_at: data.pinned_at,
@@ -581,7 +644,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
     });
 
     const unsubMessageUnpinned = wsService.on('message_unpinned', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as { channel_id?: string; message_id?: string };
       if (!data.channel_id || !data.message_id) return;
       updateMessage(data.channel_id, data.message_id, {
         pinned_at: undefined,
@@ -591,11 +654,16 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Typing indicator handler
     const unsubTyping = wsService.on('typing', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        channel_id?: string;
+        user_id?: string;
+        is_typing?: boolean;
+        username?: string;
+      };
       const channelId = data.channel_id;
       const userId = data.user_id;
-      const isTyping = data.is_typing;
-      const username = data.username;
+      const isTyping = data.is_typing ?? false;
+      const username = data.username ?? '';
 
       if (!channelId || !userId) {
         console.error('Typing indicator missing channel_id or user_id:', msg);
@@ -607,7 +675,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Message acknowledgment handler — maps temp client IDs to server UUIDs
     const unsubAck = wsService.on('message_ack', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as { nonce?: string; id?: string; channel_id?: string };
       const nonce = data.nonce;
       const serverId = data.id;
       const channelId = data.channel_id;
@@ -619,7 +687,14 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Member joined handler — updates member list in real time
     const unsubMemberJoined = wsService.on('member_joined', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        server_id?: string;
+        user_id: string;
+        username?: string;
+        display_name?: string;
+        avatar_url?: string;
+        role?: 'owner' | 'admin' | 'member';
+      };
       const activeServerId = useServerStore.getState().activeServerId;
 
       // Only update if the event is for the currently viewed server
@@ -638,7 +713,14 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Profile updated handler — updates messages and member list
     const unsubProfileUpdated = wsService.on('profile_updated', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        user_id?: string;
+        username: string;
+        display_name?: string;
+        avatar_url?: string;
+        header_image_url?: string;
+        color_scheme?: string;
+      };
       const userId = data.user_id;
 
       if (!userId) return;
@@ -714,35 +796,53 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Server updated handler — updates server list for all members
     const unsubServerUpdated = wsService.on('server_updated', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        server_id?: string;
+        name?: string;
+        icon_url?: string | null;
+        banner_url?: string | null;
+        allow_embedded_content?: boolean;
+      };
       const serverId = data.server_id;
       if (!serverId) return;
 
+      // Only include `allow_embedded_content` when the payload supplies a
+      // boolean. One `server_updated` variant (services/control-plane/internal/
+      // websocket/hub.go:2244-2252) omits the field entirely; defaulting it to
+      // `false` would silently flip the user's setting off on that variant.
       useServerStore.getState().updateServer(serverId, {
         name: data.name,
-        icon_url: data.icon_url ?? null,
-        banner_url: data.banner_url ?? null,
-        allow_embedded_content: data.allow_embedded_content ?? false,
+        icon_url: data.icon_url ?? undefined,
+        banner_url: data.banner_url ?? undefined,
+        ...(typeof data.allow_embedded_content === 'boolean'
+          ? { allow_embedded_content: data.allow_embedded_content }
+          : {}),
       });
     });
 
     // Channel updated handler — updates channel list for all server members
     const unsubChannelUpdated = wsService.on('channel_updated', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        channel_id?: string;
+        name?: string;
+        type?: 'text' | 'voice';
+        emoji?: string | null;
+        group_id?: string | null;
+      };
       const channelId = data.channel_id;
       if (!channelId) return;
 
       useChannelStore.getState().updateChannel(channelId, {
         name: data.name,
         type: data.type,
-        emoji: data.emoji ?? null,
+        emoji: data.emoji ?? undefined,
         group_id: data.group_id ?? null,
       });
     });
 
     // Channel created handler — adds new channel to the list for all server members
     const unsubChannelCreated = wsService.on('channel_created', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as { channel?: Channel };
       const channel = data.channel;
       if (!channel) return;
 
@@ -754,7 +854,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Channel deleted handler — removes channel and cascades cleanup
     const unsubChannelDeleted = wsService.on('channel_deleted', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as { channel_id?: string };
       const channelId = data.channel_id;
       if (!channelId) return;
 
@@ -763,7 +863,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Channel group created handler
     const unsubGroupCreated = wsService.on('channel_group_created', (msg: WebSocketMessage) => {
-      const group = msg.data.channel_group;
+      const data = msg.data as { channel_group?: ChannelGroup };
+      const group = data.channel_group;
       if (!group) return;
       const activeServerId = useServerStore.getState().activeServerId;
       if (group.server_id === activeServerId) {
@@ -773,7 +874,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Channel group updated handler
     const unsubGroupUpdated = wsService.on('channel_group_updated', (msg: WebSocketMessage) => {
-      const group = msg.data.channel_group;
+      const data = msg.data as { channel_group?: ChannelGroup };
+      const group = data.channel_group;
       if (!group) return;
       useChannelStore.getState().updateChannelGroup(group.id, {
         name: group.name,
@@ -784,7 +886,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Channel group deleted handler
     const unsubGroupDeleted = wsService.on('channel_group_deleted', (msg: WebSocketMessage) => {
-      const groupId = msg.data.group_id;
+      const data = msg.data as { group_id?: string };
+      const groupId = data.group_id;
       if (!groupId) return;
       useChannelStore.getState().removeChannelGroup(groupId);
     });
@@ -804,7 +907,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Server deleted handler — removes server and cascades cleanup
     const unsubServerDeleted = wsService.on('server_deleted', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as { server_id?: string };
       const serverId = data.server_id;
       if (!serverId) return;
 
@@ -813,7 +916,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Member removed handler — handles both kicks and self-leave
     const unsubMemberRemoved = wsService.on('member_removed', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as { server_id?: string; user_id?: string };
       const serverId = data.server_id;
       const removedUserId = data.user_id;
       if (!serverId || !removedUserId) return;
@@ -850,7 +953,12 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Key revocation handler — a channel's key epoch was revoked (member removal or theft)
     const unsubKeyRevocation = wsService.on('key_revocation', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        channel_id?: string;
+        new_epoch?: number;
+        reason?: string;
+        removed_user_id?: string;
+      };
       const channelId = data.channel_id;
       const newEpoch = data.new_epoch;
 
@@ -877,7 +985,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Key delivered handler — a channel key was distributed to the current user
     const unsubKeyDelivered = wsService.on('key_delivered', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as { channel_id?: string; user_id?: string };
       const channelId = data.channel_id;
       const targetUserId = data.user_id;
       if (!channelId) return;
@@ -983,16 +1091,46 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // DM message handler (mirrors 'message' handler for server channels)
     const unsubDMMessage = wsService.on('dm_message', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      // Fields that need runtime validation are typed optional/unknown so
+      // the cast describes the trust boundary honestly; narrowing happens
+      // at the guards below.
+      const data = msg.data as {
+        conversation_id?: unknown;
+        channel_id?: unknown;
+        id?: string;
+        user_id?: unknown;
+        username?: string;
+        display_name?: string;
+        avatar_url?: string;
+        content?: string;
+        is_encrypted?: boolean;
+        key_version?: number;
+        gif_slug?: string;
+        attachments?: MessageWithStatus['attachments'];
+        created_at?: string;
+        updated_at?: string;
+      };
       const conversationId = data.conversation_id || data.channel_id;
 
-      if (!conversationId) {
-        console.error('DM message missing conversation_id:', msg);
+      // Runtime guard: the structural cast above doesn't validate at runtime.
+      // A malicious/malformed server-sent conversation_id could inject arbitrary
+      // strings into Zustand keys (notification confusion, spoofed previews).
+      // Enforce string shape + reasonable length before any store write.
+      if (
+        typeof conversationId !== 'string' ||
+        conversationId.length === 0 ||
+        conversationId.length > 128
+      ) {
+        console.error('DM message missing or malformed conversation_id:', msg);
+        return;
+      }
+      if (!data.user_id || typeof data.user_id !== 'string') {
+        console.error('DM message missing user_id:', msg);
         return;
       }
 
       const isEncrypted = data.is_encrypted || false;
-      const dmKeyVersion = data.key_version as number | undefined;
+      const dmKeyVersion = data.key_version;
       const baseMessage = {
         id: data.id || crypto.randomUUID(),
         channel_id: conversationId,
@@ -1021,9 +1159,15 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       };
 
       if (isEncrypted) {
-        addEncryptedMessage(conversationId, baseMessage, data.content, dmKeyVersion, addMessage);
+        addEncryptedMessage(
+          conversationId,
+          baseMessage,
+          data.content ?? '',
+          dmKeyVersion,
+          addMessage
+        );
       } else {
-        addPlaintextMessage(conversationId, baseMessage, data.content, addMessage);
+        addPlaintextMessage(conversationId, baseMessage, data.content ?? '', addMessage);
       }
 
       // Bump conversation to the top of the DM list with updated preview.
@@ -1061,7 +1205,12 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // DM message ack handler
     const unsubDMAck = wsService.on('dm_message_ack', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        nonce?: string;
+        id?: string;
+        conversation_id?: string;
+        channel_id?: string;
+      };
       const nonce = data.nonce;
       const serverId = data.id;
       const conversationId = data.conversation_id || data.channel_id;
@@ -1073,7 +1222,14 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // DM message update handler
     const unsubDMUpdate = wsService.on('dm_message_update', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        conversation_id?: string;
+        channel_id?: string;
+        id?: string;
+        content?: string;
+        edited_at?: string;
+        updated_at?: string;
+      };
       const conversationId = data.conversation_id || data.channel_id;
       const messageId = data.id;
 
@@ -1088,7 +1244,11 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // DM message delete handler
     const unsubDMDelete = wsService.on('dm_message_delete', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        conversation_id?: string;
+        channel_id?: string;
+        id?: string;
+      };
       const conversationId = data.conversation_id || data.channel_id;
       const messageId = data.id;
 
@@ -1099,11 +1259,17 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // DM typing indicator handler
     const unsubDMTyping = wsService.on('dm_typing', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        conversation_id?: string;
+        channel_id?: string;
+        user_id?: string;
+        is_typing?: boolean;
+        username?: string;
+      };
       const conversationId = data.conversation_id || data.channel_id;
       const userId = data.user_id;
-      const isTyping = data.is_typing;
-      const username = data.username;
+      const isTyping = data.is_typing ?? false;
+      const username = data.username ?? '';
 
       if (conversationId && userId) {
         setTyping(conversationId, userId, isTyping, username);
@@ -1112,72 +1278,146 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // DM unread notification (for conversations the user is NOT subscribed to)
     const unsubDMUnread = wsService.on('dm_unread_notify', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        conversation_id?: string;
+        mentioned?: boolean;
+        user_id?: string;
+        last_message?: {
+          content?: string;
+          user_id?: string;
+          username?: string;
+          created_at?: string;
+          is_encrypted?: boolean;
+        };
+      };
       const conversationId = data.conversation_id;
       const isDMMentioned = data.mentioned === true;
 
-      if (conversationId) {
-        useDMStore.getState().incrementUnread(conversationId);
-        if (isDMMentioned) {
-          useUnreadStore.getState().incrementMention(conversationId);
-        }
-        // Also update last message preview if provided
-        if (data.last_message) {
-          useDMStore.getState().updateLastMessage(conversationId, {
-            content: data.last_message.content || '',
-            userId: data.last_message.user_id || data.user_id,
-            username: data.last_message.username || '',
-            createdAt: data.last_message.created_at || new Date().toISOString(),
-            isEncrypted: data.last_message.is_encrypted || false,
-          });
-        }
-
-        // Notification sound for unfocused DM messages
-        notificationSoundService.play('dm');
+      // Runtime shape guard — see dm_message handler for rationale.
+      if (
+        typeof conversationId !== 'string' ||
+        conversationId.length === 0 ||
+        conversationId.length > 128
+      ) {
+        return;
       }
+
+      useDMStore.getState().incrementUnread(conversationId);
+      if (isDMMentioned) {
+        useUnreadStore.getState().incrementMention(conversationId);
+      }
+      // Also update last message preview if provided
+      if (data.last_message) {
+        useDMStore.getState().updateLastMessage(conversationId, {
+          content: data.last_message.content || '',
+          userId: data.last_message.user_id || data.user_id || '',
+          username: data.last_message.username || '',
+          createdAt: data.last_message.created_at || new Date().toISOString(),
+          isEncrypted: data.last_message.is_encrypted || false,
+        });
+      }
+
+      // Notification sound for unfocused DM messages
+      notificationSoundService.play('dm');
     });
 
     // DM conversation created (when another user opens a DM with us)
     const unsubDMConvCreated = wsService.on('dm_conversation_created', (msg: WebSocketMessage) => {
-      const { data } = msg;
-      if (data.conversation) {
-        useDMStore.getState().addConversation({
-          id: data.conversation.id,
-          isGroup: data.conversation.is_group,
-          isPersonal: data.conversation.is_personal ?? false,
-          name: data.conversation.name || null,
-          isEncrypted: data.conversation.is_encrypted,
-          participants: (data.conversation.participants || []).map(
-            (p: Record<string, unknown>) => ({
-              userId: p.user_id as string,
-              username: p.username as string,
-              displayName: p.display_name as string | undefined,
-              avatarUrl: p.avatar_url as string | undefined,
-              colorScheme: p.color_scheme as string | undefined,
-              role: p.role as string | undefined,
-            })
-          ),
-          iconUrl: (data.conversation.icon_url as string) || undefined,
-          createdBy: (data.conversation.created_by as string) || undefined,
-          lastMessage: null,
-          unreadCount: 0,
-          createdAt: data.conversation.created_at,
-        });
+      const data = msg.data as {
+        conversation?: {
+          id: string;
+          is_group: boolean;
+          is_personal?: boolean;
+          name?: string | null;
+          is_encrypted: boolean;
+          participants?: Array<Record<string, unknown>>;
+          icon_url?: string;
+          created_by?: string;
+          created_at: string;
+        };
+      };
+      if (!data.conversation) return;
+      const conv = data.conversation;
+
+      // Runtime guard on the conversation envelope; the cast lies about
+      // required fields not actually present at runtime.
+      if (
+        typeof conv.id !== 'string' ||
+        conv.id.length === 0 ||
+        conv.id.length > 128 ||
+        typeof conv.is_group !== 'boolean' ||
+        typeof conv.is_encrypted !== 'boolean' ||
+        typeof conv.created_at !== 'string'
+      ) {
+        console.error('dm_conversation_created: malformed conversation envelope', msg);
+        return;
       }
+
+      // Field-validate each participant before admission to Zustand state.
+      // A missing user_id/username would poison the participants array and
+      // propagate undefined through UI lookups keyed on those fields.
+      const participants = (conv.participants || []).reduce<
+        Array<{
+          userId: string;
+          username: string;
+          displayName: string | undefined;
+          avatarUrl: string | undefined;
+          colorScheme: string | undefined;
+          role: 'admin' | 'member' | undefined;
+        }>
+      >((acc, p) => {
+        if (typeof p.user_id !== 'string' || typeof p.username !== 'string') {
+          console.warn('dm_conversation_created: skipping malformed participant', p);
+          return acc;
+        }
+        acc.push({
+          userId: p.user_id,
+          username: p.username,
+          displayName: typeof p.display_name === 'string' ? p.display_name : undefined,
+          avatarUrl: typeof p.avatar_url === 'string' ? p.avatar_url : undefined,
+          colorScheme: typeof p.color_scheme === 'string' ? p.color_scheme : undefined,
+          role: p.role === 'admin' || p.role === 'member' ? p.role : undefined,
+        });
+        return acc;
+      }, []);
+
+      useDMStore.getState().addConversation({
+        id: conv.id,
+        isGroup: conv.is_group,
+        isPersonal: conv.is_personal ?? false,
+        name: conv.name || null,
+        isEncrypted: conv.is_encrypted,
+        participants,
+        iconUrl: conv.icon_url || undefined,
+        createdBy: conv.created_by || undefined,
+        lastMessage: null,
+        unreadCount: 0,
+        createdAt: conv.created_at,
+      });
     });
 
     // DM participant added to group
     const unsubDMParticipantAdded = wsService.on(
       'dm_participant_added',
       (msg: WebSocketMessage) => {
-        const { data } = msg;
+        const data = msg.data as {
+          conversation_id?: string;
+          user_id?: unknown;
+          username?: unknown;
+          display_name?: unknown;
+          avatar_url?: unknown;
+          color_scheme?: unknown;
+        };
         const conversationId = data.conversation_id;
         if (!conversationId) return;
 
         const dmStore = useDMStore.getState();
         const conv = dmStore.conversations.find((c) => c.id === conversationId);
         if (!conv) {
-          console.debug('[WebSocket] dm_participant_added: conversation not loaded, fetching', conversationId);
+          console.debug(
+            '[WebSocket] dm_participant_added: conversation not loaded, fetching',
+            conversationId
+          );
           dmStore.fetchConversations();
           return;
         }
@@ -1206,14 +1446,14 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
     const unsubDMParticipantRemoved = wsService.on(
       'dm_participant_removed',
       (msg: WebSocketMessage) => {
-        const { data } = msg;
+        const data = msg.data as { conversation_id?: string; user_id?: string };
         const conversationId = data.conversation_id;
         const removedUserId = data.user_id;
         if (!conversationId || !removedUserId) return;
 
         // Check if we were the one removed
         const currentUser = useUserStore.getState().user;
-        if (currentUser && removedUserId === currentUser.id) {
+        if (removedUserId === currentUser?.id) {
           useDMStore.getState().removeConversation(conversationId);
           return;
         }
@@ -1231,7 +1471,11 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // DM member role changed
     const unsubDMRoleChanged = wsService.on('dm_role_changed', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        conversation_id?: string;
+        user_id?: string;
+        role?: string;
+      };
       const conversationId = data.conversation_id;
       const userId = data.user_id;
       const role = data.role;
@@ -1250,7 +1494,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // DM group deleted
     const unsubDMGroupDeleted = wsService.on('dm_group_deleted', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as { conversation_id?: string };
       if (data.conversation_id) {
         useDMStore.getState().removeConversation(data.conversation_id);
       }
@@ -1266,10 +1510,45 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // ── Friend event handlers ────────────────────────────────────────────
 
+    type FriendPayload = {
+      id: string;
+      user_id: string;
+      username: string;
+      display_name?: string;
+      avatar_url?: string;
+      color_scheme?: string;
+      status?: PresenceStatus;
+    };
+
+    type FriendRequestPayload = {
+      id: string;
+      from_user_id: string;
+      from_username: string;
+      from_display_name?: string;
+      from_avatar_url?: string;
+      to_user_id: string;
+      to_username: string;
+      to_display_name?: string;
+      to_avatar_url?: string;
+      created_at: string;
+    };
+
     const unsubFriendRequestReceived = wsService.on(
       'friend_request_received',
       (msg: WebSocketMessage) => {
-        const { data } = msg;
+        const data = msg.data as FriendRequestPayload;
+        // Runtime guard: the cast above is not runtime-validated. Refuse
+        // request payloads that are missing the minimum set of fields rather
+        // than polluting the friend-request list with partial records.
+        if (
+          typeof data.id !== 'string' ||
+          typeof data.from_user_id !== 'string' ||
+          typeof data.to_user_id !== 'string' ||
+          typeof data.created_at !== 'string'
+        ) {
+          console.error('friend_request_received: malformed payload', msg);
+          return;
+        }
         useFriendStore.getState().addRequest({
           id: data.id,
           fromUserId: data.from_user_id,
@@ -1292,7 +1571,16 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
     const unsubFriendRequestAccepted = wsService.on(
       'friend_request_accepted',
       (msg: WebSocketMessage) => {
-        const { data } = msg;
+        const data = msg.data as {
+          request_id?: string;
+          id?: string;
+          friend?: FriendPayload;
+          user_id?: string;
+          username?: string;
+          display_name?: string;
+          avatar_url?: string;
+          color_scheme?: string;
+        };
         const store = useFriendStore.getState();
 
         // Remove the pending request (backend sends "id", not "request_id")
@@ -1329,14 +1617,18 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
     );
 
     const unsubFriendRemoved = wsService.on('friend_removed', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as { user_id?: string };
       if (data.user_id) {
         useFriendStore.getState().removeFriendByUserId(data.user_id);
       }
     });
 
     const unsubFriendCodeClaimed = wsService.on('friend_code_claimed', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        status?: string;
+        friend?: FriendPayload;
+        request?: FriendRequestPayload;
+      };
       const store = useFriendStore.getState();
 
       if (data.status === 'accepted' && data.friend) {
@@ -1374,10 +1666,14 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
     // ── DM voice state update handler ────────────────────────────────────
 
     const unsubDMVoiceState = wsService.on('dm_voice_state_update', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        conversation_id?: string;
+        action: string;
+        user_id?: string;
+      };
       const conversationId = data.conversation_id;
       const action = data.action; // 'joined' | 'left' | 'room_empty' | enforcement actions
-      const userId = data.user_id as string | undefined;
+      const userId = data.user_id;
 
       if (!conversationId) return;
 
@@ -1421,10 +1717,14 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Error handler
     const unsubError = wsService.on('error', (msg: WebSocketMessage) => {
-      const { data } = msg;
+      const data = msg.data as {
+        code?: string;
+        channel_id?: string;
+        current_epoch?: number;
+      };
       if (data.code === 'epoch_revoked' && data.channel_id) {
         console.warn('[WebSocket] Epoch revoked for channel', data.channel_id, '→ re-fetching key');
-        e2eeService.invalidateChannelKey(data.channel_id as string);
+        e2eeService.invalidateChannelKey(data.channel_id);
         globalThis.dispatchEvent(
           new CustomEvent('e2ee-key-rotation', {
             detail: {

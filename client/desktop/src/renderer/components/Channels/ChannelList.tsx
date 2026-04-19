@@ -820,7 +820,6 @@ const ChannelList: React.FC<ChannelListProps> = ({
       unreadCounts,
       drafts,
       voiceChannelId,
-      voiceConnectionState,
       showVoiceTextChat,
       linkedTextByVoice,
       getVoiceMembers,

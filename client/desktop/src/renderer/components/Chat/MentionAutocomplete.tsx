@@ -27,7 +27,13 @@ export interface MentionAutocompleteProps {
   cursorPosition: number;
   /** Server ID for permission checks (undefined = DM context, all mentions allowed) */
   serverId?: string;
-  /** Channel ID for SBAC overrides */
+  /**
+   * Channel ID — currently unused at runtime (destructured as `_channelId`).
+   * The SBAC override lookup that would consume this is deferred per #600:
+   * it needs a component-context permission resolver that doesn't exist yet.
+   * Kept in the public prop type so callers wiring up mention autocomplete
+   * don't need to migrate twice when SBAC overrides land.
+   */
   channelId?: string;
   /** DM conversation ID — when set, source members from DM participants instead of server members */
   conversationId?: string;
@@ -113,7 +119,7 @@ const MentionAutocomplete = forwardRef<MentionAutocompleteHandle, MentionAutocom
       text,
       cursorPosition,
       serverId,
-      channelId,
+      channelId: _channelId,
       onSelect,
       onClose,
       anchorRef: _anchorRef,
@@ -148,7 +154,6 @@ const MentionAutocomplete = forwardRef<MentionAutocompleteHandle, MentionAutocom
     }, [conversationId, dmConversations, serverMembers]);
     const serverPermissions = usePermissionStore((s) => s.serverPermissions);
     const serverRoles = usePermissionStore((s) => s.serverRoles);
-    const channelOverrides = usePermissionStore((s) => s.channelOverrides);
 
     // Extract the @query from text at cursor position
     const query = useMemo(() => {
@@ -187,7 +192,7 @@ const MentionAutocomplete = forwardRef<MentionAutocompleteHandle, MentionAutocom
         canMentionUsers: hasPermission(basePerm, MENTION_USERS),
         canMentionRoles: hasPermission(basePerm, MENTION_ROLES),
       };
-    }, [serverId, channelId, serverPermissions, channelOverrides]);
+    }, [serverId, serverPermissions]);
 
     // Build filtered options
     const options = useMemo(() => {

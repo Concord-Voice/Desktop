@@ -1161,7 +1161,7 @@ const PrivacySecuritySection: React.FC = () => {
                 // Uses the WebAuthn Signal API (Chrome 132+) to hint that removed credentials
                 // are no longer accepted, so platform/hardware authenticators can purge them.
                 try {
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- WebAuthn Signal API (signalAllAcceptedCredentialIds) shipped in Chrome 132 and is not yet in the standard lib.dom.d.ts; runtime-gated by the `typeof PKC.signalAllAcceptedCredentialIds === 'function'` check below
                   const PKC = PublicKeyCredential as any;
                   if (
                     typeof PublicKeyCredential !== 'undefined' &&

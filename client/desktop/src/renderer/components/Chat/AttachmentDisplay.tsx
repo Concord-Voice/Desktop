@@ -26,9 +26,14 @@ const blobUrlCache = new Map<string, string>();
 function cacheBlobUrl(fileId: string, url: string): void {
   // Evict oldest entry if at capacity (Map preserves insertion order)
   if (blobUrlCache.size >= BLOB_CACHE_MAX) {
-    const oldest = blobUrlCache.keys().next().value!;
-    URL.revokeObjectURL(blobUrlCache.get(oldest)!);
-    blobUrlCache.delete(oldest);
+    const oldest = blobUrlCache.keys().next().value;
+    if (oldest !== undefined) {
+      const oldestUrl = blobUrlCache.get(oldest);
+      if (oldestUrl !== undefined) {
+        URL.revokeObjectURL(oldestUrl);
+      }
+      blobUrlCache.delete(oldest);
+    }
   }
   blobUrlCache.set(fileId, url);
 }

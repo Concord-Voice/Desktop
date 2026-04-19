@@ -73,7 +73,7 @@ function mapMacMediaStatus(
  * isn't in all type definition versions — use a runtime check.
  */
 function mapMacNotificationStatus(): OsPermissionStatus {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- systemPreferences.getNotificationSettings was added in Electron 28 but is missing from older bundled type definitions; runtime-guarded below
   const sp = systemPreferences as any;
   if (typeof sp.getNotificationSettings !== 'function') {
     return 'not-determined'; // Fallback if API unavailable

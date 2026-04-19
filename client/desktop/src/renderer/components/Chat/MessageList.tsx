@@ -150,10 +150,9 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
         isNearBottomRef.current = false;
       }
       return () => {
-        const el = listRef.current;
-        if (el) {
-          useChannelScrollStore.getState().saveScroll(persistenceKey, el.scrollTop);
-        }
+        // Use the element captured at setup so cleanup records scroll on the
+        // same node; listRef.current may have changed by the time this runs.
+        useChannelScrollStore.getState().saveScroll(persistenceKey, list.scrollTop);
       };
     }, [persistenceKey]);
 
@@ -166,7 +165,8 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
         return;
       }
 
-      const lastMessage = messages.at(-1)!;
+      const lastMessage = messages.at(-1);
+      if (!lastMessage) return; // unreachable: length check above guarantees at-least-one
       const lastId = lastMessage.id;
 
       if (isNearBottomRef.current) {

@@ -120,11 +120,12 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
     setLoading(true);
     setError('');
     try {
-      const pkcs8Bytes = await unwrapWithRecoveryKey(
-        recoveryData.recovery_wrapped_private_key!,
-        recoveryData.recovery_key_salt!,
-        recoveryKeyInput
-      );
+      const wrappedKey = recoveryData.recovery_wrapped_private_key;
+      const salt = recoveryData.recovery_key_salt;
+      if (!wrappedKey || !salt) {
+        throw new Error('Recovery key material missing from server response');
+      }
+      const pkcs8Bytes = await unwrapWithRecoveryKey(wrappedKey, salt, recoveryKeyInput);
       setRecoveredPkcs8(pkcs8Bytes);
       setStep('new-password');
     } catch {
@@ -180,8 +181,11 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
 
         if (data.status === 'approved' && data.encrypted_payload && data.responder_public_key) {
           // Decrypt the payload using ECDH
+          if (!ecdhKeyPair) {
+            throw new Error('device recovery: ECDH key pair was not generated before polling');
+          }
           const responderKey = await importECDHPublicKey(data.responder_public_key);
-          const sharedKey = await deriveSharedSecret(ecdhKeyPair!.privateKey, responderKey);
+          const sharedKey = await deriveSharedSecret(ecdhKeyPair.privateKey, responderKey);
           const pkcs8Bytes = await decryptWithSharedSecret(sharedKey, data.encrypted_payload);
           setRecoveredPkcs8(pkcs8Bytes);
           setStep('new-password');
@@ -194,7 +198,10 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
         }
         // If still pending, do nothing (will poll again)
       } catch {
-        // Ignore poll errors silently
+        // Ignore poll errors silently — the next poll tick retries. See
+        // internal-reference re: idiomatic fetch-retry polling loops.
+        // (The ECDH-invariant throw above is already gated by state-machine
+        //  preconditions; reaching this catch in practice means fetch failure.)
       }
     };
 
@@ -260,8 +267,11 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
             const payload = JSON.parse(payloadStr);
 
             // Derive shared secret with responder's ECDH key
+            if (!ecdhKeyPair) {
+              throw new Error('social recovery: ECDH key pair was not generated before polling');
+            }
             const responderKey = await importECDHPublicKey(payload.ephemeral_public_key);
-            const sharedKey = await deriveSharedSecret(ecdhKeyPair!.privateKey, responderKey);
+            const sharedKey = await deriveSharedSecret(ecdhKeyPair.privateKey, responderKey);
             const shareBytes = await decryptWithSharedSecret(sharedKey, payload.encrypted_data);
 
             // share_index is embedded in the encrypted payload by the contact
@@ -275,7 +285,9 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
           setStep('new-password');
         }
       } catch {
-        // Ignore poll errors
+        // Ignore poll errors silently — the next poll tick retries (mirrors
+        // pollDevice above). The ECDH-invariant throw inside the loop is
+        // already gated by state-machine preconditions.
       }
     };
 

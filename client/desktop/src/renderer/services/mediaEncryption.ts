@@ -400,10 +400,24 @@ export class MediaEncryption {
       return; // Unencrypted frame — leave as-is for the decoder
     }
 
-    // Extract components from the trailer (before magic bytes)
+    // Extract components from the trailer (before magic bytes).
+    // The length guard above (data.length < TRAILER_SIZE + 17) ensures indices
+    // -15 and -16 are in-bounds, but Uint8Array.at() still returns T|undefined
+    // at the type level — narrow explicitly rather than assert non-null.
     const iv = data.slice(-14, -2);
-    const keyId = data.at(-15)!;
-    const headerBytes = data.at(-16)!; // Sender-encoded header byte count
+    const keyId = data.at(-15);
+    const headerBytes = data.at(-16); // Sender-encoded header byte count
+    if (keyId === undefined || headerBytes === undefined) {
+      // Unreachable in practice: the length guard above (data.length >=
+      // TRAILER_SIZE + 17 = 33) mathematically guarantees indices -15 and
+      // -16 are defined. If we ever reach here, the guard was weakened or
+      // the data was mutated mid-function — either way the frame is
+      // corrupted and silent-passthrough would hide a real invariant bug.
+      // The magic-trailer check above already identified this as our frame.
+      throw new Error(
+        'mediaEncryption: decrypt invariant violated — at(-15/-16) undefined despite length guard'
+      );
+    }
 
     // Sanity check: headerBytes should be 1-10
     if (headerBytes < 1 || headerBytes > 10 || headerBytes >= data.length - TRAILER_SIZE) {

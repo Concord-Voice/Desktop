@@ -491,7 +491,6 @@ export interface ElectronAPI {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var electron: ElectronAPI;
   interface Window {
     electron: ElectronAPI;

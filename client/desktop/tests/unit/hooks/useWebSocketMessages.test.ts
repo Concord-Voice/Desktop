@@ -5,6 +5,8 @@ import { useChannelStore } from '@/renderer/stores/channelStore';
 import { useAuthStore } from '@/renderer/stores/authStore';
 import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { useUserStore } from '@/renderer/stores/userStore';
+import { useDMStore } from '@/renderer/stores/dmStore';
+import { useFriendStore } from '@/renderer/stores/friendStore';
 import { resetAllStores } from '../../helpers/store-helpers';
 import { mockChannel } from '../../mocks/fixtures';
 
@@ -179,6 +181,210 @@ describe('useWebSocketMessages', () => {
     expect(ws.handlers.size).toBeLessThan(handlerCount);
   });
 
+  describe('runtime payload guards', () => {
+    // These cover the defensive guards added in #667 against malformed
+    // server-sent payloads. Each guard rejects the event and returns early
+    // rather than poisoning Zustand state with undefined/malformed fields.
+    let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+    let consoleWarnSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+
+    it('message handler rejects payload missing user_id', () => {
+      const ws = createMockWsService();
+      renderHook(() => useWebSocketMessages(ws as never));
+
+      const handler = ws.handlers.get('message');
+      expect(handler).toBeDefined();
+
+      act(() => {
+        handler?.({
+          type: 'message',
+          data: {
+            id: 'msg-guard-1',
+            channel_id: 'channel-1',
+            // user_id intentionally omitted
+            content: 'should be dropped',
+            created_at: '2026-04-19T12:00:00Z',
+          },
+        });
+      });
+
+      // No message should have been added to the store for this channel
+      const msgs = useChatStore.getState().messagesByChannel.get('channel-1');
+      expect(msgs?.some((m) => m.id === 'msg-guard-1')).toBeFalsy();
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Message missing user_id:', expect.any(Object));
+    });
+
+    it('dm_message handler rejects malformed conversation_id (non-string)', () => {
+      const ws = createMockWsService();
+      renderHook(() => useWebSocketMessages(ws as never));
+
+      const handler = ws.handlers.get('dm_message');
+      expect(handler).toBeDefined();
+
+      const before = useDMStore.getState().conversations.length;
+      act(() => {
+        handler?.({
+          type: 'dm_message',
+          data: {
+            conversation_id: 12345, // number, not string — should be rejected
+            user_id: 'user-x',
+            content: 'malformed',
+          },
+        });
+      });
+
+      expect(useDMStore.getState().conversations.length).toBe(before);
+      expect(consoleErrorSpy).toHaveBeenCalled();
+    });
+
+    it('dm_message handler rejects missing user_id even with valid conversation_id', () => {
+      const ws = createMockWsService();
+      renderHook(() => useWebSocketMessages(ws as never));
+
+      const handler = ws.handlers.get('dm_message');
+      const before = useDMStore.getState().conversations.length;
+      act(() => {
+        handler?.({
+          type: 'dm_message',
+          data: {
+            conversation_id: 'dm-conv-1',
+            // user_id omitted
+            content: 'no sender',
+          },
+        });
+      });
+
+      expect(useDMStore.getState().conversations.length).toBe(before);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'DM message missing user_id:',
+        expect.any(Object)
+      );
+    });
+
+    it('dm_unread_notify handler silently drops malformed conversation_id', () => {
+      const ws = createMockWsService();
+      renderHook(() => useWebSocketMessages(ws as never));
+
+      const handler = ws.handlers.get('dm_unread_notify');
+      expect(handler).toBeDefined();
+
+      // Should not throw and should not play a DM sound
+      act(() => {
+        handler?.({
+          type: 'dm_unread_notify',
+          data: {
+            conversation_id: '', // empty string — should be rejected
+            mentioned: true,
+          },
+        });
+      });
+
+      expect(mockPlay).not.toHaveBeenCalledWith('dm');
+    });
+
+    it('dm_conversation_created skips participants missing required fields', () => {
+      const ws = createMockWsService();
+      renderHook(() => useWebSocketMessages(ws as never));
+
+      const handler = ws.handlers.get('dm_conversation_created');
+      expect(handler).toBeDefined();
+
+      act(() => {
+        handler?.({
+          type: 'dm_conversation_created',
+          data: {
+            conversation: {
+              id: 'conv-guard-1',
+              is_group: false,
+              is_encrypted: false,
+              created_at: '2026-04-19T12:00:00Z',
+              participants: [
+                // Valid participant
+                { user_id: 'alice', username: 'alice' },
+                // Malformed — should be skipped with warning
+                { user_id: 'bob' /* username missing */ },
+                // Another valid one
+                { user_id: 'carol', username: 'carol', role: 'admin' },
+              ],
+            },
+          },
+        });
+      });
+
+      const conv = useDMStore.getState().conversations.find((c) => c.id === 'conv-guard-1');
+      expect(conv).toBeDefined();
+      // Only 2 of the 3 input participants should have been admitted
+      expect(conv?.participants.length).toBe(2);
+      expect(conv?.participants.map((p) => p.userId).sort()).toEqual(['alice', 'carol']);
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        'dm_conversation_created: skipping malformed participant',
+        expect.any(Object)
+      );
+    });
+
+    it('dm_conversation_created rejects envelope missing required fields', () => {
+      const ws = createMockWsService();
+      renderHook(() => useWebSocketMessages(ws as never));
+
+      const handler = ws.handlers.get('dm_conversation_created');
+      const before = useDMStore.getState().conversations.length;
+      act(() => {
+        handler?.({
+          type: 'dm_conversation_created',
+          data: {
+            conversation: {
+              id: 'conv-malformed',
+              // is_group missing
+              is_encrypted: false,
+              created_at: '2026-04-19T12:00:00Z',
+              participants: [],
+            },
+          },
+        });
+      });
+
+      // No conversation should have been added
+      expect(useDMStore.getState().conversations.length).toBe(before);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'dm_conversation_created: malformed conversation envelope',
+        expect.any(Object)
+      );
+    });
+
+    it('friend_request_received rejects payload missing required fields', () => {
+      const ws = createMockWsService();
+      renderHook(() => useWebSocketMessages(ws as never));
+
+      const handler = ws.handlers.get('friend_request_received');
+      expect(handler).toBeDefined();
+
+      const before = useFriendStore.getState().pendingRequests.length;
+      act(() => {
+        handler?.({
+          type: 'friend_request_received',
+          data: {
+            id: 'fr-malformed',
+            from_user_id: 'user-x',
+            // to_user_id + created_at missing
+          },
+        });
+      });
+
+      expect(useFriendStore.getState().pendingRequests.length).toBe(before);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'friend_request_received: malformed payload',
+        expect.any(Object)
+      );
+      // The notification sound is only played when the guard passes
+      expect(mockPlay).not.toHaveBeenCalledWith('friend-request');
+    });
+  });
+
   describe('notification sounds', () => {
     beforeEach(() => {
       mockPlay.mockClear();
@@ -302,6 +508,9 @@ describe('useWebSocketMessages', () => {
               id: 'fr-1',
               from_user_id: 'user-2',
               from_username: 'other',
+              to_user_id: 'user-1',
+              to_username: 'self',
+              created_at: '2026-04-19T07:30:00Z',
             },
           });
         });

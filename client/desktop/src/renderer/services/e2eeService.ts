@@ -569,10 +569,12 @@ class E2EEService {
     const wrappedKey: string = data.key.wrapped_key;
 
     // Cache in versioned cache
-    if (!this.versionedKeyCache.has(channelId)) {
-      this.versionedKeyCache.set(channelId, new Map());
+    let versionMapForChannel = this.versionedKeyCache.get(channelId);
+    if (!versionMapForChannel) {
+      versionMapForChannel = new Map();
+      this.versionedKeyCache.set(channelId, versionMapForChannel);
     }
-    this.versionedKeyCache.get(channelId)!.set(version, {
+    versionMapForChannel.set(version, {
       wrappedKey,
       keyVersion: version,
       lastUsed: Date.now(),

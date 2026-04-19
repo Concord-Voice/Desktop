@@ -118,6 +118,7 @@ export function createUpdateLogger(): UpdateLogger {
         console.warn(`[updater] ${message}`);
         break;
       default:
+        // eslint-disable-next-line no-console -- updateLogger is the logger module itself; this console.log is the intentional INFO/DEBUG emitter that the module's API is built around (mirrors console.error/.warn branches above)
         console.log(`[updater] ${message}`);
         break;
     }

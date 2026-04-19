@@ -184,7 +184,7 @@ const AuthFlow: React.FC = () => {
         <div className="auth-placeholder">
           <h2>Self-Hosted Auth</h2>
           <p>Connecting to: {serverUrl}</p>
-          <p>Server's auth flow will be proxied here</p>
+          <p>Server&apos;s auth flow will be proxied here</p>
           <button onClick={handleBack}>← Back</button>
         </div>
       )}

@@ -52,7 +52,7 @@ const ServerInput: React.FC<ServerInputProps> = ({ onConnect, onBack }) => {
       // Test server connectivity (will implement full discovery later)
       // For now, just validate the URL format
       onConnect(fullUrl);
-    } catch (err) {
+    } catch {
       setError('Could not connect to server. Please check the URL.');
       setIsValidating(false);
     }
@@ -126,7 +126,7 @@ const ServerInput: React.FC<ServerInputProps> = ({ onConnect, onBack }) => {
         {/* Help Link */}
         <div className="server-footer">
           <p className="footer-help">
-            Don't have a server? <span className="help-link">Learn about self-hosting →</span>
+            Don&apos;t have a server? <span className="help-link">Learn about self-hosting →</span>
           </p>
         </div>
       </div>

@@ -208,8 +208,9 @@ let cachedCodecCaps: CodecCapability[] | null = null;
  * Results are cached per deviceId to avoid repeated probing.
  */
 export async function enumerateWebcamCapabilities(deviceId: string): Promise<WebcamCapability[]> {
-  if (cachedWebcamCaps.has(deviceId)) {
-    return cachedWebcamCaps.get(deviceId)!;
+  const cached = cachedWebcamCaps.get(deviceId);
+  if (cached) {
+    return cached;
   }
 
   const capabilities: WebcamCapability[] = [];

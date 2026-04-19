@@ -76,7 +76,7 @@ export function useImageUpload({
       setPendingFile(file);
       setShowCrop(true);
     },
-    [allowedTypes, maxSize, onError]
+    [allowedTypes, maxSize, onError, clearFileInput]
   );
 
   const handleCropConfirm = useCallback(

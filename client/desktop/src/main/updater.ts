@@ -77,6 +77,20 @@ let handlersRegistered = false;
 let logger: UpdateLogger | null = null;
 let pendingUpdateVersion: string | null = null;
 
+/**
+ * Returns the module logger, throwing if it has not been initialized.
+ * Used inside code paths that only run after ensureUpdaterReady() has
+ * executed (event handlers, post-init hooks). Converts a structural
+ * invariant into an explicit runtime check so we don't need non-null
+ * assertions sprinkled at every call site.
+ */
+function requireLogger(): UpdateLogger {
+  if (!logger) {
+    throw new Error('updater: logger accessed before ensureUpdaterReady()');
+  }
+  return logger;
+}
+
 /** Send an IPC event to the renderer (if the window exists). */
 function sendToRenderer(channel: string, data: unknown): void {
   const win = getWindow?.();
@@ -110,7 +124,15 @@ function ensureUpdaterReady(): void {
   // Signing leaf certs are 72-hour short-lived, auto-renewed daily. See
   // spec internal-reference
   if (process.platform === 'win32') {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // electron-updater exposes `verifyUpdateCodeSignature` as a runtime hook
+    // on the AppUpdater instance — it's a documented monkey-patch point in
+    // electron-builder's codebase but is not in the published TypeScript
+    // types. A narrow intersection cast `as typeof autoUpdater & { ... }` is
+    // redundant per typescript:S4323 (the intersection doesn't actually
+    // change the assignability, since `autoUpdater` already accepts property
+    // assignment). `as any` is the pragmatic workaround with a specific
+    // invariant rationale rather than a pretend-narrower type.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- electron-updater.AppUpdater type omits the runtime-monkey-patchable verifyUpdateCodeSignature hook; see extractChain comment block above for the pinning rationale this override enables
     (autoUpdater as any).verifyUpdateCodeSignature = async (
       publisherNames: string[],
       filePath: string
@@ -135,14 +157,14 @@ function ensureUpdaterReady(): void {
   // ─── Event handlers ─────────────────────────────────────────────────
 
   autoUpdater.on('checking-for-update', () => {
-    logger!.info(
+    requireLogger().info(
       `Checking for updates (current: v${app.getVersion()}, ${process.platform}/${process.arch})`
     );
     updateSplashStatus('Checking the airwaves...');
   });
 
   autoUpdater.on('update-available', (info: UpdateInfo) => {
-    logger!.info(
+    requireLogger().info(
       `Update available: v${app.getVersion()} → v${info.version} (released ${info.releaseDate ?? 'unknown'})`
     );
     updateSplashStatus(`New flight plan detected: v${info.version}`);
@@ -154,14 +176,14 @@ function ensureUpdaterReady(): void {
   });
 
   autoUpdater.on('update-not-available', (info: UpdateInfo) => {
-    logger!.info(`Up to date (v${info.version})`);
+    requireLogger().info(`Up to date (v${info.version})`);
     updateSplashStatus('All systems go');
     sendToRenderer('update:not-available', { version: info.version });
   });
 
   autoUpdater.on('download-progress', (progress: ProgressInfo) => {
     const msg = `${progress.percent.toFixed(1)}% (${formatBytes(progress.transferred)}/${formatBytes(progress.total)})`;
-    logger!.info(`Download: ${msg}`);
+    requireLogger().info(`Download: ${msg}`);
     showSplashProgress(progress.percent);
     updateSplashStatus(`Fueling up... ${progress.percent.toFixed(0)}%`);
     sendToRenderer('update:download-progress', {
@@ -174,7 +196,7 @@ function ensureUpdaterReady(): void {
 
   autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
     pendingUpdateVersion = info.version;
-    logger!.info(`Downloaded v${info.version} — ready to install`);
+    requireLogger().info(`Downloaded v${info.version} — ready to install`);
     showSplashProgress(100);
     updateSplashStatus('Ready for liftoff');
     sendToRenderer('update:downloaded', { version: info.version });
@@ -184,12 +206,12 @@ function ensureUpdaterReady(): void {
     const msg = error.message;
     const isPublisherFailure = /publisher|signature|not signed/i.test(msg);
     if (isPublisherFailure) {
-      logger!.error(
+      requireLogger().error(
         `SECURITY: Update signer verification failed — ${msg}${error.stack ? '\n' + error.stack : ''}`
       );
       updateSplashError('Update blocked: signature verification failed');
     } else {
-      logger!.error(`Error: ${msg}${error.stack ? '\n' + error.stack : ''}`);
+      requireLogger().error(`Error: ${msg}${error.stack ? '\n' + error.stack : ''}`);
       updateSplashError('Houston, we have a problem');
     }
     sendToRenderer('update:error', { message: msg, securityEvent: isPublisherFailure });
@@ -214,7 +236,7 @@ export function initAutoUpdater(mainWindowGetter: () => BrowserWindow | null): v
 
   if (!app.isPackaged) {
     // No logger yet in dev mode — use console directly
-    console.log('[updater] Skipping auto-update in development');
+    console.debug('[updater] Skipping auto-update in development');
     return;
   }
 
@@ -248,7 +270,7 @@ export function initAutoUpdater(mainWindowGetter: () => BrowserWindow | null): v
   } else {
     // No persisted API base (first launch, never logged in).
     // Updates will be enabled after login via setUpdateFeedUrl().
-    logger!.info('No API base available, deferring update check until login');
+    requireLogger().info('No API base available, deferring update check until login');
   }
 }
 
@@ -286,7 +308,7 @@ export async function safeQuitAndInstall(): Promise<void> {
 
   logger?.info(`Preparing safe update: v${currentVersion} → v${targetVersion}`);
 
-  const prepared = await prepareForUpdate(currentVersion, targetVersion, logger!);
+  const prepared = await prepareForUpdate(currentVersion, targetVersion, requireLogger());
   if (!prepared) {
     logger?.error('Failed to prepare safety backup, aborting update install');
     sendToRenderer('update:error', {
@@ -319,7 +341,7 @@ function formatBytes(bytes: number): string {
 /** Set the update feed URL after login (when apiBase becomes available). */
 export function setUpdateFeedUrl(apiBase: string): void {
   if (!app.isPackaged) {
-    console.log('[updater] setUpdateFeedUrl: no-op in development mode');
+    console.debug('[updater] setUpdateFeedUrl: no-op in development mode');
     return;
   }
   if (!apiBase.startsWith('https://')) {
@@ -340,7 +362,7 @@ export function setUpdateFeedUrl(apiBase: string): void {
   } else {
     logger?.warn('Publisher verification NOT enforced on this platform — updates trust the feed');
   }
-  logger!.info(`Feed URL set to ${apiBase}/api/v1/updates`);
+  requireLogger().info(`Feed URL set to ${apiBase}/api/v1/updates`);
   startScheduledChecks();
 }
 
