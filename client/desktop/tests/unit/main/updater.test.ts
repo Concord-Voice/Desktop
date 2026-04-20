@@ -162,6 +162,45 @@ describe('updater', () => {
 
       expect(splash.updateSplashError).toHaveBeenCalledWith('Houston, we have a problem');
     });
+
+    it('classifies cert-pin errors (ERR_CERT_*) with cert-pin splash + SECURITY log (#658)', async () => {
+      const { updater, splash } = await loadModule();
+      updater.initAutoUpdater(() => null);
+
+      getEventHandler('error')(new Error('net::ERR_CERT_AUTHORITY_INVALID'));
+
+      expect(splash.updateSplashError).toHaveBeenCalledWith(
+        'Update blocked: cert verification failed'
+      );
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringMatching(/SECURITY.*cert-pin verification failed/)
+      );
+    });
+
+    it('classifies "certificate verify failed" as cert-pin failure (#658)', async () => {
+      const { updater, splash } = await loadModule();
+      updater.initAutoUpdater(() => null);
+
+      getEventHandler('error')(new Error('certificate verify failed'));
+
+      expect(splash.updateSplashError).toHaveBeenCalledWith(
+        'Update blocked: cert verification failed'
+      );
+    });
+
+    it('preserves publisher-failure classification after cert-pin extension (#658)', async () => {
+      const { updater, splash } = await loadModule();
+      updater.initAutoUpdater(() => null);
+
+      getEventHandler('error')(new Error('publisher verification failed'));
+
+      expect(splash.updateSplashError).toHaveBeenCalledWith(
+        'Update blocked: signature verification failed'
+      );
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringMatching(/SECURITY.*signer verification failed/)
+      );
+    });
   });
 
   describe('readUpdatePrefs error handling', () => {

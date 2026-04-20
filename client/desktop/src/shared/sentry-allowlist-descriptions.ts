@@ -31,10 +31,16 @@ export interface AllowlistCategory {
 
 export const ALLOWLIST_META: AllowlistMeta = {
   version: TELEMETRY_POLICY_VERSION,
-  lastUpdated: '2026-04-16',
+  lastUpdated: '2026-04-20',
   summary:
     'No message content, encryption keys, IP addresses, or personal information are ever sent. Only the technical details below reach Sentry.',
   changelog: [
+    {
+      version: 3,
+      date: '2026-04-20',
+      change:
+        'Added update-channel security event breadcrumbs so operations can detect cert-pin misses and publisher-signature failures across the fleet (#658).',
+    },
     {
       version: 2,
       date: '2026-04-16',
@@ -48,39 +54,53 @@ export const ALLOWLIST_META: AllowlistMeta = {
   ],
 };
 
-export const ALLOWLIST_CATEGORIES: Record<'contexts' | 'tags', AllowlistCategory> = {
-  contexts: {
-    title: 'About the app and device',
-    intro:
-      'Technical details about your desktop app and operating system — used to tell crashes on different builds or platforms apart.',
-    fields: {
-      os: 'Your operating system family and coarse version (e.g. macOS 14, Windows 11) so we can distinguish platform-specific crashes.',
-      browser:
-        'The Chromium version used by the Electron shell, so we can correlate crashes with web-runtime changes.',
-      electron:
-        'The Electron framework version and whether this is a packaged build or a development run.',
-      device:
-        'Non-identifying device metadata (CPU architecture, memory class). Hardware fingerprints such as model, serial, and screen resolution are stripped before sending.',
-      runtime:
-        'The JavaScript runtime version (V8) the app is using, so we can diagnose crashes tied to runtime behavior.',
-      app: 'The installed Concord app name and build identifier, used to group crashes by release.',
+export const ALLOWLIST_CATEGORIES: Record<'contexts' | 'tags' | 'breadcrumbs', AllowlistCategory> =
+  {
+    contexts: {
+      title: 'About the app and device',
+      intro:
+        'Technical details about your desktop app and operating system — used to tell crashes on different builds or platforms apart.',
+      fields: {
+        os: 'Your operating system family and coarse version (e.g. macOS 14, Windows 11) so we can distinguish platform-specific crashes.',
+        browser:
+          'The Chromium version used by the Electron shell, so we can correlate crashes with web-runtime changes.',
+        electron:
+          'The Electron framework version and whether this is a packaged build or a development run.',
+        device:
+          'Non-identifying device metadata (CPU architecture, memory class). Hardware fingerprints such as model, serial, and screen resolution are stripped before sending.',
+        runtime:
+          'The JavaScript runtime version (V8) the app is using, so we can diagnose crashes tied to runtime behavior.',
+        app: 'The installed Concord app name and build identifier, used to group crashes by release.',
+      },
     },
-  },
-  tags: {
-    title: 'Crash classification tags',
-    intro:
-      'Short labels attached to each event so we can group related crashes. None of these carry content or identity.',
-    fields: {
-      environment: 'Whether the event came from a production or development build.',
-      release:
-        'The specific Concord desktop version that produced the crash (e.g. concord-desktop@0.1.20).',
-      level: 'How severe the event is (error, warning, info) for prioritisation.',
-      transaction:
-        'The high-level code path the crash occurred in (e.g. "mainWindow.create"). Never includes DM partners or channel IDs.',
-      'electron.process':
-        'Which Electron process the event came from (main, renderer, or preload).',
-      handled: 'Whether the crash was caught by application code or propagated uncaught.',
-      boundary: 'Which React error boundary intercepted the event, if any.',
+    tags: {
+      title: 'Crash classification tags',
+      intro:
+        'Short labels attached to each event so we can group related crashes. None of these carry content or identity.',
+      fields: {
+        environment: 'Whether the event came from a production or development build.',
+        release:
+          'The specific Concord desktop version that produced the crash (e.g. concord-desktop@0.1.20).',
+        level: 'How severe the event is (error, warning, info) for prioritisation.',
+        transaction:
+          'The high-level code path the crash occurred in (e.g. "mainWindow.create"). Never includes DM partners or channel IDs.',
+        'electron.process':
+          'Which Electron process the event came from (main, renderer, or preload).',
+        handled: 'Whether the crash was caught by application code or propagated uncaught.',
+        boundary: 'Which React error boundary intercepted the event, if any.',
+      },
     },
-  },
-};
+    breadcrumbs: {
+      title: 'Update-channel security events',
+      intro:
+        'Compact breadcrumbs attached to Sentry events when the auto-update path encounters a security failure (e.g. certificate-pin miss or signature verification failure). No message content, cert chains, or user-identifying data are ever included — only the bounded enumeration of fields below.',
+      fields: {
+        'update.pin.outcome':
+          'The outcome of the update-feed certificate-pin check: primary (pin hit), fallback (rotation pin hit), miss (neither pin matched — update blocked), or error (verify proc threw internally).',
+        'update.pin.host':
+          'The pinned SaaS hostname whose certificate was evaluated (bounded to api.concordvoice.chat). Never a user-entered hostname.',
+        'update.pin.spkiLast8':
+          'The last 8 hex characters of the observed certificate public-key fingerprint (SHA-256 of the SubjectPublicKeyInfo). A public-key fragment; not a secret.',
+      },
+    },
+  };

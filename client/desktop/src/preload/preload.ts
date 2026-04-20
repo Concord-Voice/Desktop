@@ -191,9 +191,25 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.removeListener('update:downloaded', handler);
     };
   },
-  onUpdateError: (callback: (error: { message: string }) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: { message: string }) =>
-      callback(data);
+  // Extended payload (#658): `securityEvent` + `subtype` discriminate cert-pin
+  // vs. publisher-signature failures so the renderer can render the correct
+  // banner (UpdateSecurityBanner). Optional to remain backward-compatible with
+  // existing listeners that only read `message`.
+  onUpdateError: (
+    callback: (error: {
+      message: string;
+      securityEvent?: boolean;
+      subtype?: 'cert-pin-failure' | 'publisher-failure';
+    }) => void
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      data: {
+        message: string;
+        securityEvent?: boolean;
+        subtype?: 'cert-pin-failure' | 'publisher-failure';
+      }
+    ) => callback(data);
     ipcRenderer.on('update:error', handler);
     return () => {
       ipcRenderer.removeListener('update:error', handler);
@@ -444,7 +460,13 @@ export interface ElectronAPI {
     }) => void
   ) => () => void;
   onUpdateDownloaded: (callback: (info: { version: string }) => void) => () => void;
-  onUpdateError: (callback: (error: { message: string }) => void) => () => void;
+  onUpdateError: (
+    callback: (error: {
+      message: string;
+      securityEvent?: boolean;
+      subtype?: 'cert-pin-failure' | 'publisher-failure';
+    }) => void
+  ) => () => void;
   onUpdateRollback: (
     callback: (data: { fromVersion: string; toVersion: string; message: string }) => void
   ) => () => void;

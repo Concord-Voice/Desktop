@@ -101,6 +101,7 @@ vi.mock('electron', () => ({
       setPermissionRequestHandler: vi.fn(),
       setPermissionCheckHandler: vi.fn(),
       setDevicePermissionHandler: vi.fn(),
+      setCertificateVerifyProc: vi.fn(),
       on: vi.fn(),
       webRequest: {
         onBeforeSendHeaders: vi.fn(),

@@ -42,6 +42,9 @@ import {
   getUpdateLogger,
   getUpdateLogPath,
 } from './updater';
+import * as Sentry from '@sentry/electron/main';
+import { createPinningVerifyProc } from './updatePinning';
+import { PIN_CONFIG } from './updatePinningConfig';
 import {
   checkUpdateSentinel,
   finalizeUpdate,
@@ -308,6 +311,27 @@ app.whenReady().then(async () => {
   session.defaultSession.setDevicePermissionHandler((details) => {
     return ['camera', 'microphone', 'speaker', 'hid'].includes(details.deviceType ?? '');
   });
+
+  // Update-feed TLS cert pinning (#658). Installs a hostname-gated verify proc
+  // on the default session: pinned SaaS hosts enforce SPKI SHA-256 matching
+  // against PIN_CONFIG; all other hosts defer to Chromium's default validation.
+  // Must be installed BEFORE initAutoUpdater below so the first update check
+  // is already armed. See:
+  //   internal-reference
+  //   internal-reference
+  session.defaultSession.setCertificateVerifyProc(
+    createPinningVerifyProc(PIN_CONFIG, console, {
+      // Our SentryEmitter.level is 'info' | 'warning' | 'error', a strict
+      // subset of Sentry.Breadcrumb's level union. Structural assignment is
+      // direct — no cast needed after the Sonar-driven narrowing.
+      addBreadcrumb: (breadcrumb) => Sentry.addBreadcrumb(breadcrumb),
+      captureException: (error, options) =>
+        Sentry.captureException(error, {
+          fingerprint: [...options.fingerprint],
+          tags: options.tags,
+        }),
+    })
+  );
 
   // HID device selection: auto-select for WebAuthn hardware security keys
   session.defaultSession.on('select-hid-device', (event, details, callback) => {

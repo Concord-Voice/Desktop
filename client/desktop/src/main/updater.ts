@@ -206,17 +206,38 @@ function ensureUpdaterReady(): void {
 
   autoUpdater.on('error', (error: Error) => {
     const msg = error.message;
+    // Cert-pin failures surface as net-layer TLS errors (e.g. ERR_CERT_*,
+    // "certificate verify failed"). They are security events with their own
+    // subtype so the renderer can show the cert-pin-specific banner copy. #658
+    const isCertPinFailure = /certificate|cert.?pin|ERR_CERT/i.test(msg);
     const isPublisherFailure = /publisher|signature|not signed/i.test(msg);
-    if (isPublisherFailure) {
+    const isSecurityEvent = isCertPinFailure || isPublisherFailure;
+    let subtype: 'cert-pin-failure' | 'publisher-failure' | undefined;
+    if (isCertPinFailure) {
+      subtype = 'cert-pin-failure';
+    } else if (isPublisherFailure) {
+      subtype = 'publisher-failure';
+    }
+
+    if (isSecurityEvent) {
+      const label = isCertPinFailure ? 'cert-pin verification' : 'signer verification';
       requireLogger().error(
-        `SECURITY: Update signer verification failed — ${msg}${error.stack ? '\n' + error.stack : ''}`
+        `SECURITY: Update ${label} failed — ${msg}${error.stack ? '\n' + error.stack : ''}`
       );
-      updateSplashError('Update blocked: signature verification failed');
+      updateSplashError(
+        isCertPinFailure
+          ? 'Update blocked: cert verification failed'
+          : 'Update blocked: signature verification failed'
+      );
     } else {
       requireLogger().error(`Error: ${msg}${error.stack ? '\n' + error.stack : ''}`);
       updateSplashError('Houston, we have a problem');
     }
-    sendToRenderer('update:error', { message: msg, securityEvent: isPublisherFailure });
+    sendToRenderer('update:error', {
+      message: msg,
+      securityEvent: isSecurityEvent,
+      subtype,
+    });
   });
 }
 

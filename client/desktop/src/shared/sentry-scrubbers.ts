@@ -27,6 +27,21 @@ export const ALLOWED_TAG_KEYS = new Set([
   'boundary',
 ]);
 
+/**
+ * Breadcrumb categories permitted to carry structured `data` payloads, plus
+ * the exact set of data keys allowed per category. All other breadcrumb data
+ * is stripped (fail-closed default preserved).
+ *
+ * Extending this map requires bumping TELEMETRY_POLICY_VERSION and adding
+ * matching entries in sentry-allowlist-descriptions.ts (enforced by the
+ * invariant test in sentry-allowlist-descriptions.test.ts).
+ */
+export const ALLOWED_BREADCRUMB_CATEGORY_DATA_KEYS: Record<string, Set<string>> = {
+  // Cert-pinning outcomes (#658). Never carries cert contents, subject DN, or
+  // serial — only the bounded enumeration below.
+  'update.pin': new Set(['outcome', 'host', 'spkiLast8']),
+};
+
 /** Device context subfields that fingerprint hardware and must be dropped. */
 export const DROPPED_DEVICE_SUBFIELDS = new Set([
   'model',
@@ -209,8 +224,23 @@ export function scrubBreadcrumb(breadcrumb: any): any | null {
     return null;
   }
 
-  // Strip data payload from all breadcrumbs
-  breadcrumb.data = undefined;
+  // Strip data payload from all breadcrumbs EXCEPT those in an allowlisted
+  // category. For allowlisted categories, retain only the fields named in the
+  // category's data-key set; everything else is dropped. This keeps the
+  // fail-closed default while permitting narrowly-scoped telemetry for specific
+  // security signals (e.g. update.pin for #658).
+  const allowedDataKeys = ALLOWED_BREADCRUMB_CATEGORY_DATA_KEYS[breadcrumb.category];
+  if (allowedDataKeys && breadcrumb.data && typeof breadcrumb.data === 'object') {
+    const filtered: Record<string, unknown> = {};
+    for (const key of Object.keys(breadcrumb.data)) {
+      if (allowedDataKeys.has(key)) {
+        filtered[key] = breadcrumb.data[key];
+      }
+    }
+    breadcrumb.data = filtered;
+  } else {
+    breadcrumb.data = undefined;
+  }
 
   // Redact sensitive patterns in message
   if (breadcrumb.message) {

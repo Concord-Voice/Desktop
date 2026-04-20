@@ -175,6 +175,81 @@ describe('scrubBreadcrumb', () => {
     expect(result!.message).toContain('[REDACTED]');
     expect(result!.message).not.toContain('eyJ');
   });
+
+  // ─── ALLOWED_BREADCRUMB_CATEGORY_DATA_KEYS filter (#658) ───────────────
+  it('preserves allowlisted data keys for an allowlisted category', () => {
+    const breadcrumb = {
+      category: 'update.pin',
+      level: 'warning',
+      data: {
+        outcome: 'fallback',
+        host: 'api.concordvoice.chat',
+        spkiLast8: 'deadbeef',
+      },
+    };
+    const result = scrubBreadcrumb(breadcrumb as any);
+    expect(result!.data).toEqual({
+      outcome: 'fallback',
+      host: 'api.concordvoice.chat',
+      spkiLast8: 'deadbeef',
+    });
+  });
+
+  it('filters out non-allowlisted data keys for an allowlisted category', () => {
+    const breadcrumb = {
+      category: 'update.pin',
+      level: 'error',
+      data: {
+        outcome: 'miss',
+        host: 'api.concordvoice.chat',
+        spkiLast8: 'deadbeef',
+        // The following are NOT in the allowlist and must be stripped.
+        // pragma: allowlist secret — test fixture, same SPKI as the config pin.
+        fullSpki: '53257bb4d6ddca461e74b403aeabe43e2b957ff78b4c893a8d4cb6f26762281b', // pragma: allowlist secret
+        subjectDn: 'CN=api.concordvoice.chat',
+        serial: '0x123456789abcdef',
+      },
+    };
+    const result = scrubBreadcrumb(breadcrumb as any);
+    expect(result!.data).toEqual({
+      outcome: 'miss',
+      host: 'api.concordvoice.chat',
+      spkiLast8: 'deadbeef',
+    });
+    expect(result!.data).not.toHaveProperty('fullSpki');
+    expect(result!.data).not.toHaveProperty('subjectDn');
+    expect(result!.data).not.toHaveProperty('serial');
+  });
+
+  it('drops data entirely for a non-allowlisted category (default behavior preserved)', () => {
+    const breadcrumb = {
+      category: 'http',
+      data: { url: 'https://example.com', statusCode: 200 },
+    };
+    const result = scrubBreadcrumb(breadcrumb as any);
+    expect(result!.data).toBeUndefined();
+  });
+
+  it('drops data when allowlisted category has null data', () => {
+    const breadcrumb = { category: 'update.pin', data: null };
+    const result = scrubBreadcrumb(breadcrumb as any);
+    expect(result!.data).toBeUndefined();
+  });
+
+  it('drops data when allowlisted category has non-object data', () => {
+    const breadcrumb = { category: 'update.pin', data: 'stringy' };
+    const result = scrubBreadcrumb(breadcrumb as any);
+    expect(result!.data).toBeUndefined();
+  });
+
+  it('filters the data to an empty object when all keys are non-allowlisted', () => {
+    const breadcrumb = {
+      category: 'update.pin',
+      data: { foo: 1, bar: 2 },
+    };
+    const result = scrubBreadcrumb(breadcrumb as any);
+    expect(result!.data).toEqual({});
+  });
 });
 
 describe('path prefix scrubbing', () => {

@@ -12,6 +12,8 @@ import { useTelemetryConsentStore } from './stores/telemetryConsentStore';
 const PipWindow = lazy(() => import('./components/Voice/PipWindow'));
 import ForceUpdateOverlay from './components/ui/ForceUpdateOverlay';
 import UpdateBanner from './components/ui/UpdateBanner';
+import { UpdateSecurityBanner } from './components/Updates/UpdateSecurityBanner';
+import { useUpdateErrorListener } from './hooks/useUpdateErrorListener';
 import MFAChallengeModal from './components/Auth/MFAChallengeModal';
 import { useAuthStore } from './stores/authStore';
 import { useUserStore } from './stores/userStore';
@@ -299,6 +301,10 @@ function App() {
   const accessToken = useAuthStore((state) => state.accessToken);
   const emailVerified = useAuthStore((state) => state.emailVerified);
 
+  // Route cert-pin / publisher-signature failures into useUpdateStatusStore
+  // so UpdateSecurityBanner can surface them. #658
+  useUpdateErrorListener();
+
   // Clear any expired pending registration on startup so stale sessionStorage
   // state doesn't route the user to an unreachable verification screen.
   useEffect(() => {
@@ -425,6 +431,7 @@ function App() {
               </div>
             )}
           </div>
+          <UpdateSecurityBanner />
           <UpdateBanner />
 
           <ForceUpdateOverlay />

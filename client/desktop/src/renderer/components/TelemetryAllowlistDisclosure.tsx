@@ -20,6 +20,7 @@ const TelemetryAllowlistDisclosure: React.FC = () => {
 
         <CategoryBlock category={ALLOWLIST_CATEGORIES.contexts} />
         <CategoryBlock category={ALLOWLIST_CATEGORIES.tags} />
+        <CategoryBlock category={ALLOWLIST_CATEGORIES.breadcrumbs} />
 
         <h4 className="telemetry-disclosure-changelog-title">
           What&apos;s new in v{ALLOWLIST_META.version}

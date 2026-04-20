@@ -17,7 +17,7 @@
  *   - internal-reference
  */
 
-export const TELEMETRY_POLICY_VERSION = 2 as const;
+export const TELEMETRY_POLICY_VERSION = 3 as const;
 
 /**
  * SHA-256 over concatenated source of `sentry-scrubbers.ts` and
@@ -26,4 +26,4 @@ export const TELEMETRY_POLICY_VERSION = 2 as const;
  * hand — the CI script will print the correct value in its remediation output.
  */
 export const POLICY_CONTENT_HASH =
-  'c65f2034f14f2086fe013d8b0319626261df7aac9fe92be3fa383e2cb90e78a0' as const; // pragma: allowlist secret
+  '66d3544f4583be45fab750679d227f59833bd00fc17c30d3ab7748818d62963f' as const; // pragma: allowlist secret

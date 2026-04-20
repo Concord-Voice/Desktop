@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '../../../test-utils';
 import { vi } from 'vitest';
+import { TELEMETRY_POLICY_VERSION } from '@/shared/sentry-policy-version';
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/apiClient', () => ({
@@ -2782,7 +2783,10 @@ describe('PrivacySecuritySection', () => {
         .closest('.settings-row')!
         .querySelector('input[type="checkbox"]')!
     );
-    expect(mockSetConsent).toHaveBeenCalledWith(true, 2);
+    // Policy version bumped from 2 → 3 via the cert-pinning breadcrumb
+    // allowlist addition in #658. The test tracks the bundled constant
+    // rather than hardcoding the number so future bumps don't rebreak it.
+    expect(mockSetConsent).toHaveBeenCalledWith(true, TELEMETRY_POLICY_VERSION);
   });
 
   // ── Permissions loading state ──────────────────────────────────────────
