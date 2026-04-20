@@ -1,5 +1,6 @@
 import { initSentry, upgradeSentryUserId } from './sentry';
 import { registerClientIdHandler } from './ipc/clientIdHandler';
+import { registerOpenExternalHandler } from './ipc/openExternal';
 import {
   app,
   BrowserWindow,
@@ -268,6 +269,7 @@ const sentryInitPromise = initSentry().catch((err) => {
 app.whenReady().then(async () => {
   await sentryInitPromise;
   registerClientIdHandler(() => remoteSpaBaseUrl);
+  registerOpenExternalHandler(() => remoteSpaBaseUrl);
   // Permission request handler: explicitly allow app-required permissions, deny risky ones.
   // Notifications are allowed (JIT-managed by permissionManager #197).
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {

@@ -1,4 +1,5 @@
 import React from 'react';
+import MarkdownContent from '../Markdown/MarkdownContent';
 
 /**
  * Matches a single "emoji atom": either a presentation emoji or a text-default
@@ -24,12 +25,8 @@ export const EMOJI_REGEX = new RegExp(
   'gu'
 );
 
-// Regex for mention patterns — supports both:
-// - Token format: <@userId>, <@&roleId> (inserted by autocomplete, handles spaces in names)
-// - Plain format: @username, @all, @here (typed manually or legacy)
-const MENTION_REGEX = /<@&?[\w-]+>|@[\w.-]+/g;
-
 // Token pattern matchers for resolving UUIDs to display names
+// (MENTION_REGEX removed — mention parsing now lives in remarkMentionTokens.)
 const USER_TOKEN_RE = /^<@([\w-]+)>$/;
 const ROLE_TOKEN_RE = /^<@&([\w-]+)>$/;
 
@@ -109,46 +106,17 @@ export function renderEmoji(text: string): React.ReactNode[] {
 }
 
 export function renderContent(text: string, lookup: MentionLookup): React.ReactNode[] {
-  const parts: React.ReactNode[] = [];
-  let lastIndex = 0;
-
-  // Combine emoji and mention patterns into a single pass
-  // Process mentions first, then emoji within non-mention segments
-  const mentionMatches: Array<{ index: number; length: number; text: string }> = [];
-  MENTION_REGEX.lastIndex = 0;
-  let mentionMatch: RegExpExecArray | null;
-  while ((mentionMatch = MENTION_REGEX.exec(text)) !== null) {
-    mentionMatches.push({
-      index: mentionMatch.index,
-      length: mentionMatch[0].length,
-      text: mentionMatch[0],
-    });
-  }
-
-  if (mentionMatches.length === 0) {
-    // No mentions — render with emoji only (existing behavior)
+  // If text is emoji-only, stay on the jumbo-compatible renderEmoji path
+  // (MessageTextContent's jumbo-sizing logic depends on emoji span identity).
+  const emojiCount = getEmojiOnlyCount(text);
+  if (emojiCount > 0) {
     return renderEmoji(text);
   }
 
-  for (const m of mentionMatches) {
-    // Render text before this mention (with emoji)
-    if (m.index > lastIndex) {
-      parts.push(...renderEmoji(text.slice(lastIndex, m.index)));
-    }
-    // Resolve token to display name and render as highlighted span
-    const display = resolveMentionDisplay(m.text, lookup);
-    parts.push(
-      <span key={`mention-${m.index}`} className="mention-highlight">
-        {display}
-      </span>
-    );
-    lastIndex = m.index + m.length;
-  }
-
-  // Render remaining text after last mention
-  if (lastIndex < text.length) {
-    parts.push(...renderEmoji(text.slice(lastIndex)));
-  }
-
-  return parts;
+  // Otherwise, delegate to the MarkdownContent pipeline.
+  // The id/editedAt here are placeholders — the canonical caller in Message.tsx
+  // (Task 17) uses real message.id/edited_at for memo keying.
+  return [
+    <MarkdownContent key="md" id="inline" content={text} editedAt={null} mentionLookup={lookup} />,
+  ];
 }

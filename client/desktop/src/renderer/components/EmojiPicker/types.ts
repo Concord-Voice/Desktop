@@ -2,6 +2,7 @@ export interface EmojiEntry {
   e: string; // emoji character
   n: string; // name/description for search
   s: boolean; // skin tone support
+  c: string[]; // shortcode aliases (stored without colons, e.g. ["smile", "grin"])
 }
 
 export interface EmojiCategory {

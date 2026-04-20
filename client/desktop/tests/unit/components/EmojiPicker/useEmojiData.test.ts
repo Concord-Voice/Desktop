@@ -30,13 +30,13 @@ vi.mock('@/renderer/data/emoji/categories.json', () => ({
 // Mock individual category JSON files
 vi.mock('@/renderer/data/emoji/smileys.json', () => ({
   default: [
-    { e: '😀', n: 'grinning face', s: false },
-    { e: '😂', n: 'face with tears of joy', s: false },
+    { e: '😀', n: 'grinning face', s: false, c: [] },
+    { e: '😂', n: 'face with tears of joy', s: false, c: [] },
   ] as EmojiEntry[],
 }));
 
 vi.mock('@/renderer/data/emoji/people.json', () => ({
-  default: [{ e: '👋', n: 'waving hand', s: true }] as EmojiEntry[],
+  default: [{ e: '👋', n: 'waving hand', s: true, c: [] }] as EmojiEntry[],
 }));
 
 // Stub remaining category files so dynamic imports don't fail
@@ -74,7 +74,7 @@ describe('useEmojiData — initial state', () => {
 
 describe('useEmojiData — loadCategory', () => {
   it('returns cached data without re-importing', async () => {
-    const cached: EmojiEntry[] = [{ e: '😀', n: 'grinning face', s: false }];
+    const cached: EmojiEntry[] = [{ e: '😀', n: 'grinning face', s: false, c: [] }];
     mockCategoryMap.set('smileys', cached);
 
     const { result } = renderHook(() => useEmojiData());
@@ -142,8 +142,8 @@ describe('useEmojiData — search', () => {
 
   it('returns matching emojis from the loaded cache', async () => {
     mockCategoryMap.set('smileys', [
-      { e: '😀', n: 'grinning face', s: false },
-      { e: '😂', n: 'face with tears of joy', s: false },
+      { e: '😀', n: 'grinning face', s: false, c: [] },
+      { e: '😂', n: 'face with tears of joy', s: false, c: [] },
     ]);
 
     const { result } = renderHook(() => useEmojiData());
@@ -153,7 +153,7 @@ describe('useEmojiData — search', () => {
   });
 
   it('is case-insensitive', async () => {
-    mockCategoryMap.set('smileys', [{ e: '😀', n: 'Grinning Face', s: false }]);
+    mockCategoryMap.set('smileys', [{ e: '😀', n: 'Grinning Face', s: false, c: [] }]);
 
     const { result } = renderHook(() => useEmojiData());
     expect(result.current.search('grinning').length).toBe(1);
@@ -161,9 +161,44 @@ describe('useEmojiData — search', () => {
   });
 
   it('returns empty array when no emoji matches', async () => {
-    mockCategoryMap.set('smileys', [{ e: '😀', n: 'grinning face', s: false }]);
+    mockCategoryMap.set('smileys', [{ e: '😀', n: 'grinning face', s: false, c: [] }]);
     const { result } = renderHook(() => useEmojiData());
     expect(result.current.search('zzznomatch')).toEqual([]);
+  });
+
+  it('filters by shortcode prefix when query starts with colon', async () => {
+    mockCategoryMap.set('smileys', [
+      { e: '😄', n: 'grinning face with smiling eyes', s: false, c: ['smile'] },
+      { e: '👍', n: 'thumbs up', s: false, c: ['thumbsup', '+1'] },
+      { e: '❤️', n: 'red heart', s: false, c: ['heart'] },
+    ]);
+
+    const { result } = renderHook(() => useEmojiData());
+
+    const results = result.current.search(':sm');
+    expect(results.length).toBe(1);
+    expect(results[0].e).toBe('😄');
+  });
+
+  it('matches by name or shortcode prefix when query does not start with colon', async () => {
+    mockCategoryMap.set('smileys', [
+      { e: '👍', n: 'thumbs up sign', s: false, c: ['thumbsup', '+1'] },
+      { e: '❤️', n: 'red heart', s: false, c: ['heart'] },
+    ]);
+
+    const { result } = renderHook(() => useEmojiData());
+
+    // Name-match path still works
+    const byName = result.current.search('heart');
+    expect(byName.length).toBe(1);
+    expect(byName[0].e).toBe('❤️');
+
+    // Shortcode-prefix path also works without a leading colon — "thumbsu"
+    // is not a substring of "thumbs up sign" (space breaks it), so only the
+    // shortcode 'thumbsup' can match.
+    const byCodePrefix = result.current.search('thumbsu');
+    expect(byCodePrefix.length).toBe(1);
+    expect(byCodePrefix[0].e).toBe('👍');
   });
 });
 
@@ -182,7 +217,7 @@ describe('useEmojiData — loadAllForSearch', () => {
   });
 
   it('skips categories that are already cached', async () => {
-    const existing: EmojiEntry[] = [{ e: '😀', n: 'cached', s: false }];
+    const existing: EmojiEntry[] = [{ e: '😀', n: 'cached', s: false, c: [] }];
     mockCategoryMap.set('smileys', existing);
 
     const { result } = renderHook(() => useEmojiData());

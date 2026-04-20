@@ -1,30 +1,12 @@
 import { ipcMain } from 'electron';
 import { getClientId } from '../sentry';
+import { isPermittedFrameUrl } from './frameValidation';
 
 const CHANNEL = 'sentry:getClientId';
 
-// Anchored patterns for the three legitimate renderer frame origins:
-//   - file://           packaged bundled build (BrowserWindow.loadFile)
-//   - http://localhost: dev server (Vite)
-//   - https://<validated-remote-spa-origin>  packaged remote SPA
-//
-// file:// with any path is acceptable here because Electron's scheme gating
-// prevents a renderer from loading arbitrary file:// origins at runtime —
-// loadFile only serves from the packaged app bundle.
-//
-// The localhost regex anchors on a numeric port followed by `/` or end-of-
-// string to close scheme-injection bypasses like http://localhost:3000@evil/
-// or http://localhost:3000.evil.com/.
-const LOCAL_DEV_PATTERN = /^http:\/\/localhost:\d+(\/|$)/;
-const BUNDLED_PREFIX = 'file://';
-
-/** True if the frame URL matches any permitted origin. Exported for tests. */
-export function isPermittedFrameUrl(url: string, remoteSpaOrigin: string | null): boolean {
-  if (url.startsWith(BUNDLED_PREFIX)) return true;
-  if (LOCAL_DEV_PATTERN.test(url)) return true;
-  if (remoteSpaOrigin && url.startsWith(remoteSpaOrigin + '/')) return true;
-  return false;
-}
+// Re-export for back-compat with existing tests that imported from this module.
+// Using `export...from` rather than re-exporting the local binding per Sonar rule.
+export { isPermittedFrameUrl } from './frameValidation';
 
 /**
  * Register the sentry:getClientId IPC handler with sender-frame validation.

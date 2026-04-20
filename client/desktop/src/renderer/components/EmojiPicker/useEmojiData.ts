@@ -8,6 +8,7 @@ import {
   setCategoriesMeta,
   getAllCachedCategories,
 } from './emojiDataCache';
+import { indexCategory } from './shortcodeIndex';
 
 // Eager import for categories metadata (tiny file, always needed)
 import categoriesMeta from '../../data/emoji/categories.json';
@@ -25,6 +26,35 @@ const categoryLoaders: Record<string, () => Promise<{ default: EmojiEntry[] }>> 
   symbols: () => import('../../data/emoji/symbols.json'),
   flags: () => import('../../data/emoji/flags.json'),
 };
+
+// Shortcode-only search: every loaded emoji whose `c` array contains a code
+// that starts with the (already-lowercased) prefix. Extracted to module scope
+// so the `search` callback stays below Sonar's cognitive-complexity budget.
+function searchByCodePrefix(cache: Map<string, EmojiEntry[]>, codeQuery: string): EmojiEntry[] {
+  const results: EmojiEntry[] = [];
+  for (const [, emojis] of cache) {
+    for (const emoji of emojis) {
+      if (emoji.c.some((code) => code.startsWith(codeQuery))) {
+        results.push(emoji);
+      }
+    }
+  }
+  return results;
+}
+
+// Free-text search: match by `n` substring OR `c` prefix. Both branches
+// coexist so bare "thumbsu" still finds 👍 via its "thumbsup" shortcode.
+function searchByNameOrCode(cache: Map<string, EmojiEntry[]>, lower: string): EmojiEntry[] {
+  const results: EmojiEntry[] = [];
+  for (const [, emojis] of cache) {
+    for (const emoji of emojis) {
+      if (emoji.n.toLowerCase().includes(lower) || emoji.c.some((code) => code.startsWith(lower))) {
+        results.push(emoji);
+      }
+    }
+  }
+  return results;
+}
 
 export function useEmojiData() {
   const [categories, setCategories] = useState<EmojiCategory[]>(
@@ -57,10 +87,11 @@ export function useEmojiData() {
       const mod = await loader();
       const data: EmojiEntry[] = mod.default;
       setCachedCategory(categoryId, data);
+      indexCategory(categoryId, data);
       setLoadedCategories((prev) => new Set(prev).add(categoryId));
       return data;
     } catch (err) {
-      console.error(`Failed to load emoji category: ${categoryId}`, err);
+      console.error('Failed to load emoji category:', categoryId, err);
       return [];
     } finally {
       setLoadingCategory(null);
@@ -72,25 +103,30 @@ export function useEmojiData() {
     return getCachedCategory(categoryId) || [];
   }, []);
 
-  // Search across all loaded categories
+  // Search across all loaded categories.
+  // A leading colon scopes the query to shortcode prefixes only (e.g. ":sm"
+  // matches emoji whose `c` array contains a code starting with "sm").
+  // Otherwise the query matches by free-text name OR shortcode prefix so a
+  // bare "thumbsu" still finds 👍 via its "thumbsup" shortcode.
   const search = useCallback(
     (query: string): EmojiEntry[] => {
       if (!query.trim()) return [];
       const lower = query.toLowerCase();
-      const results: EmojiEntry[] = [];
       const cache = getAllCachedCategories();
 
-      for (const [, emojis] of cache) {
-        for (const emoji of emojis) {
-          if (emoji.n.toLowerCase().includes(lower)) {
-            results.push(emoji);
-          }
-        }
+      if (lower.startsWith(':')) {
+        const codeQuery = lower.slice(1);
+        if (!codeQuery) return [];
+        return searchByCodePrefix(cache, codeQuery);
       }
-      return results;
+
+      return searchByNameOrCode(cache, lower);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- The search closure reads `categories` (imported module constant, stable) and `lower`/`results` (local); only `loadedCategories` should trigger re-memoization when a new category batch loads. Including the other values would invalidate the callback on every keystroke.
-    [loadedCategories] // Re-create when new categories are loaded
+    // The callback closes over no React state. `getAllCachedCategories()` is a
+    // module-level function that reads module-level cache; `searchByCodePrefix`
+    // and `searchByNameOrCode` are module-scope helpers. A fresh call always
+    // sees the latest cache, so the callback's identity can stay stable.
+    []
   );
 
   // Load all categories for comprehensive search

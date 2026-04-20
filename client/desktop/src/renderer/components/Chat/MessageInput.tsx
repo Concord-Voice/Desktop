@@ -5,6 +5,7 @@ import MentionAutocomplete, { type MentionAutocompleteHandle } from './MentionAu
 import EmojiPicker from '../EmojiPicker/LazyEmojiPicker';
 import LazyGifPicker from '../GifPicker/LazyGifPicker';
 import UserPanel from '../User/UserPanel';
+import SyntaxHelpModal from '../Markdown/SyntaxHelpModal';
 import { useClientConfigStore } from '../../stores/clientConfigStore';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { buildAddendum, encodeMentionMeta, type ParsedMention } from '../../utils/mentions';
@@ -15,6 +16,20 @@ import { useChatStore } from '../../stores/chatStore';
 import AttachmentUploadPreview from './AttachmentUploadPreview';
 import ReplyPreviewBar from './ReplyPreviewBar';
 import './MessageInput.css';
+
+const MAX_CONTENT_LENGTH = 24000;
+// Counter visibility and warn thresholds are expressed as ratios of the
+// active limit so that a test or future caller passing a smaller
+// `maxLength` keeps the same 75%/95% behaviour the production constants
+// encode (18000 / 24000 = 0.75, 22800 / 24000 = 0.95).
+const COUNTER_VISIBLE_RATIO = 0.75;
+const COUNTER_WARN_RATIO = 0.95;
+
+function getCounterClass(charCount: number, limit: number): string {
+  if (charCount > limit) return 'counter error';
+  if (charCount >= Math.floor(limit * COUNTER_WARN_RATIO)) return 'counter warn';
+  return 'counter';
+}
 
 export interface MessageInputProps {
   onSendMessage: (
@@ -49,7 +64,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   onSendMessage,
   onTyping,
   placeholder = 'Type a message...',
-  maxLength = 4000,
+  maxLength = MAX_CONTENT_LENGTH,
   disabled = false,
   channelName,
   isChannelEncrypted = false,
@@ -62,6 +77,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
 }) => {
   const channelPanelPinned = useLayoutStore((s) => s.channelPanelPinned);
   const [content, setContent] = useState('');
+  const [helpModalOpen, setHelpModalOpen] = useState(false);
   const draftTargetId = channelId || conversationId;
   const {
     initialDraft,
@@ -457,7 +473,11 @@ const MessageInput: React.FC<MessageInputProps> = ({
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    if (e.target.value.length <= maxLength) {
+    // Allow input slightly above the active limit so the counter can go
+    // into the `error` state and the submit button can be disabled for the
+    // over-limit UX. Absolute safety cap prevents runaway pastes.
+    const HARD_CAP = maxLength + 1000;
+    if (e.target.value.length <= HARD_CAP) {
       setContent(e.target.value);
       saveDraftDebounced(e.target.value, replyingTo);
       setCursorPos(e.target.selectionStart);
@@ -501,8 +521,10 @@ const MessageInput: React.FC<MessageInputProps> = ({
     }
   }, []);
 
-  const charactersRemaining = maxLength - content.length;
-  const showCounter = content.length > maxLength * 0.8; // Show when 80% full
+  const charCount = content.length;
+  const counterVisible = charCount >= Math.floor(maxLength * COUNTER_VISIBLE_RATIO);
+  const counterClass = getCounterClass(charCount, maxLength);
+  const overLimit = charCount > maxLength;
 
   return (
     <div className="message-input-container">
@@ -588,16 +610,16 @@ const MessageInput: React.FC<MessageInputProps> = ({
           />
 
           <div className="message-input-actions">
-            {showCounter && (
-              <span className={`char-counter ${charactersRemaining < 100 ? 'warning' : ''}`}>
-                {charactersRemaining}
+            {counterVisible && (
+              <span className={counterClass}>
+                {charCount}/{maxLength}
               </span>
             )}
 
             <button
               className="send-button"
               onClick={handleSend}
-              disabled={disabled || isUploading || (!content.trim() && !hasFiles)}
+              disabled={disabled || isUploading || (!content.trim() && !hasFiles) || overLimit}
               aria-label="Send message"
             >
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
@@ -605,6 +627,18 @@ const MessageInput: React.FC<MessageInputProps> = ({
               </svg>
             </button>
           </div>
+        </div>
+
+        <div className="input-hint">
+          Supports <strong>bold</strong>, <em>italic</em>, <code>code</code>, and more.{' '}
+          <button
+            type="button"
+            className="help-icon"
+            aria-label="Markdown syntax help"
+            onClick={() => setHelpModalOpen(true)}
+          >
+            ?
+          </button>
         </div>
 
         <div className="message-input-hints">
@@ -673,6 +707,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
           onOpenEmojiPicker={toggleEmojiPicker}
         />
       )}
+
+      <SyntaxHelpModal open={helpModalOpen} onClose={() => setHelpModalOpen(false)} />
     </div>
   );
 };

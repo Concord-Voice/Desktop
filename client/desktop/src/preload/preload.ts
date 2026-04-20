@@ -309,6 +309,17 @@ contextBridge.exposeInMainWorld('electron', {
   // renderer events carry the same user.id as main-process events.
   getClientId: () => ipcRenderer.invoke('sentry:getClientId') as Promise<string>,
 
+  // Open a URL in the user's default browser via the main process. The main
+  // process re-validates the protocol (http/https/mailto only) before calling
+  // shell.openExternal — never trust the renderer. Returns `{ ok }` so the
+  // renderer can log or surface failures without needing to reason about
+  // exceptions. SafeLink.tsx is the canonical caller.
+  openExternal: (url: string) =>
+    ipcRenderer.invoke('open-external', url) as Promise<{
+      ok: boolean;
+      reason?: 'untrusted-sender' | 'invalid-protocol' | 'invalid-url';
+    }>,
+
   // Post-login: upgrade the main-process Sentry user.id from the per-launch
   // random fallback to the stable userUUID+hardware hash. See
   // client/desktop/src/main/sentry.ts for the upgrade lifecycle rationale.
@@ -488,6 +499,13 @@ export interface ElectronAPI {
   getClientId: () => Promise<string>;
   upgradeSentryUser: (userUUID: string) => Promise<void>;
   onClientIdUpgraded: (callback: (clientId: string) => void) => () => void;
+
+  // Open an external URL via shell.openExternal (main process enforces
+  // http/https/mailto protocol allowlist).
+  openExternal: (url: string) => Promise<{
+    ok: boolean;
+    reason?: 'untrusted-sender' | 'invalid-protocol' | 'invalid-url';
+  }>;
 }
 
 declare global {

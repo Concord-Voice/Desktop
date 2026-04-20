@@ -38,7 +38,12 @@ export default defineConfig(({ mode }) => {
       globals: true,
       environment: 'jsdom',
       setupFiles: ['./tests/setup.ts'],
-      include: ['tests/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}', 'scripts/**/*.test.{ts,tsx}'],
+      include: [
+        'tests/**/*.test.{ts,tsx}',
+        'src/**/*.test.{ts,tsx}',
+        'scripts/**/*.test.{ts,tsx}',
+        '../../scripts/**/*.test.{ts,tsx}',
+      ],
       testTimeout: 10000,
       hookTimeout: 10000,
       teardownTimeout: 5000,

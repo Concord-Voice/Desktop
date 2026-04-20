@@ -133,13 +133,13 @@ describe('MessageInput', () => {
 
   it('shows character counter when content is near max length', async () => {
     const user = userEvent.setup();
-    // Use a small maxLength so we can easily exceed 80%
+    // Use a small maxLength so we can easily exceed the 75% visible threshold
     render(<MessageInput onSendMessage={onSendMessage} maxLength={10} />);
     const textarea = screen.getByRole('textbox');
-    // Type 9 characters (90% of 10)
+    // Type 9 characters (90% of 10 — above 75% visible, below 95% warn)
     await user.type(textarea, '123456789');
-    // Should show remaining count (1)
-    expect(screen.getByText('1')).toBeInTheDocument();
+    // Counter shows {count}/{max} in the unified format from #123
+    expect(screen.getByText('9/10')).toBeInTheDocument();
   });
 
   it('disables send button when message is empty', () => {
@@ -232,13 +232,14 @@ describe('MessageInput', () => {
     expect(screen.queryByText('95')).not.toBeInTheDocument();
   });
 
-  it('shows warning class when under 100 remaining', async () => {
+  it('shows warn class at or above 95% of max length', async () => {
     const user = userEvent.setup();
-    render(<MessageInput onSendMessage={onSendMessage} maxLength={10} />);
+    // maxLength 20, 19 chars = 95% exactly — warn class triggers
+    render(<MessageInput onSendMessage={onSendMessage} maxLength={20} />);
     const textarea = screen.getByRole('textbox');
-    await user.type(textarea, '123456789');
-    const counter = document.querySelector('.char-counter.warning');
-    expect(counter).toBeInTheDocument();
+    await user.type(textarea, '1234567890123456789');
+    const counter = screen.getByText('19/20');
+    expect(counter.className).toContain('warn');
   });
 
   // ── Max length enforcement ──

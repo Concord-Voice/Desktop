@@ -15,9 +15,10 @@ import DeleteMessageModal from './DeleteMessageModal';
 import {
   getEmojiOnlyCount,
   getEmojiSizeClass,
-  renderContent,
+  renderEmoji,
   type MentionLookup,
 } from './messageUtils';
+import MarkdownContent from '../Markdown/MarkdownContent';
 import AttachmentDisplay from './AttachmentDisplay';
 import GifEmbed from './GifEmbed';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -371,8 +372,19 @@ function MessageTextContent({
         Unable to decrypt this message
       </span>
     );
+  } else if (emojiCount > 0) {
+    // Emoji-only path — keeps jumbo sizing via the pre-existing renderEmoji helper
+    contentNode = renderEmoji(message.content);
   } else {
-    contentNode = renderContent(message.content, mentionLookup);
+    // Normal markdown rendering with real message fields for memo keying
+    contentNode = (
+      <MarkdownContent
+        id={message.id}
+        content={message.content}
+        editedAt={message.edited_at ?? null}
+        mentionLookup={mentionLookup}
+      />
+    );
   }
 
   return (

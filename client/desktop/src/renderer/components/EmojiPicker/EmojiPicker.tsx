@@ -144,6 +144,7 @@ const EmojiPicker: React.FC<EmojiPickerProps> = ({
         e,
         n: 'recently used',
         s: false,
+        c: [],
       }));
     }
     return getCategory(activeCategory);

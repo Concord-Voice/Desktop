@@ -242,3 +242,46 @@ kbd {
 .message-input-textarea::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
+
+/* ─── Markdown hint + help icon ─────────────────────────────────────────── */
+
+.input-hint {
+  font-size: 0.8rem;
+  color: var(--text-secondary, #666);
+  padding: 4px 8px 0 8px;
+}
+
+.input-hint .help-icon {
+  background: none;
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.2));
+  border-radius: 50%;
+  width: 16px;
+  height: 16px;
+  font-size: 0.7rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.input-hint .help-icon:hover {
+  background: var(--surface-2, #f0f0f0);
+}
+
+/* ─── 24000-char capacity counter ───────────────────────────────────────── */
+
+.counter {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #666);
+  margin-right: 8px;
+}
+
+.counter.warn {
+  color: var(--warning, #c27800);
+}
+
+.counter.error {
+  color: var(--error, #c72a28);
+  font-weight: 600;
+}
