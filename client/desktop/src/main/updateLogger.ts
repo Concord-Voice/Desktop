@@ -100,6 +100,7 @@ export function createUpdateLogger(): UpdateLogger {
     fs.mkdirSync(logDir, { recursive: true });
   } catch {
     // If we can't create the directory, we'll still work (console-only)
+    // eslint-disable-next-line no-restricted-syntax -- logDir is a resolved filesystem path string, not an Error; no err.cause chain to propagate
     console.error('[updateLogger] Failed to create log directory:', logDir);
   }
 

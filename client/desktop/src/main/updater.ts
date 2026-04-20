@@ -29,6 +29,7 @@ interface UpdatePrefs {
 
 function logReadError(msg: string): void {
   if (logger) logger.error(msg);
+  // eslint-disable-next-line no-restricted-syntax -- msg is a caller-stringified error message (param type `msg: string`), not a raw Error; no err.cause chain to propagate
   else console.error('[updater]', msg);
 }
 
@@ -67,6 +68,7 @@ function writeUpdatePrefs(prefs: UpdatePrefs): void {
   } catch (err) {
     const message = `Failed to write update prefs: ${(err as Error).message}`;
     if (logger) logger.error(message);
+    // eslint-disable-next-line no-restricted-syntax -- message is a locally-built string from (err as Error).message above, not a raw Error; no err.cause chain to propagate
     else console.error('[updater]', message);
   }
 }

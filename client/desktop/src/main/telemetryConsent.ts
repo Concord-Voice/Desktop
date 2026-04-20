@@ -88,7 +88,10 @@ export function readTelemetryConsent(): ConsentState {
     const isEnoent =
       err instanceof Error && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT';
     if (!isEnoent) {
-      console.warn('[TelemetryConsent] Failed to read consent file, using defaults:', err);
+      console.warn(
+        '[TelemetryConsent] Failed to read consent file, using defaults:',
+        (err as Error).message
+      );
     }
     return { ...CONSENT_DEFAULTS };
   }
@@ -200,7 +203,10 @@ export function registerConsentIpcHandlers(): void {
         try {
           await Sentry.close(0);
         } catch (err) {
-          console.warn('[TelemetryConsent] Sentry.close(0) rejected; continuing opt-out:', err);
+          console.warn(
+            '[TelemetryConsent] Sentry.close(0) rejected; continuing opt-out:',
+            (err as Error).message
+          );
         }
 
         // 3. Delete the on-disk offline queue. @sentry/electron writes
@@ -214,7 +220,7 @@ export function registerConsentIpcHandlers(): void {
         try {
           await fs.promises.rm(queueDir, { recursive: true, force: true });
         } catch (err) {
-          console.warn('[TelemetryConsent] offline queue cleanup failed:', err);
+          console.warn('[TelemetryConsent] offline queue cleanup failed:', (err as Error).message);
         }
       }
 
@@ -222,7 +228,7 @@ export function registerConsentIpcHandlers(): void {
       try {
         writeTelemetryConsent(safe);
       } catch (err) {
-        console.error('[TelemetryConsent] Failed to write consent file:', err);
+        console.error('[TelemetryConsent] Failed to write consent file:', (err as Error).message);
         throw err; // Propagate to renderer via IPC rejection
       }
 

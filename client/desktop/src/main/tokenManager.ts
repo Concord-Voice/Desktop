@@ -65,7 +65,7 @@ function writeMeta(apiBase: string, rememberMe: boolean): void {
   try {
     fs.writeFileSync(META_FILE, JSON.stringify({ apiBase, rememberMe }), 'utf-8');
   } catch (err) {
-    console.error('[TokenManager] Failed to write meta file:', err);
+    console.error('[TokenManager] Failed to write meta file:', (err as Error).message);
   }
 }
 
@@ -297,7 +297,7 @@ export function storeRefreshToken(data: {
       );
     }
   } catch (err) {
-    console.error('[TokenManager] Failed to encrypt/write token:', err);
+    console.error('[TokenManager] Failed to encrypt/write token:', (err as Error).message);
   }
 }
 
@@ -334,7 +334,7 @@ export function restoreRefreshToken():
     return { status: 'ok', token, apiBase: meta.apiBase };
   } catch (err) {
     // decryptString throws on tampered ciphertext (AES-GCM auth tag failure)
-    console.error('[TokenManager] Token decryption failed (tampered?):', err);
+    console.error('[TokenManager] Token decryption failed (tampered?):', (err as Error).message);
     deleteFiles();
     return { status: 'tampered' };
   }
@@ -383,7 +383,7 @@ function persistRotatedToken(newRefreshToken: string): void {
     // Key-material audit: previously logged the new refresh token's last-8
     // chars — removed to keep token bytes off stdout.
   } catch (err) {
-    console.error('[TokenManager] Failed to re-encrypt rotated token:', err);
+    console.error('[TokenManager] Failed to re-encrypt rotated token:', (err as Error).message);
   }
 }
 
@@ -464,14 +464,14 @@ export function performRefresh(): Promise<RefreshResult> {
           const { upgradeSentryUserId } = await import('./sentry');
           await upgradeSentryUserId(userUUID);
         } catch (err) {
-          console.warn('[TokenManager] Sentry user.id upgrade failed:', err);
+          console.warn('[TokenManager] Sentry user.id upgrade failed:', (err as Error).message);
         }
       }
 
       cachedAccessToken = newAccessToken;
       return { status: 'ok', accessToken: newAccessToken, sessionId: newSessionId };
     } catch (err) {
-      console.error('[TokenManager] Refresh request failed:', err);
+      console.error('[TokenManager] Refresh request failed:', (err as Error).message);
       return { status: 'refresh_failed' };
     } finally {
       refreshPromise = null;
@@ -502,7 +502,7 @@ export async function performLogout(accessToken?: string): Promise<void> {
       credentials: 'omit',
     });
   } catch (err) {
-    console.error('[TokenManager] Logout request failed:', err);
+    console.error('[TokenManager] Logout request failed:', (err as Error).message);
   }
 
   clearTokens();
@@ -540,7 +540,7 @@ export function storeE2EEKeys(data: {
     const encrypted = safeStorage.encryptString(json);
     fs.writeFileSync(E2EE_FILE, encrypted);
   } catch (err) {
-    console.error('[TokenManager] Failed to encrypt/write E2EE keys:', err);
+    console.error('[TokenManager] Failed to encrypt/write E2EE keys:', (err as Error).message);
   }
 }
 

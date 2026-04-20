@@ -86,7 +86,7 @@ function writeDeveloperModePref(enabled: boolean): void {
   try {
     fs.writeFileSync(devModePrefPath, JSON.stringify({ enabled }), 'utf-8');
   } catch (err) {
-    console.error('[DeveloperMode] Failed to persist preference:', err);
+    console.error('[DeveloperMode] Failed to persist preference:', (err as Error).message);
   }
 }
 
@@ -260,8 +260,24 @@ let rollbackResult: SentinelResult | null = null;
 
 // Await Sentry init BEFORE any window logic so all crashes are tagged.
 // See client/desktop/src/main/sentry.ts for rationale.
-const sentryInitPromise = initSentry().catch((err) => {
-  console.error('[main] initSentry failed:', err);
+const sentryInitPromise = initSentry().catch((err: unknown) => {
+  // #706 defense-in-depth: @sentry SDK throws `Invalid Sentry Dsn: <value>` with
+  // the DSN literally embedded in err.message. Using the Error message alone
+  // already strips the .cause chain, but the DSN string is still in the
+  // message body. Redact any DSN-shaped substring (scheme://public@host/id)
+  // before logging so stdout/log sinks never see the project ingest key.
+  //
+  // Guard against non-Error rejections: JavaScript allows throwing any value
+  // (throw "string", reject(undefined), ...). A bare `.message` access on a
+  // non-Error would throw TypeError inside the catch, which the top-level
+  // .catch() would swallow — but then startup continues with no diagnostic
+  // signal at all. Normalize to a string first.
+  //
+  // DSN regex handles both SaaS (host/projectId) and self-hosted
+  // (host/sub/path/projectId) deployments (Andromeda/federal).
+  const raw = err instanceof Error ? err.message : String(err);
+  const scrubbed = raw.replaceAll(/https?:\/\/[^@\s]+@[^\s]+?\/\d+(?=[^\d]|$)/g, '<redacted-dsn>');
+  console.error(`[main] initSentry failed: ${scrubbed}`);
   // Do not crash startup — Sentry simply won't be active this session.
 });
 

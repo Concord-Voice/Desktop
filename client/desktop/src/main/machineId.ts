@@ -36,7 +36,7 @@ export function getMachineId(): string {
   try {
     fs.writeFileSync(MACHINE_ID_FILE, JSON.stringify({ id: cachedId }), 'utf-8');
   } catch (err) {
-    console.error('[MachineId] Failed to persist machine ID:', err);
+    console.error('[MachineId] Failed to persist machine ID:', (err as Error).message);
   }
 
   return cachedId;

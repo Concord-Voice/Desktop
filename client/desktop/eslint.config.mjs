@@ -114,6 +114,46 @@ export default [
     },
   },
 
+  // Electron main-process override (#706): forbid raw err/Error objects
+  // as arguments to console.error/warn. Error.cause (ES2022) can propagate
+  // refresh tokens, DSN strings, or HTTP response fragments up through a
+  // catch-handler log even when the handler believes it is logging a
+  // high-level error. Scoped to src/main/** because the audit (and the
+  // corresponding rule in internal-reference) explicitly covers
+  // Electron main-process code; a separate sweep of src/renderer/** is
+  // tracked as future work outside #706 scope.
+  //
+  // NOTE: flat-config `files:`-scoped blocks OVERRIDE the global rules for
+  // matched files. That means the global `no-restricted-syntax` (with its
+  // `useXStore()` selector above) does NOT apply inside src/main/**. This
+  // is harmless today because main-process code doesn't use React hooks,
+  // but if future global `no-restricted-syntax` selectors should also apply
+  // to main/, they must be duplicated into this override block as well.
+  //
+  // The selector's `:not(:first-child)` clause intentionally permits the
+  // single-argument form `console.error(err)` (where the sole arg is both
+  // first- and last-child). The audit found no such sites in src/main/,
+  // and the rule targets the documented failure mode — `console.error('prefix',
+  // err)` — so single-arg forms are out of scope. If this decision changes,
+  // update tests/unit/main/eslint-no-raw-err-console.test.ts fixture 6.
+  //
+  // See internal-reference "Console error logging" and
+  // internal-reference
+  {
+    files: ['src/main/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            'CallExpression[callee.type="MemberExpression"][callee.object.name="console"][callee.property.name=/^(error|warn)$/] > Identifier:last-child:not(:first-child)',
+          message:
+            'Do not pass raw err/Error objects to console.error/warn — err.cause (ES2022) may propagate secrets (refresh tokens, DSNs, HTTP response fragments). Use `(err as Error).message` instead. See internal-reference "Console error logging". If the raw argument is intentional (e.g., a safe structured detail), add `eslint-disable-next-line no-restricted-syntax -- <rationale>`.',
+        },
+      ],
+    },
+  },
+
   // Test files: relaxed rules for mocks, partial fixtures, and scaffolding imports.
   // Production-code discipline (src/) still runs at error severity for all
   // three typing rules below. Test files get different posture because:

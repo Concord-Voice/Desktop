@@ -127,9 +127,12 @@ describe('telemetryConsent', () => {
       // JSON parse errors do not have an .code property, so they ARE logged
       // (they are not ENOENT). The warning spy is set up in beforeEach.
       expect(result.telemetryOptIn).toBe(false);
+      // #706 — we now pass (err as Error).message (a string) instead of
+      // the raw SyntaxError, so err.cause cannot propagate secrets through
+      // the log sink. See internal-reference
       expect(console.warn).toHaveBeenCalledWith(
         expect.stringContaining('[TelemetryConsent]'),
-        expect.any(SyntaxError)
+        expect.any(String)
       );
     });
 
@@ -516,10 +519,13 @@ describe('telemetryConsent', () => {
           // Persist still ran — webContents.send was called
           expect(mockWebContentsSend).toHaveBeenCalledWith('consent:changed', expect.any(Object));
 
-          // console.warn was called with the expected message
+          // console.warn was called with the expected message.
+          // #706 — second arg is now (err as Error).message (a string),
+          // not the raw Error, to prevent err.cause from propagating
+          // secrets. See internal-reference
           expect(console.warn).toHaveBeenCalledWith(
             expect.stringContaining('[TelemetryConsent] offline queue cleanup failed'),
-            expect.any(Error)
+            expect.any(String)
           );
         } finally {
           rmSpy.mockRestore();
