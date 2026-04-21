@@ -6,7 +6,6 @@ import { usePrivacyStore, DMPrivacyLevel } from '../../stores/privacyStore';
 import { apiFetch, API_BASE } from '../../services/apiClient';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import Modal from '../ui/Modal';
-import ToggleSwitch from './ToggleSwitch';
 import MFATierSelector, { WebAuthnCredential } from './MFATierSelector';
 import MFASetup from './MFASetup';
 import MFAVerifyPrompt from '../Auth/MFAVerifyPrompt';
@@ -18,10 +17,10 @@ import {
   type OsPermissionType,
   type OsPermissionStatus,
 } from '../../stores/osPermissionStore';
-import { klipyClient } from '../../services/gifProvider/klipyClient';
-import { useTelemetryConsentStore } from '../../stores/telemetryConsentStore';
-import { TELEMETRY_POLICY_VERSION } from '../../../shared/sentry-policy-version';
-import TelemetryAllowlistDisclosure from '../TelemetryAllowlistDisclosure';
+import CrashReportingSection from './CrashReportingSection';
+import DMPrivacyControls from './DMPrivacyControls';
+import ContentSafetyControls from './ContentSafetyControls';
+import SearchVisibilityControls from './SearchVisibilityControls';
 import './MFA.css';
 
 interface Session {
@@ -90,63 +89,11 @@ const PERMISSION_STATUS_BADGES: Record<OsPermissionStatus, { className: string; 
   unavailable: { className: 'os-perm-badge os-perm-badge--unavailable', label: 'Unavailable' },
 };
 
-const DM_LEVEL_TITLES: Record<DMPrivacyLevel, string> = {
-  0: 'No One',
-  1: 'Friends Only',
-  2: 'Friends + Server Members',
-  3: 'Allow All',
-};
-
-const DM_LEVEL_DESCRIPTIONS: Record<DMPrivacyLevel, string> = {
-  0: "Hermit mode. Nobody can DM you. You've chosen peace and silence. Existing DMs are frozen solid.",
-  1: "Inner circle only. If they're not on your friends list, they're talking to a wall.",
-  2: 'The social butterfly. Friends and anyone you share a server with can slide into your DMs.',
-  3: 'Open season. Anyone on the platform can message you. Bold move.',
-};
-
-const DM_FOF_HINTS: Record<number, string> = {
-  0: 'DMs are disabled — this setting has no effect.',
-  3: 'Everyone can already DM you — friends-of-friends is included.',
-};
-
 /** Get the description for the current revocation mode. */
 function revocationModeDescription(mode: 'simple' | 'secure'): string {
   return mode === 'secure'
     ? 'Authentication via Password or MFA is required to revoke sessions under certain circumstances.'
     : 'Authenticate once to freely manage sessions for a short period.';
-}
-
-/** Get the description text for the GIF auto-load setting. */
-function gifAutoLoadHint(enabled: boolean): string {
-  return enabled
-    ? 'GIFs in messages render as soon as they enter view. All KLIPY traffic — searches, picks, and media — is routed through Concord servers, so KLIPY never sees your IP address.'
-    : 'GIFs in messages show a "Click to load" placeholder until you tap them. All KLIPY traffic is always routed through Concord servers regardless of this setting.';
-}
-
-/** Get the description text for the GIF personalization setting. */
-function gifPersonalizationHint(enabled: boolean): string {
-  return enabled
-    ? 'Concord sends a stable per-device ID to KLIPY so the GIF picker can show you personalized recent and trending results. The ID is not tied to your Concord account or any personally identifiable information.'
-    : 'GIF picker results are not personalized. A rotating ephemeral ID is used so KLIPY cannot build a persistent profile. The Recent tab is hidden because it requires a stable ID to function.';
-}
-
-/** Get the description text for the personalization ID row. */
-function personalizationIdHint(enabled: boolean): string {
-  return enabled
-    ? 'Your stable per-device identifier sent to KLIPY. Rotating it clears your personalization history.'
-    : 'Ephemeral ID — rotates automatically every 30 minutes. Rotating manually generates a new one immediately.';
-}
-
-/** Compute the effective friends-of-friends toggle value for a given DM level. */
-function computeFofChecked(dmLevel: DMPrivacyLevel, storeSetting: boolean): boolean {
-  if (dmLevel === 3) return true;
-  if (dmLevel === 0) return false;
-  return storeSetting;
-}
-
-/** Whether the friends-of-friends toggle is disabled at the given DM level. */
-function isFofDisabled(dmLevel: DMPrivacyLevel): boolean {
-  return dmLevel === 0 || dmLevel === 3;
 }
 
 /** Renders either an MFA verify prompt or a password input, depending on whether MFA is active. */
@@ -400,9 +347,6 @@ const PrivacySecuritySection: React.FC = () => {
   const privacySettings = usePrivacyStore((s) => s.settings);
   const fetchPrivacy = usePrivacyStore((s) => s.fetchPrivacy);
   const updatePrivacy = usePrivacyStore((s) => s.updatePrivacy);
-  const telemetryOptIn = useTelemetryConsentStore((s) => s.telemetryOptIn);
-  const isConsentLoaded = useTelemetryConsentStore((s) => s.isLoaded);
-  const policyVersion = TELEMETRY_POLICY_VERSION;
   const [sessions, setSessions] = useState<Session[]>([]);
   const [pastSessions, setPastSessions] = useState<PastSession[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -452,33 +396,6 @@ const PrivacySecuritySection: React.FC = () => {
   const [backupResetError, setBackupResetError] = useState('');
   const [backupResetLoading, setBackupResetLoading] = useState(false);
   const [backupResetCodes, setBackupResetCodes] = useState<string[] | null>(null);
-
-  // KLIPY personalization ID display + rotate
-  const [displayedCustomerId, setDisplayedCustomerId] = useState<string | null>(null);
-  const [isRotatingId, setIsRotatingId] = useState(false);
-  const rotationCooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Sync displayed ID whenever personalization setting or the client's ID changes
-  useEffect(() => {
-    setDisplayedCustomerId(klipyClient.getCurrentCustomerId());
-  }, [privacySettings.sharePersonalizationWithGifProvider]);
-  const handleRotateCustomerId = useCallback(async () => {
-    setIsRotatingId(true);
-    try {
-      const newId = await klipyClient.rotateCustomerId();
-      setDisplayedCustomerId(newId);
-    } finally {
-      // 3-second cooldown so the button can't be hammered
-      rotationCooldownRef.current = setTimeout(() => setIsRotatingId(false), 3_000);
-    }
-  }, []);
-  // Clear rotation cooldown timer on unmount
-  useEffect(() => {
-    return () => {
-      if (rotationCooldownRef.current !== null) {
-        clearTimeout(rotationCooldownRef.current);
-      }
-    };
-  }, []);
 
   // Local DM privacy level for responsive slider (debounces API calls)
   const [localDmLevel, setLocalDmLevel] = useState<DMPrivacyLevel>(privacySettings.dmPrivacyLevel);
@@ -818,220 +735,15 @@ const PrivacySecuritySection: React.FC = () => {
 
   return (
     <>
-      <CollapsibleSection id="section-crash-reporting" title="Crash Reporting">
-        <p className="settings-section-description">
-          Help improve Concord by sending anonymous crash data when errors occur. No message content
-          or personal information is included.
-        </p>
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Send anonymous crash reports</span>
-            <span className="settings-row-hint">
-              Crash reports help us identify and fix bugs faster
-            </span>
-          </div>
-          <ToggleSwitch
-            checked={telemetryOptIn}
-            disabled={!isConsentLoaded}
-            onChange={async (enabled: boolean) => {
-              try {
-                await useTelemetryConsentStore.getState().setConsent(enabled, policyVersion);
-              } catch (err) {
-                console.error('[Settings] Failed to update telemetry consent:', err);
-              }
-            }}
-          />
-        </div>
-        <TelemetryAllowlistDisclosure />
-      </CollapsibleSection>
+      <CrashReportingSection />
       <CollapsibleSection id="section-privacy-settings" title="Privacy">
         <p className="settings-section-description">
           Control who can message you and how others can find you.
         </p>
 
-        <div className="settings-tier-slider-container">
-          <span className="settings-row-label">Who Can DM You</span>
-          <div className="settings-tier-labels">
-            {(['No One', 'Friends', 'Friends + Server', 'Everyone'] as const).map((label, i) => (
-              <button
-                type="button"
-                key={label}
-                className={`settings-tier-label ${localDmLevel === i ? 'active' : ''}`}
-                aria-pressed={localDmLevel === i}
-                onClick={() => setDmPrivacyLevel(i as DMPrivacyLevel)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-          <div className="settings-tier-track dm-privacy-track">
-            <div className="settings-tier-ticks">
-              {[0, 1, 2, 3].map((level) => (
-                <span
-                  key={`dm-tick-${level}`}
-                  className={`settings-tier-tick ${localDmLevel === level ? 'active' : ''}`}
-                />
-              ))}
-            </div>
-            <input
-              type="range"
-              className="settings-tier-slider"
-              min={0}
-              max={3}
-              step={1}
-              value={localDmLevel}
-              onChange={(e) => setDmPrivacyLevel(Number(e.target.value) as DMPrivacyLevel)}
-            />
-          </div>
-          <div className="settings-tier-description">
-            <span>{DM_LEVEL_TITLES[localDmLevel]}</span>
-            <span>{DM_LEVEL_DESCRIPTIONS[localDmLevel]}</span>
-          </div>
-        </div>
-
-        <div
-          className={`settings-row ${isFofDisabled(localDmLevel) ? 'settings-row-disabled' : ''}`}
-        >
-          <div className="settings-row-info">
-            <span className="settings-row-label">Allow Friends-of-Friends</span>
-            <span className="settings-row-hint">
-              {DM_FOF_HINTS[localDmLevel] ??
-                'Also allow DMs from people who share a mutual friend with you'}
-            </span>
-          </div>
-          <ToggleSwitch
-            checked={computeFofChecked(localDmLevel, privacySettings.dmFriendsOfFriends)}
-            onChange={(v) => {
-              if (!isFofDisabled(localDmLevel)) {
-                updatePrivacy({ dmFriendsOfFriends: v });
-              }
-            }}
-            disabled={isFofDisabled(localDmLevel)}
-          />
-        </div>
-
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Auto-Accept Friend Requests from Codes</span>
-            <span className="settings-row-hint">
-              Automatically accept when someone uses your friend code
-            </span>
-          </div>
-          <ToggleSwitch
-            checked={privacySettings.autoAcceptFriendCodes}
-            onChange={(v) => updatePrivacy({ autoAcceptFriendCodes: v })}
-          />
-        </div>
-
-        <h3 className="settings-subsection-title" style={{ marginTop: 20 }}>
-          Content Safety
-        </h3>
-
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Allow Embedded Content</span>
-            <span className="settings-row-hint">
-              Render link previews, image thumbnails, and other embedded content in messages.{' '}
-              <strong>GIFs from KLIPY are controlled separately below.</strong> When disabled, only
-              the raw message text is shown — no external requests are made for previews, protecting
-              your IP address from off-app tracking beacons. Server moderators with the Manage All
-              Messages permission can also suppress embeds on individual messages regardless of this
-              setting.
-            </span>
-          </div>
-          <ToggleSwitch
-            checked={privacySettings.allowEmbeddedContent}
-            onChange={(v) => updatePrivacy({ allowEmbeddedContent: v })}
-          />
-        </div>
-
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Load GIFs from KLIPY automatically</span>
-            <span className="settings-row-hint">
-              {gifAutoLoadHint(privacySettings.loadGifsAutomatically)}
-            </span>
-          </div>
-          <ToggleSwitch
-            checked={privacySettings.loadGifsAutomatically}
-            onChange={(v) => updatePrivacy({ loadGifsAutomatically: v })}
-          />
-        </div>
-
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Share GIF personalization with provider</span>
-            <span className="settings-row-hint">
-              {gifPersonalizationHint(privacySettings.sharePersonalizationWithGifProvider)}
-            </span>
-          </div>
-          <ToggleSwitch
-            checked={privacySettings.sharePersonalizationWithGifProvider}
-            onChange={(v) => updatePrivacy({ sharePersonalizationWithGifProvider: v })}
-          />
-        </div>
-
-        <div className="settings-row settings-row-child">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Personalization ID</span>
-            <span className="settings-row-hint">
-              {personalizationIdHint(privacySettings.sharePersonalizationWithGifProvider)}
-            </span>
-            {displayedCustomerId && (
-              <span className="settings-estimated-bitrate settings-klipy-id-chip">
-                {displayedCustomerId}
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            className="settings-rotate-id-btn"
-            onClick={handleRotateCustomerId}
-            disabled={isRotatingId}
-            title={isRotatingId ? 'Rotate cooldown active' : 'Generate a new personalization ID'}
-          >
-            {isRotatingId ? 'Rotated' : 'Rotate'}
-          </button>
-        </div>
-
-        <h3 className="settings-subsection-title" style={{ marginTop: 20 }}>
-          Search Visibility
-        </h3>
-
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Searchable by Username</span>
-            <span className="settings-row-hint">
-              Allow others to find you by searching your username
-            </span>
-          </div>
-          <ToggleSwitch
-            checked={privacySettings.searchableByUsername}
-            onChange={(v) => updatePrivacy({ searchableByUsername: v })}
-          />
-        </div>
-
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Searchable by Email</span>
-            <span className="settings-row-hint">Allow others to find you by email address</span>
-          </div>
-          <ToggleSwitch
-            checked={privacySettings.searchableByEmail}
-            onChange={(v) => updatePrivacy({ searchableByEmail: v })}
-          />
-        </div>
-
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Searchable by Phone Number</span>
-            <span className="settings-row-hint">Allow others to find you by phone number</span>
-          </div>
-          <ToggleSwitch
-            checked={privacySettings.searchableByPhone}
-            onChange={(v) => updatePrivacy({ searchableByPhone: v })}
-          />
-        </div>
+        <DMPrivacyControls localDmLevel={localDmLevel} setDmPrivacyLevel={setDmPrivacyLevel} />
+        <ContentSafetyControls />
+        <SearchVisibilityControls />
       </CollapsibleSection>
 
       <SystemPermissionsSection />

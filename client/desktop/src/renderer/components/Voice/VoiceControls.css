@@ -85,7 +85,7 @@
   border-radius: 6px;
   background-color: rgba(250, 166, 26, 0.15);
   border: 1px solid rgba(250, 166, 26, 0.3);
-  color: #92400e;
+  color: var(--text-warning-strong);
   font-size: calc(12px * var(--font-scale, 1));
   white-space: nowrap;
   max-width: 90%;

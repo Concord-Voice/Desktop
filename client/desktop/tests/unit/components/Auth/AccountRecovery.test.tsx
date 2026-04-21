@@ -815,7 +815,7 @@ describe('AccountRecovery', () => {
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ request_id: 'dev-req-1' }),
+      json: async () => ({ request_id: '11111111-1111-1111-1111-111111111111' }),
     });
 
     fireEvent.click(screen.getByText('Recover from trusted device instead'));
@@ -833,7 +833,7 @@ describe('AccountRecovery', () => {
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ request_id: 'dev-req-1' }),
+      json: async () => ({ request_id: '11111111-1111-1111-1111-111111111111' }),
     });
 
     fireEvent.click(screen.getByText('Recover from trusted device instead'));
@@ -850,7 +850,7 @@ describe('AccountRecovery', () => {
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ request_id: 'social-req-1', threshold_k: 3 }),
+      json: async () => ({ request_id: '22222222-2222-2222-2222-222222222222', threshold_k: 3 }),
     });
 
     fireEvent.click(screen.getByText('Recover via Recovery Circle'));
@@ -868,7 +868,7 @@ describe('AccountRecovery', () => {
 
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: async () => ({ request_id: 'social-req-1', threshold_k: 3 }),
+      json: async () => ({ request_id: '22222222-2222-2222-2222-222222222222', threshold_k: 3 }),
     });
 
     fireEvent.click(screen.getByText('Recover via Recovery Circle'));
@@ -892,5 +892,58 @@ describe('AccountRecovery', () => {
     render(<AccountRecovery onBack={onBack} onComplete={onComplete} />);
     const logo = screen.getByAltText('Concord Voice');
     expect(logo).toBeInTheDocument();
+  });
+
+  // --- Upfront request_id validation (Sentry Seer fix) ---
+  //
+  // These tests verify the upfront validation at setDeviceRequestId /
+  // setSocialRequestId call sites — catching a malformed server response
+  // immediately, before the "Waiting..." screen ever renders. This is
+  // strictly better UX than the poll-catch fallback above (which stays in
+  // place as defense-in-depth).
+
+  it('rejects device recovery initiation immediately when server returns malformed request_id', async () => {
+    await advanceToRecoveryKeyStep();
+
+    // Server returns a malformed request_id on POST /device-request
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ request_id: 'not-a-uuid' }),
+    });
+    fireEvent.click(screen.getByText('Recover from trusted device instead'));
+
+    // User should see the error immediately — no "Waiting..." flash because
+    // upfront validation throws before step transitions to device-waiting.
+    await waitFor(() => {
+      expect(
+        screen.getByText('Server returned an invalid recovery request ID. Please try again.')
+      ).toBeInTheDocument();
+    });
+    // Step should remain at recovery-key
+    expect(
+      screen.getByText('Enter your recovery key to restore your encrypted data')
+    ).toBeInTheDocument();
+    // "Waiting..." screen should never have rendered
+    expect(screen.queryByText('Waiting for trusted device approval')).not.toBeInTheDocument();
+  });
+
+  it('rejects social recovery initiation immediately when server returns malformed request_id', async () => {
+    await advanceToRecoveryKeyStep();
+
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ request_id: 'also-not-a-uuid', threshold_k: 3 }),
+    });
+    fireEvent.click(screen.getByText('Recover via Recovery Circle'));
+
+    await waitFor(() => {
+      expect(
+        screen.getByText('Server returned an invalid recovery request ID. Please try again.')
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByText('Enter your recovery key to restore your encrypted data')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Waiting for Recovery Circle approval')).not.toBeInTheDocument();
   });
 });

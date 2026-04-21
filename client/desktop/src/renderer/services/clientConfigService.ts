@@ -30,7 +30,7 @@ class ClientConfigService {
     try {
       const res = await apiFetch('/api/v1/client/config');
       if (!res.ok) {
-        console.warn('[ClientConfig] Fetch failed:', res.status);
+        console.warn('[ClientConfig] Fetch failed');
         return;
       }
 
@@ -51,14 +51,14 @@ class ClientConfigService {
       // very first poll (prevSpaUrl empty) so the initial config load doesn't
       // trigger a reload of the SPA the shell already booted.
       if (prevSpaUrl && nextSpaUrl && prevSpaUrl !== nextSpaUrl) {
-        console.debug('[ClientConfig] SPA updated, reloading renderer:', nextSpaUrl);
+        console.debug('[ClientConfig] SPA updated, reloading renderer');
         globalThis.location.reload();
         return;
       }
 
-      console.debug('[ClientConfig] Updated config, minVersion:', data.minVersion || '(none)');
+      console.debug('[ClientConfig] Updated config');
     } catch (err) {
-      console.warn('[ClientConfig] Fetch error:', err);
+      console.warn('[ClientConfig] Fetch error:', err instanceof Error ? err.message : 'unknown');
     }
   }
 

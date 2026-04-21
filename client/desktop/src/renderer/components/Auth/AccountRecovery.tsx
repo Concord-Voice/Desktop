@@ -12,6 +12,7 @@ import {
   decryptWithSharedSecret,
 } from '../../utils/crypto';
 import { API_BASE } from '../../services/apiClient';
+import { assertValidUUID, isValidUUID } from '../../utils/uuid';
 import LoadingSpinner from './LoadingSpinner';
 import './Login.css';
 
@@ -155,6 +156,16 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to create recovery request');
 
+      // Upfront validation (Sentry Seer finding): if the server returns a
+      // malformed request_id, fail fast with a user-visible error instead of
+      // transitioning to device-waiting and discovering the problem 3s later
+      // in the poll loop. The poll-catch fallback (below) remains as
+      // defense-in-depth for any future path where a valid ID could become
+      // corrupted in React state.
+      if (!isValidUUID(data.request_id)) {
+        throw new Error('Server returned an invalid recovery request ID. Please try again.');
+      }
+
       setDeviceRequestId(data.request_id);
       setStep('device-waiting');
     } catch (err) {
@@ -170,12 +181,10 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
 
     const pollDevice = async () => {
       try {
-        const res = await fetch(
-          `${API_BASE}/api/v1/auth/recovery/device-request/${deviceRequestId}`,
-          {
-            headers: { Authorization: `Bearer ${recoveryToken}` },
-          }
-        );
+        const safeId = encodeURIComponent(assertValidUUID(deviceRequestId, 'deviceRequestId'));
+        const res = await fetch(`${API_BASE}/api/v1/auth/recovery/device-request/${safeId}`, {
+          headers: { Authorization: `Bearer ${recoveryToken}` },
+        });
         const data = await res.json();
         if (!res.ok) return;
 
@@ -200,8 +209,11 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
       } catch {
         // Ignore poll errors silently — the next poll tick retries. See
         // internal-reference re: idiomatic fetch-retry polling loops.
+        // Malformed request_ids are caught upstream at handleDeviceRecovery
+        // before setDeviceRequestId is ever called, so reaching this catch
+        // in practice means fetch failure.
         // (The ECDH-invariant throw above is already gated by state-machine
-        //  preconditions; reaching this catch in practice means fetch failure.)
+        //  preconditions; also handled by the silent retry.)
       }
     };
 
@@ -229,6 +241,13 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed');
 
+      // Upfront validation mirroring handleDeviceRecovery — see that comment
+      // for the full rationale (Sentry Seer finding: prevents silent
+      // infinite-poll trap for malformed server request_ids).
+      if (!isValidUUID(data.request_id)) {
+        throw new Error('Server returned an invalid recovery request ID. Please try again.');
+      }
+
       setSocialRequestId(data.request_id);
       setSocialThreshold(data.threshold_k);
       setStep('social-waiting');
@@ -245,12 +264,10 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
 
     const pollSocial = async () => {
       try {
-        const res = await fetch(
-          `${API_BASE}/api/v1/auth/recovery/social-request/${socialRequestId}`,
-          {
-            headers: { Authorization: `Bearer ${recoveryToken}` },
-          }
-        );
+        const safeId = encodeURIComponent(assertValidUUID(socialRequestId, 'socialRequestId'));
+        const res = await fetch(`${API_BASE}/api/v1/auth/recovery/social-request/${safeId}`, {
+          headers: { Authorization: `Bearer ${recoveryToken}` },
+        });
         const data = await res.json();
         if (!res.ok) return;
 
@@ -286,8 +303,10 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
         }
       } catch {
         // Ignore poll errors silently — the next poll tick retries (mirrors
-        // pollDevice above). The ECDH-invariant throw inside the loop is
-        // already gated by state-machine preconditions.
+        // pollDevice above). Malformed request_ids are caught upstream at
+        // handleSocialRecovery before setSocialRequestId is ever called.
+        // The ECDH-invariant throw inside the loop is already gated by
+        // state-machine preconditions.
       }
     };
 

@@ -56,6 +56,9 @@
   --status-connected: #1aaa55;
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
+
+  /* Warning text — readable foreground on yellow-tinted backgrounds */
+  --text-warning-strong: #f59e0b; /* Amber-500, high-contrast on dark backgrounds */
 }
 
 /* Font Size Scaling */
@@ -109,6 +112,7 @@
   --status-connected: #1a9a4a;
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
+  --text-warning-strong: #92400e; /* Amber-800, high-contrast on light backgrounds */
 }
 
 /* Concord Dark (explicit scheme selector for identity scoping) */
@@ -137,6 +141,7 @@
   --status-connected: #1aaa55;
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
+  --text-warning-strong: #f59e0b;
 }
 
 /* Concord Light (explicit scheme selector for identity scoping) */
@@ -165,6 +170,7 @@
   --status-connected: #1a9a4a;
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
+  --text-warning-strong: #92400e;
 }
 
 /* Morky Dark */
@@ -193,6 +199,7 @@
   --status-connected: #1aaa55;
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
+  --text-warning-strong: #f59e0b;
 }
 
 /* Morky Light */
@@ -221,6 +228,7 @@
   --status-connected: #1a9a4a;
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
+  --text-warning-strong: #92400e;
 }
 
 /* Bardic Dark */
@@ -249,6 +257,7 @@
   --status-connected: #1aaa55;
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
+  --text-warning-strong: #f59e0b;
 }
 
 /* Bardic Light */
@@ -277,6 +286,7 @@
   --status-connected: #1a9a4a;
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
+  --text-warning-strong: #92400e;
 }
 
 /* Fox Den Dark */
@@ -305,6 +315,7 @@
   --status-connected: #1aaa55;
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
+  --text-warning-strong: #f59e0b;
 }
 
 /* Fox Den Light */
@@ -333,6 +344,7 @@
   --status-connected: #1a9a4a;
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
+  --text-warning-strong: #92400e;
 }
 
 /* Hacker Dark */
@@ -361,6 +373,7 @@
   --status-connected: #1aaa55;
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
+  --text-warning-strong: #f59e0b;
 }
 
 /* Hacker Light */
@@ -389,6 +402,7 @@
   --status-connected: #1a9a4a;
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
+  --text-warning-strong: #92400e;
 }
 
 /* Spooky Dark */
@@ -417,6 +431,7 @@
   --status-connected: #1aaa55;
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
+  --text-warning-strong: #f59e0b;
 }
 
 /* Spooky Light */
@@ -445,6 +460,7 @@
   --status-connected: #1a9a4a;
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
+  --text-warning-strong: #92400e;
 }
 
 /* Leviathan Dark */
@@ -473,6 +489,7 @@
   --status-connected: #1aaa55;
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
+  --text-warning-strong: #f59e0b;
 }
 
 /* Leviathan Light */
@@ -501,6 +518,7 @@
   --status-connected: #1a9a4a;
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
+  --text-warning-strong: #92400e;
 }
 
 /* Grassy Nill Dark */
@@ -529,6 +547,7 @@
   --status-connected: #1aaa55;
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
+  --text-warning-strong: #f59e0b;
 }
 
 /* Grassy Nill Light */
@@ -557,6 +576,7 @@
   --status-connected: #1a9a4a;
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
+  --text-warning-strong: #92400e;
 }
 
 /* Cotton Candy Dark */
@@ -585,6 +605,7 @@
   --status-connected: #1aaa55;
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
+  --text-warning-strong: #f59e0b;
 }
 
 /* Cotton Candy Light */
@@ -613,6 +634,7 @@
   --status-connected: #1a9a4a;
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
+  --text-warning-strong: #92400e;
 }
 
 /* Driftwood Dark */
@@ -641,6 +663,7 @@
   --status-connected: #1aaa55;
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
+  --text-warning-strong: #f59e0b;
 }
 
 /* Driftwood Light */
@@ -669,6 +692,7 @@
   --status-connected: #1a9a4a;
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
+  --text-warning-strong: #92400e;
 }
 
 /* Eclipse Dark */
@@ -697,6 +721,7 @@
   --status-connected: #1aaa55;
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
+  --text-warning-strong: #f59e0b;
 }
 
 /* Eclipse Light */
@@ -725,6 +750,7 @@
   --status-connected: #1a9a4a;
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
+  --text-warning-strong: #92400e;
 }
 
 /* Midnight Sky Dark */
@@ -753,6 +779,7 @@
   --status-connected: #1aaa55;
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
+  --text-warning-strong: #f59e0b;
 }
 
 /* Midnight Sky Light */
@@ -781,6 +808,7 @@
   --status-connected: #1a9a4a;
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
+  --text-warning-strong: #92400e;
 }
 
 body {

@@ -3,27 +3,11 @@ import { createPortal } from 'react-dom';
 import { useSettingsOverlayStore } from '../../stores/settingsOverlayStore';
 import { AudioOutputs } from '../Voice/ParticipantGrid';
 import { PipSignalingProxy } from '../../services/pipSignalingProxy';
-import ServerContextMenu from '../Servers/ServerContextMenu';
-import DeleteServerModal from '../Servers/DeleteServerModal';
-import LeaveServerModal from '../Servers/LeaveServerModal';
-import CreateServerModal from '../Servers/CreateServerModal';
-import ServerActionModal from '../Servers/ServerActionModal';
-import JoinServerModal from '../Servers/JoinServerModal';
 import { createResizeKeyHandler } from '../../utils/resizeKeyboard';
-import InviteToServerModal from '../Servers/InviteToServerModal';
 import ChannelList from '../Channels/ChannelList';
 import ServerActionBar from '../Channels/ServerActionBar';
-import ChannelContextMenu from '../Channels/ChannelContextMenu';
-import ChannelListContextMenu from '../Channels/ChannelListContextMenu';
-import CategoryContextMenu from '../Channels/CategoryContextMenu';
-import CreateChannelModal from '../Channels/CreateChannelModal';
-import CreateCategoryModal from '../Channels/CreateCategoryModal';
-import EditChannelModal from '../Channels/EditChannelModal';
-import EditCategoryModal from '../Channels/EditCategoryModal';
-import DeleteChannelModal from '../Channels/DeleteChannelModal';
-import DeleteCategoryModal from '../Channels/DeleteCategoryModal';
-import ChannelSettingsModal from '../Channels/ChannelSettingsModal';
-import CategorySettingsModal from '../Channels/CategorySettingsModal';
+import MainViewModals from './MainViewModals';
+import MainViewContextMenus from './MainViewContextMenus';
 import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
 import { ChatView } from '../Chat';
 import VoiceView from '../Voice/VoiceView';
@@ -484,174 +468,79 @@ const MainView: React.FC = () => {
 
       {/* ─── Modals (z-index overlays, unaffected by layout) ─── */}
 
-      <ServerActionModal
-        isOpen={isServerActionModalOpen}
-        onClose={() => setIsServerActionModalOpen(false)}
-        onCreateServer={() => setIsCreateServerModalOpen(true)}
-        onJoinServer={() => setIsJoinServerModalOpen(true)}
+      <MainViewModals
+        isServerActionModalOpen={isServerActionModalOpen}
+        setIsServerActionModalOpen={setIsServerActionModalOpen}
+        isCreateServerModalOpen={isCreateServerModalOpen}
+        setIsCreateServerModalOpen={setIsCreateServerModalOpen}
+        isJoinServerModalOpen={isJoinServerModalOpen}
+        setIsJoinServerModalOpen={setIsJoinServerModalOpen}
+        isCreateChannelModalOpen={isCreateChannelModalOpen}
+        setIsCreateChannelModalOpen={setIsCreateChannelModalOpen}
+        isCreateCategoryModalOpen={isCreateCategoryModalOpen}
+        setIsCreateCategoryModalOpen={setIsCreateCategoryModalOpen}
+        deletingServer={deletingServer}
+        setDeletingServer={setDeletingServer}
+        leavingServer={leavingServer}
+        setLeavingServer={setLeavingServer}
+        editingChannel={editingChannel}
+        setEditingChannel={setEditingChannel}
+        deletingChannel={deletingChannel}
+        setDeletingChannel={setDeletingChannel}
+        invitingServer={invitingServer}
+        setInvitingServer={setInvitingServer}
+        editingCategory={editingCategory}
+        setEditingCategory={setEditingCategory}
+        deletingCategory={deletingCategory}
+        setDeletingCategory={setDeletingCategory}
+        channelPermissions={channelPermissions}
+        setChannelPermissions={setChannelPermissions}
+        categoryPermissions={categoryPermissions}
+        setCategoryPermissions={setCategoryPermissions}
+        activeServer={activeServer}
+        onCreateServerSuccess={handleCreateServerSuccess}
+        onCreateChannelSuccess={handleCreateChannelSuccess}
       />
 
-      <CreateServerModal
-        isOpen={isCreateServerModalOpen}
-        onClose={() => setIsCreateServerModalOpen(false)}
-        onSuccess={handleCreateServerSuccess}
+      <MainViewContextMenus
+        serverContextMenu={serverContextMenu}
+        setServerContextMenu={setServerContextMenu}
+        channelContextMenu={channelContextMenu}
+        setChannelContextMenu={setChannelContextMenu}
+        categoryContextMenu={categoryContextMenu}
+        setCategoryContextMenu={setCategoryContextMenu}
+        emptyContextMenu={emptyContextMenu}
+        setEmptyContextMenu={setEmptyContextMenu}
+        activeServer={activeServer}
+        canManageChannels={canManageChannels}
+        onEditServer={handleEditServer}
+        onDeleteServer={handleDeleteServer}
+        onLeaveServer={handleLeaveServer}
+        onInviteServer={handleInviteServer}
+        onEditChannel={handleEditChannel}
+        onDeleteChannel={(channel) => {
+          setChannelContextMenu(null);
+          setDeletingChannel(channel);
+        }}
+        onChannelPermissions={(channel) => {
+          setChannelContextMenu(null);
+          setChannelPermissions(channel);
+        }}
+        onEditCategory={(group) => {
+          setCategoryContextMenu(null);
+          setEditingCategory(group);
+        }}
+        onDeleteCategory={(group) => {
+          setCategoryContextMenu(null);
+          setDeletingCategory(group);
+        }}
+        onCategoryPermissions={(group) => {
+          setCategoryContextMenu(null);
+          setCategoryPermissions(group);
+        }}
+        onOpenCreateChannelModal={() => setIsCreateChannelModalOpen(true)}
+        onOpenCreateCategoryModal={() => setIsCreateCategoryModalOpen(true)}
       />
-
-      <JoinServerModal
-        isOpen={isJoinServerModalOpen}
-        onClose={() => setIsJoinServerModalOpen(false)}
-        onSuccess={handleCreateServerSuccess}
-      />
-
-      <CreateChannelModal
-        isOpen={isCreateChannelModalOpen}
-        onClose={() => setIsCreateChannelModalOpen(false)}
-        onSuccess={handleCreateChannelSuccess}
-      />
-
-      <CreateCategoryModal
-        isOpen={isCreateCategoryModalOpen}
-        onClose={() => setIsCreateCategoryModalOpen(false)}
-      />
-
-      {serverContextMenu && (
-        <ServerContextMenu
-          server={serverContextMenu.server}
-          position={serverContextMenu.position}
-          onClose={() => setServerContextMenu(null)}
-          onEditServer={handleEditServer}
-          onDeleteServer={handleDeleteServer}
-          onLeaveServer={handleLeaveServer}
-          onInvite={handleInviteServer}
-        />
-      )}
-
-      {deletingServer && (
-        <DeleteServerModal
-          isOpen={!!deletingServer}
-          server={deletingServer}
-          onClose={() => setDeletingServer(null)}
-        />
-      )}
-
-      {leavingServer && (
-        <LeaveServerModal
-          isOpen={!!leavingServer}
-          server={leavingServer}
-          onClose={() => setLeavingServer(null)}
-        />
-      )}
-
-      {channelContextMenu && activeServer && (
-        <ChannelContextMenu
-          channel={channelContextMenu.channel}
-          position={channelContextMenu.position}
-          serverId={activeServer.id}
-          onClose={() => setChannelContextMenu(null)}
-          onEditChannel={handleEditChannel}
-          onDeleteChannel={(channel) => {
-            setChannelContextMenu(null);
-            setDeletingChannel(channel);
-          }}
-          onChannelPermissions={(channel) => {
-            setChannelContextMenu(null);
-            setChannelPermissions(channel);
-          }}
-        />
-      )}
-
-      {emptyContextMenu && activeServer && canManageChannels && (
-        <ChannelListContextMenu
-          position={emptyContextMenu.position}
-          onClose={() => setEmptyContextMenu(null)}
-          onCreateChannel={() => {
-            setEmptyContextMenu(null);
-            setIsCreateChannelModalOpen(true);
-          }}
-          onCreateCategory={() => {
-            setEmptyContextMenu(null);
-            setIsCreateCategoryModalOpen(true);
-          }}
-        />
-      )}
-
-      {invitingServer && (
-        <InviteToServerModal
-          isOpen={!!invitingServer}
-          server={invitingServer}
-          onClose={() => setInvitingServer(null)}
-        />
-      )}
-
-      {categoryContextMenu && activeServer && canManageChannels && (
-        <CategoryContextMenu
-          group={categoryContextMenu.group}
-          position={categoryContextMenu.position}
-          onClose={() => setCategoryContextMenu(null)}
-          onEditCategory={(group) => {
-            setCategoryContextMenu(null);
-            setEditingCategory(group);
-          }}
-          onDeleteCategory={(group) => {
-            setCategoryContextMenu(null);
-            setDeletingCategory(group);
-          }}
-          onCategoryPermissions={(group) => {
-            setCategoryContextMenu(null);
-            setCategoryPermissions(group);
-          }}
-        />
-      )}
-
-      {editingChannel && (
-        <EditChannelModal
-          isOpen={!!editingChannel}
-          channel={editingChannel}
-          onClose={() => setEditingChannel(null)}
-        />
-      )}
-
-      {deletingChannel && (
-        <DeleteChannelModal
-          isOpen={!!deletingChannel}
-          channel={deletingChannel}
-          onClose={() => setDeletingChannel(null)}
-        />
-      )}
-
-      {editingCategory && (
-        <EditCategoryModal
-          isOpen={!!editingCategory}
-          group={editingCategory}
-          onClose={() => setEditingCategory(null)}
-        />
-      )}
-
-      {deletingCategory && (
-        <DeleteCategoryModal
-          isOpen={!!deletingCategory}
-          group={deletingCategory}
-          onClose={() => setDeletingCategory(null)}
-        />
-      )}
-
-      {channelPermissions && activeServer && (
-        <ChannelSettingsModal
-          isOpen={!!channelPermissions}
-          channel={channelPermissions}
-          serverId={activeServer.id}
-          onClose={() => setChannelPermissions(null)}
-        />
-      )}
-
-      {categoryPermissions && activeServer && (
-        <CategorySettingsModal
-          isOpen={!!categoryPermissions}
-          category={categoryPermissions}
-          serverId={activeServer.id}
-          onClose={() => setCategoryPermissions(null)}
-        />
-      )}
 
       <ShortcutOverlay />
       <ChannelSwitcher />
