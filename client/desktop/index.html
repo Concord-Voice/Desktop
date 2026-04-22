@@ -10,14 +10,22 @@
         2. services/control-plane/internal/spa/handler.go:80-84 deletes that
            header on SPA asset responses, so the meta tag below is authoritative
            for the renderer.
-        3. Cloudflare Web Analytics auto-injects https://static.cloudflareinsights.com/beacon.min.js
-           plus an inline bootstrap on any response served through the CF edge.
-           This CSP forbids both: script-src omits 'unsafe-inline' and scopes to
-           'self' + 'wasm-unsafe-eval' only, and connect-src does not list
-           cloudflareinsights.com, so the beacon is blocked at the parser even
-           if CF re-enables Auto Inject on the zone. The real fix is a dashboard
-           toggle on the concordvoice.chat zone (Analytics -> Web Analytics ->
-           disable Auto Inject).
+        3. Cloudflare's Free-tier baseline bot-intelligence layer injects a
+           JSD beacon (<script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js">)
+           plus an Email-Obfuscation decoy anchor (/cdn-cgi/content?id=...) into
+           HTML responses served through the CF edge on CF-proxied paths
+           matching the /api/* heuristic. This CSP — script-src-elem 'self'
+           'wasm-unsafe-eval' with no 'unsafe-inline' — blocks the beacon as
+           designed. The injection is NOT from Web Analytics Auto Inject, Bot
+           Fight Mode, Page Shield, Email Obfuscation, or RUM — all were
+           toggled off via a Configuration Rule scoped to the SPA path during
+           the #725 investigation and the injection persisted. It comes from
+           Cloudflare's always-on Free-tier classification pipeline with no
+           customer-exposed opt-out. The fix (shipped in #725) is to serve the
+           SPA from a non-/api/* path (/spa/<sha7>/index.html) so the path
+           heuristic does not fire. See #725 and
+           internal-reference for
+           the full elimination chain.
     -->
     <meta http-equiv="Content-Security-Policy"
           content="default-src 'self';
