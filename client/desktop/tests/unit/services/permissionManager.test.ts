@@ -157,6 +157,28 @@ describe('permissionManager', () => {
       expect(checkPermission('notifications')).toBe('granted');
     });
 
+    it('notifications: granted in dev mode (unpackaged) on macOS', () => {
+      // macOS caches notification authorization per-process, and the dev
+      // Electron binary isn't a registered notification provider — so we
+      // short-circuit to 'granted' in dev mode regardless of the OS state.
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      mockIsSupported.mockReturnValue(true);
+      mockIsPackaged.mockReturnValueOnce(false);
+      // Deliberately return 'denied' from the OS to prove we don't ask:
+      mockGetNotificationSettings.mockReturnValueOnce({ authorizationStatus: 'denied' });
+      expect(checkPermission('notifications')).toBe('granted');
+    });
+
+    it('notifications: falls through to macOS check in packaged mode', () => {
+      // Sanity check the opposite branch: when packaged, we DO call the
+      // real macOS API and respect its answer.
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      mockIsSupported.mockReturnValue(true);
+      mockIsPackaged.mockReturnValueOnce(true);
+      mockGetNotificationSettings.mockReturnValueOnce({ authorizationStatus: 'denied' });
+      expect(checkPermission('notifications')).toBe('denied');
+    });
+
     it('unknown type: unavailable', () => {
       expect(checkPermission('unknown' as OsPermissionType)).toBe('unavailable');
     });

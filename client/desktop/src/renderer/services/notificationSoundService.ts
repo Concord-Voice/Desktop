@@ -74,6 +74,14 @@ const CHAT_TOGGLE: Record<ChatSoundType, keyof NotificationSoundSettings> = {
   'friend-request': 'friendRequestSound',
 };
 
+/** Maps each chat sound type to its per-category volume store key */
+const CHAT_VOLUME: Record<ChatSoundType, keyof NotificationSoundSettings> = {
+  message: 'messageVolume',
+  mention: 'mentionVolume',
+  dm: 'dmVolume',
+  'friend-request': 'friendRequestVolume',
+};
+
 /** Set of sound types that are voice-event feedback (no debounce, no focus suppression) */
 const VOICE_SOUNDS = new Set<NotificationSoundType>([
   'voice-join',
@@ -119,6 +127,18 @@ class NotificationSoundService {
     this.initialized = true;
   }
 
+  /**
+   * Compute the effective volume (0.0–1.0) for a sound by combining
+   * the master volume with the per-category volume.
+   */
+  private effectiveVolume(type: NotificationSoundType, state: NotificationSoundSettings): number {
+    const master = state.volume / 100;
+    const category = VOICE_SOUNDS.has(type)
+      ? (state.voiceEventVolume as number) / 100
+      : ((state[CHAT_VOLUME[type as ChatSoundType]] as number) ?? 100) / 100;
+    return master * category;
+  }
+
   /** Check whether a chat sound should be suppressed */
   private isChatSuppressed(
     type: ChatSoundType,
@@ -159,7 +179,7 @@ class NotificationSoundService {
     const audio = this.sounds.get(type);
     if (!audio) return;
 
-    audio.volume = state.volume / 100;
+    audio.volume = this.effectiveVolume(type, state);
     audio.currentTime = 0;
     Promise.resolve(audio.play()).catch(noop);
 
@@ -185,7 +205,7 @@ class NotificationSoundService {
     if (!audio) return;
 
     audio.loop = true;
-    audio.volume = state.volume / 100;
+    audio.volume = this.effectiveVolume(type, state);
     audio.currentTime = 0;
     Promise.resolve(audio.play()).catch(noop);
     this.activeLoops.add(type);

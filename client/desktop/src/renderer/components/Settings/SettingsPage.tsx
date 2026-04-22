@@ -78,7 +78,7 @@ const navItems: NavItem[] = [
   },
   {
     id: 'notifications',
-    label: 'Notifications',
+    label: 'Sounds and Notifications',
     enabled: true,
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">

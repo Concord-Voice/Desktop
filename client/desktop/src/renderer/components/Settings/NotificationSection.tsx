@@ -4,14 +4,75 @@ import { useOsPermissionStore } from '../../stores/osPermissionStore';
 import ToggleSwitch from './ToggleSwitch';
 import CollapsibleSection from './CollapsibleSection';
 
+interface CategoryVolumeRowProps {
+  label: string;
+  toggle: boolean;
+  onToggle: (enabled: boolean) => void;
+  value: number;
+  onValueChange: (volume: number) => void;
+  masterEnabled: boolean;
+}
+
+/** A labeled toggle with a volume slider underneath. The slider is disabled
+ * when the toggle is off or the master Enable Sounds toggle is off. */
+const CategoryVolumeRow: React.FC<CategoryVolumeRowProps> = ({
+  label,
+  toggle,
+  onToggle,
+  value,
+  onValueChange,
+  masterEnabled,
+}) => {
+  const sliderDisabled = !masterEnabled || !toggle;
+  return (
+    <>
+      <div className="settings-row settings-row-child">
+        <div className="settings-row-info">
+          <span className="settings-row-label">{label}</span>
+        </div>
+        <ToggleSwitch
+          checked={toggle}
+          onChange={onToggle}
+          disabled={!masterEnabled}
+          label={label}
+        />
+      </div>
+      <div className="settings-row settings-row-child">
+        <div className="settings-row-info">
+          <span className="settings-row-label">Volume</span>
+        </div>
+        <div className="settings-slider-wrapper">
+          <span className="settings-slider-value">{value}%</span>
+          <input
+            type="range"
+            className="settings-slider"
+            min={0}
+            max={100}
+            step={1}
+            value={value}
+            onChange={(e) => onValueChange(Number(e.target.value))}
+            disabled={sliderDisabled}
+            aria-label={`${label} volume`}
+          />
+        </div>
+      </div>
+    </>
+  );
+};
+
 const NotificationSection: React.FC = () => {
   const enabled = useNotificationStore((s) => s.enabled);
   const volume = useNotificationStore((s) => s.volume);
   const messageSound = useNotificationStore((s) => s.messageSound);
+  const messageVolume = useNotificationStore((s) => s.messageVolume);
   const mentionSound = useNotificationStore((s) => s.mentionSound);
+  const mentionVolume = useNotificationStore((s) => s.mentionVolume);
   const dmSound = useNotificationStore((s) => s.dmSound);
+  const dmVolume = useNotificationStore((s) => s.dmVolume);
   const friendRequestSound = useNotificationStore((s) => s.friendRequestSound);
+  const friendRequestVolume = useNotificationStore((s) => s.friendRequestVolume);
   const voiceEventSounds = useNotificationStore((s) => s.voiceEventSounds);
+  const voiceEventVolume = useNotificationStore((s) => s.voiceEventVolume);
   const suppressWhenFocused = useNotificationStore((s) => s.suppressWhenFocused);
   const desktopNotificationsEnabled = useNotificationStore((s) => s.desktopNotificationsEnabled);
   const desktopNotifyDMs = useNotificationStore((s) => s.desktopNotifyDMs);
@@ -24,10 +85,15 @@ const NotificationSection: React.FC = () => {
   const setEnabled = useNotificationStore((s) => s.setEnabled);
   const setVolume = useNotificationStore((s) => s.setVolume);
   const setMessageSound = useNotificationStore((s) => s.setMessageSound);
+  const setMessageVolume = useNotificationStore((s) => s.setMessageVolume);
   const setMentionSound = useNotificationStore((s) => s.setMentionSound);
+  const setMentionVolume = useNotificationStore((s) => s.setMentionVolume);
   const setDmSound = useNotificationStore((s) => s.setDmSound);
+  const setDmVolume = useNotificationStore((s) => s.setDmVolume);
   const setFriendRequestSound = useNotificationStore((s) => s.setFriendRequestSound);
+  const setFriendRequestVolume = useNotificationStore((s) => s.setFriendRequestVolume);
   const setVoiceEventSounds = useNotificationStore((s) => s.setVoiceEventSounds);
+  const setVoiceEventVolume = useNotificationStore((s) => s.setVoiceEventVolume);
   const setSuppressWhenFocused = useNotificationStore((s) => s.setSuppressWhenFocused);
   const setDesktopNotificationsEnabled = useNotificationStore(
     (s) => s.setDesktopNotificationsEnabled
@@ -42,6 +108,17 @@ const NotificationSection: React.FC = () => {
 
   const notificationPermission = useOsPermissionStore((s) => s.notifications);
   const requestOne = useOsPermissionStore((s) => s.requestOne);
+  const openSettings = useOsPermissionStore((s) => s.openSettings);
+
+  /** Request OS notification permission; fall back to opening system settings
+   * if the OS doesn't flip to 'granted' (common on packaged builds where the
+   * user previously denied permission). */
+  const handleEnableNotifications = async (): Promise<void> => {
+    const status = await requestOne('notifications');
+    if (status !== 'granted') {
+      openSettings('notifications');
+    }
+  };
 
   return (
     <>
@@ -53,14 +130,22 @@ const NotificationSection: React.FC = () => {
               <p>Desktop notifications require permission.</p>
               <button
                 className="settings-notification-permission-btn"
-                onClick={() => requestOne('notifications')}
+                onClick={handleEnableNotifications}
               >
                 Enable Notifications
               </button>
             </>
           )}
           {notificationPermission === 'denied' && (
-            <p>Notification permission was denied. Enable in system settings.</p>
+            <>
+              <p>Notification permission was denied. Enable in System Settings.</p>
+              <button
+                className="settings-notification-permission-btn"
+                onClick={() => openSettings('notifications')}
+              >
+                Open System Settings
+              </button>
+            </>
           )}
         </div>
       )}
@@ -152,7 +237,10 @@ const NotificationSection: React.FC = () => {
 
         <div className="settings-row">
           <div className="settings-row-info">
-            <span className="settings-row-label">Volume</span>
+            <span className="settings-row-label">Master Volume</span>
+            <span className="settings-row-hint">
+              Applied on top of each category&apos;s volume.
+            </span>
           </div>
           <div className="settings-slider-wrapper">
             <span className="settings-slider-value">{volume}%</span>
@@ -164,69 +252,55 @@ const NotificationSection: React.FC = () => {
               step={1}
               value={volume}
               onChange={(e) => setVolume(Number(e.target.value))}
+              aria-label="Master volume"
             />
           </div>
         </div>
 
-        <div className="settings-row settings-row-child">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Message sounds</span>
-          </div>
-          <ToggleSwitch
-            checked={messageSound}
-            onChange={setMessageSound}
-            disabled={!enabled}
-            label="Message sounds"
-          />
-        </div>
+        <CategoryVolumeRow
+          label="Message sounds"
+          toggle={messageSound}
+          onToggle={setMessageSound}
+          value={messageVolume}
+          onValueChange={setMessageVolume}
+          masterEnabled={enabled}
+        />
 
-        <div className="settings-row settings-row-child">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Mention sounds</span>
-          </div>
-          <ToggleSwitch
-            checked={mentionSound}
-            onChange={setMentionSound}
-            disabled={!enabled}
-            label="Mention sounds"
-          />
-        </div>
+        <CategoryVolumeRow
+          label="Mention sounds"
+          toggle={mentionSound}
+          onToggle={setMentionSound}
+          value={mentionVolume}
+          onValueChange={setMentionVolume}
+          masterEnabled={enabled}
+        />
 
-        <div className="settings-row settings-row-child">
-          <div className="settings-row-info">
-            <span className="settings-row-label">DM sounds</span>
-          </div>
-          <ToggleSwitch
-            checked={dmSound}
-            onChange={setDmSound}
-            disabled={!enabled}
-            label="DM sounds"
-          />
-        </div>
+        <CategoryVolumeRow
+          label="DM sounds"
+          toggle={dmSound}
+          onToggle={setDmSound}
+          value={dmVolume}
+          onValueChange={setDmVolume}
+          masterEnabled={enabled}
+        />
 
-        <div className="settings-row settings-row-child">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Friend request sounds</span>
-          </div>
-          <ToggleSwitch
-            checked={friendRequestSound}
-            onChange={setFriendRequestSound}
-            disabled={!enabled}
-            label="Friend request sounds"
-          />
-        </div>
+        <CategoryVolumeRow
+          label="Friend request sounds"
+          toggle={friendRequestSound}
+          onToggle={setFriendRequestSound}
+          value={friendRequestVolume}
+          onValueChange={setFriendRequestVolume}
+          masterEnabled={enabled}
+        />
 
-        <div className="settings-row settings-row-child">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Voice event sounds</span>
-          </div>
-          <ToggleSwitch
-            checked={voiceEventSounds}
-            onChange={setVoiceEventSounds}
-            disabled={!enabled}
-            label="Voice event sounds"
-          />
-        </div>
+        <CategoryVolumeRow
+          label="Voice event sounds"
+          toggle={voiceEventSounds}
+          onToggle={setVoiceEventSounds}
+          value={voiceEventVolume}
+          onValueChange={setVoiceEventVolume}
+          masterEnabled={enabled}
+        />
 
         <div className="settings-row">
           <div className="settings-row-info">

@@ -108,6 +108,12 @@ const PERMISSION_CHECKERS: Record<OsPermissionType, () => OsPermissionStatus> = 
   secureStorage: () => (safeStorage.isEncryptionAvailable() ? 'granted' : 'unavailable'),
   notifications: () => {
     if (!Notification.isSupported()) return 'unavailable';
+    // In dev mode, the Electron binary isn't a registered notification
+    // provider with macOS, so getNotificationSettings() returns cached
+    // stale data that won't reflect grants made via System Settings
+    // until the process restarts. Since dev notifications work regardless
+    // of what the API reports, skip the check entirely in dev.
+    if (!app.isPackaged) return 'granted';
     if (process.platform === 'darwin') return mapMacNotificationStatus();
     return 'granted';
   },

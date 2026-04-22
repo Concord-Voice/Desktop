@@ -7,10 +7,15 @@ const mockNotificationState = {
   enabled: true,
   volume: 80,
   messageSound: true,
+  messageVolume: 100,
   mentionSound: true,
+  mentionVolume: 100,
   dmSound: true,
+  dmVolume: 100,
   friendRequestSound: true,
+  friendRequestVolume: 100,
   voiceEventSounds: true,
+  voiceEventVolume: 100,
   suppressWhenFocused: true,
   desktopNotificationsEnabled: true,
   desktopNotifyDMs: true,
@@ -23,10 +28,15 @@ const mockNotificationState = {
   setEnabled: vi.fn(),
   setVolume: vi.fn(),
   setMessageSound: vi.fn(),
+  setMessageVolume: vi.fn(),
   setMentionSound: vi.fn(),
+  setMentionVolume: vi.fn(),
   setDmSound: vi.fn(),
+  setDmVolume: vi.fn(),
   setFriendRequestSound: vi.fn(),
+  setFriendRequestVolume: vi.fn(),
   setVoiceEventSounds: vi.fn(),
+  setVoiceEventVolume: vi.fn(),
   setSuppressWhenFocused: vi.fn(),
   setDesktopNotificationsEnabled: vi.fn(),
   setDesktopNotifyDMs: vi.fn(),
@@ -46,12 +56,14 @@ vi.mock('@/renderer/stores/notificationStore', () => ({
 }));
 
 const mockRequestOne = vi.fn();
+const mockOpenSettings = vi.fn();
 
 vi.mock('@/renderer/stores/osPermissionStore', () => ({
   useOsPermissionStore: vi.fn((selector?: (s: Record<string, unknown>) => unknown) => {
     const state = {
       notifications: 'granted' as string,
       requestOne: mockRequestOne,
+      openSettings: mockOpenSettings,
     };
     return selector ? selector(state) : state;
   }),
@@ -67,6 +79,7 @@ function setPermissionStatus(status: string) {
       const state = {
         notifications: status,
         requestOne: mockRequestOne,
+        openSettings: mockOpenSettings,
       };
       return selector ? selector(state) : state;
     }
@@ -183,7 +196,7 @@ describe('NotificationSection', () => {
     setPermissionStatus('denied');
     render(<NotificationSection />);
     expect(
-      screen.getByText('Notification permission was denied. Enable in system settings.')
+      screen.getByText('Notification permission was denied. Enable in System Settings.')
     ).toBeInTheDocument();
     // The "Enable Notifications" button should NOT appear for denied state
     expect(screen.queryByText('Enable Notifications')).not.toBeInTheDocument();
@@ -256,5 +269,84 @@ describe('NotificationSection', () => {
     fireEvent.change(timeInputs[1], { target: { value: '07:00' } });
     expect(mockNotificationState.setQuietHoursEnd).toHaveBeenCalledWith('07:00');
     mockNotificationState.quietHoursEnabled = false;
+  });
+
+  // ── Per-category volume sliders ───────────────────────────────────
+
+  it('renders a volume slider for each of the 5 sound categories', () => {
+    render(<NotificationSection />);
+    // 5 per-category sliders + 1 master = 6 total
+    expect(screen.getByLabelText('Message sounds volume')).toBeInTheDocument();
+    expect(screen.getByLabelText('Mention sounds volume')).toBeInTheDocument();
+    expect(screen.getByLabelText('DM sounds volume')).toBeInTheDocument();
+    expect(screen.getByLabelText('Friend request sounds volume')).toBeInTheDocument();
+    expect(screen.getByLabelText('Voice event sounds volume')).toBeInTheDocument();
+  });
+
+  it('message volume slider calls setMessageVolume on change', () => {
+    render(<NotificationSection />);
+    fireEvent.change(screen.getByLabelText('Message sounds volume'), { target: { value: '42' } });
+    expect(mockNotificationState.setMessageVolume).toHaveBeenCalledWith(42);
+  });
+
+  it('mention volume slider calls setMentionVolume on change', () => {
+    render(<NotificationSection />);
+    fireEvent.change(screen.getByLabelText('Mention sounds volume'), { target: { value: '55' } });
+    expect(mockNotificationState.setMentionVolume).toHaveBeenCalledWith(55);
+  });
+
+  it('DM volume slider calls setDmVolume on change', () => {
+    render(<NotificationSection />);
+    fireEvent.change(screen.getByLabelText('DM sounds volume'), { target: { value: '60' } });
+    expect(mockNotificationState.setDmVolume).toHaveBeenCalledWith(60);
+  });
+
+  it('friend request volume slider calls setFriendRequestVolume on change', () => {
+    render(<NotificationSection />);
+    fireEvent.change(screen.getByLabelText('Friend request sounds volume'), {
+      target: { value: '25' },
+    });
+    expect(mockNotificationState.setFriendRequestVolume).toHaveBeenCalledWith(25);
+  });
+
+  it('voice event volume slider calls setVoiceEventVolume on change', () => {
+    render(<NotificationSection />);
+    fireEvent.change(screen.getByLabelText('Voice event sounds volume'), {
+      target: { value: '70' },
+    });
+    expect(mockNotificationState.setVoiceEventVolume).toHaveBeenCalledWith(70);
+  });
+
+  it('category volume slider is disabled when the category toggle is off', () => {
+    mockNotificationState.messageSound = false;
+    render(<NotificationSection />);
+    const slider = screen.getByLabelText('Message sounds volume') as HTMLInputElement;
+    expect(slider.disabled).toBe(true);
+    mockNotificationState.messageSound = true; // reset
+  });
+
+  it('category volume slider is disabled when master Enable is off', () => {
+    mockNotificationState.enabled = false;
+    render(<NotificationSection />);
+    const slider = screen.getByLabelText('Message sounds volume') as HTMLInputElement;
+    expect(slider.disabled).toBe(true);
+    mockNotificationState.enabled = true; // reset
+  });
+
+  it('displays the current per-category volume value in the slider label', () => {
+    mockNotificationState.messageVolume = 37;
+    render(<NotificationSection />);
+    // The value appears next to the slider as "37%"
+    expect(screen.getAllByText('37%').length).toBeGreaterThanOrEqual(1);
+    mockNotificationState.messageVolume = 100; // reset
+  });
+
+  // ── "Open System Settings" button when denied ─────────────────────
+
+  it('clicking Open System Settings (denied banner) calls openSettings', () => {
+    setPermissionStatus('denied');
+    render(<NotificationSection />);
+    fireEvent.click(screen.getByText('Open System Settings'));
+    expect(mockOpenSettings).toHaveBeenCalledWith('notifications');
   });
 });

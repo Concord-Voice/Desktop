@@ -8,10 +8,15 @@ describe('notificationStore', () => {
       enabled: true,
       volume: 80,
       messageSound: true,
+      messageVolume: 100,
       mentionSound: true,
+      mentionVolume: 100,
       dmSound: true,
+      dmVolume: 100,
       friendRequestSound: true,
+      friendRequestVolume: 100,
       voiceEventSounds: true,
+      voiceEventVolume: 100,
       suppressWhenFocused: true,
       desktopNotificationsEnabled: true,
       desktopNotifyDMs: true,
@@ -143,5 +148,87 @@ describe('notificationStore', () => {
   it('sets quietHoursEnd', () => {
     useNotificationStore.getState().setQuietHoursEnd('07:00');
     expect(useNotificationStore.getState().quietHoursEnd).toBe('07:00');
+  });
+
+  describe('per-category volume', () => {
+    it('has default per-category volumes of 100', () => {
+      const state = useNotificationStore.getState();
+      expect(state.messageVolume).toBe(100);
+      expect(state.mentionVolume).toBe(100);
+      expect(state.dmVolume).toBe(100);
+      expect(state.friendRequestVolume).toBe(100);
+      expect(state.voiceEventVolume).toBe(100);
+    });
+
+    it('sets messageVolume with clamping', () => {
+      useNotificationStore.getState().setMessageVolume(60);
+      expect(useNotificationStore.getState().messageVolume).toBe(60);
+
+      useNotificationStore.getState().setMessageVolume(-5);
+      expect(useNotificationStore.getState().messageVolume).toBe(0);
+
+      useNotificationStore.getState().setMessageVolume(150);
+      expect(useNotificationStore.getState().messageVolume).toBe(100);
+    });
+
+    it('sets mentionVolume with clamping', () => {
+      useNotificationStore.getState().setMentionVolume(75);
+      expect(useNotificationStore.getState().mentionVolume).toBe(75);
+
+      useNotificationStore.getState().setMentionVolume(-1);
+      expect(useNotificationStore.getState().mentionVolume).toBe(0);
+
+      useNotificationStore.getState().setMentionVolume(101);
+      expect(useNotificationStore.getState().mentionVolume).toBe(100);
+    });
+
+    it('sets dmVolume with clamping', () => {
+      useNotificationStore.getState().setDmVolume(42);
+      expect(useNotificationStore.getState().dmVolume).toBe(42);
+
+      useNotificationStore.getState().setDmVolume(-50);
+      expect(useNotificationStore.getState().dmVolume).toBe(0);
+
+      useNotificationStore.getState().setDmVolume(500);
+      expect(useNotificationStore.getState().dmVolume).toBe(100);
+    });
+
+    it('sets friendRequestVolume with clamping', () => {
+      useNotificationStore.getState().setFriendRequestVolume(20);
+      expect(useNotificationStore.getState().friendRequestVolume).toBe(20);
+
+      useNotificationStore.getState().setFriendRequestVolume(-100);
+      expect(useNotificationStore.getState().friendRequestVolume).toBe(0);
+
+      useNotificationStore.getState().setFriendRequestVolume(999);
+      expect(useNotificationStore.getState().friendRequestVolume).toBe(100);
+    });
+
+    it('sets voiceEventVolume with clamping', () => {
+      useNotificationStore.getState().setVoiceEventVolume(33);
+      expect(useNotificationStore.getState().voiceEventVolume).toBe(33);
+
+      useNotificationStore.getState().setVoiceEventVolume(-1);
+      expect(useNotificationStore.getState().voiceEventVolume).toBe(0);
+
+      useNotificationStore.getState().setVoiceEventVolume(1000);
+      expect(useNotificationStore.getState().voiceEventVolume).toBe(100);
+    });
+
+    it('per-category volumes are independent', () => {
+      const store = useNotificationStore.getState();
+      store.setMessageVolume(10);
+      store.setMentionVolume(20);
+      store.setDmVolume(30);
+      store.setFriendRequestVolume(40);
+      store.setVoiceEventVolume(50);
+
+      const after = useNotificationStore.getState();
+      expect(after.messageVolume).toBe(10);
+      expect(after.mentionVolume).toBe(20);
+      expect(after.dmVolume).toBe(30);
+      expect(after.friendRequestVolume).toBe(40);
+      expect(after.voiceEventVolume).toBe(50);
+    });
   });
 });

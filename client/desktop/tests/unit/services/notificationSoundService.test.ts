@@ -33,10 +33,15 @@ describe('NotificationSoundService', () => {
       enabled: true,
       volume: 80,
       messageSound: true,
+      messageVolume: 100,
       mentionSound: true,
+      mentionVolume: 100,
       dmSound: true,
+      dmVolume: 100,
       friendRequestSound: true,
+      friendRequestVolume: 100,
       voiceEventSounds: true,
+      voiceEventVolume: 100,
       suppressWhenFocused: true,
     });
 
@@ -129,6 +134,89 @@ describe('NotificationSoundService', () => {
     >;
     const audio = sounds.get('message');
     expect(audio?.volume).toBe(0.5);
+  });
+
+  describe('effective volume (master × category)', () => {
+    const getAudio = (type: string): MockAudio | undefined => {
+      const sounds = (notificationSoundService as Record<string, unknown>)['sounds'] as Map<
+        string,
+        MockAudio
+      >;
+      return sounds.get(type);
+    };
+
+    it('applies messageVolume on top of master volume', () => {
+      useNotificationStore.getState().setVolume(100);
+      useNotificationStore.getState().setMessageVolume(50);
+      notificationSoundService.play('message');
+      expect(getAudio('message')?.volume).toBeCloseTo(0.5, 5);
+    });
+
+    it('applies mentionVolume on top of master volume', () => {
+      useNotificationStore.getState().setVolume(80);
+      useNotificationStore.getState().setMentionVolume(50);
+      notificationSoundService.play('mention');
+      expect(getAudio('mention')?.volume).toBeCloseTo(0.4, 5);
+    });
+
+    it('applies dmVolume on top of master volume', () => {
+      useNotificationStore.getState().setVolume(60);
+      useNotificationStore.getState().setDmVolume(25);
+      notificationSoundService.play('dm');
+      expect(getAudio('dm')?.volume).toBeCloseTo(0.15, 5);
+    });
+
+    it('applies friendRequestVolume on top of master volume', () => {
+      useNotificationStore.getState().setVolume(50);
+      useNotificationStore.getState().setFriendRequestVolume(50);
+      notificationSoundService.play('friend-request');
+      expect(getAudio('friend-request')?.volume).toBeCloseTo(0.25, 5);
+    });
+
+    it('applies voiceEventVolume to voice sounds', () => {
+      useNotificationStore.getState().setVolume(100);
+      useNotificationStore.getState().setVoiceEventVolume(50);
+      notificationSoundService.play('voice-join');
+      expect(getAudio('voice-join')?.volume).toBeCloseTo(0.5, 5);
+    });
+
+    it('applies voiceEventVolume to call sounds', () => {
+      useNotificationStore.getState().setVolume(100);
+      useNotificationStore.getState().setVoiceEventVolume(40);
+      notificationSoundService.play('call-connected');
+      expect(getAudio('call-connected')?.volume).toBeCloseTo(0.4, 5);
+    });
+
+    it('applies voiceEventVolume to looping sounds', () => {
+      useNotificationStore.getState().setVolume(80);
+      useNotificationStore.getState().setVoiceEventVolume(50);
+      notificationSoundService.playLoop('call-ringing');
+      expect(getAudio('call-ringing')?.volume).toBeCloseTo(0.4, 5);
+    });
+
+    it('zero category volume silences only that category', () => {
+      useNotificationStore.getState().setVolume(100);
+      useNotificationStore.getState().setMessageVolume(0);
+      useNotificationStore.getState().setMentionVolume(100);
+      notificationSoundService.play('message');
+      expect(getAudio('message')?.volume).toBe(0);
+
+      // Reset debounce so the mention plays
+      (notificationSoundService as Record<string, unknown>)['lastChatSoundTime'] = 0;
+      notificationSoundService.play('mention');
+      expect(getAudio('mention')?.volume).toBe(1);
+    });
+
+    it('per-category volume is independent of chat sounds vs voice sounds', () => {
+      useNotificationStore.getState().setVolume(100);
+      useNotificationStore.getState().setMessageVolume(100);
+      useNotificationStore.getState().setVoiceEventVolume(20);
+      notificationSoundService.play('message');
+      expect(getAudio('message')?.volume).toBe(1);
+
+      notificationSoundService.play('mute');
+      expect(getAudio('mute')?.volume).toBeCloseTo(0.2, 5);
+    });
   });
 
   it('handles play() returning undefined', () => {
