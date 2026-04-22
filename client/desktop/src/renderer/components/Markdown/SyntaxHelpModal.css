@@ -1,23 +1,35 @@
 .syntax-help-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  border: none;
+  padding: 0;
+  max-width: none;
+  max-height: none;
+  width: 100%;
+  height: 100%;
+  color: var(--text-primary);
+}
+
+.syntax-help-modal-backdrop::backdrop {
+  background: rgba(0, 0, 0, 0.7);
 }
 
 .syntax-help-modal {
-  background: var(--surface-1, #fff);
-  color: var(--text-primary, #000);
-  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
   max-width: 640px;
   width: calc(100% - 32px);
   max-height: calc(100% - 64px);
   overflow: auto;
-  padding: 16px 20px;
-  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.2);
+  padding: 20px 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
 }
 
 .syntax-help-modal header {
@@ -29,25 +41,60 @@
 
 .syntax-help-modal h2 {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: calc(20px * var(--font-scale, 1));
+  font-weight: 700;
+  font-family: 'BaronNeue', sans-serif;
+  color: var(--text-primary);
+  letter-spacing: 0.3px;
+}
+
+.syntax-help-modal header button {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition:
+    color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.syntax-help-modal header button:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.syntax-help-modal header button:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
 }
 
 .syntax-help-modal table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
+  color: var(--text-primary);
 }
 
 .syntax-help-modal th,
 .syntax-help-modal td {
   text-align: left;
   padding: 6px 8px;
-  border-bottom: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+  border-bottom: 1px solid var(--border-color);
+}
+
+.syntax-help-modal th {
+  color: var(--text-secondary);
+  font-weight: 600;
 }
 
 .syntax-help-modal code {
   font-family: var(--code-font, Menlo, Consolas, monospace);
-  background: var(--surface-2, #f5f5f5);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
   padding: 2px 4px;
   border-radius: 3px;
   font-size: 0.85rem;
@@ -56,5 +103,5 @@
 .syntax-help-modal footer {
   margin-top: 14px;
   font-size: 0.85rem;
-  color: var(--text-secondary, #666);
+  color: var(--text-muted);
 }
