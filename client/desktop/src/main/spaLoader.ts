@@ -68,6 +68,19 @@ export async function resolveSpaSource(): Promise<SpaLoadDecision> {
           reason: `spaUrl rejected: non-HTTPS protocol ${spaOrigin.protocol}`,
         };
       }
+
+      // Defensive sentinel: reject the legacy /api/v1/spa/ prefix. PR #726 moved
+      // the SPA handler to /spa/* to escape Cloudflare JSD-beacon injection on
+      // API-shaped paths. If the server ever returns a spaUrl under the old
+      // prefix, treat it as a misconfiguration and fall back to bundled. Narrow
+      // by design — we do NOT reject all /api/* prefixes, just /api/v1/spa/.
+      // See #750 (parent epic #749).
+      if (spaOrigin.pathname.startsWith('/api/v1/spa/')) {
+        return {
+          mode: 'bundled',
+          reason: 'spaUrl rejected: legacy /api/v1/spa/ path (poisoned sentinel)',
+        };
+      }
     } catch {
       return { mode: 'bundled', reason: 'spaUrl rejected: invalid URL' };
     }
