@@ -14,26 +14,23 @@
 
 import {
   type KeyDerivationAlgorithm,
-  deriveKeyFromPasswordExportable,
   deriveKeyArgon2idExportable,
-  derivePreferencesKeyExportable,
   derivePreferencesKeyArgon2idExportable,
   encryptBlob,
   decryptBlob,
   unwrapPrivateKey,
-  wrapPrivateKey,
   unwrapChannelKey,
   wrapChannelKey,
   encryptMessage,
   decryptMessage,
   generateChannelKey,
   exportChannelKey,
-  generateSalt,
   importPublicKey,
   arrayBufferToBase64,
   base64ToArrayBuffer,
 } from '../utils/crypto';
 import { apiFetch, safeJson } from './apiClient';
+import { E2EEKeyUnavailableError, type E2EEKeyErrorCode } from './e2eeErrors';
 
 // Session lifetime — keys cached until explicit invalidation (rotation) or logout/close.
 // Lazy fetch + hold: each channel's key is fetched on first visit and held for the session.
@@ -43,6 +40,28 @@ interface CachedWrappedKey {
   wrappedKey: string;
   keyVersion: number;
   lastUsed: number;
+  /**
+   * Cache-poison refetch counter. Bounded at 1 — if a malformed wrap lands in
+   * cache and the refetch also fails shape validation, throw MALFORMED_PAYLOAD
+   * as terminal. Prevents infinite loops when the server persistently serves
+   * corrupt data.
+   *
+   * Reset to 0 on successful unwrap (cache-write in happy path) or on explicit
+   * invalidateChannelKey. See spec §6.4.
+   */
+  refetchAfterMalformed: number;
+}
+
+interface ErrorResponseShape {
+  error?: string;
+  code?: E2EEKeyErrorCode;
+  kind?: 'channel' | 'dm' | 'unknown';
+  pending?: boolean;
+}
+
+interface KeyResponseShape {
+  key: { wrapped_key: string; key_version?: number };
+  kind?: 'channel' | 'dm' | 'unknown';
 }
 
 /** Exported key material for safeStorage persistence */
@@ -53,6 +72,16 @@ export interface E2EESessionKeys {
 }
 
 class E2EEService {
+  /**
+   * Expected byte length of a wrapped channel key after base64 decode.
+   *
+   * RSA-OAEP with a 4096-bit modulus produces ciphertext of exactly
+   * `modulusLength / 8 = 512` bytes, irrespective of plaintext length. The
+   * assertion is STRICT (not a range) so any future change to the wrap format
+   * fails loudly rather than silently. See spec §6.4.
+   */
+  private static readonly EXPECTED_WRAP_BYTES = 512;
+
   private wrappingKey: CryptoKey | null = null;
   private preferencesKey: CryptoKey | null = null;
   private wrappedPrivateKey: string = '';
@@ -66,27 +95,22 @@ class E2EEService {
 
   /**
    * Initialize the E2EE service after login/registration.
-   * Derives keys using the specified algorithm, exports raw bytes for safeStorage,
+   * Derives keys using Argon2id, exports raw bytes for safeStorage,
    * then re-imports as non-extractable for runtime security.
    *
-   * If the user's keys are still PBKDF2-wrapped, this automatically migrates them
-   * to Argon2id: unwrap with PBKDF2, re-derive with Argon2id, re-wrap, and upload.
+   * The `keyDerivationAlg` parameter is retained for API/forward-compat but
+   * currently only Argon2id is supported. PBKDF2 was removed after a server-side
+   * DB purge that eliminated all legacy PBKDF2-wrapped keys; the previous
+   * silent-downgrade fallback could mask network failures.
    */
   async initialize(
     password: string,
     wrappedPrivateKeyBase64: string,
     saltBase64: string,
-    keyDerivationAlg: KeyDerivationAlgorithm = 'argon2id'
+    _keyDerivationAlg: KeyDerivationAlgorithm = 'argon2id'
   ): Promise<void> {
     const saltBytes = new Uint8Array(base64ToArrayBuffer(saltBase64));
-
-    if (keyDerivationAlg === 'pbkdf2') {
-      // Legacy user — derive with PBKDF2 first, then migrate to Argon2id
-      await this.initializeWithPbkdf2AndMigrate(password, wrappedPrivateKeyBase64, saltBytes);
-    } else {
-      // Already on Argon2id — standard initialization
-      await this.initializeWithArgon2id(password, wrappedPrivateKeyBase64, saltBytes);
-    }
+    await this.initializeWithArgon2id(password, wrappedPrivateKeyBase64, saltBytes);
 
     // No periodic cleanup needed — session-scoped cache (keys stay until rotation or logout)
   }
@@ -103,116 +127,6 @@ class E2EEService {
     const exportablePrefs = await derivePreferencesKeyArgon2idExportable(password, salt);
 
     await this.finalizeKeys(exportableWrapping, exportablePrefs, wrappedPrivateKeyBase64);
-  }
-
-  /**
-   * Legacy PBKDF2 initialization with automatic migration to Argon2id.
-   * 1. Derive PBKDF2 keys to unwrap existing private key
-   * 2. Generate new Argon2id salt + keys
-   * 3. Re-wrap private key with Argon2id-derived key
-   * 4. Upload re-wrapped key + new salt + algorithm to server
-   * 5. Continue session with new Argon2id keys
-   */
-  private async initializeWithPbkdf2AndMigrate(
-    password: string,
-    wrappedPrivateKeyBase64: string,
-    oldSalt: Uint8Array
-  ): Promise<void> {
-    // Step 1: Derive PBKDF2 key to unwrap existing private key
-    const pbkdf2Key = await deriveKeyFromPasswordExportable(password, oldSalt);
-    const wrappedKeyBuffer = base64ToArrayBuffer(wrappedPrivateKeyBase64);
-
-    // Unwrap private key using PBKDF2 key (need it extractable for re-wrapping)
-    const privateKey = await crypto.subtle.unwrapKey(
-      'pkcs8',
-      new Uint8Array(wrappedKeyBuffer).slice(12),
-      pbkdf2Key,
-      { name: 'AES-GCM', iv: new Uint8Array(wrappedKeyBuffer).slice(0, 12) },
-      { name: 'RSA-OAEP', hash: 'SHA-256' },
-      true, // extractable — needed to re-wrap with new key
-      ['decrypt']
-    );
-
-    // Step 2: Generate new salt and derive Argon2id keys
-    const newSalt = generateSalt();
-    const argon2WrappingKey = await deriveKeyArgon2idExportable(password, newSalt);
-    const argon2PrefsKey = await derivePreferencesKeyArgon2idExportable(password, newSalt);
-
-    // Step 3: Re-wrap private key with Argon2id-derived key
-    const newWrappedKey = await wrapPrivateKey(privateKey, argon2WrappingKey);
-    const newWrappedKeyBase64 = arrayBufferToBase64(newWrappedKey);
-    const newSaltBase64 = arrayBufferToBase64(newSalt.buffer as ArrayBuffer);
-
-    // Step 4: Upload migrated keys to server
-    try {
-      const res = await apiFetch('/api/v1/users/me/keys', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          wrapped_private_key: newWrappedKeyBase64,
-          key_derivation_salt: newSaltBase64,
-          key_derivation_alg: 'argon2id',
-        }),
-      });
-      if (res.ok) {
-        console.debug('[E2EE] Migrated key derivation from PBKDF2 to Argon2id');
-        // Re-encrypt preferences with new Argon2id key (they were encrypted with PBKDF2 key)
-        await this.migratePreferences(password, oldSalt, argon2PrefsKey);
-      } else {
-        console.warn('[E2EE] Key migration upload failed, continuing with PBKDF2 keys');
-        // Fall back to PBKDF2 keys for this session
-        const pbkdf2Prefs = await derivePreferencesKeyExportable(password, oldSalt);
-        await this.finalizeKeys(pbkdf2Key, pbkdf2Prefs, wrappedPrivateKeyBase64);
-        return;
-      }
-    } catch {
-      console.warn('[E2EE] Key migration network error, continuing with PBKDF2 keys');
-      const pbkdf2Prefs = await derivePreferencesKeyExportable(password, oldSalt);
-      await this.finalizeKeys(pbkdf2Key, pbkdf2Prefs, wrappedPrivateKeyBase64);
-      return;
-    }
-
-    // Step 5: Continue session with new Argon2id keys
-    await this.finalizeKeys(argon2WrappingKey, argon2PrefsKey, newWrappedKeyBase64);
-  }
-
-  /**
-   * Re-encrypt server preferences from old PBKDF2 key to new Argon2id key.
-   * Best-effort: failure is logged but does not block login.
-   */
-  private async migratePreferences(
-    password: string,
-    oldSalt: Uint8Array,
-    newPrefsKey: CryptoKey
-  ): Promise<void> {
-    try {
-      const res = await apiFetch('/api/v1/users/me/preferences');
-      if (!res.ok) return;
-      const data = await safeJson<{ preferences?: { encrypted_data?: string; version?: number } }>(
-        res
-      );
-      if (!data.preferences?.encrypted_data) return;
-
-      // Decrypt with old PBKDF2-derived preferences key
-      const oldPrefsKey = await derivePreferencesKeyExportable(password, oldSalt);
-      const plaintext = await decryptBlob(data.preferences.encrypted_data, oldPrefsKey);
-
-      // Re-encrypt with new Argon2id-derived preferences key
-      const newCiphertext = await encryptBlob(plaintext, newPrefsKey);
-
-      // Push re-encrypted preferences back to server
-      await apiFetch('/api/v1/users/me/preferences', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          encrypted_data: newCiphertext,
-          version: data.preferences.version,
-        }),
-      });
-      console.debug('[E2EE] Re-encrypted preferences with Argon2id key');
-    } catch (err) {
-      console.warn('[E2EE] Preferences re-encryption failed (non-fatal):', err);
-    }
   }
 
   /**
@@ -309,14 +223,87 @@ class E2EEService {
   }
 
   /**
+   * Cache-poison defense: assert the wrapped key is exactly 512 bytes after
+   * base64 decode — the only length RSA-OAEP-4096 can produce.
+   *
+   * On mismatch, throw `MALFORMED_PAYLOAD`. The caller (fetch path) is
+   * responsible for the bounded refetch-once dance. A strict equality check
+   * (not a range) means any future wrap-format change fails loudly.
+   */
+  private validateWrapShape(wrappedKeyBase64: string): void {
+    let bytes: ArrayBuffer;
+    try {
+      bytes = base64ToArrayBuffer(wrappedKeyBase64);
+    } catch {
+      // Malformed base64 (e.g., DOMException from atob) — classify as
+      // MALFORMED_PAYLOAD so the cache-poison defense can refetch once.
+      throw new E2EEKeyUnavailableError('MALFORMED_PAYLOAD', false);
+    }
+    if (bytes.byteLength !== E2EEService.EXPECTED_WRAP_BYTES) {
+      throw new E2EEKeyUnavailableError('MALFORMED_PAYLOAD', false);
+    }
+  }
+
+  /**
+   * Parse a non-OK key-fetch response: update rate-limit state on 429 and
+   * throw a typed `E2EEKeyUnavailableError` carrying the server's code+pending.
+   * Shared by `fetchAndUnwrapChannelKey` and `getChannelKeyByVersion` so both
+   * paths stay byte-identical in behavior.
+   */
+  private async throwKeyFetchError(res: Response): Promise<never> {
+    if (res.status === 429) {
+      const retryAfter = Number.parseInt(res.headers.get('Retry-After') || '30', 10);
+      this.rateLimitedUntil = Date.now() + retryAfter * 1000;
+    }
+    const body = await safeJson<ErrorResponseShape>(res).catch(() => ({}) as ErrorResponseShape);
+    throw new E2EEKeyUnavailableError(body.code ?? 'NO_KEY_YET', body.pending ?? false);
+  }
+
+  /**
+   * Cache-poison refetch for the versioned-fetch path (`getChannelKeyByVersion`).
+   * Evicts the main-cache marker + the versioned entry, consults the shared
+   * refetch counter on the main cache, and either marks a new refetch-in-flight
+   * slot (caller should recurse) or re-throws (terminal).
+   *
+   * Returns `true` if the caller should refetch once more, `false` if the
+   * original error must be re-thrown (non-MALFORMED_PAYLOAD). Throws the
+   * original error when the refetch budget is exhausted.
+   */
+  private handleMalformedVersionedWrap(channelId: string, version: number, err: unknown): boolean {
+    if (!(err instanceof E2EEKeyUnavailableError) || err.code !== 'MALFORMED_PAYLOAD') {
+      return false;
+    }
+    const existing = this.channelKeyCache.get(channelId);
+    // Treat the counter as fresh (0) if the existing entry is a real cached
+    // key, not a marker slot. Only a marker slot (empty wrappedKey) indicates
+    // an in-flight refetch cycle.
+    const alreadyRefetched = existing && !existing.wrappedKey ? existing.refetchAfterMalformed : 0;
+    // Evict both caches so the retry starts from a clean slate.
+    this.channelKeyCache.delete(channelId);
+    this.versionedKeyCache.get(channelId)?.delete(version);
+    if (alreadyRefetched >= 1) {
+      throw err; // terminal — do not loop
+    }
+    // Mark the main-cache slot so the recursive call sees the counter.
+    this.channelKeyCache.set(channelId, {
+      wrappedKey: '',
+      keyVersion: 0,
+      lastUsed: 0,
+      refetchAfterMalformed: 1,
+    });
+    return true;
+  }
+
+  /**
    * Get the unwrapped channel key for a channel (JIT).
    * Fetches the wrapped key from cache or server, unwraps with private key.
    * Uses pendingKeyFetches to prevent cache stampeding (concurrent fetches for the same channel).
    */
   async getChannelKey(channelId: string): Promise<CryptoKey> {
-    // Check cache for wrapped key
+    // Check cache for wrapped key. Guard against refetch-marker slots whose
+    // `wrappedKey` is empty (see fetchAndUnwrapChannelKey cache-poison path).
     const cached = this.channelKeyCache.get(channelId);
-    if (cached && Date.now() - cached.lastUsed < CHANNEL_KEY_CACHE_TTL) {
+    if (cached?.wrappedKey && Date.now() - cached.lastUsed < CHANNEL_KEY_CACHE_TTL) {
       cached.lastUsed = Date.now();
       const privateKey = await this.derivePrivateKey();
       return unwrapChannelKey(cached.wrappedKey, privateKey);
@@ -324,7 +311,7 @@ class E2EEService {
 
     // If we're rate-limited, don't fire another request
     if (Date.now() < this.rateLimitedUntil) {
-      throw new Error('Failed to fetch channel key');
+      throw new E2EEKeyUnavailableError('NO_KEY_YET', false);
     }
 
     // Deduplicate concurrent fetches for the same channel
@@ -349,28 +336,50 @@ class E2EEService {
   private async fetchAndUnwrapChannelKey(channelId: string): Promise<CryptoKey> {
     const res = await apiFetch(`/api/v1/e2ee/keys/${channelId}`);
     if (!res.ok) {
-      if (res.status === 429) {
-        const retryAfter = Number.parseInt(res.headers.get('Retry-After') || '30', 10);
-        this.rateLimitedUntil = Date.now() + retryAfter * 1000;
-        throw new Error('Failed to fetch channel key');
-      }
-      const data = await safeJson<{ pending?: boolean }>(res).catch(
-        () => ({}) as { pending?: boolean }
-      );
-      if (data.pending) {
-        throw new Error('PENDING_KEY');
-      }
-      throw new Error('Failed to fetch channel key');
+      await this.throwKeyFetchError(res);
     }
-    const data = await safeJson<{ key: { wrapped_key: string; key_version?: number } }>(res);
+    const data = await safeJson<KeyResponseShape>(res);
     const wrappedKey: string = data.key.wrapped_key;
     const keyVersion: number = data.key.key_version || 1;
 
-    // Cache the wrapped key
+    // Cache-poison defense: validate wrap shape before trusting the cache.
+    // Strict 512-byte check (RSA-OAEP-4096 output). On failure, refetch once
+    // and if the refetch is also malformed, surface MALFORMED_PAYLOAD as
+    // terminal — we cannot remediate a server that persistently serves
+    // corrupt data, but we MUST not loop forever.
+    try {
+      this.validateWrapShape(wrappedKey);
+    } catch (err) {
+      if (err instanceof E2EEKeyUnavailableError && err.code === 'MALFORMED_PAYLOAD') {
+        const existing = this.channelKeyCache.get(channelId);
+        // Treat the counter as fresh (0) if the existing entry is a real
+        // cached key, not a marker slot. Only a marker slot (empty
+        // wrappedKey) indicates an in-flight refetch cycle.
+        const alreadyRefetched =
+          existing && !existing.wrappedKey ? existing.refetchAfterMalformed : 0;
+        this.channelKeyCache.delete(channelId);
+        if (alreadyRefetched >= 1) {
+          throw err; // terminal — do not loop
+        }
+        // Mark the slot with a refetch counter so the recursive call sees it.
+        // Empty wrappedKey is guarded by the getChannelKey cache-read branch.
+        this.channelKeyCache.set(channelId, {
+          wrappedKey: '',
+          keyVersion: 0,
+          lastUsed: 0,
+          refetchAfterMalformed: 1,
+        });
+        return this.fetchAndUnwrapChannelKey(channelId);
+      }
+      throw err;
+    }
+
+    // Cache the wrapped key (counter resets on successful validation)
     this.channelKeyCache.set(channelId, {
       wrappedKey,
       keyVersion,
       lastUsed: Date.now(),
+      refetchAfterMalformed: 0,
     });
 
     // JIT unwrap: derive private key, unwrap channel key, private key falls out of scope
@@ -469,7 +478,10 @@ class E2EEService {
           // Fetch new member's public key
           const pkRes = await apiFetch(`/api/v1/users/${req.user_id}/public-key`);
           if (!pkRes.ok) {
-            console.debug('[E2EE] Failed to fetch public key for', req.user_id, pkRes.status);
+            console.warn('[E2EE] Failed to fetch public key for pending key distribution', {
+              userId: req.user_id,
+              status: pkRes.status,
+            });
             continue;
           }
 
@@ -492,11 +504,17 @@ class E2EEService {
             uploadRes.status
           );
         } catch (err) {
-          console.debug('[E2EE] Failed to process key request:', err);
+          console.warn('[E2EE] Failed to process pending key request', {
+            channelId: req.channel_id,
+            userId: req.user_id,
+            error: (err as Error).message,
+          });
         }
       }
     } catch (err) {
-      console.debug('[E2EE] processPendingKeyRequests error:', err);
+      console.warn('[E2EE] processPendingKeyRequests fatal', {
+        error: (err as Error).message,
+      });
     }
   }
 
@@ -534,18 +552,18 @@ class E2EEService {
    * Results are cached in the versioned key cache.
    */
   async getChannelKeyByVersion(channelId: string, version: number): Promise<CryptoKey> {
-    // Check if this is the current version — use main cache
+    // Check if this is the current version — use main cache.
+    // Guard against empty wrappedKey (cache-poison marker slot).
     const mainCached = this.channelKeyCache.get(channelId);
-    if (mainCached?.keyVersion === version) {
+    if (mainCached?.wrappedKey && mainCached.keyVersion === version) {
       mainCached.lastUsed = Date.now();
       const privateKey = await this.derivePrivateKey();
       return unwrapChannelKey(mainCached.wrappedKey, privateKey);
     }
 
     // Check versioned cache
-    const versionMap = this.versionedKeyCache.get(channelId);
-    const versionCached = versionMap?.get(version);
-    if (versionCached && Date.now() - versionCached.lastUsed < CHANNEL_KEY_CACHE_TTL) {
+    const versionCached = this.versionedKeyCache.get(channelId)?.get(version);
+    if (versionCached?.wrappedKey && Date.now() - versionCached.lastUsed < CHANNEL_KEY_CACHE_TTL) {
       versionCached.lastUsed = Date.now();
       const privateKey = await this.derivePrivateKey();
       return unwrapChannelKey(versionCached.wrappedKey, privateKey);
@@ -553,22 +571,33 @@ class E2EEService {
 
     // If we're rate-limited, don't fire another request
     if (Date.now() < this.rateLimitedUntil) {
-      throw new Error(`Failed to fetch channel key version ${version}`);
+      throw new E2EEKeyUnavailableError('NO_KEY_YET', false);
     }
 
     // Fetch specific version from server
     const res = await apiFetch(`/api/v1/e2ee/keys/${channelId}?version=${version}`);
     if (!res.ok) {
-      if (res.status === 429) {
-        const retryAfter = Number.parseInt(res.headers.get('Retry-After') || '30', 10);
-        this.rateLimitedUntil = Date.now() + retryAfter * 1000;
-      }
-      throw new Error(`Failed to fetch channel key version ${version}`);
+      await this.throwKeyFetchError(res);
     }
-    const data = await safeJson<{ key: { wrapped_key: string; key_version?: number } }>(res);
+    const data = await safeJson<KeyResponseShape>(res);
     const wrappedKey: string = data.key.wrapped_key;
 
-    // Cache in versioned cache
+    // Cache-poison defense: shares the refetch counter on the main cache so
+    // "one refetch per channel" holds across both fetch paths. On shape-fail,
+    // evict the main-cache marker + versioned entry for this version, then
+    // refetch once (bounded). `handleMalformedVersionedWrap` throws on
+    // non-MALFORMED_PAYLOAD or exhausted budget; returns true to signal the
+    // caller should recurse.
+    try {
+      this.validateWrapShape(wrappedKey);
+    } catch (err) {
+      if (this.handleMalformedVersionedWrap(channelId, version, err)) {
+        return this.getChannelKeyByVersion(channelId, version);
+      }
+      throw err;
+    }
+
+    // Cache in versioned cache (refetchAfterMalformed: 0 — validation passed)
     let versionMapForChannel = this.versionedKeyCache.get(channelId);
     if (!versionMapForChannel) {
       versionMapForChannel = new Map();
@@ -578,7 +607,15 @@ class E2EEService {
       wrappedKey,
       keyVersion: version,
       lastUsed: Date.now(),
+      refetchAfterMalformed: 0,
     });
+
+    // Clear any stale marker slot left on the main cache by a prior refetch
+    // cycle — a successful versioned fetch means the refetch counter is resolved.
+    const staleMarker = this.channelKeyCache.get(channelId);
+    if (staleMarker && !staleMarker.wrappedKey) {
+      this.channelKeyCache.delete(channelId);
+    }
 
     const privateKey = await this.derivePrivateKey();
     return unwrapChannelKey(wrappedKey, privateKey);

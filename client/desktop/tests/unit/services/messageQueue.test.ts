@@ -102,6 +102,43 @@ describe('MessageQueue', () => {
     });
   });
 
+  describe('markAsTerminallyFailed', () => {
+    it('sets status to FAILED and flushes retryCount to maxRetries', () => {
+      const id = queue.enqueue('channel-1', 'Hello');
+      queue.markAsTerminallyFailed(id, 'NOT_MEMBER');
+      const msg = queue.getMessage(id);
+      expect(msg?.status).toBe(MessageStatus.FAILED);
+      expect(msg?.retryCount).toBe(msg?.maxRetries);
+    });
+
+    it('fires onMessageFailed immediately on first call', () => {
+      const onMessageFailed = vi.fn();
+      const q = new MessageQueue({ onMessageFailed });
+      const id = q.enqueue('channel-1', 'Hello');
+      q.markAsTerminallyFailed(id, 'Key rotated — re-establishing secure session…');
+      expect(onMessageFailed).toHaveBeenCalledTimes(1);
+      expect(onMessageFailed).toHaveBeenCalledWith(
+        id,
+        'Key rotated — re-establishing secure session…'
+      );
+    });
+
+    it('is a no-op for non-existent message', () => {
+      const onMessageFailed = vi.fn();
+      const q = new MessageQueue({ onMessageFailed });
+      q.markAsTerminallyFailed('nonexistent', 'err');
+      expect(onMessageFailed).not.toHaveBeenCalled();
+    });
+
+    it('skips the retry loop entirely (no reset to PENDING)', () => {
+      const id = queue.enqueue('channel-1', 'Hello');
+      queue.markAsTerminallyFailed(id, 'INVALID_REQUEST');
+      // Unlike markAsFailed which resets to PENDING when retries remain,
+      // markAsTerminallyFailed stays FAILED.
+      expect(queue.getMessage(id)?.status).toBe(MessageStatus.FAILED);
+    });
+  });
+
   describe('getPendingMessages', () => {
     it('returns only pending messages', () => {
       const id1 = queue.enqueue('channel-1', 'Hello');

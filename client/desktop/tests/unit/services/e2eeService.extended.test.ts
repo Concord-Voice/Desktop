@@ -15,6 +15,7 @@ import {
 } from '@/renderer/utils/crypto';
 
 import { e2eeService } from '@/renderer/services/e2eeService';
+import { E2EEKeyUnavailableError } from '@/renderer/services/e2eeErrors';
 
 // Mock apiFetch for channel key fetching
 vi.mock('@/renderer/services/apiClient', () => ({
@@ -261,8 +262,8 @@ describe('e2eeService — extended', () => {
         json: () => Promise.resolve({}),
       } as unknown as Response);
 
-      await expect(e2eeService.getChannelKeyByVersion('ch-rate', 5)).rejects.toThrow(
-        'Failed to fetch channel key version 5'
+      await expect(e2eeService.getChannelKeyByVersion('ch-rate', 5)).rejects.toBeInstanceOf(
+        E2EEKeyUnavailableError
       );
     });
   });
@@ -561,14 +562,10 @@ describe('e2eeService — extended', () => {
         json: () => Promise.resolve({}),
       } as unknown as Response);
 
-      await expect(e2eeService.getChannelKey('ch-rate')).rejects.toThrow(
-        'Failed to fetch channel key'
-      );
+      await expect(e2eeService.getChannelKey('ch-rate')).rejects.toThrow('E2EE key unavailable');
 
       // Subsequent request should also fail (rate limited)
-      await expect(e2eeService.getChannelKey('ch-rate-2')).rejects.toThrow(
-        'Failed to fetch channel key'
-      );
+      await expect(e2eeService.getChannelKey('ch-rate-2')).rejects.toThrow('E2EE key unavailable');
     });
   });
 

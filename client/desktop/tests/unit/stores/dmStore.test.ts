@@ -1,5 +1,6 @@
 import { useDMStore, type DMConversation, type DMLastMessage } from '@/renderer/stores/dmStore';
 import { useAuthStore } from '@/renderer/stores/authStore';
+import { E2EEKeyUnavailableError } from '@/renderer/services/e2eeErrors';
 import { resetAllStores } from '../../helpers/store-helpers';
 import { server } from '../../mocks/server';
 import { http, HttpResponse } from 'msw';
@@ -1429,7 +1430,7 @@ describe('dmStore', () => {
       const mod = await import('@/renderer/services/e2eeService');
       e2eeMock = mod.e2eeService as typeof e2eeMock;
       e2eeMock.isInitialized = true;
-      e2eeMock.getChannelKey.mockRejectedValue(new Error('PENDING_KEY'));
+      e2eeMock.getChannelKey.mockRejectedValue(new E2EEKeyUnavailableError('NO_KEY_YET', true));
       e2eeMock.createChannelKeys.mockResolvedValue(
         new Map([
           ['user-1', 'wrapped-key-1'],

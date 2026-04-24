@@ -1,5 +1,6 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { resetAllStores } from '../../helpers/store-helpers';
+import { E2EEKeyUnavailableError } from '@/renderer/services/e2eeErrors';
 
 // ---------------------------------------------------------------------------
 // Mock external dependencies BEFORE importing voiceService
@@ -1972,8 +1973,8 @@ describe('VoiceService', () => {
       // Make getChannelKey fail a few times then succeed
       const { e2eeService: mockE2ee } = await import('@/renderer/services/e2eeService');
       vi.mocked(mockE2ee.getChannelKey)
-        .mockRejectedValueOnce(new Error('PENDING_KEY'))
-        .mockRejectedValueOnce(new Error('PENDING_KEY'))
+        .mockRejectedValueOnce(new E2EEKeyUnavailableError('NO_KEY_YET', true))
+        .mockRejectedValueOnce(new E2EEKeyUnavailableError('NO_KEY_YET', true))
         .mockResolvedValueOnce(new Uint8Array(32));
 
       // Join an encrypted channel to trigger the encryption init path

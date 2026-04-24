@@ -19,6 +19,7 @@ import { useDMStore } from '../stores/dmStore';
 import { getWebSocketService, ConnectionState } from '../services/websocketService';
 import { getMessageQueue, type QueuedMessage } from '../services/messageQueue';
 import { e2eeService } from '../services/e2eeService';
+import { classifyError } from '../services/e2eeErrors';
 import type { AttachmentSummary, MessageWithStatus } from '../types/chat';
 
 /** Wrap content + gif_slug into a JSON envelope for E2EE encryption when a GIF is attached. */
@@ -251,8 +252,20 @@ export function useMessaging() {
             updateMessageStatus(channelId, clientMessageId, 'sent');
           } catch (error) {
             console.error('[useMessaging] Failed to send message:', error);
-            const errMsg = isEncrypted ? 'Encryption failed — message not sent' : String(error);
-            messageQueue.markAsFailed(clientMessageId, errMsg);
+            // Classify the error to surface code-specific UX copy (spec §6.5).
+            // Falls back to generic "Unable to send message" for non-typed errors.
+            const classification = classifyError(error);
+            const errMsg = classification.uxMessage;
+            if (classification.triggerRekey) {
+              // REVOKED_EPOCH: invalidate the cached key so the next retry
+              // attempt rotates to the successor epoch.
+              e2eeService.invalidateChannelKey(channelId);
+            }
+            if (classification.retryable) {
+              messageQueue.markAsFailed(clientMessageId, errMsg);
+            } else {
+              messageQueue.markAsTerminallyFailed(clientMessageId, errMsg);
+            }
             updateMessageStatus(channelId, clientMessageId, 'failed', undefined, errMsg);
           }
         };
@@ -384,8 +397,16 @@ export function useMessaging() {
             updateMessageStatus(conversationId, clientMessageId, 'sent');
           } catch (error) {
             console.error('[useMessaging] Failed to send DM message:', error);
-            const errMsg = isEncrypted ? 'Encryption failed — message not sent' : String(error);
-            messageQueue.markAsFailed(clientMessageId, errMsg);
+            const classification = classifyError(error);
+            const errMsg = classification.uxMessage;
+            if (classification.triggerRekey) {
+              e2eeService.invalidateChannelKey(conversationId);
+            }
+            if (classification.retryable) {
+              messageQueue.markAsFailed(clientMessageId, errMsg);
+            } else {
+              messageQueue.markAsTerminallyFailed(clientMessageId, errMsg);
+            }
             updateMessageStatus(conversationId, clientMessageId, 'failed', undefined, errMsg);
             useDMStore.getState().bumpConversation(conversationId, prevLastMessage);
           }

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useChatStore } from '../stores/chatStore';
 import { apiFetch, safeJson } from '../services/apiClient';
 import { e2eeService } from '../services/e2eeService';
+import { isPendingKeyError } from '../services/e2eeErrors';
 import type { MessageWithStatus } from '../types/chat';
 import { indexMessages } from '../services/searchService';
 import { unwrapGifEnvelope } from '../utils/gifEnvelope';
@@ -143,7 +144,7 @@ async function decryptMessages(
         const { text: content, gifSlug } = unwrapGifEnvelope(plaintext);
         return { ...m, content, gif_slug: gifSlug ?? m.gif_slug, replied_to: decryptedRt };
       } catch (err) {
-        const isPending = err instanceof Error && err.message === 'PENDING_KEY';
+        const isPending = isPendingKeyError(err);
         return { ...m, content: '', decryptFailed: !isPending, pendingKeys: isPending };
       }
     })

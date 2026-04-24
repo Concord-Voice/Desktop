@@ -15,6 +15,7 @@ import { useUserStore } from '../stores/userStore';
 import { useUnreadStore } from '../stores/unreadStore';
 import { getWebSocketService, type WebSocketMessage } from '../services/websocketService';
 import { e2eeService } from '../services/e2eeService';
+import { isPendingKeyError } from '../services/e2eeErrors';
 import { preferencesSyncService } from '../services/preferencesSync';
 import { savedGifsSyncService } from '../services/savedGifsSync';
 import { apiFetch } from '../services/apiClient';
@@ -331,7 +332,7 @@ function addEncryptedMessage(
       onPlaintext?.(content);
     })
     .catch((err) => {
-      const isPending = err instanceof Error && err.message === 'PENDING_KEY';
+      const isPending = isPendingKeyError(err);
       addMessage(channelId, {
         ...baseMessage,
         content: '',

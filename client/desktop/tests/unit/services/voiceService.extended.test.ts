@@ -7,6 +7,7 @@
  */
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { resetAllStores } from '../../helpers/store-helpers';
+import { E2EEKeyUnavailableError } from '@/renderer/services/e2eeErrors';
 
 // ---------------------------------------------------------------------------
 // Mock external dependencies BEFORE importing voiceService
@@ -1294,9 +1295,11 @@ describe('VoiceService Extended', () => {
     it('rejects on server error response', async () => {
       const svc = voiceService as any;
       svc.socket = {
-        emit: vi.fn().mockImplementation((_ev: string, _data: unknown, cb: (...args: unknown[]) => void) => {
-          cb({ error: 'bad request' });
-        }),
+        emit: vi
+          .fn()
+          .mockImplementation((_ev: string, _data: unknown, cb: (...args: unknown[]) => void) => {
+            cb({ error: 'bad request' });
+          }),
       };
       await expect(svc.emitAsync('test', {})).rejects.toThrow('bad request');
     });
@@ -1304,9 +1307,11 @@ describe('VoiceService Extended', () => {
     it('resolves with response', async () => {
       const svc = voiceService as any;
       svc.socket = {
-        emit: vi.fn().mockImplementation((_ev: string, _data: unknown, cb: (...args: unknown[]) => void) => {
-          cb({ id: '123' });
-        }),
+        emit: vi
+          .fn()
+          .mockImplementation((_ev: string, _data: unknown, cb: (...args: unknown[]) => void) => {
+            cb({ id: '123' });
+          }),
       };
       const result = await svc.emitAsync('test', {});
       expect(result).toEqual({ id: '123' });
@@ -1901,15 +1906,15 @@ describe('VoiceService Extended', () => {
   // ===== initEncryption retries =====
 
   describe('initEncryption', () => {
-    it('doubles delay for PENDING_KEY errors', async () => {
+    it('doubles delay for pending E2EE key errors', async () => {
       const svc = voiceService as any;
       svc.isEncrypted = true;
       // Fail first 4 calls (initial + 3 retries), succeed on none
-      mockGetChannelKey.mockRejectedValue(new Error('PENDING_KEY'));
+      mockGetChannelKey.mockRejectedValue(new E2EEKeyUnavailableError('NO_KEY_YET', true));
 
       // Use real timers for this test to avoid fake-timer + promise interaction issues
       vi.useRealTimers();
-      await expect(svc.initEncryption('ch1')).rejects.toThrow('PENDING_KEY');
+      await expect(svc.initEncryption('ch1')).rejects.toThrow('NO_KEY_YET');
       mockGetChannelKey.mockResolvedValue({} as CryptoKey);
       vi.useFakeTimers({ shouldAdvanceTime: true });
     });

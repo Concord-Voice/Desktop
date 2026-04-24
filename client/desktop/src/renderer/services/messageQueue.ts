@@ -11,6 +11,9 @@
  * Integrates with WebSocketService for message delivery
  */
 
+import { classifyError } from './e2eeErrors';
+import { e2eeService } from './e2eeService';
+
 export enum MessageStatus {
   PENDING = 'pending', // Waiting to be sent
   SENT = 'sent', // Sent to server, awaiting ack
@@ -147,6 +150,25 @@ export class MessageQueue {
   }
 
   /**
+   * Mark a message as terminally failed — skips the retry loop entirely.
+   *
+   * Used for errors classified as non-retryable (NOT_MEMBER, REVOKED_EPOCH,
+   * NOT_ENCRYPTED, MALFORMED_PAYLOAD, INVALID_REQUEST). Fires the
+   * onMessageFailed callback immediately instead of cycling through
+   * retryCount attempts. See spec §6.5.
+   */
+  markAsTerminallyFailed(messageId: string, error: string): void {
+    const message = this.queue.find((m) => m.id === messageId);
+    if (message) {
+      message.status = MessageStatus.FAILED;
+      message.retryCount = message.maxRetries;
+      console.error('[MessageQueue] Message %s terminally failed: %s', messageId, error);
+      this.callbacks.onMessageFailed?.(messageId, error);
+      this.saveQueue();
+    }
+  }
+
+  /**
    * Get all pending messages
    */
   getPendingMessages(): QueuedMessage[] {
@@ -251,8 +273,31 @@ export class MessageQueue {
         this.markAsSent(message.id);
         this.remove(message.id); // Server has persisted it — remove from queue
       } catch (error) {
-        console.error(`[MessageQueue] Failed to send message ${message.id}:`, error);
-        this.markAsFailed(message.id, String(error));
+        console.error('[MessageQueue] Failed to send message %s:', message.id, error);
+
+        // Classify the error to decide retry vs terminal disposition (spec §6.5).
+        // Retryable errors fall through to markAsFailed's existing retry-counter
+        // loop (3 attempts before terminal); terminal errors short-circuit.
+        const classification = classifyError(error);
+
+        if (classification.triggerRekey) {
+          // REVOKED_EPOCH: the cached key is stale. Invalidate so the next
+          // send attempt fetches the fresh (successor) epoch key. The send
+          // itself is terminal — the user's next attempt rotates.
+          e2eeService.invalidateChannelKey(message.channelId);
+          this.markAsTerminallyFailed(message.id, classification.uxMessage);
+        } else if (classification.retryable) {
+          // NO_KEY_YET with pending=true, or other retryable error:
+          // defer to the existing 3-retry backoff loop.
+          this.markAsFailed(message.id, classification.uxMessage);
+        } else {
+          // Terminal E2EE codes (NOT_MEMBER, NOT_ENCRYPTED, MALFORMED_PAYLOAD,
+          // INVALID_REQUEST) and the classifyError `default:` fallback for
+          // unknown future codes. Non-typed errors (network failures,
+          // WebSocket disconnects, encryption-output validation) take the
+          // retryable path above.
+          this.markAsTerminallyFailed(message.id, classification.uxMessage);
+        }
       }
     }
   }

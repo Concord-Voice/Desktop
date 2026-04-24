@@ -3,6 +3,7 @@ import { persist, devtools } from 'zustand/middleware';
 import { wrapStore } from '../utils/createStore';
 import { apiFetch } from '../services/apiClient';
 import { e2eeService } from '../services/e2eeService';
+import { isPendingKeyError } from '../services/e2eeErrors';
 
 export interface DMParticipant {
   userId: string;
@@ -80,7 +81,8 @@ async function distributeChannelKeys(
 
 /**
  * Ensure E2EE channel key exists for an encrypted conversation.
- * If no key exists (PENDING_KEY), fetches participant public keys and distributes a new key.
+ * If no key exists (E2EEKeyUnavailableError with pending=true), fetches
+ * participant public keys and distributes a new key.
  */
 async function ensureE2EEKey(conv: DMConversation): Promise<void> {
   if (!conv.isEncrypted || !e2eeService.isInitialized) return;
@@ -89,7 +91,7 @@ async function ensureE2EEKey(conv: DMConversation): Promise<void> {
   try {
     await e2eeService.getChannelKey(conv.id);
   } catch (err) {
-    needsKeyDistribution = err instanceof Error && err.message === 'PENDING_KEY';
+    needsKeyDistribution = isPendingKeyError(err);
   }
 
   if (!needsKeyDistribution) return;
@@ -106,8 +108,8 @@ async function ensureE2EEKey(conv: DMConversation): Promise<void> {
 
 /**
  * Ensure E2EE channel key exists for an encrypted personal thread.
- * Unlike ensureE2EEKey, this checks for key existence (not PENDING_KEY)
- * and only distributes to the current user.
+ * Unlike ensureE2EEKey, this checks for key existence (not the pending
+ * E2EEKeyUnavailableError shape) and only distributes to the current user.
  */
 async function ensurePersonalThreadKey(conv: DMConversation): Promise<void> {
   if (!conv.isEncrypted || !e2eeService.isInitialized) return;

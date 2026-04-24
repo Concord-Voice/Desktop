@@ -5,6 +5,8 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { MessageQueue, MessageStatus, getMessageQueue } from '@/renderer/services/messageQueue';
+import { E2EEKeyUnavailableError } from '@/renderer/services/e2eeErrors';
+import { e2eeService } from '@/renderer/services/e2eeService';
 
 describe('MessageQueue — extended', () => {
   let queue: MessageQueue;
@@ -87,7 +89,61 @@ describe('MessageQueue — extended', () => {
 
       const msg = queue.getMessage(id);
       expect(msg).toBeDefined();
-      // After first failure, should be set back to PENDING for retry
+      // Non-typed errors (network failures) are classified as retryable —
+      // after first failure, should be set back to PENDING for retry.
+      expect(msg!.status).toBe(MessageStatus.PENDING);
+      expect(msg!.retryCount).toBe(1);
+    });
+
+    it('terminally fails on NOT_MEMBER without retrying', async () => {
+      const onMessageFailed = vi.fn();
+      const q = new MessageQueue({ onMessageFailed });
+      const id = q.enqueue('ch-1', 'Forbidden');
+      const sendFn = vi.fn().mockRejectedValue(new E2EEKeyUnavailableError('NOT_MEMBER'));
+
+      q.startProcessing(sendFn);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const msg = q.getMessage(id);
+      expect(msg!.status).toBe(MessageStatus.FAILED);
+      // Retry count jumped straight to maxRetries — no PENDING intermediate.
+      expect(msg!.retryCount).toBe(msg!.maxRetries);
+      expect(onMessageFailed).toHaveBeenCalledTimes(1);
+      expect(onMessageFailed).toHaveBeenCalledWith(
+        id,
+        expect.stringContaining("don't have access")
+      );
+      q.stopProcessing();
+    });
+
+    it('terminally fails on REVOKED_EPOCH and invalidates the channel key', async () => {
+      const invalidateSpy = vi
+        .spyOn(e2eeService, 'invalidateChannelKey')
+        .mockImplementation(() => {});
+      const onMessageFailed = vi.fn();
+      const q = new MessageQueue({ onMessageFailed });
+      const id = q.enqueue('ch-revoked', 'Stale epoch');
+      const sendFn = vi.fn().mockRejectedValue(new E2EEKeyUnavailableError('REVOKED_EPOCH'));
+
+      q.startProcessing(sendFn);
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(q.getMessage(id)!.status).toBe(MessageStatus.FAILED);
+      expect(invalidateSpy).toHaveBeenCalledWith('ch-revoked');
+      expect(onMessageFailed).toHaveBeenCalledWith(id, expect.stringContaining('re-establishing'));
+      q.stopProcessing();
+      invalidateSpy.mockRestore();
+    });
+
+    it('retries NO_KEY_YET (pending=true) through the backoff loop', async () => {
+      const id = queue.enqueue('ch-pending', 'Provisioning');
+      const sendFn = vi.fn().mockRejectedValue(new E2EEKeyUnavailableError('NO_KEY_YET', true));
+
+      queue.startProcessing(sendFn);
+      await vi.advanceTimersByTimeAsync(0);
+
+      const msg = queue.getMessage(id);
+      // First failure resets to PENDING for retry (retryable path).
       expect(msg!.status).toBe(MessageStatus.PENDING);
       expect(msg!.retryCount).toBe(1);
     });

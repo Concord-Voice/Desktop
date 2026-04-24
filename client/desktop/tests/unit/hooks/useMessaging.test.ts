@@ -6,6 +6,7 @@ import { useChannelStore } from '@/renderer/stores/channelStore';
 import { useDMStore } from '@/renderer/stores/dmStore';
 import { mockUser, mockChannel, mockEncryptedChannel } from '../../mocks/fixtures';
 import { ConnectionState } from '@/renderer/services/websocketService';
+import { E2EEKeyUnavailableError } from '@/renderer/services/e2eeErrors';
 
 // Mock websocketService
 const mockSendMessage = vi.fn();
@@ -38,6 +39,7 @@ const mockEnqueue = vi.fn(() => 'client-msg-1');
 const mockMarkAsSent = vi.fn();
 const mockMarkAsDelivered = vi.fn();
 const mockMarkAsFailed = vi.fn();
+const mockMarkAsTerminallyFailed = vi.fn();
 const mockRemove = vi.fn();
 const mockStartProcessing = vi.fn();
 const mockStopProcessing = vi.fn();
@@ -50,6 +52,7 @@ vi.mock('@/renderer/services/messageQueue', () => ({
     markAsSent: mockMarkAsSent,
     markAsDelivered: mockMarkAsDelivered,
     markAsFailed: mockMarkAsFailed,
+    markAsTerminallyFailed: mockMarkAsTerminallyFailed,
     remove: mockRemove,
     startProcessing: mockStartProcessing,
     stopProcessing: mockStopProcessing,
@@ -61,11 +64,13 @@ vi.mock('@/renderer/services/messageQueue', () => ({
 // Mock e2eeService
 const mockEncryptForChannel = vi.fn();
 const mockGetCurrentKeyVersion = vi.fn(() => undefined);
+const mockInvalidateChannelKey = vi.fn();
 
 vi.mock('@/renderer/services/e2eeService', () => ({
   e2eeService: {
     encryptForChannel: (...args: unknown[]) => mockEncryptForChannel(...args),
     getCurrentKeyVersion: (...args: unknown[]) => mockGetCurrentKeyVersion(...args),
+    invalidateChannelKey: (...args: unknown[]) => mockInvalidateChannelKey(...args),
     isInitialized: true,
   },
 }));
@@ -186,9 +191,44 @@ describe('useMessaging', () => {
     });
 
     await vi.waitFor(() => {
-      expect(mockMarkAsFailed).toHaveBeenCalledWith(
+      // Non-typed errors are classified as retryable; uxMessage is the
+      // generic "Unable to send message" copy from classifyError.
+      expect(mockMarkAsFailed).toHaveBeenCalledWith('client-msg-1', 'Unable to send message');
+    });
+  });
+
+  it('sendMessage terminally fails on NOT_MEMBER with code-specific copy', async () => {
+    mockEncryptForChannel.mockRejectedValue(new E2EEKeyUnavailableError('NOT_MEMBER'));
+
+    const { result } = renderHook(() => useMessaging());
+
+    act(() => {
+      result.current.sendMessage('channel-2', 'Forbidden', 'testuser');
+    });
+
+    await vi.waitFor(() => {
+      expect(mockMarkAsTerminallyFailed).toHaveBeenCalledWith(
         'client-msg-1',
-        'Encryption failed — message not sent'
+        expect.stringContaining("don't have access")
+      );
+    });
+    expect(mockMarkAsFailed).not.toHaveBeenCalled();
+  });
+
+  it('sendMessage invalidates cache and terminally fails on REVOKED_EPOCH', async () => {
+    mockEncryptForChannel.mockRejectedValue(new E2EEKeyUnavailableError('REVOKED_EPOCH'));
+
+    const { result } = renderHook(() => useMessaging());
+
+    act(() => {
+      result.current.sendMessage('channel-2', 'Stale', 'testuser');
+    });
+
+    await vi.waitFor(() => {
+      expect(mockInvalidateChannelKey).toHaveBeenCalledWith('channel-2');
+      expect(mockMarkAsTerminallyFailed).toHaveBeenCalledWith(
+        'client-msg-1',
+        expect.stringContaining('re-establishing')
       );
     });
   });
@@ -384,10 +424,10 @@ describe('useMessaging', () => {
     });
 
     await vi.waitFor(() => {
-      expect(mockMarkAsFailed).toHaveBeenCalledWith(
-        'client-msg-1',
-        'Encryption failed — message not sent'
-      );
+      // Encryption-output validation throws a plain Error ("Encryption produced
+      // invalid output"), which classifyError treats as retryable with the
+      // generic uxMessage.
+      expect(mockMarkAsFailed).toHaveBeenCalledWith('client-msg-1', 'Unable to send message');
     });
   });
 

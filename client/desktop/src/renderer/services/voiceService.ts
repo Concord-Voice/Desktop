@@ -35,6 +35,7 @@ import {
 import { apiFetch } from './apiClient';
 import { MediaEncryption, deriveFrameKey, ratchetKey } from './mediaEncryption';
 import { e2eeService } from './e2eeService';
+import { isPendingKeyError } from './e2eeErrors';
 import {
   useOsPermissionStore,
   ensureOsPermission as ensureOsPermissionShared,
@@ -128,10 +129,9 @@ function resolveOpusSettings(
 
 type RtpPriority = 'low' | 'medium' | 'high' | 'very-low';
 
-/** Compute retry delay: double the base delay for PENDING_KEY errors. */
+/** Compute retry delay: double the base delay for pending E2EE key errors. */
 function retryDelayForError(err: unknown, baseDelay: number): number {
-  const isPending = err instanceof Error && err.message === 'PENDING_KEY';
-  return isPending ? baseDelay * 2 : baseDelay;
+  return isPendingKeyError(err) ? baseDelay * 2 : baseDelay;
 }
 
 /** Handle screen capture NotAllowedError — show error and open OS settings. Returns true if handled. */
@@ -3769,7 +3769,7 @@ class VoiceService {
       } catch (err) {
         lastError = err;
         if (attempt < retryDelays.length) {
-          const isPending = err instanceof Error && err.message === 'PENDING_KEY';
+          const isPending = isPendingKeyError(err);
           const delay = isPending ? retryDelays[attempt] * 2 : retryDelays[attempt];
           await new Promise((r) => setTimeout(r, delay));
         }
