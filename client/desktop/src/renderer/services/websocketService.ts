@@ -40,6 +40,17 @@ export interface ConnectionInfo {
 type MessageHandler = (message: WebSocketMessage) => void;
 type ConnectionHandler = (state: ConnectionState) => void;
 
+/**
+ * Full-jitter delay: random value in [0, base).
+ * Chosen over equal-jitter because reconnect storms benefit more from
+ * desynchronisation than from preserving a minimum delay.
+ * See AWS Architecture Blog, "Exponential Backoff and Jitter".
+ */
+export function fullJitter(base: number): number {
+  if (base <= 0) return 0;
+  return Math.floor(Math.random() * base);
+}
+
 export class WebSocketService {
   private ws: WebSocket | null = null;
   private readonly url: string;
@@ -49,6 +60,14 @@ export class WebSocketService {
   // Connection management
   private reconnectAttempts = 0;
   private readonly maxReconnectAttempts = 10;
+  private readonly MAX_AGGRESSIVE_ATTEMPTS = 3;
+  private ticketCache: { ticket: string; issuedAt: number } | null = null;
+  private readonly TICKET_CACHE_TTL_MS = 5_000;
+  private readonly CONNECTION_READY_TIMEOUT_MS = 5_000;
+  private connectionReadyPromise: Promise<void> | null = null;
+  private connectionReadyResolve: (() => void) | null = null;
+  private connectionReadyReject: ((err: Error) => void) | null = null;
+  private connectionReadyTimer: NodeJS.Timeout | null = null;
   private reconnectDelay = 1000; // Start with 1 second
   private readonly maxReconnectDelay = 30000; // Max 30 seconds
   private reconnectTimer: NodeJS.Timeout | null = null;
@@ -192,6 +211,15 @@ export class WebSocketService {
    */
   isSubscribed(channelId: string): boolean {
     return this.subscribedChannels.has(channelId);
+  }
+
+  /**
+   * Resolves when the hub has acknowledged all resubscribes on the current
+   * connection via connection_ready. Rejects on disconnect or 5s timeout.
+   * Consumers (e.g., message queue) should gate work on this during reconnect.
+   */
+  whenConnectionReady(): Promise<void> {
+    return this.connectionReadyPromise ?? Promise.resolve();
   }
 
   /**
@@ -469,6 +497,19 @@ export class WebSocketService {
 
   // Private methods
 
+  /**
+   * Consume a cached ticket if present and within TTL.
+   * Single-use: always clears the cache entry, even if expired.
+   * Returns null if no cache hit.
+   */
+  private consumeCachedTicket(): string | null {
+    const entry = this.ticketCache;
+    this.ticketCache = null;
+    if (!entry) return null;
+    if (Date.now() - entry.issuedAt >= this.TICKET_CACHE_TTL_MS) return null;
+    return entry.ticket;
+  }
+
   private async createConnection(signal?: AbortSignal): Promise<void> {
     if (!this.token) {
       console.error('Cannot connect: No JWT token provided');
@@ -477,24 +518,31 @@ export class WebSocketService {
     }
 
     try {
-      // Prefer ticket-based auth (short-lived, single-use — doesn't expose JWT in URLs)
-      const httpBase = this.url.replace(/^ws/, 'http');
-      const ticketHeaders: Record<string, string> = { Authorization: `Bearer ${this.token}` };
-      const sessionId = useAuthStore.getState().sessionId;
-      if (sessionId) ticketHeaders['X-Session-ID'] = sessionId;
+      // Prefer cached unused ticket (from a prior aborted connection within TTL)
+      let ticket = this.consumeCachedTicket();
+      if (!ticket) {
+        // Fresh ticket fetch — short-lived, single-use, doesn't expose JWT in URLs
+        const httpBase = this.url.replace(/^ws/, 'http');
+        const ticketHeaders: Record<string, string> = { Authorization: `Bearer ${this.token}` };
+        const sessionId = useAuthStore.getState().sessionId;
+        if (sessionId) ticketHeaders['X-Session-ID'] = sessionId;
 
-      const ticketRes = await fetch(httpBase.replace('/ws', '/auth/ws-ticket'), {
-        method: 'POST',
-        headers: ticketHeaders,
-        signal,
-      });
-      if (!ticketRes.ok) {
-        throw new Error(`WebSocket ticket request failed: ${ticketRes.status}`);
+        const ticketRes = await fetch(httpBase.replace('/ws', '/auth/ws-ticket'), {
+          method: 'POST',
+          headers: ticketHeaders,
+          signal,
+        });
+        if (!ticketRes.ok) {
+          throw new Error(`WebSocket ticket request failed: ${ticketRes.status}`);
+        }
+        ticket = (await ticketRes.json()).ticket as string;
       }
-      const { ticket } = await ticketRes.json();
 
-      // If disconnect() was called while we awaited the ticket, abandon this connection
-      if (signal?.aborted) return;
+      // If disconnect() was called while we awaited the ticket, cache it for reuse
+      if (signal?.aborted) {
+        this.ticketCache = { ticket, issuedAt: Date.now() };
+        return;
+      }
 
       const wsUrl = `${this.url}?ticket=${encodeURIComponent(ticket)}`;
 
@@ -538,7 +586,11 @@ export class WebSocketService {
           };
           console.debug('[WebSocket] connected:', this.connectionInfo);
 
-          // Resubscribe to channels after reconnect
+          // Create a fresh connection-ready promise BEFORE sending the probe
+          // so consumers that subscribe now observe the unresolved state.
+          this.createConnectionReadyPromise();
+
+          // Resubscribe to channels after reconnect (task 5 adds probe emission here)
           this.resubscribeChannels();
 
           // Now that handshake is complete, mark as connected
@@ -547,6 +599,10 @@ export class WebSocketService {
 
         case 'error':
           console.error('WebSocket server error:', message.data);
+          break;
+
+        case 'connection_ready':
+          this.resolveConnectionReady();
           break;
       }
 
@@ -577,6 +633,9 @@ export class WebSocketService {
     this.clearPingInterval();
     this.ws = null;
 
+    // If a connection-ready wait was in flight, reject it so waiters see the failure
+    this.rejectConnectionReady(new Error('disconnected before connection_ready'));
+
     // Only reconnect if not manually disconnected
     if (event.code === 1000) {
       this.setState(ConnectionState.DISCONNECTED);
@@ -589,10 +648,17 @@ export class WebSocketService {
   private scheduleReconnect(): void {
     this.clearReconnectTimer();
 
+    // Aggressive cap: after MAX_AGGRESSIVE_ATTEMPTS, drop to normal exponential.
+    if (this.aggressiveReconnect && this.reconnectAttempts >= this.MAX_AGGRESSIVE_ATTEMPTS) {
+      this.aggressiveReconnect = false;
+      this.reconnectAttempts = 0;
+    }
+
     let delay: number;
     if (this.aggressiveReconnect) {
-      // Aggressive: 500ms → 1s → 2s → 2s... (used during 15s grace period)
-      delay = Math.min(500 * Math.pow(2, Math.min(this.reconnectAttempts, 2)), 2000);
+      // Aggressive with full jitter: 500ms → 1s → 2s base, each scaled by random [0,1)
+      const base = Math.min(500 * Math.pow(2, Math.min(this.reconnectAttempts, 2)), 2000);
+      delay = fullJitter(base);
     } else {
       // Normal: exponential backoff for first 10 attempts, then fixed 30s intervals
       // (keeps retrying indefinitely — the UI layer handles the timeout UX)
@@ -642,6 +708,50 @@ export class WebSocketService {
     }
   }
 
+  private createConnectionReadyPromise(): void {
+    // Clear any prior unresolved promise state
+    if (this.connectionReadyTimer) {
+      clearTimeout(this.connectionReadyTimer);
+      this.connectionReadyTimer = null;
+    }
+    this.connectionReadyPromise = new Promise<void>((resolve, reject) => {
+      this.connectionReadyResolve = resolve;
+      this.connectionReadyReject = reject;
+    });
+    // Pre-attach a no-op catch so the promise is never "unhandled" when no
+    // consumer awaits it. Consumers that DO await whenConnectionReady() still
+    // see the rejection via their own .then()/.catch() chain — Promise
+    // rejections propagate to all attached handlers, not just the first.
+    this.connectionReadyPromise.catch(() => {});
+    this.connectionReadyTimer = setTimeout(() => {
+      // Funnel through rejectConnectionReady so timer + resolve/reject refs are
+      // cleared consistently (avoids stale-ref state after timeout).
+      this.rejectConnectionReady(
+        new Error('connection_ready timeout after 5s — proceeding best-effort')
+      );
+    }, this.CONNECTION_READY_TIMEOUT_MS);
+  }
+
+  private resolveConnectionReady(): void {
+    if (this.connectionReadyTimer) {
+      clearTimeout(this.connectionReadyTimer);
+      this.connectionReadyTimer = null;
+    }
+    this.connectionReadyResolve?.();
+    this.connectionReadyResolve = null;
+    this.connectionReadyReject = null;
+  }
+
+  private rejectConnectionReady(err: Error): void {
+    if (this.connectionReadyTimer) {
+      clearTimeout(this.connectionReadyTimer);
+      this.connectionReadyTimer = null;
+    }
+    this.connectionReadyReject?.(err);
+    this.connectionReadyResolve = null;
+    this.connectionReadyReject = null;
+  }
+
   private resubscribeChannels(): void {
     // Resubscribe to all channels after reconnect
     for (const channelId of this.subscribedChannels) {
@@ -655,6 +765,14 @@ export class WebSocketService {
     for (const convId of this.subscribedDMs) {
       this.subscribeDM(convId);
     }
+    // Emit barrier probe. Because the hub processes incoming frames via a
+    // single serialized Run() goroutine, the probe is guaranteed to be
+    // handled AFTER every subscribe above is committed to the subscriber map.
+    // V1 hubs ignore unknown frame types — backwards compatible.
+    this.send({
+      type: 'connection_ready_probe',
+      data: { protocol_version: 2 },
+    });
   }
 
   private setState(newState: ConnectionState): void {

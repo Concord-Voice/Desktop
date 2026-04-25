@@ -1,4 +1,8 @@
-import { WebSocketService, ConnectionState } from '@/renderer/services/websocketService';
+import {
+  WebSocketService,
+  ConnectionState,
+  fullJitter,
+} from '@/renderer/services/websocketService';
 
 // Mock WebSocket
 class MockWebSocket {
@@ -283,5 +287,330 @@ describe('WebSocketService', () => {
       // Should not throw
       service.send({ type: 'test', data: {} });
     });
+  });
+});
+
+describe('fullJitter', () => {
+  it('returns integer in [0, base) for 1000 iterations', () => {
+    for (let i = 0; i < 1000; i++) {
+      const d = fullJitter(1000);
+      expect(Number.isInteger(d)).toBe(true);
+      expect(d).toBeGreaterThanOrEqual(0);
+      expect(d).toBeLessThan(1000);
+    }
+  });
+
+  it('returns 0 when base is 0', () => {
+    expect(fullJitter(0)).toBe(0);
+  });
+
+  it('handles base of 1 (returns 0)', () => {
+    for (let i = 0; i < 100; i++) {
+      expect(fullJitter(1)).toBe(0);
+    }
+  });
+});
+
+describe('scheduleReconnect attempt cap', () => {
+  let service: WebSocketService;
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ ticket: 'mock-ticket' }),
+    });
+    globalThis.fetch = mockFetch;
+    service = new WebSocketService('ws://localhost:8080');
+  });
+
+  afterEach(() => {
+    service.disconnect();
+    vi.useRealTimers();
+    globalThis.fetch = originalFetch;
+  });
+
+  it('drops aggressive mode after MAX_AGGRESSIVE_ATTEMPTS (3) failures', () => {
+    const s = service as unknown as {
+      aggressiveReconnect: boolean;
+      reconnectAttempts: number;
+      scheduleReconnect: () => void;
+      reconnectTimer: NodeJS.Timeout | null;
+      setAggressiveReconnect: (v: boolean) => void;
+    };
+    s.setAggressiveReconnect(true);
+    // Simulate three failed attempts incrementing the counter
+    s.reconnectAttempts = 3;
+    s.scheduleReconnect();
+    // After hitting cap, aggressive flips off and attempts resets to 0
+    expect(s.aggressiveReconnect).toBe(false);
+    expect(s.reconnectAttempts).toBe(0);
+  });
+
+  it('stays aggressive below cap', () => {
+    const s = service as unknown as {
+      aggressiveReconnect: boolean;
+      reconnectAttempts: number;
+      scheduleReconnect: () => void;
+      setAggressiveReconnect: (v: boolean) => void;
+    };
+    s.setAggressiveReconnect(true);
+    s.reconnectAttempts = 2;
+    s.scheduleReconnect();
+    expect(s.aggressiveReconnect).toBe(true);
+  });
+});
+
+describe('ticket cache', () => {
+  it('consumes cached ticket within TTL', () => {
+    const svc = new WebSocketService('ws://localhost:8080');
+    const s = svc as unknown as {
+      ticketCache: { ticket: string; issuedAt: number } | null;
+      consumeCachedTicket: () => string | null;
+    };
+    s.ticketCache = { ticket: 'cached-ticket-abc', issuedAt: Date.now() };
+    const consumed = s.consumeCachedTicket();
+    expect(consumed).toBe('cached-ticket-abc');
+    // Cache is cleared after consumption (single-use invariant)
+    expect(s.ticketCache).toBeNull();
+  });
+
+  it('rejects cached ticket older than TTL', () => {
+    const svc = new WebSocketService('ws://localhost:8080');
+    const s = svc as unknown as {
+      ticketCache: { ticket: string; issuedAt: number } | null;
+      consumeCachedTicket: () => string | null;
+    };
+    s.ticketCache = { ticket: 'stale-ticket', issuedAt: Date.now() - 10_000 };
+    const consumed = s.consumeCachedTicket();
+    expect(consumed).toBeNull();
+    expect(s.ticketCache).toBeNull(); // stale entries cleared too
+  });
+
+  it('returns null when cache is empty', () => {
+    const svc = new WebSocketService('ws://localhost:8080');
+    const s = svc as unknown as { consumeCachedTicket: () => string | null };
+    const consumed = s.consumeCachedTicket();
+    expect(consumed).toBeNull();
+  });
+});
+
+describe('connection-ready promise', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('whenConnectionReady resolves when connection_ready frame arrives', async () => {
+    const svc = new WebSocketService('ws://localhost:8080');
+    const s = svc as unknown as {
+      createConnectionReadyPromise: () => void;
+      resolveConnectionReady: () => void;
+      whenConnectionReady: () => Promise<void>;
+    };
+    s.createConnectionReadyPromise();
+    const p = s.whenConnectionReady();
+    s.resolveConnectionReady();
+    await expect(p).resolves.toBeUndefined();
+  });
+
+  it('whenConnectionReady rejects after CONNECTION_READY_TIMEOUT_MS', async () => {
+    const svc = new WebSocketService('ws://localhost:8080');
+    const s = svc as unknown as {
+      createConnectionReadyPromise: () => void;
+      whenConnectionReady: () => Promise<void>;
+    };
+    s.createConnectionReadyPromise();
+    const p = s.whenConnectionReady();
+    vi.advanceTimersByTime(5_000);
+    await expect(p).rejects.toThrow(/connection_ready/);
+  });
+
+  it('rejecting on disconnect allows new promise on next open', async () => {
+    const svc = new WebSocketService('ws://localhost:8080');
+    const s = svc as unknown as {
+      createConnectionReadyPromise: () => void;
+      rejectConnectionReady: (err: Error) => void;
+      whenConnectionReady: () => Promise<void>;
+    };
+    s.createConnectionReadyPromise();
+    const p1 = s.whenConnectionReady();
+    s.rejectConnectionReady(new Error('disconnected'));
+    await expect(p1).rejects.toThrow(/disconnected/);
+
+    s.createConnectionReadyPromise();
+    const p2 = s.whenConnectionReady();
+    expect(p2).not.toBe(p1);
+  });
+
+  it('does not produce unhandled rejection when no consumer awaits', async () => {
+    const svc = new WebSocketService('ws://localhost:8080');
+    const s = svc as unknown as {
+      createConnectionReadyPromise: () => void;
+      rejectConnectionReady: (err: Error) => void;
+    };
+    // Track unhandled rejections during this test
+    const unhandled: unknown[] = [];
+    const handler = (event: PromiseRejectionEvent) => {
+      unhandled.push(event.reason);
+    };
+    globalThis.addEventListener('unhandledrejection', handler);
+
+    s.createConnectionReadyPromise();
+    s.rejectConnectionReady(new Error('test rejection'));
+
+    // Give the microtask queue time to fire any unhandled rejection events
+    await vi.advanceTimersByTimeAsync(10);
+    globalThis.removeEventListener('unhandledrejection', handler);
+
+    expect(unhandled).toHaveLength(0);
+  });
+
+  it('clears resolve/reject refs after timeout fires', async () => {
+    const svc = new WebSocketService('ws://localhost:8080');
+    const s = svc as unknown as {
+      createConnectionReadyPromise: () => void;
+      whenConnectionReady: () => Promise<void>;
+      connectionReadyResolve: (() => void) | null;
+      connectionReadyReject: ((err: Error) => void) | null;
+      connectionReadyTimer: NodeJS.Timeout | null;
+    };
+    s.createConnectionReadyPromise();
+    const p = s.whenConnectionReady();
+    // Attach a no-op handler so the rejection is consumed (test cleanliness)
+    p.catch(() => {});
+    vi.advanceTimersByTime(5_000);
+    await Promise.resolve(); // flush microtask queue
+    // After timeout, refs should be cleared
+    expect(s.connectionReadyResolve).toBeNull();
+    expect(s.connectionReadyReject).toBeNull();
+    expect(s.connectionReadyTimer).toBeNull();
+  });
+});
+
+describe('origin 502 storm recovery', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('recovers within 3 aggressive attempts when origin returns 502 twice then 200', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch');
+    let call = 0;
+    fetchMock.mockImplementation(async () => {
+      call++;
+      if (call <= 2) {
+        return new Response(null, { status: 502, statusText: 'Bad Gateway' });
+      }
+      return new Response(JSON.stringify({ ticket: 'ok-ticket-123' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    });
+
+    const svc = new WebSocketService('ws://localhost:8080');
+    const s = svc as unknown as {
+      token: string | null;
+      aggressiveReconnect: boolean;
+      reconnectAttempts: number;
+      createConnection: (signal?: AbortSignal) => Promise<void>;
+      setAggressiveReconnect: (v: boolean) => void;
+    };
+    s.token = 'mock-jwt';
+    s.setAggressiveReconnect(true);
+    s.reconnectAttempts = 0;
+
+    // Attempt 1 → 502 → catch → scheduleReconnect (aggressive, attempt 0 → base 500ms → jitter[0,500))
+    await s.createConnection();
+    // Flush any pending microtasks from the failed fetch, then fire the reconnect timer
+    await Promise.resolve();
+    vi.advanceTimersByTime(500);
+    await vi.runOnlyPendingTimersAsync();
+
+    // Attempt 2 → 502 → catch → scheduleReconnect (aggressive, attempt 1 → base 1000ms → jitter[0,1000))
+    await Promise.resolve();
+    vi.advanceTimersByTime(1_000);
+    await vi.runOnlyPendingTimersAsync();
+
+    // Attempt 3 → 200 → ticket obtained → new WebSocket (MockWebSocket; doesn't throw)
+    await Promise.resolve();
+
+    // After three attempts, fetch must have been called exactly 3 times.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('resubscribeChannels emits probe', () => {
+  it('sends connection_ready_probe after all resubscribes', () => {
+    vi.useFakeTimers();
+    const svc = new WebSocketService('ws://localhost:8080');
+    const s = svc as unknown as {
+      subscribedChannels: Set<string>;
+      subscribedDMs: Set<string>;
+      subscribedServers: Set<string>;
+      resubscribeChannels: () => void;
+      send: (msg: { type: string; data: Record<string, unknown> }) => void;
+    };
+    // Seed state
+    s.subscribedChannels.clear();
+    s.subscribedDMs.clear();
+    s.subscribedServers.clear();
+    s.subscribedChannels.add('ch1');
+    s.subscribedChannels.add('ch2');
+    s.subscribedDMs.add('dm1');
+    s.subscribedServers.add('sv1');
+
+    const sent: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const originalSend = s.send.bind(svc);
+    s.send = (msg) => {
+      sent.push(msg);
+      originalSend(msg);
+    };
+
+    s.resubscribeChannels();
+
+    const types = sent.map((m) => m.type);
+    expect(types).toEqual([
+      'subscribe',
+      'subscribe',
+      'subscribe_server',
+      'subscribe_dm',
+      'connection_ready_probe',
+    ]);
+    // Probe payload marks protocol v2
+    const probe = sent[sent.length - 1];
+    expect(probe.data).toEqual({ protocol_version: 2 });
+    vi.useRealTimers();
+  });
+
+  it('sends probe even with empty subscribed sets (cold connect)', () => {
+    vi.useFakeTimers();
+    const svc = new WebSocketService('ws://localhost:8080');
+    const s = svc as unknown as {
+      subscribedChannels: Set<string>;
+      subscribedDMs: Set<string>;
+      subscribedServers: Set<string>;
+      resubscribeChannels: () => void;
+      send: (msg: { type: string; data: Record<string, unknown> }) => void;
+    };
+    s.subscribedChannels.clear();
+    s.subscribedDMs.clear();
+    s.subscribedServers.clear();
+
+    const sent: Array<{ type: string }> = [];
+    s.send = (msg) => {
+      sent.push({ type: msg.type });
+    };
+
+    s.resubscribeChannels();
+
+    expect(sent.map((m) => m.type)).toEqual(['connection_ready_probe']);
+    vi.useRealTimers();
   });
 });

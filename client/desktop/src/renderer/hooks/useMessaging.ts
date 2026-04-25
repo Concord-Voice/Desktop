@@ -61,6 +61,11 @@ interface SendMessageOptions {
 
 export function useMessaging() {
   const wsService = useRef(getWebSocketService()).current;
+  // Tracks whether the connection_ready gate warn has fired for this connection.
+  // Reset to false on each CONNECTED state transition so the next timeout cycle
+  // logs exactly once rather than spamming the console for v1-hub sessions or
+  // any scenario where the gate stays rejected for the rest of a connection.
+  const connectionReadyWarnedRef = useRef(false);
   const messageQueue = useRef(
     getMessageQueue({
       onMessageSent: (messageId) => {
@@ -82,6 +87,27 @@ export function useMessaging() {
   // Process a single queued message: encrypt if needed, then send via correct transport
   const processQueuedMessage = useCallback(
     async (msg: QueuedMessage) => {
+      // Gate on connection-ready: during reconnect, wait for the hub to
+      // acknowledge all resubscribes. On cold connect, this resolves in ~RTT.
+      // On timeout (5s with no ack), proceed best-effort — the error path
+      // from an unsubscribed-channel send is already handled below.
+      //
+      // This promise rejects only on: (a) 5s timeout, or (b) disconnect-before-ready.
+      // Both are intended proceed-best-effort paths — the isSubscribed check below
+      // is the authoritative gate. If additional rejection reasons are added to
+      // createConnectionReadyPromise() in the future, re-evaluate whether
+      // proceed-best-effort remains correct.
+      try {
+        await wsService.whenConnectionReady();
+      } catch (err) {
+        if (!connectionReadyWarnedRef.current) {
+          connectionReadyWarnedRef.current = true;
+          console.warn(
+            `[useMessaging] connection_ready gate: ${(err as Error).message}; proceeding best-effort (further warnings suppressed for this connection)`
+          );
+        }
+      }
+
       const isDM = msg.type === 'dm_message';
       const subscribed = isDM
         ? wsService.isDMSubscribed(msg.channelId)
@@ -130,10 +156,13 @@ export function useMessaging() {
     [wsService]
   );
 
-  // Start/stop queue processing based on connection state
+  // Start/stop queue processing based on connection state.
+  // Also resets the connection_ready warn flag on each fresh CONNECTED handshake
+  // so the next timeout cycle logs exactly once rather than staying permanently silent.
   useEffect(() => {
     const unsubscribe = wsService.onConnectionChange((state) => {
       if (state === ConnectionState.CONNECTED) {
+        connectionReadyWarnedRef.current = false;
         messageQueue.startProcessing(processQueuedMessage);
       } else {
         messageQueue.stopProcessing();

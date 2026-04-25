@@ -16,6 +16,7 @@ const mockOnConnectionChange = vi.fn(() => vi.fn()); // returns unsubscribe
 const mockGetState = vi.fn(() => ConnectionState.CONNECTED);
 const mockIsSubscribed = vi.fn(() => true);
 const mockIsDMSubscribed = vi.fn(() => true);
+const mockWhenConnectionReady = vi.fn(() => Promise.resolve());
 
 vi.mock('@/renderer/services/websocketService', () => ({
   getWebSocketService: () => ({
@@ -26,6 +27,7 @@ vi.mock('@/renderer/services/websocketService', () => ({
     getState: mockGetState,
     isSubscribed: mockIsSubscribed,
     isDMSubscribed: mockIsDMSubscribed,
+    whenConnectionReady: mockWhenConnectionReady,
   }),
   ConnectionState: {
     CONNECTED: 'connected',
@@ -657,5 +659,229 @@ describe('useMessaging', () => {
         replyToId: undefined,
       }
     );
+  });
+});
+
+describe('useMessaging connection-ready gate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useChatStore.setState({
+      messagesByChannel: new Map(),
+      isConnected: true,
+    });
+    useUserStore.setState({ user: mockUser });
+    useChannelStore.setState({ channels: [mockChannel, mockEncryptedChannel] });
+    mockGetState.mockReturnValue(ConnectionState.CONNECTED);
+    mockIsSubscribed.mockReturnValue(true);
+    mockIsDMSubscribed.mockReturnValue(true);
+    // Default: gate resolves immediately (no-op for tests that don't override)
+    mockWhenConnectionReady.mockReturnValue(Promise.resolve());
+  });
+
+  it('calls whenConnectionReady before sending a queued message', async () => {
+    renderHook(() => useMessaging());
+
+    const connectionHandler = mockOnConnectionChange.mock.calls[0][0];
+    act(() => {
+      connectionHandler(ConnectionState.CONNECTED);
+    });
+
+    const processCallback = mockStartProcessing.mock.calls[0][0];
+
+    await act(async () => {
+      await processCallback({
+        id: 'queued-gate-1',
+        channelId: 'channel-1',
+        content: 'Gate test message',
+        type: 'message',
+        status: 'pending',
+        createdAt: Date.now(),
+        retries: 0,
+      });
+    });
+
+    // whenConnectionReady must have been called before sendMessage
+    expect(mockWhenConnectionReady).toHaveBeenCalled();
+    expect(mockSendMessage).toHaveBeenCalled();
+    // Ordering: whenConnectionReady invocation order < sendMessage invocation order
+    const readyOrder = mockWhenConnectionReady.mock.invocationCallOrder[0];
+    const sendOrder = mockSendMessage.mock.invocationCallOrder[0];
+    expect(readyOrder).toBeLessThan(sendOrder);
+  });
+
+  it('awaits the gate promise before proceeding (deferred resolution)', async () => {
+    let resolveReady!: () => void;
+    const readyPromise = new Promise<void>((r) => {
+      resolveReady = r;
+    });
+    mockWhenConnectionReady.mockReturnValueOnce(readyPromise);
+
+    renderHook(() => useMessaging());
+
+    const connectionHandler = mockOnConnectionChange.mock.calls[0][0];
+    act(() => {
+      connectionHandler(ConnectionState.CONNECTED);
+    });
+
+    const processCallback = mockStartProcessing.mock.calls[0][0];
+
+    // Start processing but don't await — the gate is still unresolved
+    const processPromise = processCallback({
+      id: 'queued-gate-2',
+      channelId: 'channel-1',
+      content: 'Deferred gate message',
+      type: 'message',
+      status: 'pending',
+      createdAt: Date.now(),
+      retries: 0,
+    });
+
+    // Flush microtasks — gate still pending
+    await Promise.resolve();
+    expect(mockSendMessage).not.toHaveBeenCalled();
+
+    // Resolve the gate and flush
+    resolveReady();
+    await processPromise;
+
+    expect(mockSendMessage).toHaveBeenCalledWith('channel-1', 'Deferred gate message', {
+      nonce: 'queued-gate-2',
+      isEncrypted: false,
+      keyVersion: undefined,
+      mentionMeta: undefined,
+      replyToId: undefined,
+    });
+  });
+
+  it('proceeds best-effort when whenConnectionReady rejects (timeout fallback)', async () => {
+    mockWhenConnectionReady.mockReturnValueOnce(
+      Promise.reject(new Error('connection_ready timeout after 5s'))
+    );
+
+    renderHook(() => useMessaging());
+
+    const connectionHandler = mockOnConnectionChange.mock.calls[0][0];
+    act(() => {
+      connectionHandler(ConnectionState.CONNECTED);
+    });
+
+    const processCallback = mockStartProcessing.mock.calls[0][0];
+
+    // Should not throw — fail-open
+    await act(async () => {
+      await processCallback({
+        id: 'queued-gate-3',
+        channelId: 'channel-1',
+        content: 'Timeout fallback message',
+        type: 'message',
+        status: 'pending',
+        createdAt: Date.now(),
+        retries: 0,
+      });
+    });
+
+    // Even after rejection, message should be sent (fail-open)
+    expect(mockSendMessage).toHaveBeenCalledWith('channel-1', 'Timeout fallback message', {
+      nonce: 'queued-gate-3',
+      isEncrypted: false,
+      keyVersion: undefined,
+      mentionMeta: undefined,
+      replyToId: undefined,
+    });
+  });
+
+  it('warns only once per connection when gate rejects multiple times', async () => {
+    // Gate always rejects (simulates a v1 hub that never acks connection_ready_probe)
+    mockWhenConnectionReady.mockReturnValue(
+      Promise.reject(new Error('connection_ready timeout after 5s'))
+    );
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    renderHook(() => useMessaging());
+
+    const connectionHandler = mockOnConnectionChange.mock.calls[0][0];
+    act(() => {
+      connectionHandler(ConnectionState.CONNECTED);
+    });
+
+    const processCallback = mockStartProcessing.mock.calls[0][0];
+    const makeMsg = (id: string) => ({
+      id,
+      channelId: 'channel-1',
+      content: `msg-${id}`,
+      type: 'message' as const,
+      status: 'pending' as const,
+      createdAt: Date.now(),
+      retries: 0,
+    });
+
+    // Process three messages through the rejecting gate
+    await act(async () => {
+      await processCallback(makeMsg('g1'));
+      await processCallback(makeMsg('g2'));
+      await processCallback(makeMsg('g3'));
+    });
+
+    // Only one warn should fire despite three rejections
+    const gateWarns = warnSpy.mock.calls.filter((args) =>
+      String(args[0]).includes('connection_ready gate')
+    );
+    expect(gateWarns).toHaveLength(1);
+
+    warnSpy.mockRestore();
+  });
+
+  it('resets warn flag on CONNECTED transition so next rejection logs again', async () => {
+    // Gate always rejects
+    mockWhenConnectionReady.mockReturnValue(
+      Promise.reject(new Error('connection_ready timeout after 5s'))
+    );
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    renderHook(() => useMessaging());
+
+    const connectionHandler = mockOnConnectionChange.mock.calls[0][0];
+    // First CONNECTED — starts processing
+    act(() => {
+      connectionHandler(ConnectionState.CONNECTED);
+    });
+
+    const processCallback = mockStartProcessing.mock.calls[0][0];
+    const makeMsg = (id: string) => ({
+      id,
+      channelId: 'channel-1',
+      content: `msg-${id}`,
+      type: 'message' as const,
+      status: 'pending' as const,
+      createdAt: Date.now(),
+      retries: 0,
+    });
+
+    // Process one message — fires warn once
+    await act(async () => {
+      await processCallback(makeMsg('r1'));
+    });
+    const warnsAfterFirst = warnSpy.mock.calls.filter((args) =>
+      String(args[0]).includes('connection_ready gate')
+    ).length;
+    expect(warnsAfterFirst).toBe(1);
+
+    // Simulate reconnect: CONNECTED transition resets the flag
+    act(() => {
+      connectionHandler(ConnectionState.CONNECTED);
+    });
+
+    // Process another message — warn should fire again (flag was reset)
+    await act(async () => {
+      await processCallback(makeMsg('r2'));
+    });
+    const warnsAfterReset = warnSpy.mock.calls.filter((args) =>
+      String(args[0]).includes('connection_ready gate')
+    ).length;
+    expect(warnsAfterReset).toBe(2);
+
+    warnSpy.mockRestore();
   });
 });
