@@ -53,6 +53,7 @@ import {
   type SentinelResult,
 } from './updateSafety';
 import { resolveSpaSource } from './spaLoader';
+import { handleDidFailLoad, handleSpaRequestSelfHeal } from './spaSelfHealMainFrame';
 import { IPC_CONTRACT_VERSION } from './ipcContract';
 import { registerIpcHandlers as registerPermissionHandlers } from './permissionManager';
 import { migrateUserData } from './userDataMigration';
@@ -114,7 +115,12 @@ if (require('electron-squirrel-startup')) {
 }
 
 let mainWindow: BrowserWindow | null = null;
-let remoteSpaBaseUrl: string | null = null; // Set when loading remote SPA, used by PiP + navigation guard
+// Set when loading the remote SPA (origin string only, via
+// `new URL(decision.url).origin`). Read by: PiP window URL construction,
+// will-navigate origin guard, did-fail-load self-heal filter (#753), and
+// the spa:requestSelfHeal IPC sender-frame validator (#753). Single-
+// threaded JS event-loop semantics mean reads at trigger time are atomic.
+let remoteSpaBaseUrl: string | null = null;
 
 /**
  * Probe the Vite dev server, then load it. Falls back to the bundled
@@ -829,6 +835,18 @@ ipcMain.handle('pip:setAlwaysOnTop', (_event, opts: { id: string; flag: boolean 
   pipWindows.get(opts.id)?.setAlwaysOnTop(opts.flag);
 });
 
+ipcMain.handle('spa:requestSelfHeal', async (event, payload: unknown) => {
+  // Thin adapter: unpack Electron's event-args, delegate to the pure-data
+  // handler body. The handler itself does sender-frame validation,
+  // payload validation, and dispatches to attemptSelfHeal. Extracted for
+  // unit-testability per #753 reconciliation finding TA3.
+  await handleSpaRequestSelfHeal({
+    senderFrameUrl: event.senderFrame?.url ?? '',
+    payload,
+    remoteSpaBaseUrl,
+  });
+});
+
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -886,4 +904,16 @@ app.on('web-contents-created', (_, contents) => {
       }
     }
   });
+
+  // SPA self-heal main-process detection (#753, ADR-0001) — runs outside
+  // the renderer bundle, so it survives renderer-side corruption that
+  // would silence the renderer-side listener in spaSelfHealClient.ts.
+  // Thin adapter delegating to handleDidFailLoad (extracted for unit
+  // testability per #753 reconciliation finding TA3).
+  contents.on(
+    'did-fail-load',
+    (_event, errorCode, _errorDescription, validatedURL, isMainFrame) => {
+      void handleDidFailLoad({ errorCode, validatedURL, isMainFrame, remoteSpaBaseUrl });
+    }
+  );
 });

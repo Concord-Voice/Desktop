@@ -27,8 +27,12 @@
  *        app:getDeveloperMode, app:setDeveloperMode handlers
  * - v7: Telemetry consent (#618): consent:getState, consent:setState
  *        handlers, consent:changed event
+ * - v8: SPA self-heal (#753): spa:requestSelfHeal handler. Renderer signals
+ *        chunk-load failures so main process can refetch /api/v1/client/config
+ *        and reload via the existing resolveSpaSource() validators. See
+ *        internal-reference
  */
-export const IPC_CONTRACT_VERSION = 7;
+export const IPC_CONTRACT_VERSION = 8;
 
 /**
  * Result shape returned by performRefresh() in the main process and

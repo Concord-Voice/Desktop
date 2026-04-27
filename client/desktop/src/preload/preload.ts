@@ -26,6 +26,28 @@ contextBridge.exposeInMainWorld('electron', {
   // compatibility with the shell's IPC contract version before using newer APIs.
   getIpcContract: () => ipcRenderer.invoke('app:getIpcContract') as Promise<number>,
 
+  // SPA self-heal (#753, ADR-0001): renderer signals chunk-load failure or
+  // unhandled dynamic-import rejection. Main process refetches client config,
+  // re-validates via resolveSpaSource(), and reloads the BrowserWindow once
+  // before falling back to the bundled renderer (R2 retry policy).
+  spa: {
+    /**
+     * Signal a chunk-load failure to the main process for self-heal recovery.
+     *
+     * @param payload.reason  Detection source — `'chunk-load'` (window.error
+     *                        on script/link asset) or `'chunk-import-rejected'`
+     *                        (unhandledrejection on dynamic import()).
+     * @param payload.url     **Diagnostic-only.** The main-process recovery
+     *                        primitive ignores this field; it never reaches
+     *                        `webContents.loadURL`. Recovery refetches
+     *                        `/api/v1/client/config` from scratch and
+     *                        re-validates through `resolveSpaSource()`.
+     *                        Logged for breadcrumb-style diagnostics only.
+     */
+    requestSelfHeal: (payload: { reason: 'chunk-load' | 'chunk-import-rejected'; url?: string }) =>
+      ipcRenderer.invoke('spa:requestSelfHeal', payload) as Promise<void>,
+  },
+
   // Media: screen capture sources for voice/video screen share
   getDesktopSources: () =>
     ipcRenderer.invoke('media:getDesktopSources') as Promise<DesktopSource[]>,
@@ -356,6 +378,18 @@ export interface ElectronAPI {
   getPlatform: () => Promise<string>;
   /** Tier 3 remote SPA: query the shell's IPC contract version for compatibility. */
   getIpcContract: () => Promise<number>;
+
+  /**
+   * SPA self-heal (#753, ADR-0001): renderer requests the main process refetch
+   * client config and reload the BrowserWindow once after a chunk-load failure.
+   */
+  spa: {
+    requestSelfHeal: (payload: {
+      reason: 'chunk-load' | 'chunk-import-rejected';
+      url?: string;
+    }) => Promise<void>;
+  };
+
   getDesktopSources: () => Promise<DesktopSource[]>;
   writeClipboard: (text: string) => Promise<void>;
   getGPUInfo: () => Promise<{ vendor: string; device: string } | null>;

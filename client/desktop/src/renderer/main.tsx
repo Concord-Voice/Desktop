@@ -3,6 +3,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { HashRouter } from 'react-router-dom';
 import App from './App';
+import { installSelfHealHandlers } from './spaSelfHealClient';
 import { ModalProvider } from './components/ui/ModalContext';
 import './styles/index.css';
 
@@ -58,6 +59,10 @@ try {
 // Migration: remove legacy plaintext auth tokens from localStorage.
 // Auth tokens are now encrypted via safeStorage in the main process.
 localStorage.removeItem('concord-auth');
+
+// Install SPA self-heal listeners as early as possible — before createRoot()
+// or any lazy import() can fire (#753, ADR-0001).
+installSelfHealHandlers();
 
 const container = document.getElementById('root');
 
