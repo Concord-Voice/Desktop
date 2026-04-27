@@ -108,7 +108,7 @@ vi.mock('electron', () => ({
       },
     },
   },
-  shell: { openExternal: vi.fn() },
+  shell: { openExternal: vi.fn(() => Promise.resolve()) },
   powerMonitor: { on: vi.fn() },
 }));
 
@@ -795,6 +795,18 @@ describe('main.ts', () => {
       const result3 = handler({ url: 'javascript:alert(1)' });
       expect(shell.openExternal).not.toHaveBeenCalled();
       expect(result3.action).toBe('deny');
+
+      // http: protocol is rejected (was accepted pre-#754 tightening)
+      (shell.openExternal as Mock).mockClear();
+      const result4 = handler({ url: 'http://example.com/foo' });
+      expect(shell.openExternal).not.toHaveBeenCalled();
+      expect(result4.action).toBe('deny');
+
+      // data: URL is blocked
+      (shell.openExternal as Mock).mockClear();
+      const result5 = handler({ url: 'data:text/html,<script>alert(1)</script>' });
+      expect(shell.openExternal).not.toHaveBeenCalled();
+      expect(result5.action).toBe('deny');
     });
   });
 
@@ -828,6 +840,195 @@ describe('main.ts', () => {
       const event2 = { preventDefault: vi.fn() };
       willNavigate(event2, 'https://evil.com/steal');
       expect(event2.preventDefault).toHaveBeenCalled();
+    });
+
+    it('externalizes https: navigation in dev mode after preventDefault', async () => {
+      const { app } = await import('electron');
+      const { shell } = await import('electron');
+      const webContentsCreated = (app.on as Mock).mock.calls.find(
+        (c: unknown[]) => c[0] === 'web-contents-created'
+      );
+      const mockContents = { on: vi.fn() };
+      webContentsCreated![1]({}, mockContents);
+      const willNavigate = mockContents.on.mock.calls.find(
+        (c: unknown[]) => c[0] === 'will-navigate'
+      )![1] as (event: { preventDefault: () => void }, url: string) => void;
+
+      (shell.openExternal as Mock).mockClear();
+      const event = { preventDefault: vi.fn() };
+      willNavigate(event, 'https://external.example/foo');
+      expect(event.preventDefault).toHaveBeenCalled();
+      expect(shell.openExternal).toHaveBeenCalledWith('https://external.example/foo');
+    });
+
+    it('blocks but does not externalize http: navigation in dev mode', async () => {
+      const { app } = await import('electron');
+      const { shell } = await import('electron');
+      const webContentsCreated = (app.on as Mock).mock.calls.find(
+        (c: unknown[]) => c[0] === 'web-contents-created'
+      );
+      const mockContents = { on: vi.fn() };
+      webContentsCreated![1]({}, mockContents);
+      const willNavigate = mockContents.on.mock.calls.find(
+        (c: unknown[]) => c[0] === 'will-navigate'
+      )![1] as (event: { preventDefault: () => void }, url: string) => void;
+
+      (shell.openExternal as Mock).mockClear();
+      const event = { preventDefault: vi.fn() };
+      willNavigate(event, 'http://external.example/foo');
+      expect(event.preventDefault).toHaveBeenCalled();
+      expect(shell.openExternal).not.toHaveBeenCalled();
+    });
+
+    it('blocks but does not externalize javascript: URL', async () => {
+      const { app } = await import('electron');
+      const { shell } = await import('electron');
+      const webContentsCreated = (app.on as Mock).mock.calls.find(
+        (c: unknown[]) => c[0] === 'web-contents-created'
+      );
+      const mockContents = { on: vi.fn() };
+      webContentsCreated![1]({}, mockContents);
+      const willNavigate = mockContents.on.mock.calls.find(
+        (c: unknown[]) => c[0] === 'will-navigate'
+      )![1] as (event: { preventDefault: () => void }, url: string) => void;
+
+      (shell.openExternal as Mock).mockClear();
+      const event = { preventDefault: vi.fn() };
+      willNavigate(event, 'javascript:alert(1)');
+      expect(event.preventDefault).toHaveBeenCalled();
+      expect(shell.openExternal).not.toHaveBeenCalled();
+    });
+
+    it('blocks but does not externalize data: URL', async () => {
+      const { app } = await import('electron');
+      const { shell } = await import('electron');
+      const webContentsCreated = (app.on as Mock).mock.calls.find(
+        (c: unknown[]) => c[0] === 'web-contents-created'
+      );
+      const mockContents = { on: vi.fn() };
+      webContentsCreated![1]({}, mockContents);
+      const willNavigate = mockContents.on.mock.calls.find(
+        (c: unknown[]) => c[0] === 'will-navigate'
+      )![1] as (event: { preventDefault: () => void }, url: string) => void;
+
+      (shell.openExternal as Mock).mockClear();
+      const event = { preventDefault: vi.fn() };
+      willNavigate(event, 'data:text/html,<script>alert(1)</script>');
+      expect(event.preventDefault).toHaveBeenCalled();
+      expect(shell.openExternal).not.toHaveBeenCalled();
+    });
+
+    it('does not throw on malformed URL — preventDefault called, no externalization', async () => {
+      const { app } = await import('electron');
+      const { shell } = await import('electron');
+      const webContentsCreated = (app.on as Mock).mock.calls.find(
+        (c: unknown[]) => c[0] === 'web-contents-created'
+      );
+      const mockContents = { on: vi.fn() };
+      webContentsCreated![1]({}, mockContents);
+      const willNavigate = mockContents.on.mock.calls.find(
+        (c: unknown[]) => c[0] === 'will-navigate'
+      )![1] as (event: { preventDefault: () => void }, url: string) => void;
+
+      (shell.openExternal as Mock).mockClear();
+      const event = { preventDefault: vi.fn() };
+      // Should not throw
+      expect(() => willNavigate(event, '')).not.toThrow();
+      expect(event.preventDefault).toHaveBeenCalled();
+      expect(shell.openExternal).not.toHaveBeenCalled();
+    });
+
+    it('packaged mode (no SPA loaded): externalizes https navigation after preventDefault', async () => {
+      const electron = await import('electron');
+      const { app, shell } = electron;
+      // Temporarily flip isPackaged to exercise packaged-mode branch.
+      // The mock's `isPackaged` is a plain boolean property, so direct
+      // mutation works (no vi.spyOn needed).
+      (app as unknown as { isPackaged: boolean }).isPackaged = true;
+      try {
+        // Re-derive the will-navigate handler under packaged mode.
+        // Note: web-contents-created callbacks were registered at module
+        // init time (before isPackaged was flipped) — but the handler
+        // body reads app.isPackaged at runtime, so the flip takes effect
+        // when the handler fires.
+        const webContentsCreated = (app.on as Mock).mock.calls.find(
+          (c: unknown[]) => c[0] === 'web-contents-created'
+        );
+        const mockContents = { on: vi.fn() };
+        webContentsCreated![1]({}, mockContents);
+        const willNavigate = mockContents.on.mock.calls.find(
+          (c: unknown[]) => c[0] === 'will-navigate'
+        )![1] as (event: { preventDefault: () => void }, url: string) => void;
+
+        // Note: remoteSpaBaseUrl is null in test mock because the file-level
+        // spaLoader mock returns {mode: 'bundled'} (see line ~224). With no
+        // SPA origin set, the SPA-origin early-return path at main.ts L864
+        // is unreachable from this test fixture. The test below verifies
+        // that with no SPA loaded, packaged-mode externalizes https as
+        // expected. Coverage of the SPA-origin allow-path itself would
+        // require either a test-only setter export from main.ts or full
+        // mock re-isolation via vi.resetModules — both add complexity
+        // disproportionate to the value, since the allow-path is
+        // structurally equivalent to the dev-mode `localhost` early-return
+        // exercised by the dev-mode tests above. Documented as #775's
+        // sibling concern; revisit if the allow-path semantics ever diverge
+        // from the localhost path.
+        (shell.openExternal as Mock).mockClear();
+        const event = { preventDefault: vi.fn() };
+        willNavigate(event, 'https://external.example/foo');
+        expect(event.preventDefault).toHaveBeenCalled();
+        expect(shell.openExternal).toHaveBeenCalledWith('https://external.example/foo');
+      } finally {
+        (app as unknown as { isPackaged: boolean }).isPackaged = false;
+      }
+    });
+
+    it('packaged mode: blocks but does not externalize http: URL', async () => {
+      const electron = await import('electron');
+      const { app, shell } = electron;
+      (app as unknown as { isPackaged: boolean }).isPackaged = true;
+      try {
+        const webContentsCreated = (app.on as Mock).mock.calls.find(
+          (c: unknown[]) => c[0] === 'web-contents-created'
+        );
+        const mockContents = { on: vi.fn() };
+        webContentsCreated![1]({}, mockContents);
+        const willNavigate = mockContents.on.mock.calls.find(
+          (c: unknown[]) => c[0] === 'will-navigate'
+        )![1] as (event: { preventDefault: () => void }, url: string) => void;
+
+        (shell.openExternal as Mock).mockClear();
+        const event = { preventDefault: vi.fn() };
+        willNavigate(event, 'http://external.example/foo');
+        expect(event.preventDefault).toHaveBeenCalled();
+        expect(shell.openExternal).not.toHaveBeenCalled();
+      } finally {
+        (app as unknown as { isPackaged: boolean }).isPackaged = false;
+      }
+    });
+
+    it('packaged mode: handles malformed URL without throwing', async () => {
+      const electron = await import('electron');
+      const { app, shell } = electron;
+      (app as unknown as { isPackaged: boolean }).isPackaged = true;
+      try {
+        const webContentsCreated = (app.on as Mock).mock.calls.find(
+          (c: unknown[]) => c[0] === 'web-contents-created'
+        );
+        const mockContents = { on: vi.fn() };
+        webContentsCreated![1]({}, mockContents);
+        const willNavigate = mockContents.on.mock.calls.find(
+          (c: unknown[]) => c[0] === 'will-navigate'
+        )![1] as (event: { preventDefault: () => void }, url: string) => void;
+
+        (shell.openExternal as Mock).mockClear();
+        const event = { preventDefault: vi.fn() };
+        expect(() => willNavigate(event, 'not-a-valid-url-at-all')).not.toThrow();
+        expect(event.preventDefault).toHaveBeenCalled();
+        expect(shell.openExternal).not.toHaveBeenCalled();
+      } finally {
+        (app as unknown as { isPackaged: boolean }).isPackaged = false;
+      }
     });
   });
 

@@ -154,6 +154,68 @@ export default [
     },
   },
 
+  // Drift defense for renderer external links (#754). The will-navigate
+  // handler at client/desktop/src/main/main.ts has a runtime safety net
+  // that externalizes bare <a href="https://..."> clicks to the OS browser,
+  // but target="_blank" is the canonical pattern (it goes through
+  // setWindowOpenHandler, which is the documented externalization path).
+  // This rule prevents regression to bare anchors at authoring time.
+  //
+  // Selector scope: checks for the *presence* of the `target` attribute
+  // and rejects the JSX element if absent. It does not statically verify
+  // `target="_blank"` value or the `rel` attribute — asserting attribute
+  // values across literal vs JSXExpression vs constant-import shapes is
+  // brittle. The rule message documents the full convention.
+  //
+  // Out of scope by design: <a href={someVar}> and <a href={MODULE_CONST}>
+  // are not flagged (variable hrefs aren't statically https; module
+  // constants are hand-audited at definition time).
+  //
+  // See internal-reference
+  {
+    files: ['src/renderer/**/*.{ts,tsx}'],
+    rules: {
+      // IMPORTANT: flat-config files-scoped rules OVERRIDE the global
+      // `no-restricted-syntax` for matched files (same caveat documented at
+      // the src/main/** override above). When adding a renderer-scoped
+      // selector, we MUST also re-list the global useXStore() selector here
+      // so renderer files keep enforcing the #656 store-subscription rule.
+      // Per Copilot review on PR #774.
+      'no-restricted-syntax': [
+        'error',
+        // Re-listed from global rules: forbid useXStore() whole-store
+        // subscriptions in renderer (see #656).
+        {
+          selector: String.raw`CallExpression[callee.name=/^use\w+Store$/][arguments.length=0]`,
+          message:
+            'Use a selector: useXStore(s => s.field), not useXStore(). Whole-store subscriptions cause unnecessary re-renders. See #656.',
+        },
+        // String-literal href shape: <a href="https://...">
+        {
+          selector:
+            'JSXOpeningElement[name.name="a"]' +
+            ':has(JSXAttribute[name.name="href"] > Literal[value=/^https:/])' +
+            ':not(:has(JSXAttribute[name.name="target"]))',
+          message:
+            'Renderer <a href="https://..."> must use target="_blank" rel="noopener noreferrer". ' +
+            'Bare anchors trigger the will-navigate drift safety net (which externalizes via ' +
+            'shell.openExternal) but target="_blank" is the canonical pattern. ' +
+            'See internal-reference',
+        },
+        // Template-literal href shape: <a href={`https://${x}/...`}>
+        {
+          selector:
+            'JSXOpeningElement[name.name="a"]' +
+            ':has(JSXAttribute[name.name="href"] > JSXExpressionContainer > TemplateLiteral[quasis.0.value.raw=/^https:/])' +
+            ':not(:has(JSXAttribute[name.name="target"]))',
+          message:
+            'Renderer <a href={`https://...`}> must use target="_blank" rel="noopener noreferrer". ' +
+            'See internal-reference',
+        },
+      ],
+    },
+  },
+
   // Test files: relaxed rules for mocks, partial fixtures, and scaffolding imports.
   // Production-code discipline (src/) still runs at error severity for all
   // three typing rules below. Test files get different posture because:
@@ -192,8 +254,9 @@ export default [
   // any source edit forces a policy-version bump that re-prompts every user
   // for telemetry consent. Adding `--` rationales to its two eslint-disable
   // directives would cosmetically edit the file for no behavioral reason.
-  // Exempt this one file from require-description; the block comments at
-  // lines 95-99 + 190-194 already document WHY the disables exist.
+  // Exempt this one file from require-description; the block comments
+  // adjacent to each `eslint-disable` directive in `sentry-scrubbers.ts`
+  // already document WHY the disables exist.
   {
     files: ['src/shared/sentry-scrubbers.ts'],
     rules: {

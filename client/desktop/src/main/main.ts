@@ -235,15 +235,25 @@ const createWindow = async (): Promise<void> => {
     }
   });
 
-  // Open external links in browser (validate protocol to prevent code injection)
+  // Open external links in browser. https-only after #754 tightening —
+  // see internal-reference
+  // and internal-reference "External-link scheme policy" for the
+  // threat-model rationale (passive nav is held to a stricter scheme set
+  // than the user-clicked Markdown-link IPC path).
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     try {
       const parsed = new URL(url);
-      if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
-        shell.openExternal(url);
+      if (parsed.protocol === 'https:') {
+        // Fire-and-forget — main process can't surface a result here. .catch
+        // suppresses unhandled-rejection if the OS denies (sandbox, no handler).
+        // Symmetric with the IPC handler at src/main/ipc/openExternal.ts.
+        shell.openExternal(url).catch(() => {});
       }
+      // http: intentionally rejected — Electron app externalization is
+      // https-only. Markdown-rendered chat links keep http: via
+      // the open-external IPC handler (different consent model).
     } catch {
-      // Invalid URL, ignore
+      // Invalid URL — ignore (no externalization, deny in-app open).
     }
     return { action: 'deny' };
   });
@@ -834,20 +844,46 @@ if (gotTheLock) {
   app.quit();
 }
 
-// Security: Disable remote module
+// Security: validate navigation. After #754: extends with externalization
+// safety net — bare <a href="https://..."> clicks (or programmatic
+// navigation) route to the OS browser via shell.openExternal instead of
+// silently failing. https-only, symmetric with setWindowOpenHandler.
+// See internal-reference
+// and internal-reference "External-link scheme policy".
 app.on('web-contents-created', (_, contents) => {
   contents.on('will-navigate', (event, navigationUrl) => {
-    const parsedUrl = new URL(navigationUrl);
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(navigationUrl);
+    } catch {
+      // Malformed URL — fail closed. Do not navigate, do not externalize.
+      event.preventDefault();
+      return;
+    }
 
     if (app.isPackaged) {
-      // Packaged release: block navigation unless it's to the remote SPA origin (Tier 3)
+      // Packaged release: allow same-origin SPA navigation.
       const spaOrigin = remoteSpaBaseUrl ? new URL(remoteSpaBaseUrl).origin : null;
-      if (!spaOrigin || parsedUrl.origin !== spaOrigin) {
-        event.preventDefault();
+      if (spaOrigin && parsedUrl.origin === spaOrigin) {
+        return;
       }
-    } else if (parsedUrl.hostname !== 'localhost') {
-      // In dev, allow localhost navigation (any port) for HMR
+      // Block in-window navigation to anything else.
       event.preventDefault();
+      // Drift safety net: route https: navigations to OS browser so a
+      // future bare-<a> link or SPA-driven redirect doesn't silently fail.
+      // .catch suppresses unhandled-rejection (OS deny) — symmetric with
+      // setWindowOpenHandler and the IPC handler.
+      if (parsedUrl.protocol === 'https:') {
+        shell.openExternal(navigationUrl).catch(() => {});
+      }
+      // Other schemes (javascript:, data:, file:, http:, vbscript:, ...)
+      // are silently dropped after preventDefault — fail-closed posture.
+    } else if (parsedUrl.hostname !== 'localhost') {
+      // Dev mode: allow any localhost port (HMR), block everything else.
+      event.preventDefault();
+      if (parsedUrl.protocol === 'https:') {
+        shell.openExternal(navigationUrl).catch(() => {});
+      }
     }
   });
 });
