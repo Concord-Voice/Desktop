@@ -48,7 +48,6 @@ desktop/
 │   ├── preload/       # Preload scripts (IPC bridge)
 │   │   └── preload.ts
 │   ├── shared/        # Cross-process modules (main + renderer)
-│   │   └── sentry-scrubbers.ts  # Privacy scrubbing rules for Sentry events
 │   └── renderer/      # React application
 │       ├── components/ # React components
 │       ├── hooks/     # Custom React hooks
@@ -141,7 +140,6 @@ This will create platform-specific installers in the `out/` directory.
 - Secure IPC via preload scripts (no @electron/remote)
 - CSP configured
 - E2EE: AES-256-GCM message encryption, RSA-OAEP 4096-bit key wrapping
-- **Sentry error tracking** — fail-closed privacy model; key material, message content, and PII are scrubbed before any event leaves the client (see `src/shared/sentry-scrubbers.ts`)
 - **Developer mode toggle** — in-app flag for enabling diagnostic tooling without a production build
 
 ### Phase 2+ 📋

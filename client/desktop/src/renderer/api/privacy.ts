@@ -1,6 +1,6 @@
 /**
  * Privacy API client — wraps the control-plane /api/v1/privacy/* erasure
- * endpoints that anonymize Sentry client-host pairings (#642).
+ * endpoints.
  *
  * PRIVACY CONTRACT: the `clientId` passed to these functions is sensitive
  * transient data. This module MUST NOT:
@@ -23,26 +23,6 @@ export class PrivacyApiError extends Error {
     super(message);
     this.name = 'PrivacyApiError';
     this.status = status;
-  }
-}
-
-/**
- * Request server-side erasure of Sentry telemetry linked to a client pairing.
- * Resolves on 204; throws PrivacyApiError on any non-2xx status.
- */
-export async function eraseTelemetry(clientId: string): Promise<void> {
-  const response = await apiFetch('/api/v1/privacy/erase-telemetry', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ clientId }),
-  });
-  if (!response.ok) {
-    // NOTE: message intentionally contains only the status code, never the
-    // clientId value — the caller can rethrow/log without risking exposure.
-    throw new PrivacyApiError(
-      response.status,
-      `erase-telemetry failed with status ${response.status}`
-    );
   }
 }
 

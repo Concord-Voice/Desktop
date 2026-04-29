@@ -46,9 +46,9 @@ if (fs.existsSync('./app-update.yml')) {
 const config: ForgeConfig = {
   packagerConfig: {
     asar: {
-      // Exclude source maps from the packaged ASAR archive. Source maps are
-      // uploaded to Sentry in CI for server-side stack trace resolution;
-      // they must NOT ship to end users (exposes full source code).
+      // Exclude source maps from the packaged ASAR archive. Source maps must
+      // NOT ship to end users — they expose full source code and any secrets
+      // or logic embedded in it.
       unpackDir: undefined,
     },
     ignore: [/\.map$/],

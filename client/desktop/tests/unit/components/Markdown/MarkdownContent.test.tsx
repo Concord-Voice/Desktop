@@ -54,8 +54,8 @@ describe('MarkdownContent', () => {
     });
 
     it('preserves hljs classes on fenced code block with explicit language', () => {
-      // End-to-end test for Copilot/Sentry review on PR #711: rehype-highlight
-      // emits `<code class="hljs language-js">` and inner `<span class="hljs-*">`
+      // End-to-end test for PR #711: rehype-highlight emits
+      // `<code class="hljs language-js">` and inner `<span class="hljs-*">`
       // tokens; the sanitize schema must allow both the bare `hljs` theme
       // anchor on <code> AND the `hljs-*` token classes on <span>, or syntax
       // highlighting silently breaks at the sanitize layer.

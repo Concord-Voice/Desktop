@@ -268,7 +268,7 @@ export function storeRefreshToken(data: {
     // path diagnostics. A mismatch on the decrypted-vs-intended comparison is
     // the signal on its own; emitting suffix bytes would give an operator no
     // actionable information while creating a session-correlation primitive
-    // for anyone with access to stdout, crash dumps, or Sentry breadcrumbs.
+    // for anyone with access to stdout, crash dumps, or any other log sink.
     // See internal-reference "Private keys, channel keys, and session keys
     // NEVER logged" — refresh tokens are in scope.
     const readBack = fs.readFileSync(TOKEN_FILE);

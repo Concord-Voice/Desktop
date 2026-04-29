@@ -78,7 +78,7 @@ describe('sanitizeSchema', () => {
     // rehype-highlight emits `<code class="hljs language-xxx">` where the
     // bare `hljs` token is the CSS selector anchor for theme background +
     // default colors. Stripping it breaks highlighting even if per-token
-    // classes survive. Regression test for Copilot/Sentry review on PR #711.
+    // classes survive. Regression test for PR #711.
     const html = await sanitizeHtml('<code class="hljs language-javascript">if</code>');
     expect(html).toContain('hljs');
     expect(html).toContain('language-javascript');

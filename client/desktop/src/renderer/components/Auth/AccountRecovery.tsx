@@ -156,8 +156,8 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to create recovery request');
 
-      // Upfront validation (Sentry Seer finding): if the server returns a
-      // malformed request_id, fail fast with a user-visible error instead of
+      // Upfront validation: if the server returns a malformed request_id,
+      // fail fast with a user-visible error instead of
       // transitioning to device-waiting and discovering the problem 3s later
       // in the poll loop. The poll-catch fallback (below) remains as
       // defense-in-depth for any future path where a valid ID could become
@@ -242,8 +242,8 @@ const AccountRecovery: React.FC<AccountRecoveryProps> = ({ onBack, onComplete })
       if (!res.ok) throw new Error(data.error || 'Failed');
 
       // Upfront validation mirroring handleDeviceRecovery — see that comment
-      // for the full rationale (Sentry Seer finding: prevents silent
-      // infinite-poll trap for malformed server request_ids).
+      // for the full rationale (prevents silent infinite-poll trap for
+      // malformed server request_ids).
       if (!isValidUUID(data.request_id)) {
         throw new Error('Server returned an invalid recovery request ID. Please try again.');
       }

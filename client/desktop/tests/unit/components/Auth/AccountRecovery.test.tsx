@@ -894,7 +894,7 @@ describe('AccountRecovery', () => {
     expect(logo).toBeInTheDocument();
   });
 
-  // --- Upfront request_id validation (Sentry Seer fix) ---
+  // --- Upfront request_id validation ---
   //
   // These tests verify the upfront validation at setDeviceRequestId /
   // setSocialRequestId call sites — catching a malformed server response
