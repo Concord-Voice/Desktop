@@ -31,22 +31,24 @@ describe('updatePinning — freshly generated rogue cert rejection', () => {
   let goodPem: string;
   let goodSpki: string;
 
-  beforeAll(() => {
-    // Rogue cert impersonating the pinned hostname.
-    const roguePems = selfsigned.generate([{ name: 'commonName', value: PINNED_HOST }], {
-      days: 1,
-      keySize: 2048,
-      algorithm: 'sha256',
-    });
+  beforeAll(async () => {
+    // Rogue cert impersonating the pinned hostname; "known-good" cert to pin
+    // as the legitimate primary. Both keygens run in parallel via Promise.all
+    // over selfsigned 5.x's async generate() API.
+    const [roguePems, goodPems] = await Promise.all([
+      selfsigned.generate([{ name: 'commonName', value: PINNED_HOST }], {
+        days: 1,
+        keySize: 2048,
+        algorithm: 'sha256',
+      }),
+      selfsigned.generate([{ name: 'commonName', value: 'legitimate-origin' }], {
+        days: 1,
+        keySize: 2048,
+        algorithm: 'sha256',
+      }),
+    ]);
     roguePem = roguePems.cert;
     rogueSpki = computeSpkiSha256(roguePem);
-
-    // A separate "known-good" cert to pin as the legitimate primary.
-    const goodPems = selfsigned.generate([{ name: 'commonName', value: 'legitimate-origin' }], {
-      days: 1,
-      keySize: 2048,
-      algorithm: 'sha256',
-    });
     goodPem = goodPems.cert;
     goodSpki = computeSpkiSha256(goodPem);
   });

@@ -14,7 +14,7 @@ const cns = { primary: 'pinning-primary', fallback: 'pinning-fallback', rogue: '
 const out = {};
 
 for (const [name, cn] of Object.entries(cns)) {
-  const pems = selfsigned.generate([{ name: 'commonName', value: cn }], {
+  const pems = await selfsigned.generate([{ name: 'commonName', value: cn }], {
     days: 3650,
     keySize: 2048,
     algorithm: 'sha256',
