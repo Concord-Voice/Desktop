@@ -15,28 +15,6 @@ describe('build-preload.mjs', () => {
   let outFile: string;
 
   beforeAll(() => {
-    // Generate the sentry config first (build-preload depends on it)
-    try {
-      execFileSync(
-        'node',
-        [
-          resolve(projectRoot, 'node_modules/.bin/tsx'),
-          resolve(projectRoot, 'scripts/generate-sentry-config.ts'),
-        ],
-        {
-          cwd: projectRoot,
-          env: { ...process.env, SENTRY_DSN_DESKTOP: 'https://test@sentry.io/123' },
-          stdio: 'pipe',
-        }
-      );
-    } catch (err: unknown) {
-      const stderr =
-        err instanceof Error && 'stderr' in err
-          ? String((err as NodeJS.ErrnoException & { stderr: Buffer }).stderr)
-          : '';
-      throw new Error(`generate-sentry-config failed:\n${stderr}`);
-    }
-
     tmpDir = mkdtempSync(join(tmpdir(), 'preload-test-'));
     outFile = join(tmpDir, 'preload.js');
 
@@ -92,11 +70,6 @@ describe('build-preload.mjs', () => {
   it('preserves the contextBridge.exposeInMainWorld call', () => {
     const content = readFileSync(outFile, 'utf-8');
     expect(content).toContain('exposeInMainWorld');
-  });
-
-  it('inlines the sentry DSN value', () => {
-    const content = readFileSync(outFile, 'utf-8');
-    expect(content).toContain('https://test@sentry.io/123');
   });
 
   it('does not emit source maps in prod mode', () => {

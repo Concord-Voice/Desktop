@@ -87,13 +87,6 @@ export default [
       'prefer-const': 'warn',
       eqeqeq: ['error', 'always', { null: 'ignore' }],
 
-      'no-restricted-imports': ['error', {
-        patterns: [{
-          group: ['**/main/clientId', '**/main/clientId.ts', '**/main/clientId.js'],
-          message: 'clientId.ts is RESERVED FOR SENTRY ANONYMIZATION. Any new import site requires security-reviewer approval.',
-        }],
-      }],
-
       'no-restricted-syntax': [
         'error',
         {
@@ -114,14 +107,11 @@ export default [
     },
   },
 
-  // Electron main-process override (#706): forbid raw err/Error objects
-  // as arguments to console.error/warn. Error.cause (ES2022) can propagate
-  // refresh tokens, DSN strings, or HTTP response fragments up through a
-  // catch-handler log even when the handler believes it is logging a
-  // high-level error. Scoped to src/main/** because the audit (and the
-  // corresponding rule in internal-reference) explicitly covers
-  // Electron main-process code; a separate sweep of src/renderer/** is
-  // tracked as future work outside #706 scope.
+  // Forbid raw `err` / `Error` objects as console.error/warn arguments in
+  // main-process code. `Error.cause` (ES2022) propagates underlying errors,
+  // which can carry secret material — refresh tokens, response-body fragments —
+  // up through any log sink (stdout, crash dumps, future telemetry).
+  // See PR #714.
   //
   // NOTE: flat-config `files:`-scoped blocks OVERRIDE the global rules for
   // matched files. That means the global `no-restricted-syntax` (with its
@@ -137,8 +127,7 @@ export default [
   // err)` — so single-arg forms are out of scope. If this decision changes,
   // update tests/unit/main/eslint-no-raw-err-console.test.ts fixture 6.
   //
-  // See internal-reference "Console error logging" and
-  // internal-reference
+  // See internal-reference "Console error logging".
   {
     files: ['src/main/**/*.{ts,tsx}'],
     rules: {
@@ -148,7 +137,7 @@ export default [
           selector:
             'CallExpression[callee.type="MemberExpression"][callee.object.name="console"][callee.property.name=/^(error|warn)$/] > Identifier:last-child:not(:first-child)',
           message:
-            'Do not pass raw err/Error objects to console.error/warn — err.cause (ES2022) may propagate secrets (refresh tokens, DSNs, HTTP response fragments). Use `(err as Error).message` instead. See internal-reference "Console error logging". If the raw argument is intentional (e.g., a safe structured detail), add `eslint-disable-next-line no-restricted-syntax -- <rationale>`.',
+            'Do not pass raw err/Error objects to console.error/warn — err.cause (ES2022) may propagate secrets (refresh tokens, response-body fragments). Use `(err as Error).message` instead. See internal-reference "Console error logging". If the raw argument is intentional (e.g., a safe structured detail), add `eslint-disable-next-line no-restricted-syntax -- <rationale>`.',
         },
       ],
     },
@@ -241,25 +230,6 @@ export default [
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-non-null-assertion': 'off',
       '@typescript-eslint/no-unused-vars': 'off',
-      '@eslint-community/eslint-comments/require-description': 'off',
-    },
-  },
-
-  {
-    files: ['src/main/sentry.ts', 'tests/**/*'],
-    rules: { 'no-restricted-imports': 'off' },
-  },
-
-  // sentry-scrubbers.ts is content-hashed against TELEMETRY_POLICY_VERSION —
-  // any source edit forces a policy-version bump that re-prompts every user
-  // for telemetry consent. Adding `--` rationales to its two eslint-disable
-  // directives would cosmetically edit the file for no behavioral reason.
-  // Exempt this one file from require-description; the block comments
-  // adjacent to each `eslint-disable` directive in `sentry-scrubbers.ts`
-  // already document WHY the disables exist.
-  {
-    files: ['src/shared/sentry-scrubbers.ts'],
-    rules: {
       '@eslint-community/eslint-comments/require-description': 'off',
     },
   },

@@ -112,23 +112,6 @@ vi.mock('electron', () => ({
   powerMonitor: { on: vi.fn() },
 }));
 
-// ── Sentry mock ───────────────────────────────────────────────────────
-
-vi.mock('@sentry/electron/main', () => ({
-  init: vi.fn(),
-  setTag: vi.fn(),
-  captureException: vi.fn(),
-  captureMessage: vi.fn(),
-  addBreadcrumb: vi.fn(),
-}));
-
-// Mock sentry module so initSentry() resolves immediately without real hardware retrievers.
-vi.mock('../../../src/main/sentry', () => ({
-  initSentry: vi.fn(() => Promise.resolve()),
-  upgradeSentryUserId: vi.fn(() => Promise.resolve()),
-  getClientId: vi.fn(() => ({ kind: 'stable', id: 'test-client-id' })),
-}));
-
 // ── Node / internal module mocks ───────────────────────────────────────
 
 vi.mock('node:fs', () => ({
@@ -1083,7 +1066,6 @@ describe('main.ts', () => {
         'auth:clearTokens',
         'auth:getCapabilities',
         'auth:getMachineId',
-        'sentry:upgradeUser',
         'update:check',
         'update:download',
         'update:install',

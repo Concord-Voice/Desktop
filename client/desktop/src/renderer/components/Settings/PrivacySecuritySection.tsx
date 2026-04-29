@@ -17,7 +17,6 @@ import {
   type OsPermissionType,
   type OsPermissionStatus,
 } from '../../stores/osPermissionStore';
-import CrashReportingSection from './CrashReportingSection';
 import DMPrivacyControls from './DMPrivacyControls';
 import ContentSafetyControls from './ContentSafetyControls';
 import SearchVisibilityControls from './SearchVisibilityControls';
@@ -735,7 +734,6 @@ const PrivacySecuritySection: React.FC = () => {
 
   return (
     <>
-      <CrashReportingSection />
       <CollapsibleSection id="section-privacy-settings" title="Privacy">
         <p className="settings-section-description">
           Control who can message you and how others can find you.

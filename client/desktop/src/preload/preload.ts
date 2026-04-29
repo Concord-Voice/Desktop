@@ -1,5 +1,4 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { SENTRY_DSN } from '../shared/sentry-config.generated';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -279,74 +278,6 @@ contextBridge.exposeInMainWorld('electron', {
   flashFrame: (flash: boolean) => ipcRenderer.invoke('app:flashFrame', flash),
   focusWindow: () => ipcRenderer.invoke('app:focusWindow'),
 
-  // Telemetry consent (#618)
-  getConsentState: () =>
-    ipcRenderer.invoke('consent:getState') as Promise<{
-      telemetryOptIn: boolean;
-      firstPromptCompleted: boolean;
-      policyAcknowledgedVersion: number;
-      pendingReConsent: boolean;
-      updatedAt: string | null;
-    }>,
-  setConsentState: (updates: {
-    telemetryOptIn?: boolean;
-    firstPromptCompleted?: boolean;
-    policyAcknowledgedVersion?: number;
-    pendingReConsent?: boolean;
-  }) => ipcRenderer.invoke('consent:setState', updates) as Promise<void>,
-  onConsentChanged: (
-    callback: (state: {
-      telemetryOptIn: boolean;
-      firstPromptCompleted: boolean;
-      policyAcknowledgedVersion: number;
-      pendingReConsent: boolean;
-      updatedAt: string | null;
-    }) => void
-  ) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: Parameters<typeof callback>[0]) =>
-      callback(data);
-    ipcRenderer.on('consent:changed', handler);
-    return () => {
-      ipcRenderer.removeListener('consent:changed', handler);
-    };
-  },
-
-  onConsentRevoked: (callback: () => void) => {
-    const handler = () => callback();
-    ipcRenderer.on('sentry:consentRevoked', handler);
-    return () => {
-      ipcRenderer.removeListener('sentry:consentRevoked', handler);
-    };
-  },
-
-  onConsentRestored: (callback: () => void) => {
-    const handler = () => callback();
-    ipcRenderer.on('sentry:consentRestored', handler);
-    return () => {
-      ipcRenderer.removeListener('sentry:consentRestored', handler);
-    };
-  },
-
-  // Sentry config (read-only — consent gating happens at runtime via onConsentChanged)
-  // Renderer Sentry starts disabled; App.tsx toggles it after consent hydration.
-  // We cannot read the consent file here because `electron.app` is unavailable
-  // in the preload context when sandbox is enabled.
-  sentry: (() => {
-    const env =
-      process.env.SENTRY_ENVIRONMENT ||
-      process.env.NODE_ENV ||
-      (process.defaultApp ? 'development' : 'production');
-    const enabled =
-      process.env.SENTRY_ENABLED == null
-        ? false // Always disabled at preload time; consent gate toggles at runtime
-        : process.env.SENTRY_ENABLED.toLowerCase() === 'true';
-    return { dsn: SENTRY_DSN, environment: env, enabled };
-  })(),
-
-  // Returns the main-process clientId (anonymized host identifier) so
-  // renderer events carry the same user.id as main-process events.
-  getClientId: () => ipcRenderer.invoke('sentry:getClientId') as Promise<string>,
-
   // Open a URL in the user's default browser via the main process. The main
   // process re-validates the protocol (http/https/mailto only) before calling
   // shell.openExternal — never trust the renderer. Returns `{ ok }` so the
@@ -357,19 +288,6 @@ contextBridge.exposeInMainWorld('electron', {
       ok: boolean;
       reason?: 'untrusted-sender' | 'invalid-protocol' | 'invalid-url';
     }>,
-
-  // Post-login: upgrade the main-process Sentry user.id from the per-launch
-  // random fallback to the stable userUUID+hardware hash. See
-  // client/desktop/src/main/sentry.ts for the upgrade lifecycle rationale.
-  upgradeSentryUser: (userUUID: string) => ipcRenderer.invoke('sentry:upgradeUser', userUUID),
-  onClientIdUpgraded: (callback: (clientId: string) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, data: { clientId: string }) =>
-      callback(data.clientId);
-    ipcRenderer.on('sentry:clientIdUpgraded', handler);
-    return () => {
-      ipcRenderer.removeListener('sentry:clientIdUpgraded', handler);
-    };
-  },
 });
 
 // Type definitions for the exposed API
@@ -519,42 +437,6 @@ export interface ElectronAPI {
   setBadgeCount: (count: number) => Promise<void>;
   flashFrame: (flash: boolean) => Promise<void>;
   focusWindow: () => Promise<void>;
-
-  // Telemetry consent (#618)
-  getConsentState: () => Promise<{
-    telemetryOptIn: boolean;
-    firstPromptCompleted: boolean;
-    policyAcknowledgedVersion: number;
-    pendingReConsent: boolean;
-    updatedAt: string | null;
-  }>;
-  setConsentState: (updates: {
-    telemetryOptIn?: boolean;
-    firstPromptCompleted?: boolean;
-    policyAcknowledgedVersion?: number;
-    pendingReConsent?: boolean;
-  }) => Promise<void>;
-  onConsentChanged: (
-    callback: (state: {
-      telemetryOptIn: boolean;
-      firstPromptCompleted: boolean;
-      policyAcknowledgedVersion: number;
-      pendingReConsent: boolean;
-      updatedAt: string | null;
-    }) => void
-  ) => () => void;
-  onConsentRevoked: (callback: () => void) => () => void;
-  onConsentRestored: (callback: () => void) => () => void;
-
-  // Sentry config
-  sentry: {
-    dsn: string;
-    environment: string;
-    enabled: boolean;
-  };
-  getClientId: () => Promise<string>;
-  upgradeSentryUser: (userUUID: string) => Promise<void>;
-  onClientIdUpgraded: (callback: (clientId: string) => void) => () => void;
 
   // Open an external URL via shell.openExternal (main process enforces
   // http/https/mailto protocol allowlist).

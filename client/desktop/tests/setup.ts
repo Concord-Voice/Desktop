@@ -1,18 +1,3 @@
-// Ensure the generated sentry-config exists so vite's import-analysis can resolve
-// static imports from src/main/sentry.ts and src/preload/preload.ts. The
-// scripts/generate-sentry-config.test.ts suite creates and deletes this file
-// during its runs; other test files that end up in the same vitest process can
-// hit a gap where the file is missing. Writing a stub here is safe because tests
-// don't consume the DSN value (they mock the module or never exercise it).
-{
-  const { existsSync, writeFileSync } = require('node:fs');
-  const { resolve } = require('node:path');
-  const generatedPath = resolve(__dirname, '../src/shared/sentry-config.generated.ts');
-  if (!existsSync(generatedPath)) {
-    writeFileSync(generatedPath, 'export const SENTRY_DSN: string = "";\n');
-  }
-}
-
 // Fix localStorage: Node 22+ provides `globalThis.localStorage` as a stub without
 // working methods (setItem/getItem). Zustand persist middleware references the
 // bare `localStorage` global. Replace it with a proper in-memory implementation.
@@ -52,7 +37,6 @@ afterEach(() => {
 
 // Provide Web Crypto API from Node 20 (jsdom lacks crypto.subtle)
 if (!globalThis.crypto?.subtle) {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { webcrypto } = require('node:crypto');
   Object.defineProperty(globalThis, 'crypto', { value: webcrypto });
 }

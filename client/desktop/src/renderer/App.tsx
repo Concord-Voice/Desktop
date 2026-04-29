@@ -1,5 +1,4 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
-import * as Sentry from '@sentry/react';
 import { Routes, Route, Navigate, Outlet, useNavigate } from 'react-router-dom';
 import AuthFlow from './components/Auth/AuthFlow';
 import MainView from './components/MainView/MainView';
@@ -7,8 +6,7 @@ import DirectMessagesView from './components/DirectMessages/DirectMessagesView';
 import ContextMenuProvider from './components/ui/ContextMenuProvider';
 import ConnectionLostOverlay from './components/ui/ConnectionLostOverlay';
 import SettingsOverlayHost from './components/Settings/SettingsOverlayHost';
-import TelemetryConsentDialog from './components/TelemetryConsentDialog';
-import { useTelemetryConsentStore } from './stores/telemetryConsentStore';
+import { ErrorBoundary } from './components/ErrorBoundary';
 const PipWindow = lazy(() => import('./components/Voice/PipWindow'));
 import ForceUpdateOverlay from './components/ui/ForceUpdateOverlay';
 import UpdateBanner from './components/ui/UpdateBanner';
@@ -37,16 +35,14 @@ import { desktopNotificationService } from './services/desktopNotificationServic
 import { usePendingRegistrationStore } from './stores/pendingRegistrationStore';
 // resetService is loaded on-demand via dynamic import() to allow code splitting
 
-// ─── Sentry Error Boundary Fallbacks ──────────────────────────────────
+// ─── Error Boundary Fallbacks ─────────────────────────────────────────
 // Static text only — no user data, no display names, no avatars.
-// showDialog={false} is mandatory on every boundary (Sentry's default
-// feedback dialog collects email, violating our PII allowlist).
 
 export function AppRootFallback() {
   return (
     <div className="error-boundary-fallback error-boundary-fallback--fatal">
       <h2>Something went wrong</h2>
-      <p>The error has been reported. Please restart the application.</p>
+      <p>Please restart the application.</p>
       <button onClick={() => globalThis.location.reload()}>Reload</button>
     </div>
   );
@@ -56,7 +52,7 @@ export function AuthenticatedViewFallback() {
   return (
     <div className="error-boundary-fallback">
       <h2>This view failed to load</h2>
-      <p>The error has been reported. Try selecting a different view.</p>
+      <p>Try selecting a different view.</p>
     </div>
   );
 }
@@ -65,7 +61,7 @@ export function SettingsFallback() {
   return (
     <div className="error-boundary-fallback">
       <h2>Settings failed to load</h2>
-      <p>The error has been reported. Close and reopen settings to try again.</p>
+      <p>Close and reopen settings to try again.</p>
     </div>
   );
 }
@@ -83,7 +79,7 @@ export function AuthFallback() {
   return (
     <div className="error-boundary-fallback">
       <h2>Authentication UI failed to load</h2>
-      <p>The error has been reported.</p>
+      <p>Please reload the application.</p>
       <button onClick={() => globalThis.location.reload()}>Reload</button>
     </div>
   );
@@ -170,37 +166,6 @@ function AuthenticatedLayout() {
     return () => unsub();
   }, [accessToken]);
 
-  // Hydrate telemetry consent store from persisted storage on mount.
-  // After hydration, toggle renderer Sentry on for users who previously consented.
-  // Preload always starts Sentry disabled; we enable here after reading stored consent.
-  useEffect(() => {
-    const init = async () => {
-      await useTelemetryConsentStore.getState().hydrate();
-      const { telemetryOptIn } = useTelemetryConsentStore.getState();
-      // Only toggle if SENTRY_ENABLED override is not active.
-      // When the override is set, Sentry's enabled state is fixed at init time.
-      const overrideActive = typeof process !== 'undefined' && process.env?.SENTRY_ENABLED != null;
-      if (telemetryOptIn && !overrideActive) {
-        const client = Sentry.getClient();
-        if (client) {
-          client.getOptions().enabled = true;
-        }
-      }
-    };
-    void init().catch((err: unknown) => {
-      console.error('[App] Failed to hydrate telemetry consent:', err);
-    });
-  }, []);
-
-  // Listen for consent:changed events pushed from the main process
-  useEffect(() => {
-    if (!globalThis.electron?.onConsentChanged) return;
-    const unsubscribe = globalThis.electron.onConsentChanged((state) => {
-      useTelemetryConsentStore.getState().applyRemoteState(state);
-    });
-    return unsubscribe;
-  }, []);
-
   // Pre-cache codec capabilities, GPU info, and detect system HDR
   useEffect(() => {
     Promise.all([
@@ -241,22 +206,13 @@ function AuthenticatedLayout() {
 
   return (
     <>
-      <Sentry.ErrorBoundary
-        fallback={<AuthenticatedViewFallback />}
-        showDialog={false}
-        beforeCapture={(scope) => scope.setTag('boundary', 'authenticated-view')}
-      >
+      <ErrorBoundary fallback={<AuthenticatedViewFallback />}>
         <Outlet />
-      </Sentry.ErrorBoundary>
-      <Sentry.ErrorBoundary
-        fallback={<SettingsFallback />}
-        showDialog={false}
-        beforeCapture={(scope) => scope.setTag('boundary', 'settings')}
-      >
+      </ErrorBoundary>
+      <ErrorBoundary fallback={<SettingsFallback />}>
         <SettingsOverlayHost />
-      </Sentry.ErrorBoundary>
+      </ErrorBoundary>
       <ConnectionLostOverlay />
-      <TelemetryConsentDialog />
     </>
   );
 }
@@ -415,12 +371,7 @@ function App() {
   }
 
   return (
-    <Sentry.ErrorBoundary
-      fallback={<AppRootFallback />}
-      showDialog={false}
-      beforeCapture={(scope) => scope.setTag('boundary', 'app-root')}
-      onError={handleAppRootError}
-    >
+    <ErrorBoundary fallback={<AppRootFallback />} onError={handleAppRootError}>
       <ContextMenuProvider>
         <div className="app">
           <div className="title-bar">
@@ -444,13 +395,9 @@ function App() {
                   accessToken && emailVerified ? (
                     <Navigate to="/app/dms" replace />
                   ) : (
-                    <Sentry.ErrorBoundary
-                      fallback={<AuthFallback />}
-                      showDialog={false}
-                      beforeCapture={(scope) => scope.setTag('boundary', 'auth-flow')}
-                    >
+                    <ErrorBoundary fallback={<AuthFallback />}>
                       <AuthFlow />
-                    </Sentry.ErrorBoundary>
+                    </ErrorBoundary>
                   )
                 }
               />
@@ -462,20 +409,16 @@ function App() {
               <Route
                 path="/pip/:pipId"
                 element={
-                  <Sentry.ErrorBoundary
-                    fallback={<PipFallback />}
-                    showDialog={false}
-                    beforeCapture={(scope) => scope.setTag('boundary', 'pip-window')}
-                  >
+                  <ErrorBoundary fallback={<PipFallback />}>
                     <PipWindow />
-                  </Sentry.ErrorBoundary>
+                  </ErrorBoundary>
                 }
               />
             </Routes>
           </Suspense>
         </div>
       </ContextMenuProvider>
-    </Sentry.ErrorBoundary>
+    </ErrorBoundary>
   );
 }
 

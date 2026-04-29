@@ -58,9 +58,6 @@ tests/
 │   │   └── websocketService.test.ts
 │   └── utils/
 │       └── crypto.test.ts          # Key derivation, key pair generation, wrap/unwrap, encrypt/decrypt (uses real Node webcrypto)
-├── shared/                         # Cross-process module tests
-│   ├── sentry-scrubbers.test.ts    # Privacy scrubbing rules (PII, key material, breadcrumb stripping)
-│   └── sentry.test.ts              # Sentry init, DSN gating, beforeSend pipeline
 └── e2e/                            # Playwright E2E tests
     ├── helpers.ts                  # registerUser, loginUser, createServer, createChannel helpers
     ├── auth.spec.ts

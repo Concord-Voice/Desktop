@@ -11,10 +11,9 @@ const preloadPath = resolve(projectRoot, 'dist/preload/preload.js');
 
 describe('preload sandbox contract (integration)', () => {
   beforeAll(() => {
-    // Ensure sentry config + preload bundle exist (CI runs tests before build).
+    // Ensure preload bundle exists (CI runs tests before build).
     // Surfaces stderr on failure so developers can diagnose build issues from test output.
     try {
-      execFileSync('npm', ['run', 'prebuild'], { cwd: projectRoot, stdio: 'pipe' });
       execFileSync('npm', ['run', 'build:preload'], { cwd: projectRoot, stdio: 'pipe' });
     } catch (err: unknown) {
       const stderr =

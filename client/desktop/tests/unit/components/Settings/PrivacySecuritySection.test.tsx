@@ -1,6 +1,5 @@
 import { render, screen, fireEvent } from '../../../test-utils';
 import { vi } from 'vitest';
-import { TELEMETRY_POLICY_VERSION } from '@/shared/sentry-policy-version';
 
 const mockApiFetch = vi.fn();
 vi.mock('@/renderer/services/apiClient', () => ({
@@ -118,23 +117,6 @@ vi.mock('@/renderer/components/ui/Modal', () => ({
     ) : null,
 }));
 
-const { mockSetConsent } = vi.hoisted(() => ({
-  mockSetConsent: vi.fn().mockResolvedValue(undefined),
-}));
-vi.mock('@/renderer/stores/telemetryConsentStore', () => {
-  const defaultState = {
-    telemetryOptIn: false,
-    isLoaded: true,
-    firstPromptCompleted: false,
-    policyAcknowledgedVersion: 1,
-    hydrate: vi.fn().mockResolvedValue(undefined),
-    setConsent: mockSetConsent,
-    applyRemoteState: vi.fn(),
-  };
-  const hook = vi.fn((s: (state: typeof defaultState) => unknown) => s(defaultState));
-  (hook as unknown as { getState: () => typeof defaultState }).getState = () => defaultState;
-  return { useTelemetryConsentStore: hook };
-});
 vi.mock('@/renderer/stores/clientConfigStore', () => ({
   useClientConfigStore: vi.fn((s) => s({})),
 }));
@@ -2696,97 +2678,6 @@ describe('PrivacySecuritySection', () => {
     fireEvent.click(screen.getByText('Revoke'));
     await vi.waitFor(() => expect(screen.getByText('Verify Your Identity')).toBeInTheDocument());
     expect(screen.getAllByTestId('mfa-verify-prompt').length).toBeGreaterThanOrEqual(1);
-  });
-
-  // ── Crash Reporting toggle ────────────────────────────────────────────
-
-  it('renders the Crash Reporting section with toggle', async () => {
-    render(<PrivacySecuritySection />);
-    await vi.waitFor(() => expect(screen.getByText('Crash Reporting')).toBeInTheDocument());
-    expect(screen.getByText('Send anonymous crash reports')).toBeInTheDocument();
-  });
-
-  it('crash reporting toggle reflects telemetryOptIn=false from store', async () => {
-    render(<PrivacySecuritySection />);
-    await vi.waitFor(() =>
-      expect(screen.getByText('Send anonymous crash reports')).toBeInTheDocument()
-    );
-    const checkbox = screen
-      .getByText('Send anonymous crash reports')
-      .closest('.settings-row')!
-      .querySelector('input[type="checkbox"]')!;
-    expect(checkbox).not.toBeChecked();
-  });
-
-  it('crash reporting toggle reflects telemetryOptIn=true from store', async () => {
-    vi.mocked(
-      await import('@/renderer/stores/telemetryConsentStore').then(
-        (m) => m.useTelemetryConsentStore
-      )
-    ).mockImplementation((s) =>
-      s({
-        telemetryOptIn: true,
-        isLoaded: true,
-        firstPromptCompleted: true,
-        policyAcknowledgedVersion: 1,
-        hydrate: vi.fn().mockResolvedValue(undefined),
-        setConsent: mockSetConsent,
-        applyRemoteState: vi.fn(),
-      })
-    );
-    render(<PrivacySecuritySection />);
-    await vi.waitFor(() =>
-      expect(screen.getByText('Send anonymous crash reports')).toBeInTheDocument()
-    );
-    const checkbox = screen
-      .getByText('Send anonymous crash reports')
-      .closest('.settings-row')!
-      .querySelector('input[type="checkbox"]')!;
-    expect(checkbox).toBeChecked();
-  });
-
-  it('crash reporting toggle is disabled when isConsentLoaded=false', async () => {
-    vi.mocked(
-      await import('@/renderer/stores/telemetryConsentStore').then(
-        (m) => m.useTelemetryConsentStore
-      )
-    ).mockImplementation((s) =>
-      s({
-        telemetryOptIn: false,
-        isLoaded: false,
-        firstPromptCompleted: false,
-        policyAcknowledgedVersion: 1,
-        hydrate: vi.fn().mockResolvedValue(undefined),
-        setConsent: mockSetConsent,
-        applyRemoteState: vi.fn(),
-      })
-    );
-    render(<PrivacySecuritySection />);
-    await vi.waitFor(() =>
-      expect(screen.getByText('Send anonymous crash reports')).toBeInTheDocument()
-    );
-    const checkbox = screen
-      .getByText('Send anonymous crash reports')
-      .closest('.settings-row')!
-      .querySelector('input[type="checkbox"]')!;
-    expect(checkbox).toBeDisabled();
-  });
-
-  it('clicking the crash reporting toggle calls setConsent with correct args', async () => {
-    render(<PrivacySecuritySection />);
-    await vi.waitFor(() =>
-      expect(screen.getByText('Send anonymous crash reports')).toBeInTheDocument()
-    );
-    fireEvent.click(
-      screen
-        .getByText('Send anonymous crash reports')
-        .closest('.settings-row')!
-        .querySelector('input[type="checkbox"]')!
-    );
-    // Policy version bumped from 2 → 3 via the cert-pinning breadcrumb
-    // allowlist addition in #658. The test tracks the bundled constant
-    // rather than hardcoding the number so future bumps don't rebreak it.
-    expect(mockSetConsent).toHaveBeenCalledWith(true, TELEMETRY_POLICY_VERSION);
   });
 
   // ── Permissions loading state ──────────────────────────────────────────

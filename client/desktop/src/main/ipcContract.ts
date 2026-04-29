@@ -26,7 +26,9 @@
  * - v6: Developer Mode toggle (TEMPORARY — remove before BETA):
  *        app:getDeveloperMode, app:setDeveloperMode handlers
  * - v7: Telemetry consent (#618): consent:getState, consent:setState
- *        handlers, consent:changed event
+ *        handlers, consent:changed event. REMOVED in #757 along with the
+ *        broader Sentry/telemetry strip — these channels had zero renderer
+ *        consumers after Task 4 removed the sentry:* surface.
  * - v8: SPA self-heal (#753): spa:requestSelfHeal handler. Renderer signals
  *        chunk-load failures so main process can refetch /api/v1/client/config
  *        and reload via the existing resolveSpaSource() validators. See

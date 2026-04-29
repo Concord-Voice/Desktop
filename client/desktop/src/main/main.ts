@@ -1,5 +1,3 @@
-import { initSentry, upgradeSentryUserId } from './sentry';
-import { registerClientIdHandler } from './ipc/clientIdHandler';
 import { registerOpenExternalHandler } from './ipc/openExternal';
 import {
   app,
@@ -42,7 +40,6 @@ import {
   getUpdateLogger,
   getUpdateLogPath,
 } from './updater';
-import * as Sentry from '@sentry/electron/main';
 import { createPinningVerifyProc } from './updatePinning';
 import { PIN_CONFIG } from './updatePinningConfig';
 import {
@@ -58,7 +55,6 @@ import { IPC_CONTRACT_VERSION } from './ipcContract';
 import { registerIpcHandlers as registerPermissionHandlers } from './permissionManager';
 import { migrateUserData } from './userDataMigration';
 import { showSplash, closeSplash, updateSplashError } from './splashWindow';
-import { registerConsentIpcHandlers } from './telemetryConsent';
 
 // One-time migration: rename "Concord Voice" → "ConcordVoice" userData directory (#385).
 // Must run before any app.getPath('userData') reads (e.g. hw-accel prefs below).
@@ -277,33 +273,8 @@ const createWindow = async (): Promise<void> => {
 // Track rollback result so we can notify the renderer after window creation
 let rollbackResult: SentinelResult | null = null;
 
-// Await Sentry init BEFORE any window logic so all crashes are tagged.
-// See client/desktop/src/main/sentry.ts for rationale.
-const sentryInitPromise = initSentry().catch((err: unknown) => {
-  // #706 defense-in-depth: @sentry SDK throws `Invalid Sentry Dsn: <value>` with
-  // the DSN literally embedded in err.message. Using the Error message alone
-  // already strips the .cause chain, but the DSN string is still in the
-  // message body. Redact any DSN-shaped substring (scheme://public@host/id)
-  // before logging so stdout/log sinks never see the project ingest key.
-  //
-  // Guard against non-Error rejections: JavaScript allows throwing any value
-  // (throw "string", reject(undefined), ...). A bare `.message` access on a
-  // non-Error would throw TypeError inside the catch, which the top-level
-  // .catch() would swallow — but then startup continues with no diagnostic
-  // signal at all. Normalize to a string first.
-  //
-  // DSN regex handles both SaaS (host/projectId) and self-hosted
-  // (host/sub/path/projectId) deployments (Andromeda/federal).
-  const raw = err instanceof Error ? err.message : String(err);
-  const scrubbed = raw.replaceAll(/https?:\/\/[^@\s]+@[^\s]+?\/\d+(?=[^\d]|$)/g, '<redacted-dsn>');
-  console.error(`[main] initSentry failed: ${scrubbed}`);
-  // Do not crash startup — Sentry simply won't be active this session.
-});
-
 // App lifecycle handlers
 app.whenReady().then(async () => {
-  await sentryInitPromise;
-  registerClientIdHandler(() => remoteSpaBaseUrl);
   registerOpenExternalHandler(() => remoteSpaBaseUrl);
   // Permission request handler: explicitly allow app-required permissions, deny risky ones.
   // Notifications are allowed (JIT-managed by permissionManager #197).
@@ -335,19 +306,7 @@ app.whenReady().then(async () => {
   // is already armed. See:
   //   internal-reference
   //   internal-reference
-  session.defaultSession.setCertificateVerifyProc(
-    createPinningVerifyProc(PIN_CONFIG, console, {
-      // Our SentryEmitter.level is 'info' | 'warning' | 'error', a strict
-      // subset of Sentry.Breadcrumb's level union. Structural assignment is
-      // direct — no cast needed after the Sonar-driven narrowing.
-      addBreadcrumb: (breadcrumb) => Sentry.addBreadcrumb(breadcrumb),
-      captureException: (error, options) =>
-        Sentry.captureException(error, {
-          fingerprint: [...options.fingerprint],
-          tags: options.tags,
-        }),
-    })
-  );
+  session.defaultSession.setCertificateVerifyProc(createPinningVerifyProc(PIN_CONFIG, console));
 
   // HID device selection: auto-select for WebAuthn hardware security keys
   session.defaultSession.on('select-hid-device', (event, details, callback) => {
@@ -428,10 +387,6 @@ app.whenReady().then(async () => {
       );
     }
   }
-
-  // Telemetry consent IPC — registered once at app init, NOT inside createWindow(),
-  // to prevent duplicate-registration errors when macOS re-opens the window (#618).
-  registerConsentIpcHandlers();
 
   createWindow();
 
@@ -761,18 +716,6 @@ ipcMain.handle('auth:getCapabilities', () => {
 
 ipcMain.handle('auth:getMachineId', () => {
   return getMachineId();
-});
-
-// Upgrade the Sentry user.id from the per-launch random fallback to the
-// stable userUUID+hardware hash after login completes. The renderer supplies
-// the authenticated user's account UUID (decoded from the JWT `sub` claim).
-// The main process MUST be the one calling Sentry.setUser — the renderer's
-// Sentry client is separate, and receives the broadcast to update its own tag.
-ipcMain.handle('sentry:upgradeUser', async (_event, userUUID: string) => {
-  if (typeof userUUID !== 'string' || userUUID.length < 8 || userUUID.length > 128) {
-    throw new Error('invalid userUUID');
-  }
-  await upgradeSentryUserId(userUUID);
 });
 
 // ─── PiP (Picture-in-Picture) Window Management ──────────────────────

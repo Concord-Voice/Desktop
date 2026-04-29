@@ -1,33 +1,11 @@
 /// <reference types="vitest" />
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { sentryVitePlugin } from '@sentry/vite-plugin';
 import path from 'path';
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '');
-  const authToken = env.SENTRY_AUTH_TOKEN || process.env.SENTRY_AUTH_TOKEN;
-
+export default defineConfig(() => {
   return {
-    plugins: [
-      react(),
-      // Sentry plugin MUST be after all other plugins per the docs.
-      // disable: !authToken makes local dev builds work without upload credentials.
-      sentryVitePlugin({
-        org: 'concord-voice',
-        project: 'concord-voice-desktop',
-        authToken,
-        release: {
-          name: process.env.npm_package_version
-            ? `concord-desktop@${process.env.npm_package_version}`
-            : undefined,
-        },
-        sourcemaps: {
-          filesToDeleteAfterUpload: ['./dist/renderer/**/*.map'],
-        },
-        disable: !authToken,
-      }),
-    ],
+    plugins: [react()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),

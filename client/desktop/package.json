@@ -1,7 +1,7 @@
 {
   "name": "@concordvoice/desktop",
   "productName": "ConcordVoice",
-  "version": "0.1.29",
+  "version": "0.1.30",
   "description": "Concord Voice Desktop Client - Privacy-first voice communication",
   "main": "dist/main/main.js",
   "author": "Concord Voice Team",
@@ -10,8 +10,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:main\"",
     "dev:renderer": "vite",
-    "dev:main": "npm run prebuild && npm run build:preload && tsc -p tsconfig.main.json && NODE_ENV=development electron-forge start",
-    "prebuild": "tsx scripts/generate-sentry-config.ts",
+    "dev:main": "npm run build:preload && tsc -p tsconfig.main.json && NODE_ENV=development electron-forge start",
     "build": "npm run build:renderer && npm run build:preload && npm run build:main",
     "build:renderer": "vite build",
     "build:preload": "node scripts/build-preload.mjs",
@@ -36,8 +35,6 @@
   },
   "dependencies": {
     "@msgpack/msgpack": "^3.1.3",
-    "@sentry/electron": "^7.11.0",
-    "@sentry/react": "^10.48.0",
     "electron-squirrel-startup": "^1.0.0",
     "electron-updater": "^6.8.3",
     "hash-wasm": "^4.12.0",
@@ -66,7 +63,6 @@
     "@eslint-community/eslint-plugin-eslint-comments": "^4.7.1",
     "@playwright/test": "^1.59.1",
     "@reforged/maker-appimage": "^5.2.0",
-    "@sentry/vite-plugin": "^5.2.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

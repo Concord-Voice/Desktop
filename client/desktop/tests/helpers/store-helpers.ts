@@ -13,7 +13,6 @@ import { usePrivacyStore } from '../../src/renderer/stores/privacyStore';
 import { useMFAChallengeStore } from '../../src/renderer/stores/mfaChallengeStore';
 import { useSavedGifsStore } from '../../src/renderer/stores/savedGifsStore';
 import { useChannelScrollStore } from '../../src/renderer/stores/channelScrollStore';
-import { useTelemetryConsentStore } from '../../src/renderer/stores/telemetryConsentStore';
 import { useUpdateStatusStore } from '../../src/renderer/stores/updateStatusStore';
 import { useVoiceStore } from '../../src/renderer/stores/voiceStore';
 
@@ -41,12 +40,6 @@ export function resetAllStores(): void {
   useChannelScrollStore.setState({ positions: {} });
   useVoiceStore.getState().reset();
   useVoiceStore.setState({ channelVoiceMembers: {}, serverVoiceCounts: {} });
-  useTelemetryConsentStore.setState({
-    telemetryOptIn: false,
-    firstPromptCompleted: false,
-    policyAcknowledgedVersion: 0,
-    isLoaded: false,
-  });
   useUpdateStatusStore.getState().reset();
 
   // Clear persisted state from localStorage

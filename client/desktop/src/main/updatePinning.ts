@@ -27,41 +27,6 @@ type Logger = Pick<Console, 'warn' | 'error'>;
 type VerifyProcCallback = (verificationResult: number) => void;
 export type VerifyProc = (request: VerifyProcRequest, callback: VerifyProcCallback) => void;
 
-/**
- * Structural interface for the narrow Sentry surface the verify-proc uses.
- * Kept minimal so the factory stays easy to mock in tests and the production
- * import (@sentry/electron/main) is optional at the call site.
- */
-export interface SentryEmitter {
-  addBreadcrumb: (breadcrumb: {
-    category: string;
-    // Narrow literal union; call sites only emit 'warning' and 'error'.
-    // Intentionally a subset of @sentry/electron's Breadcrumb['level']
-    // (which also includes 'fatal' | 'debug' | 'log') — the adapter in
-    // main.ts passes this straight through, so structural assignment holds.
-    level: 'info' | 'warning' | 'error';
-    type?: string;
-    data: Record<string, unknown>;
-  }) => void;
-  captureException: (
-    error: Error,
-    options: { fingerprint: readonly string[]; tags: Record<string, string> }
-  ) => void;
-}
-
-/**
- * No-op Sentry emitter used when none is injected. Production builds pass the
- * real @sentry/electron/main module; tests pass a vi.fn() pair.
- */
-const NOOP_SENTRY: SentryEmitter = {
-  addBreadcrumb: () => {
-    /* no-op */
-  },
-  captureException: () => {
-    /* no-op */
-  },
-};
-
 function normalizeHex(s: string): string {
   return s.toLowerCase().replaceAll(/[^0-9a-f]/g, '');
 }
@@ -115,11 +80,7 @@ export function isHostnamePinned(hostname: string, pinnedHosts: readonly string[
  *
  * @throws Error if config.primaryPins or config.fallbackPins is empty (I3)
  */
-export function createPinningVerifyProc(
-  config: PinConfig,
-  logger: Logger,
-  sentry: SentryEmitter = NOOP_SENTRY
-): VerifyProc {
+export function createPinningVerifyProc(config: PinConfig, logger: Logger): VerifyProc {
   if (config.primaryPins.length === 0) {
     throw new Error('updatePinning: primary pin list is empty — refusing to start');
   }
@@ -129,12 +90,6 @@ export function createPinningVerifyProc(
 
   const primarySet = new Set(config.primaryPins.map(normalizeHex));
   const fallbackSet = new Set(config.fallbackPins.map(normalizeHex));
-
-  // Session-scoped dedup for Sentry events. Without this, every scheduled
-  // update check against a bad cert fires a fresh event; with it, operators
-  // get one issue per hostname per session (the fingerprint groups later
-  // retries under the same Sentry issue).
-  const seenMissHosts = new Set<string>();
 
   return (request, callback) => {
     try {
@@ -163,42 +118,17 @@ export function createPinningVerifyProc(
         logger.warn(
           `Update feed pin: fallback pin matched for ${request.hostname} (SPKI:…${last8})`
         );
-        sentry.addBreadcrumb({
-          category: 'update.pin',
-          level: 'warning',
-          type: 'security',
-          data: { outcome: 'fallback', host: request.hostname, spkiLast8: last8 },
-        });
         return callback(0);
       }
 
       // I9 — hostname + last-8 only; never full SPKI, never subject fields.
       logger.error(`SECURITY: Update feed pin miss for ${request.hostname}; got SPKI:…${last8}`);
-      sentry.addBreadcrumb({
-        category: 'update.pin',
-        level: 'error',
-        type: 'security',
-        data: { outcome: 'miss', host: request.hostname, spkiLast8: last8 },
-      });
-      if (!seenMissHosts.has(request.hostname)) {
-        seenMissHosts.add(request.hostname);
-        sentry.captureException(new Error(`Update feed cert-pin miss: ${request.hostname}`), {
-          fingerprint: ['cert-pin-miss', request.hostname],
-          tags: { security_event: 'true', 'update.trust.layer': 'tls-pin' },
-        });
-      }
       return callback(-2);
     } catch (err) {
       // I1 — any failure → fail-closed reject. Never accept on exception.
       const host = request?.hostname ?? '<unknown>';
       const msg = err instanceof Error ? err.message : String(err);
       logger.error(`SECURITY: verifyProc error for ${host}: ${msg}`);
-      sentry.addBreadcrumb({
-        category: 'update.pin',
-        level: 'error',
-        type: 'security',
-        data: { outcome: 'error', host },
-      });
       return callback(-2);
     }
   };
