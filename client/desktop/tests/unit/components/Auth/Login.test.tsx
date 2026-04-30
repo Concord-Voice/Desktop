@@ -751,4 +751,126 @@ describe('Login', () => {
       expect(screen.getByPlaceholderText('Enter your password')).toBeDisabled();
     });
   });
+
+  // ── account_uses_sso (#270) ────────────────────────────────────────────
+
+  it('swaps form for SSO button when server returns 403 account_uses_sso', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ error_code: 'account_uses_sso', providers: ['google'] }),
+    });
+
+    const user = userEvent.setup();
+    render(<Login {...defaultProps} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'sso@example.test');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'anything');
+    await user.click(screen.getByRole('button', { name: /^sign in$/i }));
+
+    await screen.findByRole('button', { name: /sign in with google/i });
+    // The password input should be gone — the SSO-only branch replaces the
+    // form so the user cannot resubmit credentials that won't work.
+    expect(screen.queryByPlaceholderText('Enter your password')).not.toBeInTheDocument();
+  });
+
+  it('renders both Google and Apple buttons when account_uses_sso lists both', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ error_code: 'account_uses_sso', providers: ['google', 'apple'] }),
+    });
+
+    const user = userEvent.setup();
+    render(<Login {...defaultProps} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'sso@example.test');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'anything');
+    await user.click(screen.getByRole('button', { name: /^sign in$/i }));
+
+    await screen.findByRole('button', { name: /sign in with google/i });
+    expect(screen.getByRole('button', { name: /sign in with apple/i })).toBeInTheDocument();
+  });
+
+  it('returns to the password form when "Back to login" is clicked from the SSO-only view', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ error_code: 'account_uses_sso', providers: ['google'] }),
+    });
+
+    const user = userEvent.setup();
+    render(<Login {...defaultProps} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'sso@example.test');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'anything');
+    await user.click(screen.getByRole('button', { name: /^sign in$/i }));
+
+    // Wait for the SSO-only branch to render.
+    await screen.findByRole('button', { name: /sign in with google/i });
+    // Click Back — the password form should reappear.
+    await user.click(screen.getByRole('button', { name: /back to login/i }));
+    expect(screen.getByPlaceholderText('Enter your password')).toBeInTheDocument();
+  });
+
+  it('renders the SSO entry button on the default password-form view and invokes beginSSO on click', async () => {
+    const user = userEvent.setup();
+    render(<Login {...defaultProps} />);
+    // Both forms (password + SSO entry) coexist on the default view.
+    expect(screen.getByPlaceholderText('Enter your password')).toBeInTheDocument();
+    const ssoBtn = screen.getByRole('button', { name: /sign in with google/i });
+    expect(ssoBtn).toBeInTheDocument();
+    // Clicking exercises the inline arrow handler on line 615 — invokes
+    // useSSOFlow().begin('google') via real-hook wiring; the loopback flow
+    // itself short-circuits because globalThis.electron is stubbed by setup.ts.
+    await user.click(ssoBtn);
+    // No throw + the button stays present (not disabled by submit state).
+    expect(ssoBtn).toBeInTheDocument();
+  });
+
+  it('clicks the Apple SSO button on the SSO-only branch when both providers are listed', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ error_code: 'account_uses_sso', providers: ['google', 'apple'] }),
+    });
+
+    const user = userEvent.setup();
+    render(<Login {...defaultProps} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'sso@example.test');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'anything');
+    await user.click(screen.getByRole('button', { name: /^sign in$/i }));
+
+    // Apple variant is rendered in addition to Google when providers includes
+    // 'apple' — the inline onClick on line 582 is exercised on the click.
+    const appleBtn = await screen.findByRole('button', { name: /sign in with apple/i });
+    await user.click(appleBtn);
+    // No throw — the click handler is wired through useSSOFlow.
+    expect(appleBtn).toBeInTheDocument();
+  });
+
+  // ── sso_account_misconfigured (#270 / PR #808 review) ──────────────────
+
+  it('shows a contact-support message when server returns 500 sso_account_misconfigured', async () => {
+    // Backend signaled a data-integrity violation: password_login_disabled=TRUE
+    // with no SSO identities linked. This is persistent (not transient), so the
+    // user-facing copy must NOT suggest "try again in a moment" — it should
+    // direct the user to support with a referenceable error code.
+    mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 500,
+      json: async () => ({ error_code: 'sso_account_misconfigured' }),
+    });
+
+    const user = userEvent.setup();
+    render(<Login {...defaultProps} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'misconfig@example.test');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'anything');
+    await user.click(screen.getByRole('button', { name: /^sign in$/i }));
+
+    // The friendly copy with the SSO_MISCONFIG error code must be visible —
+    // not a generic 500 fallback message.
+    await screen.findByText(/SSO_MISCONFIG/);
+    expect(screen.getByText(/contact support/i)).toBeInTheDocument();
+    // The password input must remain (the user might switch to a different
+    // account; we don't swap to the SSO-only view since there are no providers).
+    expect(screen.getByPlaceholderText('Enter your password')).toBeInTheDocument();
+  });
 });

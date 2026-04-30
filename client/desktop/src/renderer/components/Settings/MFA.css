@@ -680,3 +680,77 @@
   color: var(--text-secondary, #bbb);
   font-weight: 500;
 }
+
+/* ── SSO Security toggles (issue #270) ───────────────────────────── */
+
+.sso-toggle-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 16px 0;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.08));
+}
+
+.sso-toggle-row:last-child {
+  border-bottom: none;
+}
+
+.sso-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary, inherit);
+  cursor: pointer;
+}
+
+.sso-toggle-label input[type='checkbox']:disabled {
+  cursor: not-allowed;
+}
+
+.sso-toggle-warning {
+  font-size: 12px;
+  color: var(--text-muted, #888);
+  margin: 0 0 0 24px;
+  line-height: 1.4;
+}
+
+.sso-toggle-confirm {
+  margin: 8px 0 0 24px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.1));
+  border-radius: 6px;
+  background: var(--background-secondary, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sso-toggle-confirm label {
+  font-size: 12px;
+  color: var(--text-secondary, #bbb);
+  font-weight: 500;
+}
+
+.sso-toggle-confirm input[type='password'] {
+  padding: 6px 8px;
+  border: 1px solid var(--border-color, #444);
+  border-radius: 4px;
+  background: var(--bg-input, transparent);
+  color: var(--text-primary, inherit);
+  font-size: 14px;
+}
+
+.sso-toggle-error {
+  color: var(--danger-text, #c0392b);
+  font-size: 12px;
+  margin: 0;
+}
+
+.sso-toggle-confirm-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}

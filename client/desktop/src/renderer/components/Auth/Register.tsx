@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import PasswordStrength from './PasswordStrength';
 import InfoTooltip from './InfoTooltip';
 import LoadingSpinner from './LoadingSpinner';
+import { SSOButton } from './SSOButton';
+import { useSSOFlow } from '../../hooks/useSSOFlow';
 import { generateRegistrationKeys, exportPublicKey } from '../../utils/crypto';
 import { API_BASE, ensureMachineId } from '../../services/apiClient';
 import {
@@ -47,6 +49,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [passwordsMatch, setPasswordsMatch] = useState(false);
+  const { begin: beginSSO } = useSSOFlow();
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
@@ -217,6 +220,16 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
           <p className="register-subtitle">
             Join the Concord Voice network with end-to-end encryption
           </p>
+        </div>
+
+        {/* SSO entry point — clicking begins the loopback OAuth flow. New
+            users coming from Google enter the SSO new-user wizard via
+            useSSOStore once Task 21 wires AuthFlow. */}
+        <div className="register-sso-row">
+          <SSOButton provider="google" onClick={() => beginSSO('google')} disabled={isSubmitting} />
+        </div>
+        <div className="register-divider" role="separator" aria-label="or sign up with email">
+          <span className="register-divider__text">or</span>
         </div>
 
         <form className="register-form" onSubmit={handleSubmit}>

@@ -69,7 +69,7 @@ vi.mock('electron', () => ({
       })
     ),
   },
-  ipcMain: { handle: vi.fn() },
+  ipcMain: { handle: vi.fn(), on: vi.fn() },
   clipboard: { writeText: vi.fn() },
   desktopCapturer: {
     getSources: vi.fn(() =>

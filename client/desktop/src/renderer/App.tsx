@@ -13,7 +13,9 @@ import UpdateBanner from './components/ui/UpdateBanner';
 import { UpdateSecurityBanner } from './components/Updates/UpdateSecurityBanner';
 import { useUpdateErrorListener } from './hooks/useUpdateErrorListener';
 import MFAChallengeModal from './components/Auth/MFAChallengeModal';
+import SSOEagerUnlock from './components/Auth/SSOEagerUnlock';
 import { useAuthStore } from './stores/authStore';
+import { useE2EEStore } from './stores/e2eeStore';
 import { useUserStore } from './stores/userStore';
 import { useVideoSettingsStore } from './stores/videoSettingsStore';
 import { useOsPermissionStore, type OsPermissionType } from './stores/osPermissionStore';
@@ -105,6 +107,11 @@ function AuthenticatedLayout() {
   const emailVerified = useAuthStore((state) => state.emailVerified);
   const user = useUserStore((state) => state.user);
   const fetchUser = useUserStore((state) => state.fetchUser);
+  // SSO eager-unlock gate (#270 Task 21b). Selectively subscribed so the
+  // layout re-renders the moment e2eeService.initialize flips `ready=true`,
+  // letting us fall through to <Outlet /> on the next render.
+  const e2eeReady = useE2EEStore((s) => s.ready);
+  const needsSSOUnlock = useE2EEStore((s) => s.needsSSOUnlock);
   const navigate = useNavigate();
 
   // Single WebSocket connection that persists across all authenticated routes
@@ -202,6 +209,36 @@ function AuthenticatedLayout() {
   // Redirect unverified users back to auth flow (which will show email verification)
   if (!emailVerified) {
     return <Navigate to="/" replace />;
+  }
+
+  // SSO eager-unlock gate (#270 Task 21b): when an SSO callback returned
+  // `logged_in` but no E2EE keys have been initialized on this device yet,
+  // SSOEagerUnlock prompts for the user's passphrase and calls
+  // e2eeService.initialize, which flips `ready=true` in useE2EEStore. Once
+  // ready, the gate falls through on the next render. Password-login users
+  // never set `needsSSOUnlock` (they initialize E2EE inline before
+  // navigating here), so they bypass this gate entirely.
+  if (needsSSOUnlock && !e2eeReady) {
+    const handleUnlock = () => {
+      // Clear the one-shot flag — `e2eeService.initialize` already flipped
+      // `ready=true` via the store sync, so the next render falls through.
+      useE2EEStore.getState().setNeedsSSOUnlock(false);
+    };
+    const handleSocialRecovery = () => {
+      // Drop the access token + reset E2EE state to return the user to the
+      // auth flow, where they can choose "Forgot password?" from Login.
+      // We don't have a direct route from inside the post-auth gate to
+      // AuthFlow's `forgot-password` step (it's an internal AuthStep), and
+      // the IR playbook for first-device recovery passes through password
+      // recovery anyway, so this redirect is the canonical entry.
+      useE2EEStore.getState().reset();
+      useAuthStore.getState().clearAccessToken();
+    };
+    return (
+      <ErrorBoundary fallback={<AuthenticatedViewFallback />}>
+        <SSOEagerUnlock onUnlock={handleUnlock} onSocialRecovery={handleSocialRecovery} />
+      </ErrorBoundary>
+    );
   }
 
   return (

@@ -10,6 +10,7 @@ import {
   encryptMessage,
 } from '@/renderer/utils/crypto';
 import { E2EEKeyUnavailableError } from '@/renderer/services/e2eeErrors';
+import { useE2EEStore } from '@/renderer/stores/e2eeStore';
 
 // We need a fresh E2EEService instance for each test, not the singleton
 // Import the class by re-importing the module
@@ -40,6 +41,7 @@ describe('e2eeService', () => {
 
   beforeEach(async () => {
     e2eeService.clearKeys();
+    useE2EEStore.getState().reset();
     vi.clearAllMocks();
     // Generate fresh keys for each test
     regKeys = await generateRegistrationKeys(testPassword);
@@ -47,6 +49,7 @@ describe('e2eeService', () => {
 
   afterEach(() => {
     e2eeService.clearKeys();
+    useE2EEStore.getState().reset();
   });
 
   describe('initialize', () => {
@@ -58,6 +61,16 @@ describe('e2eeService', () => {
         regKeys.keyDerivationSalt
       );
       expect(e2eeService.isInitialized).toBe(true);
+    });
+
+    it('flips useE2EEStore.ready to true on success (#270 Task 21b)', async () => {
+      expect(useE2EEStore.getState().ready).toBe(false);
+      await e2eeService.initialize(
+        testPassword,
+        regKeys.wrappedPrivateKey,
+        regKeys.keyDerivationSalt
+      );
+      expect(useE2EEStore.getState().ready).toBe(true);
     });
   });
 
@@ -72,6 +85,18 @@ describe('e2eeService', () => {
 
       e2eeService.clearKeys();
       expect(e2eeService.isInitialized).toBe(false);
+    });
+
+    it('flips useE2EEStore.ready back to false (#270 Task 21b)', async () => {
+      await e2eeService.initialize(
+        testPassword,
+        regKeys.wrappedPrivateKey,
+        regKeys.keyDerivationSalt
+      );
+      expect(useE2EEStore.getState().ready).toBe(true);
+
+      e2eeService.clearKeys();
+      expect(useE2EEStore.getState().ready).toBe(false);
     });
   });
 

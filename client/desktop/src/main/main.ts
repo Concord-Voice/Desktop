@@ -1,4 +1,5 @@
 import { registerOpenExternalHandler } from './ipc/openExternal';
+import { registerSSOIPC } from './ipc/sso';
 import {
   app,
   BrowserWindow,
@@ -276,6 +277,7 @@ let rollbackResult: SentinelResult | null = null;
 // App lifecycle handlers
 app.whenReady().then(async () => {
   registerOpenExternalHandler(() => remoteSpaBaseUrl);
+  registerSSOIPC(() => remoteSpaBaseUrl);
   // Permission request handler: explicitly allow app-required permissions, deny risky ones.
   // Notifications are allowed (JIT-managed by permissionManager #197).
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {

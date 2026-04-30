@@ -31,6 +31,7 @@ import {
 } from '../utils/crypto';
 import { apiFetch, safeJson } from './apiClient';
 import { E2EEKeyUnavailableError, type E2EEKeyErrorCode } from './e2eeErrors';
+import { useE2EEStore } from '../stores/e2eeStore';
 
 // Session lifetime — keys cached until explicit invalidation (rotation) or logout/close.
 // Lazy fetch + hold: each channel's key is fetched on first visit and held for the session.
@@ -164,6 +165,11 @@ class E2EEService {
       preferencesKeyBase64: arrayBufferToBase64(prefsRaw),
       wrappedPrivateKeyBase64,
     };
+
+    // Mark the renderer-side E2EE store ready so the post-auth gate
+    // (#270 Task 21b) can transition past SSOEagerUnlock. Source of truth
+    // remains this service — the store is a downstream subscription point.
+    useE2EEStore.getState().setReady(true);
   }
 
   /**
@@ -191,6 +197,11 @@ class E2EEService {
 
     this.wrappedPrivateKey = keys.wrappedPrivateKeyBase64;
     this.sessionKeys = keys;
+
+    // Mirror initialize(): mark the renderer-side E2EE store ready so the
+    // post-auth gate (#270 Task 21b) can fall through to MainApp. Used on
+    // session-restore from safeStorage at app launch.
+    useE2EEStore.getState().setReady(true);
 
     // No periodic cleanup needed — session-scoped cache (keys stay until rotation or logout)
   }
@@ -724,6 +735,11 @@ class E2EEService {
     this.channelKeyCache.clear();
     this.versionedKeyCache.clear();
     this.pendingKeyFetches.clear();
+
+    // Reset the reactive flag so the post-auth gate (#270 Task 21b) goes
+    // back to its pre-init state. We deliberately do NOT touch
+    // `needsSSOUnlock` here — that one-shot signal belongs to useSSOFlow.
+    useE2EEStore.getState().setReady(false);
   }
 
   /**

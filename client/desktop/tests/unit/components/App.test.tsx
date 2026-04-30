@@ -5,6 +5,7 @@ import { useChannelStore } from '@/renderer/stores/channelStore';
 import { useDMStore } from '@/renderer/stores/dmStore';
 import { useNotificationNavigationStore } from '@/renderer/stores/notificationNavigationStore';
 import { usePendingRegistrationStore } from '@/renderer/stores/pendingRegistrationStore';
+import { useE2EEStore } from '@/renderer/stores/e2eeStore';
 // Mock child components to prevent complex rendering
 vi.mock('@/renderer/components/Auth/AuthFlow', () => ({
   default: () => <div data-testid="auth-flow">AuthFlow</div>,
@@ -42,6 +43,24 @@ vi.mock('@/renderer/components/ui/UpdateBanner', () => ({
 vi.mock('@/renderer/components/Auth/MFAChallengeModal', () => ({
   default: () => null,
 }));
+vi.mock('@/renderer/components/Auth/SSOEagerUnlock', () => ({
+  default: ({
+    onUnlock,
+    onSocialRecovery,
+  }: {
+    onUnlock: () => void;
+    onSocialRecovery: () => void;
+  }) => (
+    <div data-testid="sso-eager-unlock">
+      <button data-testid="sso-eager-unlock-unlock" onClick={onUnlock}>
+        Unlock
+      </button>
+      <button data-testid="sso-eager-unlock-recovery" onClick={onSocialRecovery}>
+        Recovery
+      </button>
+    </div>
+  ),
+}));
 vi.mock('@/renderer/services/clientConfigService', () => ({
   clientConfigService: { start: vi.fn(), stop: vi.fn() },
 }));
@@ -65,6 +84,7 @@ describe('App', () => {
     useAuthStore.getState().clearAccessToken();
     useUserStore.setState({ user: null });
     usePendingRegistrationStore.getState().clearPending();
+    useE2EEStore.getState().reset();
   });
 
   // ── Pending registration cleanup on startup ─────────────────────────────
@@ -267,5 +287,60 @@ describe('App', () => {
     expect(useDMStore.getState().activeConversationId).toBe('dm-conv-1');
     expect(mockClearBadge).toHaveBeenCalled();
     expect(useNotificationNavigationStore.getState().pendingNavigation).toBeNull();
+  });
+
+  // ── SSO eager-unlock gate (#270 Task 21b) ─────────────────────────────────
+
+  it('mounts SSOEagerUnlock when an SSO user lacks unwrapped E2EE keys', () => {
+    authenticateUser();
+    // Simulate a fresh SSO callback: token + needsSSOUnlock=true, ready=false.
+    useE2EEStore.getState().setNeedsSSOUnlock(true);
+    render(<App />);
+
+    expect(screen.getByTestId('sso-eager-unlock')).toBeInTheDocument();
+    // Main app routes must NOT render until the gate is cleared.
+    expect(screen.queryByTestId('dm-view')).not.toBeInTheDocument();
+  });
+
+  it('falls through to main app when E2EE is ready (password-login users)', () => {
+    authenticateUser();
+    // Password-login users initialize E2EE inline before navigating to /app/dms,
+    // so they reach AuthenticatedLayout with needsSSOUnlock=false. They must
+    // bypass the eager-unlock gate entirely.
+    expect(useE2EEStore.getState().needsSSOUnlock).toBe(false);
+    render(<App />);
+
+    expect(screen.queryByTestId('sso-eager-unlock')).not.toBeInTheDocument();
+    expect(screen.getByTestId('dm-view')).toBeInTheDocument();
+  });
+
+  it('handleUnlock clears needsSSOUnlock so the gate falls through next render', () => {
+    authenticateUser();
+    useE2EEStore.getState().setNeedsSSOUnlock(true);
+    render(<App />);
+
+    expect(screen.getByTestId('sso-eager-unlock')).toBeInTheDocument();
+    // Click the mocked Unlock button — invokes the handleUnlock prop on
+    // SSOEagerUnlock, which calls setNeedsSSOUnlock(false).
+    act(() => {
+      screen.getByTestId('sso-eager-unlock-unlock').click();
+    });
+    expect(useE2EEStore.getState().needsSSOUnlock).toBe(false);
+  });
+
+  it('handleSocialRecovery resets E2EE store and clears the access token', () => {
+    authenticateUser();
+    useE2EEStore.getState().setNeedsSSOUnlock(true);
+    render(<App />);
+
+    expect(useAuthStore.getState().accessToken).toBe('mock-token');
+    // Click the mocked Recovery button — invokes handleSocialRecovery which
+    // resets E2EE state and drops the access token, returning the user to
+    // the auth flow.
+    act(() => {
+      screen.getByTestId('sso-eager-unlock-recovery').click();
+    });
+    expect(useAuthStore.getState().accessToken).toBeNull();
+    expect(useE2EEStore.getState().needsSSOUnlock).toBe(false);
   });
 });

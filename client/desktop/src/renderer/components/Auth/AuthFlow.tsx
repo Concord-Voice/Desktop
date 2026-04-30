@@ -4,6 +4,7 @@ import { ConnectionMode } from '../../types/auth';
 import { useAuthStore } from '../../stores/authStore';
 import { useUserStore, UserProfile } from '../../stores/userStore';
 import { usePendingRegistrationStore } from '../../stores/pendingRegistrationStore';
+import { useSSOStore } from '../../stores/ssoStore';
 import ConnectionSelector from './ConnectionSelector';
 import ServerInput from './ServerInput';
 import Register from './Register';
@@ -11,7 +12,54 @@ import Login from './Login';
 import AccountRecovery from './AccountRecovery';
 import EmailVerification from './EmailVerification';
 import { ChangeEmail } from './ChangeEmail';
+import SSOPassphraseSetup from './SSOPassphraseSetup';
+import SSOAccountLinkConfirm from './SSOAccountLinkConfirm';
 import './AuthFlow.css';
+
+/**
+ * SSOErrorScreen — terminal-state UI for the SSO `error` phase. Maps known
+ * stable error codes from the server / loopback layer to actionable copy and
+ * gives the user a Try Again button that resets the SSO store back to idle.
+ *
+ * The renderer wired this branch in #808 review: previously, useSSOFlow set
+ * `phase: 'error'` and AuthFlow had no matching branch — the error string was
+ * silently held in the store with no UI surface.
+ */
+const SSOErrorScreen: React.FC = () => {
+  const message = useSSOStore((s) => (s.state.phase === 'error' ? s.state.message : ''));
+  const reset = useSSOStore((s) => s.reset);
+
+  // Map known stable codes to actionable copy. Anything else falls through
+  // to a generic message — we don't want to dump raw error strings into the UI.
+  let title = 'Sign-in failed';
+  let body = "We couldn't complete sign-in. Please try again.";
+  if (message === 'oauth_state_mismatch') {
+    title = 'Sign-in interrupted';
+    body =
+      "The sign-in attempt didn't match our records (possibly multiple browser windows)." +
+      ' Please try again from this app.';
+  } else if (message === 'oauth_timeout') {
+    title = 'Sign-in timed out';
+    body = 'The sign-in window was closed or took too long. Please try again.';
+  } else if (message === 'redis_unavailable' || message === 'sso_unavailable') {
+    title = 'Service temporarily unavailable';
+    body = "We're having trouble reaching the sign-in service. Please try again in a moment.";
+  } else if (message === 'oauth_cancelled') {
+    title = 'Sign-in cancelled';
+    body = "You cancelled the sign-in. Please try again when you're ready.";
+  } else if (message === 'sso_mfa_failed') {
+    title = 'Verification failed';
+    body = "We couldn't verify your second factor. Please try again.";
+  }
+
+  return (
+    <div className="auth-placeholder" role="alert">
+      <h2>{title}</h2>
+      <p>{body}</p>
+      <button onClick={reset}>Try Again</button>
+    </div>
+  );
+};
 
 type AuthStep =
   | 'connection-select'
@@ -29,6 +77,12 @@ const AuthFlow: React.FC = () => {
   const emailVerified = useAuthStore((state) => state.emailVerified);
 
   const hasPending = usePendingRegistrationStore((s) => s.pendingId !== null && !s.isExpired());
+
+  // SSO state takes priority over the standard step flow: when an OAuth callback
+  // routes the user into a follow-up flow (passphrase setup for new SSO accounts,
+  // password confirmation for account linking), render that wizard instead of the
+  // connection-selector chain. Phase 'idle' falls through to the existing flow.
+  const ssoPhase = useSSOStore((s) => s.state.phase);
 
   // Derive initial step: pending registration resumes at email-verification,
   // otherwise a token without verified email goes to verification (login gate),
@@ -115,6 +169,41 @@ const AuthFlow: React.FC = () => {
   const handleForgotPassword = () => {
     setStep('forgot-password');
   };
+
+  // SSO branches must render before the standard step flow so an in-flight
+  // SSO callback (register_required / link_required) cannot be hidden by a
+  // stale `step` value left over from a prior connection-select interaction.
+  if (ssoPhase === 'register_required') {
+    return (
+      <div className="auth-flow">
+        <div className="auth-screen">
+          <SSOPassphraseSetup />
+        </div>
+      </div>
+    );
+  }
+
+  if (ssoPhase === 'link_required') {
+    return (
+      <div className="auth-flow">
+        <div className="auth-screen">
+          <SSOAccountLinkConfirm />
+        </div>
+      </div>
+    );
+  }
+
+  // mfa_required is handled by the existing MFAChallengeModal mounted at App
+  // root via useSSOFlow's bridge into useMFAChallengeStore.
+  if (ssoPhase === 'error') {
+    return (
+      <div className="auth-flow">
+        <div className="auth-screen">
+          <SSOErrorScreen />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="auth-flow">

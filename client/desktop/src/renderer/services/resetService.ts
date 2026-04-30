@@ -25,6 +25,8 @@ import { useChatStore } from '../stores/chatStore';
 import { useLayoutStore } from '../stores/layoutStore';
 import { useUserStore } from '../stores/userStore';
 import { useDraftMessageStore } from '../stores/draftMessageStore';
+import { useSSOStore } from '../stores/ssoStore';
+import { useE2EEStore } from '../stores/e2eeStore';
 
 /**
  * Clears content stores while preserving device settings.
@@ -53,6 +55,17 @@ export function gracefulReset(): void {
 
   // Clear draft messages (user content, not device settings)
   useDraftMessageStore.getState().clearAllDrafts();
+
+  // Clear SSO ephemeral state — an in-flight SSO callback that's interrupted
+  // by a logout / soft-restart must not leave a stale `register_required` or
+  // `mfa_required` phase, which would re-mount SSOPassphraseSetup or the MFA
+  // modal at the next login screen with stolen-token-equivalent data.
+  useSSOStore.getState().reset();
+
+  // Clear E2EE store flags — needsSSOUnlock and ready must reset on every
+  // logout-class transition. Otherwise an SSO user logging back in via the
+  // password path would see the eager-unlock gate from the previous session.
+  useE2EEStore.getState().reset();
 
   // Remove persisted content store data from localStorage
   // (settings stores are NOT touched — theme, audio, video, TTS persist)

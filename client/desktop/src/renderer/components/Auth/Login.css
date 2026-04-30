@@ -203,3 +203,39 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* SSO row sits above the email/password form. */
+.login-sso-row {
+  margin-bottom: 16px;
+}
+
+/* "or" divider between SSO and password fallback. */
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 16px;
+  color: var(--text-secondary, #888);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.login-divider::before,
+.login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-color, #2a2a2a);
+}
+
+.login-divider__text {
+  flex-shrink: 0;
+}
+
+/* SSO-only branch: stack provider buttons vertically with breathing room. */
+.login-form--sso-only {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}

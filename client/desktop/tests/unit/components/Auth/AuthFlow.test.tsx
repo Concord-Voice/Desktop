@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from '../../../test-utils';
 import { useAuthStore } from '@/renderer/stores/authStore';
 import { useUserStore } from '@/renderer/stores/userStore';
 import { usePendingRegistrationStore } from '@/renderer/stores/pendingRegistrationStore';
+import { useSSOStore } from '@/renderer/stores/ssoStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
 // Mock child components to isolate AuthFlow logic
@@ -112,6 +113,14 @@ vi.mock('@/renderer/components/Auth/ChangeEmail', () => ({
       <button onClick={onCancel}>Change Cancel</button>
     </div>
   ),
+}));
+
+vi.mock('@/renderer/components/Auth/SSOPassphraseSetup', () => ({
+  default: () => <div data-testid="sso-passphrase-setup">Welcome to Concord</div>,
+}));
+
+vi.mock('@/renderer/components/Auth/SSOAccountLinkConfirm', () => ({
+  default: () => <div data-testid="sso-link-confirm">Link your Google account</div>,
 }));
 
 import AuthFlow from '@/renderer/components/Auth/AuthFlow';
@@ -277,5 +286,78 @@ describe('AuthFlow', () => {
 
     render(<AuthFlow />);
     expect(screen.getByTestId('email-verification')).toBeInTheDocument();
+  });
+
+  // SSO phase routing (#270, Task 21) ──────────────────────────────────────
+  // Verifies AuthFlow re-renders into the right SSO wizard when an OAuth
+  // callback drives ssoStore into a non-idle phase, and falls through to
+  // the standard connection-select flow when phase=idle.
+
+  it('renders SSOPassphraseSetup when ssoStore phase=register_required', () => {
+    useSSOStore.getState().setState({
+      phase: 'register_required',
+      provider: 'google',
+      ssoToken: 'tok-fake',
+      email: 'new@example.test',
+      name: 'New User',
+    });
+
+    render(<AuthFlow />);
+    expect(screen.getByTestId('sso-passphrase-setup')).toBeInTheDocument();
+    expect(screen.getByText(/welcome to concord/i)).toBeInTheDocument();
+  });
+
+  it('renders SSOAccountLinkConfirm when ssoStore phase=link_required', () => {
+    useSSOStore.getState().setState({
+      phase: 'link_required',
+      provider: 'google',
+      ssoToken: 'tok-link',
+      maskedEmail: 'a***@example.test',
+    });
+
+    render(<AuthFlow />);
+    expect(screen.getByTestId('sso-link-confirm')).toBeInTheDocument();
+    expect(screen.getByText(/link your google account/i)).toBeInTheDocument();
+  });
+
+  it('falls through to connection-selector when ssoStore phase=idle', () => {
+    // Default state after resetAllStores() — verifies the SSO branches do
+    // not swallow the standard non-SSO flow.
+    render(<AuthFlow />);
+    expect(screen.getByTestId('connection-selector')).toBeInTheDocument();
+    expect(screen.queryByTestId('sso-passphrase-setup')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('sso-link-confirm')).not.toBeInTheDocument();
+  });
+
+  it('renders an SSO error screen with retry when ssoStore phase=error', () => {
+    // Without this branch, useSSOFlow would set phase='error' and AuthFlow
+    // would silently render the connection selector — the user would never
+    // see the failure or have a way to retry.
+    useSSOStore.getState().setState({
+      phase: 'error',
+      message: 'oauth_state_mismatch',
+    });
+
+    render(<AuthFlow />);
+    // Mapped friendly title for the known stable code.
+    expect(screen.getByText(/sign-in interrupted/i)).toBeInTheDocument();
+    const retryBtn = screen.getByRole('button', { name: /try again/i });
+    expect(retryBtn).toBeInTheDocument();
+
+    // Clicking Try Again resets the store back to idle so the user lands at
+    // the connection selector.
+    fireEvent.click(retryBtn);
+    expect(useSSOStore.getState().state.phase).toBe('idle');
+  });
+
+  it('SSO error screen falls back to a generic message for unknown error codes', () => {
+    useSSOStore.getState().setState({
+      phase: 'error',
+      message: 'something_unrecognized',
+    });
+
+    render(<AuthFlow />);
+    expect(screen.getByText(/sign-in failed/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /try again/i })).toBeInTheDocument();
   });
 });

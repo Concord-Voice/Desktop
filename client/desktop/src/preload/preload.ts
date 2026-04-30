@@ -288,6 +288,17 @@ contextBridge.exposeInMainWorld('electron', {
       ok: boolean;
       reason?: 'untrusted-sender' | 'invalid-protocol' | 'invalid-url';
     }>,
+
+  // SSO loopback HTTP server bridge (#270): main process owns a 127.0.0.1
+  // ephemeral-port server that captures the OAuth callback. Renderer drives
+  // the provider redirect via the system browser and awaits code+state.
+  sso: {
+    startLoopback: (): Promise<{ port: number; redirectURI: string }> =>
+      ipcRenderer.invoke('sso:startLoopback'),
+    awaitCallback: (port: number): Promise<{ code: string; state: string }> =>
+      ipcRenderer.invoke('sso:awaitCallback', port),
+    cancelLoopback: (port: number): void => ipcRenderer.send('sso:cancelLoopback', port),
+  },
 });
 
 // Type definitions for the exposed API
@@ -444,6 +455,13 @@ export interface ElectronAPI {
     ok: boolean;
     reason?: 'untrusted-sender' | 'invalid-protocol' | 'invalid-url';
   }>;
+
+  // SSO loopback HTTP server bridge (#270)
+  sso: {
+    startLoopback: () => Promise<{ port: number; redirectURI: string }>;
+    awaitCallback: (port: number) => Promise<{ code: string; state: string }>;
+    cancelLoopback: (port: number) => void;
+  };
 }
 
 declare global {

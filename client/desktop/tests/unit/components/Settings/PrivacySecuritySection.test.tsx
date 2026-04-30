@@ -2,9 +2,51 @@ import { render, screen, fireEvent } from '../../../test-utils';
 import { vi } from 'vitest';
 
 const mockApiFetch = vi.fn();
+// SSO-identities GET fixture for LinkedAccountsList (issue #270 / Task 20).
+// Defined before the vi.mock factory so the factory can capture it; the
+// factory is hoisted to the top of the file by vi.mock semantics. Tracked
+// through `mockSsoIdentitiesFetch` so individual tests can opt into a
+// non-empty list without touching the general fixture queue.
+const mockSsoIdentitiesFetch = vi.fn(async () => ({
+  ok: true,
+  status: 200,
+  headers: new Headers({ 'Content-Type': 'application/json' }),
+  json: async () => ({ identities: [] }),
+  text: async () => JSON.stringify({ identities: [] }),
+}));
+// Mount-time hydration GET for the SSO security toggles (follow-up #1 from
+// PR #808). Short-circuited like /sso-identities so it doesn't consume
+// entries from the FIFO `mockResolvedValueOnce` queue used by the rest of
+// the suite. Individual tests can swap out `mockSecurityGetFetch` to
+// simulate server-side ON state.
+const mockSecurityGetFetch = vi.fn(async () => ({
+  ok: true,
+  status: 200,
+  headers: new Headers({ 'Content-Type': 'application/json' }),
+  json: async () => ({ password_login_disabled: false, trust_sso_security: false }),
+  text: async () => JSON.stringify({ password_login_disabled: false, trust_sso_security: false }),
+}));
 vi.mock('@/renderer/services/apiClient', () => ({
-  apiFetch: (...args: unknown[]) => mockApiFetch(...args),
+  apiFetch: (...args: unknown[]) => {
+    // Short-circuit LinkedAccountsList's GET and the hydration GET so they
+    // don't consume entries from the existing FIFO `mockResolvedValueOnce`
+    // queue used by all the pre-existing session/MFA tests. Survives
+    // mockReset() because it's wired at the module factory layer, not on
+    // `mockApiFetch` itself. Note: this only matches the GET (`init` is
+    // undefined or method is GET) — the PATCH still falls through to
+    // `mockApiFetch` and is asserted by the SSO toggle tests.
+    const [path, init] = args;
+    const method = (init as RequestInit | undefined)?.method ?? 'GET';
+    if (path === '/api/v1/users/me/sso-identities') {
+      return mockSsoIdentitiesFetch();
+    }
+    if (path === '/api/v1/users/me/security' && method === 'GET') {
+      return mockSecurityGetFetch();
+    }
+    return mockApiFetch(...args);
+  },
   API_BASE: 'http://localhost:8080',
+  safeJson: async (res: { json: () => Promise<unknown> }) => res.json(),
 }));
 vi.mock('@/renderer/stores/authStore', () => ({
   useAuthStore: vi.fn((s) => s({ accessToken: 'mock-token' })),
@@ -2702,5 +2744,126 @@ describe('PrivacySecuritySection', () => {
     await vi.waitFor(() =>
       expect(screen.getByText('Loading permission statuses...')).toBeInTheDocument()
     );
+  });
+
+  // ─── SSO Security toggles (issue #270) ─────────────────────────────
+  it('renders SSO Security section with both toggles and warnings', async () => {
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('SSO Security')).toBeInTheDocument());
+
+    expect(
+      screen.getByText('Trust SSO provider security (skip Concord MFA on SSO login)')
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Disable password login (require SSO every sign-in)')
+    ).toBeInTheDocument();
+    // Risk warnings (verbatim from spec §4.20)
+    expect(
+      screen.getByText(/Only enable this if your Google account has multi-factor authentication/i)
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Your account will be vulnerable to password phishing/i)
+    ).toBeInTheDocument();
+  });
+
+  it('Trust SSO toggle reveals passphrase confirm and PATCHes on submit', async () => {
+    // After the 4 default mocks (sessions, mfa/status, webauthn, sso-identities),
+    // the 5th call is the PATCH /users/me/security from the toggle confirm.
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+      json: async () => ({ ok: true }),
+      text: async () => JSON.stringify({ ok: true }),
+    });
+
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('SSO Security')).toBeInTheDocument());
+
+    // Click the trust-SSO checkbox
+    const trustToggle = screen
+      .getByText('Trust SSO provider security (skip Concord MFA on SSO login)')
+      .closest('label')!
+      .querySelector('input[type="checkbox"]') as HTMLInputElement;
+    fireEvent.click(trustToggle);
+
+    // Inline confirm UI appears
+    const passInput = await screen.findByLabelText(/enter your passphrase to confirm/i);
+    fireEvent.change(passInput, { target: { value: 'CorrectPW!' } }); // pragma: allowlist secret
+
+    fireEvent.click(screen.getByRole('button', { name: /^confirm$/i }));
+
+    await vi.waitFor(() => {
+      // 4 calls on mockApiFetch: sessions, mfa/status, webauthn/credentials, PATCH /security.
+      // (The sso-identities GET goes through a separate mock — see top of file.)
+      expect(mockApiFetch).toHaveBeenCalledTimes(4);
+    });
+
+    const patchCall = mockApiFetch.mock.calls.find((c) => c[0] === '/api/v1/users/me/security');
+    expect(patchCall).toBeDefined();
+    const init = patchCall![1] as RequestInit;
+    expect(init.method).toBe('PATCH');
+    const body = JSON.parse(init.body as string);
+    expect(body.trust_sso_security).toBe(true);
+    expect(body.current_passphrase).toBe('CorrectPW!'); // pragma: allowlist secret
+  });
+
+  it('Disable-password-login toggle PATCHes password_login_disabled with passphrase', async () => {
+    mockApiFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+      json: async () => ({ ok: true }),
+      text: async () => JSON.stringify({ ok: true }),
+    });
+
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('SSO Security')).toBeInTheDocument());
+
+    const pwToggle = screen
+      .getByText('Disable password login (require SSO every sign-in)')
+      .closest('label')!
+      .querySelector('input[type="checkbox"]') as HTMLInputElement;
+    fireEvent.click(pwToggle);
+
+    const passInput = await screen.findByLabelText(/enter your passphrase to confirm/i);
+    fireEvent.change(passInput, { target: { value: 'AnotherPW!' } }); // pragma: allowlist secret
+    fireEvent.click(screen.getByRole('button', { name: /^confirm$/i }));
+
+    await vi.waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(4));
+
+    const patchCall = mockApiFetch.mock.calls.find((c) => c[0] === '/api/v1/users/me/security');
+    expect(patchCall).toBeDefined();
+    const body = JSON.parse((patchCall![1] as RequestInit).body as string);
+    expect(body.password_login_disabled).toBe(true);
+    expect(body.current_passphrase).toBe('AnotherPW!'); // pragma: allowlist secret
+  });
+
+  it('hydrates SSO toggles from GET /users/me/security on mount', async () => {
+    // Override the default off/off fixture to return on/on so the toggles
+    // should reflect the server state instead of defaulting to false.
+    mockSecurityGetFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+      json: async () => ({ password_login_disabled: true, trust_sso_security: true }),
+      text: async () => JSON.stringify({ password_login_disabled: true, trust_sso_security: true }),
+    });
+
+    render(<PrivacySecuritySection />);
+    await vi.waitFor(() => expect(screen.getByText('SSO Security')).toBeInTheDocument());
+
+    const trustToggle = screen
+      .getByText('Trust SSO provider security (skip Concord MFA on SSO login)')
+      .closest('label')!
+      .querySelector('input[type="checkbox"]') as HTMLInputElement;
+    const pwToggle = screen
+      .getByText('Disable password login (require SSO every sign-in)')
+      .closest('label')!
+      .querySelector('input[type="checkbox"]') as HTMLInputElement;
+
+    await vi.waitFor(() => expect(trustToggle.checked).toBe(true));
+    expect(pwToggle.checked).toBe(true);
+    expect(mockSecurityGetFetch).toHaveBeenCalled();
   });
 });

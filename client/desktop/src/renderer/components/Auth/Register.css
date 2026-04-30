@@ -256,3 +256,32 @@
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* SSO row above the email/password registration form. */
+.register-sso-row {
+  margin-bottom: 16px;
+}
+
+/* "or" divider between SSO and password registration. */
+.register-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0 16px;
+  color: var(--text-secondary, #888);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.register-divider::before,
+.register-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-color, #2a2a2a);
+}
+
+.register-divider__text {
+  flex-shrink: 0;
+}

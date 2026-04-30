@@ -15,6 +15,9 @@ import { useSavedGifsStore } from '../../src/renderer/stores/savedGifsStore';
 import { useChannelScrollStore } from '../../src/renderer/stores/channelScrollStore';
 import { useUpdateStatusStore } from '../../src/renderer/stores/updateStatusStore';
 import { useVoiceStore } from '../../src/renderer/stores/voiceStore';
+import { useSSOStore } from '../../src/renderer/stores/ssoStore';
+import { useE2EEStore } from '../../src/renderer/stores/e2eeStore';
+import { usePendingRegistrationStore } from '../../src/renderer/stores/pendingRegistrationStore';
 
 /**
  * Resets all Zustand stores to their initial state.
@@ -41,7 +44,12 @@ export function resetAllStores(): void {
   useVoiceStore.getState().reset();
   useVoiceStore.setState({ channelVoiceMembers: {}, serverVoiceCounts: {} });
   useUpdateStatusStore.getState().reset();
+  useSSOStore.getState().reset();
+  useE2EEStore.getState().reset();
+  usePendingRegistrationStore.getState().clearPending();
 
-  // Clear persisted state from localStorage
+  // Clear persisted state from localStorage AND sessionStorage
+  // (pendingRegistrationStore persists to sessionStorage)
   localStorage.clear();
+  sessionStorage.clear();
 }

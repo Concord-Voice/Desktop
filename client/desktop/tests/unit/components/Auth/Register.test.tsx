@@ -20,6 +20,13 @@ vi.mock('@/renderer/utils/crypto', () => ({
   exportPublicKey: vi.fn().mockResolvedValue('mock-public-key'),
 }));
 
+// Mock useSSOFlow so we can assert the SSOButton wiring without exercising
+// the full loopback flow. The actual flow is covered in ssoService.test.ts.
+const beginSSOMock = vi.fn();
+vi.mock('@/renderer/hooks/useSSOFlow', () => ({
+  useSSOFlow: () => ({ begin: beginSSOMock }),
+}));
+
 describe('Register', () => {
   const onBack = vi.fn();
   const onSuccess = vi.fn();
@@ -199,5 +206,21 @@ describe('Register', () => {
     expect(screen.getByText('Email is required')).toBeInTheDocument();
     await user.type(screen.getByPlaceholderText('you@example.com'), 't');
     expect(screen.queryByText('Email is required')).not.toBeInTheDocument();
+  });
+
+  // ── SSO entry point (#270) ────────────────────────────────────────────
+  // The Register form mounts an SSOButton above the email/password form.
+  // Clicking it must invoke useSSOFlow().begin('google') so the loopback
+  // OAuth flow starts. We mock useSSOFlow at the module level (above) to
+  // assert the wiring without exercising the loopback round-trip itself
+  // (covered in ssoService.test.ts).
+
+  it('calls useSSOFlow().begin("google") when the Sign in with Google button is clicked', async () => {
+    beginSSOMock.mockClear();
+    const user = userEvent.setup();
+    render(<Register onBack={onBack} onSuccess={onSuccess} onSwitchToLogin={onSwitchToLogin} />);
+
+    await user.click(screen.getByRole('button', { name: /sign in with google/i }));
+    expect(beginSSOMock).toHaveBeenCalledWith('google');
   });
 });

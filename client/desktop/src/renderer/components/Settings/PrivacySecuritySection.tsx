@@ -20,6 +20,7 @@ import {
 import DMPrivacyControls from './DMPrivacyControls';
 import ContentSafetyControls from './ContentSafetyControls';
 import SearchVisibilityControls from './SearchVisibilityControls';
+import LinkedAccountsList from './LinkedAccountsList';
 import './MFA.css';
 
 interface Session {
@@ -396,6 +397,21 @@ const PrivacySecuritySection: React.FC = () => {
   const [backupResetLoading, setBackupResetLoading] = useState(false);
   const [backupResetCodes, setBackupResetCodes] = useState<string[] | null>(null);
 
+  // SSO Security flags (issue #270). Hydrated on mount from
+  // GET /users/me/security so the toggles reflect the actual server state
+  // instead of the user's most-recent local intent. PATCH updates the local
+  // mirror on success.
+  const [trustSSOSecurity, setTrustSSOSecurity] = useState<boolean>(false);
+  const [passwordLoginDisabled, setPasswordLoginDisabled] = useState<boolean>(false);
+  // Inline-passphrase confirm panels — one per toggle. `null` = collapsed.
+  const [ssoConfirmField, setSsoConfirmField] = useState<
+    'trust_sso_security' | 'password_login_disabled' | null
+  >(null);
+  const [ssoConfirmPassphrase, setSsoConfirmPassphrase] = useState<string>('');
+  const [ssoConfirmDesiredValue, setSsoConfirmDesiredValue] = useState<boolean>(false);
+  const [ssoConfirmError, setSsoConfirmError] = useState<string>('');
+  const [ssoConfirmLoading, setSsoConfirmLoading] = useState<boolean>(false);
+
   // Local DM privacy level for responsive slider (debounces API calls)
   const [localDmLevel, setLocalDmLevel] = useState<DMPrivacyLevel>(privacySettings.dmPrivacyLevel);
   const dmDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -470,11 +486,30 @@ const PrivacySecuritySection: React.FC = () => {
     }
   }, [accessToken]);
 
+  // Hydrate the SSO Security toggle states from GET /users/me/security so the
+  // checkboxes reflect actual server state on mount. Falls back to false on
+  // failure (network error, 4xx, 5xx) which preserves the previous "starts
+  // off" UX rather than blocking the page.
+  const fetchSSOSecurity = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      const res = await apiFetch('/api/v1/users/me/security');
+      if (res.ok) {
+        const data = await res.json();
+        setTrustSSOSecurity(data.trust_sso_security === true);
+        setPasswordLoginDisabled(data.password_login_disabled === true);
+      }
+    } catch {
+      // Non-critical — toggles default to false until the user submits a PATCH
+    }
+  }, [accessToken]);
+
   useEffect(() => {
     fetchSessions();
     fetchPrivacy();
     fetchMFAStatus();
-  }, [fetchSessions, fetchPrivacy, fetchMFAStatus]);
+    fetchSSOSecurity();
+  }, [fetchSessions, fetchPrivacy, fetchMFAStatus, fetchSSOSecurity]);
 
   const handleBackupReset = async () => {
     setBackupResetError('');
@@ -705,6 +740,65 @@ const PrivacySecuritySection: React.FC = () => {
       setShowRevokeAllModal(false);
     } finally {
       setIsRevokingAll(false);
+    }
+  };
+
+  // ─── SSO Security toggle handlers (issue #270) ───────────────────────
+  // Each click on a toggle reveals an inline passphrase confirm. Submit
+  // PATCHes /users/me/security with the desired flag value. `would_lock_out`
+  // (returned by the backend if e.g. disabling password login while no SSO
+  // is linked) is surfaced inline.
+  const requestSSOToggle = (
+    field: 'trust_sso_security' | 'password_login_disabled',
+    desired: boolean
+  ): void => {
+    setSsoConfirmField(field);
+    setSsoConfirmDesiredValue(desired);
+    setSsoConfirmPassphrase('');
+    setSsoConfirmError('');
+  };
+
+  const cancelSSOToggle = (): void => {
+    setSsoConfirmField(null);
+    setSsoConfirmPassphrase('');
+    setSsoConfirmError('');
+  };
+
+  const submitSSOToggle = async (): Promise<void> => {
+    if (!ssoConfirmField || !ssoConfirmPassphrase) return;
+    setSsoConfirmLoading(true);
+    setSsoConfirmError('');
+    try {
+      const body: Record<string, unknown> = { current_passphrase: ssoConfirmPassphrase };
+      body[ssoConfirmField] = ssoConfirmDesiredValue;
+      const res = await apiFetch('/api/v1/users/me/security', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => ({}))) as { error_code?: string };
+        if (errBody.error_code === 'invalid_credentials') {
+          setSsoConfirmError('Incorrect passphrase.');
+        } else if (errBody.error_code === 'would_lock_out') {
+          setSsoConfirmError('That change would lock you out. Link an SSO provider first.');
+        } else {
+          setSsoConfirmError('Failed to update security setting.');
+        }
+        return;
+      }
+      // Success — update local mirror and close confirm.
+      if (ssoConfirmField === 'trust_sso_security') {
+        setTrustSSOSecurity(ssoConfirmDesiredValue);
+      } else {
+        setPasswordLoginDisabled(ssoConfirmDesiredValue);
+      }
+      setSsoConfirmField(null);
+      setSsoConfirmPassphrase('');
+    } catch {
+      setSsoConfirmError('Network error. Please try again.');
+    } finally {
+      setSsoConfirmLoading(false);
     }
   };
 
@@ -1041,6 +1135,114 @@ const PrivacySecuritySection: React.FC = () => {
             </div>
           </div>
         )}
+      </CollapsibleSection>
+
+      <CollapsibleSection id="section-sso-security" title="SSO Security">
+        <p className="settings-section-description">
+          Manage your linked single sign-on providers and how they interact with your account.
+        </p>
+
+        <LinkedAccountsList />
+
+        <div className="sso-toggle-row">
+          <label className="sso-toggle-label">
+            <input
+              type="checkbox"
+              checked={trustSSOSecurity}
+              onChange={(e) => requestSSOToggle('trust_sso_security', e.target.checked)}
+              disabled={ssoConfirmField !== null && ssoConfirmField !== 'trust_sso_security'}
+            />
+            <span>Trust SSO provider security (skip Concord MFA on SSO login)</span>
+          </label>
+          <p className="sso-toggle-warning">
+            Only enable this if your Google account has multi-factor authentication enabled. If your
+            Google account is compromised, an attacker could access your Concord account without
+            additional verification.
+          </p>
+          {ssoConfirmField === 'trust_sso_security' && (
+            <div className="sso-toggle-confirm">
+              <label htmlFor="sso-confirm-passphrase-trust">Enter your passphrase to confirm</label>
+              <input
+                id="sso-confirm-passphrase-trust"
+                type="password"
+                value={ssoConfirmPassphrase}
+                onChange={(e) => setSsoConfirmPassphrase(e.target.value)}
+                disabled={ssoConfirmLoading}
+                autoComplete="current-password"
+              />
+              {ssoConfirmError && <p className="sso-toggle-error">{ssoConfirmError}</p>}
+              <div className="sso-toggle-confirm-actions">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  onClick={() => void submitSSOToggle()}
+                  disabled={ssoConfirmLoading || !ssoConfirmPassphrase}
+                >
+                  {ssoConfirmLoading ? 'Saving...' : 'Confirm'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  onClick={cancelSSOToggle}
+                  disabled={ssoConfirmLoading}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="sso-toggle-row">
+          <label className="sso-toggle-label">
+            <input
+              type="checkbox"
+              checked={passwordLoginDisabled}
+              onChange={(e) => requestSSOToggle('password_login_disabled', e.target.checked)}
+              disabled={ssoConfirmField !== null && ssoConfirmField !== 'password_login_disabled'}
+            />
+            <span>Disable password login (require SSO every sign-in)</span>
+          </label>
+          <p className="sso-toggle-warning">
+            {passwordLoginDisabled
+              ? 'You can only sign in with your linked SSO providers. Make sure Social Recovery trustees are configured.'
+              : 'Your account will be vulnerable to password phishing.'}
+          </p>
+          {ssoConfirmField === 'password_login_disabled' && (
+            <div className="sso-toggle-confirm">
+              <label htmlFor="sso-confirm-passphrase-pwlogin">
+                Enter your passphrase to confirm
+              </label>
+              <input
+                id="sso-confirm-passphrase-pwlogin"
+                type="password"
+                value={ssoConfirmPassphrase}
+                onChange={(e) => setSsoConfirmPassphrase(e.target.value)}
+                disabled={ssoConfirmLoading}
+                autoComplete="current-password"
+              />
+              {ssoConfirmError && <p className="sso-toggle-error">{ssoConfirmError}</p>}
+              <div className="sso-toggle-confirm-actions">
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  onClick={() => void submitSSOToggle()}
+                  disabled={ssoConfirmLoading || !ssoConfirmPassphrase}
+                >
+                  {ssoConfirmLoading ? 'Saving...' : 'Confirm'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-secondary"
+                  onClick={cancelSSOToggle}
+                  disabled={ssoConfirmLoading}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </CollapsibleSection>
 
       <CollapsibleSection id="section-active-sessions" title="Active Sessions">

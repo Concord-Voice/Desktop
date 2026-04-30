@@ -17,6 +17,8 @@ import MFAMethodPicker, {
   MFAMethodCategory,
 } from './MFAMethodPicker';
 import LoadingSpinner from './LoadingSpinner';
+import { SSOButton } from './SSOButton';
+import { useSSOFlow } from '../../hooks/useSSOFlow';
 import './Login.css';
 import './TOTPInput.css';
 
@@ -101,6 +103,12 @@ const Login: React.FC<LoginProps> = ({
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // SSO state — populated when the server returns 403 account_uses_sso. The
+  // password form is replaced with a list of SSO-only buttons so the user is
+  // never stranded with credentials they can't actually use.
+  const [ssoOnlyProviders, setSsoOnlyProviders] = useState<string[] | null>(null);
+  const { begin: beginSSO } = useSSOFlow();
+
   // MFA state
   const [mfaRequired, setMfaRequired] = useState(false);
   const [mfaChallengeToken, setMfaChallengeToken] = useState('');
@@ -171,21 +179,20 @@ const Login: React.FC<LoginProps> = ({
 
       const data = await response.json();
 
+      // SSO short-circuits — see helper closures below for the per-status
+      // routing (403 account_uses_sso, 500 sso_provider_lookup_failed,
+      // 500 sso_account_misconfigured). Extracted so handleSubmit stays under
+      // SonarQube's S3776 cognitive-complexity threshold.
+      if (tryApplyAccountUsesSSO(response, data)) return;
+      if (tryApplySSO500Error(response, data)) return;
+
       if (!response.ok) {
         throw new Error(data.error || 'Login failed');
       }
 
       // Check if MFA is required
       if (data.mfa_required) {
-        const serverMethods = data.methods || [];
-        const recoveryOnly = data.recovery_only_methods || [];
-        setMfaChallengeToken(data.mfa_challenge_token);
-        setMfaMethods(serverMethods);
-        setMfaRecoveryOnly(recoveryOnly);
-        setMfaMode(getDefaultMethod(serverMethods, recoveryOnly));
-        if (data.webauthn_options) setWebauthnOptions(parseWebAuthnOptions(data.webauthn_options));
-        setMfaRequired(true);
-        setIsSubmitting(false);
+        applyMfaRequiredFromResponse(data);
         return;
       }
 
@@ -198,6 +205,64 @@ const Login: React.FC<LoginProps> = ({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // 403 account_uses_sso short-circuit: backend signals the account is SSO-only
+  // (password login disabled, ≥1 identity provider linked). Swap the form for
+  // the SSO-only view rather than showing a generic error. Lockout counters
+  // are NOT engaged on this branch — see services/control-plane/internal/auth/
+  // handlers.go (PasswordLoginDisabled handling). Returns true if handled.
+  // Extracted from handleSubmit to stay under S3776 (the inlined ternary on
+  // data.providers contributed nesting penalty). Behavior unchanged.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- server payload is loose JSON; providers narrowed via Array.isArray below.
+  const tryApplyAccountUsesSSO = (response: Response, data: any): boolean => {
+    if (response.status !== 403) return false;
+    if (data?.error_code !== 'account_uses_sso') return false;
+    const providers = Array.isArray(data.providers) ? (data.providers as string[]) : [];
+    setSsoOnlyProviders(providers);
+    setIsSubmitting(false);
+    return true;
+  };
+
+  // Map a 500 SSO short-circuit response to the appropriate user-facing
+  // message and apply it. Returns true if the response was handled (caller
+  // should `return` immediately) or false if not a known SSO 500 case (caller
+  // should fall through). Extracted from handleSubmit so that handler stays
+  // under SonarQube's S3776 cognitive-complexity threshold; behavior is
+  // unchanged. See the inline comment at the call site for the two error_codes
+  // and their UX rationale.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- server error payload is loose JSON; we narrow on error_code field-by-field below.
+  const tryApplySSO500Error = (response: Response, data: any): boolean => {
+    if (response.status !== 500) return false;
+    const code = data?.error_code as string | undefined;
+    let message: string | null = null;
+    if (code === 'sso_provider_lookup_failed') {
+      message =
+        "We couldn't load your sign-in options. Please try again in a moment, or contact support if this continues.";
+    } else if (code === 'sso_account_misconfigured') {
+      message =
+        "This account isn't fully set up for sign-in. Please contact support — error code: SSO_MISCONFIG.";
+    }
+    if (message === null) return false;
+    setErrors({ general: message });
+    setIsSubmitting(false);
+    return true;
+  };
+
+  // Surface MFA challenge to the user when the server returns mfa_required.
+  // Extracted from handleSubmit so that handler stays under SonarQube's S3776
+  // cognitive-complexity threshold; behavior is unchanged.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- server MFA payload shape (methods, recovery_only_methods, webauthn_options) is the same loose JSON the parent handler accepted; narrowing is done field-by-field inside.
+  const applyMfaRequiredFromResponse = (data: any) => {
+    const serverMethods = data.methods || [];
+    const recoveryOnly = data.recovery_only_methods || [];
+    setMfaChallengeToken(data.mfa_challenge_token);
+    setMfaMethods(serverMethods);
+    setMfaRecoveryOnly(recoveryOnly);
+    setMfaMode(getDefaultMethod(serverMethods, recoveryOnly));
+    if (data.webauthn_options) setWebauthnOptions(parseWebAuthnOptions(data.webauthn_options));
+    setMfaRequired(true);
+    setIsSubmitting(false);
   };
 
   // Complete login after receiving tokens (shared between direct login and MFA verify)
@@ -534,6 +599,54 @@ const Login: React.FC<LoginProps> = ({
     );
   }
 
+  // SSO-only account: the user logged in with a password some time ago, but
+  // their account is now linked to one or more SSO providers and password
+  // sign-in is disabled. Show the relevant provider button(s) instead of the
+  // password form.
+  if (ssoOnlyProviders) {
+    // Empty providers array is the impossible-state case: backend says
+    // password is disabled, but listSSOProviders returned no rows. Render
+    // an explicit error message rather than an empty page that looks like
+    // a UI bug.
+    const isEmpty = ssoOnlyProviders.length === 0;
+    return (
+      <div className="login-container">
+        <div className="login-content">
+          <div className="login-header">
+            <img
+              src="./branding/Concord-Voice/logos/main-logo-transparent-vector.svg"
+              className="login-logo"
+              alt="Concord Voice"
+            />
+            <h2 className="login-title">Welcome Back</h2>
+            <p className="login-subtitle">
+              {isEmpty
+                ? "We couldn't load your sign-in options. Please try again in a moment or contact support."
+                : 'This account uses Single Sign-On. Continue with the provider you originally linked.'}
+            </p>
+          </div>
+
+          <div className="login-form login-form--sso-only">
+            {!isEmpty && ssoOnlyProviders.includes('google') && (
+              <SSOButton provider="google" onClick={() => beginSSO('google')} />
+            )}
+            {!isEmpty && ssoOnlyProviders.includes('apple') && (
+              <SSOButton provider="apple" onClick={() => beginSSO('apple')} />
+            )}
+
+            <button
+              type="button"
+              className="login-back-btn"
+              onClick={() => setSsoOnlyProviders(null)}
+            >
+              ← Back to login
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="login-container">
       <div className="login-content">
@@ -545,6 +658,16 @@ const Login: React.FC<LoginProps> = ({
           />
           <h2 className="login-title">Welcome Back</h2>
           <p className="login-subtitle">Sign in to your Concord Voice account</p>
+        </div>
+
+        {/* SSO entry point — sits above the password form. Clicking begins the
+            loopback OAuth flow; subsequent UI is driven by useSSOStore state
+            (rendered by AuthFlow once Task 21 wires it). */}
+        <div className="login-sso-row">
+          <SSOButton provider="google" onClick={() => beginSSO('google')} disabled={isSubmitting} />
+        </div>
+        <div className="login-divider" role="separator" aria-label="or sign in with email">
+          <span className="login-divider__text">or</span>
         </div>
 
         <form className="login-form" onSubmit={handleSubmit}>
