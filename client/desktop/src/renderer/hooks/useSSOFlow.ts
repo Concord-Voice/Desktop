@@ -32,11 +32,9 @@ export function useSSOFlow(): { begin: (provider: SSOProvider) => Promise<void> 
         switch (result.kind) {
           case 'logged_in':
             setAccessToken(result.accessToken);
-            // Signal the post-auth gate (#270 Task 21b) that an SSO user has
-            // arrived without unwrapped E2EE keys. The gate mounts
-            // SSOEagerUnlock until e2eeService.initialize succeeds and flips
-            // `ready=true` in the same store, at which point both flags
-            // combine to fall through to MainApp.
+            // Arm the SSO eager-unlock gate (#270 Task 21b). See
+            // e2eeStore.ts file-level doc for the two-flag semantics
+            // that combine `needsSSOUnlock` and `ready` to gate MainApp.
             useE2EEStore.getState().setNeedsSSOUnlock(true);
             setState({ phase: 'idle' });
             break;
@@ -57,30 +55,51 @@ export function useSSOFlow(): { begin: (provider: SSOProvider) => Promise<void> 
                 'sso_login',
                 result.recoveryOnlyMethods
               )
-              .then((verified) => {
-                if (verified) {
-                  // MFA modal verifies via /api/v1/auth/mfa/verify which returns
-                  // a full login response. The modal calls completeChallenge(true)
-                  // after a successful verify, but does NOT itself wire tokens
-                  // into useAuthStore — the password path (Login.tsx) handles
-                  // completeLoginFromResponse. For SSO, the post-verify token
-                  // wiring happens at the next page load (the access_token in
-                  // the verify response is set into authStore by the modal's
-                  // verify handler — see MFAChallengeModal.handleVerify).
-                  //
-                  // Reset the SSO phase so any SSOPassphraseSetup mounting is
-                  // also dismissed. The user is logged in.
+              .then((mfaResult) => {
+                if (mfaResult.verified && mfaResult.payload?.access_token) {
+                  // Hydrate auth store from the MFA verify response. SSO
+                  // sessions are cookie-authoritative, so we do NOT persist
+                  // the body's refresh_token (matches the existing
+                  // 'logged_in' branch above). E2EE unwrap is passphrase-
+                  // based via SSOEagerUnlock — do NOT derive crypto material
+                  // from the MFA verify payload (internal-reference).
+                  useAuthStore.getState().setAccessToken(mfaResult.payload.access_token);
+                  if (mfaResult.payload.session_id) {
+                    useAuthStore.getState().setSessionId(mfaResult.payload.session_id);
+                  }
                   setState({ phase: 'idle' });
                   useE2EEStore.getState().setNeedsSSOUnlock(true);
+                } else if (mfaResult.verified) {
+                  // verified:true but payload missing or access_token absent /
+                  // empty. In production this should not happen — SSO
+                  // challenges encode PurposeLogin on the wire which always
+                  // returns a full login payload. Surface as an explicit
+                  // error rather than silently dropping the user at idle so
+                  // the UI shows something rather than a no-op.
+                  console.error('SSO MFA verify returned verified=true without access_token');
+                  setState({ phase: 'error', message: 'mfa_verify_missing_token' });
                 } else {
-                  // User cancelled or verification failed — clear SSO state so
-                  // the auth screen returns to the connection selector.
+                  // verified:false. The user cancelled (clearChallenge fires
+                  // resolve({ verified: false })) or the modal was cleared.
+                  // The verification-failed case never reaches this branch:
+                  // MFAChallengeModal stays open on a !res.ok response and
+                  // does NOT resolve the promise; the user must cancel
+                  // explicitly to leave that state.
                   setState({ phase: 'idle' });
                 }
               })
               .catch((err: unknown) => {
-                const message = err instanceof Error ? err.message : 'sso_mfa_failed';
-                setState({ phase: 'error', message });
+                // Defensive: if the .then handler itself throws (e.g., a
+                // store mutation throws), this .catch must not throw
+                // either — wrap the recovery in try/catch to guarantee
+                // no unhandled rejection escapes the floating promise
+                // chain.
+                try {
+                  const message = err instanceof Error ? err.message : 'sso_mfa_failed';
+                  setState({ phase: 'error', message });
+                } catch (recoveryErr) {
+                  console.error('SSO MFA error handler failed:', (recoveryErr as Error).message);
+                }
               });
             break;
           case 'register_required':

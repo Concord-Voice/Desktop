@@ -195,7 +195,7 @@ describe('apiClient', () => {
       // Mock MFA challenge store to auto-complete verification
       const showChallengeSpy = vi
         .spyOn(useMFAChallengeStore.getState(), 'showChallenge')
-        .mockResolvedValue(true);
+        .mockResolvedValue({ verified: true, payload: {} });
 
       const token = await refreshAccessToken();
 
@@ -225,7 +225,7 @@ describe('apiClient', () => {
       // User declines MFA
       const showChallengeSpy = vi
         .spyOn(useMFAChallengeStore.getState(), 'showChallenge')
-        .mockResolvedValue(false);
+        .mockResolvedValue({ verified: false });
 
       const token = await refreshAccessToken();
 
@@ -253,7 +253,7 @@ describe('apiClient', () => {
 
       const showChallengeSpy = vi
         .spyOn(useMFAChallengeStore.getState(), 'showChallenge')
-        .mockResolvedValue(true);
+        .mockResolvedValue({ verified: true, payload: {} });
 
       const token = await refreshAccessToken();
 
@@ -277,7 +277,7 @@ describe('apiClient', () => {
 
       const showChallengeSpy = vi
         .spyOn(useMFAChallengeStore.getState(), 'showChallenge')
-        .mockResolvedValue(true);
+        .mockResolvedValue({ verified: true, payload: {} });
 
       const token = await refreshAccessToken();
 
@@ -285,6 +285,82 @@ describe('apiClient', () => {
       expect(globalThis.electron!.refreshToken).toHaveBeenCalledTimes(2);
 
       showChallengeSpy.mockRestore();
+    });
+
+    it('uses the IPC retry access_token even when the verify body carries a different access_token', async () => {
+      globalThis.electron = {
+        refreshToken: vi
+          .fn()
+          .mockResolvedValueOnce({
+            status: 'mfa_required',
+            mfaChallengeToken: 'challenge-divergence',
+            mfaMethods: ['totp'],
+          })
+          .mockResolvedValueOnce({
+            status: 'ok',
+            accessToken: 'ipc-token-authoritative',
+            sessionId: 'sess-ipc',
+          }),
+      } as any;
+
+      // Body carries a different access_token. The IPC path is authoritative;
+      // the body's value must NOT reach useAuthStore. A console.warn is emitted
+      // so future incidents are debuggable, but token VALUES are never logged.
+      const showChallengeSpy = vi
+        .spyOn(useMFAChallengeStore.getState(), 'showChallenge')
+        .mockResolvedValue({
+          verified: true,
+          payload: { access_token: 'body-token-discarded' },
+        });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const token = await refreshAccessToken();
+
+      expect(token).toBe('ipc-token-authoritative');
+      // Critically: the body's access_token must NOT have stomped the IPC token.
+      expect(useAuthStore.getState().accessToken).toBe('ipc-token-authoritative');
+      expect(useAuthStore.getState().accessToken).not.toBe('body-token-discarded');
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('MFA verify token divergence'));
+      // Crucially: the warn message must NOT contain either token value.
+      const warnMessage = warnSpy.mock.calls[0]?.[0] as string | undefined;
+      expect(warnMessage).not.toContain('ipc-token-authoritative');
+      expect(warnMessage).not.toContain('body-token-discarded');
+
+      showChallengeSpy.mockRestore();
+      warnSpy.mockRestore();
+    });
+
+    it('does NOT emit a divergence warn when the body has no access_token (suspicious_refresh shape)', async () => {
+      globalThis.electron = {
+        refreshToken: vi
+          .fn()
+          .mockResolvedValueOnce({
+            status: 'mfa_required',
+            mfaChallengeToken: 'challenge-no-body-token',
+            mfaMethods: ['totp'],
+          })
+          .mockResolvedValueOnce({
+            status: 'ok',
+            accessToken: 'ipc-token-only',
+            sessionId: 'sess-ipc-only',
+          }),
+      } as any;
+
+      // The wire shape for PurposeSuspiciousRefresh is { verified, purpose,
+      // user_id } — no access_token in the body. The divergence check
+      // short-circuits via optional chaining and no warn is emitted.
+      const showChallengeSpy = vi
+        .spyOn(useMFAChallengeStore.getState(), 'showChallenge')
+        .mockResolvedValue({ verified: true, payload: {} });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      await refreshAccessToken();
+
+      expect(useAuthStore.getState().accessToken).toBe('ipc-token-only');
+      expect(warnSpy).not.toHaveBeenCalled();
+
+      showChallengeSpy.mockRestore();
+      warnSpy.mockRestore();
     });
   });
 

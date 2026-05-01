@@ -15,7 +15,7 @@ describe('mfaChallengeStore', () => {
     expect(state.resolve).toBeNull();
   });
 
-  it('showChallenge resolves true on completeChallenge(true)', async () => {
+  it('showChallenge sets challenge state and resolves with { verified: true, payload }', async () => {
     const promise = useMFAChallengeStore
       .getState()
       .showChallenge('token-1', ['totp', 'webauthn'], 'suspicious_refresh');
@@ -26,10 +26,12 @@ describe('mfaChallengeStore', () => {
     expect(state.purpose).toBe('suspicious_refresh');
     expect(state.resolve).not.toBeNull();
 
-    useMFAChallengeStore.getState().completeChallenge(true);
+    useMFAChallengeStore
+      .getState()
+      .completeChallenge({ verified: true, payload: { access_token: 'tok' } });
 
     const result = await promise;
-    expect(result).toBe(true);
+    expect(result).toEqual({ verified: true, payload: { access_token: 'tok' } });
 
     // State should be cleared
     const cleared = useMFAChallengeStore.getState();
@@ -38,18 +40,34 @@ describe('mfaChallengeStore', () => {
     expect(cleared.resolve).toBeNull();
   });
 
-  it('showChallenge resolves false on completeChallenge(false)', async () => {
+  it('showChallenge propagates a full login-shape payload through completeChallenge', async () => {
+    const promise = useMFAChallengeStore
+      .getState()
+      .showChallenge('token-payload', ['totp'], 'sso_login');
+
+    const payload = {
+      access_token: 'jwt-tok',
+      session_id: 'sess-1',
+      refresh_token: 'ref-1',
+    };
+    useMFAChallengeStore.getState().completeChallenge({ verified: true, payload });
+
+    const result = await promise;
+    expect(result).toEqual({ verified: true, payload });
+  });
+
+  it('showChallenge resolves with { verified: false } when completeChallenge is called with verified=false', async () => {
     const promise = useMFAChallengeStore
       .getState()
       .showChallenge('token-2', ['totp'], 'suspicious_refresh');
 
-    useMFAChallengeStore.getState().completeChallenge(false);
+    useMFAChallengeStore.getState().completeChallenge({ verified: false });
 
     const result = await promise;
-    expect(result).toBe(false);
+    expect(result).toEqual({ verified: false });
   });
 
-  it('clearChallenge resolves false (rejects challenge)', async () => {
+  it('clearChallenge resolves with { verified: false } (cancel path)', async () => {
     const promise = useMFAChallengeStore
       .getState()
       .showChallenge('token-3', ['totp'], 'suspicious_refresh');
@@ -57,7 +75,7 @@ describe('mfaChallengeStore', () => {
     useMFAChallengeStore.getState().clearChallenge();
 
     const result = await promise;
-    expect(result).toBe(false);
+    expect(result).toEqual({ verified: false });
 
     const state = useMFAChallengeStore.getState();
     expect(state.challengeToken).toBeNull();
@@ -71,7 +89,9 @@ describe('mfaChallengeStore', () => {
     const state = useMFAChallengeStore.getState();
     expect(state.recoveryOnlyMethods).toEqual(['recovery']);
 
-    useMFAChallengeStore.getState().completeChallenge(true);
+    useMFAChallengeStore
+      .getState()
+      .completeChallenge({ verified: true, payload: { access_token: 'tok' } });
     await promise;
   });
 });

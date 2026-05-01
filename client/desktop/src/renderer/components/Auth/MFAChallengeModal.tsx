@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { useMFAChallengeStore } from '../../stores/mfaChallengeStore';
-import { API_BASE, ensureMachineId } from '../../services/apiClient';
+import { useMFAChallengeStore, type MFAVerifyResponse } from '../../stores/mfaChallengeStore';
+import { API_BASE, ensureMachineId, safeJson } from '../../services/apiClient';
 import TOTPInput from './TOTPInput';
 import BackupCodeInput from './BackupCodeInput';
 import WebAuthnPrompt from './WebAuthnPrompt';
@@ -26,7 +26,10 @@ const MFAChallengeModal: React.FC = () => {
   const [mode, setMode] = useState<MFAMethodCategory | 'method-select'>(defaultMethod);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const [webauthnOptions] = useState<PublicKeyCredentialRequestOptions | null>(null);
+  // WebAuthn options now flow through the store so callers (or tests) can
+  // populate them via setState. The modal subscribes selectively and remounts
+  // WebAuthnPrompt when options arrive.
+  const webauthnOptions = useMFAChallengeStore((s) => s.webauthnOptions);
 
   // Reset mode when challenge token changes
   const prevTokenRef = React.useRef(challengeToken);
@@ -65,13 +68,14 @@ const MFAChallengeModal: React.FC = () => {
           }),
         });
 
+        const data = await safeJson<MFAVerifyResponse & { error?: string }>(res);
         if (res.ok) {
-          completeChallenge(true);
+          completeChallenge({ verified: true, payload: data });
         } else {
-          const data = await res.json();
           setError(data.error || 'Verification failed');
         }
-      } catch {
+      } catch (err) {
+        console.error('MFA verify failed:', (err as Error).message);
         setError('Verification failed. Please try again.');
       } finally {
         setLoading(false);
@@ -118,13 +122,14 @@ const MFAChallengeModal: React.FC = () => {
           }),
         });
 
+        const data = await safeJson<MFAVerifyResponse & { error?: string }>(res);
         if (res.ok) {
-          completeChallenge(true);
+          completeChallenge({ verified: true, payload: data });
         } else {
-          const data = await res.json();
           setError(data.error || 'Verification failed');
         }
-      } catch {
+      } catch (err) {
+        console.error('MFA WebAuthn verify failed:', (err as Error).message);
         setError('Verification failed. Please try again.');
       } finally {
         setLoading(false);

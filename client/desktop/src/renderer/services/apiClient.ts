@@ -188,7 +188,7 @@ async function handleMfaChallengeIfNeeded(
   if (result.status !== 'mfa_required' || !result.mfaChallengeToken) return null;
 
   const { useMFAChallengeStore } = await import('../stores/mfaChallengeStore');
-  const verified = await useMFAChallengeStore
+  const mfaResult = await useMFAChallengeStore
     .getState()
     .showChallenge(
       result.mfaChallengeToken,
@@ -196,11 +196,22 @@ async function handleMfaChallengeIfNeeded(
       'suspicious_refresh',
       result.mfaRecoveryOnlyMethods || []
     );
-  if (!verified) return null;
+  if (!mfaResult.verified) return null;
 
-  // MFA verified — retry the refresh
+  // MFA verified — retry the refresh. The cookie-path token from
+  // electron.refreshToken() is authoritative (see spec §6.3 / §9). The
+  // body's access_token from the verify response is a duplicate; we log a
+  // warning if they diverge so future incidents are debuggable, but use the
+  // IPC token regardless. Token VALUES are never logged — only the divergence
+  // fact, per internal-reference
   const retryResult = await globalThis.electron.refreshToken();
   if (retryResult.status === 'ok' && retryResult.accessToken) {
+    if (
+      mfaResult.payload?.access_token &&
+      mfaResult.payload.access_token !== retryResult.accessToken
+    ) {
+      console.warn('MFA verify token divergence: IPC token used, body token discarded');
+    }
     useAuthStore.getState().setAccessToken(retryResult.accessToken);
     if (retryResult.sessionId) useAuthStore.getState().setSessionId(retryResult.sessionId);
     return retryResult.accessToken;
