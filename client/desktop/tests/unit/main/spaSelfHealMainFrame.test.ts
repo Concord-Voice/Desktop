@@ -108,11 +108,15 @@ describe('shouldTriggerSelfHealForFailedLoad — did-fail-load filter', () => {
     expect(result).toBe(false);
   });
 
-  it('does NOT trigger on isMainFrame=true with same-origin but non-SPA pathname (PiP window case)', () => {
-    // PiP windows load `${remoteSpaBaseUrl}#/pip/...` which has pathname `/`
-    // (since remoteSpaBaseUrl is just the origin). Origin-only matching
-    // would incorrectly trigger self-heal here; the SPA path-shape filter
-    // rejects it. (Copilot review on PR #773.)
+  it('does NOT trigger on isMainFrame=true with same-origin but non-SPA pathname', () => {
+    // Same-origin frames whose pathname is not SPA-shaped (e.g., the apex
+    // `/`) must not consume the self-heal retry budget. Origin-only matching
+    // would incorrectly accept these; the SPA path-shape filter rejects.
+    // Originally this defended against PiP windows loading
+    // `${remoteSpaBaseUrl}#/pip/...` (apex pathname). Post-#802 PiP loads
+    // from the full SPA URL via remoteSpaUrl, but the filter still correctly
+    // rejects any apex-pathname same-origin frame did-fail-load surfaces.
+    // (Copilot review on PR #773.)
     const result = shouldTriggerSelfHealForFailedLoad({
       errorCode: -105,
       validatedURL: 'https://api.concordvoice.chat/',
@@ -200,11 +204,14 @@ describe('validateSelfHealSenderFrame — IPC origin guard', () => {
     expect(ok).toBe(false);
   });
 
-  it('rejects sender on same origin but non-SPA pathname (PiP window case)', () => {
-    // PiP windows load `${remoteSpaBaseUrl}#/pip/...` which is same-origin
-    // but has pathname `/`. Origin-only matching would have accepted these
-    // as legitimate self-heal triggers; the SPA path-shape filter prevents
-    // any non-SPA same-origin code from triggering self-heal IPC.
+  it('rejects sender on same origin but non-SPA pathname', () => {
+    // Same-origin senders whose pathname is not SPA-shaped (e.g., the apex
+    // `/`) must not be accepted as legitimate self-heal IPC triggers. The
+    // SPA path-shape filter prevents any non-SPA same-origin code from
+    // spoofing. Originally this defended against PiP windows loading
+    // `${remoteSpaBaseUrl}#/pip/...` (apex pathname). Post-#802 PiP loads
+    // from the full SPA URL via remoteSpaUrl, but the filter still correctly
+    // rejects any apex-pathname same-origin frame.
     // (Copilot review on PR #773.)
     const ok = validateSelfHealSenderFrame({
       senderFrameUrl: 'https://api.concordvoice.chat/',

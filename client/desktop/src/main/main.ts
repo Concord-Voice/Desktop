@@ -52,6 +52,8 @@ import {
 } from './updateSafety';
 import { resolveSpaSource } from './spaLoader';
 import { handleDidFailLoad, handleSpaRequestSelfHeal } from './spaSelfHealMainFrame';
+import { buildRemotePipUrl, isValidPipOpenSender } from './pipUrl';
+import { getRemoteSpaBaseUrl, getRemoteSpaUrl, setRemoteSpaState } from './spaState';
 import { IPC_CONTRACT_VERSION } from './ipcContract';
 import { registerIpcHandlers as registerPermissionHandlers } from './permissionManager';
 import { migrateUserData } from './userDataMigration';
@@ -112,12 +114,9 @@ if (require('electron-squirrel-startup')) {
 }
 
 let mainWindow: BrowserWindow | null = null;
-// Set when loading the remote SPA (origin string only, via
-// `new URL(decision.url).origin`). Read by: PiP window URL construction,
-// will-navigate origin guard, did-fail-load self-heal filter (#753), and
-// the spa:requestSelfHeal IPC sender-frame validator (#753). Single-
-// threaded JS event-loop semantics mean reads at trigger time are atomic.
-let remoteSpaBaseUrl: string | null = null;
+// SPA-load state lives in ./spaState so spaSelfHeal.ts can mutate it on
+// fallback/recovery paths. See that module for the lockstep invariant and
+// reader/writer enumeration.
 
 /**
  * Probe the Vite dev server, then load it. Falls back to the bundled
@@ -159,20 +158,17 @@ async function loadPackagedRenderer(window: BrowserWindow, bundledPath: string):
 
   if (decision.mode === 'remote' && decision.url) {
     try {
-      // Normalize to origin (scheme+host+port) — isPermittedFrameUrl expects
-      // an origin, but decision.url may include a path like /index.html.
-      try {
-        remoteSpaBaseUrl = new URL(decision.url).origin;
-      } catch {
-        remoteSpaBaseUrl = null;
-      }
+      setRemoteSpaState(decision.url);
       await window.loadURL(decision.url);
       return;
     } catch {
       console.warn('[SpaLoader] Failed to load remote SPA, falling back to bundled');
-      remoteSpaBaseUrl = null;
+      setRemoteSpaState(null);
     }
   }
+  // Bundled-mode load: clear state so PiP and origin-only consumers see a
+  // consistent "not in remote-SPA mode" signal even on re-entry.
+  setRemoteSpaState(null);
   await window.loadFile(bundledPath);
 }
 
@@ -276,8 +272,8 @@ let rollbackResult: SentinelResult | null = null;
 
 // App lifecycle handlers
 app.whenReady().then(async () => {
-  registerOpenExternalHandler(() => remoteSpaBaseUrl);
-  registerSSOIPC(() => remoteSpaBaseUrl);
+  registerOpenExternalHandler(getRemoteSpaBaseUrl);
+  registerSSOIPC(getRemoteSpaBaseUrl);
   // Permission request handler: explicitly allow app-required permissions, deny risky ones.
   // Notifications are allowed (JIT-managed by permissionManager #197).
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -725,7 +721,16 @@ const pipWindows = new Map<string, BrowserWindow>();
 
 ipcMain.handle(
   'pip:open',
-  (_event, opts: { id: string; width?: number; height?: number; title?: string }) => {
+  (event, opts: { id: string; width?: number; height?: number; title?: string }) => {
+    // Defense-in-depth: only accept pip:open from the active SPA, the dev
+    // server, or the bundled renderer. Without validation any frame loaded
+    // in any window could spawn PiP windows.
+    const remoteUrl = getRemoteSpaUrl();
+    if (!isValidPipOpenSender(event.senderFrame?.url ?? '', app.isPackaged, remoteUrl)) {
+      console.warn('[pip:open] rejected — sender frame validation failed');
+      return;
+    }
+
     const existing = pipWindows.get(opts.id);
     if (existing) {
       existing.focus();
@@ -754,9 +759,11 @@ ipcMain.handle(
     // Load PiP route (hash-based routing)
     if (!app.isPackaged) {
       pip.loadURL(`http://localhost:3001#/pip/${opts.id}`);
-    } else if (remoteSpaBaseUrl) {
-      // Tier 3: PiP windows also load from the remote SPA (preserves sub-path)
-      pip.loadURL(`${remoteSpaBaseUrl}#/pip/${opts.id}`);
+    } else if (remoteUrl) {
+      // Tier 3: PiP windows load from the remote SPA, including the
+      // `/spa/<sha>/` path component. Origin-only would fall through to
+      // nginx's catch-all and redirect to the marketing site (#802).
+      pip.loadURL(buildRemotePipUrl(remoteUrl, opts.id));
     } else {
       pip.loadFile(path.join(__dirname, '../renderer/index.html'), {
         hash: `/pip/${opts.id}`,
@@ -788,7 +795,7 @@ ipcMain.handle('spa:requestSelfHeal', async (event, payload: unknown) => {
   await handleSpaRequestSelfHeal({
     senderFrameUrl: event.senderFrame?.url ?? '',
     payload,
-    remoteSpaBaseUrl,
+    remoteSpaBaseUrl: getRemoteSpaBaseUrl(),
   });
 });
 
@@ -825,8 +832,10 @@ app.on('web-contents-created', (_, contents) => {
     }
 
     if (app.isPackaged) {
-      // Packaged release: allow same-origin SPA navigation.
-      const spaOrigin = remoteSpaBaseUrl ? new URL(remoteSpaBaseUrl).origin : null;
+      // Packaged release: allow same-origin SPA navigation. spaOrigin is
+      // already an origin string (set via `new URL(decision.url).origin`),
+      // so a direct read suffices.
+      const spaOrigin = getRemoteSpaBaseUrl();
       if (spaOrigin && parsedUrl.origin === spaOrigin) {
         return;
       }
@@ -858,7 +867,12 @@ app.on('web-contents-created', (_, contents) => {
   contents.on(
     'did-fail-load',
     (_event, errorCode, _errorDescription, validatedURL, isMainFrame) => {
-      void handleDidFailLoad({ errorCode, validatedURL, isMainFrame, remoteSpaBaseUrl });
+      void handleDidFailLoad({
+        errorCode,
+        validatedURL,
+        isMainFrame,
+        remoteSpaBaseUrl: getRemoteSpaBaseUrl(),
+      });
     }
   );
 });

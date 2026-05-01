@@ -534,17 +534,40 @@ describe('main.ts', () => {
   });
 
   describe('IPC: PiP window management', () => {
+    // pip:open requires a valid senderFrame URL post-#815 (isValidPipOpenSender
+    // defense-in-depth). In this test environment isPackaged=false, so a
+    // localhost URL satisfies the validator.
+    const pipOpenEvent = { senderFrame: { url: 'http://localhost:3001/' } };
+
     it('pip:open creates a new PiP window', async () => {
       const { BrowserWindow } = await import('electron');
       (BrowserWindow as unknown as Mock).mockClear();
-      await handlers.get('pip:open')!({}, { id: 'test-pip', width: 400, height: 300 });
+      await handlers.get('pip:open')!(pipOpenEvent, {
+        id: 'test-pip',
+        width: 400,
+        height: 300,
+      });
       expect(BrowserWindow).toHaveBeenCalled();
+    });
+
+    it('pip:open rejects unauthorized sender frames (defense-in-depth)', async () => {
+      // Use call-count delta (not mockClear) so the BrowserWindow mock's
+      // history remains intact for downstream tests (e.g. createWindow's
+      // "called during module init" assertion).
+      const { BrowserWindow } = await import('electron');
+      const before = (BrowserWindow as unknown as Mock).mock.calls.length;
+      await handlers.get('pip:open')!(
+        { senderFrame: { url: 'https://evil.example.com/' } },
+        { id: 'test-pip-evil' }
+      );
+      const after = (BrowserWindow as unknown as Mock).mock.calls.length;
+      expect(after).toBe(before);
     });
 
     it('pip:close closes a PiP window', async () => {
       mockMainWindow.close.mockClear();
       await handlers.get('pip:close')!({}, { id: 'test-pip' });
-      // Window was stored in pipWindows map and should be closeable
+      // Window was stored in pipWindows map by the pip:open test above.
       expect(mockMainWindow.close).toHaveBeenCalled();
     });
 

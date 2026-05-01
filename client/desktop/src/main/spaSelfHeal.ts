@@ -42,6 +42,7 @@
 import { BrowserWindow } from 'electron';
 import path from 'node:path';
 import { resolveSpaSource } from './spaLoader';
+import { setRemoteSpaState } from './spaState';
 import type { SelfHealReason } from '../shared/spaIpcTypes';
 
 // SelfHealReason's canonical definition lives in `../shared/spaIpcTypes`
@@ -107,6 +108,12 @@ function getBundledIndexPath(): string {
  * sequence of preceding log lines, not inside this helper's message.
  */
 async function loadBundledFallback(wc: Electron.WebContents): Promise<void> {
+  // Clear SPA state so PiP and origin-only consumers see a consistent
+  // "not in remote-SPA mode" signal once the renderer has fallen back to
+  // bundled. Without this, a stale `remoteSpaUrl` from an earlier
+  // successful remote load would cause PiP to keep loading the (broken)
+  // remote SPA after the main window already swapped to bundled.
+  setRemoteSpaState(null);
   try {
     await wc.loadFile(getBundledIndexPath());
   } catch (err) {
@@ -122,6 +129,11 @@ async function loadBundledFallback(wc: Electron.WebContents): Promise<void> {
 async function attemptRemoteLoad(wc: Electron.WebContents, url: string): Promise<boolean> {
   try {
     await wc.loadURL(url);
+    // Refresh SPA state — recovery may have landed on a different SHA than
+    // the original load (e.g., if a deploy ran between failure and retry).
+    // PiP needs the current full URL to reach the same nginx route the
+    // main window is now serving.
+    setRemoteSpaState(url);
     return true;
   } catch (err) {
     console.error('[spaSelfHeal] loadURL failed:', (err as Error).message);

@@ -34,9 +34,12 @@ export function shouldTriggerSelfHealForFailedLoad(args: DidFailLoadFilterArgs):
     // Main-frame failure: the very index.html is unreachable. We want to
     // trigger ONLY when the failed URL is an SPA-shaped URL on the active
     // SPA origin — origin-equality alone would also match same-origin
-    // non-SPA pages (e.g., PiP windows loading `<origin>#/pip/...` which has
-    // pathname `/`, hash routes, the apex-redirect target). Those should
-    // not consume the self-heal retry budget.
+    // non-SPA pages (apex pathname, bare hash routes, redirect targets).
+    // Those should not consume the self-heal retry budget. Originally this
+    // also defended against PiP windows loading `<origin>#/pip/...` (apex
+    // pathname); post-#802 PiP loads from the full SPA URL via
+    // `remoteSpaUrl`, but the filter still correctly rejects any
+    // apex-pathname same-origin frame did-fail-load might surface.
     if (!SPA_URL_PATTERN.test(args.validatedURL)) return false;
     let validatedOrigin: string;
     try {
@@ -72,14 +75,18 @@ export function validateSelfHealSenderFrame(args: SenderFrameValidationArgs): bo
   if (!args.senderFrameUrl || !args.remoteSpaBaseUrl) return false;
 
   // Sender frame URL must be SPA-shaped. Origin-only matching would accept
-  // any non-SPA same-origin page (PiP windows, hash routes, the
+  // any non-SPA same-origin page (apex pathname, bare hash routes,
   // origin-root) as a legitimate self-heal trigger source. The trust
   // boundary is "SPA bundle code requesting recovery", not "any code on
   // the SPA's origin", so we tighten the validator to require the sender's
-  // pathname to match the SPA shape `/spa/<sha7>/...`.
+  // pathname to match the SPA shape `/spa/<sha7>/...`. Originally this
+  // also defended against PiP windows loading `<origin>#/pip/...` (apex
+  // pathname); post-#802 PiP loads from the full SPA URL via
+  // `remoteSpaUrl`, but the filter still rejects any apex-pathname
+  // same-origin sender on principle.
   if (!SPA_URL_PATTERN.test(args.senderFrameUrl)) return false;
 
-  // `remoteSpaBaseUrl` is already an origin string (main.ts sets it via
+  // `remoteSpaBaseUrl` is already an origin string (set via
   // `new URL(decision.url).origin` when the SPA loads). We parse
   // `senderFrameUrl`, take its origin, and compare directly.
   let senderOrigin: string;
