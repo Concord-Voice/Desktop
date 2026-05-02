@@ -7,12 +7,15 @@ import {
   desktopCapturer,
   ipcMain,
   nativeImage,
+  net,
   powerMonitor,
+  protocol,
   screen,
   session,
   shell,
 } from 'electron';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import fs from 'node:fs';
 import {
   storeRefreshToken,
@@ -50,7 +53,8 @@ import {
   runDeferredCleanup,
   type SentinelResult,
 } from './updateSafety';
-import { resolveSpaSource } from './spaLoader';
+import { resolveAppProtocolPath } from './appProtocol';
+import { resolveSpaSource, isUnexpectedBundled } from './spaLoader';
 import { handleDidFailLoad, handleSpaRequestSelfHeal } from './spaSelfHealMainFrame';
 import { buildRemotePipUrl, isValidPipOpenSender } from './pipUrl';
 import { getRemoteSpaBaseUrl, getRemoteSpaUrl, setRemoteSpaState } from './spaState';
@@ -113,6 +117,25 @@ if (require('electron-squirrel-startup')) {
   app.quit();
 }
 
+// app:// scheme registration (#830) — the bundled-fallback renderer loads
+// from app://concord/index.html instead of file:// so it has a non-null
+// Origin header that the server's CORS allowlist can match. Must run
+// BEFORE app.whenReady per Electron API contract. Only registered for
+// packaged builds; dev mode uses the existing Vite + file fallback.
+if (app.isPackaged) {
+  protocol.registerSchemesAsPrivileged([
+    {
+      scheme: 'app',
+      privileges: {
+        standard: true,
+        secure: true,
+        supportFetchAPI: true,
+        corsEnabled: true,
+      },
+    },
+  ]);
+}
+
 let mainWindow: BrowserWindow | null = null;
 // SPA-load state lives in ./spaState so spaSelfHeal.ts can mutate it on
 // fallback/recovery paths. See that module for the lockstep invariant and
@@ -152,7 +175,7 @@ async function loadDevRendererWithFallback(
  * Load the packaged renderer: try the remote SPA first (Tier 3), fall back
  * to the bundled file on any failure. Extracted to keep createWindow simple.
  */
-async function loadPackagedRenderer(window: BrowserWindow, bundledPath: string): Promise<void> {
+async function loadPackagedRenderer(window: BrowserWindow, _bundledPath: string): Promise<void> {
   const decision = await resolveSpaSource();
   console.debug(`[SpaLoader] ${decision.mode}: ${decision.reason}`);
 
@@ -169,7 +192,42 @@ async function loadPackagedRenderer(window: BrowserWindow, bundledPath: string):
   // Bundled-mode load: clear state so PiP and origin-only consumers see a
   // consistent "not in remote-SPA mode" signal even on re-entry.
   setRemoteSpaState(null);
-  await window.loadFile(bundledPath);
+  // #830: load bundled via app:// scheme so renderer has a non-null Origin.
+  // The bundledPath param is preserved for backward-compat (and the dev fallback
+  // path), but packaged-mode bundled loads route through the app:// handler.
+  // #830 review: wrap in try/catch — bundled is the terminal load layer,
+  // so a failure here would leave a blank window with no further fallback.
+  // Surface to the splash error overlay so the user has SOME signal instead
+  // of a silently-broken state (e.g., if a future Electron version changes
+  // the protocol.handle contract or the asar bundle is corrupt).
+  try {
+    await window.loadURL('app://concord/index.html');
+  } catch (err) {
+    console.error('[SpaLoader] bundled app:// loadURL failed:', (err as Error).message);
+    updateSplashError('Could not load application — please reinstall');
+  }
+
+  // #830 Option C: surface a non-blocking diagnostic event if the bundled
+  // fallback fired for an unexpected reason (config fetch failed, network
+  // issue, spaUrl rejected, etc.). Expected fallbacks (first launch, no
+  // spaUrl, contract zero) do NOT trigger the event. The renderer-side
+  // overlay subscriber is deferred to a follow-up issue (preload.ts is
+  // currently protect-sensitive-blocked); the event is harmless without
+  // a subscriber — Electron's webContents.send to a non-listening
+  // renderer is a no-op.
+  // Delay 2000ms to ensure renderer listeners are registered (mirrors
+  // the existing rollback-event pattern at the post-createWindow site).
+  if (decision.mode === 'bundled' && isUnexpectedBundled(decision.reason)) {
+    setTimeout(() => {
+      // #830 review: guard against window destroyed during the 2s delay
+      // (rapid quit, crash). Mirrors the rollback-event pattern's
+      // optional-chaining safeguard at the post-createWindow site.
+      if (window.isDestroyed()) return;
+      window.webContents.send('app:configFetchFailed', {
+        reason: 'Could not reach Concord servers',
+      });
+    }, 2000);
+  }
 }
 
 const createWindow = async (): Promise<void> => {
@@ -272,6 +330,25 @@ let rollbackResult: SentinelResult | null = null;
 
 // App lifecycle handlers
 app.whenReady().then(async () => {
+  // app:// protocol handler (#830) — serves the bundled SPA from the asar
+  // bundle root. The pure resolver in appProtocol.ts validates the URL,
+  // rejects path-traversal, and returns the absolute file path. Here we
+  // wrap that with net.fetch which handles asar bundle paths transparently.
+  if (app.isPackaged) {
+    const bundleRoot = path.resolve(__dirname, '../renderer');
+    protocol.handle('app', async (request) => {
+      const result = resolveAppProtocolPath(request.url, bundleRoot);
+      if (!result.ok || !result.absolutePath) {
+        return new Response(null, { status: result.status });
+      }
+      // pathToFileURL is the canonical cross-platform-safe path→file://
+      // transformation. String concat (`'file://' + absolutePath`) works
+      // on macOS/Linux but produces malformed URLs on Windows where
+      // path.resolve emits drive-letter paths like C:\app\...
+      return net.fetch(pathToFileURL(result.absolutePath).href);
+    });
+  }
+
   registerOpenExternalHandler(getRemoteSpaBaseUrl);
   registerSSOIPC(getRemoteSpaBaseUrl);
   // Permission request handler: explicitly allow app-required permissions, deny risky ones.
@@ -557,8 +634,8 @@ ipcMain.handle('app:reloadSpa', async () => {
   if (decision.mode === 'remote' && decision.url) {
     await mainWindow.loadURL(decision.url);
   } else {
-    const bundledPath = path.join(__dirname, '../renderer/index.html');
-    await mainWindow.loadFile(bundledPath);
+    // #830: load bundled via app:// scheme.
+    await mainWindow.loadURL('app://concord/index.html');
   }
 });
 
@@ -765,9 +842,8 @@ ipcMain.handle(
       // nginx's catch-all and redirect to the marketing site (#802).
       pip.loadURL(buildRemotePipUrl(remoteUrl, opts.id));
     } else {
-      pip.loadFile(path.join(__dirname, '../renderer/index.html'), {
-        hash: `/pip/${opts.id}`,
-      });
+      // #830: PiP bundled mode loads via app:// for consistent origin.
+      pip.loadURL(`app://concord/index.html#/pip/${opts.id}`);
     }
 
     pipWindows.set(opts.id, pip);
@@ -837,6 +913,17 @@ app.on('web-contents-created', (_, contents) => {
       // so a direct read suffices.
       const spaOrigin = getRemoteSpaBaseUrl();
       if (spaOrigin && parsedUrl.origin === spaOrigin) {
+        return;
+      }
+      // #830 review: in bundled-fallback mode (post-Task-4), the renderer
+      // loads from app://concord/index.html and setRemoteSpaState(null)
+      // leaves spaOrigin empty. SPA navigations within the app://concord
+      // origin (e.g., chunk reloads, programmatic location.assign) must
+      // still be allowed through this gate. Use protocol+host comparison
+      // rather than parsedUrl.origin because WHATWG URL spec returns
+      // "null" for URL.origin on non-special schemes — same gotcha as in
+      // pipUrl.ts:isValidPipOpenSender.
+      if (parsedUrl.protocol === 'app:' && parsedUrl.host === 'concord') {
         return;
       }
       // Block in-window navigation to anything else.

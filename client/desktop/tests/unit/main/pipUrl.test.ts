@@ -103,8 +103,11 @@ describe('isValidPipOpenSender', () => {
   });
 
   describe('packaged + bundled fallback (remoteSpaUrl null)', () => {
-    it('accepts file:// sender', () => {
-      expect(isValidPipOpenSender('file:///app/renderer/index.html', true, null)).toBe(true);
+    it('accepts app://concord sender', () => {
+      // #830: bundled-mode renderer now loads via the custom app:// scheme
+      // registered in main.ts (Task 4 of #830). The legacy file:// origin
+      // is rejected — see the dedicated #830 describe block below.
+      expect(isValidPipOpenSender('app://concord/index.html', true, null)).toBe(true);
     });
 
     it('rejects https sender when bundled', () => {
@@ -127,6 +130,41 @@ describe('isValidPipOpenSender', () => {
       expect(isValidPipOpenSender('not a url', false, null)).toBe(false);
       expect(isValidPipOpenSender('not a url', true, 'https://x/spa/y/index.html')).toBe(false);
       expect(isValidPipOpenSender('not a url', true, null)).toBe(false);
+    });
+  });
+
+  describe('isValidPipOpenSender — #830 app:// scheme support', () => {
+    it('accepts app://concord/index.html in packaged + bundled mode', () => {
+      const result = isValidPipOpenSender('app://concord/index.html', true, null);
+      expect(result).toBe(true);
+    });
+
+    it('accepts app://concord/index.html#/pip/abc in packaged + bundled mode', () => {
+      const result = isValidPipOpenSender('app://concord/index.html#/pip/abc', true, null);
+      expect(result).toBe(true);
+    });
+
+    it('rejects app://other/index.html (wrong host)', () => {
+      const result = isValidPipOpenSender('app://other/index.html', true, null);
+      expect(result).toBe(false);
+    });
+
+    it('rejects file:// in packaged + bundled mode (post-#830, file:// is gone)', () => {
+      const result = isValidPipOpenSender(
+        'file:///Applications/Concord%20Voice.app/Contents/Resources/app.asar/dist/renderer/index.html',
+        true,
+        null
+      );
+      expect(result).toBe(false);
+    });
+
+    it('still rejects app://concord when remoteSpaUrl is active (only HTTPS SPA origin valid in remote mode)', () => {
+      const result = isValidPipOpenSender(
+        'app://concord/index.html',
+        true,
+        'https://api.concordvoice.chat/spa/abc1234/index.html'
+      );
+      expect(result).toBe(false);
     });
   });
 });

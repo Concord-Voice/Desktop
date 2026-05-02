@@ -26,7 +26,10 @@ export function buildRemotePipUrl(spaUrl: string, pipId: string): string {
  * - **Packaged + remote SPA active** (`remoteSpaUrl` non-null): the sender's
  *   origin must match the SPA's origin.
  * - **Packaged + bundled fallback** (`remoteSpaUrl` null): the sender must
- *   load via `file://` (the bundled renderer index.html).
+ *   load via `app://concord` (the bundled renderer served by the custom
+ *   protocol handler registered in main.ts; see #830). Legacy `file://`
+ *   senders are rejected — that origin should no longer occur in packaged
+ *   builds after #830.
  *
  * Returns `false` for empty / malformed sender URLs (fail-closed).
  */
@@ -57,5 +60,10 @@ export function isValidPipOpenSender(
     return sender.origin === remote.origin;
   }
 
-  return sender.protocol === 'file:';
+  // #830: bundled-mode renderer loads via app://concord/index.html (Task 4).
+  // Reject the legacy file:// origin — it should no longer occur in packaged
+  // builds, so seeing it would indicate a regression worth catching loudly.
+  // Note: `URL.origin` returns the literal string "null" for non-special
+  // schemes like `app:` (per WHATWG URL spec), so we compare protocol + host.
+  return sender.protocol === 'app:' && sender.host === 'concord';
 }

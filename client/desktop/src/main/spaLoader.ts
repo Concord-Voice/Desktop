@@ -132,3 +132,27 @@ function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
       });
   });
 }
+
+/**
+ * Classify a SpaLoadDecision.reason as "expected" (first launch, server
+ * has no SPA configured, contract zero) or "unexpected" (config fetch
+ * failed, spaUrl rejected, IPC contract mismatch, anything else).
+ *
+ * Used by main.ts to decide whether to surface the Option C overlay
+ * (#830) — only unexpected fallbacks should trigger it. Expected
+ * fallbacks are normal operation (e.g., a self-hosted server with no
+ * spaUrl configured, or a logged-out user on a fresh launch).
+ *
+ * Unknown reasons are treated as unexpected (fail-loud principle):
+ * if a future code path adds a new reason string we didn't anticipate,
+ * we'd rather surface it than silently swallow it.
+ */
+const EXPECTED_BUNDLED_REASON_PREFIXES = [
+  'no persisted API base',
+  'server has no spaUrl configured',
+  'server spaIpcContract is zero or absent',
+];
+
+export function isUnexpectedBundled(reason: string): boolean {
+  return !EXPECTED_BUNDLED_REASON_PREFIXES.some((prefix) => reason.startsWith(prefix));
+}

@@ -28,6 +28,15 @@ const { mockLoadURL, mockLoadFile, mockWebContents, mockGetAllWindows } = vi.hoi
 });
 
 vi.mock('electron', () => ({
+  // #830: spaSelfHeal's loadBundledFallback now consults app.isPackaged
+  // to gate the app:// loadURL call (dev mode noops because the scheme
+  // is unregistered there). Existing tests assume the packaged branch
+  // executes (mockLoadURL is called), so the mock returns isPackaged: true.
+  // Tests that need the dev branch (none currently) would override via
+  // a per-test vi.mocked() spy.
+  app: {
+    isPackaged: true,
+  },
   BrowserWindow: {
     getAllWindows: mockGetAllWindows,
   },
@@ -76,8 +85,12 @@ describe('spaSelfHeal — R2 retry state machine', () => {
     await vi.advanceTimersByTimeAsync(500);
     const outcome = await promise;
 
-    expect(mockLoadFile).toHaveBeenCalledOnce();
-    expect(mockLoadURL).not.toHaveBeenCalled();
+    // #830: bundled fallback now loads via app:// scheme (Task 4 conversion).
+    // The mockLoadFile.not.toHaveBeenCalled() assertion is a regression-lock —
+    // if a future change reintroduces loadFile for bundled, this test fails loudly.
+    expect(mockLoadURL).toHaveBeenCalledOnce();
+    expect(mockLoadURL).toHaveBeenCalledWith('app://concord/index.html');
+    expect(mockLoadFile).not.toHaveBeenCalled();
     expect(outcome).toEqual({ mode: 'fellBackToBundled', retryCount: 1 });
   });
 
@@ -96,9 +109,11 @@ describe('spaSelfHeal — R2 retry state machine', () => {
     // Second call hits the retryCount=1 branch.
     const second = await attemptSelfHeal({ reason: 'chunk-load' });
 
+    // #830: bundled fallback now loads via app:// scheme (Task 4 conversion).
     expect(mockResolve).not.toHaveBeenCalled();
-    expect(mockLoadURL).not.toHaveBeenCalled();
-    expect(mockLoadFile).toHaveBeenCalledOnce();
+    expect(mockLoadURL).toHaveBeenCalledOnce();
+    expect(mockLoadURL).toHaveBeenCalledWith('app://concord/index.html');
+    expect(mockLoadFile).not.toHaveBeenCalled();
     expect(second).toEqual({ mode: 'fellBackToBundled', retryCount: 2 });
   });
 
@@ -147,7 +162,10 @@ describe('spaSelfHeal — R2 retry state machine', () => {
     await vi.advanceTimersByTimeAsync(500);
     const outcome = await promise;
 
-    expect(mockLoadFile).toHaveBeenCalledOnce();
+    // #830: bundled fallback now loads via app:// scheme (Task 4 conversion).
+    expect(mockLoadURL).toHaveBeenCalledOnce();
+    expect(mockLoadURL).toHaveBeenCalledWith('app://concord/index.html');
+    expect(mockLoadFile).not.toHaveBeenCalled();
     expect(outcome).toEqual({ mode: 'fellBackToBundled', retryCount: 1 });
   });
 
@@ -193,9 +211,19 @@ describe('spaSelfHeal — R2 retry state machine', () => {
     await vi.advanceTimersByTimeAsync(500);
     const outcome = await promise;
 
+    // #830: bundled fallback now loads via app:// scheme (Task 4 conversion).
+    // mockLoadURL is called TWICE — first with the remote URL (rejected by
+    // mockRejectedValueOnce above), then with 'app://concord/index.html' for
+    // the bundled fallback path. The first rejection is the trigger; the
+    // second call is the bundled-fallback recovery.
     expect(mockResolve).toHaveBeenCalledOnce();
-    expect(mockLoadURL).toHaveBeenCalledOnce();
-    expect(mockLoadFile).toHaveBeenCalledOnce();
+    expect(mockLoadURL).toHaveBeenCalledTimes(2);
+    expect(mockLoadURL).toHaveBeenNthCalledWith(
+      1,
+      'https://api.concordvoice.chat/spa/def5678/index.html'
+    );
+    expect(mockLoadURL).toHaveBeenNthCalledWith(2, 'app://concord/index.html');
+    expect(mockLoadFile).not.toHaveBeenCalled();
     expect(outcome).toEqual({ mode: 'fellBackToBundled', retryCount: 1 });
   });
 });

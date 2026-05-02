@@ -20,7 +20,7 @@ vi.mock('@/main/ipcContract', () => ({ IPC_CONTRACT_VERSION: 7 }));
 
 import { net } from 'electron';
 import { getPersistedApiBase } from '@/main/tokenManager';
-import { resolveSpaSource } from '@/main/spaLoader';
+import { resolveSpaSource, isUnexpectedBundled } from '@/main/spaLoader';
 
 const mockNet = net as unknown as { fetch: ReturnType<typeof vi.fn> };
 const mockGetApiBase = getPersistedApiBase as unknown as ReturnType<typeof vi.fn>;
@@ -62,5 +62,43 @@ describe('spaLoader — defensive /api/v1/spa/ sentinel', () => {
     const result = await resolveSpaSource();
     expect(result.mode).toBe('remote');
     expect(result.url).toBe('https://api.concordvoice.chat/spa/abc1234/index.html');
+  });
+});
+
+describe('isUnexpectedBundled', () => {
+  it('treats first-launch reason as expected', () => {
+    expect(isUnexpectedBundled('no persisted API base (first launch or logged out)')).toBe(false);
+  });
+
+  it('treats no-spaUrl-configured as expected', () => {
+    expect(isUnexpectedBundled('server has no spaUrl configured')).toBe(false);
+  });
+
+  it('treats spaIpcContract-zero as expected', () => {
+    expect(isUnexpectedBundled('server spaIpcContract is zero or absent')).toBe(false);
+  });
+
+  it('treats config-fetch-returned as UNEXPECTED', () => {
+    expect(isUnexpectedBundled('config fetch returned 500')).toBe(true);
+  });
+
+  it('treats config-fetch-failed as UNEXPECTED', () => {
+    expect(isUnexpectedBundled('config fetch failed: timeout after 5000ms')).toBe(true);
+  });
+
+  it('treats spaUrl-rejected as UNEXPECTED', () => {
+    expect(isUnexpectedBundled('spaUrl rejected: non-HTTPS protocol http:')).toBe(true);
+    expect(isUnexpectedBundled('spaUrl rejected: invalid URL')).toBe(true);
+    expect(
+      isUnexpectedBundled('spaUrl rejected: legacy /api/v1/spa/ path (poisoned sentinel)')
+    ).toBe(true);
+  });
+
+  it('treats IPC-contract-mismatch as UNEXPECTED (shell needs update)', () => {
+    expect(isUnexpectedBundled('IPC contract 8 < required 9 — shell update needed')).toBe(true);
+  });
+
+  it('treats unknown reasons as UNEXPECTED (fail-loud)', () => {
+    expect(isUnexpectedBundled('something we did not anticipate')).toBe(true);
   });
 });

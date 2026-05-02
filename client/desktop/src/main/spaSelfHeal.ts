@@ -39,8 +39,7 @@
  * correctly bounds this at one extra retry slot.
  */
 
-import { BrowserWindow } from 'electron';
-import path from 'node:path';
+import { app, BrowserWindow } from 'electron';
 import { resolveSpaSource } from './spaLoader';
 import { setRemoteSpaState } from './spaState';
 import type { SelfHealReason } from '../shared/spaIpcTypes';
@@ -90,14 +89,6 @@ function getPrimaryWebContents(): Electron.WebContents | null {
   return null;
 }
 
-function getBundledIndexPath(): string {
-  // Mirrors the bundled-fallback path used by spaLoader's caller in main.ts.
-  // The renderer dist directory is colocated with the main process bundle at
-  // package time. Resolved relative to __dirname so it works in both packaged
-  // and dev modes.
-  return path.join(__dirname, '../renderer/index.html');
-}
-
 /**
  * Load the bundled fallback renderer. Errors are logged but never propagated
  * — the recovery primitive treats a failed bundled-load as exhausted, not as
@@ -114,10 +105,22 @@ async function loadBundledFallback(wc: Electron.WebContents): Promise<void> {
   // successful remote load would cause PiP to keep loading the (broken)
   // remote SPA after the main window already swapped to bundled.
   setRemoteSpaState(null);
+  // #830 review: in dev mode the app:// scheme is unregistered (the
+  // registration in main.ts is gated on app.isPackaged). Self-heal SHOULDN'T
+  // be reachable in dev — shouldTriggerSelfHealForFailedLoad's no-remote
+  // filter blocks the trigger when remoteSpaBaseUrl is null, which is
+  // always-true in dev — but defense-in-depth: log and noop instead of
+  // attempting an unhandled-scheme loadURL that would throw with no
+  // further fallback.
+  if (!app.isPackaged) {
+    console.warn('[spaSelfHeal] bundled fallback skipped in dev mode (app:// scheme unregistered)');
+    return;
+  }
   try {
-    await wc.loadFile(getBundledIndexPath());
+    // #830: self-heal terminal state loads bundled via app:// scheme.
+    await wc.loadURL('app://concord/index.html');
   } catch (err) {
-    console.error('[spaSelfHeal] bundled loadFile failed:', (err as Error).message);
+    console.error('[spaSelfHeal] bundled loadURL failed:', (err as Error).message);
   }
 }
 
