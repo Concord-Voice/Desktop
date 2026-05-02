@@ -97,15 +97,31 @@ export async function startSSOFlow(provider: SSOProvider): Promise<SSOResult> {
 
     await globalThis.electron.openExternal(authURL);
 
-    const { code, state: returnedState } = await globalThis.electron.sso.awaitCallback(lo.port);
+    // Apple's response_mode=form_post POST callback can include a `user` form
+    // field (first-auth-only) which the loopback surfaces as `appleUserData`.
+    // Apple subsequent auths and Google's GET path leave appleUserData undefined.
+    const {
+      code,
+      state: returnedState,
+      appleUserData,
+    } = await globalThis.electron.sso.awaitCallback(lo.port);
     if (returnedState !== state) {
       throw new TypeError('oauth_state_mismatch');
     }
 
+    // apple_user_data is conditionally included when the loopback surfaced
+    // it. Apple subsequent auths and Google's GET path leave appleUserData
+    // undefined; we MUST omit the field rather than send null/empty so the
+    // Go backend's `omitempty` contract holds (Google's Provider ignores
+    // an absent field; presence on the wire would be a schema mismatch).
+    const cbBody: Record<string, string> = { code, state };
+    if (appleUserData !== undefined) {
+      cbBody.apple_user_data = appleUserData;
+    }
     const cbRes = await apiFetch(`/api/v1/auth/sso/${provider}/callback`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, state }),
+      body: JSON.stringify(cbBody),
     });
     if (!cbRes.ok) {
       throw new Error(`sso_callback_failed_${cbRes.status}`);

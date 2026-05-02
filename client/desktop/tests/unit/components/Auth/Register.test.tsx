@@ -223,4 +223,30 @@ describe('Register', () => {
     await user.click(screen.getByRole('button', { name: /sign in with google/i }));
     expect(beginSSOMock).toHaveBeenCalledWith('google');
   });
+
+  // ── Apple SSO entry point (#271) ──────────────────────────────────────
+
+  it('renders the Sign in with Apple button alongside Google on the registration form', () => {
+    // App Store policy parity: when Google sign-in is offered, Apple must
+    // also be offered. Both buttons live in the same .register-sso-row above
+    // the email/password form. SSOButton's `provider="apple"` variant
+    // renders the Apple logo + "Sign in with Apple" label per Apple HIG
+    // (forward-shaped in PR #808).
+    render(<Register onBack={onBack} onSuccess={onSuccess} onSwitchToLogin={onSwitchToLogin} />);
+    expect(screen.getByRole('button', { name: /sign in with apple/i })).toBeInTheDocument();
+    // Google still rendered — Apple is additive, not a replacement.
+    expect(screen.getByRole('button', { name: /sign in with google/i })).toBeInTheDocument();
+  });
+
+  it('calls useSSOFlow().begin("apple") when the Sign in with Apple button is clicked', async () => {
+    // Mirror of the Google-button test above. The Apple click handler is
+    // the same inline arrow shape — `() => beginSSO('apple')` — so we
+    // assert the begin mock is called with the correct provider literal.
+    beginSSOMock.mockClear();
+    const user = userEvent.setup();
+    render(<Register onBack={onBack} onSuccess={onSuccess} onSwitchToLogin={onSwitchToLogin} />);
+
+    await user.click(screen.getByRole('button', { name: /sign in with apple/i }));
+    expect(beginSSOMock).toHaveBeenCalledWith('apple');
+  });
 });

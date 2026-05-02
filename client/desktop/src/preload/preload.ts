@@ -289,13 +289,19 @@ contextBridge.exposeInMainWorld('electron', {
       reason?: 'untrusted-sender' | 'invalid-protocol' | 'invalid-url';
     }>,
 
-  // SSO loopback HTTP server bridge (#270): main process owns a 127.0.0.1
-  // ephemeral-port server that captures the OAuth callback. Renderer drives
-  // the provider redirect via the system browser and awaits code+state.
+  // SSO loopback HTTP server bridge (#270, extended for Apple in #271): main
+  // process owns a 127.0.0.1 ephemeral-port server that captures the OAuth
+  // callback. Renderer drives the provider redirect via the system browser
+  // and awaits code+state. Apple's response_mode=form_post additionally
+  // delivers the first-auth `user` JSON; the loopback surfaces it as the
+  // optional appleUserData field, undefined for Google or Apple subsequent
+  // auths.
   sso: {
     startLoopback: (): Promise<{ port: number; redirectURI: string }> =>
       ipcRenderer.invoke('sso:startLoopback'),
-    awaitCallback: (port: number): Promise<{ code: string; state: string }> =>
+    awaitCallback: (
+      port: number
+    ): Promise<{ code: string; state: string; appleUserData?: string }> =>
       ipcRenderer.invoke('sso:awaitCallback', port),
     cancelLoopback: (port: number): void => ipcRenderer.send('sso:cancelLoopback', port),
   },
@@ -456,10 +462,12 @@ export interface ElectronAPI {
     reason?: 'untrusted-sender' | 'invalid-protocol' | 'invalid-url';
   }>;
 
-  // SSO loopback HTTP server bridge (#270)
+  // SSO loopback HTTP server bridge (#270, extended for Apple in #271)
   sso: {
     startLoopback: () => Promise<{ port: number; redirectURI: string }>;
-    awaitCallback: (port: number) => Promise<{ code: string; state: string }>;
+    awaitCallback: (
+      port: number
+    ) => Promise<{ code: string; state: string; appleUserData?: string }>;
     cancelLoopback: (port: number) => void;
   };
 }

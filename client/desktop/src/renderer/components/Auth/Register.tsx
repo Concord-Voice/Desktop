@@ -223,10 +223,11 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
         </div>
 
         {/* SSO entry point — clicking begins the loopback OAuth flow. New
-            users coming from Google enter the SSO new-user wizard via
-            useSSOStore once Task 21 wires AuthFlow. */}
+            users coming from Google or Apple (#271) enter the SSO new-user
+            wizard via useSSOStore once Task 21 wires AuthFlow. */}
         <div className="register-sso-row">
           <SSOButton provider="google" onClick={() => beginSSO('google')} disabled={isSubmitting} />
+          <SSOButton provider="apple" onClick={() => beginSSO('apple')} disabled={isSubmitting} />
         </div>
         <div className="register-divider" role="separator" aria-label="or sign up with email">
           <span className="register-divider__text">or</span>

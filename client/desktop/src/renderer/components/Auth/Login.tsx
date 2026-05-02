@@ -662,9 +662,12 @@ const Login: React.FC<LoginProps> = ({
 
         {/* SSO entry point — sits above the password form. Clicking begins the
             loopback OAuth flow; subsequent UI is driven by useSSOStore state
-            (rendered by AuthFlow once Task 21 wires it). */}
+            (rendered by AuthFlow once Task 21 wires it). Apple SSO (#271)
+            lives next to Google to satisfy App Store policy parity (mobile
+            clients #205 require both when either is offered). */}
         <div className="login-sso-row">
           <SSOButton provider="google" onClick={() => beginSSO('google')} disabled={isSubmitting} />
+          <SSOButton provider="apple" onClick={() => beginSSO('apple')} disabled={isSubmitting} />
         </div>
         <div className="login-divider" role="separator" aria-label="or sign in with email">
           <span className="login-divider__text">or</span>

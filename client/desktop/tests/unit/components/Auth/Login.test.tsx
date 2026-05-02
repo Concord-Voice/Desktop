@@ -846,6 +846,50 @@ describe('Login', () => {
     expect(appleBtn).toBeInTheDocument();
   });
 
+  // ── Apple SSO entry point (#271) ──────────────────────────────────────
+
+  it('renders Apple SSO button alongside Google on the default password-form view', async () => {
+    // App Store policy parity: when Google is offered as a sign-in option,
+    // Apple must also be offered (gating mobile clients #205/#206). The
+    // button uses the SSOButton's `provider="apple"` variant — branded
+    // black-on-white per Apple HIG (forward-shaped in PR #808).
+    render(<Login {...defaultProps} />);
+    expect(screen.getByRole('button', { name: /sign in with apple/i })).toBeInTheDocument();
+    // Google button still present — Apple is additive, not a replacement.
+    expect(screen.getByRole('button', { name: /sign in with google/i })).toBeInTheDocument();
+  });
+
+  it('clicks the Apple SSO button on the default view — invokes beginSSO via useSSOFlow', async () => {
+    // The inline arrow handler invokes useSSOFlow().begin('apple') via
+    // real-hook wiring. The flow itself short-circuits because
+    // globalThis.electron is stubbed by setup.ts. We assert the click
+    // does not throw and the button stays present (not disabled by
+    // submit state on the default view).
+    const user = userEvent.setup();
+    render(<Login {...defaultProps} />);
+    const appleBtn = screen.getByRole('button', { name: /sign in with apple/i });
+    await user.click(appleBtn);
+    expect(appleBtn).toBeInTheDocument();
+  });
+
+  it('disables the Apple SSO button while password form is submitting', async () => {
+    // The Apple button shares the disabled={isSubmitting} prop with Google
+    // so a user cannot start an SSO flow concurrently with a password
+    // submit (which would race the loopback's 60s timeout against the
+    // backend's auth call). Kept symmetric with Google for predictable UX.
+    mockFetch.mockReturnValueOnce(new Promise(() => {}));
+
+    const user = userEvent.setup();
+    render(<Login {...defaultProps} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'Password123!');
+    await user.click(screen.getByRole('button', { name: /^sign in$/i }));
+
+    await vi.waitFor(() => {
+      expect(screen.getByRole('button', { name: /sign in with apple/i })).toBeDisabled();
+    });
+  });
+
   // ── sso_account_misconfigured (#270 / PR #808 review) ──────────────────
 
   it('shows a contact-support message when server returns 500 sso_account_misconfigured', async () => {

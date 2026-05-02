@@ -84,4 +84,147 @@ describe('startLoopback', () => {
     // Idempotent close — must not throw or change the resolved value.
     expect(() => handle.close()).not.toThrow();
   });
+
+  // ── Apple POST callback (#271) ──────────────────────────────────────────
+  // Apple's response_mode=form_post sends the OAuth callback as POST
+  // application/x-www-form-urlencoded body. The loopback server must accept
+  // it without breaking the existing Google GET path. The 'user' field is
+  // populated only on the first authentication for a given Services ID and
+  // carries the user's first/last name JSON — this becomes appleUserData
+  // on the resolved LoopbackResult. Subsequent auths legitimately omit it.
+
+  it('handles POST application/x-www-form-urlencoded with code+state+user — resolves with appleUserData', async () => {
+    const handle = await startLoopback();
+    const userJson = '{"name":{"firstName":"Jane","lastName":"Doe"},"email":"jane@example.com"}';
+    const body = new URLSearchParams({
+      code: 'apple-code',
+      state: 'apple-state',
+      user: userJson,
+    }).toString();
+
+    const fetchPromise = fetch(handle.redirectURI, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+
+    const result = await handle.promise;
+    expect(result.code).toBe('apple-code');
+    expect(result.state).toBe('apple-state');
+    expect(result.appleUserData).toBe(userJson);
+
+    const resp = await fetchPromise;
+    expect(resp.status).toBe(200);
+  });
+
+  it('handles POST without user field — resolves without appleUserData', async () => {
+    // Subsequent Apple authentications (Scenario C in the spec) have no
+    // user field; result.appleUserData must be undefined, not "".
+    const handle = await startLoopback();
+    const body = new URLSearchParams({
+      code: 'apple-code-2',
+      state: 'apple-state-2',
+    }).toString();
+
+    void fetch(handle.redirectURI, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+    }).catch(() => {});
+
+    const result = await handle.promise;
+    expect(result.code).toBe('apple-code-2');
+    expect(result.state).toBe('apple-state-2');
+    expect(result.appleUserData).toBeUndefined();
+  });
+
+  it('rejects POST > 64 KiB with 413 — defends against oversize bodies', async () => {
+    // Defense in depth: legitimate Apple POSTs are < 2 KiB. A hostile
+    // localhost peer streaming a multi-megabyte body would otherwise
+    // accumulate in memory until the OOM killer fires. 413 + req.destroy()
+    // tears down the socket so the attacker cannot keep streaming.
+    const handle = await startLoopback({ timeoutMs: 2000 });
+    // 65 KiB of padding > 64 KiB cap. Real Apple bodies are ~1 KiB.
+    const padding = 'a'.repeat(65 * 1024);
+    const body = new URLSearchParams({
+      code: 'c',
+      state: 's',
+      pad: padding,
+    }).toString();
+
+    const fetchPromise = fetch(handle.redirectURI, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+    }).catch((err: unknown) => err);
+
+    // Promise should reject via timeout (request destroyed before completing).
+    await expect(handle.promise).rejects.toThrow(/oauth_timeout/);
+    // The fetch may receive 413 OR the connection may be destroyed mid-flight
+    // (legitimate either way — the goal is to NOT resolve with the oversize body).
+    await fetchPromise;
+  }, 10_000);
+
+  it('rejects POST with content-type !== application/x-www-form-urlencoded with 405', async () => {
+    // POST-body smuggling defense (spec §9). A hostile peer sending JSON
+    // (or anything else) is rejected with 405 Method Not Allowed; the
+    // loopback never tries to URL-decode a non-form-encoded body.
+    const handle = await startLoopback();
+    try {
+      const resp = await fetch(handle.redirectURI, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ code: 'c', state: 's' }),
+      });
+      expect(resp.status).toBe(405);
+    } finally {
+      handle.close();
+    }
+  });
+
+  it('still serves Google GET path with code+state — no appleUserData (regression)', async () => {
+    // Backwards-compat regression test: the existing Google flow uses
+    // GET /oauth/callback?code=...&state=...; adding POST support must
+    // NOT break it. result.appleUserData must be undefined on this branch
+    // (it is Apple-only).
+    const handle = await startLoopback();
+    void fetch(`${handle.redirectURI}?code=google-code&state=google-state`).catch(() => {});
+
+    const result = await handle.promise;
+    expect(result.code).toBe('google-code');
+    expect(result.state).toBe('google-state');
+    expect(result.appleUserData).toBeUndefined();
+  });
+
+  it('rejects POST with error param — resolves to oauth_provider_error', async () => {
+    // Apple can POST an error response (e.g., user_cancelled_authorize) via
+    // form_post just like Google can pass ?error= in the GET. Surface it
+    // through the same shared param-handler path.
+    const handle = await startLoopback();
+    const body = new URLSearchParams({ error: 'user_cancelled_authorize' }).toString();
+
+    void fetch(handle.redirectURI, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+    }).catch(() => {});
+
+    await expect(handle.promise).rejects.toThrow(/user_cancelled_authorize/);
+  });
+
+  it('does not resolve on POST with malformed body (no code or state)', async () => {
+    // Probe / malformed POST: no code AND no state → 400 returned to the
+    // peer, but the loopback promise stays pending so a follow-up legitimate
+    // hit can still resolve. This mirrors the GET-path malformed-callback
+    // behavior. Verified by asserting that the promise times out rather
+    // than rejecting with oauth_provider_error.
+    const handle = await startLoopback({ timeoutMs: 300 });
+    void fetch(handle.redirectURI, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: 'random=junk',
+    }).catch(() => {});
+
+    await expect(handle.promise).rejects.toThrow(/oauth_timeout/);
+  }, 5_000);
 });

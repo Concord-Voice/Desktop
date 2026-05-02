@@ -16,18 +16,45 @@
  *   - On any terminal outcome (success, provider error, timeout, manual
  *     cancel) the timer AND server are closed; no double-resolution.
  *
+ * Provider transport (#270 + #271):
+ *   - Google's `response_mode=query` sends GET `?code=...&state=...`.
+ *   - Apple's `response_mode=form_post` (mandatory when `scope=name email`)
+ *     sends POST `application/x-www-form-urlencoded` with `code`, `state`,
+ *     and — on first auth only — a `user` field carrying first/last-name
+ *     JSON. Both transports resolve through the same `handleParams` path.
+ *
+ * POST-specific defenses (Apple flow):
+ *   - 64 KiB body cap with `res.writeHead(413)` + `req.destroy()` so a
+ *     hostile localhost peer cannot keep streaming an oversize body.
+ *     Legitimate Apple POSTs are < 2 KiB.
+ *   - Strict Content-Type substring match on `application/x-www-form-urlencoded`
+ *     (tolerates the `;charset=utf-8` suffix Apple actually sends).
+ *     Anything else returns 405 — defense against POST-body smuggling.
+ *
  * The renderer never talks to this server directly — it talks to the
  * IPC bridge in `ipc/sso.ts`, which forwards `code+state` after the
  * server has captured them.
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { URL } from 'node:url';
+import { URL, URLSearchParams } from 'node:url';
 
 export interface LoopbackResult {
   code: string;
   state: string;
+  /**
+   * Raw Apple `user` form field, present only on Apple's FIRST authentication
+   * for a given Services ID. Subsequent auths and Google's GET path leave it
+   * undefined. The renderer treats this value as opaque and forwards it to
+   * the backend `/sso/apple/callback` POST body as `apple_user_data`; the
+   * backend `AppleProvider.Exchange` parses the embedded name JSON.
+   */
+  appleUserData?: string;
 }
+
+/** 64 KiB cap on POST body length. Legitimate Apple bodies are ~1 KiB. */
+const MAX_POST_BODY_BYTES = 64 * 1024;
+const FORM_URLENCODED_CT = 'application/x-www-form-urlencoded';
 
 export interface LoopbackHandle {
   port: number;
@@ -77,6 +104,90 @@ export function startLoopback(opts: LoopbackOptions = {}): Promise<LoopbackHandl
   // resolve/reject calls behind this flag.
   let settled = false;
 
+  /**
+   * handleParams — shared param-extraction and settle path for GET (Google,
+   * `response_mode=query`) and POST (Apple, `response_mode=form_post`).
+   *
+   * The semantics are identical between transports: an `error` param rejects
+   * the promise with `oauth_provider_error:<code>`; a present `code+state`
+   * resolves with optional `appleUserData` (passed through from Apple's
+   * `user` form field — undefined for Google); anything else returns 400 to
+   * the peer without settling the promise so a probe request does not stall
+   * a still-pending flow.
+   */
+  function handleParams(params: URLSearchParams, res: ServerResponse) {
+    const code = params.get('code');
+    const state = params.get('state');
+    const error = params.get('error');
+    // Apple-only: the 'user' field is populated on first auth only. Coerce
+    // null → undefined so the resolved LoopbackResult matches the optional
+    // appleUserData field shape (undefined === absent, not "").
+    const userField = params.get('user');
+    const appleUserData = userField === null ? undefined : userField;
+
+    if (error) {
+      res.writeHead(200, { 'content-type': 'text/html' }).end(ERROR_HTML);
+      if (!settled) {
+        settled = true;
+        cleanup();
+        rejectResult(new Error(`oauth_provider_error:${error}`));
+      }
+      return;
+    }
+    if (!code || !state) {
+      // Malformed callback — respond 400 but DO NOT settle the promise.
+      // Lets the timeout fire if no further valid hit arrives, instead of
+      // letting a probe request to /oauth/callback (no params) stall the flow.
+      res.writeHead(400).end();
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/html' }).end(SUCCESS_HTML);
+    if (!settled) {
+      settled = true;
+      cleanup();
+      resolveResult({ code, state, appleUserData });
+    }
+  }
+
+  /**
+   * handlePost — Apple's `response_mode=form_post` callback. Streams the body
+   * with a 64 KiB cap. On overrun we return 413 AND `req.destroy()` to tear
+   * down the connection so the peer cannot keep streaming after the
+   * rejection. The `oversized` flag prevents subsequent `data` chunks from
+   * accumulating after the destroy, and the `end` listener early-returns so
+   * we never feed an incomplete oversize body to URLSearchParams.
+   */
+  function handlePost(req: IncomingMessage, res: ServerResponse) {
+    // setEncoding('utf8') gives us string chunks decoded across UTF-8 boundaries
+    // by Node's StringDecoder. Without it, multi-byte chars (any non-ASCII Apple
+    // ID name like 田中 太郎 or Müller) would mojibake when split across chunks.
+    // Also makes the MAX_POST_BODY_BYTES cap byte-bounded in practice (string
+    // length still tracks code units, but UTF-8-decoded chunks no longer corrupt).
+    req.setEncoding('utf8');
+    let body = '';
+    let oversized = false;
+    req.on('data', (chunk) => {
+      if (oversized) return;
+      body += chunk;
+      if (body.length > MAX_POST_BODY_BYTES) {
+        oversized = true;
+        res.writeHead(413).end();
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      if (oversized) return;
+      handleParams(new URLSearchParams(body), res);
+    });
+    // Defensive: a localhost peer that aborts mid-stream emits 'error' on the
+    // request. Without a listener, Node 16+ surfaces it as uncaughtException
+    // and Node 14 throws synchronously. Swallow — the outer settle/timeout
+    // path will reject the loopback promise anyway.
+    req.on('error', () => {
+      /* peer abort; outer timeout will settle the promise */
+    });
+  }
+
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     // Wrap the entire handler in a try/catch to defend against an
     // uncaughtException tearing down the main process. URL parsing on
@@ -90,32 +201,21 @@ export function startLoopback(opts: LoopbackOptions = {}): Promise<LoopbackHandl
         res.writeHead(404).end();
         return;
       }
-      const code = url.searchParams.get('code');
-      const state = url.searchParams.get('state');
-      const error = url.searchParams.get('error');
-
-      if (error) {
-        res.writeHead(200, { 'content-type': 'text/html' }).end(ERROR_HTML);
-        if (!settled) {
-          settled = true;
-          cleanup();
-          rejectResult(new Error(`oauth_provider_error:${error}`));
-        }
+      if (req.method === 'GET') {
+        handleParams(url.searchParams, res);
         return;
       }
-      if (!code || !state) {
-        // Malformed callback — respond 400 but DO NOT settle the promise.
-        // Lets the timeout fire if no further valid hit arrives, instead of
-        // letting a probe request to /oauth/callback (no params) stall the flow.
-        res.writeHead(400).end();
+      // .includes() (not strict equality) tolerates the ';charset=utf-8'
+      // suffix Apple sends. The substring test is for the Content-Type
+      // value itself; a hostile `application/x-www-form-urlencoded;evil=true`
+      // would also match, but URLSearchParams parsing of the suffix is
+      // benign — the smuggling defense is the negative branch (405 below).
+      const ct = req.headers['content-type'] ?? '';
+      if (req.method === 'POST' && ct.includes(FORM_URLENCODED_CT)) {
+        handlePost(req, res);
         return;
       }
-      res.writeHead(200, { 'content-type': 'text/html' }).end(SUCCESS_HTML);
-      if (!settled) {
-        settled = true;
-        cleanup();
-        resolveResult({ code, state });
-      }
+      res.writeHead(405).end();
     } catch (handlerErr) {
       // Best-effort 500. The socket may already be closed; ignore secondary
       // failures during error reporting.

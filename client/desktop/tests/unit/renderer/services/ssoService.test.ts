@@ -237,6 +237,109 @@ describe('startSSOFlow', () => {
 
     await expect(startSSOFlow('google')).rejects.toThrow(/sso_response_unrecognized/);
   });
+
+  // ── Apple appleUserData threading (#271) ────────────────────────────────
+  // The loopback resolves with an optional `appleUserData` string on Apple's
+  // first authentication. ssoService threads it into the /callback POST
+  // body as `apple_user_data` so the backend AppleProvider can parse the
+  // user's first/last name JSON and persist a display-name suggestion. On
+  // Apple subsequent auths and on Google's GET path, appleUserData is
+  // undefined and the field MUST be omitted (not sent as null/empty) so
+  // the Go backend's omitempty contract holds.
+
+  it('threads appleUserData into /sso/apple/callback POST body when present', async () => {
+    let capturedBody: Record<string, unknown> | null = null;
+    server.use(
+      http.get(`${API_BASE}/api/v1/auth/sso/apple`, () =>
+        HttpResponse.json({
+          auth_url: 'https://appleid.apple.com/auth/authorize?state=apple-state',
+          state: 'apple-state',
+        })
+      ),
+      http.post(`${API_BASE}/api/v1/auth/sso/apple/callback`, async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ access_token: 'apple-token' });
+      })
+    );
+    const userJson = '{"name":{"firstName":"Jane","lastName":"Doe"},"email":"jane@example.com"}';
+    electron.sso.awaitCallback.mockResolvedValueOnce({
+      code: 'apple-code',
+      state: 'apple-state',
+      appleUserData: userJson,
+    });
+
+    const result = await startSSOFlow('apple');
+    expect(result.kind).toBe('logged_in');
+    expect(capturedBody).not.toBeNull();
+    expect(capturedBody).toMatchObject({
+      code: 'apple-code',
+      state: 'apple-state',
+      apple_user_data: userJson,
+    });
+  });
+
+  it('omits apple_user_data field on /callback POST body when loopback returned undefined', async () => {
+    // Apple subsequent auth: the user field is absent on the second+ auth
+    // for a Services ID (per spec §7.3 Scenario C). The renderer must NOT
+    // include apple_user_data — the backend's omitempty contract relies on
+    // missing field ≡ no first-auth name carriage.
+    let capturedBody: Record<string, unknown> | null = null;
+    server.use(
+      http.get(`${API_BASE}/api/v1/auth/sso/apple`, () =>
+        HttpResponse.json({
+          auth_url: 'https://appleid.apple.com/auth/authorize?state=apple-state-2',
+          state: 'apple-state-2',
+        })
+      ),
+      http.post(`${API_BASE}/api/v1/auth/sso/apple/callback`, async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ access_token: 'apple-token-2' });
+      })
+    );
+    electron.sso.awaitCallback.mockResolvedValueOnce({
+      code: 'apple-code-2',
+      state: 'apple-state-2',
+      // no appleUserData field — subsequent-auth path
+    });
+
+    const result = await startSSOFlow('apple');
+    expect(result.kind).toBe('logged_in');
+    expect(capturedBody).not.toBeNull();
+    expect(capturedBody).toMatchObject({
+      code: 'apple-code-2',
+      state: 'apple-state-2',
+    });
+    expect(capturedBody).not.toHaveProperty('apple_user_data');
+  });
+
+  it('never includes apple_user_data on Google /callback POST body (regression)', async () => {
+    // Defense in depth: even if the loopback IPC erroneously surfaced an
+    // appleUserData field on a Google flow, the service must still gate
+    // inclusion on provider === 'apple' OR on the field's presence. We
+    // assert the simpler contract: a loopback resolution without
+    // appleUserData yields no apple_user_data on the wire, on either
+    // provider. (Loopback POST is only reachable for Apple in practice
+    // because Google uses GET, but the renderer treats provider as
+    // an opaque label.)
+    let capturedBody: Record<string, unknown> | null = null;
+    server.use(
+      http.get(`${API_BASE}/api/v1/auth/sso/google`, () =>
+        HttpResponse.json({ auth_url: 'https://accounts.google.com/x', state: 'g-state' })
+      ),
+      http.post(`${API_BASE}/api/v1/auth/sso/google/callback`, async ({ request }) => {
+        capturedBody = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ access_token: 'google-token' });
+      })
+    );
+    electron.sso.awaitCallback.mockResolvedValueOnce({
+      code: 'g-code',
+      state: 'g-state',
+    });
+
+    await startSSOFlow('google');
+    expect(capturedBody).not.toBeNull();
+    expect(capturedBody).not.toHaveProperty('apple_user_data');
+  });
 });
 
 describe('completeSSORegistration', () => {
