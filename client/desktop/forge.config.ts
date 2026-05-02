@@ -24,13 +24,20 @@ import fs from 'fs';
 const macSigning: Pick<
   NonNullable<ForgeConfig['packagerConfig']>,
   'osxSign' | 'osxNotarize'
-> = process.env.APPLE_ID && process.env.APPLE_ID_PASSWORD && process.env.APPLE_TEAM_ID
+> = process.env.APPLE_API_KEY && process.env.APPLE_API_KEY_ID && process.env.APPLE_API_ISSUER
   ? {
       osxSign: {},
       osxNotarize: {
-        appleId: process.env.APPLE_ID,
-        appleIdPassword: process.env.APPLE_ID_PASSWORD,
-        teamId: process.env.APPLE_TEAM_ID,
+        // App Store Connect API-key notarization (#825). Replaces the
+        // app-specific-password path, which silently invalidated under
+        // Apple-ID 2FA events and stranded users on 0.1.29.
+        // APPLE_API_KEY here is a filesystem PATH to the .p8 key file —
+        // CI writes it to a temp file in a darwin-only setup step; the
+        // raw .p8 contents live in the GHA secret of the same name.
+        tool: 'notarytool',
+        appleApiKey: process.env.APPLE_API_KEY,
+        appleApiKeyId: process.env.APPLE_API_KEY_ID,
+        appleApiIssuer: process.env.APPLE_API_ISSUER,
       },
     }
   : {};
