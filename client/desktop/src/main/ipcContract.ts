@@ -33,8 +33,17 @@
  *        chunk-load failures so main process can refetch /api/v1/client/config
  *        and reload via the existing resolveSpaSource() validators. See
  *        internal-reference
+ * - v9: Bundled-SPA fallback observability (#830, deferred to #831):
+ *        app:configFetchFailed event (main → renderer), emitted when
+ *        spaLoader's resolveSpaSource() falls back to bundled for an
+ *        unexpected reason (config fetch failed, network issue, spaUrl
+ *        rejected, IPC contract mismatch). Renderer subscribes via
+ *        SpaFallbackOverlay component and surfaces a dismissable banner.
+ *        Server's spaIpcContract is NOT bumped to 9 — older v8 shells
+ *        continue to work without the overlay, since webContents.send
+ *        to a non-listening renderer is a harmless no-op.
  */
-export const IPC_CONTRACT_VERSION = 8;
+export const IPC_CONTRACT_VERSION = 9;
 
 /**
  * Result shape returned by performRefresh() in the main process and

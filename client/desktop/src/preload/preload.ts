@@ -142,6 +142,17 @@ contextBridge.exposeInMainWorld('electron', {
     };
   },
 
+  // Bundled-SPA fallback diagnostic event (#830/#831): main process emits
+  // when spaLoader falls back to bundled for an unexpected reason.
+  // Renderer subscribes via SpaFallbackOverlay component.
+  onConfigFetchFailed: (callback: (data: { reason: string }) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, data: { reason: string }) => callback(data);
+    ipcRenderer.on('app:configFetchFailed', handler);
+    return () => {
+      ipcRenderer.removeListener('app:configFetchFailed', handler);
+    };
+  },
+
   // Machine ID for token theft detection (#89)
   getMachineId: () => ipcRenderer.invoke('auth:getMachineId') as Promise<string>,
 
@@ -393,6 +404,9 @@ export interface ElectronAPI {
   onTokenRefreshed: (
     callback: (data: { accessToken: string; sessionId?: string }) => void
   ) => () => void;
+
+  // Bundled-SPA fallback diagnostic event (#830/#831)
+  onConfigFetchFailed: (callback: (data: { reason: string }) => void) => () => void;
 
   // Machine ID for token theft detection
   getMachineId: () => Promise<string>;

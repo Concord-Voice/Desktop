@@ -6,6 +6,7 @@ import DirectMessagesView from './components/DirectMessages/DirectMessagesView';
 import ContextMenuProvider from './components/ui/ContextMenuProvider';
 import ConnectionLostOverlay from './components/ui/ConnectionLostOverlay';
 import SettingsOverlayHost from './components/Settings/SettingsOverlayHost';
+import { SpaFallbackOverlay } from './components/SpaFallbackOverlay/SpaFallbackOverlay';
 import { ErrorBoundary } from './components/ErrorBoundary';
 const PipWindow = lazy(() => import('./components/Voice/PipWindow'));
 import ForceUpdateOverlay from './components/ui/ForceUpdateOverlay';
@@ -410,6 +411,7 @@ function App() {
   return (
     <ErrorBoundary fallback={<AppRootFallback />} onError={handleAppRootError}>
       <ContextMenuProvider>
+        <SpaFallbackOverlay />
         <div className="app">
           <div className="title-bar">
             <div className="title-bar-text">Concord Voice</div>
