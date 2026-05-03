@@ -1,6 +1,6 @@
-// Fix localStorage: Node 22+ provides `globalThis.localStorage` as a stub without
-// working methods (setItem/getItem). Zustand persist middleware references the
-// bare `localStorage` global. Replace it with a proper in-memory implementation.
+// Fix localStorage: modern Node versions expose `globalThis.localStorage` as a stub
+// without working methods (setItem/getItem). Zustand persist middleware references
+// the bare `localStorage` global. Replace it with a proper in-memory implementation.
 {
   const store = new Map<string, string>();
   const storage = {
@@ -35,7 +35,7 @@ afterEach(() => {
   cleanup();
 });
 
-// Provide Web Crypto API from Node 20 (jsdom lacks crypto.subtle)
+// Provide Web Crypto API from Node's built-in webcrypto (jsdom lacks crypto.subtle)
 if (!globalThis.crypto?.subtle) {
   const { webcrypto } = require('node:crypto');
   Object.defineProperty(globalThis, 'crypto', { value: webcrypto });
