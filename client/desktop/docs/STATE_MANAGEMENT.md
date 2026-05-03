@@ -606,4 +606,5 @@ Or use the `userStore.logout()` action which does this automatically.
 ---
 
 **Maintained by:** Mark (Backend) + Michael (Frontend)
+<!-- audit-exempt: historical reference (v0.1.0-Alpha is a shipped versioned identifier) -->
 **Next Review:** Before v0.1.0-Alpha release
