@@ -107,7 +107,8 @@
     "tmp": "^0.2.5",
     "serialize-javascript": "^7.0.3",
     "minimatch": "^9.0.7",
-    "rollup": "^4.59.0"
+    "rollup": "^4.59.0",
+    "fast-uri": "^3.1.2"
   },
   "optionalDependencies": {
     "@noble/hashes": "^2.2.0"
