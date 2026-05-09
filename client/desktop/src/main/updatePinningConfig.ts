@@ -18,10 +18,19 @@ import type { PinConfig } from './updatePinning';
 export const PIN_CONFIG: PinConfig = {
   pinnedHosts: ['api.concordvoice.chat'] as const,
   primaryPins: [
-    // Current production leaf SPKI SHA-256 (Let's Encrypt E8, via CloudFlare edge).
-    // Measured 2026-04-20; see spec §14 Resolution 0.6. This is a public-key
-    // fingerprint, not a secret — reproducible by anyone connecting to the host.
-    '53257bb4d6ddca461e74b403aeabe43e2b957ff78b4c893a8d4cb6f26762281b', // pragma: allowlist secret
+    // Current production leaf SPKI SHA-256 (Let's Encrypt E7, via CloudFlare edge).
+    // Measured 2026-05-08 — replaces pre-cutover pin (53257bb4...) after the
+    // cert was renewed during the #885 webroot-certbot switch. The renewal
+    // generated a new keypair instead of following the rotation runbook's
+    // backup-keypair swap procedure (#899); a future PR (V1.7) will regenerate
+    // the backup keypair and engage the proper rotation invariant. This is a
+    // public-key fingerprint, not a secret — reproducible by anyone connecting
+    // to the host:
+    //   echo | openssl s_client -connect api.concordvoice.chat:443 \
+    //     -servername api.concordvoice.chat 2>/dev/null \
+    //     | openssl x509 -pubkey -noout | openssl pkey -pubin -outform der \
+    //     | openssl dgst -sha256 -binary | xxd -p | tr -d '\n'
+    '0a4ccc0dfc2c60c67e4b814292467bbf7e525d6b75d38e32ea646153fc7c49f2', // pragma: allowlist secret
   ] as const,
   fallbackPins: [
     // Pre-staged backup keypair SPKI SHA-256. The corresponding RSA-4096
