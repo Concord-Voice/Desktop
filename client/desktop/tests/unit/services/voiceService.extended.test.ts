@@ -2732,12 +2732,17 @@ describe('VoiceService Extended', () => {
 
   describe('decoder profiling slow interval switch', () => {
     it('switches to 30s interval after initial period', async () => {
-      await joinVoiceChannel();
-      // The profiling starts at 5s intervals for 6 probes (30s), then switches to 30s
-      // Advance 7 * 5s = 35s to trigger the switch
-      await vi.advanceTimersByTimeAsync(35_000);
-      // Verify no crash during interval switch
-      expect(true).toBe(true);
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await joinVoiceChannel();
+        errorSpy.mockClear();
+        // The profiling starts at 5s intervals for 6 probes (30s), then switches to 30s
+        // Advance 7 * 5s = 35s to trigger the switch — must not raise during interval flip
+        await vi.advanceTimersByTimeAsync(35_000);
+        expect(errorSpy).not.toHaveBeenCalled();
+      } finally {
+        errorSpy.mockRestore();
+      }
     });
   });
 
@@ -2858,9 +2863,8 @@ describe('VoiceService Extended', () => {
       svc.localCameraStream = null;
       mockGetUserMedia.mockResolvedValue(createMockMediaStream([]));
 
-      await svc.produceVideo();
       // Since localCameraStream won't have video tracks, it should handle gracefully
-      expect(true).toBe(true);
+      await expect(svc.produceVideo()).resolves.toBeUndefined();
     });
   });
 

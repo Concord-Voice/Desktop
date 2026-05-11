@@ -11,10 +11,6 @@ import ToggleSwitch from './ToggleSwitch';
 import CollapsibleSection from './CollapsibleSection';
 import AudioOpusSection from './AudioOpusSection';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-type OpusFrameSize = 0 | 10 | 20 | 40 | 60;
-
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const TIER_ORDER: AudioQualityTier[] = [
@@ -114,7 +110,7 @@ const AudioConfigSection: React.FC = () => {
             silenceDetection: tc.opusDtx,
             inlineFec: tc.opusFec,
             fecHeadroom: tc.opusFec,
-            frameSize: 0 as OpusFrameSize,
+            frameSize: 0,
             stereoOverride: null,
           });
         }
@@ -199,7 +195,7 @@ const AudioConfigSection: React.FC = () => {
                       silenceDetection: tc.opusDtx,
                       inlineFec: tc.opusFec,
                       fecHeadroom: tc.opusFec,
-                      frameSize: 0 as OpusFrameSize,
+                      frameSize: 0,
                       stereoOverride: null,
                     });
                   }

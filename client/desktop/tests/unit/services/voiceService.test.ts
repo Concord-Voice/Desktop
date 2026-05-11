@@ -1890,8 +1890,7 @@ describe('VoiceService', () => {
     it('handles no transport gracefully', async () => {
       const svc = voiceService as any;
       // Should not throw when no transport exists
-      await svc.drainSendTransportQueue();
-      expect(true).toBe(true);
+      await expect(svc.drainSendTransportQueue()).resolves.toBeUndefined();
     });
   });
 

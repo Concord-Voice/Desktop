@@ -34,7 +34,7 @@ const GroupMemberItem: React.FC<GroupMemberItemProps> = ({
   useEffect(() => {
     if (!showMenu) return;
     const handleClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      if (e.target instanceof Node && menuRef.current && !menuRef.current.contains(e.target)) {
         setShowMenu(false);
       }
     };

@@ -177,8 +177,8 @@ describe('clipboard', () => {
     it('does nothing for non-editable elements', () => {
       const div = document.createElement('div');
       div.textContent = 'plain text';
-      // Should not throw
-      selectAll(div);
+      // Should not throw on a plain non-editable node
+      expect(() => selectAll(div)).not.toThrow();
     });
   });
 });

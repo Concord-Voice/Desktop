@@ -129,6 +129,80 @@ describe('WebSocketService', () => {
       service.connect('test-token');
       expect(service.getState()).toBe(ConnectionState.CONNECTED);
     });
+
+    // ─── Connection-boundary validation (defense-in-depth) ──────────────
+    // The validator fails-closed before `new WebSocket(wsUrl)` to defend
+    // against future regressions that let attacker-influenced data reach
+    // the connection URL.
+
+    it('refuses to connect when the configured URL has a non-WebSocket scheme', async () => {
+      const evilService = new WebSocketService('https://attacker.example');
+      evilService.connect('test-token');
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+      // No WebSocket constructed; service transitioned to ERROR
+      expect((evilService as any).ws).toBeNull();
+      expect(evilService.getState()).toBe(ConnectionState.ERROR);
+      // CRITICAL: the validator must reject BEFORE the ticket fetch — otherwise
+      // a tainted `this.url` would leak the Bearer token to the attacker host.
+      // Per Copilot review on PR #943.
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    it('refuses to connect when the ticket contains URL-control characters', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ ticket: 'foo&secondary=hijack' }),
+      });
+      service.connect('test-token');
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+      expect((service as any).ws).toBeNull();
+      expect(service.getState()).toBe(ConnectionState.ERROR);
+    });
+
+    it('refuses to connect when the ticket is oversized', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ ticket: 'a'.repeat(5000) }),
+      });
+      service.connect('test-token');
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(0);
+      expect((service as any).ws).toBeNull();
+      expect(service.getState()).toBe(ConnectionState.ERROR);
+    });
+
+    it('accepts a hex-shaped ticket and a ws: URL in dev (happy path)', async () => {
+      // The default mock returns 'mock-ticket' which matches the allowlist; this
+      // test asserts the happy path without modification — the websocket is
+      // created and reaches the ws state, and the ticket fetch happened.
+      const ws = await connectAndWaitForOpen(service);
+      expect(ws).not.toBeNull();
+      // Positive control: the validator did NOT short-circuit the fetch.
+      // Pairs with the "non-WebSocket scheme refuses" test which asserts the inverse.
+      expect(mockFetch).toHaveBeenCalled();
+    });
+
+    it('refuses to connect with ws: URL when running in production (PROD-mode wss enforcement)', async () => {
+      // Stub import.meta.env.PROD so validateWsBaseUrl applies the prod-only
+      // wss-required rule. Without this test, that rule is dead-code in CI —
+      // a regression that drops the guard would ship unnoticed.
+      vi.stubEnv('PROD', 'true');
+      try {
+        const prodService = new WebSocketService('ws://localhost:8080');
+        prodService.connect('test-token');
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(0);
+        expect((prodService as any).ws).toBeNull();
+        expect(prodService.getState()).toBe(ConnectionState.ERROR);
+        // The wss-enforcement check is at the URL-validation gate — fetch must
+        // not have been called, otherwise the token would have leaked over plain ws.
+        expect(mockFetch).not.toHaveBeenCalled();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
   });
 
   describe('disconnect', () => {
@@ -283,9 +357,23 @@ describe('WebSocketService', () => {
       expect(sent.data.status).toBe('dnd');
     });
 
-    it('send does nothing when not connected', () => {
-      // Should not throw
-      service.send({ type: 'test', data: {} });
+    it('send warns once and does not transmit when not connected', () => {
+      // Source: send() guards on readyState !== OPEN, console.warn's for non-
+      // subscription message types, then returns without touching the WS.
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      try {
+        service.send({ type: 'test', data: {} });
+        expect(warnSpy).toHaveBeenCalledTimes(1);
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Cannot send message'),
+          'test'
+        );
+        // No WebSocket exists yet (connect was never called), so nothing got
+        // transmitted — proves the early-return path ran instead of the send path.
+        expect((service as any).ws).toBeNull();
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
   });
 });

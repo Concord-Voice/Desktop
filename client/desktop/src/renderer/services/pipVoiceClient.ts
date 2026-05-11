@@ -21,7 +21,6 @@ import { Device, types as mediasoupTypes } from 'mediasoup-client';
 import {
   generateRequestId,
   type PipChannelMessage,
-  type PipRpcResponse,
   type AnyPipBroadcast,
   type VoiceStateResult,
   type CreateRecvTransportResult,
@@ -274,7 +273,7 @@ export class PipVoiceClient {
 
     // Handle RPC responses
     if (msg.kind === 'rpc-response') {
-      const response = msg as PipRpcResponse;
+      const response = msg;
       const pending = this.pending.get(response.id);
       if (pending) {
         clearTimeout(pending.timer);
@@ -290,7 +289,7 @@ export class PipVoiceClient {
 
     // Handle broadcasts from main window
     if (msg.kind === 'broadcast') {
-      this.onStateUpdate?.(msg as AnyPipBroadcast);
+      this.onStateUpdate?.(msg);
     }
   };
 

@@ -30,7 +30,7 @@ const ContextMenuRoot: React.FC<ContextMenuProps> = ({ position, onClose, childr
   // Click-outside & Escape to close
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+      if (e.target instanceof Node && menuRef.current && !menuRef.current.contains(e.target)) {
         animateClose();
       }
     };

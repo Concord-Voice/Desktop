@@ -16,6 +16,48 @@
 import { WS_BASE } from '../config';
 import { useAuthStore } from '../stores/authStore';
 
+// ─── Connection-boundary validation (defense-in-depth) ────────────────────
+//
+// The WebSocket connection target (`this.url`) and the auth ticket flow into
+// the URL passed to `new WebSocket(wsUrl)`. `encodeURIComponent(ticket)`
+// already mitigates URL injection on the ticket, but a future regression
+// that drops the encode or lets `this.url` become attacker-influenced could
+// escalate to arbitrary-host redirection. These boundary checks fail-closed
+// before the WebSocket constructor sees the URL.
+
+/**
+ * Ticket allowlist: alphanumeric plus `._-` only.
+ * Accepts the current hex format (`hex.EncodeToString` server-side) and any
+ * future JWT (`header.payload.signature` base64url-with-dots) without admitting
+ * URL-control characters (`?`, `&`, `=`, `#`, `/`, etc.) that could escape the
+ * `?ticket=` query parameter into adjacent URL components.
+ */
+const TICKET_RE = /^[A-Za-z0-9._-]+$/;
+/** Generous cap that admits real JWTs while rejecting megabyte-scale payloads. */
+const MAX_TICKET_LEN = 4096;
+
+function isValidWsTicket(t: unknown): t is string {
+  return typeof t === 'string' && t.length > 0 && t.length <= MAX_TICKET_LEN && TICKET_RE.test(t);
+}
+
+/**
+ * Validate the configured WebSocket base URL before connection.
+ * Returns the parsed URL on success, or null on rejection.
+ * Production builds (`import.meta.env.PROD`) require `wss:` specifically;
+ * dev/test accept `ws:` for localhost.
+ */
+function validateWsBaseUrl(rawUrl: string): URL | null {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'wss:' && url.protocol !== 'ws:') return null;
+  if (import.meta.env.PROD && url.protocol !== 'wss:') return null;
+  return url;
+}
+
 export enum ConnectionState {
   DISCONNECTED = 'disconnected',
   CONNECTING = 'connecting',
@@ -517,17 +559,39 @@ export class WebSocketService {
       return;
     }
 
+    // Validate the WebSocket base URL FIRST — before any network call — so a
+    // tainted `this.url` cannot exfiltrate the Bearer token to an attacker-
+    // controlled host via the ticket fetch. Per Copilot review on PR #943:
+    // if validation runs after the ticket request, the Authorization header
+    // is already on the wire before the scheme check fails.
+    //
+    // URL-validation failure is treated as a TERMINAL config error — we do
+    // not call scheduleReconnect() because retrying the same bad URL would
+    // just retry the leak attempt. The operator must fix the configured URL.
+    const wsBaseUrl = validateWsBaseUrl(this.url);
+    if (!wsBaseUrl) {
+      console.error('[WebSocket] refused to connect: URL failed scheme validation');
+      this.setState(ConnectionState.ERROR);
+      return;
+    }
+
     try {
       // Prefer cached unused ticket (from a prior aborted connection within TTL)
       let ticket = this.consumeCachedTicket();
       if (!ticket) {
-        // Fresh ticket fetch — short-lived, single-use, doesn't expose JWT in URLs
-        const httpBase = this.url.replace(/^ws/, 'http');
+        // Derive the ticket endpoint from the validated URL via URL-object
+        // mutations rather than string `replace()` — protocol/pathname swaps
+        // through the WHATWG URL API can't slip through a malformed-substring
+        // bug if `this.url` ever shifts shape.
+        const ticketUrl = new URL(wsBaseUrl.href);
+        ticketUrl.protocol = wsBaseUrl.protocol === 'wss:' ? 'https:' : 'http:';
+        ticketUrl.pathname = ticketUrl.pathname.replace(/\/ws$/, '/auth/ws-ticket');
+
         const ticketHeaders: Record<string, string> = { Authorization: `Bearer ${this.token}` };
         const sessionId = useAuthStore.getState().sessionId;
         if (sessionId) ticketHeaders['X-Session-ID'] = sessionId;
 
-        const ticketRes = await fetch(httpBase.replace('/ws', '/auth/ws-ticket'), {
+        const ticketRes = await fetch(ticketUrl.href, {
           method: 'POST',
           headers: ticketHeaders,
           signal,
@@ -544,9 +608,24 @@ export class WebSocketService {
         return;
       }
 
-      const wsUrl = `${this.url}?ticket=${encodeURIComponent(ticket)}`;
+      if (!isValidWsTicket(ticket)) {
+        // Ticket-shape failure is treated as TRANSIENT — a server bug or
+        // race could yield a malformed ticket. Schedule a reconnect so the
+        // client recovers automatically rather than parking in ERROR forever.
+        console.error('[WebSocket] refused to connect: ticket failed shape validation');
+        this.setState(ConnectionState.ERROR);
+        this.scheduleReconnect();
+        return;
+      }
 
-      this.ws = new WebSocket(wsUrl);
+      // Build the final WebSocket URL from the validated base. URL.searchParams.set
+      // handles percent-encoding automatically — equivalent to encodeURIComponent
+      // but safer because it can't be undone by a future regression that drops
+      // the encode call.
+      const finalUrl = new URL(wsBaseUrl.href);
+      finalUrl.searchParams.set('ticket', ticket);
+
+      this.ws = new WebSocket(finalUrl.href);
 
       this.ws.onopen = this.handleOpen.bind(this);
       this.ws.onmessage = this.handleMessage.bind(this);

@@ -72,7 +72,11 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
   // Close on outside click or Escape
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+      if (
+        e.target instanceof Node &&
+        popoverRef.current &&
+        !popoverRef.current.contains(e.target)
+      ) {
         onClose();
       }
     };

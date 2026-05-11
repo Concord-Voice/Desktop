@@ -352,4 +352,72 @@ describe('UpdateBanner', () => {
     // Corrupted value should be removed
     expect(localStorage.getItem('concord:update-banner-dismissed')).toBeNull();
   });
+
+  // ─── Version validation boundary (defense-in-depth) ────────────────────
+  // The auto-updater IPC is an untrusted source per SonarQube taint analysis.
+  // The validator gates both writes to localStorage and reads back from it.
+
+  it('persists a valid semver on dismiss (happy path)', async () => {
+    const user = userEvent.setup();
+    render(<UpdateBanner />);
+    eventCallbacks.updateAvailable({ version: '1.2.3-rc.1+build.7' });
+    await vi.waitFor(() => {
+      expect(screen.getByLabelText('Dismiss')).toBeInTheDocument();
+    });
+    await user.click(screen.getByLabelText('Dismiss'));
+    const stored = JSON.parse(localStorage.getItem('concord:update-banner-dismissed')!);
+    expect(stored.version).toBe('1.2.3-rc.1+build.7');
+  });
+
+  it('refuses to persist a non-semver version (rejects malformed input)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const user = userEvent.setup();
+      const { container } = render(<UpdateBanner />);
+      eventCallbacks.updateAvailable({ version: 'not-a-version' });
+      await vi.waitFor(() => {
+        expect(screen.getByLabelText('Dismiss')).toBeInTheDocument();
+      });
+      await user.click(screen.getByLabelText('Dismiss'));
+      // Validator rejected the malformed version — no localStorage write
+      expect(localStorage.getItem('concord:update-banner-dismissed')).toBeNull();
+      // …but the validator-rejection branch DID run (proves it wasn't an upstream throw)
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('dismiss skipped persistence'));
+      // …and the banner is hidden for this session so the dismiss click isn't a silent no-op
+      expect(container.querySelector('.update-banner')).toBeNull();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('refuses to persist an oversized version string', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const user = userEvent.setup();
+      const { container } = render(<UpdateBanner />);
+      // Construct a "semver-shaped" but length-bombed version (over 64 chars)
+      const oversized = `1.0.0-${'A'.repeat(80)}`;
+      eventCallbacks.updateAvailable({ version: oversized });
+      await vi.waitFor(() => {
+        expect(screen.getByLabelText('Dismiss')).toBeInTheDocument();
+      });
+      await user.click(screen.getByLabelText('Dismiss'));
+      expect(localStorage.getItem('concord:update-banner-dismissed')).toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('dismiss skipped persistence'));
+      expect(container.querySelector('.update-banner')).toBeNull();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('discards malformed persisted version on read', () => {
+    // Pre-seed localStorage with a shape-valid JSON but invalid version
+    localStorage.setItem(
+      'concord:update-banner-dismissed',
+      JSON.stringify({ version: 'malicious"; alert(1); //', at: Date.now() })
+    );
+    render(<UpdateBanner />);
+    // Validator rejects the persisted value and clears it on read
+    expect(localStorage.getItem('concord:update-banner-dismissed')).toBeNull();
+  });
 });

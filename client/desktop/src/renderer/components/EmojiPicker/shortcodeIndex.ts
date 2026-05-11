@@ -47,4 +47,4 @@ export function resetShortcodeIndex(): void {
 // `:smile:` and friends are known to the markdown pipeline even before the
 // user opens the emoji picker. Other categories are still lazy-loaded by
 // `useEmojiData.loadCategory()` on picker open.
-indexCategory('smileys', smileys as EmojiEntry[]);
+indexCategory('smileys', smileys);

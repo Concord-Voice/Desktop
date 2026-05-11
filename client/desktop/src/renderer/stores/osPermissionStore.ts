@@ -80,11 +80,11 @@ export const useOsPermissionStore = createStore<OsPermissionStoreState>()((set, 
     try {
       const state = await globalThis.electron.checkAllPermissions();
       set({
-        microphone: (state.microphone as OsPermissionStatus) ?? INITIAL_STATUS,
-        camera: (state.camera as OsPermissionStatus) ?? INITIAL_STATUS,
-        screen: (state.screen as OsPermissionStatus) ?? INITIAL_STATUS,
-        secureStorage: (state.secureStorage as OsPermissionStatus) ?? INITIAL_STATUS,
-        notifications: (state.notifications as OsPermissionStatus) ?? INITIAL_STATUS,
+        microphone: state.microphone ?? INITIAL_STATUS,
+        camera: state.camera ?? INITIAL_STATUS,
+        screen: state.screen ?? INITIAL_STATUS,
+        secureStorage: state.secureStorage ?? INITIAL_STATUS,
+        notifications: state.notifications ?? INITIAL_STATUS,
         isLoaded: true,
       });
     } catch (err) {
@@ -96,7 +96,7 @@ export const useOsPermissionStore = createStore<OsPermissionStoreState>()((set, 
   checkOne: async (type) => {
     if (!globalThis.electron?.checkPermission) return get()[type];
     try {
-      const status = (await globalThis.electron.checkPermission(type)) as OsPermissionStatus;
+      const status = await globalThis.electron.checkPermission(type);
       set({ [type]: status });
       return status;
     } catch (err) {
@@ -108,7 +108,7 @@ export const useOsPermissionStore = createStore<OsPermissionStoreState>()((set, 
   requestOne: async (type) => {
     if (!globalThis.electron?.requestPermission) return get()[type];
     try {
-      const status = (await globalThis.electron.requestPermission(type)) as OsPermissionStatus;
+      const status = await globalThis.electron.requestPermission(type);
       set({ [type]: status });
       return status;
     } catch (err) {

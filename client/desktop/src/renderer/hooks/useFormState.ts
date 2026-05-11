@@ -10,7 +10,7 @@ import { useState, useCallback } from 'react';
  *     useFormState<MyFormErrors>();
  */
 export function useFormState<E extends { [K in keyof E]?: string }>(initialErrors?: E) {
-  const [errors, setErrors] = useState<E>((initialErrors ?? {}) as E);
+  const [errors, setErrors] = useState<E>(initialErrors ?? ({} as E));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -24,7 +24,7 @@ export function useFormState<E extends { [K in keyof E]?: string }>(initialError
 
   /** Reset errors, submitting, and success back to initial state */
   const reset = useCallback(() => {
-    setErrors((initialErrors ?? {}) as E);
+    setErrors(initialErrors ?? ({} as E));
     setIsSubmitting(false);
     setSuccessMessage(null);
   }, [initialErrors]);

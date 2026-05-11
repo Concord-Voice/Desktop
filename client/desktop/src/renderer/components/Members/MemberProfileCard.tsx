@@ -39,7 +39,7 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
   // Close on outside click or Escape
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
+      if (e.target instanceof Node && cardRef.current && !cardRef.current.contains(e.target)) {
         onClose();
       }
     };

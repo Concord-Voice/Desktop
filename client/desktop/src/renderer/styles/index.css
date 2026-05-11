@@ -59,6 +59,8 @@
 
   /* Warning text — readable foreground on yellow-tinted backgrounds */
   --text-warning-strong: #f59e0b; /* Amber-500, high-contrast on dark backgrounds */
+  /* Error text — readable foreground on red-tinted backgrounds */
+  --text-error-strong: #f87171; /* Red-400, high-contrast on dark backgrounds */
 }
 
 /* Font Size Scaling */
@@ -113,6 +115,7 @@
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e; /* Amber-800, high-contrast on light backgrounds */
+  --text-error-strong: #991b1b; /* Red-800, high-contrast on light backgrounds */
 }
 
 /* Concord Dark (explicit scheme selector for identity scoping) */
@@ -142,6 +145,7 @@
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
+  --text-error-strong: #f87171;
 }
 
 /* Concord Light (explicit scheme selector for identity scoping) */
@@ -171,6 +175,7 @@
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
+  --text-error-strong: #991b1b;
 }
 
 /* Morky Dark */
@@ -200,6 +205,7 @@
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
+  --text-error-strong: #f87171;
 }
 
 /* Morky Light */
@@ -229,6 +235,7 @@
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
+  --text-error-strong: #991b1b;
 }
 
 /* Bardic Dark */
@@ -258,6 +265,7 @@
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
+  --text-error-strong: #f87171;
 }
 
 /* Bardic Light */
@@ -287,6 +295,7 @@
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
+  --text-error-strong: #991b1b;
 }
 
 /* Fox Den Dark */
@@ -316,6 +325,7 @@
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
+  --text-error-strong: #f87171;
 }
 
 /* Fox Den Light */
@@ -345,6 +355,7 @@
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
+  --text-error-strong: #991b1b;
 }
 
 /* Hacker Dark */
@@ -374,6 +385,7 @@
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
+  --text-error-strong: #f87171;
 }
 
 /* Hacker Light */
@@ -403,6 +415,7 @@
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
+  --text-error-strong: #991b1b;
 }
 
 /* Spooky Dark */
@@ -432,6 +445,7 @@
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
+  --text-error-strong: #f87171;
 }
 
 /* Spooky Light */
@@ -461,6 +475,7 @@
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
+  --text-error-strong: #991b1b;
 }
 
 /* Leviathan Dark */
@@ -490,6 +505,7 @@
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
+  --text-error-strong: #f87171;
 }
 
 /* Leviathan Light */
@@ -519,6 +535,7 @@
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
+  --text-error-strong: #991b1b;
 }
 
 /* Grassy Nill Dark */
@@ -548,6 +565,7 @@
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
+  --text-error-strong: #f87171;
 }
 
 /* Grassy Nill Light */
@@ -577,6 +595,7 @@
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
+  --text-error-strong: #991b1b;
 }
 
 /* Cotton Candy Dark */
@@ -606,6 +625,7 @@
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
+  --text-error-strong: #f87171;
 }
 
 /* Cotton Candy Light */
@@ -635,6 +655,7 @@
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
+  --text-error-strong: #991b1b;
 }
 
 /* Driftwood Dark */
@@ -664,6 +685,7 @@
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
+  --text-error-strong: #f87171;
 }
 
 /* Driftwood Light */
@@ -693,6 +715,7 @@
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
+  --text-error-strong: #991b1b;
 }
 
 /* Eclipse Dark */
@@ -722,6 +745,7 @@
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
+  --text-error-strong: #f87171;
 }
 
 /* Eclipse Light */
@@ -751,6 +775,7 @@
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
+  --text-error-strong: #991b1b;
 }
 
 /* Midnight Sky Dark */
@@ -780,6 +805,7 @@
   --status-connecting: #e6b432;
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
+  --text-error-strong: #f87171;
 }
 
 /* Midnight Sky Light */
@@ -809,6 +835,7 @@
   --status-connecting: #c89a20;
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
+  --text-error-strong: #991b1b;
 }
 
 body {

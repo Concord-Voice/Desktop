@@ -14,15 +14,30 @@ interface DownloadProgress {
 const DISMISSED_KEY = 'concord:update-banner-dismissed';
 /** Dismiss expires after 7 days — re-shows the banner for the same version */
 const DISMISS_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** Defense-in-depth cap on version string length (semver max realistically under 64) */
+const MAX_VERSION_LEN = 64;
+/** Semver-like shape: X.Y.Z optionally followed by `-pre` and/or `+build` metadata */
+const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+/**
+ * Boundary validator for version strings flowing in from the auto-updater IPC
+ * and out to localStorage. Rejects empty, oversized, or non-semver-shaped
+ * values so a compromised update channel cannot poison persisted state.
+ */
+function isValidVersion(v: unknown): v is string {
+  return typeof v === 'string' && v.length > 0 && v.length <= MAX_VERSION_LEN && SEMVER_RE.test(v);
+}
 
 function getDismissed(): { version: string; at: number } | null {
   try {
     const raw = localStorage.getItem(DISMISSED_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed && typeof parsed.version === 'string' && typeof parsed.at === 'number') {
-      return parsed;
+    if (parsed && isValidVersion(parsed.version) && typeof parsed.at === 'number') {
+      return { version: parsed.version, at: parsed.at };
     }
+    // Stored value didn't pass the validator — discard rather than trust
+    localStorage.removeItem(DISMISSED_KEY);
   } catch {
     // Corrupted — remove to stop repeated parse failures
     localStorage.removeItem(DISMISSED_KEY);
@@ -121,10 +136,19 @@ const UpdateBanner: React.FC = () => {
   }, []);
 
   const handleDismiss = useCallback(() => {
-    if (version) {
+    // Treat the persisted-dismiss as a security boundary: only write shape-validated versions.
+    // A compromised update channel could otherwise inject arbitrary payloads through `version`.
+    if (isValidVersion(version)) {
       localStorage.setItem(DISMISSED_KEY, JSON.stringify({ version, at: Date.now() }));
       setDismissedVersion(version);
+      return;
     }
+    // Validator rejected the version. Don't write to localStorage, but still
+    // hide the banner for the current session so the dismiss button isn't a
+    // silent no-op (a confusing UX where clicking X does nothing visible).
+    // The banner will re-appear on next session because nothing was persisted.
+    console.warn('[UpdateBanner] dismiss skipped persistence: version failed shape validation');
+    setDismissedVersion(version);
   }, [version]);
 
   if (state === 'hidden') return null;

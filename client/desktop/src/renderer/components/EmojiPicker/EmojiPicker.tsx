@@ -91,7 +91,7 @@ const EmojiPicker: React.FC<EmojiPickerProps> = ({
     if (mode !== 'popover') return;
 
     const handleClickOutside = (e: MouseEvent) => {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
+      if (e.target instanceof Node && pickerRef.current && !pickerRef.current.contains(e.target)) {
         onClose();
       }
     };

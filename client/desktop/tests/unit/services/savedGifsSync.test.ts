@@ -28,9 +28,16 @@ describe('savedGifsSyncService', () => {
   beforeEach(() => {
     resetAllStores();
     useAuthStore.getState().setAccessToken('mock-token');
-    vi.mocked(e2eeService.encryptPreferences).mockResolvedValue('encrypted-blob');
+    // Clear call history AND re-arm the resolved value — without the clear,
+    // call counts from prior tests in this file leak into per-test assertions
+    // (notably the new watch/debounce tests that assert toHaveBeenCalledTimes).
+    vi.mocked(e2eeService.encryptPreferences).mockClear().mockResolvedValue('encrypted-blob');
     vi.mocked(e2eeService.decryptPreferences).mockReset();
     (e2eeService as unknown as { isInitialized: boolean }).isInitialized = true;
+    // fetchAndApply sets isApplyingRemote=true and only clears it via
+    // setTimeout(0); if a prior test exits before that microtask drains,
+    // the flag leaks here and silently disables schedulePush.
+    (savedGifsSyncService as unknown as { isApplyingRemote: boolean }).isApplyingRemote = false;
   });
 
   describe('pushSavedGifs', () => {
@@ -67,15 +74,15 @@ describe('savedGifsSyncService', () => {
         )
       );
 
-      // Should not throw
-      await savedGifsSyncService.pushSavedGifs();
+      // Should not throw on server error
+      await expect(savedGifsSyncService.pushSavedGifs()).resolves.toBeUndefined();
     });
 
     it('handles encryption failure gracefully', async () => {
       vi.mocked(e2eeService.encryptPreferences).mockRejectedValueOnce(new Error('encrypt fail'));
 
-      // Should not throw
-      await savedGifsSyncService.pushSavedGifs();
+      // Should not throw when encryption rejects
+      await expect(savedGifsSyncService.pushSavedGifs()).resolves.toBeUndefined();
     });
   });
 
@@ -172,62 +179,104 @@ describe('savedGifsSyncService', () => {
         )
       );
 
-      // Should not throw
-      await savedGifsSyncService.fetchAndApply();
+      // Should not throw on server error
+      await expect(savedGifsSyncService.fetchAndApply()).resolves.toBeUndefined();
     });
   });
 
   describe('startWatching / stopWatching', () => {
-    it('stopWatching can be called when not watching', () => {
-      savedGifsSyncService.stopWatching();
+    it('stopWatching as a no-op leaves no scheduled work behind', () => {
+      vi.useFakeTimers();
+      try {
+        savedGifsSyncService.stopWatching();
+        // No watch was started, so advancing through the full debounce window
+        // must not produce any encrypt/push side-effect.
+        vi.advanceTimersByTime(10_000);
+        expect(e2eeService.encryptPreferences).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('startWatching subscribes to store changes', () => {
-      savedGifsSyncService.startWatching();
-      savedGifsSyncService.stopWatching();
+      const subscribeSpy = vi.spyOn(useSavedGifsStore, 'subscribe');
+      try {
+        savedGifsSyncService.startWatching();
+        expect(subscribeSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        savedGifsSyncService.stopWatching();
+        subscribeSpy.mockRestore();
+      }
     });
 
     it('startWatching cleans up previous subscriptions when called again', () => {
-      savedGifsSyncService.startWatching();
-      savedGifsSyncService.startWatching();
-      savedGifsSyncService.stopWatching();
+      // Replace subscribe with a pure mock that hands back captured unsub fns;
+      // proves the first unsub gets invoked when the second startWatching
+      // calls stopWatching internally to tear down stale state.
+      const unsubMocks: ReturnType<typeof vi.fn>[] = [];
+      const subscribeSpy = vi.spyOn(useSavedGifsStore, 'subscribe').mockImplementation(() => {
+        const unsub = vi.fn();
+        unsubMocks.push(unsub);
+        return unsub;
+      });
+      try {
+        savedGifsSyncService.startWatching();
+        savedGifsSyncService.startWatching();
+        expect(subscribeSpy).toHaveBeenCalledTimes(2);
+        // The first subscribe's unsub must have been called by the second
+        // startWatching's internal stopWatching cleanup — proves no leak.
+        expect(unsubMocks[0]).toHaveBeenCalled();
+        // The second subscription is the new active one and must NOT have
+        // been unsubscribed yet.
+        expect(unsubMocks[1]).not.toHaveBeenCalled();
+      } finally {
+        savedGifsSyncService.stopWatching();
+        subscribeSpy.mockRestore();
+      }
     });
 
-    it('schedules a push when store changes after startWatching', () => {
+    it('schedules an encrypted push when store changes after startWatching', async () => {
       vi.useFakeTimers();
       try {
         savedGifsSyncService.startWatching();
-        // Trigger schedulePush by mutating the store
         useSavedGifsStore.getState().saveGif('triggers-push');
-        // Without advancing timers, the debounce timer is set but not fired.
-        // The test verifies the subscriber path runs without error.
+        // Before the debounce fires, no push yet
+        expect(e2eeService.encryptPreferences).not.toHaveBeenCalled();
+        // Advance past the 3s debounce — the push should now have run once
+        await vi.advanceTimersByTimeAsync(3500);
+        expect(e2eeService.encryptPreferences).toHaveBeenCalledTimes(1);
       } finally {
         savedGifsSyncService.stopWatching();
         vi.useRealTimers();
       }
     });
 
-    it('clears the pending debounce timer on stopWatching', () => {
+    it('clears the pending debounce timer on stopWatching (no late push)', async () => {
       vi.useFakeTimers();
       try {
         savedGifsSyncService.startWatching();
         useSavedGifsStore.getState().saveGif('pending');
-        // Stop before the timer fires — exercises the clearTimeout path
+        // Stop BEFORE the debounce fires — the clearTimeout path must prevent
+        // the push from being executed when time advances past the debounce.
         savedGifsSyncService.stopWatching();
-        vi.advanceTimersByTime(5000);
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(e2eeService.encryptPreferences).not.toHaveBeenCalled();
       } finally {
         vi.useRealTimers();
       }
     });
 
-    it('replaces existing debounce timer when changes happen rapidly', () => {
+    it('coalesces rapid changes into a single debounced push', async () => {
       vi.useFakeTimers();
       try {
         savedGifsSyncService.startWatching();
         useSavedGifsStore.getState().saveGif('one');
         useSavedGifsStore.getState().saveGif('two');
         useSavedGifsStore.getState().saveGif('three');
-        // Each saveGif call schedules a new debounce, clearing the previous timer
+        await vi.advanceTimersByTimeAsync(3500);
+        // Three rapid saveGif() calls reset the debounce timer each time, so
+        // only ONE push lands once the window finally elapses.
+        expect(e2eeService.encryptPreferences).toHaveBeenCalledTimes(1);
       } finally {
         savedGifsSyncService.stopWatching();
         vi.useRealTimers();

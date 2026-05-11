@@ -36,7 +36,11 @@ const MessageActions: React.FC<MessageActionsProps> = ({
     if (!showOptions) return;
 
     const handleClickOutside = (event: MouseEvent) => {
-      if (optionsRef.current && !optionsRef.current.contains(event.target as Node)) {
+      if (
+        event.target instanceof Node &&
+        optionsRef.current &&
+        !optionsRef.current.contains(event.target)
+      ) {
         setShowOptions(false);
       }
     };

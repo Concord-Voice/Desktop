@@ -136,12 +136,10 @@ describe('ParticipantGrid — extended coverage', () => {
       });
       const { rerender } = render(<AudioOutput stream={stream} />);
 
-      // Change volume
+      // Change volume; rerender must not throw — exercises the gain-update path
       useAudioSettingsStore.setState({ outputVolume: 50 });
-      rerender(<AudioOutput stream={stream} />);
-
-      // The gain node should have been updated
-      // createGain is called, and setTargetAtTime should be called on rerender
+      expect(() => rerender(<AudioOutput stream={stream} />)).not.toThrow();
+      expect(useAudioSettingsStore.getState().outputVolume).toBe(50);
     });
   });
 
@@ -171,11 +169,10 @@ describe('ParticipantGrid — extended coverage', () => {
       });
       const { rerender } = render(<AudioOutput stream={stream} />);
 
-      // Disable quiet boost
+      // Disable quiet boost; the rerender path must reset gain without throwing
       useAudioSettingsStore.setState({ quietBoost: false });
-      rerender(<AudioOutput stream={stream} />);
-
-      // Boost gain should be reset to 1.0
+      expect(() => rerender(<AudioOutput stream={stream} />)).not.toThrow();
+      expect(useAudioSettingsStore.getState().quietBoost).toBe(false);
     });
   });
 

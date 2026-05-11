@@ -45,6 +45,93 @@ interface PastSession {
   revoked_at: string;
 }
 
+// ─── Data-fetch helpers (extracted to keep PrivacySecuritySection's cognitive complexity below threshold) ────────────────────
+
+interface SessionsFetchResult {
+  sessions: Session[];
+  pastSessions: PastSession[];
+  revocationMode: 'simple' | 'secure' | undefined;
+}
+
+async function fetchSessionsData(): Promise<SessionsFetchResult> {
+  const response = await apiFetch('/api/v1/sessions');
+  if (!response.ok) {
+    const data = await response.json();
+    throw new Error(data.error || 'Failed to fetch sessions');
+  }
+  const data = await response.json();
+  return {
+    sessions: data.sessions || [],
+    pastSessions: data.past_sessions || [],
+    revocationMode: data.revocation_mode,
+  };
+}
+
+interface MFAStatusFetchResult {
+  methods: string[];
+  recoveryOnly: string[];
+  recoveryHardened: boolean;
+  backupRemaining: number | undefined;
+  backupEmail: string;
+  credentials: WebAuthnCredential[];
+}
+
+/**
+ * Returns `null` when the status fetch fails — caller must skip its setter
+ * dispatch in that case, otherwise transient HTTP failures would overwrite
+ * the currently-displayed state with empty defaults. (Verified failure path
+ * for the read-back-and-replace refetch.)
+ */
+async function fetchMFAStatusData(): Promise<MFAStatusFetchResult | null> {
+  try {
+    const res = await apiFetch('/api/v1/mfa/status');
+    if (!res.ok) return null;
+    const data = await res.json();
+    const result: MFAStatusFetchResult = {
+      methods: data.methods || [],
+      recoveryOnly: data.recovery_only_methods || [],
+      recoveryHardened: data.recovery_hardened || false,
+      backupRemaining: data.backup_codes_remaining,
+      backupEmail: data.backup_email || '',
+      credentials: [],
+    };
+    const credRes = await apiFetch('/api/v1/mfa/webauthn/credentials');
+    if (credRes.ok) {
+      const credData = await credRes.json();
+      result.credentials = credData.credentials || [];
+    }
+    return result;
+  } catch {
+    // Non-critical — preserve prior displayed state instead of clobbering it
+    return null;
+  }
+}
+
+interface SSOSecurityFetchResult {
+  trustSSOSecurity: boolean;
+  passwordLoginDisabled: boolean;
+}
+
+/**
+ * Returns `null` when the security-flags fetch fails. Same rationale as
+ * `fetchMFAStatusData` — on transient failure the toggle states should
+ * remain as last successfully loaded, not snap back to `false`.
+ */
+async function fetchSSOSecurityData(): Promise<SSOSecurityFetchResult | null> {
+  try {
+    const res = await apiFetch('/api/v1/users/me/security');
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      trustSSOSecurity: data.trust_sso_security === true,
+      passwordLoginDisabled: data.password_login_disabled === true,
+    };
+  } catch {
+    // Non-critical — preserve prior displayed state instead of clobbering it
+    return null;
+  }
+}
+
 // ─── System Permissions Sub-section (#197) ─────────────────────────────
 
 const PERMISSION_ROWS: {
@@ -443,19 +530,11 @@ const PrivacySecuritySection: React.FC = () => {
     if (!accessToken) return;
     setIsLoading(true);
     setError(null);
-
     try {
-      const response = await apiFetch('/api/v1/sessions');
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to fetch sessions');
-      }
-
-      const data = await response.json();
-      setSessions(data.sessions || []);
-      setPastSessions(data.past_sessions || []);
-      if (data.revocation_mode) setRevocationMode(data.revocation_mode);
+      const data = await fetchSessionsData();
+      setSessions(data.sessions);
+      setPastSessions(data.pastSessions);
+      if (data.revocationMode) setRevocationMode(data.revocationMode);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch sessions');
     } finally {
@@ -465,43 +544,26 @@ const PrivacySecuritySection: React.FC = () => {
 
   const fetchMFAStatus = useCallback(async () => {
     if (!accessToken) return;
-    try {
-      const res = await apiFetch('/api/v1/mfa/status');
-      if (res.ok) {
-        const data = await res.json();
-        setMfaMethods(data.methods || []);
-        setMfaRecoveryOnly(data.recovery_only_methods || []);
-        setMfaRecoveryHardened(data.recovery_hardened || false);
-        setMfaBackupRemaining(data.backup_codes_remaining);
-        setMfaBackupEmail(data.backup_email || '');
-      }
-      // Fetch WebAuthn credentials list
-      const credRes = await apiFetch('/api/v1/mfa/webauthn/credentials');
-      if (credRes.ok) {
-        const credData = await credRes.json();
-        setMfaWebauthnCredentials(credData.credentials || []);
-      }
-    } catch {
-      // Non-critical — MFA status fetch failure doesn't block the page
-    }
+    const data = await fetchMFAStatusData();
+    if (!data) return; // helper returned null on transient failure; keep prior state
+    setMfaMethods(data.methods);
+    setMfaRecoveryOnly(data.recoveryOnly);
+    setMfaRecoveryHardened(data.recoveryHardened);
+    setMfaBackupRemaining(data.backupRemaining);
+    setMfaBackupEmail(data.backupEmail);
+    setMfaWebauthnCredentials(data.credentials);
   }, [accessToken]);
 
   // Hydrate the SSO Security toggle states from GET /users/me/security so the
-  // checkboxes reflect actual server state on mount. Falls back to false on
-  // failure (network error, 4xx, 5xx) which preserves the previous "starts
-  // off" UX rather than blocking the page.
+  // checkboxes reflect actual server state on mount. Preserves last-known state
+  // on transient failure (helper returns `null`) rather than snapping back to
+  // false, which would silently override user changes during a refetch.
   const fetchSSOSecurity = useCallback(async () => {
     if (!accessToken) return;
-    try {
-      const res = await apiFetch('/api/v1/users/me/security');
-      if (res.ok) {
-        const data = await res.json();
-        setTrustSSOSecurity(data.trust_sso_security === true);
-        setPasswordLoginDisabled(data.password_login_disabled === true);
-      }
-    } catch {
-      // Non-critical — toggles default to false until the user submits a PATCH
-    }
+    const data = await fetchSSOSecurityData();
+    if (!data) return; // helper returned null on transient failure; keep prior state
+    setTrustSSOSecurity(data.trustSSOSecurity);
+    setPasswordLoginDisabled(data.passwordLoginDisabled);
   }, [accessToken]);
 
   useEffect(() => {

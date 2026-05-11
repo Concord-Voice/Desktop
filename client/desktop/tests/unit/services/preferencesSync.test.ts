@@ -175,8 +175,8 @@ describe('preferencesSyncService', () => {
         )
       );
 
-      // Should not throw
-      await preferencesSyncService.pushPreferences();
+      // Should not throw on server error
+      await expect(preferencesSyncService.pushPreferences()).resolves.toBeUndefined();
     });
   });
 
@@ -273,27 +273,76 @@ describe('preferencesSyncService', () => {
         )
       );
 
-      // Should not throw
-      await preferencesSyncService.fetchAndApply();
+      // Should not throw on server error
+      await expect(preferencesSyncService.fetchAndApply()).resolves.toBeUndefined();
     });
   });
 
   describe('startWatching / stopWatching', () => {
-    it('stopWatching can be called when not watching', () => {
-      // Should not throw
-      preferencesSyncService.stopWatching();
+    it('stopWatching as a no-op leaves no scheduled push behind', async () => {
+      vi.useFakeTimers();
+      try {
+        vi.mocked(e2eeService.encryptPreferences).mockClear();
+        preferencesSyncService.stopWatching();
+        // No watch was started; advancing through the full debounce window
+        // must not produce any encrypt/push side-effect.
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(e2eeService.encryptPreferences).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
-    it('startWatching subscribes to store changes', () => {
-      preferencesSyncService.startWatching();
-      // The subscriptions should be set up (no error)
-      preferencesSyncService.stopWatching();
+    it('startWatching fires a debounced push on store change (end-to-end)', async () => {
+      vi.useFakeTimers();
+      try {
+        vi.mocked(e2eeService.encryptPreferences).mockClear();
+        preferencesSyncService.startWatching();
+        // Drain microtasks so the dynamic imports inside startWatching resolve
+        // and the Zustand subscribers actually register.
+        await vi.advanceTimersByTimeAsync(0);
+
+        // Mutate the settings store — the subscriber should fire schedulePush
+        useSettingsStore.setState({
+          appearance: { ...useSettingsStore.getState().appearance, theme: 'light' },
+        });
+        // Before the debounce fires, no push yet
+        expect(e2eeService.encryptPreferences).not.toHaveBeenCalled();
+
+        // Advance past the 3s debounce — push should now have run exactly once
+        await vi.advanceTimersByTimeAsync(3500);
+        expect(e2eeService.encryptPreferences).toHaveBeenCalledTimes(1);
+      } finally {
+        preferencesSyncService.stopWatching();
+        vi.useRealTimers();
+      }
     });
 
-    it('startWatching cleans up previous subscriptions when called again', () => {
-      preferencesSyncService.startWatching();
-      preferencesSyncService.startWatching(); // Should not double-subscribe
-      preferencesSyncService.stopWatching();
+    it('startWatching cleans up previous subscriptions when called again', async () => {
+      // Internal-state inspection is the only way to differentiate "cleanup
+      // works" from "cleanup broken but pushes still coalesce by debounce" —
+      // the unsubscribers array is the source of truth for active subscribes.
+      const internal = preferencesSyncService as unknown as { unsubscribers: (() => void)[] };
+      vi.useFakeTimers();
+      try {
+        expect(internal.unsubscribers.length).toBe(0);
+        preferencesSyncService.startWatching();
+        await vi.advanceTimersByTimeAsync(0); // drain dynamic imports
+        const afterFirst = internal.unsubscribers.length;
+        expect(afterFirst).toBeGreaterThan(0);
+
+        preferencesSyncService.startWatching();
+        await vi.advanceTimersByTimeAsync(0);
+        // After a second startWatching, the internal stopWatching call must
+        // have cleared the prior subscribers and the new ones replaced them —
+        // count is the same, not doubled.
+        expect(internal.unsubscribers.length).toBe(afterFirst);
+
+        preferencesSyncService.stopWatching();
+        expect(internal.unsubscribers.length).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
     });
   });
 });

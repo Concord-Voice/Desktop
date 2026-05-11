@@ -359,10 +359,9 @@ describe('preferencesSyncService — extended', () => {
         })
       );
 
-      // Should not throw
-      await preferencesSyncService.fetchAndApply();
-
-      expect(true).toBe(true);
+      // Should not throw — and no decrypt attempt happens because the fetch errored
+      await expect(preferencesSyncService.fetchAndApply()).resolves.toBeUndefined();
+      expect(e2eeService.decryptPreferences).not.toHaveBeenCalled();
     });
   });
 

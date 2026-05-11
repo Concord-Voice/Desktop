@@ -293,7 +293,7 @@ export async function detectCodecCapabilities(): Promise<CodecCapability[]> {
                 bitrate: probe.bitrate,
                 framerate: probe.framerate,
               },
-            } as MediaEncodingConfiguration);
+            });
             if (info.powerEfficient) {
               powerEfficient = true;
               break; // HW confirmed — no need to probe further

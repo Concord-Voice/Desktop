@@ -399,8 +399,10 @@ describe('draftSettingsStore', () => {
 
   describe('apply', () => {
     it('does nothing if no snapshot', () => {
-      useDraftSettingsStore.getState().apply();
-      // Should not throw
+      // Apply with no snapshot is a no-op and must not throw
+      expect(() => useDraftSettingsStore.getState().apply()).not.toThrow();
+      // And no stash should have been written
+      expect(useDraftSettingsStore.getState().audioBasicStash).toBeNull();
     });
 
     it('pushes audio drafts to the real audio store', () => {

@@ -112,7 +112,7 @@ export class PipSignalingProxy {
     // Only handle RPC requests from PiP windows
     if (msg.kind !== 'rpc-request') return;
 
-    this.handleRpcRequest(msg as AnyPipRpcRequest).catch((err) => {
+    this.handleRpcRequest(msg).catch((err) => {
       console.error('[PipSignalingProxy] Unhandled RPC error:', err);
     });
   };

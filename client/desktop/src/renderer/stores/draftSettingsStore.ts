@@ -142,7 +142,7 @@ function applyTierDefaultsToDrafts(
     silenceDetection: tc.opusDtx,
     inlineFec: tc.opusFec,
     fecHeadroom: tc.opusFec,
-    frameSize: 0 as 0 | 10 | 20 | 40 | 60,
+    frameSize: 0,
     stereoOverride: null,
   };
   for (const [k, v] of Object.entries(tierDefaults)) {

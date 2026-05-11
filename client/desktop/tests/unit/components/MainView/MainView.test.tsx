@@ -701,11 +701,20 @@ describe('MainView', () => {
 
   // ── Create category modal ─────────────────────────────────────────────
 
-  it('opens CreateCategoryModal from ServerActionBar', () => {
+  it('opens CreateCategoryModal from ServerActionBar without errors', () => {
     render(<MainView />);
-    fireEvent.click(screen.getByTestId('sab-create-category'));
-    // The CreateCategoryModal mock returns null, so we just verify no crash
-    // and the state was toggled
+    // The CreateCategoryModal mock returns null, so observable state is limited
+    // to: (a) no React error during render after the state flip, and (b) the
+    // click handler itself didn't throw. The console.error spy catches both —
+    // React logs to console.error on render errors, and a synchronous throw
+    // in the handler would surface there too.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      fireEvent.click(screen.getByTestId('sab-create-category'));
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   // ── Settings overlay ───────────────────────────────────────────────────────

@@ -41,7 +41,7 @@ describe('FolderBar', () => {
     expect(addBtn).toBeInTheDocument();
   });
 
-  it('toggles folder open/close on click', () => {
+  it('toggles folder open/close on click without errors', () => {
     useLayoutStore.setState({
       serverFolders: [
         { id: 'folder-1', name: 'My Folder', serverIds: ['server-1'], collapsed: false },
@@ -49,11 +49,22 @@ describe('FolderBar', () => {
     });
     useServerStore.setState({ servers: [mockServer] });
     render(<FolderBar />);
-    // Click folder to toggle
     const folderBtn = screen.getByText('My Folder');
-    fireEvent.click(folderBtn);
-    // Clicking again toggles
-    fireEvent.click(folderBtn);
+
+    // The dropdown is a portal'd component-local state, not store state —
+    // asserting DOM portal presence is brittle under jsdom's zero-rect refs.
+    // Instead, spy on console.error to catch any React error / handler throw
+    // during the two-click toggle sequence. Combined with the test passing at
+    // all (which proves render + fireEvent didn't crash), this covers the
+    // observable failure mode without depending on portal layout.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      fireEvent.click(folderBtn);
+      fireEvent.click(folderBtn);
+      expect(errorSpy).not.toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+    }
   });
 
   it('shows folder context menu on right click', () => {
