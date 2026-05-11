@@ -161,21 +161,60 @@ export function useWebSocket() {
     };
   }, [performKeyRotation]);
 
-  // Connect when token is available
+  // Manage WebSocket lifecycle in response to auth-state changes.
+  //
+  // The previous shape returned `wsService.disconnect()` from a cleanup
+  // function that ran on every accessToken change, which tore down and
+  // re-established the WS on every JWT refresh (every ~14 minutes). Each
+  // cycle re-emitted subscribe frames for all channels/DMs and stopped and
+  // restarted the message queue. The server-side handshake doesn't need
+  // re-authentication on token rotation — the WS frame is already
+  // authenticated — so this churn was wasted work.
+  //
+  // New shape: connect once when a token first becomes available, push
+  // future tokens via wsService.updateToken (which mutates the stored
+  // value without disrupting the open socket — the new token is read by
+  // the next ws-ticket fetch on reconnect), and disconnect only when the
+  // token disappears (logout) or the hook unmounts.
   useEffect(() => {
     if (!accessToken) {
       wsService.disconnect();
       return;
     }
 
-    // Connect with current token
-    wsService.connect(accessToken);
+    const state = wsService.getState();
+    // RECONNECTING is included in the connect-path because an in-flight
+    // reconnect attempt (a scheduled timer or an awaited ws-ticket fetch) is
+    // still using the prior token. Pre-PR behavior cancelled it via the
+    // useEffect cleanup's disconnect()→connect(); the new shape preserves
+    // that by routing RECONNECTING through connect() (which aborts the
+    // in-flight controller in websocketService.connect) AFTER resetting the
+    // backoff timer so we don't compound delay on top of the rotation.
+    // ERROR follows the same path for the same reason.
+    if (
+      state === ConnectionState.DISCONNECTED ||
+      state === ConnectionState.ERROR ||
+      state === ConnectionState.RECONNECTING
+    ) {
+      wsService.resetReconnectState();
+      wsService.connect(accessToken);
+    } else {
+      // CONNECTED or CONNECTING — reuse the existing socket and refresh the
+      // stored token so any subsequent reconnect uses it. (CONNECTING-mid-
+      // handshake rotation will self-heal: if the in-flight ticket fetch
+      // 401s on the stale token, scheduleReconnect retries with the now-
+      // updated this.token; see the 401-specific warn in createConnection.)
+      wsService.updateToken(accessToken);
+    }
+  }, [accessToken, wsService]);
 
-    // Cleanup on unmount or token change
+  // Unmount-only cleanup. Kept in a separate effect (no accessToken in
+  // deps) so token rotation doesn't trigger a disconnect.
+  useEffect(() => {
     return () => {
       wsService.disconnect();
     };
-  }, [accessToken, wsService]);
+  }, [wsService]);
 
   // Connection recovery handler
   const handleRecovery = useConnectionRecovery(wsService, validateEpochsOnReconnect);

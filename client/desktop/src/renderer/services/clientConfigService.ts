@@ -35,15 +35,34 @@ class ClientConfigService {
       }
 
       const data: ServerConfigResponse = await res.json();
-      const prevSpaUrl = useClientConfigStore.getState().spaUrl;
+      // Snapshot the previous config so we can decide whether to log a
+      // change. Polling fires every 5 minutes; without this gate the
+      // [ClientConfig] Updated config line spammed the console every poll
+      // even when nothing actually changed. Now the log only fires on the
+      // first fetch (no prior config) or when one of the tracked fields
+      // differs.
+      const prevState = useClientConfigStore.getState();
+      const prevSpaUrl = prevState.spaUrl;
       const nextSpaUrl = data.spaUrl || '';
+      const nextTurn = { host: data.turn?.host ?? '', realm: data.turn?.realm ?? '' };
+      const nextSpaIpcContract = data.spaIpcContract || 0;
+
+      const isFirstFetch = !prevState.lastFetchedAt;
+      const changed =
+        prevState.minVersion !== data.minVersion ||
+        prevSpaUrl !== nextSpaUrl ||
+        prevState.mediaPlaneUrl !== data.mediaPlaneUrl ||
+        prevState.spaIpcContract !== nextSpaIpcContract ||
+        JSON.stringify(prevState.featureFlags) !== JSON.stringify(data.featureFlags) ||
+        JSON.stringify(prevState.turn) !== JSON.stringify(nextTurn);
+
       useClientConfigStore.getState().setConfig({
         minVersion: data.minVersion,
         featureFlags: data.featureFlags,
         mediaPlaneUrl: data.mediaPlaneUrl,
-        turn: { host: data.turn?.host ?? '', realm: data.turn?.realm ?? '' },
+        turn: nextTurn,
         spaUrl: nextSpaUrl,
-        spaIpcContract: data.spaIpcContract || 0,
+        spaIpcContract: nextSpaIpcContract,
       });
 
       // Hot SPA reload: if a new SPA build was deployed mid-session, reload the
@@ -56,7 +75,9 @@ class ClientConfigService {
         return;
       }
 
-      console.debug('[ClientConfig] Updated config');
+      if (isFirstFetch || changed) {
+        console.debug('[ClientConfig] Updated config');
+      }
     } catch (err) {
       console.warn('[ClientConfig] Fetch error:', err instanceof Error ? err.message : 'unknown');
     }

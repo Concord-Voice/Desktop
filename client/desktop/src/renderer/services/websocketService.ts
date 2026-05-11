@@ -158,6 +158,13 @@ export class WebSocketService {
     this.clearPingInterval();
     this.reconnectAttempts = 0;
 
+    // Reject any in-flight whenConnectionReady() waiters with a clear reason.
+    // handleClose() does the same on involuntary close; a client-initiated
+    // disconnect (logout, token cleared) also needs to settle the promise so
+    // consumers don't sit on a stale promise that only rejects via the 5s
+    // connection-ready timeout with a misleading "timeout" error.
+    this.rejectConnectionReady(new Error('disconnected by client'));
+
     if (this.ws) {
       // Detach all handlers first to prevent zombie sockets from firing events
       // (e.g. a CONNECTING socket whose onopen fires after we've created a new one)
@@ -552,6 +559,26 @@ export class WebSocketService {
     return entry.ticket;
   }
 
+  /**
+   * Log a specific warning for 401 ticket-fetch failures. Extracted to keep
+   * createConnection's cognitive complexity below the 15-point ceiling.
+   *
+   * 401 means the token used for this ticket request was rejected — typically
+   * because a JWT rotation landed between the time scheduleReconnect armed
+   * the retry and the time the ticket fetch actually dispatched. updateToken()
+   * has refreshed this.token by now; the next scheduleReconnect cycle will
+   * use the fresh value. The warn surfaces this transient mode so the
+   * generic "Failed to create WebSocket connection" log isn't the only
+   * signal a developer sees.
+   */
+  private logTicketFetchFailure(status: number): void {
+    if (status === 401) {
+      console.warn(
+        '[WebSocket] ticket fetch returned 401 — token likely rotated mid-connect; will retry'
+      );
+    }
+  }
+
   private async createConnection(signal?: AbortSignal): Promise<void> {
     if (!this.token) {
       console.error('Cannot connect: No JWT token provided');
@@ -597,6 +624,7 @@ export class WebSocketService {
           signal,
         });
         if (!ticketRes.ok) {
+          this.logTicketFetchFailure(ticketRes.status);
           throw new Error(`WebSocket ticket request failed: ${ticketRes.status}`);
         }
         ticket = (await ticketRes.json()).ticket as string;

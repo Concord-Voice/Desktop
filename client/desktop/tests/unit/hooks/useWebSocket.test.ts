@@ -18,6 +18,8 @@ let connectionChangeHandler: HandlerFn | null = null;
 const mockWsService = {
   connect: vi.fn(),
   disconnect: vi.fn(),
+  updateToken: vi.fn(),
+  resetReconnectState: vi.fn(),
   on: vi.fn((type: string, handler: HandlerFn) => {
     registeredHandlers.set(type, handler);
     return () => {
@@ -72,6 +74,12 @@ describe('useWebSocket', () => {
     registeredHandlers.clear();
     connectionChangeHandler = null;
     vi.clearAllMocks();
+    // vi.clearAllMocks() clears call history but does NOT reset
+    // mockReturnValue overrides. Tests that mutate getState.mockReturnValue
+    // (e.g., the token-rotation regression that simulates CONNECTED) would
+    // leak that value into subsequent tests. Reset to the documented default
+    // here so every test starts in DISCONNECTED state.
+    mockWsService.getState.mockReturnValue(ConnectionState.DISCONNECTED);
 
     // Reset presence state
     useMemberStore.setState({
@@ -100,6 +108,33 @@ describe('useWebSocket', () => {
       mockWsService.disconnect.mockClear();
       unmount();
       expect(mockWsService.disconnect).toHaveBeenCalled();
+    });
+
+    // Regression for the JWT-refresh churn: previously every accessToken
+    // change tore down the WS via useEffect cleanup and reconnected with the
+    // new token, retransmitting all subscribe frames and stopping/starting
+    // the message queue. The hook now uses wsService.updateToken on
+    // rotation, leaving the open socket intact.
+    it('calls updateToken (not disconnect/connect) when access token rotates while connected', () => {
+      // First mount: getState returns DISCONNECTED, so connect() is the right path.
+      useAuthStore.getState().setAccessToken('token-1');
+      renderHook(() => useWebSocket());
+      expect(mockWsService.connect).toHaveBeenCalledWith('token-1');
+
+      // Simulate the socket reaching CONNECTED before the rotation arrives.
+      mockWsService.getState.mockReturnValue(ConnectionState.CONNECTED);
+      mockWsService.connect.mockClear();
+      mockWsService.disconnect.mockClear();
+      mockWsService.updateToken.mockClear();
+
+      // Token rotates (proactive refresh or main-process onTokenRefreshed).
+      act(() => {
+        useAuthStore.getState().setAccessToken('token-2');
+      });
+
+      expect(mockWsService.updateToken).toHaveBeenCalledWith('token-2');
+      expect(mockWsService.connect).not.toHaveBeenCalled();
+      expect(mockWsService.disconnect).not.toHaveBeenCalled();
     });
   });
 

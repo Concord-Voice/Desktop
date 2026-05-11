@@ -19,6 +19,8 @@ let connectionChangeHandler: HandlerFn | null = null;
 const mockWsService = {
   connect: vi.fn(),
   disconnect: vi.fn(),
+  updateToken: vi.fn(),
+  resetReconnectState: vi.fn(),
   on: vi.fn((type: string, handler: HandlerFn) => {
     registeredHandlers.set(type, handler);
     return () => {
@@ -95,6 +97,10 @@ beforeEach(() => {
   registeredHandlers.clear();
   connectionChangeHandler = null;
   vi.clearAllMocks();
+  // vi.clearAllMocks() clears call history but does NOT reset mockReturnValue
+  // overrides — tests that mutate getState.mockReturnValue would leak that
+  // value into subsequent tests. Reset to the documented default here.
+  mockWsService.getState.mockReturnValue('disconnected');
   mockApiFetch.mockResolvedValue({
     ok: true,
     json: () => Promise.resolve({ participants: [] }),
@@ -179,19 +185,31 @@ describe('useWebSocket — extended', () => {
   });
 
   describe('connection lifecycle', () => {
-    it('reconnects when token changes', () => {
+    // Previously this test asserted disconnect+reconnect on every token
+    // change, which encoded the JWT-refresh churn we explicitly removed:
+    // every ~14 minutes the WS was torn down and re-established for no
+    // benefit (the server-authenticated frame did not need re-handshaking).
+    // The hook now calls wsService.updateToken on rotation while connected,
+    // leaving the open socket intact. This test now asserts that path.
+    it('updates token via updateToken (not disconnect) when token changes while connected', () => {
       useAuthStore.getState().setAccessToken('token-1');
       const { rerender } = renderHook(() => useWebSocket());
 
       expect(mockWsService.connect).toHaveBeenCalledWith('token-1');
       mockWsService.connect.mockClear();
+      mockWsService.disconnect.mockClear();
+      mockWsService.updateToken.mockClear();
 
-      // Change token
+      // Simulate the socket reaching CONNECTED before the rotation arrives.
+      mockWsService.getState.mockReturnValue('connected');
+
+      // Change token (e.g. main-process proactive refresh)
       useAuthStore.getState().setAccessToken('token-2');
       rerender();
 
-      // Should disconnect old and reconnect with new token
-      expect(mockWsService.disconnect).toHaveBeenCalled();
+      expect(mockWsService.updateToken).toHaveBeenCalledWith('token-2');
+      expect(mockWsService.connect).not.toHaveBeenCalled();
+      expect(mockWsService.disconnect).not.toHaveBeenCalled();
     });
   });
 
