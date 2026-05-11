@@ -1617,12 +1617,46 @@ class VoiceService {
       // Profiles decode performance and adjusts SVC layers to avoid queue buildup
       this.startDecoderBudgetProfiling();
     } catch (err) {
-      console.error('Failed to join voice channel:', err);
-      notificationSoundService.stopAllLoops();
-      store.setConnectionState('error');
-      await this.cleanup();
+      await this.handleJoinFailure(err);
       throw err;
     }
+  }
+
+  /**
+   * Recover from a joinChannel failure: log, stop loops, tear down media
+   * (resilient to cleanup throwing), and reset the Zustand store before
+   * surfacing 'error' to the UI.
+   *
+   * Extracted from joinChannel so that body stays within the project's
+   * cognitive-complexity bound. See voiceService.test.ts regression cases
+   * for the contract this method enforces.
+   */
+  private async handleJoinFailure(err: unknown): Promise<void> {
+    const store = useVoiceStore.getState();
+    console.error('Failed to join voice channel:', err instanceof Error ? err.message : err);
+    notificationSoundService.stopAllLoops();
+    // Defense in depth: if cleanup() throws (mediasoup transport teardown,
+    // E2EE worker crash mid-destroy, etc.), the store.reset() + 'error'
+    // transition below MUST still run — otherwise the ghost-state bug this
+    // catch block fixes regresses on a different failure mode. Log the
+    // cleanup failure separately so it isn't silently lost.
+    try {
+      await this.cleanup();
+    } catch (cleanupErr) {
+      console.error(
+        'Cleanup failed during join-error recovery:',
+        cleanupErr instanceof Error ? cleanupErr.message : cleanupErr
+      );
+    }
+    // store.setActiveChannel runs early in joinChannel (before mic / media-
+    // plane handshake), so a late-stage failure leaves activeChannelId
+    // pointing at the channel we never actually joined. Reset clears that
+    // ghost state (including participants, encryption flags, mute state)
+    // before the final 'error' transition surfaces the failure to the UI.
+    // Reset must precede the setConnectionState('error') call because
+    // reset() restores the default 'disconnected' connectionState.
+    store.reset();
+    store.setConnectionState('error');
   }
 
   /** Leave the current voice channel */

@@ -556,6 +556,86 @@ describe('VoiceService', () => {
       await expect(voiceService.joinChannel('ch')).rejects.toThrow('Voice join failed: 500');
     });
 
+    // Regression for the ghost-state bug: setActiveChannel runs early in
+    // joinChannel (between control-plane auth and the media-plane handshake),
+    // so a late-stage failure like a NotAllowedError from getUserMedia leaves
+    // activeChannelId stuck pointing at the channel we never joined. The
+    // sidebar then renders the linked voice text chat as if connected. The
+    // catch block must clear activeChannelId — and the rest of the per-join
+    // state — before the final 'error' transition.
+    it('clears activeChannelId when join fails after setActiveChannel', async () => {
+      setupAuth();
+      mockApiFetch.mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue(makeJoinResponse()),
+      });
+      mockSocket.connected = true;
+      const st = makeSendTransport();
+      const rt = makeRecvTransport();
+      mockCreateSendTransport.mockReturnValue(st);
+      mockCreateRecvTransport.mockReturnValue(rt);
+      setupEmitResponses({
+        'join-room': makeRoomJoined(),
+        'create-transport': makeTransportOpts(),
+      });
+      // Mic acquisition fails with the same DOMException that a
+      // Permissions-Policy denial surfaces in Chromium. produceAudio's
+      // call to getUserMedia is not caught locally and propagates up to
+      // joinChannel's catch.
+      mockGetUserMedia.mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'));
+
+      await expect(voiceService.joinChannel('ch')).rejects.toThrow('Permission denied');
+
+      const state = useVoiceStore.getState();
+      // setActiveChannel writes three fields (id/name/server). Assert all
+      // three clear so a future refactor that only nulls activeChannelId
+      // (e.g., replacing reset() with a more surgical clear) doesn't silently
+      // leave activeChannelName or activeServerId pointing at a channel the
+      // user never actually joined.
+      expect(state.activeChannelId).toBeNull();
+      expect(state.activeChannelName).toBeNull();
+      expect(state.activeServerId).toBeNull();
+      expect(state.connectionState).toBe('error');
+    });
+
+    // Regression for the defense-in-depth branch added in handleJoinFailure:
+    // if cleanup() itself throws (mediasoup transport close raising, E2EE
+    // worker crashing mid-destroy), the store.reset() + 'error' transition
+    // MUST still run — otherwise a different failure mode could regress the
+    // ghost-state bug fixed by the prior test in this describe block.
+    it('still resets store when cleanup() throws during join failure', async () => {
+      setupAuth();
+      mockApiFetch.mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue(makeJoinResponse()),
+      });
+      mockSocket.connected = true;
+      const st = makeSendTransport();
+      const rt = makeRecvTransport();
+      mockCreateSendTransport.mockReturnValue(st);
+      mockCreateRecvTransport.mockReturnValue(rt);
+      setupEmitResponses({
+        'join-room': makeRoomJoined(),
+        'create-transport': makeTransportOpts(),
+      });
+      // Force the join path to fail at getUserMedia (post-setActiveChannel)
+      mockGetUserMedia.mockRejectedValue(new DOMException('Permission denied', 'NotAllowedError'));
+      // ...and force cleanup() to throw when it tries to close the send
+      // transport. handleJoinFailure's inner try/catch should swallow this
+      // and proceed to store.reset() + setConnectionState('error').
+      st.close.mockImplementation(() => {
+        throw new Error('mock cleanup teardown failure');
+      });
+
+      await expect(voiceService.joinChannel('ch')).rejects.toThrow('Permission denied');
+
+      const state = useVoiceStore.getState();
+      expect(state.activeChannelId).toBeNull();
+      expect(state.activeChannelName).toBeNull();
+      expect(state.activeServerId).toBeNull();
+      expect(state.connectionState).toBe('error');
+    });
+
     it('sets participants with video state', async () => {
       setupAuth();
       mockApiFetch.mockResolvedValueOnce({
