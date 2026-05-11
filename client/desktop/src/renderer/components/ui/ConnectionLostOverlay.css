@@ -96,8 +96,12 @@
   color: var(--success-color, #2ecc71);
 }
 
-.connection-lost-diag-value.fail {
+.connection-lost-diag-value.failed {
   color: var(--danger-color, #e74c3c);
+}
+
+.connection-lost-diag-value.unknown {
+  color: var(--text-secondary);
 }
 
 /* ── Action buttons ────────────────────────────────────────────── */

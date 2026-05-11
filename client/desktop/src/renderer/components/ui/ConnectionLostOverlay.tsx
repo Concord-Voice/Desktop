@@ -4,35 +4,53 @@ import {
   useConnectionStore,
   type RecoveryPhase,
   type DiagnosticResults,
+  type CheckResult,
 } from '../../stores/connectionStore';
 // recoveryService & resetService loaded on-demand via dynamic import() to allow code splitting
 import './ConnectionLostOverlay.css';
+
+/** Display text per CheckResult value. Extracted from the inline ternary
+ *  to satisfy SonarQube's "no nested ternary" rule and to keep the
+ *  status-string mapping authoritative in one place. */
+const STATUS_TEXT: Record<CheckResult, string> = {
+  ok: 'OK',
+  failed: 'Failed',
+  unknown: '--',
+};
 
 /** Diagnostic checklist shown during recovery phases */
 function DiagnosticDisplay({ diagnostics }: Readonly<{ diagnostics: DiagnosticResults | null }>) {
   if (!diagnostics) return null;
 
-  const items = [
-    { label: 'Internet', value: diagnostics.internet },
-    { label: 'Server', value: diagnostics.serverReachable },
-    { label: 'Token', value: diagnostics.tokenValid },
-    { label: 'Session', value: !diagnostics.sessionRevoked },
+  const boolToCheckResult = (b: boolean | undefined): CheckResult => {
+    if (b === true) return 'ok';
+    if (b === false) return 'failed';
+    return 'unknown';
+  };
+
+  const invertCheckResult = (c: CheckResult): CheckResult => {
+    if (c === 'ok') return 'failed';
+    if (c === 'failed') return 'ok';
+    return 'unknown';
+  };
+
+  const items: { label: string; result: CheckResult }[] = [
+    { label: 'Internet', result: diagnostics.internet },
+    { label: 'Server', result: diagnostics.serverReachable },
+    { label: 'Token', result: diagnostics.tokenValid },
+    { label: 'Session', result: invertCheckResult(boolToCheckResult(diagnostics.sessionRevoked)) },
   ];
 
   return (
     <div className="connection-lost-diagnostics">
       {items.map((item) => {
-        let statusText: string;
-        if (item.value) statusText = 'OK';
-        else if (item.value === false) statusText = 'Failed';
-        else statusText = '--';
+        const statusText = STATUS_TEXT[item.result];
+        const statusClass = item.result; // 'ok' | 'failed' | 'unknown'
 
         return (
           <div key={item.label} className="connection-lost-diag-row">
             <span className="connection-lost-diag-label">{item.label}</span>
-            <span className={`connection-lost-diag-value ${item.value ? 'ok' : 'fail'}`}>
-              {statusText}
-            </span>
+            <span className={`connection-lost-diag-value ${statusClass}`}>{statusText}</span>
           </div>
         );
       })}
@@ -50,42 +68,62 @@ function PhaseContent({
 }>) {
   const handleRetry = useCallback(async () => {
     const store = useConnectionStore.getState();
+
+    // Wrap dynamic imports so a chunk-load failure doesn't silently no-op
+    // the Retry button — exactly the UX pathology this PR is fixing.
+    let getWebSocketService: typeof import('../../services/websocketService').getWebSocketService;
+    let useAuthStoreImport: typeof import('../../stores/authStore').useAuthStore;
+    let runPreflight: typeof import('../../services/recoveryService').runPreflight;
+    try {
+      ({ getWebSocketService } = await import('../../services/websocketService'));
+      ({ useAuthStore: useAuthStoreImport } = await import('../../stores/authStore'));
+      ({ runPreflight } = await import('../../services/recoveryService'));
+    } catch {
+      store.incrementRecoveryAttempts();
+      store.enterFatal();
+      return;
+    }
+
+    const wsService = getWebSocketService();
     store.enterPreflight();
-    const { runPreflight } = await import('../../services/recoveryService');
     const diag = await runPreflight();
     store.setDiagnostics(diag);
 
+    // Hard-stop: session terminated by server — no point attempting reconnect.
     if (diag.sessionRevoked) {
       store.incrementRecoveryAttempts();
       store.enterFatal();
       return;
     }
 
-    if (!diag.serverReachable || !diag.tokenValid) {
-      store.incrementRecoveryAttempts();
-      store.enterRecoveryA();
-      return;
-    }
-
-    // Server reachable + token valid — direct reconnect instead of page reload.
-    // runPreflight() already refreshed the token via IPC (authStore updated).
-    const { getWebSocketService } = await import('../../services/websocketService');
-    const { useAuthStore } = await import('../../stores/authStore');
-    const wsService = getWebSocketService();
-    const freshToken = useAuthStore.getState().accessToken;
-
-    if (!freshToken) {
+    // runPreflight() refreshed the token via IPC if it succeeded; pull the
+    // latest value (may be null if refresh failed or session was logged out).
+    const token = useAuthStoreImport.getState().accessToken;
+    if (!token) {
       store.incrementRecoveryAttempts();
       store.enterFatal();
       return;
     }
 
-    // Success path: reset() clears recoveryAttempts — only increment on failure
-    // branches above so the counter reflects consecutive failed retries.
+    // ESCAPE PATH — unconditional reconnect attempt.
+    // Preflight is diagnostic-only; it never gates the action. If the server
+    // is reachable, this restores the connection (the WS hub's CONNECTED
+    // event drives the transition to stable via ConnectionStateProvider).
+    // If unreachable, the existing reconnect loop continues at the
+    // freshly-reset cadence.
     wsService.disconnect();
     wsService.resetReconnectState();
+    wsService.connect(token);
+
+    // Phase transition reflects preflight result for UI display only.
+    if (diag.serverReachable !== 'ok' || diag.tokenValid !== 'ok') {
+      store.incrementRecoveryAttempts();
+      store.enterRecoveryA();
+      return;
+    }
+
+    // Optimistic transition — WS hub will revert if connect doesn't reach CONNECTED.
     store.reset();
-    wsService.connect(freshToken);
   }, []);
 
   const handleRestart = useCallback(async () => {
@@ -122,10 +160,10 @@ function PhaseContent({
             <Wifi size={48} />
           </div>
           <h2 className="connection-lost-title">
-            {diagnostics?.internet === false ? 'No Internet' : 'Waiting for Server'}
+            {diagnostics?.internet === 'failed' ? 'No Internet' : 'Waiting for Server'}
           </h2>
           <p className="connection-lost-message">
-            {diagnostics?.internet === false
+            {diagnostics?.internet === 'failed'
               ? 'Your internet connection appears to be down. Reconnection will happen automatically when connectivity is restored.'
               : 'The server appears to be unreachable. Reconnection attempts are ongoing in the background.'}
           </p>

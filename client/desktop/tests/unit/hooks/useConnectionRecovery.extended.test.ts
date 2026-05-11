@@ -69,11 +69,11 @@ beforeEach(() => {
   useUserStore.getState().clearUser();
   mockIsInitialized.value = false;
   mockRunPreflight.mockResolvedValue({
-    internet: true,
-    serverReachable: true,
-    tokenValid: true,
+    internet: 'ok',
+    serverReachable: 'ok',
+    tokenValid: 'ok',
     sessionRevoked: false,
-    rendererStable: true,
+    rendererStable: 'ok',
   });
 });
 
@@ -163,11 +163,11 @@ describe('useConnectionRecovery — extended', () => {
     it('enters fatal when session is revoked', async () => {
       mockGetState.mockReturnValue('DISCONNECTED');
       mockRunPreflight.mockResolvedValue({
-        internet: true,
-        serverReachable: true,
-        tokenValid: false,
+        internet: 'ok',
+        serverReachable: 'ok',
+        tokenValid: 'failed',
         sessionRevoked: true,
-        rendererStable: true,
+        rendererStable: 'ok',
       });
 
       const { result } = renderHook(() => useConnectionRecovery(mockWsService as never, vi.fn()));
@@ -181,11 +181,11 @@ describe('useConnectionRecovery — extended', () => {
     it('enters recovery A when server is unreachable', async () => {
       mockGetState.mockReturnValue('DISCONNECTED');
       mockRunPreflight.mockResolvedValue({
-        internet: true,
-        serverReachable: false,
-        tokenValid: false,
+        internet: 'ok',
+        serverReachable: 'failed',
+        tokenValid: 'failed',
         sessionRevoked: false,
-        rendererStable: true,
+        rendererStable: 'ok',
       });
 
       const { result } = renderHook(() => useConnectionRecovery(mockWsService as never, vi.fn()));
@@ -199,11 +199,11 @@ describe('useConnectionRecovery — extended', () => {
     it('enters recovery A when no internet', async () => {
       mockGetState.mockReturnValue('DISCONNECTED');
       mockRunPreflight.mockResolvedValue({
-        internet: false,
-        serverReachable: false,
-        tokenValid: false,
+        internet: 'failed',
+        serverReachable: 'failed',
+        tokenValid: 'failed',
         sessionRevoked: false,
-        rendererStable: false,
+        rendererStable: 'failed',
       });
 
       const { result } = renderHook(() => useConnectionRecovery(mockWsService as never, vi.fn()));
@@ -217,11 +217,11 @@ describe('useConnectionRecovery — extended', () => {
     it('enters recovery B when renderer is unstable', async () => {
       mockGetState.mockReturnValue('DISCONNECTED');
       mockRunPreflight.mockResolvedValue({
-        internet: true,
-        serverReachable: true,
-        tokenValid: true,
+        internet: 'ok',
+        serverReachable: 'ok',
+        tokenValid: 'ok',
         sessionRevoked: false,
-        rendererStable: false,
+        rendererStable: 'failed',
       });
 
       const { result } = renderHook(() => useConnectionRecovery(mockWsService as never, vi.fn()));
@@ -237,11 +237,11 @@ describe('useConnectionRecovery — extended', () => {
       mockGetState.mockReturnValue('DISCONNECTED');
       // Server reachable, token valid, renderer stable — just a WS glitch
       mockRunPreflight.mockResolvedValue({
-        internet: true,
-        serverReachable: true,
-        tokenValid: true,
+        internet: 'ok',
+        serverReachable: 'ok',
+        tokenValid: 'ok',
         sessionRevoked: false,
-        rendererStable: true,
+        rendererStable: 'ok',
       });
 
       const { result } = renderHook(() => useConnectionRecovery(mockWsService as never, vi.fn()));

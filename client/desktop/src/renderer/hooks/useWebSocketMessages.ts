@@ -1748,11 +1748,11 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       wsService.disconnect();
       const store = useConnectionStore.getState();
       store.setDiagnostics({
-        internet: true,
-        serverReachable: true,
-        tokenValid: false,
+        internet: 'ok',
+        serverReachable: 'ok',
+        tokenValid: 'failed',
         sessionRevoked: true,
-        rendererStable: true,
+        rendererStable: 'ok',
       });
       store.enterFatal();
     });

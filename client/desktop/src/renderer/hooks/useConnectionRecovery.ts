@@ -30,19 +30,19 @@ async function runPreflightDiagnostics(wsService: ReturnType<typeof getWebSocket
     return;
   }
 
-  if (!diag.internet || !diag.serverReachable) {
+  if (diag.internet !== 'ok' || diag.serverReachable !== 'ok') {
     store.enterRecoveryA();
     return;
   }
 
-  if (diag.tokenValid && !diag.rendererStable) {
+  if (diag.tokenValid === 'ok' && diag.rendererStable !== 'ok') {
     store.enterRecoveryB();
     const { softRestart } = await import('../services/resetService');
     softRestart();
     return;
   }
 
-  if (diag.tokenValid) {
+  if (diag.tokenValid === 'ok') {
     store.enterRecoveryA();
     return;
   }

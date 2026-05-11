@@ -32,11 +32,11 @@ vi.mock('@/renderer/services/voiceService', () => ({
 
 vi.mock('@/renderer/services/recoveryService', () => ({
   runPreflight: vi.fn().mockResolvedValue({
-    internet: true,
-    serverReachable: true,
-    tokenValid: true,
+    internet: 'ok',
+    serverReachable: 'ok',
+    tokenValid: 'ok',
     sessionRevoked: false,
-    rendererStable: true,
+    rendererStable: 'ok',
   }),
 }));
 

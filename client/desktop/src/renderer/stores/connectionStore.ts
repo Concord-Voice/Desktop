@@ -1,4 +1,12 @@
 import { createStore } from '../utils/createStore';
+// Re-export from recoveryService so there is a single source of truth.
+// ConnectionLostOverlay.tsx imports these types from connectionStore — the
+// re-export keeps that contract working without touching import sites.
+// DiagnosticResults is also used locally (in ConnectionState), so it needs
+// the two-step import + export. CheckResult is a pure re-export.
+import type { DiagnosticResults } from '../services/recoveryService';
+export type { DiagnosticResults };
+export type { CheckResult } from '../services/recoveryService';
 
 export type RecoveryPhase =
   | 'stable' // Normal operation
@@ -7,14 +15,6 @@ export type RecoveryPhase =
   | 'recovery_a' // Server issue — graceful reset + wait for server
   | 'recovery_b' // Client issue — soft restart attempt
   | 'fatal'; // Unrecoverable — show full overlay
-
-export interface DiagnosticResults {
-  internet: boolean;
-  serverReachable: boolean;
-  tokenValid: boolean;
-  sessionRevoked: boolean;
-  rendererStable: boolean;
-}
 
 interface ConnectionState {
   /** Current recovery phase */

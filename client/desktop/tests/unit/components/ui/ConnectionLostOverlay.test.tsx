@@ -62,11 +62,11 @@ describe('ConnectionLostOverlay', () => {
     useConnectionStore.setState({
       phase: 'recovery_a',
       diagnostics: {
-        internet: false,
-        serverReachable: false,
-        tokenValid: false,
+        internet: 'failed',
+        serverReachable: 'failed',
+        tokenValid: 'failed',
         sessionRevoked: false,
-        rendererStable: true,
+        rendererStable: 'ok',
       },
     });
     render(<ConnectionLostOverlay />);
@@ -75,15 +75,15 @@ describe('ConnectionLostOverlay', () => {
     expect(screen.getByText('Exit App')).toBeInTheDocument();
   });
 
-  it('renders recovery_a phase with Waiting for Server when internet is true', () => {
+  it('renders recovery_a phase with Waiting for Server when internet is ok', () => {
     useConnectionStore.setState({
       phase: 'recovery_a',
       diagnostics: {
-        internet: true,
-        serverReachable: false,
-        tokenValid: false,
+        internet: 'ok',
+        serverReachable: 'failed',
+        tokenValid: 'failed',
         sessionRevoked: false,
-        rendererStable: true,
+        rendererStable: 'ok',
       },
     });
     render(<ConnectionLostOverlay />);
@@ -100,11 +100,11 @@ describe('ConnectionLostOverlay', () => {
     useConnectionStore.setState({
       phase: 'fatal',
       diagnostics: {
-        internet: true,
-        serverReachable: true,
-        tokenValid: true,
+        internet: 'ok',
+        serverReachable: 'ok',
+        tokenValid: 'ok',
         sessionRevoked: true,
-        rendererStable: true,
+        rendererStable: 'ok',
       },
     });
     render(<ConnectionLostOverlay />);
@@ -117,11 +117,11 @@ describe('ConnectionLostOverlay', () => {
     useConnectionStore.setState({
       phase: 'fatal',
       diagnostics: {
-        internet: false,
-        serverReachable: false,
-        tokenValid: false,
+        internet: 'failed',
+        serverReachable: 'failed',
+        tokenValid: 'failed',
         sessionRevoked: false,
-        rendererStable: true,
+        rendererStable: 'ok',
       },
     });
     render(<ConnectionLostOverlay />);
@@ -133,11 +133,11 @@ describe('ConnectionLostOverlay', () => {
       useConnectionStore.setState({
         phase: 'recovery_a',
         diagnostics: {
-          internet: true,
-          serverReachable: false,
-          tokenValid: true,
+          internet: 'ok',
+          serverReachable: 'failed',
+          tokenValid: 'ok',
           sessionRevoked: false,
-          rendererStable: true,
+          rendererStable: 'ok',
         },
       });
       render(<ConnectionLostOverlay />);
@@ -153,27 +153,53 @@ describe('ConnectionLostOverlay', () => {
       expect(okElements.length).toBe(3); // internet OK, token OK, session OK (not revoked)
       expect(failedElements.length).toBe(1); // server failed
     });
+
+    it('renders -- and applies unknown class when a check did not run', () => {
+      useConnectionStore.setState({
+        phase: 'recovery_a',
+        diagnostics: {
+          internet: 'unknown', // check did not run
+          serverReachable: 'failed',
+          tokenValid: 'ok',
+          sessionRevoked: undefined, // also not run — Session row should show --
+          rendererStable: 'ok',
+        },
+      });
+      render(<ConnectionLostOverlay />);
+
+      // -- text appears for both the un-run check rows
+      const dashes = screen.getAllByText('--');
+      expect(dashes.length).toBeGreaterThanOrEqual(2); // internet + session
+
+      // The unknown class is applied via DiagnosticDisplay's statusClass
+      // (visible via CSS class — assert via getByText then check parent).
+      const internetDash = dashes.find(
+        (el) => el.previousElementSibling?.textContent === 'Internet'
+      );
+      expect(internetDash).toBeDefined();
+      expect(internetDash!.className).toContain('unknown');
+    });
   });
 
   describe('Retry button behavior', () => {
     it('calls runPreflight on Retry click', async () => {
       mockRunPreflight.mockResolvedValue({
-        internet: true,
-        serverReachable: true,
-        tokenValid: true,
+        internet: 'ok',
+        serverReachable: 'ok',
+        tokenValid: 'ok',
         sessionRevoked: false,
-        rendererStable: true,
+        rendererStable: 'ok',
       });
       useAuthStore.setState({ accessToken: 'fresh-token' });
 
       useConnectionStore.setState({
         phase: 'recovery_a',
         diagnostics: {
-          internet: false,
-          serverReachable: false,
-          tokenValid: false,
+          internet: 'failed',
+          serverReachable: 'failed',
+          tokenValid: 'failed',
           sessionRevoked: false,
-          rendererStable: true,
+          rendererStable: 'ok',
         },
       });
       render(<ConnectionLostOverlay />);
@@ -187,11 +213,11 @@ describe('ConnectionLostOverlay', () => {
 
     it('enters fatal phase when session is revoked after retry', async () => {
       mockRunPreflight.mockResolvedValue({
-        internet: true,
-        serverReachable: true,
-        tokenValid: true,
+        internet: 'ok',
+        serverReachable: 'ok',
+        tokenValid: 'ok',
         sessionRevoked: true,
-        rendererStable: true,
+        rendererStable: 'ok',
       });
 
       useConnectionStore.setState({
@@ -208,11 +234,11 @@ describe('ConnectionLostOverlay', () => {
 
     it('disconnects WS, resets store, and reconnects with fresh token on successful retry', async () => {
       mockRunPreflight.mockResolvedValue({
-        internet: true,
-        serverReachable: true,
-        tokenValid: true,
+        internet: 'ok',
+        serverReachable: 'ok',
+        tokenValid: 'ok',
         sessionRevoked: false,
-        rendererStable: true,
+        rendererStable: 'ok',
       });
       useAuthStore.setState({ accessToken: 'fresh-jwt-token' });
 
@@ -233,11 +259,11 @@ describe('ConnectionLostOverlay', () => {
 
     it('enters fatal when diagnostics pass but no access token available', async () => {
       mockRunPreflight.mockResolvedValue({
-        internet: true,
-        serverReachable: true,
-        tokenValid: true,
+        internet: 'ok',
+        serverReachable: 'ok',
+        tokenValid: 'ok',
         sessionRevoked: false,
-        rendererStable: true,
+        rendererStable: 'ok',
       });
       useAuthStore.setState({ accessToken: null });
 
@@ -255,14 +281,15 @@ describe('ConnectionLostOverlay', () => {
       expect(mockConnect).not.toHaveBeenCalled();
     });
 
-    it('enters recovery_a when server is unreachable', async () => {
+    it('enters recovery_a when server is unreachable (with token present; escape fires)', async () => {
       mockRunPreflight.mockResolvedValue({
-        internet: true,
-        serverReachable: false,
-        tokenValid: false,
+        internet: 'ok',
+        serverReachable: 'failed',
+        tokenValid: 'failed',
         sessionRevoked: false,
-        rendererStable: true,
+        rendererStable: 'ok',
       });
+      useAuthStore.setState({ accessToken: 'token' });
 
       useConnectionStore.setState({
         phase: 'recovery_a',
@@ -274,17 +301,20 @@ describe('ConnectionLostOverlay', () => {
       await waitFor(() => {
         expect(useConnectionStore.getState().phase).toBe('recovery_a');
       });
-      expect(mockConnect).not.toHaveBeenCalled();
+      // Escape path: connect WAS called even though server is unreachable.
+      // Preflight is diagnostic-only — it never gates the action.
+      expect(mockConnect).toHaveBeenCalledWith('token');
     });
 
-    it('increments recovery attempts on failed retry (server unreachable)', async () => {
+    it('increments recovery attempts on failed retry (server unreachable, token present)', async () => {
       mockRunPreflight.mockResolvedValue({
-        internet: true,
-        serverReachable: false,
-        tokenValid: false,
+        internet: 'ok',
+        serverReachable: 'failed',
+        tokenValid: 'failed',
         sessionRevoked: false,
-        rendererStable: true,
+        rendererStable: 'ok',
       });
+      useAuthStore.setState({ accessToken: 'token' });
 
       useConnectionStore.setState({
         phase: 'recovery_a',
@@ -302,11 +332,11 @@ describe('ConnectionLostOverlay', () => {
 
     it('does not increment recovery attempts on successful reconnect', async () => {
       mockRunPreflight.mockResolvedValue({
-        internet: true,
-        serverReachable: true,
-        tokenValid: true,
+        internet: 'ok',
+        serverReachable: 'ok',
+        tokenValid: 'ok',
         sessionRevoked: false,
-        rendererStable: true,
+        rendererStable: 'ok',
       });
       useAuthStore.setState({ accessToken: 'token' });
 
@@ -324,6 +354,69 @@ describe('ConnectionLostOverlay', () => {
         expect(useConnectionStore.getState().phase).toBe('stable');
       });
     });
+
+    it('always attempts WS connect on Retry click, even when server unreachable', async () => {
+      mockRunPreflight.mockResolvedValue({
+        internet: 'failed',
+        serverReachable: 'failed',
+        tokenValid: 'failed',
+        sessionRevoked: false,
+        rendererStable: 'ok',
+      });
+      useAuthStore.setState({ accessToken: 'stale-but-present-token' });
+      useConnectionStore.setState({ phase: 'recovery_a', diagnostics: null });
+      render(<ConnectionLostOverlay />);
+
+      fireEvent.click(screen.getByText('Retry'));
+
+      await waitFor(() => {
+        expect(mockDisconnect).toHaveBeenCalled();
+        expect(mockResetReconnectState).toHaveBeenCalled();
+        expect(mockConnect).toHaveBeenCalledWith('stale-but-present-token');
+      });
+      // Preflight still reports degraded — UI stays in recovery_a.
+      expect(useConnectionStore.getState().phase).toBe('recovery_a');
+    });
+
+    it('does NOT attempt connect when session is revoked, regardless of preflight', async () => {
+      mockRunPreflight.mockResolvedValue({
+        internet: 'ok',
+        serverReachable: 'ok',
+        tokenValid: 'ok',
+        sessionRevoked: true,
+        rendererStable: 'ok',
+      });
+      useAuthStore.setState({ accessToken: 'token' });
+      useConnectionStore.setState({ phase: 'recovery_a', diagnostics: null });
+      render(<ConnectionLostOverlay />);
+
+      fireEvent.click(screen.getByText('Retry'));
+
+      await waitFor(() => {
+        expect(useConnectionStore.getState().phase).toBe('fatal');
+      });
+      expect(mockConnect).not.toHaveBeenCalled();
+    });
+
+    it('does NOT attempt connect when no token is present (escape requires token)', async () => {
+      mockRunPreflight.mockResolvedValue({
+        internet: 'failed',
+        serverReachable: 'failed',
+        tokenValid: 'failed',
+        sessionRevoked: false,
+        rendererStable: 'ok',
+      });
+      useAuthStore.setState({ accessToken: null });
+      useConnectionStore.setState({ phase: 'recovery_a', diagnostics: null });
+      render(<ConnectionLostOverlay />);
+
+      fireEvent.click(screen.getByText('Retry'));
+
+      await waitFor(() => {
+        expect(useConnectionStore.getState().phase).toBe('fatal');
+      });
+      expect(mockConnect).not.toHaveBeenCalled();
+    });
   });
 
   describe('Exit App button', () => {
@@ -334,11 +427,11 @@ describe('ConnectionLostOverlay', () => {
       useConnectionStore.setState({
         phase: 'recovery_a',
         diagnostics: {
-          internet: false,
-          serverReachable: false,
-          tokenValid: false,
+          internet: 'failed',
+          serverReachable: 'failed',
+          tokenValid: 'failed',
           sessionRevoked: false,
-          rendererStable: true,
+          rendererStable: 'ok',
         },
       });
       render(<ConnectionLostOverlay />);
@@ -352,11 +445,11 @@ describe('ConnectionLostOverlay', () => {
       useConnectionStore.setState({
         phase: 'fatal',
         diagnostics: {
-          internet: true,
-          serverReachable: true,
-          tokenValid: true,
+          internet: 'ok',
+          serverReachable: 'ok',
+          tokenValid: 'ok',
           sessionRevoked: true,
-          rendererStable: true,
+          rendererStable: 'ok',
         },
       });
       render(<ConnectionLostOverlay />);

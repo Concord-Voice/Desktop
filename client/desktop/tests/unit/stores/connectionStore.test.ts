@@ -30,11 +30,11 @@ describe('connectionStore', () => {
 
   it('sets diagnostics', () => {
     const diag = {
-      internet: true,
-      serverReachable: false,
-      tokenValid: true,
+      internet: 'ok' as const,
+      serverReachable: 'failed' as const,
+      tokenValid: 'ok' as const,
       sessionRevoked: false,
-      rendererStable: true,
+      rendererStable: 'ok' as const,
     };
     useConnectionStore.getState().setDiagnostics(diag);
     expect(useConnectionStore.getState().diagnostics).toEqual(diag);
@@ -75,11 +75,11 @@ describe('connectionStore', () => {
     useConnectionStore.getState().setLastVoiceChannelId('voice-1');
     useConnectionStore.getState().incrementRecoveryAttempts();
     useConnectionStore.getState().setDiagnostics({
-      internet: false,
-      serverReachable: false,
-      tokenValid: false,
+      internet: 'failed',
+      serverReachable: 'failed',
+      tokenValid: 'failed',
       sessionRevoked: false,
-      rendererStable: false,
+      rendererStable: 'failed',
     });
 
     useConnectionStore.getState().reset();
@@ -101,11 +101,11 @@ describe('connectionStore', () => {
     expect(useConnectionStore.getState().phase).toBe('preflight');
 
     store.setDiagnostics({
-      internet: true,
-      serverReachable: false,
-      tokenValid: true,
+      internet: 'ok',
+      serverReachable: 'failed',
+      tokenValid: 'ok',
       sessionRevoked: false,
-      rendererStable: true,
+      rendererStable: 'ok',
     });
 
     store.enterRecoveryA();
