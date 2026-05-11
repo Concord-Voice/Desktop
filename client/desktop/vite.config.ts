@@ -28,8 +28,22 @@ export default defineConfig(() => {
       coverage: {
         provider: 'istanbul',
         reporter: ['text', 'html', 'lcov'],
-        include: ['src/renderer/**/*.{ts,tsx}', 'src/shared/**/*.{ts,tsx}'],
-        exclude: ['src/renderer/types/**', '**/*.d.ts'],
+        include: [
+          'src/renderer/**/*.{ts,tsx}',
+          'src/shared/**/*.{ts,tsx}',
+          // #920 §5.5, §5.7 added typed constants + build-time generators that
+          // SonarCloud QG measures as new code. Without these globs, SonarCloud
+          // reports new_coverage=0% and the QG fails, even when the tests run
+          // green (the LCOV report just doesn't include the files).
+          'src/constants/**/*.{ts,mts}',
+          'scripts/**/*.{ts,mts,mjs}',
+        ],
+        exclude: [
+          'src/renderer/types/**',
+          '**/*.d.ts',
+          // Test files are not coverage targets themselves.
+          '**/*.test.{ts,tsx,mts}',
+        ],
         // Coverage thresholds enforced by SonarQube Quality Gate, not here.
       },
       alias: {

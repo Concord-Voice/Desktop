@@ -55,6 +55,8 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "ajv": "^8.18.0",
+    "ajv-formats": "^2.1.1",
     "@electron-forge/cli": "^7.11.1",
     "@electron-forge/maker-deb": "^7.11.1",
     "@electron-forge/maker-rpm": "^7.11.1",

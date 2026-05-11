@@ -4,6 +4,21 @@ import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { parse as parseYaml } from 'yaml';
+import Ajv2020 from 'ajv/dist/2020.js';
+import addFormats from 'ajv-formats';
+
+// Shared schema with scripts/generate-update-manifest.mts. The two scripts
+// MUST resolve to the same schema document — that is the contract this
+// file enforces (#920 §5.7). If the schema changes, both generator and
+// verifier pick up the change in lockstep.
+const SCHEMA_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../schemas/update-manifest.json',
+);
+const schema = JSON.parse(readFileSync(SCHEMA_PATH, 'utf-8'));
+const ajv = new Ajv2020({ allErrors: true, strict: false });
+addFormats(ajv);
+const validateSchema = ajv.compile(schema);
 
 function sha512Base64OfFile(filePath) {
   const buf = readFileSync(filePath);
@@ -37,8 +52,16 @@ export function verifyManifest(manifestPath) {
   } catch (err) {
     return { ok: false, errors: [`failed to parse yaml: ${err.message}`] };
   }
-  if (!manifest || !Array.isArray(manifest.files) || manifest.files.length === 0) {
-    return { ok: false, errors: ['manifest has no files array'] };
+
+  // Schema validation first — catches structural defects (wrong types,
+  // missing fields, extra fields, malformed sha512 base64) before the
+  // hash-matching loop runs and produces less helpful errors. The schema
+  // is the same JSON document used by generate-update-manifest.mts.
+  if (!validateSchema(manifest)) {
+    const schemaErrors = (validateSchema.errors ?? []).map(
+      (e) => `schema violation at ${e.instancePath || '<root>'}: ${e.message}`,
+    );
+    return { ok: false, errors: schemaErrors };
   }
 
   const manifestDir = path.dirname(manifestPath);
@@ -75,7 +98,12 @@ export function verifyManifest(manifestPath) {
 }
 
 // CLI entry: accepts one or more manifest paths; exits non-zero on any failure.
-if (fileURLToPath(import.meta.url) === process.argv[1]) {
+// Guard on `process.argv[1] &&` because `fileURLToPath(undefined)` throws
+// `TypeError: ERR_INVALID_ARG_TYPE` — relevant for import-as-module use cases
+// (e.g., `node --input-type=module -e '...'`). Mirrors the guard in
+// scripts/generate-update-manifest.mts:108.
+/* istanbul ignore next -- thin CLI entry shim; verifyManifest itself is covered by tests */
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const args = process.argv.slice(2);
   if (args.length === 0) {
     console.error('Usage: verify-update-manifest.mjs <manifest.yml> [more.yml...]');
