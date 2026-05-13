@@ -10,13 +10,23 @@ set -euo pipefail
 
 ELECTRON_APP="node_modules/electron/dist/Electron.app"
 
-if [ ! -d "$ELECTRON_APP" ]; then
-  echo "[patch-electron-plist] Electron.app not found, skipping"
+if [ "$(uname)" != "Darwin" ]; then
+  echo "[patch-electron-plist] Not macOS, skipping"
   exit 0
 fi
 
-if [ "$(uname)" != "Darwin" ]; then
-  echo "[patch-electron-plist] Not macOS, skipping"
+# Electron 42+ downloads Electron.app lazily; deliberately force install here so postinstall can patch it.
+if [ ! -d "$ELECTRON_APP" ] && [ -x "node_modules/.bin/install-electron" ]; then
+  echo "[patch-electron-plist] Electron.app not present (v42+ lazy download); triggering install-electron..."
+  if ! node_modules/.bin/install-electron; then
+    rc=$?
+    echo "[patch-electron-plist] install-electron failed (rc=$rc); macOS dev launches will SIGABRT until resolved" >&2
+    exit "$rc"
+  fi
+fi
+
+if [ ! -d "$ELECTRON_APP" ]; then
+  echo "[patch-electron-plist] Electron.app not found, skipping"
   exit 0
 fi
 

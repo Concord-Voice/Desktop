@@ -1,7 +1,7 @@
 {
   "name": "@concordvoice/desktop",
   "productName": "ConcordVoice",
-  "version": "0.1.35",
+  "version": "0.1.36",
   "description": "Concord Voice Desktop Client - Privacy-first voice communication",
   "main": "dist/main/main.js",
   "author": "Concord Voice Team",
@@ -77,7 +77,7 @@
     "@vitest/coverage-istanbul": "^4.1.6",
     "@vitest/coverage-v8": "^4.1.0",
     "concurrently": "^9.2.1",
-    "electron": "^41.5.0",
+    "electron": "^42.0.1",
     "esbuild": "^0.28.0",
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^10.1.8",
