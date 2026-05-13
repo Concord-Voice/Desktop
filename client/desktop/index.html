@@ -5,27 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!--
       CSP chain for the desktop SPA:
-        1. services/control-plane/internal/middleware/security.go sets a strict
-           default-src 'none' Content-Security-Policy header globally.
-        2. services/control-plane/internal/spa/handler.go:80-84 deletes that
-           header on SPA asset responses, so the meta tag below is authoritative
-           for the renderer.
-        3. Cloudflare's Free-tier baseline bot-intelligence layer injects a
-           JSD beacon (<script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js">)
-           plus an Email-Obfuscation decoy anchor (/cdn-cgi/content?id=...) into
-           HTML responses served through the CF edge on CF-proxied paths
-           matching the /api/* heuristic. This CSP — script-src-elem 'self'
-           'wasm-unsafe-eval' with no 'unsafe-inline' — blocks the beacon as
-           designed. The injection is NOT from Web Analytics Auto Inject, Bot
-           Fight Mode, Page Shield, Email Obfuscation, or RUM — all were
-           toggled off via a Configuration Rule scoped to the SPA path during
-           the #725 investigation and the injection persisted. It comes from
-           Cloudflare's always-on Free-tier classification pipeline with no
-           customer-exposed opt-out. The fix (shipped in #725) is to serve the
-           SPA from a non-/api/* path (/spa/<sha7>/index.html) so the path
-           heuristic does not fire. See #725 and
-           internal-reference for
-           the full elimination chain.
+        1. services/control-plane/internal/middleware/security.go sets
+           `default-src 'none'` globally.
+        2. services/control-plane/internal/spa/handler.go deletes that
+           header on /spa/* responses (per #914 — keeping it would intersect
+           with the meta tag below and block the bundle).
+        3. Cloudflare's JavaScript Detections (JSD) bot-intelligence
+           injection is disabled zone-wide via Super Bot Fight Mode →
+           JavaScript Detections (Pro plan, 2026-05-13, #917 Tier 2
+           resolution, PR #970).
+      The meta tag below is the authoritative CSP for the renderer.
     -->
     <meta http-equiv="Content-Security-Policy"
           content="default-src 'self';
