@@ -46,6 +46,7 @@ import {
 } from './updater';
 import { createPinningVerifyProc } from './updatePinning';
 import { PIN_CONFIG } from './updatePinningConfig';
+import { getBuildTag } from './buildInfo';
 import {
   checkUpdateSentinel,
   finalizeUpdate,
@@ -534,6 +535,14 @@ ipcMain.handle('app:getPlatform', () => {
 
 ipcMain.handle('app:getIpcContract', () => {
   return IPC_CONTRACT_VERSION;
+});
+
+// Forensic build-tag observability (#920 §5.13, #939). Returns the CI
+// build tag baked into the packaged app (via forge extraResource
+// buildtag.json) or 'unknown' for local dev builds. Read-only,
+// information-only — knowing the tag does not unlock any capability.
+ipcMain.handle('app:getBuildTag', () => {
+  return getBuildTag();
 });
 
 // Screen capture sources for voice/video screen share picker (#44)

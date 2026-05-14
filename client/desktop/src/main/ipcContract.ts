@@ -42,8 +42,18 @@
  *        Server's spaIpcContract is NOT bumped to 9 — older v8 shells
  *        continue to work without the overlay, since webContents.send
  *        to a non-listening renderer is a harmless no-op.
+ * - v10: Forensic build-tag observability (#920 §5.13, #939):
+ *        app:getBuildTag handler, returns the CI build tag baked into
+ *        the packaged app at build time (via forge extraResource
+ *        buildtag.json) or 'unknown' for local dev builds. Read-only;
+ *        knowing the tag does not unlock any capability. Server's
+ *        spaIpcContract is NOT bumped — the channel is additive, and no
+ *        production renderer code currently consumes it. The surface
+ *        is reserved for incident-response forensics where a deployed
+ *        install needs runtime identification without filesystem access
+ *        to the bundle source.
  */
-export const IPC_CONTRACT_VERSION = 9;
+export const IPC_CONTRACT_VERSION = 10;
 
 /**
  * Result shape returned by performRefresh() in the main process and

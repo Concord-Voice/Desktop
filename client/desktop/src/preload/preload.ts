@@ -24,6 +24,11 @@ contextBridge.exposeInMainWorld('electron', {
   // Reserved for Tier 3 remote SPA — the remote renderer calls this to verify
   // compatibility with the shell's IPC contract version before using newer APIs.
   getIpcContract: () => ipcRenderer.invoke('app:getIpcContract') as Promise<number>,
+  // Forensic build-tag observability (#920 §5.13, #939). Read-only: returns
+  // the CI build tag baked into the packaged app or 'unknown' for dev builds.
+  // Threat-model: knowing the tag does not unlock any capability — exposure
+  // here is acceptable because the read-only surface is bounded.
+  getBuildTag: () => ipcRenderer.invoke('app:getBuildTag') as Promise<string>,
 
   // SPA self-heal (#753, ADR-0001): renderer signals chunk-load failure or
   // unhandled dynamic-import rejection. Main process refetches client config,
@@ -324,6 +329,13 @@ export interface ElectronAPI {
   getPlatform: () => Promise<string>;
   /** Tier 3 remote SPA: query the shell's IPC contract version for compatibility. */
   getIpcContract: () => Promise<number>;
+  /**
+   * Forensic build-tag observability (#920 §5.13, #939). Returns the CI build
+   * tag baked into the packaged app (via forge `extraResource` `buildtag.json`)
+   * or `'unknown'` for local dev builds. Read-only, information-only — knowing
+   * the tag does not unlock any capability.
+   */
+  getBuildTag: () => Promise<string>;
 
   /**
    * SPA self-heal (#753, ADR-0001): renderer requests the main process refetch

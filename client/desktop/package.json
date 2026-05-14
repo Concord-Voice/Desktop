@@ -15,6 +15,7 @@
     "build:renderer": "vite build",
     "build:preload": "node scripts/build-preload.mjs",
     "build:main": "tsc -p tsconfig.main.json",
+    "build:buildtag": "node scripts/generate-buildtag.mjs",
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
