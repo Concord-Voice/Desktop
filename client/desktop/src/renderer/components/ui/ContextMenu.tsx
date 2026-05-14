@@ -108,7 +108,7 @@ const Item: React.FC<ItemProps> = ({ icon, label, danger, disabled, onClick, has
     onClick={disabled ? undefined : onClick}
     disabled={disabled}
   >
-    {icon && <span className="ctx-menu-item-icon">{icon}</span>}
+    {icon != null && <span className="ctx-menu-item-icon">{icon}</span>}
     <span style={{ flex: 1 }}>{label}</span>
     {hasSubMenu && (
       <span className="ctx-menu-item-chevron">

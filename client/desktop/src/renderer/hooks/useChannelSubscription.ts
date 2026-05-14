@@ -35,6 +35,7 @@ export function useChannelSubscription(channelId: string | null | undefined) {
     }
 
     return () => {
+      // eslint-disable-next-line @eslint-react/web-api-no-leaked-timeout -- Timer is tracked in the module-scope `pendingUnsubscribes` Map; cleanup happens either via the clearTimeout at line 31 (when the next subscribe within UNSUBSCRIBE_DELAY_MS wins the race) or by the timer firing and calling pendingUnsubscribes.delete(key). The rule doesn't recognize Map.set() as a cleanup mechanism.
       const timer = setTimeout(() => {
         pendingUnsubscribes.delete(key);
         wsService.unsubscribe(channelId);

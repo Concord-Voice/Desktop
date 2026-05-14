@@ -91,7 +91,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
     if (query.trim()) {
       search(query);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: effect should only refire when the serverWide toggle changes, not on every keystroke that updates `query` or every new `search` identity; `query` is read as a snapshot-at-toggle
+    // eslint-disable-next-line @eslint-react/exhaustive-deps -- intentional: effect should only refire when the serverWide toggle changes, not on every keystroke that updates `query` or every new `search` identity; `query` is read as a snapshot-at-toggle
   }, [serverWide]);
 
   if (!isOpen) return null;

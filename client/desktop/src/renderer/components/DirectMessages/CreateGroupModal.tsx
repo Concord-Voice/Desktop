@@ -31,9 +31,9 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onClose }) 
 
   // Focus search input when modal opens
   useEffect(() => {
-    if (isOpen) {
-      setTimeout(() => searchInputRef.current?.focus(), 100);
-    }
+    if (!isOpen) return;
+    const focusTimer = setTimeout(() => searchInputRef.current?.focus(), 100);
+    return () => clearTimeout(focusTimer);
   }, [isOpen]);
 
   // Reset state when modal closes

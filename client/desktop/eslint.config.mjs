@@ -1,7 +1,6 @@
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
-import eslintPluginReact from 'eslint-plugin-react';
-import eslintPluginReactHooks from 'eslint-plugin-react-hooks';
+import eslintReact from '@eslint-react/eslint-plugin';
 import eslintPluginEslintComments from '@eslint-community/eslint-plugin-eslint-comments';
 import eslintConfigPrettier from 'eslint-config-prettier';
 
@@ -19,14 +18,12 @@ export default [
   // ESLint recommended + typescript-eslint recommended
   ...tseslint.configs.recommended,
 
-  // React recommended (flat config)
-  eslintPluginReact.configs.flat.recommended,
-
-  // React JSX runtime (no need to import React in scope)
-  eslintPluginReact.configs.flat['jsx-runtime'],
-
-  // React hooks
-  eslintPluginReactHooks.configs['recommended-latest'],
+  // React + JSX + hooks (unified — TypeScript-aware, type-checked rules)
+  // Provides rules-of-hooks, exhaustive-deps, no-missing-key, and the full
+  // @eslint-react/* rule set. recommended-type-checked is a strict superset
+  // of recommended-typescript (includes type-aware DOM and web-api rules).
+  // Requires parserOptions.projectService below for type-aware analysis.
+  eslintReact.configs['recommended-type-checked'],
 
   // Prettier (must be last to override formatting rules)
   eslintConfigPrettier,
@@ -47,14 +44,69 @@ export default [
         ecmaVersion: 'latest',
         sourceType: 'module',
         ecmaFeatures: { jsx: true },
+        // Type-aware linting via typescript-eslint v8's projectService.
+        // Auto-discovers tsconfig.json (covers renderer + preload via its
+        // broad `include: ["src/**/*"]`) and tsconfig.main.json (main
+        // process). Required for @eslint-react's recommended-type-checked
+        // rules to function.
+        //
+        // allowDefaultProject: the two __lint-fixture__ paths are virtual
+        // files used by eslint-no-raw-err-console.test.ts and
+        // eslint-no-bare-anchor.test.ts — they pass a filePath to
+        // ESLint.lintText() but those files don't exist on disk, so the
+        // projectService rejects them. Listing them here lets the tests
+        // run against the default TS project without the files being
+        // present in tsconfig.json. Glob '**' is disallowed by ts-eslint,
+        // so we list the two paths explicitly.
+        projectService: {
+          allowDefaultProject: [
+            'src/main/__lint-fixture__.ts',
+            'src/renderer/__lint-fixture__.tsx',
+          ],
+        },
+        tsconfigRootDir: import.meta.dirname,
       },
     },
 
-    settings: {
-      react: { version: 'detect' },
-    },
+    // settings.react.version (for the legacy eslint-plugin-react) is no longer
+    // needed — @eslint-react reads its version detection from
+    // settings['react-x'].version, which the recommended-type-checked preset
+    // sets to 'detect' for us.
 
     rules: {
+      // @eslint-react/unsupported-syntax fires on three pattern groups inside
+      // React components / hooks:
+      //   (a) IIFEs in JSX, e.g. {(() => { if (x) return <A/>; return <B/>; })()}
+      //   (b) eval calls
+      //   (c) with statements
+      // Case (a) is idiomatic in this codebase for complex conditional rendering
+      // that cannot be cleanly expressed via ternary (~35 sites at time of
+      // writing, 2026-05-13). The rule exists primarily to prevent React Compiler
+      // from stumbling on these patterns, but this project does not use React
+      // Compiler. Cases (b) and (c) are independently prohibited by internal-reference
+      // and reviewed out at PR time via the RCI workflow + AI-Code Assurance —
+      // not via this lint rule. If lint-level eval/with detection is desired
+      // later, prefer the `no-eval` rule from eslint:recommended rather than
+      // re-enabling unsupported-syntax with its IIFE noise. Extraction of the
+      // IIFE sites to named helpers (and re-enabling this rule at error) is
+      // tracked by #987 — dormant until either React Compiler is adopted or
+      // a Compiler-dependent feature lands.
+      '@eslint-react/unsupported-syntax': 'off',
+
+      // Web-API leak rules promoted from `warn` (preset default) to `error`.
+      // These rules catch resource-cleanup bugs in useEffect/useLayoutEffect
+      // that silently leak fetch handles, event listeners, timers, and
+      // observers across re-renders and unmounts. Resource leakage is a
+      // correctness issue that should block CI, not a warning to skim past.
+      //
+      // Surfaced via the @eslint-react/recommended-type-checked preset
+      // adoption in #530. See PR #986 review for rationale.
+      '@eslint-react/web-api-no-leaked-fetch': 'error',
+      '@eslint-react/web-api-no-leaked-event-listener': 'error',
+      '@eslint-react/web-api-no-leaked-timeout': 'error',
+      '@eslint-react/web-api-no-leaked-interval': 'error',
+      '@eslint-react/web-api-no-leaked-resize-observer': 'error',
+
       // TypeScript — practical strictness
       // no-unused-vars / no-explicit-any / no-non-null-assertion promoted to
       // error severity repo-wide per #667. Test-file exemption below.
@@ -71,14 +123,13 @@ export default [
       '@typescript-eslint/no-non-null-assertion': 'error',
       '@typescript-eslint/no-require-imports': 'off', // Electron main process uses require()
 
-      // React
-      'react/prop-types': 'off', // TypeScript handles this
-      'react/display-name': 'off',
-      'react/no-unescaped-entities': 'warn',
-
-      // React Hooks
-      'react-hooks/rules-of-hooks': 'error',
-      'react-hooks/exhaustive-deps': 'warn',
+      // React + Hooks: severities provided by @eslint-react's
+      // recommended-type-checked preset already match our targets:
+      //   @eslint-react/rules-of-hooks: error  (matches old react-hooks/rules-of-hooks)
+      //   @eslint-react/exhaustive-deps: warn  (matches old react-hooks/exhaustive-deps)
+      // The legacy react/prop-types, react/display-name, and
+      // react/no-unescaped-entities rules have no equivalents enabled by
+      // the @eslint-react preset, so no overrides are needed. See spec §4.3.
 
       // General
       'no-console': ['warn', { allow: ['warn', 'error', 'debug'] }],
@@ -125,7 +176,8 @@ export default [
   // first- and last-child). The audit found no such sites in src/main/,
   // and the rule targets the documented failure mode — `console.error('prefix',
   // err)` — so single-arg forms are out of scope. If this decision changes,
-  // update tests/unit/main/eslint-no-raw-err-console.test.ts fixture 6.
+  // update the "permits single-argument console.error(err)" test case in
+  // tests/unit/main/eslint-no-raw-err-console.test.ts.
   //
   // See internal-reference "Console error logging".
   {

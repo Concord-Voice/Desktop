@@ -100,7 +100,7 @@ const ServerSettingsModal: React.FC<ServerSettingsModalProps> = ({ isOpen, serve
     setInviteCopied(false);
     setIsCreatingInvite(false);
     setActiveTab('general');
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- banner/icon are local state; including them causes resets on form interaction
+    // eslint-disable-next-line @eslint-react/exhaustive-deps -- banner/icon are local state; including them causes resets on form interaction
   }, [server]);
 
   // Fetch invites when modal opens for owner/admin

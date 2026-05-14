@@ -221,7 +221,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({ serverId }) => 
       setAllowEmbeddedContent(server.allow_embedded_content ?? false);
       setActiveSection('general');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- snapshot-on-switch; see block comment above effect
+    // eslint-disable-next-line @eslint-react/exhaustive-deps -- snapshot-on-switch; see block comment above effect
   }, [server?.id]);
 
   // Fetch invites

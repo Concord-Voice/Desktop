@@ -21,6 +21,12 @@ async function lintRenderer(
     cwd: CLIENT_DESKTOP_ROOT,
   });
   // Use a fixture path under src/renderer/ so the renderer-scoped rule applies.
+  // The fixture path 'src/renderer/__lint-fixture__.tsx' is a virtual file that
+  // does not exist on disk. It MUST be enumerated in eslint.config.mjs's
+  // `parserOptions.projectService.allowDefaultProject` array (since #530's
+  // migration to type-aware linting) or typescript-eslint's project service
+  // rejects it with a parsing error. If you add a new lint-rule regression test
+  // that uses a different virtual fixture path, update that allowlist as well.
   const [result] = await eslint.lintText(code, {
     filePath: path.join(CLIENT_DESKTOP_ROOT, 'src/renderer/__lint-fixture__.tsx'),
   });

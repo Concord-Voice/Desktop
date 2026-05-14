@@ -145,6 +145,7 @@ export function useWebSocket() {
 
       // Jitter: 0-2s random delay to avoid N clients racing simultaneously
       const jitterMs = Math.random() * 2000;
+      // eslint-disable-next-line @eslint-react/web-api-no-leaked-timeout -- Timer is tracked in the effect-local `timers` Set; cleanup at line 159-160 iterates the Set and clearTimeout()s each pending rotation on unmount. The rule doesn't recognize Set.add() as a cleanup mechanism.
       const timerId = setTimeout(() => {
         timers.delete(timerId);
         performKeyRotation(channelId, newEpoch).catch(onRotationError);
@@ -233,7 +234,7 @@ export function useWebSocket() {
 
       setConnectionStatus(isConnected, connectionInfo?.clientId, uiState);
 
-      console.debug(`[WebSocket] state → ${state}`, connectionInfo);
+      console.debug('[WebSocket] state →', state, connectionInfo);
 
       handleRecovery(state);
     });

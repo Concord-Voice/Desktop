@@ -212,7 +212,7 @@ const MemberList: React.FC = () => {
     }
 
     return groups;
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- voice state (useVoiceStore) is read synchronously inside the computation but intentionally omitted from deps: member grouping recomputes on roster/role/server changes, and voice-presence badging is separately reactive through the store subscription on the rendered rows — including voice state here would re-run the entire grouping on every mic-unmute event
+    // eslint-disable-next-line @eslint-react/exhaustive-deps -- voice state (useVoiceStore) is read synchronously inside the computation but intentionally omitted from deps: member grouping recomputes on roster/role/server changes, and voice-presence badging is separately reactive through the store subscription on the rendered rows — including voice state here would re-run the entire grouping on every mic-unmute event
   }, [filteredMembers, serverRoles, activeServerId, sortMembers]);
 
   const renderGroup = (group: {
