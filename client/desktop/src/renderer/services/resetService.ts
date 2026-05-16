@@ -13,6 +13,7 @@
 
 import { useAuthStore } from '../stores/authStore';
 import { stopProactiveRefresh } from './apiClient';
+import { getMessageQueue } from './messageQueue';
 import { useServerStore } from '../stores/serverStore';
 import { useChannelStore } from '../stores/channelStore';
 import { useDMStore } from '../stores/dmStore';
@@ -66,6 +67,12 @@ export function gracefulReset(): void {
   // logout-class transition. Otherwise an SSO user logging back in via the
   // password path would see the eager-unlock gate from the previous session.
   useE2EEStore.getState().reset();
+
+  // Clear the in-memory MessageQueue — its singleton survives the renderer
+  // logout flow, and any encrypted-flagged plaintext queued by the prior
+  // user would otherwise be re-encrypted with the next user's keys after
+  // the #918 gate releases on relogin (cross-account identity confusion).
+  getMessageQueue().clear();
 
   // Remove persisted content store data from localStorage
   // (settings stores are NOT touched — theme, audio, video, TTS persist)
