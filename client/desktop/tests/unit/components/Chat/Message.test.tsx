@@ -61,14 +61,8 @@ describe('Message', () => {
     expect(screen.getByText('testuser')).toBeInTheDocument();
   });
 
-  it('shows encrypted indicator for encrypted messages', () => {
-    render(
-      <Message
-        message={{ ...mockMessage, is_encrypted: true }}
-        currentUserId="user-2"
-        showAvatar={true}
-      />
-    );
+  it('always shows encrypted indicator (all messages are encrypted)', () => {
+    render(<Message message={mockMessage} currentUserId="user-2" showAvatar={true} />);
     expect(document.querySelector('.encrypted-indicator')).toBeInTheDocument();
   });
 

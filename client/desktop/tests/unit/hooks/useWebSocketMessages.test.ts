@@ -103,7 +103,6 @@ describe('useWebSocketMessages', () => {
             user_id: 'user-2',
             content: 'Hello from WebSocket',
             username: 'testuser2',
-            is_encrypted: false,
             created_at: '2025-01-01T12:00:00Z',
             updated_at: '2025-01-01T12:00:00Z',
           },
@@ -127,7 +126,6 @@ describe('useWebSocketMessages', () => {
       user_id: 'user-1',
       content: 'To be deleted',
       username: 'testuser',
-      is_encrypted: false,
       status: 'delivered',
       created_at: '2025-01-01T12:00:00Z',
       updated_at: '2025-01-01T12:00:00Z',
@@ -301,7 +299,6 @@ describe('useWebSocketMessages', () => {
             conversation: {
               id: 'conv-guard-1',
               is_group: false,
-              is_encrypted: false,
               created_at: '2026-04-19T12:00:00Z',
               participants: [
                 // Valid participant
@@ -340,7 +337,6 @@ describe('useWebSocketMessages', () => {
             conversation: {
               id: 'conv-malformed',
               // is_group missing
-              is_encrypted: false,
               created_at: '2026-04-19T12:00:00Z',
               participants: [],
             },
@@ -407,7 +403,6 @@ describe('useWebSocketMessages', () => {
               user_id: 'user-2',
               content: 'Hello',
               username: 'other',
-              is_encrypted: false,
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             },

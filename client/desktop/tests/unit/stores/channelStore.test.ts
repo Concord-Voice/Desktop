@@ -34,12 +34,6 @@ describe('channelStore', () => {
       expect(useChannelStore.getState().channels[0].name).toBe('renamed');
     });
 
-    it('strips is_encrypted from updates', () => {
-      useChannelStore.getState().addChannel(mockChannel);
-      useChannelStore.getState().updateChannel('channel-1', { is_encrypted: true } as any);
-      expect(useChannelStore.getState().channels[0].is_encrypted).toBe(false);
-    });
-
     it('does not affect other channels', () => {
       useChannelStore.getState().addChannel(mockChannel);
       useChannelStore.getState().addChannel(mockEncryptedChannel);

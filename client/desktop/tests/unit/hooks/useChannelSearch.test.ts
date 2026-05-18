@@ -68,7 +68,6 @@ function makeMsg(overrides: Partial<MessageWithUser> = {}): MessageWithUser {
     content: 'test content',
     username: 'testuser',
     display_name: 'Test User',
-    is_encrypted: false,
     created_at: '2025-01-01T12:00:00Z',
     updated_at: '2025-01-01T12:00:00Z',
     ...overrides,
@@ -117,22 +116,23 @@ describe('useChannelSearch helpers', () => {
   // --- decryptMessageContent ---
 
   describe('decryptMessageContent', () => {
-    it('returns plaintext content for unencrypted messages', async () => {
-      const msg = makeMsg({ is_encrypted: false, content: 'plain text' });
+    it('returns decrypted content for messages', async () => {
+      mockDecryptForChannel.mockResolvedValueOnce('plain text');
+      const msg = makeMsg({ content: 'plain text' });
       const result = await decryptMessageContent(msg, 'ch-1');
       expect(result).toBe('plain text');
     });
 
     it('returns plaintext content when e2ee not initialized', async () => {
       mockE2eeInitialized = false;
-      const msg = makeMsg({ is_encrypted: true, content: 'encrypted' });
+      const msg = makeMsg({ content: 'encrypted' });
       const result = await decryptMessageContent(msg, 'ch-1');
       expect(result).toBe('encrypted');
     });
 
     it('decrypts with decryptForChannel for version 1', async () => {
       mockDecryptForChannel.mockResolvedValueOnce('decrypted text');
-      const msg = makeMsg({ is_encrypted: true, key_version: 1, content: 'enc' });
+      const msg = makeMsg({ key_version: 1, content: 'enc' });
       const result = await decryptMessageContent(msg, 'ch-1');
       expect(result).toBe('decrypted text');
       expect(mockDecryptForChannel).toHaveBeenCalledWith('ch-1', 'enc');
@@ -140,7 +140,7 @@ describe('useChannelSearch helpers', () => {
 
     it('decrypts with decryptForChannelWithVersion for version > 1', async () => {
       mockDecryptForChannelWithVersion.mockResolvedValueOnce('v2 decrypted');
-      const msg = makeMsg({ is_encrypted: true, key_version: 3, content: 'enc-v3' });
+      const msg = makeMsg({ key_version: 3, content: 'enc-v3' });
       const result = await decryptMessageContent(msg, 'ch-1');
       expect(result).toBe('v2 decrypted');
       expect(mockDecryptForChannelWithVersion).toHaveBeenCalledWith('ch-1', 'enc-v3', 3);
@@ -148,14 +148,14 @@ describe('useChannelSearch helpers', () => {
 
     it('returns null on decryption failure', async () => {
       mockDecryptForChannel.mockRejectedValueOnce(new Error('key not found'));
-      const msg = makeMsg({ is_encrypted: true, key_version: 1, content: 'enc' });
+      const msg = makeMsg({ key_version: 1, content: 'enc' });
       const result = await decryptMessageContent(msg, 'ch-1');
       expect(result).toBeNull();
     });
 
     it('decrypts with decryptForChannel when key_version is undefined', async () => {
       mockDecryptForChannel.mockResolvedValueOnce('decrypted');
-      const msg = makeMsg({ is_encrypted: true, content: 'enc' });
+      const msg = makeMsg({ content: 'enc' });
       delete (msg as Record<string, unknown>).key_version;
       const result = await decryptMessageContent(msg, 'ch-1');
       expect(result).toBe('decrypted');
@@ -176,6 +176,7 @@ describe('useChannelSearch helpers', () => {
 
     it('indexes and emits matching message', async () => {
       mockIsIndexed.mockReturnValueOnce(false);
+      mockDecryptForChannel.mockResolvedValueOnce('hello world');
       const onNewResult = vi.fn();
       const msg = makeMsg({ id: 'msg-match', content: 'hello world' });
       await processBackfillMessage(msg, 'ch-1', 'hello', new Set(), onNewResult);
@@ -190,6 +191,7 @@ describe('useChannelSearch helpers', () => {
 
     it('indexes but does not emit non-matching message', async () => {
       mockIsIndexed.mockReturnValueOnce(false);
+      mockDecryptForChannel.mockResolvedValueOnce('goodbye world');
       const onNewResult = vi.fn();
       const msg = makeMsg({ id: 'msg-no', content: 'goodbye world' });
       await processBackfillMessage(msg, 'ch-1', 'hello', new Set(), onNewResult);
@@ -199,6 +201,7 @@ describe('useChannelSearch helpers', () => {
 
     it('does not emit duplicate results', async () => {
       mockIsIndexed.mockReturnValueOnce(false);
+      mockDecryptForChannel.mockResolvedValueOnce('hello');
       const onNewResult = vi.fn();
       const allResultIds = new Set(['msg-dup']);
       const msg = makeMsg({ id: 'msg-dup', content: 'hello' });
@@ -210,7 +213,7 @@ describe('useChannelSearch helpers', () => {
       mockIsIndexed.mockReturnValueOnce(false);
       mockDecryptForChannel.mockRejectedValueOnce(new Error('fail'));
       const onNewResult = vi.fn();
-      const msg = makeMsg({ is_encrypted: true, key_version: 1, content: 'enc' });
+      const msg = makeMsg({ key_version: 1, content: 'enc' });
       await processBackfillMessage(msg, 'ch-1', 'test', new Set(), onNewResult);
       expect(mockIndexMessage).not.toHaveBeenCalled();
       expect(onNewResult).not.toHaveBeenCalled();
@@ -335,6 +338,7 @@ describe('useChannelSearch hook', () => {
 
   it('finds matches during backfill', async () => {
     mockSearchMessages.mockReturnValueOnce([]);
+    mockDecryptForChannel.mockResolvedValueOnce('hello backfill');
     const backfillMsg = makeMsg({ id: 'bf-1', content: 'hello backfill' });
     mockBulkResponse([backfillMsg]);
 

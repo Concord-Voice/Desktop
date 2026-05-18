@@ -53,22 +53,13 @@ async function decryptMessages(
   channelId: string,
   rawMsgs: MessageWithStatus[]
 ): Promise<MessageWithStatus[]> {
-  const hasEncrypted = rawMsgs.some((m) => m.is_encrypted || m.replied_to?.is_encrypted);
-  if (!hasEncrypted) return rawMsgs;
-
-  // Fail-closed: if E2EE isn't initialized, blank encrypted content rather than
+  // Fail-closed: if E2EE isn't initialized, blank content rather than
   // leaking ciphertext. Mark as pendingKeys so the UI shows the correct placeholder.
   if (!e2eeService.isInitialized) {
     return rawMsgs.map((m) => {
       const rt = m.replied_to;
-      const blankedRt = rt?.is_encrypted ? { ...rt, content: '' } : rt;
-      if (m.is_encrypted) {
-        return { ...m, content: '', pendingKeys: true, replied_to: blankedRt };
-      }
-      if (blankedRt !== rt) {
-        return { ...m, replied_to: blankedRt };
-      }
-      return m;
+      const blankedRt = rt ? { ...rt, content: '' } : rt;
+      return { ...m, content: '', pendingKeys: true, replied_to: blankedRt };
     });
   }
 
@@ -85,11 +76,11 @@ async function decryptMessages(
   const versionedKeys = new Map<number, CryptoKey>();
   const uniqueVersions = new Set<number>();
   for (const m of rawMsgs) {
-    if (m.is_encrypted && m.key_version && m.key_version > 1) {
+    if (m.key_version && m.key_version > 1) {
       uniqueVersions.add(m.key_version);
     }
     const rt = m.replied_to;
-    if (rt?.is_encrypted && rt.key_version && rt.key_version > 1) {
+    if (rt?.key_version && rt.key_version > 1) {
       uniqueVersions.add(rt.key_version);
     }
   }
@@ -109,7 +100,7 @@ async function decryptMessages(
       // Decrypt replied_to content if the original replied-to message was encrypted
       let decryptedRt = m.replied_to;
       const rt = m.replied_to;
-      if (rt?.is_encrypted && rt.content) {
+      if (rt?.content) {
         try {
           const rtPlaintext = await decryptContent(
             channelId,
@@ -124,13 +115,7 @@ async function decryptMessages(
         }
       }
 
-      // Non-encrypted message — return with potentially-decrypted replied_to
-      if (!m.is_encrypted) {
-        if (decryptedRt === rt) return m;
-        return { ...m, replied_to: decryptedRt };
-      }
-
-      // Encrypted message — decrypt content
+      // Decrypt content
       try {
         const plaintext = await decryptContent(
           channelId,

@@ -46,7 +46,6 @@ describe('GroupInfoPanel', () => {
     isGroup: true,
     isPersonal: false,
     name: 'Test Group',
-    isEncrypted: false,
     createdBy: 'user-1',
     participants: [
       { userId: 'user-1', username: 'alice', role: 'admin' },

@@ -92,9 +92,8 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
     () => ({
       type: 'dm' as const,
       id: selectedThreadId || '',
-      isEncrypted: activeConv?.isEncrypted ?? false,
     }),
-    [selectedThreadId, activeConv?.isEncrypted]
+    [selectedThreadId]
   );
 
   const {
@@ -125,15 +124,16 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
   // Mark conversation as read after messages are fetched
   const handleFetchComplete = useCallback(() => {
     if (!selectedThreadId) return;
-    const previousUnread = useDMStore.getState().conversations.find(
-      (c) => c.id === selectedThreadId
-    )?.unreadCount ?? 0;
+    const previousUnread =
+      useDMStore.getState().conversations.find((c) => c.id === selectedThreadId)?.unreadCount ?? 0;
     clearUnread(selectedThreadId);
     apiFetch(`/api/v1/dm/conversations/${selectedThreadId}/read`, { method: 'POST' }).catch(
       (error) => {
         console.error('[DMChatArea] Failed to mark conversation as read:', error);
         if (previousUnread > 0) {
-          useDMStore.getState().updateConversation(selectedThreadId, { unreadCount: previousUnread });
+          useDMStore
+            .getState()
+            .updateConversation(selectedThreadId, { unreadCount: previousUnread });
         }
       }
     );
@@ -287,7 +287,6 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
               onTyping={sendTyping}
               channelName={threadName}
               disabled={!currentUserId}
-              isChannelEncrypted={activeConv?.isEncrypted ?? false}
               conversationId={selectedThreadId || undefined}
               replyingTo={replyingTo}
               onCancelReply={cancelReply}

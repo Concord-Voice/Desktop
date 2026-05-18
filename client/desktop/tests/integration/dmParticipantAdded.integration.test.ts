@@ -78,7 +78,6 @@ describe('DM participant added — local mutation (integration)', () => {
           isGroup: true,
           isPersonal: false,
           name: 'Group',
-          isEncrypted: false,
           participants: [{ userId: 'user-1', username: 'testuser' }],
           lastMessage: null,
           unreadCount: 0,
@@ -141,7 +140,8 @@ describe('DM participant added — local mutation (integration)', () => {
 
     // fetchConversations is called when conversation not found
     const convFetchCalls = mockApiFetch.mock.calls.filter(
-      (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('/dm/conversations')
+      (call: unknown[]) =>
+        typeof call[0] === 'string' && (call[0] as string).includes('/dm/conversations')
     );
     expect(convFetchCalls.length).toBeGreaterThan(0);
   });
@@ -154,7 +154,6 @@ describe('DM participant added — local mutation (integration)', () => {
           isGroup: true,
           isPersonal: false,
           name: 'Group',
-          isEncrypted: false,
           participants: [
             { userId: 'user-1', username: 'testuser' },
             { userId: 'user-3', username: 'alreadyhere' },

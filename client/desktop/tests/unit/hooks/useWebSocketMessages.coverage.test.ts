@@ -168,7 +168,6 @@ describe('useWebSocketMessages — coverage boost', () => {
         isGroup: true,
         isPersonal: false,
         name: 'Group Chat',
-        isEncrypted: false,
         participants: [
           { userId: 'user-1', username: 'testuser' },
           { userId: 'user-2', username: 'alice' },
@@ -200,7 +199,6 @@ describe('useWebSocketMessages — coverage boost', () => {
         isGroup: true,
         isPersonal: false,
         name: 'Group Chat',
-        isEncrypted: false,
         participants: [
           { userId: 'user-1', username: 'testuser' },
           { userId: 'user-2', username: 'alice' },
@@ -256,7 +254,6 @@ describe('useWebSocketMessages — coverage boost', () => {
         isGroup: true,
         isPersonal: false,
         name: 'Group Chat',
-        isEncrypted: false,
         participants: [
           { userId: 'user-1', username: 'testuser', role: 'admin' },
           { userId: 'user-2', username: 'alice', role: 'member' },
@@ -314,7 +311,6 @@ describe('useWebSocketMessages — coverage boost', () => {
         isGroup: true,
         isPersonal: false,
         name: 'To Delete',
-        isEncrypted: false,
         participants: [],
         iconUrl: undefined,
         createdBy: 'user-1',
@@ -353,7 +349,6 @@ describe('useWebSocketMessages — coverage boost', () => {
         user_id: 'user-2',
         content: 'Original content',
         username: 'alice',
-        is_encrypted: false,
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
       });
@@ -406,7 +401,6 @@ describe('useWebSocketMessages — coverage boost', () => {
         user_id: 'user-1',
         content: 'Pending msg',
         username: 'testuser',
-        is_encrypted: false,
         status: 'pending',
         clientMessageId: 'nonce-1',
         created_at: '2025-01-01T00:00:00Z',
@@ -1310,7 +1304,6 @@ describe('useWebSocketMessages — coverage boost', () => {
             user_id: 'user-2',
             content: 'No channel',
             username: 'alice',
-            is_encrypted: false,
           },
         });
       });
@@ -1422,7 +1415,6 @@ describe('useWebSocketMessages — coverage boost', () => {
         isGroup: false,
         isPersonal: false,
         name: null,
-        isEncrypted: false,
         participants: [],
         iconUrl: undefined,
         createdBy: 'user-2',
@@ -1443,7 +1435,6 @@ describe('useWebSocketMessages — coverage boost', () => {
               user_id: 'user-2',
               username: 'alice',
               created_at: '2025-01-01T01:00:00Z',
-              is_encrypted: false,
             },
           },
         });
@@ -1645,7 +1636,6 @@ describe('useWebSocketMessages — coverage boost', () => {
             user_id: 'user-2',
             username: 'alice',
             content: 'encrypted-ciphertext',
-            is_encrypted: true,
             created_at: '2025-01-01T00:00:00Z',
             updated_at: '2025-01-01T00:00:00Z',
           },
@@ -1669,7 +1659,6 @@ describe('useWebSocketMessages — coverage boost', () => {
             user_id: 'user-2',
             username: 'alice',
             content: 'encrypted-v2-ciphertext',
-            is_encrypted: true,
             key_version: 2,
             created_at: '2025-01-01T00:00:00Z',
             updated_at: '2025-01-01T00:00:00Z',
@@ -1692,7 +1681,6 @@ describe('useWebSocketMessages — coverage boost', () => {
         isGroup: false,
         isPersonal: false,
         name: null,
-        isEncrypted: false,
         participants: [],
         lastMessage: null,
         unreadCount: 0,
@@ -1709,7 +1697,6 @@ describe('useWebSocketMessages — coverage boost', () => {
             user_id: 'user-2',
             username: 'alice',
             content: '',
-            is_encrypted: false,
             attachments: [{ file_type: 'image/png', url: 'https://example.com/img.png' }],
             created_at: '2025-01-01T00:00:00Z',
           },
@@ -1731,7 +1718,6 @@ describe('useWebSocketMessages — coverage boost', () => {
         server_id: 'server-1',
         name: 'linked-text',
         type: 'text',
-        is_encrypted: false,
         position: 1,
         linked_voice_channel_id: 'ch-voice-linked',
         created_at: '2025-01-01T00:00:00Z',
@@ -1776,7 +1762,6 @@ describe('useWebSocketMessages — coverage boost', () => {
             user_id: 'other-user',
             username: 'otheruser',
             content: 'hey there!',
-            is_encrypted: false,
             created_at: new Date().toISOString(),
           },
         });
@@ -1810,7 +1795,6 @@ describe('useWebSocketMessages — coverage boost', () => {
             user_id: 'other-user',
             username: 'otheruser',
             content: 'silent',
-            is_encrypted: false,
             created_at: new Date().toISOString(),
           },
         });
@@ -1836,7 +1820,6 @@ describe('useWebSocketMessages — coverage boost', () => {
             username: 'mentioner',
             content: '@testuser hey',
             mentioned: true,
-            is_encrypted: false,
             created_at: new Date().toISOString(),
           },
         });
@@ -1860,7 +1843,6 @@ describe('useWebSocketMessages — coverage boost', () => {
             isGroup: false,
             isPersonal: false,
             name: null,
-            isEncrypted: false,
             participants: [],
             lastMessage: null,
             unreadCount: 0,
@@ -1882,7 +1864,6 @@ describe('useWebSocketMessages — coverage boost', () => {
             username: 'alice',
             display_name: 'Alice',
             content: 'hello from DM',
-            is_encrypted: false,
             created_at: new Date().toISOString(),
           },
         });

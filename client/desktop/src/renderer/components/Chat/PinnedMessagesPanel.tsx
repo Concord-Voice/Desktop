@@ -86,12 +86,7 @@ const PinnedMessagesPanel: React.FC<PinnedMessagesPanelProps> = ({
                   <span className="pinned-message-author">{msg.display_name || msg.username}</span>
                 </div>
                 <div className="pinned-message-content">
-                  {renderPinContent(
-                    msg.content,
-                    msg.is_encrypted,
-                    msg.decrypted,
-                    msg.decryptFailed
-                  )}
+                  {renderPinContent(msg.content, msg.decrypted, msg.decryptFailed)}
                 </div>
                 <div className="pinned-message-actions">
                   <button className="pinned-message-jump" onClick={() => handleJump(msg.id)}>

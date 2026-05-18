@@ -23,7 +23,6 @@ function makeMessage(content: string, editedAt: string | null = null): MessageWi
     user_id: mockMember.user_id,
     username: mockMember.username,
     display_name: mockMember.display_name,
-    is_encrypted: false,
     status: 'delivered',
     created_at: '2026-04-19T00:00:00Z',
     updated_at: editedAt ?? '2026-04-19T00:00:00Z',

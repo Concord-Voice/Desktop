@@ -8,7 +8,6 @@ const mockTextChannel: Channel = {
   server_id: 'server-1',
   name: 'general',
   type: 'text',
-  is_encrypted: false,
   position: 0,
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
@@ -19,7 +18,6 @@ const mockVoiceChannel: Channel = {
   server_id: 'server-1',
   name: 'General Voice',
   type: 'voice',
-  is_encrypted: false,
   position: 1,
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
@@ -30,7 +28,6 @@ const mockBulletinChannel: Channel = {
   server_id: 'server-1',
   name: 'Announcements',
   type: 'bulletin',
-  is_encrypted: false,
   position: 2,
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
@@ -40,7 +37,6 @@ const mockEncryptedChannel: Channel = {
   ...mockTextChannel,
   id: 'enc-1',
   name: 'secret-chat',
-  is_encrypted: true,
 };
 
 const mockLinkedTextChannel: Channel = {
@@ -48,7 +44,6 @@ const mockLinkedTextChannel: Channel = {
   server_id: 'server-1',
   name: 'General Voice',
   type: 'text',
-  is_encrypted: false,
   position: 0,
   linked_voice_channel_id: 'voice-1',
   created_at: '2025-01-01T00:00:00Z',
@@ -168,16 +163,10 @@ describe('ChannelItem', () => {
 
   // -- Encrypted Indicator --
 
-  it('shows encrypted icon for encrypted channels', () => {
-    render(<ChannelItem {...defaultProps} channel={mockEncryptedChannel} />);
-    const encIcon = document.querySelector('.channel-encrypted-icon');
-    expect(encIcon).toBeInTheDocument();
-  });
-
-  it('does not show encrypted icon for non-encrypted channels', () => {
+  it('always shows encrypted icon (all channels are E2EE)', () => {
     render(<ChannelItem {...defaultProps} />);
     const encIcon = document.querySelector('.channel-encrypted-icon');
-    expect(encIcon).not.toBeInTheDocument();
+    expect(encIcon).toBeInTheDocument();
   });
 
   // -- Draft Indicator --

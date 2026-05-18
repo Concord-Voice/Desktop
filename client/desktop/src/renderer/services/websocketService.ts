@@ -323,7 +323,6 @@ export class WebSocketService {
     content: string,
     opts?: {
       nonce?: string;
-      isEncrypted?: boolean;
       keyVersion?: number;
       mentionMeta?: string;
       replyToId?: string;
@@ -331,19 +330,10 @@ export class WebSocketService {
       gifSlug?: string;
     }
   ): void {
-    const {
-      nonce,
-      isEncrypted = false,
-      keyVersion,
-      mentionMeta,
-      replyToId,
-      attachmentIds,
-      gifSlug,
-    } = opts ?? {};
+    const { nonce, keyVersion, mentionMeta, replyToId, attachmentIds, gifSlug } = opts ?? {};
     const data: Record<string, unknown> = {
       channel_id: channelId,
       content,
-      is_encrypted: isEncrypted,
       key_version: keyVersion,
       nonce,
       timestamp: Date.now(),
@@ -433,7 +423,6 @@ export class WebSocketService {
     content: string,
     opts: {
       nonce?: string;
-      isEncrypted?: boolean;
       keyVersion?: number;
       mentionMeta?: string;
       attachmentIds?: string[];
@@ -444,7 +433,6 @@ export class WebSocketService {
     const data: Record<string, unknown> = {
       conversation_id: conversationId,
       content,
-      is_encrypted: opts.isEncrypted ?? false,
       key_version: opts.keyVersion,
       nonce: opts.nonce,
       timestamp: Date.now(),

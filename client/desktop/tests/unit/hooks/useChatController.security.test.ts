@@ -104,17 +104,15 @@ const channelCtx: ChatContext = {
   type: 'channel',
   id: 'ch-1',
   serverId: 'srv-1',
-  isEncrypted: false,
 };
 const encryptedChannelCtx: ChatContext = {
   type: 'channel',
   id: 'ch-2',
   serverId: 'srv-1',
-  isEncrypted: true,
 };
-const dmCtx: ChatContext = { type: 'dm', id: 'conv-1', isEncrypted: false };
-const encryptedDMCtx: ChatContext = { type: 'dm', id: 'conv-2', isEncrypted: true };
-const voiceCtx: ChatContext = { type: 'voice', id: 'ch-3', serverId: 'srv-1', isEncrypted: false };
+const dmCtx: ChatContext = { type: 'dm', id: 'conv-1' };
+const encryptedDMCtx: ChatContext = { type: 'dm', id: 'conv-2' };
+const voiceCtx: ChatContext = { type: 'voice', id: 'ch-3', serverId: 'srv-1' };
 
 // --- Tests ---
 
@@ -165,8 +163,7 @@ describe('useChatController — cross-context security invariants (#496)', () =>
     const mockOkResponse = () =>
       mockApiFetch.mockResolvedValue({
         ok: true,
-        json: () =>
-          Promise.resolve({ message: { content: 'x', is_encrypted: false, edited_at: '' } }),
+        json: () => Promise.resolve({ message: { content: 'x', edited_at: '' } }),
       });
 
     it('4. channel edit URL does NOT contain /dm/conversations/', async () => {
@@ -288,15 +285,14 @@ describe('useChatController — cross-context security invariants (#496)', () =>
   // ── 15–16: Epoch enforcement ─────────────────────────────────────
 
   describe('epoch enforcement (keyVersion)', () => {
-    it('15. DM send passes isEncrypted=true for encrypted DM context (useMessaging handles keyVersion)', () => {
+    it('15. DM send routes to sendDMMessage (useMessaging handles encryption and keyVersion)', () => {
       const { result } = renderHook(() => useChatController(encryptedDMCtx));
       act(() => result.current.sendMessage('secret'));
 
-      // useChatController passes isEncrypted to sendDMMessage; useMessaging includes keyVersion internally
+      // useChatController routes to sendDMMessage; useMessaging handles E2EE + keyVersion internally
       expect(mockMessagingSendDMMessage).toHaveBeenCalledWith(
         'conv-2',
         'secret',
-        true, // isEncrypted — useMessaging will fetch keyVersion for this
         expect.any(String),
         expect.anything()
       );

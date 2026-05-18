@@ -165,7 +165,6 @@ describe('WebSocketService — extended', () => {
 
       service.sendDMMessage('conv-1', 'DM text', {
         nonce: 'nonce-dm',
-        isEncrypted: true,
         keyVersion: 2,
       });
 
@@ -174,7 +173,6 @@ describe('WebSocketService — extended', () => {
       expect(sent.data.conversation_id).toBe('conv-1');
       expect(sent.data.content).toBe('DM text');
       expect(sent.data.nonce).toBe('nonce-dm');
-      expect(sent.data.is_encrypted).toBe(true);
       expect(sent.data.key_version).toBe(2);
     });
 

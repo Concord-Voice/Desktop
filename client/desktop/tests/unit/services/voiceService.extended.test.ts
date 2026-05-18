@@ -301,7 +301,6 @@ function makeJoinResponse(co?: Record<string, unknown>) {
       id: 'channel-1',
       name: 'General',
       server_id: 'server-1',
-      is_encrypted: false,
       audio_quality_tier: null,
       ...(co || {}),
     },
@@ -313,7 +312,6 @@ function makeRoomJoined(ov?: Record<string, unknown>) {
     rtpCapabilities: mockDeviceRtpCapabilities,
     existingProducers: [],
     participants: [{ userId: 'user-1', username: 'testuser', displayName: 'Test User' }],
-    isEncrypted: false,
     channelName: 'General',
     ...(ov || {}),
   };
@@ -411,7 +409,7 @@ async function joinVoiceChannel(co?: Record<string, unknown>) {
   mockCreateRecvTransport.mockReturnValue(recvTransport);
 
   setupEmitResponses({
-    'join-room': makeRoomJoined({ isEncrypted: co?.is_encrypted ?? false }),
+    'join-room': makeRoomJoined(),
     'create-transport': makeTransportOpts(),
     produce: { id: 'prod-mic' },
     'resume-consumer': undefined,
@@ -1185,10 +1183,9 @@ describe('VoiceService Extended', () => {
 
   describe('socket listener: epoch-sync', () => {
     it('catches up when server epoch is ahead', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
       // Manually set encryption state for the test
-      svc.isEncrypted = true;
       const { MediaEncryption } = await import('@/renderer/services/mediaEncryption');
       svc.mediaEncryption = new MediaEncryption();
       mockGetCurrentKeyId.mockReturnValue(2);
@@ -1199,8 +1196,11 @@ describe('VoiceService Extended', () => {
       expect(mockCatchUpToEpoch).toHaveBeenCalledWith(5);
     });
 
-    it('ignores when not encrypted', async () => {
+    it('ignores when mediaEncryption is not initialized', async () => {
       await joinVoiceChannel();
+      // Ensure mediaEncryption is null (no E2EE worker setup)
+      const svc = voiceService as any;
+      svc.mediaEncryption = null;
       triggerSocketEvent('epoch-sync', { epoch: 5 });
       expect(mockCatchUpToEpoch).not.toHaveBeenCalled();
     });
@@ -1784,9 +1784,8 @@ describe('VoiceService Extended', () => {
 
   describe('debouncedRotateE2EEKeys', () => {
     it('delegates to mediaEncryption on legacy path', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
-      svc.isEncrypted = true;
       const { MediaEncryption } = await import('@/renderer/services/mediaEncryption');
       svc.mediaEncryption = new MediaEncryption();
 
@@ -1814,9 +1813,8 @@ describe('VoiceService Extended', () => {
     });
 
     it('retries on failure and returns true on success', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
-      svc.isEncrypted = true;
       const { MediaEncryption } = await import('@/renderer/services/mediaEncryption');
       svc.mediaEncryption = new MediaEncryption();
 
@@ -1826,9 +1824,8 @@ describe('VoiceService Extended', () => {
     });
 
     it('returns false after all retries exhausted', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
-      svc.isEncrypted = true;
       const { MediaEncryption } = await import('@/renderer/services/mediaEncryption');
       svc.mediaEncryption = new MediaEncryption();
       mockGetChannelKey.mockRejectedValue(new Error('key unavailable'));
@@ -1847,7 +1844,7 @@ describe('VoiceService Extended', () => {
 
   describe('deriveAndInstallDecryptKey', () => {
     it('throws when epoch exceeds ratchet limit', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
       const { MediaEncryption } = await import('@/renderer/services/mediaEncryption');
       svc.mediaEncryption = new MediaEncryption();
@@ -1859,7 +1856,7 @@ describe('VoiceService Extended', () => {
     });
 
     it('throws when mediaEncryption is destroyed during operation', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
       svc.mediaEncryption = null;
 
@@ -1873,7 +1870,7 @@ describe('VoiceService Extended', () => {
 
   describe('handleWorkerMessage', () => {
     it('handles rotationComplete message', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
       const { MediaEncryption } = await import('@/renderer/services/mediaEncryption');
       svc.mediaEncryption = new MediaEncryption();
@@ -1883,7 +1880,7 @@ describe('VoiceService Extended', () => {
     });
 
     it('handles requestRecovery message', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
       const { MediaEncryption } = await import('@/renderer/services/mediaEncryption');
       svc.mediaEncryption = new MediaEncryption();
@@ -1908,7 +1905,6 @@ describe('VoiceService Extended', () => {
   describe('initEncryption', () => {
     it('doubles delay for pending E2EE key errors', async () => {
       const svc = voiceService as any;
-      svc.isEncrypted = true;
       // Fail first 4 calls (initial + 3 retries), succeed on none
       mockGetChannelKey.mockRejectedValue(new E2EEKeyUnavailableError('NO_KEY_YET', true));
 
@@ -1921,7 +1917,6 @@ describe('VoiceService Extended', () => {
 
     it('rethrows non-Error lastError', async () => {
       const svc = voiceService as any;
-      svc.isEncrypted = true;
       mockGetChannelKey.mockRejectedValue('string error');
 
       vi.useRealTimers();
@@ -2070,9 +2065,8 @@ describe('VoiceService Extended', () => {
 
   describe('consumeProducer E2EE queuing', () => {
     it('routes audio to audio queue in E2EE mode', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
-      svc.isEncrypted = true;
       svc.recvTransportAudio = makeRecvTransport('recv-audio');
       svc.recvTransportVideo = makeRecvTransport('recv-video');
 
@@ -2106,9 +2100,8 @@ describe('VoiceService Extended', () => {
     });
 
     it('routes video to video queue in E2EE mode', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
-      svc.isEncrypted = true;
       svc.recvTransportAudio = makeRecvTransport('recv-audio');
       svc.recvTransportVideo = makeRecvTransport('recv-video');
 
@@ -2142,9 +2135,8 @@ describe('VoiceService Extended', () => {
     });
 
     it('skips consume for invalid kind in E2EE mode', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
-      svc.isEncrypted = true;
 
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       await svc.consumeProducer('p1', 'u1', 'invalid-kind');
@@ -2156,9 +2148,8 @@ describe('VoiceService Extended', () => {
     });
 
     it('warns and uses single queue when kind not provided in E2EE', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
-      svc.isEncrypted = true;
       svc.device = null; // Will skip consume due to no device
 
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -2171,9 +2162,8 @@ describe('VoiceService Extended', () => {
     });
 
     it('skips when E2EE recv transport not ready', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
-      svc.isEncrypted = true;
       svc.recvTransportAudio = null;
 
       setupEmitResponses({
@@ -2219,7 +2209,8 @@ describe('VoiceService Extended', () => {
     it('skips when no recvTransport', async () => {
       await joinVoiceChannel();
       const svc = voiceService as any;
-      svc.recvTransport = null;
+      svc.recvTransportAudio = null;
+      svc.recvTransportVideo = null;
 
       setupEmitResponses({
         consume: {
@@ -2248,21 +2239,11 @@ describe('VoiceService Extended', () => {
     it('returns split transports in E2EE mode', async () => {
       await joinVoiceChannel();
       const svc = voiceService as any;
-      svc.isEncrypted = true;
       svc.recvTransportAudio = makeRecvTransport('ra');
       svc.recvTransportVideo = makeRecvTransport('rv');
 
       expect(svc.getRecvTransport('audio').id).toBe('ra');
       expect(svc.getRecvTransport('video').id).toBe('rv');
-    });
-
-    it('returns single transport in non-E2EE mode', async () => {
-      const { recvTransport } = await joinVoiceChannel();
-      const svc = voiceService as any;
-      svc.isEncrypted = false;
-
-      expect(svc.getRecvTransport('audio').id).toBe(recvTransport.id);
-      expect(svc.getRecvTransport('video').id).toBe(recvTransport.id);
     });
   });
 
@@ -2297,7 +2278,6 @@ describe('VoiceService Extended', () => {
       const svc = voiceService as any;
       await svc.cleanup();
       // Queues should be fresh promises
-      expect(svc.consumeQueue).toBeInstanceOf(Promise);
       expect(svc.consumeQueueAudio).toBeInstanceOf(Promise);
       expect(svc.consumeQueueVideo).toBeInstanceOf(Promise);
     });
@@ -2375,11 +2355,9 @@ describe('VoiceService Extended', () => {
       const svc = voiceService as any;
       const { MediaEncryption } = await import('@/renderer/services/mediaEncryption');
       svc.mediaEncryption = new MediaEncryption();
-      svc.isEncrypted = true;
       svc.cleanupTimersAndE2EE();
       expect(mockMediaEncryptionDestroy).toHaveBeenCalled();
       expect(svc.mediaEncryption).toBeNull();
-      expect(svc.isEncrypted).toBe(false);
     });
   });
 
@@ -2474,14 +2452,12 @@ describe('VoiceService Extended', () => {
 
   describe('setupE2EEForChannel', () => {
     it('initializes encryption and adds keys for all participants', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
-      svc.isEncrypted = true;
       // Reset mediaEncryption so initEncryption runs fresh
       svc.mediaEncryption = null;
 
       const roomJoined = makeRoomJoined({
-        isEncrypted: true,
         e2eeEpoch: 3,
         participants: [
           { userId: 'user-1', username: 'self' },
@@ -2597,9 +2573,8 @@ describe('VoiceService Extended', () => {
 
   describe('user-joined with E2EE', () => {
     it('adds decrypt key and rotates keys', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
-      svc.isEncrypted = true;
       const { MediaEncryption } = await import('@/renderer/services/mediaEncryption');
       svc.mediaEncryption = new MediaEncryption();
       useVoiceStore.getState().setActiveChannel('channel-1', 'General', 'server-1');
@@ -2620,9 +2595,8 @@ describe('VoiceService Extended', () => {
 
   describe('user-left with E2EE', () => {
     it('removes participant and rotates keys', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
-      svc.isEncrypted = true;
       const { MediaEncryption } = await import('@/renderer/services/mediaEncryption');
       svc.mediaEncryption = new MediaEncryption();
 
@@ -2648,9 +2622,8 @@ describe('VoiceService Extended', () => {
 
   describe('new-producer with E2EE key handling', () => {
     it('ensures decrypt key before consuming', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
-      svc.isEncrypted = true;
       const { MediaEncryption } = await import('@/renderer/services/mediaEncryption');
       svc.mediaEncryption = new MediaEncryption();
 
@@ -2666,8 +2639,8 @@ describe('VoiceService Extended', () => {
       useVoiceStore.getState().setActiveChannel('channel-1', 'General', 'server-1');
 
       const consumer = createMockConsumer('c2', 'audio', 'p2');
-      svc.recvTransport = makeRecvTransport();
-      svc.recvTransport.consume.mockResolvedValue(consumer);
+      svc.recvTransportAudio = makeRecvTransport();
+      svc.recvTransportAudio.consume.mockResolvedValue(consumer);
 
       setupEmitResponses({
         consume: {

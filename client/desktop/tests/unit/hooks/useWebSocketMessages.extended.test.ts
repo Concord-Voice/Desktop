@@ -86,6 +86,13 @@ beforeEach(() => {
     e2ee_preference: false,
   });
   vi.clearAllMocks();
+  // Default: decryptForChannel resolves with the input content (pass-through)
+  mockDecryptForChannel.mockImplementation((_: string, content: string) =>
+    Promise.resolve(content)
+  );
+  mockDecryptForChannelWithVersion.mockImplementation((_: string, content: string) =>
+    Promise.resolve(content)
+  );
 });
 
 afterEach(() => {
@@ -94,14 +101,15 @@ afterEach(() => {
 
 describe('useWebSocketMessages — extended handlers', () => {
   describe('DM message handler', () => {
-    it('handles dm_message and adds to chat store', () => {
+    it('handles dm_message and adds to chat store', async () => {
       const ws = createMockWsService();
       renderHook(() => useWebSocketMessages(ws as never));
 
       const handler = ws.handlers.get('dm_message')!;
       expect(handler).toBeDefined();
 
-      act(() => {
+      // dm_message now always decrypts asynchronously — use async act to flush microtasks
+      await act(async () => {
         handler({
           type: 'dm_message',
           data: {
@@ -110,7 +118,6 @@ describe('useWebSocketMessages — extended handlers', () => {
             user_id: 'user-2',
             username: 'alice',
             content: 'Hello DM',
-            is_encrypted: false,
             created_at: '2025-01-01T00:00:00Z',
             updated_at: '2025-01-01T00:00:00Z',
           },
@@ -136,12 +143,13 @@ describe('useWebSocketMessages — extended handlers', () => {
       expect(useChatStore.getState().messagesByChannel.size).toBe(0);
     });
 
-    it('updates DM store last message', () => {
+    it('updates DM store last message', async () => {
       const ws = createMockWsService();
       renderHook(() => useWebSocketMessages(ws as never));
 
       const handler = ws.handlers.get('dm_message')!;
-      act(() => {
+      // dm_message now always decrypts asynchronously — use async act to flush microtasks
+      await act(async () => {
         handler({
           type: 'dm_message',
           data: {
@@ -150,7 +158,6 @@ describe('useWebSocketMessages — extended handlers', () => {
             user_id: 'user-2',
             username: 'alice',
             content: 'Update last msg',
-            is_encrypted: false,
             created_at: '2025-01-01T00:00:00Z',
           },
         });
@@ -176,7 +183,6 @@ describe('useWebSocketMessages — extended handlers', () => {
             user_id: 'user-2',
             username: 'alice',
             content: 'Sound test',
-            is_encrypted: false,
           },
         });
       });
@@ -197,7 +203,6 @@ describe('useWebSocketMessages — extended handlers', () => {
         user_id: 'user-1',
         content: 'Pending DM',
         username: 'testuser',
-        is_encrypted: false,
         status: 'pending',
         clientMessageId: 'nonce-dm-1',
         created_at: '2025-01-01T00:00:00Z',
@@ -228,7 +233,6 @@ describe('useWebSocketMessages — extended handlers', () => {
         user_id: 'user-2',
         content: 'Original DM',
         username: 'alice',
-        is_encrypted: false,
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
       });
@@ -262,7 +266,6 @@ describe('useWebSocketMessages — extended handlers', () => {
         user_id: 'user-2',
         content: 'To delete',
         username: 'alice',
-        is_encrypted: false,
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
       });
@@ -353,7 +356,6 @@ describe('useWebSocketMessages — extended handlers', () => {
               is_group: false,
               is_personal: false,
               name: null,
-              is_encrypted: false,
               participants: [{ user_id: 'user-2', username: 'alice' }],
               created_at: '2025-01-01T00:00:00Z',
             },
@@ -489,7 +491,6 @@ describe('useWebSocketMessages — extended handlers', () => {
         user_id: 'user-2',
         content: 'Hello',
         username: 'oldname',
-        is_encrypted: false,
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
       });
@@ -543,7 +544,6 @@ describe('useWebSocketMessages — extended handlers', () => {
               server_id: 'server-1',
               name: 'new-channel',
               type: 'text',
-              is_encrypted: false,
               position: 1,
               created_at: '2025-01-01T00:00:00Z',
               updated_at: '2025-01-01T00:00:00Z',
@@ -1038,7 +1038,6 @@ describe('useWebSocketMessages — extended handlers', () => {
             user_id: 'user-2',
             username: 'alice',
             content: 'Test',
-            is_encrypted: false,
             created_at: '2025-01-01T00:00:00Z',
           },
         });
@@ -1061,7 +1060,6 @@ describe('useWebSocketMessages — extended handlers', () => {
             user_id: 'user-1',
             username: 'testuser',
             content: 'Own message',
-            is_encrypted: false,
             created_at: '2025-01-01T00:00:00Z',
           },
         });

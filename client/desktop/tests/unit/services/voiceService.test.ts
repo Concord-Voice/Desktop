@@ -274,7 +274,6 @@ function makeJoinResponse(co?: Record<string, unknown>) {
       id: 'channel-1',
       name: 'General',
       server_id: 'server-1',
-      is_encrypted: false,
       audio_quality_tier: null,
       ...(co || {}),
     },
@@ -286,7 +285,6 @@ function makeRoomJoined(ov?: Record<string, unknown>) {
     rtpCapabilities: mockDeviceRtpCapabilities,
     existingProducers: [],
     participants: [{ userId: 'user-1', username: 'testuser', displayName: 'Test User' }],
-    isEncrypted: false,
     channelName: 'General',
     ...(ov || {}),
   };
@@ -384,7 +382,7 @@ async function joinVoiceChannel(co?: Record<string, unknown>) {
   mockCreateRecvTransport.mockReturnValue(recvTransport);
 
   setupEmitResponses({
-    'join-room': makeRoomJoined({ isEncrypted: co?.is_encrypted ?? false }),
+    'join-room': makeRoomJoined(),
     'create-transport': makeTransportOpts(),
     produce: { id: 'prod-mic' },
     'resume-consumer': undefined,
@@ -539,11 +537,6 @@ describe('VoiceService', () => {
         '/api/v1/dm/conversations/dm-ch/voice/join',
         expect.any(Object)
       );
-    });
-
-    it('sets encrypted flag', async () => {
-      await joinVoiceChannel({ is_encrypted: false });
-      expect(useVoiceStore.getState().isEncrypted).toBe(false);
     });
 
     it('handles json parse failure on error response', async () => {
@@ -1688,12 +1681,17 @@ describe('VoiceService', () => {
       // Enter solo by having someone leave after joining
       const joinHandler = socketListeners['user-joined']?.[0];
       joinHandler?.({ userId: 'user-2', username: 'other', displayName: 'Other' });
+      // user-joined handler is async (awaits E2EE key setup); flush microtasks
+      await vi.advanceTimersByTimeAsync(0);
       const leaveHandler = socketListeners['user-left']?.[0];
       leaveHandler?.({ userId: 'user-2' });
+      // user-left handler is also async; flush microtasks
+      await vi.advanceTimersByTimeAsync(0);
       expect(useVoiceStore.getState().isSoloBandwidthSaving).toBe(true);
 
       // Now someone joins — should exit solo mode
       joinHandler?.({ userId: 'user-3', username: 'third', displayName: 'Third' });
+      await vi.advanceTimersByTimeAsync(0);
       expect(useVoiceStore.getState().isSoloBandwidthSaving).toBe(false);
     });
 
@@ -1717,14 +1715,17 @@ describe('VoiceService', () => {
       // Enter solo mode
       const joinHandler = socketListeners['user-joined']?.[0];
       joinHandler?.({ userId: 'user-2', username: 'other', displayName: 'Other' });
+      await vi.advanceTimersByTimeAsync(0);
       const leaveHandler = socketListeners['user-left']?.[0];
       leaveHandler?.({ userId: 'user-2' });
+      await vi.advanceTimersByTimeAsync(0);
 
       await vi.advanceTimersByTimeAsync(61_000);
       expect(useVoiceStore.getState().soloBandwidthNotification).toBe(true);
 
       // Someone joins
       joinHandler?.({ userId: 'user-3', username: 'third', displayName: 'Third' });
+      await vi.advanceTimersByTimeAsync(0);
       expect(useVoiceStore.getState().soloBandwidthNotification).toBe(false);
     });
 
@@ -1734,14 +1735,17 @@ describe('VoiceService', () => {
       // Enter solo mode
       const joinHandler = socketListeners['user-joined']?.[0];
       joinHandler?.({ userId: 'user-2', username: 'other', displayName: 'Other' });
+      await vi.advanceTimersByTimeAsync(0);
       const leaveHandler = socketListeners['user-left']?.[0];
       leaveHandler?.({ userId: 'user-2' });
+      await vi.advanceTimersByTimeAsync(0);
 
       // Mute the mic
       useVoiceStore.getState().setMuted(true);
 
       // Someone joins — should exit solo, but mic stays paused
       joinHandler?.({ userId: 'user-3', username: 'third', displayName: 'Third' });
+      await vi.advanceTimersByTimeAsync(0);
       expect(useVoiceStore.getState().isSoloBandwidthSaving).toBe(false);
     });
   });
@@ -2056,14 +2060,14 @@ describe('VoiceService', () => {
         .mockRejectedValueOnce(new E2EEKeyUnavailableError('NO_KEY_YET', true))
         .mockResolvedValueOnce(new Uint8Array(32));
 
-      // Join an encrypted channel to trigger the encryption init path
-      await joinVoiceChannel({ is_encrypted: true });
+      // Join a channel to trigger the encryption init path (always encrypted)
+      await joinVoiceChannel();
 
       expect(vi.mocked(mockE2ee.getChannelKey)).toHaveBeenCalled();
     });
 
     it('fail-closed: sets mediaEncryption to null after all retries', async () => {
-      await joinVoiceChannel({ is_encrypted: true });
+      await joinVoiceChannel();
       const svc = voiceService as any;
 
       // Since e2eeService.getChannelKey returns null, encryption init fails

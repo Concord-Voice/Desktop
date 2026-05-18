@@ -39,9 +39,8 @@ const ChatView: React.FC = () => {
       type: 'channel' as const,
       id: activeChannelId || '',
       serverId: activeServerId ?? undefined,
-      isEncrypted: activeChannel?.is_encrypted ?? false,
     }),
-    [activeChannelId, activeServerId, activeChannel?.is_encrypted]
+    [activeChannelId, activeServerId]
   );
 
   const {
@@ -238,7 +237,6 @@ const ChatView: React.FC = () => {
           onTyping={sendTyping}
           channelName={activeChannel?.name}
           disabled={!currentUserId}
-          isChannelEncrypted={activeChannel?.is_encrypted ?? false}
           serverId={activeChannel?.server_id}
           channelId={activeChannelId || undefined}
           replyingTo={replyingTo}

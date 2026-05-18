@@ -289,21 +289,6 @@ function scheduleVoiceRefetch(
   );
 }
 
-/** Decrypt and add a message, handling E2EE with version-aware decryption. */
-// Encryption flag determines decrypt path; splitting would duplicate the 30-line message pipeline
-function addPlaintextMessage(
-  channelId: string,
-  baseMessage: Omit<MessageWithStatus, 'content'>,
-  content: string,
-  addMessage: (channelId: string, msg: MessageWithStatus) => void,
-  onPlaintext?: (text: string) => void
-): void {
-  addMessage(channelId, { ...baseMessage, content });
-  // Passively index plaintext for search
-  indexMessage(baseMessage.id, content, channelId);
-  onPlaintext?.(content);
-}
-
 function addEncryptedMessage(
   channelId: string,
   baseMessage: Omit<MessageWithStatus, 'content'>,
@@ -400,7 +385,6 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         display_name?: string;
         avatar_url?: string;
         content?: string;
-        is_encrypted?: boolean;
         key_version?: number;
         gif_slug?: string;
         reply_to_id?: string;
@@ -426,7 +410,6 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       }
       const userId: string = data.user_id;
 
-      const isEncrypted = data.is_encrypted || false;
       const keyVersion = data.key_version;
       const baseMessage = {
         id: data.id || crypto.randomUUID(),
@@ -435,7 +418,6 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         username: data.username || 'Unknown',
         display_name: data.display_name || undefined,
         avatar_url: data.avatar_url || undefined,
-        is_encrypted: isEncrypted,
         key_version: keyVersion,
         gif_slug: data.gif_slug || undefined,
         reply_to_id: data.reply_to_id || undefined,
@@ -448,22 +430,18 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       const maybeSpeakTTS = (text: string) =>
         speakIfVoiceLinked(text, channelId, userId, data.display_name || data.username || '');
 
-      if (isEncrypted) {
-        addEncryptedMessage(
-          channelId,
-          baseMessage,
-          data.content ?? '',
-          keyVersion,
-          addMessage,
-          maybeSpeakTTS
-        );
-      } else {
-        addPlaintextMessage(channelId, baseMessage, data.content ?? '', addMessage, maybeSpeakTTS);
-      }
+      addEncryptedMessage(
+        channelId,
+        baseMessage,
+        data.content ?? '',
+        keyVersion,
+        addMessage,
+        maybeSpeakTTS
+      );
 
-      // Decrypt replied_to content if the original message was encrypted
+      // Decrypt replied_to content
       const rt = baseMessage.replied_to;
-      if (rt?.is_encrypted && rt.content && e2eeService.isInitialized) {
+      if (rt?.content && e2eeService.isInitialized) {
         const rtKv = rt.key_version;
         const decryptFn =
           rtKv && rtKv > 1
@@ -507,7 +485,6 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
           desktopNotificationService.notify({
             title: `${data.username || 'Unknown'} in #${channelName || 'channel'}`,
             body: data.content || '',
-            isEncrypted: data.is_encrypted,
             targetType: 'channel',
             targetId: channelId,
             serverId: data.server_id,
@@ -1104,7 +1081,6 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         display_name?: string;
         avatar_url?: string;
         content?: string;
-        is_encrypted?: boolean;
         key_version?: number;
         gif_slug?: string;
         attachments?: MessageWithStatus['attachments'];
@@ -1130,7 +1106,6 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         return;
       }
 
-      const isEncrypted = data.is_encrypted || false;
       const dmKeyVersion = data.key_version;
       const baseMessage = {
         id: data.id || crypto.randomUUID(),
@@ -1139,7 +1114,6 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         username: data.username || 'Unknown',
         display_name: data.display_name || undefined,
         avatar_url: data.avatar_url || undefined,
-        is_encrypted: isEncrypted,
         key_version: dmKeyVersion,
         gif_slug: data.gif_slug || undefined,
         attachments: data.attachments || undefined,
@@ -1153,23 +1127,18 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         userId: data.user_id,
         username: data.username || 'Unknown',
         createdAt: data.created_at || new Date().toISOString(),
-        isEncrypted,
         ...(data.attachments?.length
           ? { attachmentType: data.attachments[0].file_type as string }
           : {}),
       };
 
-      if (isEncrypted) {
-        addEncryptedMessage(
-          conversationId,
-          baseMessage,
-          data.content ?? '',
-          dmKeyVersion,
-          addMessage
-        );
-      } else {
-        addPlaintextMessage(conversationId, baseMessage, data.content ?? '', addMessage);
-      }
+      addEncryptedMessage(
+        conversationId,
+        baseMessage,
+        data.content ?? '',
+        dmKeyVersion,
+        addMessage
+      );
 
       // Bump conversation to the top of the DM list with updated preview.
       // No-ops gracefully if the conversation isn't in state yet (initial-load race).
@@ -1194,7 +1163,6 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
           desktopNotificationService.notify({
             title: `DM from ${data.display_name || data.username || 'Unknown'}`,
             body: data.content || '',
-            isEncrypted: data.is_encrypted || false,
             targetType: 'dm',
             targetId: conversationId,
             senderId: data.user_id,
@@ -1288,7 +1256,6 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
           user_id?: string;
           username?: string;
           created_at?: string;
-          is_encrypted?: boolean;
         };
       };
       const conversationId = data.conversation_id;
@@ -1314,7 +1281,6 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
           userId: data.last_message.user_id || data.user_id || '',
           username: data.last_message.username || '',
           createdAt: data.last_message.created_at || new Date().toISOString(),
-          isEncrypted: data.last_message.is_encrypted || false,
         });
       }
 
@@ -1330,7 +1296,6 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
           is_group: boolean;
           is_personal?: boolean;
           name?: string | null;
-          is_encrypted: boolean;
           participants?: Array<Record<string, unknown>>;
           icon_url?: string;
           created_by?: string;
@@ -1347,7 +1312,6 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         conv.id.length === 0 ||
         conv.id.length > 128 ||
         typeof conv.is_group !== 'boolean' ||
-        typeof conv.is_encrypted !== 'boolean' ||
         typeof conv.created_at !== 'string'
       ) {
         console.error('dm_conversation_created: malformed conversation envelope', msg);
@@ -1387,7 +1351,6 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         isGroup: conv.is_group,
         isPersonal: conv.is_personal ?? false,
         name: conv.name || null,
-        isEncrypted: conv.is_encrypted,
         participants,
         iconUrl: conv.icon_url || undefined,
         createdBy: conv.created_by || undefined,

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Smile, ImagePlay, Paperclip, Lock, Unlock } from 'lucide-react';
+import { Smile, ImagePlay, Paperclip, Lock } from 'lucide-react';
 import MessageInputContextMenu from './MessageInputContextMenu';
 import MentionAutocomplete, { type MentionAutocompleteHandle } from './MentionAutocomplete';
 import EmojiPicker from '../EmojiPicker/LazyEmojiPicker';
@@ -45,7 +45,6 @@ export interface MessageInputProps {
   maxLength?: number;
   disabled?: boolean;
   channelName?: string;
-  isChannelEncrypted?: boolean;
   /** Server ID for permission-gated mention autocomplete (undefined in DMs) */
   serverId?: string;
   /** Channel ID for SBAC override resolution (undefined in DMs) */
@@ -67,7 +66,6 @@ const MessageInput: React.FC<MessageInputProps> = ({
   maxLength = MAX_CONTENT_LENGTH,
   disabled = false,
   channelName,
-  isChannelEncrypted = false,
   serverId,
   channelId,
   conversationId,
@@ -399,7 +397,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
       try {
         setUploadError(null);
         const targetId = conversationId || channelId || '';
-        const result = await uploadAll(targetId, isChannelEncrypted, conversationId);
+        const result = await uploadAll(targetId, conversationId);
         if (result.ids.length > 0) {
           attachmentIds = result.ids;
           attachmentSummaries = result.summaries;
@@ -529,18 +527,9 @@ const MessageInput: React.FC<MessageInputProps> = ({
   return (
     <div className="message-input-container">
       {/* Always-visible E2EE status indicator */}
-      <div className={`e2ee-status-bar ${isChannelEncrypted ? 'encrypted' : 'unencrypted'}`}>
-        {isChannelEncrypted ? (
-          <>
-            <Lock size={14} />
-            <span>Messages are Encrypted End-to-End</span>
-          </>
-        ) : (
-          <>
-            <Unlock size={14} />
-            <span>Channel is NOT using End-to-End Encryption</span>
-          </>
-        )}
+      <div className="e2ee-status-bar encrypted">
+        <Lock size={14} />
+        <span>Messages are Encrypted End-to-End</span>
       </div>
 
       <section
@@ -573,7 +562,6 @@ const MessageInput: React.FC<MessageInputProps> = ({
               username: replyingTo.username,
               display_name: replyingTo.display_name,
               content: replyingTo.content,
-              is_encrypted: replyingTo.is_encrypted,
             }}
             variant="input"
             onCancel={onCancelReply}

@@ -135,6 +135,10 @@ describe('useMessaging', () => {
   });
 
   it('sendMessage sends via websocket when connected', async () => {
+    const encryptedContent = 'encrypted-base64-content-that-is-long-enough-for-validation';
+    mockEncryptForChannel.mockResolvedValue(encryptedContent);
+    mockGetCurrentKeyVersion.mockReturnValue(undefined);
+
     const { result } = renderHook(() => useMessaging());
 
     act(() => {
@@ -143,9 +147,8 @@ describe('useMessaging', () => {
 
     // Wait for async doSend
     await vi.waitFor(() => {
-      expect(mockSendMessage).toHaveBeenCalledWith('channel-1', 'Hello world', {
+      expect(mockSendMessage).toHaveBeenCalledWith('channel-1', encryptedContent, {
         nonce: 'client-msg-1',
-        isEncrypted: false,
         keyVersion: undefined,
         mentionMeta: undefined,
         replyToId: undefined,
@@ -173,7 +176,6 @@ describe('useMessaging', () => {
         'encrypted-base64-content-that-is-long-enough-for-validation',
         {
           nonce: 'client-msg-1',
-          isEncrypted: true,
           keyVersion: 3,
           mentionMeta: undefined,
           replyToId: undefined,
@@ -309,7 +311,6 @@ describe('useMessaging', () => {
       username: 'otheruser',
       display_name: 'Other User',
       content: 'Original message content',
-      is_encrypted: false,
       created_at: '2025-01-01T12:00:00Z',
       updated_at: '2025-01-01T12:00:00Z',
       status: 'delivered',
@@ -350,11 +351,11 @@ describe('useMessaging', () => {
 
   // --- sendDMMessage tests ---
 
-  it('sendDMMessage enqueues with dm_message type and isEncrypted flag', () => {
+  it('sendDMMessage enqueues with dm_message type', () => {
     const { result } = renderHook(() => useMessaging());
 
     act(() => {
-      result.current.sendDMMessage('dm-conv-1', 'Hello DM', true, 'testuser');
+      result.current.sendDMMessage('dm-conv-1', 'Hello DM', 'testuser');
     });
 
     expect(mockEnqueue).toHaveBeenCalledWith(
@@ -362,22 +363,24 @@ describe('useMessaging', () => {
       'Hello DM',
       'dm_message',
       undefined,
-      undefined,
-      true
+      undefined
     );
   });
 
   it('sendDMMessage sends via websocket sendDMMessage when connected', async () => {
+    const encryptedContent = 'encrypted-base64-content-that-is-long-enough-for-validation';
+    mockEncryptForChannel.mockResolvedValue(encryptedContent);
+    mockGetCurrentKeyVersion.mockReturnValue(undefined);
+
     const { result } = renderHook(() => useMessaging());
 
     act(() => {
-      result.current.sendDMMessage('dm-conv-1', 'Hello DM', false, 'testuser');
+      result.current.sendDMMessage('dm-conv-1', 'Hello DM', 'testuser');
     });
 
     await vi.waitFor(() => {
-      expect(mockSendDMMessage).toHaveBeenCalledWith('dm-conv-1', 'Hello DM', {
+      expect(mockSendDMMessage).toHaveBeenCalledWith('dm-conv-1', encryptedContent, {
         nonce: 'client-msg-1',
-        isEncrypted: false,
         keyVersion: undefined,
         mentionMeta: undefined,
         attachmentIds: undefined,
@@ -395,7 +398,7 @@ describe('useMessaging', () => {
     const { result } = renderHook(() => useMessaging());
 
     act(() => {
-      result.current.sendDMMessage('dm-conv-1', 'Secret DM', true, 'testuser');
+      result.current.sendDMMessage('dm-conv-1', 'Secret DM', 'testuser');
     });
 
     await vi.waitFor(() => {
@@ -405,7 +408,6 @@ describe('useMessaging', () => {
         'encrypted-base64-content-that-is-long-enough-for-validation',
         {
           nonce: 'client-msg-1',
-          isEncrypted: true,
           keyVersion: 5,
           mentionMeta: undefined,
           attachmentIds: undefined,
@@ -422,7 +424,7 @@ describe('useMessaging', () => {
     const { result } = renderHook(() => useMessaging());
 
     act(() => {
-      result.current.sendDMMessage('dm-conv-1', 'Secret DM', true, 'testuser');
+      result.current.sendDMMessage('dm-conv-1', 'Secret DM', 'testuser');
     });
 
     await vi.waitFor(() => {
@@ -434,6 +436,9 @@ describe('useMessaging', () => {
   });
 
   it('sendDMMessage rolls back bumpConversation when send fails on new conversation', async () => {
+    mockEncryptForChannel.mockResolvedValue(
+      'encrypted-base64-content-that-is-long-enough-for-validation'
+    );
     useDMStore.setState({
       conversations: [
         {
@@ -452,7 +457,7 @@ describe('useMessaging', () => {
 
     const { result } = renderHook(() => useMessaging());
     act(() => {
-      result.current.sendDMMessage('dm-conv-new', 'First message', false, 'testuser');
+      result.current.sendDMMessage('dm-conv-new', 'First message', 'testuser');
     });
 
     await vi.waitFor(() => {
@@ -469,7 +474,7 @@ describe('useMessaging', () => {
     const { result } = renderHook(() => useMessaging());
 
     act(() => {
-      result.current.sendDMMessage('dm-conv-1', 'Hello offline DM', false, 'testuser');
+      result.current.sendDMMessage('dm-conv-1', 'Hello offline DM', 'testuser');
     });
 
     expect(mockSendDMMessage).not.toHaveBeenCalled();
@@ -481,14 +486,13 @@ describe('useMessaging', () => {
     const { result } = renderHook(() => useMessaging());
 
     act(() => {
-      result.current.sendDMMessage('dm-conv-1', 'Optimistic DM', true, 'testuser');
+      result.current.sendDMMessage('dm-conv-1', 'Optimistic DM', 'testuser');
     });
 
     const messages = useChatStore.getState().messagesByChannel.get('dm-conv-1');
     const optimistic = messages?.find((m) => m.content === 'Optimistic DM');
     expect(optimistic).toBeDefined();
     expect(optimistic?.channel_id).toBe('dm-conv-1');
-    expect(optimistic?.is_encrypted).toBe(true);
     expect(optimistic?.status).toBe('pending');
   });
 
@@ -501,7 +505,6 @@ describe('useMessaging', () => {
       username: 'otheruser',
       display_name: 'Other User',
       content: 'Original DM content',
-      is_encrypted: false,
       created_at: '2025-01-01T12:00:00Z',
       updated_at: '2025-01-01T12:00:00Z',
       status: 'delivered',
@@ -510,7 +513,7 @@ describe('useMessaging', () => {
     const { result } = renderHook(() => useMessaging());
 
     act(() => {
-      result.current.sendDMMessage('dm-conv-1', 'My DM reply', false, 'testuser', {
+      result.current.sendDMMessage('dm-conv-1', 'My DM reply', 'testuser', {
         replyToId: 'dm-target-msg',
       });
     });
@@ -527,6 +530,10 @@ describe('useMessaging', () => {
   // --- processQueuedMessage tests (via startProcessing callback) ---
 
   it('processQueuedMessage routes dm_message to sendDMMessage', async () => {
+    const encryptedDM = 'encrypted-dm-base64-content-that-is-long-enough-for-validation';
+    mockEncryptForChannel.mockResolvedValue(encryptedDM);
+    mockGetCurrentKeyVersion.mockReturnValue(undefined);
+
     renderHook(() => useMessaging());
 
     // Capture the connection change handler
@@ -544,15 +551,13 @@ describe('useMessaging', () => {
       channelId: 'dm-conv-1',
       content: 'DM via queue',
       type: 'dm_message',
-      isEncrypted: false,
       status: 'pending',
       createdAt: Date.now(),
       retries: 0,
     });
 
-    expect(mockSendDMMessage).toHaveBeenCalledWith('dm-conv-1', 'DM via queue', {
+    expect(mockSendDMMessage).toHaveBeenCalledWith('dm-conv-1', encryptedDM, {
       nonce: 'queued-dm-1',
-      isEncrypted: false,
       keyVersion: undefined,
       mentionMeta: undefined,
       replyToId: undefined,
@@ -561,6 +566,10 @@ describe('useMessaging', () => {
   });
 
   it('processQueuedMessage routes regular message to sendMessage', async () => {
+    const encryptedMsg = 'encrypted-msg-base64-content-that-is-long-enough-for-validation';
+    mockEncryptForChannel.mockResolvedValue(encryptedMsg);
+    mockGetCurrentKeyVersion.mockReturnValue(undefined);
+
     renderHook(() => useMessaging());
 
     const connectionHandler = mockOnConnectionChange.mock.calls[0][0];
@@ -580,9 +589,8 @@ describe('useMessaging', () => {
       retries: 0,
     });
 
-    expect(mockSendMessage).toHaveBeenCalledWith('channel-1', 'Regular via queue', {
+    expect(mockSendMessage).toHaveBeenCalledWith('channel-1', encryptedMsg, {
       nonce: 'queued-msg-1',
-      isEncrypted: false,
       keyVersion: undefined,
       mentionMeta: undefined,
       replyToId: undefined,
@@ -608,7 +616,6 @@ describe('useMessaging', () => {
         channelId: 'dm-conv-1',
         content: 'Should be retried',
         type: 'dm_message',
-        isEncrypted: false,
         status: 'pending',
         createdAt: Date.now(),
         retries: 0,
@@ -619,7 +626,7 @@ describe('useMessaging', () => {
     expect(mockSendMessage).not.toHaveBeenCalled();
   });
 
-  it('processQueuedMessage uses msg.isEncrypted for DM encryption state', async () => {
+  it('processQueuedMessage encrypts DM messages via encryptQueuedContent', async () => {
     mockEncryptForChannel.mockResolvedValue(
       'encrypted-base64-content-that-is-long-enough-for-validation'
     );
@@ -640,7 +647,6 @@ describe('useMessaging', () => {
         channelId: 'dm-conv-1',
         content: 'Encrypted DM via queue',
         type: 'dm_message',
-        isEncrypted: true,
         status: 'pending',
         createdAt: Date.now(),
         retries: 0,
@@ -653,7 +659,6 @@ describe('useMessaging', () => {
       'encrypted-base64-content-that-is-long-enough-for-validation',
       {
         nonce: 'queued-dm-enc',
-        isEncrypted: true,
         keyVersion: 7,
         mentionMeta: undefined,
         replyToId: undefined,
@@ -679,6 +684,9 @@ describe('useMessaging connection-ready gate', () => {
   });
 
   it('calls whenConnectionReady before sending a queued message', async () => {
+    mockEncryptForChannel.mockResolvedValue(
+      'encrypted-base64-content-that-is-long-enough-for-validation'
+    );
     renderHook(() => useMessaging());
 
     const connectionHandler = mockOnConnectionChange.mock.calls[0][0];
@@ -710,6 +718,10 @@ describe('useMessaging connection-ready gate', () => {
   });
 
   it('awaits the gate promise before proceeding (deferred resolution)', async () => {
+    const encryptedDeferred = 'encrypted-deferred-base64-content-long-enough-for-validation-x';
+    mockEncryptForChannel.mockResolvedValue(encryptedDeferred);
+    mockGetCurrentKeyVersion.mockReturnValue(undefined);
+
     let resolveReady!: () => void;
     const readyPromise = new Promise<void>((r) => {
       resolveReady = r;
@@ -744,9 +756,8 @@ describe('useMessaging connection-ready gate', () => {
     resolveReady();
     await processPromise;
 
-    expect(mockSendMessage).toHaveBeenCalledWith('channel-1', 'Deferred gate message', {
+    expect(mockSendMessage).toHaveBeenCalledWith('channel-1', encryptedDeferred, {
       nonce: 'queued-gate-2',
-      isEncrypted: false,
       keyVersion: undefined,
       mentionMeta: undefined,
       replyToId: undefined,
@@ -754,6 +765,10 @@ describe('useMessaging connection-ready gate', () => {
   });
 
   it('proceeds best-effort when whenConnectionReady rejects (timeout fallback)', async () => {
+    const encryptedFallback = 'encrypted-fallback-base64-content-long-enough-for-validation-x';
+    mockEncryptForChannel.mockResolvedValue(encryptedFallback);
+    mockGetCurrentKeyVersion.mockReturnValue(undefined);
+
     mockWhenConnectionReady.mockReturnValueOnce(
       Promise.reject(new Error('connection_ready timeout after 5s'))
     );
@@ -781,9 +796,8 @@ describe('useMessaging connection-ready gate', () => {
     });
 
     // Even after rejection, message should be sent (fail-open)
-    expect(mockSendMessage).toHaveBeenCalledWith('channel-1', 'Timeout fallback message', {
+    expect(mockSendMessage).toHaveBeenCalledWith('channel-1', encryptedFallback, {
       nonce: 'queued-gate-3',
-      isEncrypted: false,
       keyVersion: undefined,
       mentionMeta: undefined,
       replyToId: undefined,

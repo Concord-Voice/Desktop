@@ -200,7 +200,6 @@ interface VoiceState {
   activeChannelName: string | null;
   activeServerId: string | null;
   connectionState: VoiceConnectionState;
-  isEncrypted: boolean;
 
   // Local user state
   isMuted: boolean;
@@ -296,7 +295,6 @@ interface VoiceState {
   // Actions
   setConnectionState: (state: VoiceConnectionState) => void;
   setActiveChannel: (channelId: string | null, channelName?: string, serverId?: string) => void;
-  setEncrypted: (encrypted: boolean) => void;
   setMuted: (muted: boolean) => void;
   setDeafened: (deafened: boolean) => void;
   setVideoOn: (on: boolean) => void;
@@ -402,7 +400,6 @@ const initialState = {
   activeChannelName: null as string | null,
   activeServerId: null as string | null,
   connectionState: 'disconnected' as VoiceConnectionState,
-  isEncrypted: false,
   isMuted: false,
   isDeafened: false,
   isVideoOn: false,
@@ -497,7 +494,6 @@ export const useVoiceStore = createStore<VoiceState>()((set) => ({
       activeChannelName: channelName ?? null,
       activeServerId: serverId ?? null,
     }),
-  setEncrypted: (isEncrypted) => set({ isEncrypted }),
   setMuted: (isMuted) => set({ isMuted }),
   setDeafened: (isDeafened) => set({ isDeafened }),
   setVideoOn: (isVideoOn) => set({ isVideoOn }),

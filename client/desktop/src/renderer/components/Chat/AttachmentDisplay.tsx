@@ -10,13 +10,11 @@ import './AttachmentDisplay.css';
 interface AttachmentDisplayProps {
   readonly attachments: AttachmentSummary[];
   readonly channelId: string;
-  readonly isEncrypted: boolean;
 }
 
 interface AttachmentItemProps {
   readonly attachment: AttachmentSummary;
   readonly channelId: string;
-  readonly isEncrypted: boolean;
 }
 
 // LRU cache for decrypted blob URLs — evicts oldest entries to bound memory.
@@ -38,11 +36,7 @@ function cacheBlobUrl(fileId: string, url: string): void {
   blobUrlCache.set(fileId, url);
 }
 
-async function fetchAndDecrypt(
-  fileId: string,
-  channelId: string,
-  isEncrypted: boolean
-): Promise<string> {
+async function fetchAndDecrypt(fileId: string, channelId: string): Promise<string> {
   const cached = blobUrlCache.get(fileId);
   if (cached) {
     // Move to end for LRU freshness
@@ -57,10 +51,8 @@ async function fetchAndDecrypt(
   let data = await response.arrayBuffer();
   const mimeType = response.headers.get('X-File-Mime-Type') || 'application/octet-stream';
 
-  if (isEncrypted) {
-    const channelKey = await e2eeService.getChannelKey(channelId);
-    data = await decryptFile(data, channelKey);
-  }
+  const channelKey = await e2eeService.getChannelKey(channelId);
+  data = await decryptFile(data, channelKey);
 
   const blob = new Blob([data], { type: mimeType });
   const url = URL.createObjectURL(blob);
@@ -100,7 +92,7 @@ function clampAttachmentSize(
   return { width: Math.round(w * ratio), height: Math.round(h * ratio) };
 }
 
-function ImageAttachment({ attachment, channelId, isEncrypted }: AttachmentItemProps) {
+function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   const reduceAnimations = useSettingsStore((s) => s.appearance.reduceAnimations);
   // Animated GIF attachments under Reduce Animations play only on hover/focus.
   // See QA bug #571 item #6B. Static photos ignore this flag entirely.
@@ -120,7 +112,7 @@ function ImageAttachment({ attachment, channelId, isEncrypted }: AttachmentItemP
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const blobUrl = await fetchAndDecrypt(attachment.id, channelId, isEncrypted);
+      const blobUrl = await fetchAndDecrypt(attachment.id, channelId);
       setUrl(blobUrl);
     } catch {
       // Fetch or decryption failed — show inline error state
@@ -128,7 +120,7 @@ function ImageAttachment({ attachment, channelId, isEncrypted }: AttachmentItemP
     } finally {
       setLoading(false);
     }
-  }, [attachment.id, channelId, isEncrypted]);
+  }, [attachment.id, channelId]);
 
   useEffect(() => {
     if (url) return; // already loaded
@@ -214,7 +206,7 @@ function ImageAttachment({ attachment, channelId, isEncrypted }: AttachmentItemP
   );
 }
 
-function MediaAttachment({ attachment, channelId, isEncrypted }: AttachmentItemProps) {
+function MediaAttachment({ attachment, channelId }: AttachmentItemProps) {
   const [url, setUrl] = useState<string | null>(blobUrlCache.get(attachment.id) || null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
@@ -229,14 +221,14 @@ function MediaAttachment({ attachment, channelId, isEncrypted }: AttachmentItemP
     setError(false);
     setLoading(true);
     try {
-      const blobUrl = await fetchAndDecrypt(attachment.id, channelId, isEncrypted);
+      const blobUrl = await fetchAndDecrypt(attachment.id, channelId);
       setUrl(blobUrl);
     } catch {
       setError(true);
     } finally {
       setLoading(false);
     }
-  }, [attachment.id, channelId, isEncrypted, url]);
+  }, [attachment.id, channelId, url]);
 
   useEffect(() => {
     if (!autoLoad || url) return;
@@ -293,13 +285,13 @@ function MediaAttachment({ attachment, channelId, isEncrypted }: AttachmentItemP
   );
 }
 
-function FileAttachment({ attachment, channelId, isEncrypted }: AttachmentItemProps) {
+function FileAttachment({ attachment, channelId }: AttachmentItemProps) {
   const [downloading, setDownloading] = useState(false);
 
   const handleDownload = async () => {
     setDownloading(true);
     try {
-      const blobUrl = await fetchAndDecrypt(attachment.id, channelId, isEncrypted);
+      const blobUrl = await fetchAndDecrypt(attachment.id, channelId);
       const a = document.createElement('a');
       a.href = blobUrl;
       a.download = `attachment-${attachment.id}`;
@@ -332,11 +324,7 @@ function FileAttachment({ attachment, channelId, isEncrypted }: AttachmentItemPr
   );
 }
 
-const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
-  attachments,
-  channelId,
-  isEncrypted,
-}) => {
+const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({ attachments, channelId }) => {
   if (!attachments || attachments.length === 0) return null;
 
   return (
@@ -344,32 +332,15 @@ const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
       {attachments.map((attachment) => {
         if (attachment.file_type === 'photo' || attachment.file_type === 'animated') {
           return (
-            <ImageAttachment
-              key={attachment.id}
-              attachment={attachment}
-              channelId={channelId}
-              isEncrypted={isEncrypted}
-            />
+            <ImageAttachment key={attachment.id} attachment={attachment} channelId={channelId} />
           );
         }
         if (attachment.file_type === 'video' || attachment.file_type === 'audio') {
           return (
-            <MediaAttachment
-              key={attachment.id}
-              attachment={attachment}
-              channelId={channelId}
-              isEncrypted={isEncrypted}
-            />
+            <MediaAttachment key={attachment.id} attachment={attachment} channelId={channelId} />
           );
         }
-        return (
-          <FileAttachment
-            key={attachment.id}
-            attachment={attachment}
-            channelId={channelId}
-            isEncrypted={isEncrypted}
-          />
-        );
+        return <FileAttachment key={attachment.id} attachment={attachment} channelId={channelId} />;
       })}
     </div>
   );

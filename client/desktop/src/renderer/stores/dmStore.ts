@@ -20,7 +20,6 @@ export interface DMLastMessage {
   userId: string;
   username: string;
   createdAt: string;
-  isEncrypted: boolean;
   /** Media type label when message has no text content (e.g. 'Photo', 'Video', 'File'). */
   attachmentType?: string;
 }
@@ -30,7 +29,6 @@ export interface DMConversation {
   isGroup: boolean;
   isPersonal: boolean;
   name: string | null;
-  isEncrypted: boolean;
   iconUrl?: string;
   createdBy?: string;
   participants: DMParticipant[];
@@ -80,12 +78,12 @@ async function distributeChannelKeys(
 }
 
 /**
- * Ensure E2EE channel key exists for an encrypted conversation.
+ * Ensure E2EE channel key exists for a DM conversation.
  * If no key exists (E2EEKeyUnavailableError with pending=true), fetches
  * participant public keys and distributes a new key.
  */
 async function ensureE2EEKey(conv: DMConversation): Promise<void> {
-  if (!conv.isEncrypted || !e2eeService.isInitialized) return;
+  if (!e2eeService.isInitialized) return;
 
   let needsKeyDistribution = false;
   try {
@@ -107,12 +105,12 @@ async function ensureE2EEKey(conv: DMConversation): Promise<void> {
 }
 
 /**
- * Ensure E2EE channel key exists for an encrypted personal thread.
+ * Ensure E2EE channel key exists for a personal thread DM conversation.
  * Unlike ensureE2EEKey, this checks for key existence (not the pending
  * E2EEKeyUnavailableError shape) and only distributes to the current user.
  */
 async function ensurePersonalThreadKey(conv: DMConversation): Promise<void> {
-  if (!conv.isEncrypted || !e2eeService.isInitialized) return;
+  if (!e2eeService.isInitialized) return;
 
   let keyExists = false;
   try {
@@ -552,7 +550,6 @@ function mapConversation(c: Record<string, unknown>): DMConversation {
     isGroup: c.is_group as boolean,
     isPersonal: (c.is_personal as boolean) || false,
     name: (c.name as string) || null,
-    isEncrypted: c.is_encrypted as boolean,
     iconUrl: (c.icon_url as string) || undefined,
     createdBy: (c.created_by as string) || undefined,
     participants,
@@ -562,7 +559,6 @@ function mapConversation(c: Record<string, unknown>): DMConversation {
           userId: lastMsg.user_id as string,
           username: lastMsg.username as string,
           createdAt: lastMsg.created_at as string,
-          isEncrypted: lastMsg.is_encrypted as boolean,
         }
       : null,
     unreadCount: (c.unread_count as number) || 0,

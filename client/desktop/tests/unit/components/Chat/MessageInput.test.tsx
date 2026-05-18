@@ -71,11 +71,6 @@ describe('MessageInput', () => {
     expect(screen.getByText(/encrypted/i)).toBeInTheDocument();
   });
 
-  it('shows unencrypted indicator', () => {
-    render(<MessageInput onSendMessage={onSendMessage} isChannelEncrypted={false} />);
-    expect(screen.getByText(/NOT using End-to-End Encryption/i)).toBeInTheDocument();
-  });
-
   it('calls onSendMessage on Enter key', async () => {
     const user = userEvent.setup();
     render(<MessageInput onSendMessage={onSendMessage} />);
@@ -166,15 +161,6 @@ describe('MessageInput', () => {
     const bar = container.querySelector('.e2ee-status-bar.encrypted');
     expect(bar).toBeInTheDocument();
     expect(bar?.textContent).toContain('Encrypted End-to-End');
-  });
-
-  it('renders unencrypted status bar with unlock icon', () => {
-    const { container } = render(
-      <MessageInput onSendMessage={onSendMessage} isChannelEncrypted={false} />
-    );
-    const bar = container.querySelector('.e2ee-status-bar.unencrypted');
-    expect(bar).toBeInTheDocument();
-    expect(bar?.textContent).toContain('NOT using End-to-End Encryption');
   });
 
   // ── Default placeholder ──

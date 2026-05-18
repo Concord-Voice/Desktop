@@ -389,11 +389,9 @@ function MessageTextContent({
 
   return (
     <div className={'message-text' + (emojiClass ? ' ' + emojiClass : '')}>
-      {message.is_encrypted && (
-        <span className="encrypted-indicator" title="End-to-end encrypted">
-          <Lock size={12} />
-        </span>
-      )}
+      <span className="encrypted-indicator" title="End-to-end encrypted">
+        <Lock size={12} />
+      </span>
       {contentNode}
       {!showAvatar && message.edited_at && <span className="message-edited-inline">(edited)</span>}
     </div>
@@ -528,11 +526,7 @@ const Message: React.FC<MessageProps> = ({
         )}
 
         {message.attachments && message.attachments.length > 0 && (
-          <AttachmentDisplay
-            attachments={message.attachments}
-            channelId={message.channel_id}
-            isEncrypted={message.is_encrypted}
-          />
+          <AttachmentDisplay attachments={message.attachments} channelId={message.channel_id} />
         )}
 
         <MessageOverlays

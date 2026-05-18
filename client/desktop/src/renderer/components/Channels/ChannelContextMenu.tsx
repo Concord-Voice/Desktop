@@ -33,8 +33,7 @@ const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
   const hasServerPerm = usePermissionStore((s) => s.hasServerPermission);
   const canEdit = hasServerPerm(serverId, Permissions.MANAGE_CHANNELS);
   const canDelete = hasServerPerm(serverId, Permissions.MANAGE_CHANNELS);
-  const canRotateKey =
-    channel.is_encrypted && hasServerPerm(serverId, Permissions.MANAGE_CRYPTO_ROTATION);
+  const canRotateKey = hasServerPerm(serverId, Permissions.MANAGE_CRYPTO_ROTATION);
 
   const { rotateStatus, rotateMessage, handleRotate } = useRotateKey(
     `/api/v1/channels/${channel.id}/rotate-key`,

@@ -50,11 +50,6 @@ describe('ChannelContextMenu — Rotate Encryption Key', () => {
     expect(screen.getByText('Rotate Encryption Key')).toBeInTheDocument();
   });
 
-  it('hides Rotate Encryption Key for unencrypted channel', () => {
-    renderMenu(mockChannel);
-    expect(screen.queryByText('Rotate Encryption Key')).not.toBeInTheDocument();
-  });
-
   it('hides Rotate Encryption Key without MANAGE_CRYPTO_ROTATION permission', () => {
     usePermissionStore.setState({
       serverPermissions: { [SERVER_ID]: BASE_PERMISSIONS },

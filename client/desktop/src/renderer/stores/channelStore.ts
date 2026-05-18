@@ -120,12 +120,8 @@ export const useChannelStore = wrapStore(
           },
 
           updateChannel: (channelId: string, updates: Partial<Channel>) => {
-            // Defense-in-depth: strip is_encrypted — immutable after creation
-            const { is_encrypted: _, ...safeUpdates } = updates;
             set((state) => ({
-              channels: state.channels.map((c) =>
-                c.id === channelId ? { ...c, ...safeUpdates } : c
-              ),
+              channels: state.channels.map((c) => (c.id === channelId ? { ...c, ...updates } : c)),
             }));
           },
 

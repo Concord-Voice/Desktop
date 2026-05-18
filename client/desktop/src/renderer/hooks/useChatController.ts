@@ -73,7 +73,7 @@ export function useChatController(ctx: ChatContext) {
       };
 
       if (isDM) {
-        messaging.sendDMMessage(ctx.id, content, ctx.isEncrypted, username, sendOpts);
+        messaging.sendDMMessage(ctx.id, content, username, sendOpts);
       } else {
         messaging.sendMessage(ctx.id, content, username, sendOpts);
       }
@@ -81,7 +81,7 @@ export function useChatController(ctx: ChatContext) {
       // Clear reply state after send
       setReplyingTo(ctx.id, null);
     },
-    [ctx.id, ctx.isEncrypted, isDM, user, messaging, setReplyingTo]
+    [ctx.id, isDM, user, messaging, setReplyingTo]
   );
 
   // --- Edit ---
@@ -92,7 +92,7 @@ export function useChatController(ctx: ChatContext) {
       try {
         // Encrypt if context is E2EE
         let sendContent = newContent;
-        if (ctx.isEncrypted && e2eeService.isInitialized) {
+        if (e2eeService.isInitialized) {
           sendContent = await e2eeService.encryptForChannel(ctx.id, newContent);
         }
 
@@ -114,7 +114,6 @@ export function useChatController(ctx: ChatContext) {
         const data = await safeJson<{
           message: {
             content: string;
-            is_encrypted: boolean;
             key_version?: number;
             edited_at: string;
             updated_at?: string;
@@ -122,18 +121,20 @@ export function useChatController(ctx: ChatContext) {
         }>(res);
 
         updateMessage(ctx.id, messageId, {
-          // Show plaintext locally for E2EE (server returns ciphertext)
-          content: ctx.isEncrypted ? newContent : data.message.content,
-          is_encrypted: data.message.is_encrypted,
+          content: newContent,
           key_version: data.message.key_version,
           edited_at: data.message.edited_at,
           ...(data.message.updated_at && { updated_at: data.message.updated_at }),
         });
       } catch (err) {
-        console.error(`Failed to edit ${isDM ? 'DM ' : ''}message:`, err);
+        if (isDM) {
+          console.error('Failed to edit DM message:', (err as Error).message);
+        } else {
+          console.error('Failed to edit message:', (err as Error).message);
+        }
       }
     },
-    [ctx.id, ctx.isEncrypted, isDM, updateMessage]
+    [ctx.id, isDM, updateMessage]
   );
 
   // --- Delete ---
@@ -155,7 +156,11 @@ export function useChatController(ctx: ChatContext) {
 
         storeDeleteMessage(ctx.id, messageId);
       } catch (err) {
-        console.error(`Failed to delete ${isDM ? 'DM ' : ''}message:`, err);
+        if (isDM) {
+          console.error('Failed to delete DM message:', (err as Error).message);
+        } else {
+          console.error('Failed to delete message:', (err as Error).message);
+        }
       }
     },
     [ctx.id, isDM, storeDeleteMessage]
@@ -188,7 +193,7 @@ export function useChatController(ctx: ChatContext) {
         await pinMessage(msg.id);
       }
     } catch (err) {
-      console.error('Failed to toggle pin:', err);
+      console.error('Failed to toggle pin:', (err as Error).message);
     }
   }, []);
 

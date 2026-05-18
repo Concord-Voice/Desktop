@@ -43,7 +43,7 @@ export async function decryptMessageContent(
   msg: MessageWithUser,
   scope: string
 ): Promise<string | null> {
-  if (!msg.is_encrypted || !e2eeService.isInitialized) {
+  if (!e2eeService.isInitialized) {
     return msg.content;
   }
   try {

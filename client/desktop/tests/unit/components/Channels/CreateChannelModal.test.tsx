@@ -72,10 +72,20 @@ describe('CreateChannelModal', () => {
   it('submits valid form', async () => {
     vi.useFakeTimers();
 
-    mockedApiFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ channel: { ...mockChannel, name: 'new-channel' } }),
-    } as Response);
+    // All channels are always E2EE — set up member + public key + createChannelKeys mocks
+    useMemberStore.setState({ members: [mockMember] });
+    vi.mocked(e2eeService.createChannelKeys).mockResolvedValue(
+      new Map([['user-1', 'wrapped-key']])
+    );
+    mockedApiFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ public_key: 'mock-pub-key' }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ channel: { ...mockChannel, name: 'new-channel' } }),
+      } as Response);
 
     render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 
@@ -98,10 +108,20 @@ describe('CreateChannelModal', () => {
   });
 
   it('shows error on API failure', async () => {
-    mockedApiFetch.mockResolvedValue({
-      ok: false,
-      json: async () => ({ error: 'Duplicate name' }),
-    } as Response);
+    // Public key fetch succeeds; channel creation fails
+    useMemberStore.setState({ members: [mockMember] });
+    vi.mocked(e2eeService.createChannelKeys).mockResolvedValue(
+      new Map([['user-1', 'wrapped-key']])
+    );
+    mockedApiFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ public_key: 'mock-pub-key' }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: 'Duplicate name' }),
+      } as Response);
 
     render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 
@@ -118,13 +138,11 @@ describe('CreateChannelModal', () => {
     });
   });
 
-  it('toggles encryption setting', () => {
+  it('always creates E2EE channels (no encryption toggle)', () => {
+    // The encryption toggle was removed — all channels are always E2EE
     render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
-    // Server e2ee_default is false, so initially disabled
-    expect(screen.getByText('Encryption Disabled')).toBeInTheDocument();
-    const toggleBtn = screen.getByText('Encryption Disabled').closest('button')!;
-    fireEvent.click(toggleBtn);
-    expect(screen.getByText('Encryption Enabled')).toBeInTheDocument();
+    expect(screen.queryByText('Encryption Disabled')).not.toBeInTheDocument();
+    expect(screen.queryByText('Encryption Enabled')).not.toBeInTheDocument();
   });
 
   it('selects voice channel type', () => {
@@ -149,10 +167,10 @@ describe('CreateChannelModal', () => {
     expect(screen.getByText('4/100 characters')).toBeInTheDocument();
   });
 
-  it('submits encrypted channel with wrapped keys', async () => {
+  it('submits channel with wrapped E2EE keys (always encrypted)', async () => {
     vi.useFakeTimers();
 
-    // Set up a member so public key fetch has a target
+    // All channels are E2EE — set up member + public key + key gen mocks
     useMemberStore.setState({ members: [mockMember] });
 
     const wrappedKeyMap = new Map([['user-1', 'wrapped-key-data']]);
@@ -167,7 +185,7 @@ describe('CreateChannelModal', () => {
       .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
-          channel: { ...mockChannel, name: 'secret-channel', is_encrypted: true },
+          channel: { ...mockChannel, name: 'secret-channel' },
         }),
       } as Response);
 
@@ -177,10 +195,6 @@ describe('CreateChannelModal', () => {
     fireEvent.change(screen.getByPlaceholderText('general-chat'), {
       target: { value: 'secret-channel' },
     });
-
-    // Enable encryption
-    const toggleBtn = screen.getByText('Encryption Disabled').closest('button')!;
-    fireEvent.click(toggleBtn);
 
     await act(async () => {
       fireEvent.click(screen.getByText('Create Channel', { selector: 'button[type="submit"]' }));
@@ -197,7 +211,7 @@ describe('CreateChannelModal', () => {
   });
 
   it('shows error when E2EE is not initialized', async () => {
-    // Temporarily set isInitialized to false
+    // Temporarily set isInitialized to false — submission always tries E2EE key gen
     const original = e2eeService.isInitialized;
     Object.defineProperty(e2eeService, 'isInitialized', { value: false, writable: true });
 
@@ -208,10 +222,6 @@ describe('CreateChannelModal', () => {
     fireEvent.change(screen.getByPlaceholderText('general-chat'), {
       target: { value: 'encrypted-channel' },
     });
-
-    // Enable encryption
-    const toggleBtn = screen.getByText('Encryption Disabled').closest('button')!;
-    fireEvent.click(toggleBtn);
 
     await act(async () => {
       fireEvent.click(screen.getByText('Create Channel', { selector: 'button[type="submit"]' }));
@@ -230,7 +240,7 @@ describe('CreateChannelModal', () => {
   it('shows error when no member public keys are available', async () => {
     useMemberStore.setState({ members: [mockMember] });
 
-    // Public key fetch fails
+    // Public key fetch fails — no wrapped keys can be generated
     mockedApiFetch.mockResolvedValueOnce({
       ok: false,
       json: async () => ({}),
@@ -241,9 +251,6 @@ describe('CreateChannelModal', () => {
     fireEvent.change(screen.getByPlaceholderText('general-chat'), {
       target: { value: 'encrypted-channel' },
     });
-
-    const toggleBtn = screen.getByText('Encryption Disabled').closest('button')!;
-    fireEvent.click(toggleBtn);
 
     await act(async () => {
       fireEvent.click(screen.getByText('Create Channel', { selector: 'button[type="submit"]' }));
@@ -268,11 +275,21 @@ describe('CreateChannelModal', () => {
   it('calls onSuccess callback after successful creation', async () => {
     vi.useFakeTimers();
 
+    // All channels are E2EE — need member + public key + key gen mocks
+    useMemberStore.setState({ members: [mockMember] });
+    vi.mocked(e2eeService.createChannelKeys).mockResolvedValue(
+      new Map([['user-1', 'wrapped-key']])
+    );
     const createdChannel = { ...mockChannel, name: 'callback-channel' };
-    mockedApiFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({ channel: createdChannel }),
-    } as Response);
+    mockedApiFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ public_key: 'mock-pub-key' }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ channel: createdChannel }),
+      } as Response);
 
     render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 
@@ -294,7 +311,14 @@ describe('CreateChannelModal', () => {
   });
 
   it('handles non-Error thrown exceptions', async () => {
-    mockedApiFetch.mockRejectedValue('string-error');
+    // All channels are E2EE — public key fetch rejects with a string (non-Error)
+    // Public key fetch succeeds; createChannelKeys throws a non-Error (string)
+    useMemberStore.setState({ members: [mockMember] });
+    mockedApiFetch.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ public_key: 'mock-pub-key' }),
+    } as Response);
+    vi.mocked(e2eeService.createChannelKeys).mockRejectedValue('string-error');
 
     render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
 

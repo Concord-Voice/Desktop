@@ -59,7 +59,6 @@ describe('useMessageFetch — extended coverage', () => {
       const encryptedMsg: MessageWithStatus = {
         ...mockMessage,
         id: 'enc-1',
-        is_encrypted: true,
         content: 'encrypted-content',
       };
 
@@ -81,7 +80,6 @@ describe('useMessageFetch — extended coverage', () => {
       const versionedMsg: MessageWithStatus = {
         ...mockMessage,
         id: 'ver-1',
-        is_encrypted: true,
         content: 'versioned-encrypted',
         key_version: 2,
       };
@@ -107,7 +105,6 @@ describe('useMessageFetch — extended coverage', () => {
       const encryptedMsg: MessageWithStatus = {
         ...mockMessage,
         id: 'enc-1',
-        is_encrypted: true,
         content: 'encrypted',
       };
       mockFetchResponse([encryptedMsg]);
@@ -126,7 +123,6 @@ describe('useMessageFetch — extended coverage', () => {
       const encryptedMsg: MessageWithStatus = {
         ...mockMessage,
         id: 'enc-1',
-        is_encrypted: true,
         content: 'encrypted',
       };
 
@@ -148,14 +144,12 @@ describe('useMessageFetch — extended coverage', () => {
       const msgWithReply: MessageWithStatus = {
         ...mockMessage,
         id: 'enc-reply-1',
-        is_encrypted: true,
         content: 'encrypted-parent',
         replied_to: {
           id: 'original-1',
           user_id: 'user-1',
           username: 'testuser',
           content: 'encrypted-reply-content',
-          is_encrypted: true,
           key_version: 1,
         },
       };
@@ -182,7 +176,6 @@ describe('useMessageFetch — extended coverage', () => {
       const msgWithVersionedReply: MessageWithStatus = {
         ...mockMessage,
         id: 'enc-vreply-1',
-        is_encrypted: true,
         content: 'encrypted-parent-v1',
         key_version: 1,
         replied_to: {
@@ -190,7 +183,6 @@ describe('useMessageFetch — extended coverage', () => {
           user_id: 'user-1',
           username: 'testuser',
           content: 'encrypted-reply-v3',
-          is_encrypted: true,
           key_version: 3,
         },
       };
@@ -220,24 +212,25 @@ describe('useMessageFetch — extended coverage', () => {
       expect(mockGetChannelKeyByVersion).toHaveBeenCalledWith('channel-1', 3);
     });
 
-    it('does not decrypt replied_to when it is not encrypted', async () => {
+    it('decrypts replied_to content alongside parent message', async () => {
       const msgWithPlainReply: MessageWithStatus = {
         ...mockMessage,
         id: 'enc-plainreply-1',
-        is_encrypted: true,
         content: 'encrypted-parent',
         replied_to: {
           id: 'original-3',
           user_id: 'user-1',
           username: 'testuser',
-          content: 'plaintext reply',
-          is_encrypted: false,
+          content: 'encrypted-reply',
         },
       };
 
       const mockKey = {} as CryptoKey;
       mockGetChannelKey.mockResolvedValue(mockKey);
-      mockDecryptWithKey.mockResolvedValue('decrypted parent');
+      // replied_to decrypted first, then parent
+      mockDecryptWithKey
+        .mockResolvedValueOnce('plaintext reply')
+        .mockResolvedValueOnce('decrypted parent');
       mockFetchResponse([msgWithPlainReply]);
 
       renderHook(() => useMessageFetch('channel-1', { type: 'channel' }));
@@ -249,22 +242,20 @@ describe('useMessageFetch — extended coverage', () => {
         expect(stored![0].replied_to?.content).toBe('plaintext reply');
       });
 
-      // decryptWithKey should only be called once (for the parent message)
-      expect(mockDecryptWithKey).toHaveBeenCalledTimes(1);
+      // decryptWithKey should be called for both replied_to and parent
+      expect(mockDecryptWithKey).toHaveBeenCalledTimes(2);
     });
 
     it('leaves replied_to ciphertext on decryption failure', async () => {
       const msgWithBadReply: MessageWithStatus = {
         ...mockMessage,
         id: 'enc-badreply-1',
-        is_encrypted: true,
         content: 'encrypted-parent',
         replied_to: {
           id: 'original-4',
           user_id: 'user-1',
           username: 'testuser',
           content: 'undecryptable-ciphertext',
-          is_encrypted: true,
           key_version: 1,
         },
       };
@@ -294,14 +285,12 @@ describe('useMessageFetch — extended coverage', () => {
       const msgWithReply: MessageWithStatus = {
         ...mockMessage,
         id: 'enc-noinit-1',
-        is_encrypted: true,
         content: 'encrypted',
         replied_to: {
           id: 'original-5',
           user_id: 'user-1',
           username: 'testuser',
           content: 'encrypted-reply',
-          is_encrypted: true,
         },
       };
       mockFetchResponse([msgWithReply]);
@@ -319,11 +308,14 @@ describe('useMessageFetch — extended coverage', () => {
       });
     });
 
-    it('passes through non-encrypted messages unchanged', async () => {
+    it('decrypts messages via channel key', async () => {
+      const mockKey = {} as CryptoKey;
+      mockGetChannelKey.mockResolvedValue(mockKey);
+      mockDecryptWithKey.mockResolvedValueOnce('hello world');
+
       const plainMsg: MessageWithStatus = {
         ...mockMessage,
         id: 'plain-1',
-        is_encrypted: false,
         content: 'hello world',
       };
       mockFetchResponse([plainMsg]);

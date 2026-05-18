@@ -230,7 +230,6 @@ describe('useWebSocket — extended', () => {
         server_id: 'server-1',
         name: 'test',
         type: 'text',
-        is_encrypted: true,
         position: 0,
         created_at: '',
         updated_at: '',

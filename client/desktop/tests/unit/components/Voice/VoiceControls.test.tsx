@@ -243,7 +243,6 @@ describe('VoiceControls', () => {
           server_id: 's1',
           name: 'voice-text',
           type: 'text' as const,
-          is_encrypted: false,
           position: 0,
           linked_voice_channel_id: VOICE_CHANNEL_ID,
           created_at: '',

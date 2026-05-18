@@ -1,4 +1,4 @@
-import { render, screen, fireEvent } from '../../../test-utils';
+import { render, screen, fireEvent, waitFor } from '../../../test-utils';
 import { useDMStore, type DMConversation } from '@/renderer/stores/dmStore';
 import { useUserStore } from '@/renderer/stores/userStore';
 import { vi } from 'vitest';
@@ -12,13 +12,13 @@ vi.mock('@/renderer/services/e2eeService', () => ({
 }));
 
 import ConversationList from '@/renderer/components/DirectMessages/ConversationList';
+import { e2eeService } from '@/renderer/services/e2eeService';
 
 const makeConversation = (overrides: Partial<DMConversation> = {}): DMConversation => ({
   id: 'conv-1',
   isGroup: false,
   isPersonal: false,
   name: null,
-  isEncrypted: false,
   participants: [
     { userId: 'user-1', username: 'me', displayName: 'Me' },
     { userId: 'user-2', username: 'alice', displayName: 'Alice' },
@@ -34,7 +34,6 @@ const personalThread: DMConversation = {
   isGroup: false,
   isPersonal: true,
   name: 'Personal',
-  isEncrypted: false,
   participants: [{ userId: 'user-1', username: 'me', displayName: 'Me' }],
   lastMessage: null,
   unreadCount: 0,
@@ -160,23 +159,26 @@ describe('ConversationList', () => {
     expect(screen.getByText('charlie')).toBeInTheDocument();
   });
 
-  it('shows last message preview', () => {
+  it('shows last message preview after decryption', async () => {
+    // All DM messages are E2EE — preview renders after e2eeService decrypts
+    (e2eeService as any).isInitialized = true;
+    (e2eeService.decryptForChannel as ReturnType<typeof vi.fn>).mockResolvedValueOnce('Hey there!');
     useDMStore.setState({
       conversations: [
         makeConversation({
           lastMessage: {
-            content: 'Hey there!',
+            content: 'encrypted-ciphertext',
             userId: 'user-2',
             username: 'alice',
             createdAt: '2025-01-01T12:00:00Z',
-            isEncrypted: false,
           },
         }),
       ],
       fetchConversations: vi.fn().mockResolvedValue(undefined),
     });
     render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
-    expect(screen.getByText('Hey there!')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Hey there!')).toBeInTheDocument());
+    (e2eeService as any).isInitialized = false;
   });
 
   it('shows "Encrypted message" for encrypted last message', () => {
@@ -188,7 +190,6 @@ describe('ConversationList', () => {
             userId: 'user-2',
             username: 'alice',
             createdAt: '2025-01-01T12:00:00Z',
-            isEncrypted: true,
           },
         }),
       ],
@@ -370,8 +371,8 @@ describe('ConversationList', () => {
     render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
     const item = screen.getByLabelText('Alice');
     fireEvent.contextMenu(item);
-    // DMConversationContextMenu renders — unencrypted conversation shows fallback text
-    expect(screen.getByText('No actions available')).toBeInTheDocument();
+    // All DM conversations are E2EE — context menu shows key rotation option
+    expect(screen.getByText('Rotate Encryption Key')).toBeInTheDocument();
   });
 
   it('renders multiple conversations', () => {

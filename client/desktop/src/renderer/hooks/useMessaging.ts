@@ -14,7 +14,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { useChatStore } from '../stores/chatStore';
 import { useUserStore } from '../stores/userStore';
-import { useChannelStore } from '../stores/channelStore';
 import { useDMStore } from '../stores/dmStore';
 import { getWebSocketService, ConnectionState } from '../services/websocketService';
 import { getMessageQueue, type QueuedMessage } from '../services/messageQueue';
@@ -117,36 +116,19 @@ export function useMessaging() {
           `Subscription not available for ${isDM ? 'DM' : 'channel'} ${msg.channelId}; retry later`
         );
       }
-      // For DMs, encryption state is captured at enqueue time.
-      // For channels, look up from the channel store (authoritative).
-      const isEncrypted = isDM
-        ? (msg.isEncrypted ?? false)
-        : (useChannelStore.getState().channels.find((c) => c.id === msg.channelId)?.is_encrypted ??
-          false);
-      let content = msg.content;
-      let keyVersion: number | undefined;
-      if (isEncrypted) {
-        const result = await encryptQueuedContent(
-          msg.channelId,
-          msg.content,
-          msg.gifSlug,
-          msg.id,
-          isDM
-        );
-        content = result.ciphertext;
-        keyVersion = result.keyVersion;
-      }
+      const { ciphertext: content, keyVersion } = await encryptQueuedContent(
+        msg.channelId,
+        msg.content,
+        msg.gifSlug,
+        msg.id,
+        isDM
+      );
       const opts: Record<string, unknown> = {
         nonce: msg.id,
-        isEncrypted,
         keyVersion,
         mentionMeta: msg.mentionMeta,
         replyToId: msg.replyToId,
       };
-      // For unencrypted channels, send gif_slug as a separate field (server stores it in the column)
-      if (msg.gifSlug && !isEncrypted) {
-        opts.gifSlug = msg.gifSlug;
-      }
       if (isDM) {
         wsService.sendDMMessage(msg.channelId, content, opts);
       } else {
@@ -195,10 +177,6 @@ export function useMessaging() {
         attachments,
         gifSlug,
       } = opts ?? {};
-      // Check if channel is encrypted
-      const channel = useChannelStore.getState().channels.find((c) => c.id === channelId);
-      const isEncrypted = channel?.is_encrypted ?? false;
-
       // Generate client-side message ID
       const clientMessageId = messageQueue.enqueue(
         channelId,
@@ -221,7 +199,6 @@ export function useMessaging() {
             username: target.username,
             display_name: target.display_name,
             content: target.content,
-            is_encrypted: target.is_encrypted,
           };
         }
       }
@@ -237,7 +214,6 @@ export function useMessaging() {
         display_name: displayName,
         avatar_url: avatarUrl,
         content,
-        is_encrypted: isEncrypted,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         status: 'pending',
@@ -253,28 +229,22 @@ export function useMessaging() {
       if (wsService.getState() === ConnectionState.CONNECTED) {
         const doSend = async () => {
           try {
-            let sendContent = content;
-            let keyVersion: number | undefined;
-            // For E2EE: wrap content in JSON when gif_slug is present
+            // Wrap content in JSON when gif_slug is present, then encrypt
             const plaintext = wrapContentWithGifSlug(content, gifSlug);
-            if (isEncrypted) {
-              // Fail-closed: if encryption fails, do NOT send
-              sendContent = await e2eeService.encryptForChannel(channelId, plaintext);
-              keyVersion = e2eeService.getCurrentKeyVersion(channelId);
-              // Validate encrypted output: must be non-empty base64 with minimum size
-              // (12-byte IV + 16-byte auth tag = 28 bytes minimum decoded)
-              if (!sendContent || sendContent.length < 40) {
-                throw new Error('Encryption produced invalid output');
-              }
+            // Fail-closed: if encryption fails, do NOT send
+            const sendContent = await e2eeService.encryptForChannel(channelId, plaintext);
+            const keyVersion = e2eeService.getCurrentKeyVersion(channelId);
+            // Validate encrypted output: must be non-empty base64 with minimum size
+            // (12-byte IV + 16-byte auth tag = 28 bytes minimum decoded)
+            if (!sendContent || sendContent.length < 40) {
+              throw new Error('Encryption produced invalid output');
             }
             wsService.sendMessage(channelId, sendContent, {
               nonce: clientMessageId,
-              isEncrypted,
               keyVersion,
               mentionMeta,
               replyToId,
               attachmentIds,
-              gifSlug: isEncrypted ? undefined : gifSlug,
             });
             messageQueue.markAsSent(clientMessageId);
             messageQueue.remove(clientMessageId);
@@ -318,7 +288,6 @@ export function useMessaging() {
     (
       conversationId: string,
       content: string,
-      isEncrypted: boolean,
       username: string = 'You',
       opts?: SendMessageOptions
     ): string => {
@@ -338,8 +307,7 @@ export function useMessaging() {
         content,
         'dm_message',
         mentionMeta,
-        replyToId,
-        isEncrypted
+        replyToId
       );
 
       // Build replied_to summary from store for optimistic display
@@ -354,7 +322,6 @@ export function useMessaging() {
             username: target.username,
             display_name: target.display_name,
             content: target.content,
-            is_encrypted: target.is_encrypted,
           };
         }
       }
@@ -369,7 +336,6 @@ export function useMessaging() {
         display_name: displayName,
         avatar_url: avatarUrl,
         content,
-        is_encrypted: isEncrypted,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         status: 'pending',
@@ -392,34 +358,27 @@ export function useMessaging() {
         userId: userId || 'unknown',
         username,
         createdAt: optimisticMessage.created_at,
-        isEncrypted,
         ...(opts?.attachments?.length
           ? { attachmentType: opts.attachments[0].file_type as string }
           : {}),
       });
 
-      // If connected, send immediately (with encryption if needed)
+      // If connected, send immediately (encrypt before sending)
       if (wsService.getState() === ConnectionState.CONNECTED) {
         const doSend = async () => {
           try {
-            let sendContent = content;
-            let keyVersion: number | undefined;
             const plaintext = wrapContentWithGifSlug(content, gifSlug);
-            if (isEncrypted) {
-              sendContent = await e2eeService.encryptForChannel(conversationId, plaintext);
-              keyVersion = e2eeService.getCurrentKeyVersion(conversationId);
-              if (!sendContent || sendContent.length < 40) {
-                throw new Error('Encryption produced invalid output');
-              }
+            const sendContent = await e2eeService.encryptForChannel(conversationId, plaintext);
+            const keyVersion = e2eeService.getCurrentKeyVersion(conversationId);
+            if (!sendContent || sendContent.length < 40) {
+              throw new Error('Encryption produced invalid output');
             }
             wsService.sendDMMessage(conversationId, sendContent, {
               nonce: clientMessageId,
-              isEncrypted,
               keyVersion,
               mentionMeta,
               attachmentIds,
               replyToId,
-              gifSlug: isEncrypted ? undefined : gifSlug,
             });
             messageQueue.markAsSent(clientMessageId);
             messageQueue.remove(clientMessageId);

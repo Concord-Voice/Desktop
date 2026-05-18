@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
-import { Hash, Lock, Users, MessageSquare } from 'lucide-react';
+import { Lock, Users, MessageSquare } from 'lucide-react';
 import { useKeyboardShortcutStore } from '../../stores/keyboardShortcutStore';
 import { useChannelStore } from '../../stores/channelStore';
 import { useDMStore } from '../../stores/dmStore';
@@ -44,7 +44,7 @@ const ChannelSwitcher: React.FC = () => {
         id: c.id,
         name: c.name,
         type: 'channel' as const,
-        icon: c.is_encrypted ? <Lock size={14} /> : <Hash size={14} />,
+        icon: <Lock size={14} />,
         context: serverMap.get(currentServerId || '') || '',
       }));
 

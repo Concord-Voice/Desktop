@@ -82,7 +82,6 @@ const JoinPrompt: React.FC<JoinPromptProps> = ({
 );
 
 interface HeaderBadgesProps {
-  isEncrypted: boolean;
   participantCount: number;
   effectiveQualityTier: string;
   decoderHealth: string;
@@ -90,18 +89,15 @@ interface HeaderBadgesProps {
 
 /** Header metadata badges: E2EE, participant count, quality tier, decoder health. */
 const HeaderBadges: React.FC<HeaderBadgesProps> = ({
-  isEncrypted,
   participantCount,
   effectiveQualityTier,
   decoderHealth,
 }) => (
   <div className="voice-view__header-meta">
-    {isEncrypted && (
-      <span className="voice-view__badge voice-view__badge--encrypted">
-        <Lock size={12} />
-        E2EE
-      </span>
-    )}
+    <span className="voice-view__badge voice-view__badge--encrypted">
+      <Lock size={12} />
+      E2EE
+    </span>
     <span className="voice-view__badge">
       <Users size={12} />
       {participantCount}
@@ -193,7 +189,6 @@ const ScreenShareLayout: React.FC<ScreenShareLayoutProps> = ({
 const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
   const activeChannelId = useVoiceStore((s) => s.activeChannelId);
   const connectionState = useVoiceStore((s) => s.connectionState);
-  const isEncrypted = useVoiceStore((s) => s.isEncrypted);
   const participants = useVoiceStore((s) => s.participants);
   const channelVoiceMembers = useVoiceStore((s) => s.channelVoiceMembers);
   const effectiveQualityTier = useVoiceStore((s) => s.effectiveQualityTier);
@@ -418,7 +413,6 @@ const VoiceView: React.FC<VoiceViewProps> = ({ channelId, channelName }) => {
       <div className="voice-view__header">
         <h2 className="voice-view__channel-name">{channelName}</h2>
         <HeaderBadges
-          isEncrypted={isEncrypted}
           participantCount={participantCount}
           effectiveQualityTier={effectiveQualityTier}
           decoderHealth={decoderHealth}

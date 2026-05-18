@@ -5,7 +5,6 @@ export type NotificationType = 'dm' | 'mention' | 'message';
 interface NotifyOptions {
   title: string;
   body: string;
-  isEncrypted?: boolean;
   targetType: 'channel' | 'dm';
   targetId: string;
   serverId?: string;
@@ -60,11 +59,11 @@ class DesktopNotificationService {
   notify(options: NotifyOptions): void {
     // Determine body content
     let body = options.body;
-    if (options.isEncrypted && !body) {
+    if (!body) {
       body = 'New encrypted message';
     }
     // Truncate body to 100 chars
-    if (body && body.length > 100) {
+    if (body.length > 100) {
       body = body.slice(0, 97) + '...';
     }
 

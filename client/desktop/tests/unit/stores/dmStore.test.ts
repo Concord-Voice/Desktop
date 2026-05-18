@@ -21,7 +21,6 @@ const mockConversation: DMConversation = {
   isGroup: false,
   isPersonal: false,
   name: null,
-  isEncrypted: false,
   participants: [
     { userId: 'user-1', username: 'alice' },
     { userId: 'user-2', username: 'bob' },
@@ -36,7 +35,6 @@ const mockConversation2: DMConversation = {
   isGroup: true,
   isPersonal: false,
   name: 'Group Chat',
-  isEncrypted: false,
   participants: [
     { userId: 'user-1', username: 'alice' },
     { userId: 'user-2', username: 'bob' },
@@ -52,7 +50,6 @@ const mockPersonalConv: DMConversation = {
   isGroup: false,
   isPersonal: true,
   name: null,
-  isEncrypted: false,
   participants: [{ userId: 'user-1', username: 'alice' }],
   lastMessage: null,
   unreadCount: 0,
@@ -186,7 +183,6 @@ describe('dmStore', () => {
         userId: 'user-1',
         username: 'alice',
         createdAt: '2025-01-01T12:00:00Z',
-        isEncrypted: false,
       };
       useDMStore.getState().updateLastMessage('conv-1', lastMsg);
       expect(useDMStore.getState().conversations[0].lastMessage?.content).toBe('Hello!');
@@ -202,7 +198,6 @@ describe('dmStore', () => {
         userId: 'user-1',
         username: 'alice',
         createdAt: '2025-06-01T00:00:00Z',
-        isEncrypted: false,
       };
       useDMStore.getState().updateLastMessage('conv-1', lastMsg);
 
@@ -220,7 +215,6 @@ describe('dmStore', () => {
         userId: 'user-1',
         username: 'alice',
         createdAt: '2024-01-01T00:00:00Z', // older than conv-2's createdAt
-        isEncrypted: false,
       };
       useDMStore.getState().updateLastMessage('conv-1', msg);
 
@@ -241,7 +235,6 @@ describe('dmStore', () => {
         userId: 'user-2',
         username: 'bob',
         createdAt: '2025-09-01T00:00:00Z',
-        isEncrypted: false,
       };
       useDMStore.getState().bumpConversation('conv-1', msg);
 
@@ -259,7 +252,6 @@ describe('dmStore', () => {
         userId: 'user-1',
         username: 'alice',
         createdAt: '2025-12-01T00:00:00Z',
-        isEncrypted: false,
       };
       useDMStore.getState().bumpConversation('conv-1', msg);
 
@@ -278,7 +270,6 @@ describe('dmStore', () => {
         userId: 'user-9',
         username: 'noone',
         createdAt: '2025-12-01T00:00:00Z',
-        isEncrypted: false,
       };
       useDMStore.getState().bumpConversation('conv-unknown', msg);
 
@@ -420,7 +411,6 @@ describe('dmStore', () => {
                 is_group: false,
                 is_personal: false,
                 name: null,
-                is_encrypted: false,
                 participants: [
                   { user_id: 'user-1', username: 'alice' },
                   { user_id: 'user-2', username: 'bob' },
@@ -452,14 +442,12 @@ describe('dmStore', () => {
                 is_group: false,
                 is_personal: false,
                 name: null,
-                is_encrypted: false,
                 participants: [],
                 last_message: {
                   content: 'Hi!',
                   user_id: 'user-1',
                   username: 'alice',
                   created_at: '2025-01-01T12:00:00Z',
-                  is_encrypted: false,
                 },
                 unread_count: 3,
                 created_at: '2025-01-01T00:00:00Z',
@@ -473,7 +461,6 @@ describe('dmStore', () => {
       const conv = useDMStore.getState().conversations[0];
       expect(conv.lastMessage?.content).toBe('Hi!');
       expect(conv.lastMessage?.userId).toBe('user-1');
-      expect(conv.lastMessage?.isEncrypted).toBe(false);
       expect(conv.unreadCount).toBe(3);
     });
 
@@ -513,7 +500,6 @@ describe('dmStore', () => {
                 is_group: false,
                 is_personal: false,
                 name: null,
-                is_encrypted: false,
                 participants: [],
                 last_message: null,
                 unread_count: 0,
@@ -541,7 +527,6 @@ describe('dmStore', () => {
                 is_group: false,
                 is_personal: false,
                 name: null,
-                is_encrypted: false,
                 participants: [],
                 last_message: null,
                 unread_count: 0,
@@ -606,7 +591,6 @@ describe('dmStore', () => {
               is_group: false,
               is_personal: false,
               name: null,
-              is_encrypted: false,
               participants: [
                 { user_id: 'user-1', username: 'alice' },
                 { user_id: 'user-2', username: 'bob' },
@@ -636,7 +620,6 @@ describe('dmStore', () => {
               is_group: false,
               is_personal: false,
               name: null,
-              is_encrypted: false,
               participants: [
                 { user_id: 'user-1', username: 'alice' },
                 { user_id: 'user-2', username: 'bob' },
@@ -711,7 +694,6 @@ describe('dmStore', () => {
               is_group: true,
               is_personal: false,
               name: 'My Group',
-              is_encrypted: false,
               participants: [
                 { user_id: 'user-1', username: 'alice' },
                 { user_id: 'user-2', username: 'bob' },
@@ -743,7 +725,6 @@ describe('dmStore', () => {
               is_group: true,
               is_personal: false,
               name: null,
-              is_encrypted: false,
               participants: [],
               last_message: null,
               unread_count: 0,
@@ -768,7 +749,6 @@ describe('dmStore', () => {
               is_group: true,
               is_personal: false,
               name: 'Team Chat',
-              is_encrypted: false,
               participants: [],
               last_message: null,
               unread_count: 0,
@@ -807,7 +787,6 @@ describe('dmStore', () => {
               is_group: false,
               is_personal: true,
               name: null,
-              is_encrypted: false,
               participants: [{ user_id: 'user-1', username: 'alice' }],
               last_message: null,
               unread_count: 0,
@@ -834,7 +813,6 @@ describe('dmStore', () => {
               is_group: false,
               is_personal: true,
               name: null,
-              is_encrypted: false,
               participants: [{ user_id: 'user-1', username: 'alice' }],
               last_message: null,
               unread_count: 0,
@@ -906,7 +884,6 @@ describe('dmStore', () => {
                 is_group: true,
                 is_personal: false,
                 name: 'Test Group',
-                is_encrypted: false,
                 icon_url: '/api/v1/media/dm-icons/group-1',
                 created_by: 'user-1',
                 participants: [
@@ -940,7 +917,6 @@ describe('dmStore', () => {
                 is_group: false,
                 is_personal: false,
                 name: null,
-                is_encrypted: false,
                 participants: [{ user_id: 'user-1', username: 'alice' }],
                 last_message: null,
                 unread_count: 0,
@@ -965,7 +941,6 @@ describe('dmStore', () => {
       isGroup: true,
       isPersonal: false,
       name: 'Test Group',
-      isEncrypted: false,
       createdBy: 'user-1',
       participants: [
         { userId: 'user-1', username: 'alice', role: 'admin' },
@@ -988,7 +963,6 @@ describe('dmStore', () => {
                 is_group: true,
                 is_personal: false,
                 name: 'Test Group',
-                is_encrypted: false,
                 created_by: 'user-1',
                 participants: [
                   { user_id: 'user-1', username: 'alice', role: 'admin' },
@@ -1306,7 +1280,6 @@ describe('dmStore', () => {
                 is_group: false,
                 is_personal: false,
                 name: null,
-                is_encrypted: false,
                 participants: null,
                 last_message: null,
                 unread_count: 0,
@@ -1333,7 +1306,6 @@ describe('dmStore', () => {
                 is_group: false,
                 // is_personal omitted
                 name: null,
-                is_encrypted: false,
                 participants: [],
                 last_message: null,
                 unread_count: 0,
@@ -1360,7 +1332,6 @@ describe('dmStore', () => {
                 is_group: false,
                 is_personal: false,
                 name: null,
-                is_encrypted: false,
                 participants: [],
                 last_message: null,
                 // unread_count omitted
@@ -1387,7 +1358,6 @@ describe('dmStore', () => {
                 is_group: false,
                 is_personal: false,
                 name: '',
-                is_encrypted: false,
                 participants: [],
                 last_message: null,
                 unread_count: 0,
@@ -1456,7 +1426,6 @@ describe('dmStore', () => {
               is_group: true,
               is_personal: false,
               name: 'Encrypted Group',
-              is_encrypted: true,
               participants: [
                 { user_id: 'user-1', username: 'alice' },
                 { user_id: 'user-2', username: 'bob' },
@@ -1476,7 +1445,6 @@ describe('dmStore', () => {
       );
 
       const conv = await useDMStore.getState().createGroupDM(['user-2'], 'Encrypted Group');
-      expect(conv.isEncrypted).toBe(true);
       expect(e2eeMock.createChannelKeys).toHaveBeenCalled();
       expect(useDMStore.getState().activeConversationId).toBe('conv-e2ee-group');
     });
@@ -1490,7 +1458,6 @@ describe('dmStore', () => {
               is_group: false,
               is_personal: false,
               name: null,
-              is_encrypted: true,
               participants: [
                 { user_id: 'user-1', username: 'alice' },
                 { user_id: 'user-2', username: 'bob' },
@@ -1510,7 +1477,6 @@ describe('dmStore', () => {
       );
 
       const conv = await useDMStore.getState().openDM('user-2');
-      expect(conv.isEncrypted).toBe(true);
       // ensureE2EEKey should have called getChannelKey, then distributed keys
       expect(e2eeMock.getChannelKey).toHaveBeenCalledWith('conv-e2ee-dm');
       expect(e2eeMock.createChannelKeys).toHaveBeenCalled();
@@ -1532,7 +1498,6 @@ describe('dmStore', () => {
               is_group: false,
               is_personal: true,
               name: null,
-              is_encrypted: true,
               participants: [{ user_id: 'user-1', username: 'alice' }],
               last_message: null,
               unread_count: 0,
@@ -1549,7 +1514,6 @@ describe('dmStore', () => {
       );
 
       const conv = await useDMStore.getState().openPersonalThread();
-      expect(conv.isEncrypted).toBe(true);
       expect(e2eeMock.getChannelKey).toHaveBeenCalledWith('conv-e2ee-personal');
       expect(e2eeMock.createChannelKeys).toHaveBeenCalled();
     });
@@ -1569,7 +1533,6 @@ describe('dmStore', () => {
               is_group: false,
               is_personal: true,
               name: null,
-              is_encrypted: true,
               participants: [{ user_id: 'user-1', username: 'alice' }],
               last_message: null,
               unread_count: 0,
@@ -1580,7 +1543,6 @@ describe('dmStore', () => {
       );
 
       const conv = await useDMStore.getState().openPersonalThread();
-      expect(conv.isEncrypted).toBe(true);
       // Key already existed — should NOT create new keys
       expect(e2eeMock.createChannelKeys).not.toHaveBeenCalled();
     });

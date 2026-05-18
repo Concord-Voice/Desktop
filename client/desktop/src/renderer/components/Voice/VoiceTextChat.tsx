@@ -30,9 +30,8 @@ const VoiceTextChat: React.FC = () => {
       type: 'voice' as const,
       id: channelId || '',
       serverId: activeServerId ?? undefined,
-      isEncrypted: linkedChannel?.is_encrypted ?? false,
     }),
-    [channelId, activeServerId, linkedChannel?.is_encrypted]
+    [channelId, activeServerId]
   );
 
   const {
@@ -146,7 +145,6 @@ const VoiceTextChat: React.FC = () => {
           onTyping={sendTyping}
           channelName={linkedChannel.name}
           disabled={!currentUserId}
-          isChannelEncrypted={linkedChannel.is_encrypted ?? false}
           placeholder={`Message ${linkedChannel.name} text chat...`}
           replyingTo={replyingTo}
           onCancelReply={cancelReply}

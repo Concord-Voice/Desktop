@@ -66,7 +66,6 @@ describe('MainViewModals', () => {
       server_id: 'server-1',
       name: 'general',
       type: 'text',
-      is_encrypted: false,
       position: 0,
       created_at: '2024-01-01T00:00:00Z',
       updated_at: '2024-01-01T00:00:00Z',

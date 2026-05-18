@@ -72,7 +72,6 @@ describe('SearchPanel', () => {
         created_at: '2025-01-01T12:00:00Z',
         channel_id: 'channel-1',
         user_id: 'user-1',
-        is_encrypted: false,
         updated_at: '2025-01-01T12:00:00Z',
       },
     ];
@@ -91,7 +90,6 @@ describe('SearchPanel', () => {
         created_at: '2025-01-01T12:00:00Z',
         channel_id: 'channel-1',
         user_id: 'user-1',
-        is_encrypted: false,
         updated_at: '2025-01-01T12:00:00Z',
       },
     ];

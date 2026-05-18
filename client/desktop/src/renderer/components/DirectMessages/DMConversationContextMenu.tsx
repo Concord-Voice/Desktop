@@ -16,8 +16,7 @@ const DMConversationContextMenu: React.FC<DMConversationContextMenuProps> = ({
   position,
   onClose,
 }) => {
-  const canRotateKey =
-    conversation.isEncrypted && (!conversation.isGroup || conversation.createdBy === currentUserId);
+  const canRotateKey = !conversation.isGroup || conversation.createdBy === currentUserId;
 
   const { rotateStatus, rotateMessage, handleRotate } = useRotateKey(
     `/api/v1/dm/conversations/${conversation.id}/rotate-key`,

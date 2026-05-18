@@ -13,7 +13,6 @@ function makeDraftMessage(overrides: Partial<MessageWithStatus> = {}): MessageWi
     username: 'alice',
     display_name: 'Alice',
     content: 'Hello, world! This is a test message.',
-    is_encrypted: false,
     created_at: '2026-01-01T00:00:00Z',
     updated_at: '2026-01-01T00:00:00Z',
     ...overrides,

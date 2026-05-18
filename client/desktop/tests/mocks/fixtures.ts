@@ -62,7 +62,6 @@ export const mockChannel: Channel = {
   server_id: 'server-1',
   name: 'general',
   type: 'text',
-  is_encrypted: false,
   position: 0,
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
@@ -72,7 +71,6 @@ export const mockEncryptedChannel: Channel = {
   ...mockChannel,
   id: 'channel-2',
   name: 'encrypted-chat',
-  is_encrypted: true,
   position: 1,
 };
 
@@ -85,7 +83,6 @@ export const mockMessage: MessageWithStatus = {
   content: 'Hello, world!',
   username: 'testuser',
   display_name: 'Test User',
-  is_encrypted: false,
   status: 'delivered',
   created_at: '2025-01-01T12:00:00Z',
   updated_at: '2025-01-01T12:00:00Z',
@@ -142,7 +139,6 @@ export const mockReplyMessage: MessageWithStatus = {
     username: 'testuser',
     display_name: 'Test User',
     content: 'Hello, world!',
-    is_encrypted: false,
   },
   created_at: '2025-01-01T12:02:00Z',
   updated_at: '2025-01-01T12:02:00Z',

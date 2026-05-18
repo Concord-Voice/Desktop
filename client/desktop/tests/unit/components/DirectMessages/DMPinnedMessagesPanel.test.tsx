@@ -41,7 +41,6 @@ const mockDMPins: MessageWithUser[] = [
     content: 'Pinned DM one',
     username: 'alice',
     display_name: 'Alice',
-    is_encrypted: false,
     created_at: '2025-01-01T12:00:00Z',
     updated_at: '2025-01-01T12:00:00Z',
     pinned_at: '2025-01-01T13:00:00Z',
@@ -53,7 +52,6 @@ const mockDMPins: MessageWithUser[] = [
     user_id: 'user-2',
     content: 'Pinned DM two',
     username: 'bob',
-    is_encrypted: false,
     created_at: '2025-01-01T12:01:00Z',
     updated_at: '2025-01-01T12:01:00Z',
     pinned_at: '2025-01-01T13:01:00Z',
@@ -83,6 +81,11 @@ describe('DMPinnedMessagesPanel', () => {
   });
 
   it('fetches pins with the DM conversation id', async () => {
+    await setE2EEInitialized(true);
+    mockGetChannelKey.mockResolvedValue({} as CryptoKey);
+    mockDecryptWithKey
+      .mockResolvedValueOnce('Pinned DM one')
+      .mockResolvedValueOnce('Pinned DM two');
     render(<DMPinnedMessagesPanel {...defaultProps} />);
     await waitFor(() => {
       expect(mockGetPins).toHaveBeenCalledWith('conv-1');
@@ -155,6 +158,11 @@ describe('DMPinnedMessagesPanel', () => {
   });
 
   it('hides Unpin buttons when canPin is false', async () => {
+    await setE2EEInitialized(true);
+    mockGetChannelKey.mockResolvedValue({} as CryptoKey);
+    mockDecryptWithKey
+      .mockResolvedValueOnce('Pinned DM one')
+      .mockResolvedValueOnce('Pinned DM two');
     render(<DMPinnedMessagesPanel {...defaultProps} canPin={false} />);
     await waitFor(() => expect(screen.getByText('Pinned DM one')).toBeInTheDocument());
     expect(screen.queryByText('Unpin')).not.toBeInTheDocument();
@@ -174,15 +182,16 @@ describe('DMPinnedMessagesPanel', () => {
   });
 
   it('shows encrypted placeholder when E2EE is not initialized', async () => {
-    mockGetPins.mockResolvedValue([
-      { ...mockDMPins[0], is_encrypted: true, content: 'ciphertext' },
-    ]);
+    mockGetPins.mockResolvedValue([{ ...mockDMPins[0], content: 'ciphertext' }]);
     render(<DMPinnedMessagesPanel {...defaultProps} />);
     await waitFor(() => expect(screen.getByText('Encrypted message')).toBeInTheDocument());
   });
 
   it('truncates long content past 200 characters', async () => {
     const long = 'A'.repeat(250);
+    await setE2EEInitialized(true);
+    mockGetChannelKey.mockResolvedValue({} as CryptoKey);
+    mockDecryptWithKey.mockResolvedValueOnce(long);
     mockGetPins.mockResolvedValue([{ ...mockDMPins[0], content: long }]);
     render(<DMPinnedMessagesPanel {...defaultProps} />);
     await waitFor(() => {
@@ -199,7 +208,6 @@ describe('DMPinnedMessagesPanel', () => {
       content: 'ciphertext-abc',
       username: 'alice',
       display_name: 'Alice',
-      is_encrypted: true,
       created_at: '2025-01-01T12:00:00Z',
       updated_at: '2025-01-01T12:00:00Z',
       pinned_at: '2025-01-01T13:00:00Z',

@@ -1,9 +1,9 @@
 /**
  * Media E2EE — Insertable Streams frame encryption for voice/video.
  *
- * When a channel has is_encrypted: true, all media frames are encrypted with
- * AES-128-GCM before being sent to the SFU. The SFU forwards encrypted RTP
- * payloads transparently — it never sees plaintext audio/video.
+ * All media frames are encrypted with AES-128-GCM before being sent to the
+ * SFU. The SFU forwards encrypted RTP payloads transparently — it never sees
+ * plaintext audio/video.
  *
  * Key derivation:
  *   frameKey = HKDF-SHA256(channelCSK, salt="concord-voice-e2ee", info=senderUserId)

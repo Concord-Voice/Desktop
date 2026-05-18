@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useFormState } from '../../hooks/useFormState';
-import { Lock } from 'lucide-react';
 import { NAME_MAX, validateChannelName, getChannelTypeIcon } from '../../utils/channelHelpers';
 import ChannelEmojiField from './ChannelEmojiField';
 import Modal from '../ui/Modal';
@@ -64,7 +63,6 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
   const [emoji, setEmoji] = useState('');
   const [type, setType] = useState<'text' | 'voice' | 'bulletin'>('text');
   const [groupId, setGroupId] = useState<string>('');
-  const [isEncrypted, setIsEncrypted] = useState(false);
   const {
     errors,
     setErrors,
@@ -75,26 +73,15 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
     reset: resetFormState,
   } = useFormState<FormErrors>();
   const activeServerId = useServerStore((state) => state.activeServerId);
-  const servers = useServerStore((state) => state.servers);
   const addChannel = useChannelStore((state) => state.addChannel);
   const channelGroups = useChannelStore((state) => state.channelGroups);
   const members = useMemberStore((state) => state.members);
-
-  // Set initial E2EE toggle to the server's default
-  useEffect(() => {
-    if (activeServerId) {
-      const server = servers.find((s) => s.id === activeServerId);
-      setIsEncrypted(server?.e2ee_default ?? false);
-    }
-  }, [activeServerId, servers]);
 
   const resetForm = () => {
     setName('');
     setEmoji('');
     setType('text');
     setGroupId('');
-    const server = servers.find((s) => s.id === activeServerId);
-    setIsEncrypted(server?.e2ee_default ?? false);
     resetFormState();
   };
 
@@ -129,9 +116,7 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
     setErrors({});
 
     try {
-      const wrappedKeys = isEncrypted
-        ? await generateWrappedKeysForMembers(members)
-        : undefined;
+      const wrappedKeys = await generateWrappedKeysForMembers(members);
 
       const response = await apiFetch('/api/v1/channels', {
         method: 'POST',
@@ -142,7 +127,6 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
           type,
           emoji: emoji.trim() || undefined,
           group_id: groupId || undefined,
-          is_encrypted: isEncrypted,
           wrapped_keys: wrappedKeys,
         }),
       });
@@ -276,37 +260,6 @@ const CreateChannelModal: React.FC<CreateChannelModalProps> = ({ isOpen, onClose
             <span className="channel-form-hint">Organize this channel into a group</span>
           </div>
         )}
-
-        {/* E2EE Toggle */}
-        <div className="channel-form-group">
-          <span className="channel-form-label">End-to-End Encryption</span>
-          <button
-            type="button"
-            className={`e2ee-toggle-option ${isEncrypted ? 'enabled' : 'disabled'}`}
-            onClick={() => setIsEncrypted(!isEncrypted)}
-            disabled={isSubmitting}
-          >
-            <span className="e2ee-toggle-icon">
-              <Lock size={20} />
-            </span>
-            <div className="e2ee-toggle-info">
-              <span className="e2ee-toggle-name">
-                {isEncrypted ? 'Encryption Enabled' : 'Encryption Disabled'}
-              </span>
-              <span className="e2ee-toggle-desc">
-                {isEncrypted
-                  ? 'Messages will be encrypted end-to-end'
-                  : 'Messages will not be encrypted'}
-              </span>
-            </div>
-            <div className={`e2ee-toggle-switch ${isEncrypted ? 'on' : 'off'}`}>
-              <div className="e2ee-toggle-knob" />
-            </div>
-          </button>
-          <span className="channel-form-hint e2ee-warning">
-            This cannot be changed after creation
-          </span>
-        </div>
 
         {/* Submit Button */}
         <div className="form-actions">

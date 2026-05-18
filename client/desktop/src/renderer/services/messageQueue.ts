@@ -32,8 +32,6 @@ export interface QueuedMessage {
   type: 'message' | 'dm_message' | 'typing' | 'other';
   mentionMeta?: string;
   replyToId?: string;
-  isEncrypted?: boolean; // Captured at enqueue time for DM queue processing
-  skipCount?: number; // Times the #918 startup-race gate has deferred this message
   gifSlug?: string;
 }
 
@@ -46,12 +44,6 @@ interface MessageQueueCallbacks {
 const QUEUE_STORAGE_KEY = 'concord_message_queue';
 const MAX_QUEUE_SIZE = 100;
 const MAX_RETRIES = 3;
-// #918 init-gate skip ceiling — at the 5s polling cadence, 12 skips ≈ 60s of
-// patience for e2eeService init to complete before surfacing terminal failure.
-// Bound exists so a renderer that fails initializeFromStoredKeys (App.tsx
-// swallows that path with console.warn) does not strand encrypted sends in
-// PENDING forever with no UI signal.
-const MAX_INIT_SKIP_CYCLES = 12;
 
 export class MessageQueue {
   private queue: QueuedMessage[] = [];
@@ -71,8 +63,7 @@ export class MessageQueue {
     content: string,
     type: 'message' | 'dm_message' | 'typing' | 'other' = 'message',
     mentionMeta?: string,
-    replyToId?: string,
-    isEncrypted?: boolean
+    replyToId?: string
   ): string {
     const messageId = this.generateMessageId();
 
@@ -87,7 +78,6 @@ export class MessageQueue {
       type,
       mentionMeta,
       replyToId,
-      isEncrypted,
     };
 
     this.queue.push(queuedMessage);
@@ -275,42 +265,6 @@ export class MessageQueue {
     console.debug(`[MessageQueue] Processing ${pending.length} pending messages`);
 
     for (const message of pending) {
-      // #918 startup-race gate: encrypted sends must wait for e2eeService init.
-      // Without this, dequeue races init on fresh login and surfaces NO_KEY_YET.
-      //
-      // Asymmetry note: the gate is a no-op for server-channel messages, which
-      // omit isEncrypted at enqueue time (useMessaging.ts sendMessage) and
-      // re-derive encryption state at dequeue time. Only DM messages, which
-      // capture isEncrypted at enqueue (useMessaging.ts sendDMMessage), are
-      // gated here. This matches #918's narrowly-scoped DM symptom.
-      //
-      // Skip ceiling: bounded at MAX_INIT_SKIP_CYCLES so a permanent init
-      // failure (App.tsx initializeFromStoredKeys catch path) terminates the
-      // message via the existing onMessageFailed callback rather than leaving
-      // it PENDING forever with no UI signal.
-      if (message.isEncrypted && !e2eeService.isInitialized) {
-        message.skipCount = (message.skipCount ?? 0) + 1;
-        if (message.skipCount >= MAX_INIT_SKIP_CYCLES) {
-          console.warn(
-            '[MessageQueue] Encrypted message %s exceeded %d skip cycles — terminating',
-            message.id,
-            MAX_INIT_SKIP_CYCLES
-          );
-          this.markAsTerminallyFailed(
-            message.id,
-            'Encryption setup did not complete — please reload the app'
-          );
-          continue;
-        }
-        console.debug(
-          '[MessageQueue] Deferring encrypted message %s — e2eeService not initialized (skip %d/%d)',
-          message.id,
-          message.skipCount,
-          MAX_INIT_SKIP_CYCLES
-        );
-        continue;
-      }
-
       try {
         await sendFn(message);
         this.markAsSent(message.id);
@@ -362,7 +316,7 @@ export class MessageQueue {
       // If still over limit, drop oldest pending. Surface the eviction loudly
       // so the chat-store's optimistic bubble flips to "failed" instead of
       // sitting in perpetual "pending" — silent drop here is a confirmed
-      // failure mode that compounds with the #918 gate when init stalls.
+      // failure mode: the chat-store optimistic bubble sits in perpetual 'pending' with no UI signal.
       if (this.queue.length > MAX_QUEUE_SIZE) {
         const overflow = this.queue.length - MAX_QUEUE_SIZE;
         const evicted = this.queue.slice(0, overflow);

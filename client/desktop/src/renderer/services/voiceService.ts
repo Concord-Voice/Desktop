@@ -5,7 +5,7 @@
  * mediasoup Device (send/recv transports, producers, consumers).
  *
  * Join flow:
- *   1. POST /channels/{id}/voice/join → media_server_url, ICE servers, is_encrypted
+ *   1. POST /channels/{id}/voice/join → media_server_url, ICE servers (channels are always E2EE)
  *   2. Connect Socket.IO to media plane with JWT auth
  *   3. Emit join-room → receive router RTP caps + existing producers
  *   4. device.load(routerRtpCapabilities)
@@ -186,7 +186,6 @@ interface JoinResponse {
     id: string;
     name: string;
     server_id: string;
-    is_encrypted: boolean;
     audio_quality_tier?: string | null;
   };
   permissions?: string;
@@ -212,7 +211,6 @@ interface RoomJoinedResponse {
     displayName?: string;
     avatarUrl?: string;
   }>;
-  isEncrypted: boolean;
   channelName: string;
   e2eeEpoch?: number;
 }
@@ -241,7 +239,6 @@ class VoiceService {
   private socket: Socket | null = null;
   private device: Device | null = null;
   private sendTransport: mediasoupTypes.Transport | null = null;
-  private recvTransport: mediasoupTypes.Transport | null = null;
   // Split recv transports for E2EE channels — avoids BUNDLE codec collision (#291).
   // Audio and video get separate recv PeerConnections so payload types can't collide.
   // Send transport stays single (server allows only 1, and send path has no demux).
@@ -275,7 +272,6 @@ class VoiceService {
 
   // E2EE
   private mediaEncryption: MediaEncryption | null = null;
-  private isEncrypted = false;
   // RTCRtpScriptTransform Worker (Chromium 129+) — owns frame crypto in a dedicated thread
   private e2eeWorker: Worker | null = null;
   // Debounced rotation state (extracted from MediaEncryption for Worker path)
@@ -287,8 +283,6 @@ class VoiceService {
 
   // Consume queues — serialized per-transport to prevent concurrent SDP
   // negotiations that cause "Duplicate a=mid value" errors.
-  // E2EE uses per-transport queues; non-E2EE uses consumeQueue only.
-  private consumeQueue: Promise<void> = Promise.resolve();
   private consumeQueueAudio: Promise<void> = Promise.resolve();
   private consumeQueueVideo: Promise<void> = Promise.resolve();
 
@@ -1182,7 +1176,7 @@ class VoiceService {
     this.applyDegradationPreference(newProducer);
     this.producers.set('camera', newProducer);
 
-    if (this.isEncrypted && this.mediaEncryption) {
+    if (this.mediaEncryption) {
       this.applyEncryptTransform(newProducer);
     }
 
@@ -1242,7 +1236,7 @@ class VoiceService {
     this.applyDegradationPreference(newProducer);
     this.producers.set('screen', newProducer);
 
-    if (this.isEncrypted && this.mediaEncryption) {
+    if (this.mediaEncryption) {
       this.applyEncryptTransform(newProducer);
     }
 
@@ -1303,7 +1297,7 @@ class VoiceService {
         appData: { source: 'screen-audio' },
       });
       this.producers.set('screen-audio', newAudioProducer);
-      if (this.isEncrypted && this.mediaEncryption) {
+      if (this.mediaEncryption) {
         this.applyEncryptTransform(newAudioProducer);
       }
       newAudioProducer.on('transportclose', () => {
@@ -1533,7 +1527,6 @@ class VoiceService {
       const { media_server_url, channel } = joinData;
 
       store.setActiveChannel(channel.id, channel.name, channel.server_id);
-      store.setEncrypted(channel.is_encrypted);
 
       this.applyJoinMetadata(store, joinData, joinType, channelId);
 
@@ -1587,13 +1580,10 @@ class VoiceService {
       });
 
       // Step 5: Create transports in parallel (no dependency between send/recv)
-      this.isEncrypted = channel.is_encrypted;
       await Promise.all([this.createSendTransport(), this.createRecvTransports()]);
 
-      // Step 6: Initialize E2EE if channel is encrypted
-      if (this.isEncrypted) {
-        await this.setupE2EEForChannel(channel.id, roomJoined);
-      }
+      // Step 6: Initialize E2EE (all channels are always encrypted)
+      await this.setupE2EEForChannel(channel.id, roomJoined);
 
       // Step 7: Set participants before consuming producers
       store.setParticipants(this.buildParticipantList(roomJoined));
@@ -1705,7 +1695,6 @@ class VoiceService {
     // Reset device, router caps, and consume queues
     this.device = null;
     this.routerRtpCapabilities = null;
-    this.consumeQueue = Promise.resolve();
     this.consumeQueueAudio = Promise.resolve();
     this.consumeQueueVideo = Promise.resolve();
 
@@ -1743,12 +1732,7 @@ class VoiceService {
     this.consumerMeta.clear();
     this.pendingScreenAudioProducers.clear();
 
-    for (const t of [
-      this.sendTransport,
-      this.recvTransport,
-      this.recvTransportAudio,
-      this.recvTransportVideo,
-    ]) {
+    for (const t of [this.sendTransport, this.recvTransportAudio, this.recvTransportVideo]) {
       try {
         t?.close();
       } catch {
@@ -1756,7 +1740,6 @@ class VoiceService {
       }
     }
     this.sendTransport = null;
-    this.recvTransport = null;
     this.recvTransportAudio = null;
     this.recvTransportVideo = null;
   }
@@ -1779,7 +1762,6 @@ class VoiceService {
     this.rotationDeadline = 0;
     this.mediaEncryption?.destroy();
     this.mediaEncryption = null;
-    this.isEncrypted = false;
   }
 
   // ─── Audio Producer ────────────────────────────────────────────────
@@ -1911,7 +1893,7 @@ class VoiceService {
     this.startPacketLossMonitor();
 
     // Apply E2EE encrypt transform if encrypted
-    if (this.isEncrypted && this.mediaEncryption) {
+    if (this.mediaEncryption) {
       this.applyEncryptTransform(producer);
     }
 
@@ -2050,7 +2032,7 @@ class VoiceService {
         });
       }
 
-      if (this.isEncrypted && this.mediaEncryption) {
+      if (this.mediaEncryption) {
         this.applyEncryptTransform(producer);
       }
 
@@ -2170,7 +2152,7 @@ class VoiceService {
 
       this.producers.set('screen-audio', audioProducer);
 
-      if (this.isEncrypted && this.mediaEncryption) {
+      if (this.mediaEncryption) {
         this.applyEncryptTransform(audioProducer);
       }
 
@@ -2235,7 +2217,7 @@ class VoiceService {
 
       updateStoreForScreenShare(producer.id, this.localScreenStream);
 
-      if (this.isEncrypted && this.mediaEncryption) {
+      if (this.mediaEncryption) {
         this.applyEncryptTransform(producer);
       }
 
@@ -2479,7 +2461,7 @@ class VoiceService {
     }
 
     // Ensure decrypt key is ready for E2EE screen share
-    if (this.isEncrypted && this.mediaEncryption) {
+    if (this.mediaEncryption) {
       const channelId = store.activeChannelId;
       if (channelId) await this.addDecryptKeyForUser(channelId, userId);
     }
@@ -2749,12 +2731,12 @@ class VoiceService {
       dtlsParameters: options.dtlsParameters,
       // E2EE (legacy path): encodedInsertableStreams enables createEncodedStreams().
       // NOT set for RTCRtpScriptTransform — the two mechanisms conflict (#295).
-      ...(this.isEncrypted &&
-        HAS_ENCODED_STREAMS && {
-          additionalSettings: {
-            encodedInsertableStreams: true,
-          } as unknown as Partial<RTCConfiguration>,
-        }),
+      // All channels are always encrypted, so this is unconditionally applied when supported.
+      ...(HAS_ENCODED_STREAMS && {
+        additionalSettings: {
+          encodedInsertableStreams: true,
+        } as unknown as Partial<RTCConfiguration>,
+      }),
     });
 
     const sendTransportId = this.sendTransport.id;
@@ -2786,9 +2768,7 @@ class VoiceService {
 
     // DEBUG: Capture SDP from the send transport's PeerConnection
     // to identify the source of the payload_type=45 BUNDLE collision
-    if (this.isEncrypted) {
-      this.logTransportSdp(this.sendTransport, 'send');
-    }
+    this.logTransportSdp(this.sendTransport, 'send');
   }
 
   /**
@@ -2798,40 +2778,12 @@ class VoiceService {
    * can never collide within a BUNDLE group.
    */
   private async createRecvTransports(): Promise<void> {
-    if (this.isEncrypted) {
-      await Promise.all([
-        this.createRecvTransportForKind('audio'),
-        this.createRecvTransportForKind('video'),
-      ]);
-    } else {
-      await this.createRecvTransportSingle();
-    }
-  }
-
-  /** Create a single recv transport (non-E2EE path — unchanged behavior) */
-  private async createRecvTransportSingle(): Promise<void> {
-    if (!this.device) throw new Error('Device not initialized before creating recv transport');
-
-    const options = await this.emitAsync<TransportOptions>('create-transport', {
-      direction: 'recv',
-    });
-
-    this.recvTransport = this.device.createRecvTransport({
-      id: options.id,
-      iceParameters: options.iceParameters,
-      iceCandidates: options.iceCandidates,
-      dtlsParameters: options.dtlsParameters,
-    });
-
-    const recvTransportId = this.recvTransport.id;
-    this.recvTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
-      this.emitAsync('connect-transport', {
-        transportId: recvTransportId,
-        dtlsParameters,
-      })
-        .then(() => callback())
-        .catch(errback);
-    });
+    // All channels are always encrypted — always create split audio/video transports
+    // to avoid BUNDLE payload_type collision (#291).
+    await Promise.all([
+      this.createRecvTransportForKind('audio'),
+      this.createRecvTransportForKind('video'),
+    ]);
   }
 
   /** Create a recv transport for a specific media kind (E2EE path) */
@@ -2904,12 +2856,9 @@ class VoiceService {
     }
   }
 
-  /** Get the recv transport for a given media kind */
+  /** Get the recv transport for a given media kind (always split audio/video — all channels are E2EE) */
   private getRecvTransport(kind: mediasoupTypes.MediaKind): mediasoupTypes.Transport | null {
-    if (this.isEncrypted) {
-      return kind === 'audio' ? this.recvTransportAudio : this.recvTransportVideo;
-    }
-    return this.recvTransport;
+    return kind === 'audio' ? this.recvTransportAudio : this.recvTransportVideo;
   }
 
   /** Get the transport ID to pass to the server for a consume request */
@@ -2920,27 +2869,27 @@ class VoiceService {
   // ─── Consumer Management ───────────────────────────────────────────
 
   /**
-   * Queue a consume operation. Serializes per-transport for E2EE (each
-   * transport has independent SDP negotiation), single queue for non-E2EE.
+   * Queue a consume operation. Serializes per-transport (each transport has
+   * independent SDP negotiation).
    */
   private async consumeProducer(
     producerId: string,
     senderUserId?: string,
     kind?: mediasoupTypes.MediaKind
   ): Promise<void> {
-    // Validate kind for E2EE transport routing
-    if (this.isEncrypted && kind && kind !== 'audio' && kind !== 'video') {
+    // Validate kind for E2EE transport routing (all channels are always E2EE)
+    if (kind && kind !== 'audio' && kind !== 'video') {
       console.warn('[consume] skipped — invalid kind for E2EE routing', { producerId, kind });
       return;
     }
-    // Warn if kind is missing in E2EE mode (fallback to single queue)
-    if (this.isEncrypted && !kind) {
-      console.warn('[consume] E2EE active but kind not provided — using single queue fallback', {
+    // Warn if kind is missing (fallback to audio queue)
+    if (!kind) {
+      console.warn('[consume] kind not provided — using audio queue fallback', {
         producerId,
       });
     }
-    if (this.isEncrypted && kind) {
-      // E2EE: route to per-transport queues so audio/video negotiate in parallel
+    if (kind) {
+      // Route to per-transport queues so audio/video negotiate in parallel
       if (kind === 'audio') {
         this.consumeQueueAudio = this.consumeQueueAudio
           .then(() => this.consumeProducerImpl(producerId, senderUserId, kind))
@@ -2953,11 +2902,11 @@ class VoiceService {
         await this.consumeQueueVideo;
       }
     } else {
-      // Non-E2EE or kind unknown: single queue (existing behavior)
-      this.consumeQueue = this.consumeQueue
+      // kind unknown: fall back to audio queue
+      this.consumeQueueAudio = this.consumeQueueAudio
         .then(() => this.consumeProducerImpl(producerId, senderUserId, kind))
         .catch((err) => console.error('Consume queue error:', err));
-      await this.consumeQueue;
+      await this.consumeQueueAudio;
     }
   }
 
@@ -3039,8 +2988,8 @@ class VoiceService {
       // Guard: ensure recv transport exists before server call to prevent
       // to avoid leaking server-side consumers that the client can't attach.
       const transportId = kind ? this.getRecvTransportId(kind) : undefined;
-      if (this.isEncrypted && kind && !transportId) {
-        console.warn('[consume] skipped — E2EE recv transport not ready for kind', {
+      if (kind && !transportId) {
+        console.warn('[consume] skipped — recv transport not ready for kind', {
           producerId,
           kind,
         });
@@ -3064,8 +3013,8 @@ class VoiceService {
         producerUserId: result.producerUserId,
       });
 
-      // Route to the correct recv transport (split for E2EE, single for non-E2EE)
-      const recvTransport = this.getRecvTransport(result.kind) || this.recvTransport;
+      // Route to the correct recv transport (split audio/video)
+      const recvTransport = this.getRecvTransport(result.kind);
       if (!recvTransport) {
         console.warn('[consume] skipped — no recvTransport for kind', {
           producerId,
@@ -3096,11 +3045,9 @@ class VoiceService {
         paused: consumer.paused,
       });
 
-      // Apply E2EE decrypt transform if encrypted
+      // Apply E2EE decrypt transform (all channels are always encrypted)
       const producerUserId = senderUserId || result.producerUserId;
-      if (this.isEncrypted) {
-        await this.ensureE2EEForConsumer(consumer, producerUserId);
-      }
+      await this.ensureE2EEForConsumer(consumer, producerUserId);
 
       // Attach stream to participant
       this.routeConsumerToStore(consumer, result);
@@ -3166,7 +3113,7 @@ class VoiceService {
       return;
     }
 
-    if (this.isEncrypted && this.mediaEncryption) {
+    if (this.mediaEncryption) {
       const channelId = store.activeChannelId;
       if (channelId) {
         await this.addDecryptKeyForUser(channelId, userId);
@@ -3250,7 +3197,7 @@ class VoiceService {
       });
 
       // E2EE: add decrypt key for new participant & rotate keys (new epoch)
-      if (this.isEncrypted && this.mediaEncryption) {
+      if (this.mediaEncryption) {
         const channelId = useVoiceStore.getState().activeChannelId;
         if (channelId) {
           await this.addDecryptKeyForUser(channelId, userId);
@@ -3266,7 +3213,7 @@ class VoiceService {
       useVoiceStore.getState().removeParticipant(userId);
 
       // E2EE: rotate keys when a member leaves (forward secrecy)
-      if (this.isEncrypted && this.mediaEncryption) {
+      if (this.mediaEncryption) {
         this.debouncedRotateE2EEKeys();
       }
 
@@ -3276,7 +3223,7 @@ class VoiceService {
 
     // E2EE: periodic epoch sync — recover from missed join/leave events
     this.socket.on('epoch-sync', async ({ epoch }: { epoch: number }) => {
-      if (!this.isEncrypted || !this.mediaEncryption) return;
+      if (!this.mediaEncryption) return;
       const localEpoch = this.mediaEncryption.getCurrentKeyId();
       if (epoch > localEpoch) {
         const gap = epoch - localEpoch;
@@ -4018,11 +3965,9 @@ class VoiceService {
 
     // Close transports
     this.sendTransport?.close();
-    this.recvTransport?.close();
     this.recvTransportAudio?.close();
     this.recvTransportVideo?.close();
     this.sendTransport = null;
-    this.recvTransport = null;
     this.recvTransportAudio = null;
     this.recvTransportVideo = null;
 
@@ -4049,14 +3994,12 @@ class VoiceService {
     }
     this.mediaEncryption?.destroy();
     this.mediaEncryption = null;
-    this.isEncrypted = false;
 
     // Clear screen share opt-in list
     useVoiceStore.getState().clearAvailableScreenShares();
 
     // Reset consume queues so pending consumes from the old session don't
     // interfere with the next join.
-    this.consumeQueue = Promise.resolve();
     this.consumeQueueAudio = Promise.resolve();
     this.consumeQueueVideo = Promise.resolve();
 

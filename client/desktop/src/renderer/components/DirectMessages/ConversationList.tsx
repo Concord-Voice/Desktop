@@ -97,7 +97,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
 
   useEffect(() => {
     for (const conv of conversations) {
-      if (conv.lastMessage?.isEncrypted && conv.lastMessage.content) {
+      if (conv.lastMessage?.content) {
         // Re-decrypt if no cache entry or the ciphertext changed (new message)
         const cached = decryptedPreviews[conv.id];
         if (!cached || cached.cipher !== conv.lastMessage.content) {
@@ -183,12 +183,8 @@ const ConversationList: React.FC<ConversationListProps> = ({
           const lastTime = conv.lastMessage?.createdAt || conv.createdAt;
           let preview = '';
           if (conv.lastMessage) {
-            if (conv.lastMessage.isEncrypted) {
-              // Use decrypted preview if available, otherwise show placeholder
-              preview = decryptedPreviews[conv.id]?.text || 'Encrypted message';
-            } else {
-              preview = conv.lastMessage.content;
-            }
+            // Use decrypted preview if available, otherwise show placeholder
+            preview = decryptedPreviews[conv.id]?.text || 'Encrypted message';
             // If no text content, show attachment type or generic fallback
             if (!preview || preview === 'Encrypted message') {
               if (conv.lastMessage.attachmentType) {

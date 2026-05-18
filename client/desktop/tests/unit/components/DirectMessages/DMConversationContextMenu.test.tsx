@@ -18,7 +18,6 @@ function makeConversation(overrides: Partial<DMConversation> = {}): DMConversati
     isGroup: false,
     isPersonal: false,
     name: null,
-    isEncrypted: true,
     participants: [
       { userId: 'user-1', username: 'alice' },
       { userId: 'user-2', username: 'bob' },
@@ -51,12 +50,6 @@ describe('DMConversationContextMenu', () => {
   it('shows Rotate Encryption Key for encrypted 1:1 DM', () => {
     renderMenu(makeConversation());
     expect(screen.getByText('Rotate Encryption Key')).toBeInTheDocument();
-  });
-
-  it('hides Rotate Encryption Key for unencrypted conversation', () => {
-    renderMenu(makeConversation({ isEncrypted: false }));
-    expect(screen.queryByText('Rotate Encryption Key')).not.toBeInTheDocument();
-    expect(screen.getByText('No actions available')).toBeInTheDocument();
   });
 
   it('shows Rotate Encryption Key for group DM when user is creator', () => {

@@ -36,7 +36,7 @@ export function useWebSocket() {
     // Build epochs map from cached channel keys
     const epochs: Record<string, number> = {};
     // Only validate channels we're subscribed to (active channels)
-    const channels = useChannelStore.getState().channels.filter((c) => c.is_encrypted);
+    const channels = useChannelStore.getState().channels;
     for (const ch of channels) {
       const version = e2eeService.getCurrentKeyVersion(ch.id);
       if (version > 0) {

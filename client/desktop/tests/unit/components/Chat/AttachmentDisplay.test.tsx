@@ -88,40 +88,24 @@ describe('AttachmentDisplay', () => {
   });
 
   it('renders nothing when no attachments', () => {
-    const { container } = render(
-      <AttachmentDisplay attachments={[]} channelId="ch-1" isEncrypted={false} />
-    );
+    const { container } = render(<AttachmentDisplay attachments={[]} channelId="ch-1" />);
     expect(container.firstChild).toBeNull();
   });
 
   // --- Image attachments ---
   it('renders image container for photo type', () => {
     const { container } = render(
-      <AttachmentDisplay attachments={[mockAttachment]} channelId="ch-1" isEncrypted={false} />
+      <AttachmentDisplay attachments={[mockAttachment]} channelId="ch-1" />
     );
     expect(container.querySelector('.attachment-image-container')).toBeInTheDocument();
   });
 
-  it('renders image after successful fetch (unencrypted)', async () => {
-    mockFetchSuccess();
-    installImmediateIO();
-    const img: AttachmentSummary = { ...mockAttachment, id: 'img-unenc-1' };
-
-    render(<AttachmentDisplay attachments={[img]} channelId="ch-1" isEncrypted={false} />);
-
-    await waitFor(() => {
-      expect(screen.getByAltText('Attachment img-unenc-1')).toBeInTheDocument();
-    });
-    expect(mockApiFetch).toHaveBeenCalledWith('/api/v1/media/attachments/img-unenc-1');
-    expect(mockDecryptFile).not.toHaveBeenCalled();
-  });
-
-  it('decrypts image when channel is encrypted', async () => {
+  it('decrypts image (always encrypted)', async () => {
     mockFetchSuccess();
     installImmediateIO();
     const img: AttachmentSummary = { ...mockAttachment, id: 'img-enc-1' };
 
-    render(<AttachmentDisplay attachments={[img]} channelId="ch-1" isEncrypted={true} />);
+    render(<AttachmentDisplay attachments={[img]} channelId="ch-1" />);
 
     await waitFor(() => {
       expect(mockDecryptFile).toHaveBeenCalled();
@@ -134,7 +118,7 @@ describe('AttachmentDisplay', () => {
     installImmediateIO();
     const img: AttachmentSummary = { ...mockAttachment, id: 'img-fail-1' };
 
-    render(<AttachmentDisplay attachments={[img]} channelId="ch-1" isEncrypted={false} />);
+    render(<AttachmentDisplay attachments={[img]} channelId="ch-1" />);
 
     await waitFor(() => {
       expect(screen.getByText('Failed to load image')).toBeInTheDocument();
@@ -143,16 +127,12 @@ describe('AttachmentDisplay', () => {
 
   // --- File attachments ---
   it('renders file attachment with download button', () => {
-    render(
-      <AttachmentDisplay attachments={[mockAttachment2]} channelId="ch-1" isEncrypted={false} />
-    );
+    render(<AttachmentDisplay attachments={[mockAttachment2]} channelId="ch-1" />);
     expect(screen.getByRole('button', { name: /download/i })).toBeInTheDocument();
   });
 
   it('renders file size and mime type', () => {
-    render(
-      <AttachmentDisplay attachments={[mockAttachment2]} channelId="ch-1" isEncrypted={false} />
-    );
+    render(<AttachmentDisplay attachments={[mockAttachment2]} channelId="ch-1" />);
     expect(screen.getByText('2.0 MB')).toBeInTheDocument();
     expect(screen.getByText('application/pdf')).toBeInTheDocument();
   });
@@ -161,9 +141,7 @@ describe('AttachmentDisplay', () => {
     mockFetchSuccess(new ArrayBuffer(50), 'application/pdf');
     const user = userEvent.setup();
 
-    render(
-      <AttachmentDisplay attachments={[mockAttachment2]} channelId="ch-1" isEncrypted={false} />
-    );
+    render(<AttachmentDisplay attachments={[mockAttachment2]} channelId="ch-1" />);
 
     await user.click(screen.getByRole('button', { name: /download/i }));
 
@@ -180,9 +158,7 @@ describe('AttachmentDisplay', () => {
       mime_type: 'video/mp4',
       file_size: 5000000,
     };
-    render(
-      <AttachmentDisplay attachments={[videoAttachment]} channelId="ch-1" isEncrypted={false} />
-    );
+    render(<AttachmentDisplay attachments={[videoAttachment]} channelId="ch-1" />);
     expect(screen.getByText('Load video')).toBeInTheDocument();
   });
 
@@ -196,7 +172,7 @@ describe('AttachmentDisplay', () => {
       file_size: 5000000,
     };
     const { container } = render(
-      <AttachmentDisplay attachments={[videoAttachment]} channelId="ch-1" isEncrypted={false} />
+      <AttachmentDisplay attachments={[videoAttachment]} channelId="ch-1" />
     );
 
     await user.click(screen.getByText('Load video'));
@@ -216,7 +192,7 @@ describe('AttachmentDisplay', () => {
       file_size: 5000000,
     };
     const { container } = render(
-      <AttachmentDisplay attachments={[videoAttachment]} channelId="ch-1" isEncrypted={false} />
+      <AttachmentDisplay attachments={[videoAttachment]} channelId="ch-1" />
     );
     await waitFor(() => {
       expect(container.querySelector('video')).toBeInTheDocument();
@@ -231,9 +207,7 @@ describe('AttachmentDisplay', () => {
       mime_type: 'video/mp4',
       file_size: 5_000_000,
     };
-    render(
-      <AttachmentDisplay attachments={[videoAttachment]} channelId="ch-1" isEncrypted={false} />
-    );
+    render(<AttachmentDisplay attachments={[videoAttachment]} channelId="ch-1" />);
     // Mime + size shown in the rich placeholder meta line
     expect(screen.getByText(/video\/mp4/)).toBeInTheDocument();
     expect(screen.getByText(/4\.8 MB|5\.0 MB|4\.77 MB/)).toBeInTheDocument();
@@ -248,9 +222,7 @@ describe('AttachmentDisplay', () => {
       mime_type: 'video/mp4',
       file_size: 1000,
     };
-    render(
-      <AttachmentDisplay attachments={[videoAttachment]} channelId="ch-1" isEncrypted={false} />
-    );
+    render(<AttachmentDisplay attachments={[videoAttachment]} channelId="ch-1" />);
     await waitFor(() => {
       expect(screen.getByText(/Failed to load video — retry/)).toBeInTheDocument();
     });
@@ -264,9 +236,7 @@ describe('AttachmentDisplay', () => {
       mime_type: 'audio/mpeg',
       file_size: 3000000,
     };
-    render(
-      <AttachmentDisplay attachments={[audioAttachment]} channelId="ch-1" isEncrypted={false} />
-    );
+    render(<AttachmentDisplay attachments={[audioAttachment]} channelId="ch-1" />);
     expect(screen.getByText('Load audio')).toBeInTheDocument();
   });
 
@@ -280,7 +250,7 @@ describe('AttachmentDisplay', () => {
       file_size: 3000000,
     };
     const { container } = render(
-      <AttachmentDisplay attachments={[audioAttachment]} channelId="ch-1" isEncrypted={false} />
+      <AttachmentDisplay attachments={[audioAttachment]} channelId="ch-1" />
     );
 
     await user.click(screen.getByText('Load audio'));
@@ -293,11 +263,7 @@ describe('AttachmentDisplay', () => {
   // --- Multiple / animated ---
   it('renders multiple attachment types together', () => {
     const { container } = render(
-      <AttachmentDisplay
-        attachments={[mockAttachment, mockAttachment2]}
-        channelId="ch-1"
-        isEncrypted={false}
-      />
+      <AttachmentDisplay attachments={[mockAttachment, mockAttachment2]} channelId="ch-1" />
     );
     expect(container.querySelector('.attachment-image-container')).toBeInTheDocument();
     expect(container.querySelector('.attachment-file-card')).toBeInTheDocument();
@@ -311,7 +277,7 @@ describe('AttachmentDisplay', () => {
       file_size: 500000,
     };
     const { container } = render(
-      <AttachmentDisplay attachments={[gifAttachment]} channelId="ch-1" isEncrypted={false} />
+      <AttachmentDisplay attachments={[gifAttachment]} channelId="ch-1" />
     );
     expect(container.querySelector('.attachment-image-container')).toBeInTheDocument();
   });
@@ -325,7 +291,7 @@ describe('AttachmentDisplay', () => {
       file_size: 1000,
     };
     const { container } = render(
-      <AttachmentDisplay attachments={[unknownFile]} channelId="ch-1" isEncrypted={false} />
+      <AttachmentDisplay attachments={[unknownFile]} channelId="ch-1" />
     );
     expect(container.querySelector('.attachment-file-card')).toBeInTheDocument();
   });
@@ -340,9 +306,7 @@ describe('AttachmentDisplay', () => {
       width: 1600,
       height: 1200,
     };
-    const { container } = render(
-      <AttachmentDisplay attachments={[sized]} channelId="ch-1" isEncrypted={false} />
-    );
+    const { container } = render(<AttachmentDisplay attachments={[sized]} channelId="ch-1" />);
     const box = container.querySelector('.attachment-image-container') as HTMLElement;
     expect(box.style.width).toBe('400px');
     expect(box.style.height).toBe('300px');
@@ -356,9 +320,7 @@ describe('AttachmentDisplay', () => {
       width: 600,
       height: 1200,
     };
-    const { container } = render(
-      <AttachmentDisplay attachments={[tall]} channelId="ch-1" isEncrypted={false} />
-    );
+    const { container } = render(<AttachmentDisplay attachments={[tall]} channelId="ch-1" />);
     const box = container.querySelector('.attachment-image-container') as HTMLElement;
     expect(box.style.width).toBe('150px');
     expect(box.style.height).toBe('300px');
@@ -371,9 +333,7 @@ describe('AttachmentDisplay', () => {
       width: 100,
       height: 80,
     };
-    const { container } = render(
-      <AttachmentDisplay attachments={[small]} channelId="ch-1" isEncrypted={false} />
-    );
+    const { container } = render(<AttachmentDisplay attachments={[small]} channelId="ch-1" />);
     const box = container.querySelector('.attachment-image-container') as HTMLElement;
     expect(box.style.width).toBe('100px');
     expect(box.style.height).toBe('80px');
@@ -393,9 +353,7 @@ describe('AttachmentDisplay', () => {
       mime_type: 'image/gif',
       file_size: 1000,
     };
-    const { container } = render(
-      <AttachmentDisplay attachments={[gif]} channelId="ch-1" isEncrypted={false} />
-    );
+    const { container } = render(<AttachmentDisplay attachments={[gif]} channelId="ch-1" />);
     await waitFor(() => {
       expect(container.querySelector('.attachment-reduced-motion-hint')).toBeInTheDocument();
     });
@@ -415,9 +373,7 @@ describe('AttachmentDisplay', () => {
       mime_type: 'image/gif',
       file_size: 1000,
     };
-    const { container } = render(
-      <AttachmentDisplay attachments={[gif]} channelId="ch-1" isEncrypted={false} />
-    );
+    const { container } = render(<AttachmentDisplay attachments={[gif]} channelId="ch-1" />);
     await waitFor(() =>
       expect(container.querySelector('.attachment-reduced-motion-hint')).toBeInTheDocument()
     );
@@ -440,9 +396,7 @@ describe('AttachmentDisplay', () => {
       mime_type: 'image/gif',
       file_size: 1000,
     };
-    const { container } = render(
-      <AttachmentDisplay attachments={[gif]} channelId="ch-1" isEncrypted={false} />
-    );
+    const { container } = render(<AttachmentDisplay attachments={[gif]} channelId="ch-1" />);
     await waitFor(() => expect(container.querySelector('img')).toBeInTheDocument());
     expect(container.querySelector('.attachment-reduced-motion-hint')).toBeNull();
   });
@@ -454,18 +408,14 @@ describe('AttachmentDisplay', () => {
       appearance: { ...s.appearance, reduceAnimations: true },
     }));
     const photo: AttachmentSummary = { ...mockAttachment, id: 'photo-reduced-1' };
-    const { container } = render(
-      <AttachmentDisplay attachments={[photo]} channelId="ch-1" isEncrypted={false} />
-    );
+    const { container } = render(<AttachmentDisplay attachments={[photo]} channelId="ch-1" />);
     await waitFor(() => expect(container.querySelector('img')).toBeInTheDocument());
     expect(container.querySelector('.attachment-reduced-motion-hint')).toBeNull();
   });
 
   it('leaves the container unsized when summary has no dimensions (legacy rows)', () => {
     const noDims: AttachmentSummary = { ...mockAttachment, id: 'nodims-1' };
-    const { container } = render(
-      <AttachmentDisplay attachments={[noDims]} channelId="ch-1" isEncrypted={false} />
-    );
+    const { container } = render(<AttachmentDisplay attachments={[noDims]} channelId="ch-1" />);
     const box = container.querySelector('.attachment-image-container') as HTMLElement;
     expect(box.style.width).toBe('');
     expect(box.style.height).toBe('');
@@ -474,7 +424,7 @@ describe('AttachmentDisplay', () => {
   it('leaves the container unsized when only width is provided (no height)', () => {
     const partialDims: AttachmentSummary = { ...mockAttachment, id: 'partial-w', width: 400 };
     const { container } = render(
-      <AttachmentDisplay attachments={[partialDims]} channelId="ch-1" isEncrypted={false} />
+      <AttachmentDisplay attachments={[partialDims]} channelId="ch-1" />
     );
     const box = container.querySelector('.attachment-image-container') as HTMLElement;
     expect(box.style.width).toBe('');
@@ -484,7 +434,7 @@ describe('AttachmentDisplay', () => {
   it('leaves the container unsized when only height is provided (no width)', () => {
     const partialDims: AttachmentSummary = { ...mockAttachment, id: 'partial-h', height: 300 };
     const { container } = render(
-      <AttachmentDisplay attachments={[partialDims]} channelId="ch-1" isEncrypted={false} />
+      <AttachmentDisplay attachments={[partialDims]} channelId="ch-1" />
     );
     const box = container.querySelector('.attachment-image-container') as HTMLElement;
     expect(box.style.width).toBe('');
@@ -503,9 +453,7 @@ describe('AttachmentDisplay', () => {
       mime_type: 'image/gif',
       file_size: 2000,
     };
-    const { container } = render(
-      <AttachmentDisplay attachments={[gif]} channelId="ch-1" isEncrypted={false} />
-    );
+    const { container } = render(<AttachmentDisplay attachments={[gif]} channelId="ch-1" />);
     await waitFor(() => {
       expect(container.querySelector('.attachment-reduced-motion-hint')).toBeInTheDocument();
     });
@@ -520,9 +468,7 @@ describe('AttachmentDisplay', () => {
       width: 800,
       height: 600,
     };
-    const { container } = render(
-      <AttachmentDisplay attachments={[sized]} channelId="ch-1" isEncrypted={false} />
-    );
+    const { container } = render(<AttachmentDisplay attachments={[sized]} channelId="ch-1" />);
     const box = container.querySelector('.attachment-image-container') as HTMLElement;
     expect(box.style.width).toBe('400px');
     expect(box.style.height).toBe('300px');
@@ -535,9 +481,7 @@ describe('AttachmentDisplay', () => {
       mime_type: 'image/jpeg',
       file_size: 50000,
     };
-    const { container } = render(
-      <AttachmentDisplay attachments={[noDims]} channelId="ch-1" isEncrypted={false} />
-    );
+    const { container } = render(<AttachmentDisplay attachments={[noDims]} channelId="ch-1" />);
     const box = container.querySelector('.attachment-image-container') as HTMLElement;
     // No inline width/height — falls back to CSS max-width/max-height
     expect(box.style.width).toBe('');

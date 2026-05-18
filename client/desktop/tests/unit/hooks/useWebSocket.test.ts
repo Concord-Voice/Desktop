@@ -167,7 +167,7 @@ describe('useWebSocket', () => {
   });
 
   describe('message handler', () => {
-    it('adds plaintext messages to chat store', () => {
+    it('adds messages to chat store (blanked when e2ee not initialized)', () => {
       useAuthStore.getState().setAccessToken('test-token');
       renderHook(() => useWebSocket());
 
@@ -181,7 +181,6 @@ describe('useWebSocket', () => {
             user_id: 'user-1',
             username: 'alice',
             content: 'Hello!',
-            is_encrypted: false,
             created_at: '2025-01-01T00:00:00Z',
           },
         });
@@ -189,7 +188,9 @@ describe('useWebSocket', () => {
 
       const msgs = useChatStore.getState().messagesByChannel.get('ch-1');
       expect(msgs).toBeDefined();
-      expect(msgs![0].content).toBe('Hello!');
+      // E2EE not initialized — content is blanked fail-closed
+      expect(msgs![0].content).toBe('');
+      expect(msgs![0].decryptFailed).toBe(true);
     });
 
     it('ignores messages without channel_id', () => {
@@ -216,7 +217,6 @@ describe('useWebSocket', () => {
         user_id: 'user-1',
         username: 'alice',
         content: 'Original',
-        is_encrypted: false,
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
       });
@@ -250,7 +250,6 @@ describe('useWebSocket', () => {
         user_id: 'user-1',
         username: 'alice',
         content: 'To delete',
-        is_encrypted: false,
         created_at: '2025-01-01T00:00:00Z',
         updated_at: '2025-01-01T00:00:00Z',
       });
@@ -294,7 +293,6 @@ describe('useWebSocket', () => {
         user_id: 'user-1',
         username: 'alice',
         content: 'Pending',
-        is_encrypted: false,
         status: 'pending',
         clientMessageId: 'nonce-1',
         created_at: '2025-01-01T00:00:00Z',
@@ -384,7 +382,6 @@ describe('useWebSocket', () => {
         server_id: 'server-1',
         name: 'old-name',
         type: 'text',
-        is_encrypted: false,
         position: 0,
         created_at: '',
         updated_at: '',
@@ -411,7 +408,6 @@ describe('useWebSocket', () => {
         server_id: 'server-1',
         name: 'doomed',
         type: 'text',
-        is_encrypted: false,
         position: 0,
         created_at: '',
         updated_at: '',

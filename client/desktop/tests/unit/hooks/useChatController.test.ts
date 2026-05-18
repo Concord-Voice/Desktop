@@ -103,33 +103,28 @@ const channelCtx: ChatContext = {
   type: 'channel',
   id: 'channel-1',
   serverId: 'server-1',
-  isEncrypted: false,
 };
 
 const encryptedChannelCtx: ChatContext = {
   type: 'channel',
   id: 'channel-2',
   serverId: 'server-1',
-  isEncrypted: true,
 };
 
 const dmCtx: ChatContext = {
   type: 'dm',
   id: 'conv-1',
-  isEncrypted: false,
 };
 
 const encryptedDMCtx: ChatContext = {
   type: 'dm',
   id: 'conv-2',
-  isEncrypted: true,
 };
 
 const voiceCtx: ChatContext = {
   type: 'voice',
   id: 'channel-3',
   serverId: 'server-1',
-  isEncrypted: false,
 };
 
 // --- Tests ---
@@ -194,21 +189,19 @@ describe('useChatController', () => {
       expect(mockMessagingSendDMMessage).toHaveBeenCalledWith(
         'conv-1',
         'hello DM',
-        false, // isEncrypted
         'testuser',
         expect.objectContaining({})
       );
       expect(mockMessagingSendMessage).not.toHaveBeenCalled();
     });
 
-    it('routes encrypted DM send with isEncrypted=true', () => {
+    it('routes DM send for encrypted DM context', () => {
       const { result } = renderHook(() => useChatController(encryptedDMCtx));
       act(() => result.current.sendMessage('secret'));
 
       expect(mockMessagingSendDMMessage).toHaveBeenCalledWith(
         'conv-2',
         'secret',
-        true, // isEncrypted
         'testuser',
         expect.objectContaining({})
       );
@@ -252,7 +245,6 @@ describe('useChatController', () => {
         type: 'channel',
         id: '',
         serverId: 'server-1',
-        isEncrypted: false,
       };
       const { result } = renderHook(() => useChatController(emptyCtx));
       act(() => result.current.sendMessage('nope'));
@@ -270,7 +262,7 @@ describe('useChatController', () => {
         ok: true,
         json: () =>
           Promise.resolve({
-            message: { content: 'edited', is_encrypted: false, edited_at: '2025-01-01T13:00:00Z' },
+            message: { content: 'edited', edited_at: '2025-01-01T13:00:00Z' },
           }),
       });
 
@@ -290,7 +282,7 @@ describe('useChatController', () => {
         ok: true,
         json: () =>
           Promise.resolve({
-            message: { content: 'edited', is_encrypted: false, edited_at: '2025-01-01T13:00:00Z' },
+            message: { content: 'edited', edited_at: '2025-01-01T13:00:00Z' },
           }),
       });
 
@@ -313,7 +305,6 @@ describe('useChatController', () => {
           Promise.resolve({
             message: {
               content: 'encrypted-content',
-              is_encrypted: true,
               key_version: 1,
               edited_at: '2025-01-01T13:00:00Z',
             },
@@ -339,7 +330,6 @@ describe('useChatController', () => {
           Promise.resolve({
             message: {
               content: 'encrypted-content',
-              is_encrypted: true,
               key_version: 1,
               edited_at: '2025-01-01T13:00:00Z',
             },
@@ -511,7 +501,7 @@ describe('useChatController', () => {
     });
 
     it('canPin is false when serverId is missing', () => {
-      const noServerCtx: ChatContext = { type: 'channel', id: 'channel-1', isEncrypted: false };
+      const noServerCtx: ChatContext = { type: 'channel', id: 'channel-1' };
       const { result } = renderHook(() => useChatController(noServerCtx));
       expect(result.current.canPin).toBe(false);
     });

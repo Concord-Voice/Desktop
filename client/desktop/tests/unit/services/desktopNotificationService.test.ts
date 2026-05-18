@@ -276,11 +276,10 @@ describe('DesktopNotificationService', () => {
       expect(body).toBe('A'.repeat(97) + '...');
     });
 
-    it('shows "New encrypted message" for encrypted messages with empty body', () => {
+    it('shows "New encrypted message" fallback for empty body', () => {
       desktopNotificationService.notify({
         title: 'Alice',
         body: '',
-        isEncrypted: true,
         targetType: 'dm',
         targetId: 'dm-123',
         senderId: 'user-1',

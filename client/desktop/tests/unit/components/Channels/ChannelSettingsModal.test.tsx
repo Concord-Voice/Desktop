@@ -42,7 +42,6 @@ const mockChannel: Channel = {
   server_id: 'server-1',
   name: 'general',
   type: 'text',
-  is_encrypted: false,
   position: 0,
   group_id: 'group-1',
   sync_permissions: false,

@@ -209,7 +209,7 @@ describe('ChatView', () => {
 
   it('renders with encrypted channel', () => {
     useChannelStore.setState({
-      channels: [{ ...mockChannel, is_encrypted: true }],
+      channels: [{ ...mockChannel }],
       activeChannelId: 'channel-1',
     });
     render(<ChatView />);
@@ -278,16 +278,6 @@ describe('ChatView', () => {
   });
 
   // ── MessageInput props ──
-
-  it('passes isChannelEncrypted to MessageInput', () => {
-    useChannelStore.setState({
-      channels: [{ ...mockChannel, is_encrypted: true }],
-      activeChannelId: 'channel-1',
-    });
-    render(<ChatView />);
-    const input = screen.getByTestId('message-input');
-    expect(input).toHaveAttribute('data-encrypted', 'true');
-  });
 
   it('passes serverId to MessageInput', () => {
     useChannelStore.setState({ activeChannelId: 'channel-1' });

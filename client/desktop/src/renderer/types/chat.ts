@@ -12,8 +12,6 @@ export interface ChatContext {
   id: string;
   /** Required for RBAC permission lookups (channels/voice only) */
   serverId?: string;
-  /** Whether messages in this context are E2EE-encrypted */
-  isEncrypted: boolean;
 }
 
 // --- Attachment Types (for #178) ---
@@ -35,7 +33,6 @@ export interface Message {
   channel_id: string;
   user_id: string;
   content: string;
-  is_encrypted: boolean;
   key_version?: number;
   gif_slug?: string;
   edited_at?: string;
@@ -91,7 +88,6 @@ export interface RepliedToMessage {
   username: string;
   display_name?: string;
   content: string;
-  is_encrypted: boolean;
   key_version?: number;
 }
 
@@ -102,7 +98,6 @@ export interface Channel {
   description?: string;
   type: 'text' | 'voice' | 'bulletin';
   emoji?: string; // Optional custom emoji set by admins
-  is_encrypted: boolean;
   audio_quality_tier?: string | null; // Admin override: voice/standard/high/hifi/studio or null (personal)
   group_id?: string | null; // FK to channel_groups; null = uncategorized
   linked_voice_channel_id?: string | null; // Non-null = hidden text chat attached to a voice channel

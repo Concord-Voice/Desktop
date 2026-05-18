@@ -10,7 +10,6 @@ describe('ReplyPreviewBar', () => {
     username: 'testuser',
     display_name: 'Test User',
     content: 'Hello, world!',
-    is_encrypted: false,
   };
 
   it('renders author and snippet', () => {

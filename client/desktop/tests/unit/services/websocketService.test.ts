@@ -302,7 +302,7 @@ describe('WebSocketService', () => {
       const ws = await connectAndWaitForOpen(service);
       ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
 
-      service.sendMessage('ch-1', 'Hello', { nonce: 'nonce-1', isEncrypted: false });
+      service.sendMessage('ch-1', 'Hello', { nonce: 'nonce-1' });
 
       const sent = JSON.parse(ws.sentMessages[ws.sentMessages.length - 1]);
       expect(sent.type).toBe('message');

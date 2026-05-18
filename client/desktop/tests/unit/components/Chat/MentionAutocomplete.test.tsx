@@ -418,7 +418,6 @@ describe('MentionAutocomplete', () => {
             },
           ],
           isGroup: false,
-          isEncrypted: false,
           createdAt: '',
           updatedAt: '',
         },

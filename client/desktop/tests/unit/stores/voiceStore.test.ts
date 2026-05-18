@@ -503,15 +503,6 @@ describe('voiceStore', () => {
     });
   });
 
-  // ===== Encryption =====
-
-  describe('encryption', () => {
-    it('sets encrypted flag', () => {
-      useVoiceStore.getState().setEncrypted(true);
-      expect(useVoiceStore.getState().isEncrypted).toBe(true);
-    });
-  });
-
   // ===== Active speaker =====
 
   describe('active speaker', () => {

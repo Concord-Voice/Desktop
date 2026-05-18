@@ -76,7 +76,6 @@ describe('useWebSocketMessages — reply passthrough', () => {
           user_id: 'user-2',
           username: 'otheruser',
           content: 'This is a reply',
-          is_encrypted: false,
           reply_to_id: 'msg-original',
           created_at: '2025-01-01T12:00:00Z',
           updated_at: '2025-01-01T12:00:00Z',
@@ -100,7 +99,6 @@ describe('useWebSocketMessages — reply passthrough', () => {
       username: 'testuser',
       display_name: 'Test User',
       content: 'Original message',
-      is_encrypted: false,
       key_version: 1,
     };
 
@@ -114,7 +112,6 @@ describe('useWebSocketMessages — reply passthrough', () => {
           user_id: 'user-2',
           username: 'otheruser',
           content: 'Reply with context',
-          is_encrypted: false,
           reply_to_id: 'msg-original',
           replied_to: repliedTo,
           created_at: '2025-01-01T12:00:00Z',
@@ -144,7 +141,6 @@ describe('useWebSocketMessages — reply passthrough', () => {
           user_id: 'user-2',
           username: 'otheruser',
           content: 'Just a normal message',
-          is_encrypted: false,
           created_at: '2025-01-01T12:00:00Z',
           updated_at: '2025-01-01T12:00:00Z',
         },

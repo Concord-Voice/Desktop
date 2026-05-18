@@ -26,9 +26,9 @@ const mockSetActiveChannel = vi.fn();
 vi.mock('@/renderer/stores/channelStore', () => {
   const store = {
     channels: [
-      { id: 'ch-1', name: 'general', type: 'text', is_encrypted: false },
-      { id: 'ch-2', name: 'secret', type: 'text', is_encrypted: true },
-      { id: 'ch-3', name: 'voice-room', type: 'voice', is_encrypted: false },
+      { id: 'ch-1', name: 'general', type: 'text' },
+      { id: 'ch-2', name: 'secret', type: 'text' },
+      { id: 'ch-3', name: 'voice-room', type: 'voice' },
     ],
     setActiveChannel: (...args: unknown[]) => mockSetActiveChannel(...args),
     currentServerId: 'srv-1',

@@ -208,11 +208,9 @@ const ChannelItem: React.FC<ChannelItemProps> = ({
           <span className="channel-type-icon">{getChannelTypeIcon(channel.type)}</span>
           {channel.emoji && <span className="channel-custom-emoji">{channel.emoji}</span>}
           <span className="channel-name">{channel.name}</span>
-          {channel.is_encrypted && (
-            <span className="channel-encrypted-icon" title="End-to-End Encrypted">
-              <Lock size={12} />
-            </span>
-          )}
+          <span className="channel-encrypted-icon" title="End-to-End Encrypted">
+            <Lock size={12} />
+          </span>
           {hasDraft && !isActive && (
             <span className="channel-draft-indicator" title="Draft message">
               <PenLine size={12} />

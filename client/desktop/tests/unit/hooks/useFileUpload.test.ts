@@ -185,7 +185,7 @@ describe('useFileUpload', () => {
 
     let uploadResult: { ids: string[]; summaries: unknown[] } | undefined;
     await act(async () => {
-      uploadResult = await result.current.uploadAll('channel-1', false);
+      uploadResult = await result.current.uploadAll('channel-1');
     });
 
     expect(uploadResult?.ids).toContain('attach-uploaded-1');
@@ -210,14 +210,14 @@ describe('useFileUpload', () => {
     });
 
     await act(async () => {
-      await result.current.uploadAll('channel-1', false);
+      await result.current.uploadAll('channel-1');
     });
 
     expect(result.current.files[0].status).toBe('error');
     expect(result.current.files[0].error).toBeDefined();
   });
 
-  it('uploads with encryption when isEncrypted is true', async () => {
+  it('uploads with encryption (always)', async () => {
     const { encryptFile } = await import('@/renderer/utils/attachmentCrypto');
     mockApiFetch.mockResolvedValue({ ok: true, status: 201 });
     mockSafeJson.mockResolvedValue({
@@ -233,7 +233,7 @@ describe('useFileUpload', () => {
     });
 
     await act(async () => {
-      await result.current.uploadAll('channel-1', true);
+      await result.current.uploadAll('channel-1');
     });
 
     expect(encryptFile).toHaveBeenCalled();
@@ -255,7 +255,7 @@ describe('useFileUpload', () => {
     });
 
     await act(async () => {
-      await result.current.uploadAll('channel-1', false, 'conv-123');
+      await result.current.uploadAll('channel-1', 'conv-123');
     });
 
     // Verify the FormData included conversation_id
@@ -280,13 +280,13 @@ describe('useFileUpload', () => {
 
     // First upload
     await act(async () => {
-      await result.current.uploadAll('channel-1', false);
+      await result.current.uploadAll('channel-1');
     });
 
     // Second call — no pending files
     let secondResult: { ids: string[] } | undefined;
     await act(async () => {
-      secondResult = await result.current.uploadAll('channel-1', false);
+      secondResult = await result.current.uploadAll('channel-1');
     });
 
     expect(secondResult?.ids).toContain('attach-first');
@@ -439,7 +439,7 @@ describe('useFileUpload — image dimension hydration', () => {
       | { ids: string[]; summaries: { width?: number; height?: number }[] }
       | undefined;
     await act(async () => {
-      uploadResult = (await result.current.uploadAll('channel-1', false)) as typeof uploadResult;
+      uploadResult = (await result.current.uploadAll('channel-1')) as typeof uploadResult;
     });
 
     expect(uploadResult?.summaries[0].width).toBe(800);

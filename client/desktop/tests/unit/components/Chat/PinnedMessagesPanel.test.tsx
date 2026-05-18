@@ -37,7 +37,6 @@ const mockPins: MessageWithUser[] = [
     content: 'Pinned message one',
     username: 'testuser',
     display_name: 'Test User',
-    is_encrypted: false,
     created_at: '2025-01-01T12:00:00Z',
     updated_at: '2025-01-01T12:00:00Z',
     pinned_at: '2025-01-01T13:00:00Z',
@@ -49,7 +48,6 @@ const mockPins: MessageWithUser[] = [
     user_id: 'user-2',
     content: 'Pinned message two',
     username: 'testuser2',
-    is_encrypted: false,
     created_at: '2025-01-01T12:01:00Z',
     updated_at: '2025-01-01T12:01:00Z',
     pinned_at: '2025-01-01T13:01:00Z',
@@ -71,8 +69,11 @@ describe('PinnedMessagesPanel', () => {
     canPin: true,
   };
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // Reset isInitialized to false before each test (enableE2EE persists via defineProperty)
+    const { e2eeService } = await import('@/renderer/services/e2eeService');
+    Object.defineProperty(e2eeService, 'isInitialized', { value: false, writable: true });
     mockGetChannelPins.mockResolvedValue(mockPins);
     mockUnpinMessage.mockResolvedValue({ message_id: 'pin-1' });
   });
@@ -83,6 +84,12 @@ describe('PinnedMessagesPanel', () => {
   });
 
   it('shows loading state then renders pinned messages', async () => {
+    await enableE2EE();
+    mockGetChannelKey.mockResolvedValue({} as CryptoKey);
+    mockDecryptWithKey
+      .mockResolvedValueOnce('Pinned message one')
+      .mockResolvedValueOnce('Pinned message two');
+
     render(<PinnedMessagesPanel {...defaultProps} />);
 
     await waitFor(() => {
@@ -130,6 +137,12 @@ describe('PinnedMessagesPanel', () => {
   });
 
   it('hides Unpin buttons when canPin is false', async () => {
+    await enableE2EE();
+    mockGetChannelKey.mockResolvedValue({} as CryptoKey);
+    mockDecryptWithKey
+      .mockResolvedValueOnce('Pinned message one')
+      .mockResolvedValueOnce('Pinned message two');
+
     render(<PinnedMessagesPanel {...defaultProps} canPin={false} />);
 
     await waitFor(() => {
@@ -156,9 +169,7 @@ describe('PinnedMessagesPanel', () => {
   });
 
   it('shows encrypted message placeholder for encrypted pins', async () => {
-    mockGetChannelPins.mockResolvedValue([
-      { ...mockPins[0], is_encrypted: true, content: 'ciphertext' },
-    ]);
+    mockGetChannelPins.mockResolvedValue([{ ...mockPins[0], content: 'ciphertext' }]);
 
     render(<PinnedMessagesPanel {...defaultProps} />);
 
@@ -169,6 +180,9 @@ describe('PinnedMessagesPanel', () => {
 
   it('truncates long message content', async () => {
     const longContent = 'A'.repeat(250);
+    await enableE2EE();
+    mockGetChannelKey.mockResolvedValue({} as CryptoKey);
+    mockDecryptWithKey.mockResolvedValueOnce(longContent);
     mockGetChannelPins.mockResolvedValue([{ ...mockPins[0], content: longContent }]);
 
     render(<PinnedMessagesPanel {...defaultProps} />);
@@ -187,7 +201,6 @@ describe('PinnedMessagesPanel', () => {
       content: 'ciphertext-abc',
       username: 'testuser',
       display_name: 'Test User',
-      is_encrypted: true,
       created_at: '2025-01-01T12:00:00Z',
       updated_at: '2025-01-01T12:00:00Z',
       pinned_at: '2025-01-01T13:00:00Z',
@@ -266,6 +279,12 @@ describe('PinnedMessagesPanel', () => {
   });
 
   it('hides Unpin button when canPin is false', async () => {
+    await enableE2EE();
+    mockGetChannelKey.mockResolvedValue({} as CryptoKey);
+    mockDecryptWithKey
+      .mockResolvedValueOnce('Pinned message one')
+      .mockResolvedValueOnce('Pinned message two');
+
     render(<PinnedMessagesPanel {...defaultProps} canPin={false} />);
 
     await waitFor(() => {
@@ -278,6 +297,12 @@ describe('PinnedMessagesPanel', () => {
   });
 
   it('shows Unpin button when canPin is true', async () => {
+    await enableE2EE();
+    mockGetChannelKey.mockResolvedValue({} as CryptoKey);
+    mockDecryptWithKey
+      .mockResolvedValueOnce('Pinned message one')
+      .mockResolvedValueOnce('Pinned message two');
+
     render(<PinnedMessagesPanel {...defaultProps} canPin={true} />);
 
     await waitFor(() => {

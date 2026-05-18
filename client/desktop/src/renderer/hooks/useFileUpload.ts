@@ -241,11 +241,7 @@ export function useFileUpload() {
   }, []);
 
   const uploadAll = useCallback(
-    async (
-      channelId: string,
-      isEncrypted: boolean,
-      conversationId?: string
-    ): Promise<UploadResult> => {
+    async (channelId: string, conversationId?: string): Promise<UploadResult> => {
       const hasPending = files.some((f) => f.status === 'pending');
       if (!hasPending) {
         return collectDoneFiles(files);
@@ -259,11 +255,9 @@ export function useFileUpload() {
 
       let channelKey: CryptoKey | null = null;
       let keyVersion: number | undefined;
-      if (isEncrypted) {
-        const keyChannelId = conversationId || channelId;
-        channelKey = await e2eeService.getChannelKey(keyChannelId);
-        keyVersion = e2eeService.getCurrentKeyVersion(keyChannelId);
-      }
+      const keyChannelId = conversationId || channelId;
+      channelKey = await e2eeService.getChannelKey(keyChannelId);
+      keyVersion = e2eeService.getCurrentKeyVersion(keyChannelId);
 
       for (let i = 0; i < files.length; i++) {
         if (abortRef.current) break;

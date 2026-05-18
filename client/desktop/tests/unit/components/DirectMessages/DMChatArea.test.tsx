@@ -191,7 +191,6 @@ const makeConversation = (overrides: Partial<DMConversation> = {}): DMConversati
   isGroup: false,
   isPersonal: false,
   name: null,
-  isEncrypted: false,
   participants: [
     { userId: 'user-1', username: 'me', displayName: 'Me', status: 'online' },
     { userId: 'user-2', username: 'alice', displayName: 'Alice', status: 'online' },
@@ -497,24 +496,6 @@ describe('DMChatArea', () => {
 
   // --- Encrypted Conversation ---
 
-  it('passes isChannelEncrypted=true for encrypted conversations', () => {
-    useDMStore.setState({
-      conversations: [makeConversation({ isEncrypted: true })],
-    });
-    render(<DMChatArea selectedThreadId="conv-1" />);
-    const messageInput = screen.getByTestId('message-input');
-    expect(messageInput).toHaveAttribute('data-encrypted', 'true');
-  });
-
-  it('passes isChannelEncrypted=false for unencrypted conversations', () => {
-    useDMStore.setState({
-      conversations: [makeConversation({ isEncrypted: false })],
-    });
-    render(<DMChatArea selectedThreadId="conv-1" />);
-    const messageInput = screen.getByTestId('message-input');
-    expect(messageInput).toHaveAttribute('data-encrypted', 'false');
-  });
-
   // --- Message Fetch ---
 
   it('fetches messages for the selected thread', () => {
@@ -752,7 +733,6 @@ describe('DMChatArea', () => {
     expect(mockSendDMMessage).toHaveBeenCalledWith(
       'conv-1',
       'Hello world',
-      false, // isEncrypted
       'testuser',
       expect.objectContaining({})
     );
@@ -779,30 +759,13 @@ describe('DMChatArea', () => {
   // Send failure/offline/encryption tests have moved to useChatController.test.ts and useMessaging.test.ts
   // since DMChatArea now delegates all send logic to useChatController → useMessaging.
 
-  it('passes isEncrypted=true to sendDMMessage for encrypted conversations', () => {
-    useDMStore.setState({
-      conversations: [makeConversation({ isEncrypted: true })],
-    });
-    render(<DMChatArea selectedThreadId="conv-1" />);
-
-    fireEvent.click(screen.getByTestId('trigger-send'));
-
-    expect(mockSendDMMessage).toHaveBeenCalledWith(
-      'conv-1',
-      'Hello world',
-      true, // isEncrypted
-      'testuser',
-      expect.objectContaining({})
-    );
-  });
-
   // --- handleEditMessage ---
 
   it('edits a message via REST API', async () => {
     mockApiFetch.mockResolvedValue({
       ok: true,
       json: async () => ({
-        message: { content: 'edited text', is_encrypted: false, edited_at: '2025-01-02T00:00:00Z' },
+        message: { content: 'edited text', edited_at: '2025-01-02T00:00:00Z' },
       }),
     });
     const mockUpdateMessage = vi.fn();
@@ -838,7 +801,7 @@ describe('DMChatArea', () => {
     fireEvent.click(screen.getByTestId('trigger-edit'));
 
     await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith('Failed to edit DM message:', expect.any(Error));
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to edit DM message:', expect.any(String));
     });
     consoleSpy.mockRestore();
   });
@@ -886,7 +849,7 @@ describe('DMChatArea', () => {
     fireEvent.click(screen.getByTestId('trigger-delete'));
 
     await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith('Failed to delete DM message:', expect.any(Error));
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to delete DM message:', expect.any(String));
     });
     consoleSpy.mockRestore();
   });
@@ -1001,14 +964,13 @@ describe('DMChatArea', () => {
       json: async () => ({
         message: {
           content: 'encrypted-edited',
-          is_encrypted: true,
           edited_at: '2025-01-02T00:00:00Z',
         },
       }),
     });
 
     useDMStore.setState({
-      conversations: [makeConversation({ isEncrypted: true })],
+      conversations: [makeConversation()],
     });
     const mockUpdateMessage = vi.fn();
     useChatStore.setState({ updateMessage: mockUpdateMessage });
@@ -1049,7 +1011,6 @@ describe('DMChatArea', () => {
     expect(mockSendDMMessage).toHaveBeenCalledWith(
       'conv-1',
       'Reply msg',
-      false, // isEncrypted
       'testuser',
       expect.objectContaining({
         replyToId: 'parent-msg-1',

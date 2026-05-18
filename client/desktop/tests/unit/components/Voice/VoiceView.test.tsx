@@ -49,7 +49,6 @@ function setConnectedState(overrides: Record<string, unknown> = {}) {
     participants: {},
     effectiveQualityTier: 'standard',
     decoderHealth: 'green',
-    isEncrypted: false,
     tunedInScreenShares: {},
     availableScreenShares: [],
     showVoiceTextChat: false,
@@ -77,7 +76,6 @@ describe('VoiceView', () => {
       connectionState: 'disconnected',
       channelVoiceMembers: {},
       participants: {},
-      isEncrypted: false,
       isScreenSharing: false,
       keepActiveWhileUnfocused: false,
       localStreamPaused: false,
@@ -200,16 +198,10 @@ describe('VoiceView', () => {
     expect(screen.getByTestId('voice-controls')).toBeInTheDocument();
   });
 
-  it('shows E2EE badge when isEncrypted', () => {
-    setConnectedState({ isEncrypted: true });
+  it('always shows E2EE badge (all channels are encrypted)', () => {
+    setConnectedState();
     render(<VoiceView channelId={VOICE_CHANNEL_ID} channelName="General" />);
     expect(screen.getByText('E2EE')).toBeInTheDocument();
-  });
-
-  it('does not show E2EE badge when not encrypted', () => {
-    setConnectedState({ isEncrypted: false });
-    render(<VoiceView channelId={VOICE_CHANNEL_ID} channelName="General" />);
-    expect(screen.queryByText('E2EE')).not.toBeInTheDocument();
   });
 
   it('shows quality tier badge', () => {
@@ -340,7 +332,6 @@ describe('VoiceView', () => {
           server_id: 's1',
           name: 'voice-text',
           type: 'text',
-          is_encrypted: false,
           position: 0,
           linked_voice_channel_id: VOICE_CHANNEL_ID,
           created_at: '',
@@ -361,7 +352,6 @@ describe('VoiceView', () => {
           server_id: 's1',
           name: 'voice-text',
           type: 'text',
-          is_encrypted: false,
           position: 0,
           linked_voice_channel_id: VOICE_CHANNEL_ID,
           created_at: '',
@@ -478,7 +468,6 @@ describe('VoiceView', () => {
           server_id: 's1',
           name: 'voice-text',
           type: 'text',
-          is_encrypted: false,
           position: 0,
           linked_voice_channel_id: VOICE_CHANNEL_ID,
           created_at: '',
@@ -526,7 +515,6 @@ describe('VoiceView', () => {
           server_id: 's1',
           name: 'voice-text',
           type: 'text',
-          is_encrypted: false,
           position: 0,
           linked_voice_channel_id: VOICE_CHANNEL_ID,
           created_at: '',

@@ -3,16 +3,11 @@ import { e2eeService } from '../../services/e2eeService';
 
 export type DecryptedPin = MessageWithUser & { decrypted?: boolean; decryptFailed?: boolean };
 
-export function renderPinContent(
-  content: string,
-  isEncrypted: boolean,
-  decrypted?: boolean,
-  decryptFailed?: boolean
-) {
+export function renderPinContent(content: string, decrypted?: boolean, decryptFailed?: boolean) {
   if (decryptFailed) {
     return <span className="pinned-message-encrypted">Unable to decrypt</span>;
   }
-  if (isEncrypted && !decrypted) {
+  if (!decrypted) {
     return <span className="pinned-message-encrypted">Encrypted message</span>;
   }
   if (content.length > 200) {
@@ -26,9 +21,8 @@ export async function decryptPins(
   contextId: string,
   msgs: MessageWithUser[]
 ): Promise<DecryptedPin[]> {
-  const hasEncrypted = msgs.some((m) => m.is_encrypted);
-  if (!hasEncrypted || !e2eeService.isInitialized) {
-    return msgs; // No decrypted flag set — renderPinContent will show placeholder
+  if (!e2eeService.isInitialized) {
+    return msgs; // No decrypted flag set — renderPinContent will show "Encrypted message" placeholder
   }
 
   // Pre-fetch channel key once
@@ -42,7 +36,7 @@ export async function decryptPins(
   // Collect unique key versions for batch pre-fetch
   const versions = new Set<number>();
   for (const m of msgs) {
-    if (m.is_encrypted && m.key_version && m.key_version > 1) {
+    if (m.key_version && m.key_version > 1) {
       versions.add(m.key_version);
     }
   }
@@ -57,7 +51,6 @@ export async function decryptPins(
 
   return Promise.all(
     msgs.map(async (m) => {
-      if (!m.is_encrypted) return { ...m, decrypted: false };
       try {
         const kv = m.key_version;
         let plaintext: string;
