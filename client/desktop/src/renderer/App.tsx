@@ -26,6 +26,10 @@ import { preferencesSyncService, type PreferencesSyncDeps } from './services/pre
 import { useSettingsStore } from './stores/settingsStore';
 import { useLayoutStore } from './stores/layoutStore';
 import { savedGifsSyncService } from './services/savedGifsSync';
+import {
+  hydrateNotificationPreferences,
+  startExpirySweep,
+} from './services/notificationPrefsService';
 import { usePrivacyStore } from './stores/privacyStore';
 import { klipyClient } from './services/gifProvider/klipyClient';
 import { clientConfigService } from './services/clientConfigService';
@@ -347,6 +351,15 @@ function App() {
             await preferencesSyncService.fetchAndApply();
             savedGifsSyncService.startWatching();
             await savedGifsSyncService.fetchAndApply();
+            // Notification mute prefs hydration mirrors the fresh-login path
+            // in Login.tsx. Wrapping in try/catch keeps a network blip during
+            // restore from blocking the rest of the session-restore flow.
+            try {
+              await hydrateNotificationPreferences();
+              startExpirySweep();
+            } catch (err) {
+              console.warn('Failed to hydrate notification preferences:', err);
+            }
             console.debug('E2EE service restored from stored session keys');
           } catch (err) {
             console.warn('Failed to restore E2EE keys — E2EE features will require re-login:', err);

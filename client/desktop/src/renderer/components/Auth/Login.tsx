@@ -5,6 +5,10 @@ import { preferencesSyncService } from '../../services/preferencesSync';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { savedGifsSyncService } from '../../services/savedGifsSync';
+import {
+  hydrateNotificationPreferences,
+  startExpirySweep,
+} from '../../services/notificationPrefsService';
 import { useAuthStore } from '../../stores/authStore';
 import { API_BASE, apiFetch, ensureMachineId } from '../../services/apiClient';
 import { UserProfile } from '../../stores/userStore';
@@ -364,6 +368,16 @@ const Login: React.FC<LoginProps> = ({
     await preferencesSyncService.fetchAndApply();
     savedGifsSyncService.startWatching();
     await savedGifsSyncService.fetchAndApply();
+    // Notification mute prefs: fetch the user's full set and start the
+    // expiry sweep so timed mutes get reaped. Failure here is non-fatal —
+    // worst case the user sees notifications they previously muted until
+    // the next successful hydration.
+    try {
+      await hydrateNotificationPreferences();
+      startExpirySweep();
+    } catch (err) {
+      console.warn('Failed to hydrate notification preferences:', err);
+    }
 
     onSuccess({
       accessToken: data.access_token,

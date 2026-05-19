@@ -371,8 +371,12 @@ describe('ConversationList', () => {
     render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
     const item = screen.getByLabelText('Alice');
     fireEvent.contextMenu(item);
-    // All DM conversations are E2EE — context menu shows key rotation option
-    expect(screen.getByText('Rotate Encryption Key')).toBeInTheDocument();
+    // Issue #84 added Mute Conversation as the always-present menu item;
+    // it replaces the prior "No actions available" fallback. Asserting on
+    // Mute is the most robust marker that the context menu opened — it's
+    // there regardless of encryption state, while Rotate Encryption Key
+    // depends on the conversation being encrypted.
+    expect(screen.getByText('Mute Conversation')).toBeInTheDocument();
   });
 
   it('renders multiple conversations', () => {

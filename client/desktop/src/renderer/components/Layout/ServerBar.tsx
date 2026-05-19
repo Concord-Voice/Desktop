@@ -4,6 +4,10 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { MessageSquare, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useServerStore } from '../../stores/serverStore';
 import { useUnreadStore } from '../../stores/unreadStore';
+import {
+  useNotificationPrefsStore,
+  isEntryCurrentlyMuted,
+} from '../../stores/notificationPrefsStore';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { useAuthStore } from '../../stores/authStore';
@@ -43,6 +47,12 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
   const setActiveServer = useServerStore((s) => s.setActiveServer);
   const serverUnreadSet = useUnreadStore((s) => s.serverUnreadSet);
   const serverVoiceCounts = useVoiceStore((s) => s.serverVoiceCounts);
+  // Subscribe to the muted-servers map so this row re-renders when a mute
+  // is toggled. We read entries inside the render closure (per-server) to
+  // honor the expiry check inline — Map identity already changes when
+  // setMute / removeMute fire, so the subscription is sufficient to drive
+  // re-renders on every toggle.
+  const mutedServers = useNotificationPrefsStore((s) => s.mutedServers);
 
   const serverFolders = useLayoutStore((s) => s.serverFolders);
   const serverOrder = useLayoutStore((s) => s.serverOrder);
@@ -563,6 +573,11 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
           {/* Server icons */}
           {barServers.map((server) => {
             const hasUnread = serverUnreadSet.has(server.id);
+            // Inline mute-state check via the shared store helper so we
+            // honor `mutedUntil` expiry without waiting for the 60s sweep.
+            // A muted server gets a data-muted attribute and a corner icon;
+            // see ServerBar.css for the visual treatment.
+            const isMuted = isEntryCurrentlyMuted(mutedServers.get(server.id));
             const magSize = getMagSize(server.id);
             const isScaled = magSize > baseIconSize;
             const ghostBefore =
@@ -611,11 +626,12 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
                       else iconRefs.current.delete(server.id);
                     }}
                     className="server-bar-icon"
+                    data-muted={isMuted ? 'true' : undefined}
                     draggable={false}
                     style={{ width: magSize, height: magSize }}
                     onClick={() => handleServerClick(server)}
                     onContextMenu={(e) => handleContextMenu(e, server)}
-                    aria-label={`${server.name} server`}
+                    aria-label={`${server.name} server${isMuted ? ' (muted)' : ''}`}
                   >
                     {server.icon_url ? (
                       <img src={server.icon_url} alt={server.name} draggable={false} />
@@ -627,6 +643,30 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
                   </button>
 
                   {hasUnread && <span className="server-bar-badge" />}
+                  {isMuted && (
+                    // Small bell-with-slash overlay in the corner. The icon
+                    // sits absolutely over the bottom-right; CSS handles
+                    // sizing relative to the dynamic magSize so it scales
+                    // with hover-zoom.
+                    <span className="server-bar-mute-overlay" aria-hidden="true">
+                      <svg viewBox="0 0 12 12" width="100%" height="100%" fill="none">
+                        <circle cx="6" cy="6" r="6" fill="var(--bg-secondary)" />
+                        <path
+                          d="M4 4.5a2 2 0 014 0v2l.5.5h-5l.5-.5v-2z"
+                          stroke="currentColor"
+                          strokeWidth="0.9"
+                          strokeLinejoin="round"
+                          fill="none"
+                        />
+                        <path
+                          d="M3 3l6 6"
+                          stroke="currentColor"
+                          strokeWidth="0.9"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                    </span>
+                  )}
                 </div>
                 {ghostAfter && ghost}
               </React.Fragment>

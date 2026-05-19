@@ -3,6 +3,7 @@ import ServerBar from '@/renderer/components/Layout/ServerBar';
 import { useServerStore } from '@/renderer/stores/serverStore';
 import { useUnreadStore } from '@/renderer/stores/unreadStore';
 import { useAuthStore } from '@/renderer/stores/authStore';
+import { useNotificationPrefsStore } from '@/renderer/stores/notificationPrefsStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 import { mockServer, mockServer2 } from '../../../mocks/fixtures';
 import { vi } from 'vitest';
@@ -89,5 +90,67 @@ describe('ServerBar', () => {
     render(<ServerBar onOpenActionModal={onOpenActionModal} onContextMenu={onContextMenu} />);
     const skeletons = document.querySelectorAll('.skeleton');
     expect(skeletons.length).toBeGreaterThan(0);
+  });
+
+  // ─── Muted-server visual state (#84) ────────────────────────────────────
+
+  describe('muted server visual state', () => {
+    it('paints data-muted + the bell-slash overlay on a muted server', () => {
+      // mockServer2 is in the scrollable list (not the active-server slot),
+      // which is where the muted styling lives. mockServer is active.
+      useServerStore.setState({
+        servers: [mockServer, mockServer2],
+        activeServerId: mockServer.id,
+        isLoading: false,
+      });
+      useNotificationPrefsStore.getState().setMute('server', mockServer2.id, true, null);
+
+      render(<ServerBar onOpenActionModal={onOpenActionModal} onContextMenu={onContextMenu} />);
+
+      // The muted server's icon button carries data-muted="true" so the CSS
+      // selector (.server-bar-icon[data-muted='true']) lands the 60% opacity.
+      const btn = screen.getByLabelText('Second Server server (muted)');
+      expect(btn).toHaveAttribute('data-muted', 'true');
+
+      // The corner overlay element is rendered as a sibling — verify by class.
+      // (No accessible name on purpose — it's a decorative cue, aria-hidden.)
+      const overlay = btn.parentElement?.querySelector('.server-bar-mute-overlay');
+      expect(overlay).toBeInTheDocument();
+    });
+
+    it('omits data-muted and the overlay when the server is not muted', () => {
+      useServerStore.setState({
+        servers: [mockServer, mockServer2],
+        activeServerId: mockServer.id,
+        isLoading: false,
+      });
+      // Deliberately no setMute call — the server should render with no
+      // muted treatment at all.
+
+      render(<ServerBar onOpenActionModal={onOpenActionModal} onContextMenu={onContextMenu} />);
+
+      const btn = screen.getByLabelText('Second Server server');
+      expect(btn).not.toHaveAttribute('data-muted');
+      const overlay = btn.parentElement?.querySelector('.server-bar-mute-overlay');
+      expect(overlay).not.toBeInTheDocument();
+    });
+
+    it('treats an expired timed mute as unmuted (no overlay) before the sweep', () => {
+      // A timed mute that has already expired stays in the store until the
+      // 60s sweep prunes it, but the inline expiry check in
+      // isEntryCurrentlyMuted should make the UI render as unmuted.
+      useServerStore.setState({
+        servers: [mockServer, mockServer2],
+        activeServerId: mockServer.id,
+        isLoading: false,
+      });
+      const past = new Date(Date.now() - 60_000);
+      useNotificationPrefsStore.getState().setMute('server', mockServer2.id, true, past);
+
+      render(<ServerBar onOpenActionModal={onOpenActionModal} onContextMenu={onContextMenu} />);
+
+      const btn = screen.getByLabelText('Second Server server');
+      expect(btn).not.toHaveAttribute('data-muted');
+    });
   });
 });

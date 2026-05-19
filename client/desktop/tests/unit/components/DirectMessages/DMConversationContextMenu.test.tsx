@@ -52,6 +52,16 @@ describe('DMConversationContextMenu', () => {
     expect(screen.getByText('Rotate Encryption Key')).toBeInTheDocument();
   });
 
+  it('always shows Mute Conversation regardless of conversation type', () => {
+    // The "No actions available" fallback was removed with issue #84 —
+    // the mute action is always available, so the menu can never be empty
+    // for any conversation. The unencrypted-DM case that used to live here
+    // was removed when main dropped is_encrypted (migration
+    // 000062_remove_is_encrypted) — every DM is now encrypted by definition.
+    renderMenu(makeConversation());
+    expect(screen.getByText('Mute Conversation')).toBeInTheDocument();
+  });
+
   it('shows Rotate Encryption Key for group DM when user is creator', () => {
     renderMenu(
       makeConversation({
@@ -72,7 +82,8 @@ describe('DMConversationContextMenu', () => {
       })
     );
     expect(screen.queryByText('Rotate Encryption Key')).not.toBeInTheDocument();
-    expect(screen.getByText('No actions available')).toBeInTheDocument();
+    // Mute is always present — see the unencrypted-conversation case above.
+    expect(screen.getByText('Mute Conversation')).toBeInTheDocument();
   });
 
   it('calls correct API endpoint and shows success', async () => {

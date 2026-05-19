@@ -25,6 +25,22 @@ import { useDMStore } from '../stores/dmStore';
 import { useFriendStore } from '../stores/friendStore';
 import { speak as ttsSpeak } from '../services/ttsService';
 import { notificationSoundService } from '../services/notificationSoundService';
+import { isChannelMuted, isDMMuted } from '../stores/notificationPrefsStore';
+
+/**
+ * True if the user has Do Not Disturb on. DND suppresses ALL notification
+ * surfacing (badges, sounds, desktop notifications, server-dot marking) —
+ * the WebSocket events still arrive and the chat content still updates,
+ * the client just doesn't draw attention to anything.
+ *
+ * Per issue #84, when DND turns off the client backfills unread counts for
+ * the active server (the visible one) so the user sees the right state
+ * without waiting for new traffic. That refetch is wired in App.tsx via a
+ * status-transition effect, not here.
+ */
+function isDoNotDisturb(): boolean {
+  return useMemberStore.getState().selfStatus === 'dnd';
+}
 import { indexMessage } from '../services/searchService';
 import { unwrapGifEnvelope } from '../utils/gifEnvelope';
 import {
@@ -84,6 +100,19 @@ function handleUnreadNotify(msg: WebSocketMessage): void {
   const serverId = data.server_id as string | undefined;
 
   if (channelId && shouldSuppressLinkedTextNotification(channelId)) return;
+
+  // DND check: when Do Not Disturb is on, drop every notification side
+  // effect outright. Sits BEFORE the mute check because DND is the
+  // broader-stroke override — it doesn't matter what the user's per-target
+  // prefs are when they've explicitly asked for quiet.
+  if (isDoNotDisturb()) return;
+
+  // Mute check: a muted channel (or its parent server, when the channel has
+  // no explicit override) must NOT increment unread counters, mark the
+  // server as having unread, OR play a sound. The resolution order lives in
+  // isChannelMuted — channel pref wins outright, server pref is the
+  // fallback. Bail at the top so every downstream side-effect is skipped.
+  if (channelId && isChannelMuted(channelId, serverId ?? null)) return;
 
   const isMentioned = data.mentioned === true;
   const activeServerId = useServerStore.getState().activeServerId;
@@ -464,7 +493,11 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
       // Notification sound for focused-channel messages (from other users)
       const selfId = useUserStore.getState().user?.id;
-      if (data.user_id !== selfId) {
+      // DND check first (broadest), then per-target mute. The user has the
+      // channel open but has explicitly muted it OR has DND on — either
+      // way, no sound and no desktop notification.
+      const muted = isChannelMuted(channelId, data.server_id ?? null);
+      if (data.user_id !== selfId && !muted && !isDoNotDisturb()) {
         notificationSoundService.play('message', { focused: true });
 
         // Desktop notification for channel messages (#175)
@@ -1148,8 +1181,9 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         useDMStore.getState().bumpConversation(conversationId, lastMessagePreview);
       }
 
-      // Notification sound for DM messages (from other users)
-      if (data.user_id !== selfId) {
+      // Notification sound for DM messages (from other users). DND wins
+      // over everything; the per-target DM mute is the secondary gate.
+      if (data.user_id !== selfId && !isDMMuted(conversationId) && !isDoNotDisturb()) {
         notificationSoundService.play('dm', { focused: true });
 
         // Desktop notification for DM messages (#175)
@@ -1269,6 +1303,17 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       ) {
         return;
       }
+
+      // DND check: same rationale as in handleUnreadNotify — the broadest
+      // suppression sits first.
+      if (isDoNotDisturb()) return;
+
+      // Mute check for DMs: drop the notification entirely (badge + sound +
+      // last-message preview update). Skipping the preview update is the
+      // right call here — preview is a side effect of the notification UX,
+      // not of message storage; muting should make the conversation feel
+      // quiet, not advance its preview behind the user's back.
+      if (isDMMuted(conversationId)) return;
 
       useDMStore.getState().incrementUnread(conversationId);
       if (isDMMentioned) {

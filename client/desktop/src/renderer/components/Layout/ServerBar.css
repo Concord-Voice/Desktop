@@ -213,6 +213,34 @@
   color: var(--text-primary);
 }
 
+/* ─── Muted Server Treatment ──────────────────────────────────────────────
+ *
+ * A muted server gets ~60% opacity on its icon plus a small bell-with-slash
+ * overlay in the bottom-right corner. Both cues are intentional: the
+ * opacity is the at-a-glance signal (the eye scans for "darker = quieter")
+ * and the overlay is the explicit confirmation. Unread badges are
+ * suppressed at the data level (no badge ever appears for a muted server),
+ * so the overlay never visually competes with one.
+ * ─────────────────────────────────────────────────────────────────────── */
+
+.server-bar-icon[data-muted='true'] {
+  opacity: 0.6;
+}
+
+.server-bar-mute-overlay {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  pointer-events: none;
+  z-index: 6;
+}
+
 /* ─── Unread Badge ──────────────────────────────────────────────────────── */
 
 .server-bar-badge {

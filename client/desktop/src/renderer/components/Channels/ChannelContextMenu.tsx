@@ -8,6 +8,7 @@ import { apiFetch } from '../../services/apiClient';
 import { useRotateKey } from '../../hooks/useRotateKey';
 import { Channel } from '../../types/chat';
 import ContextMenu from '../ui/ContextMenu';
+import MuteContextMenuItem from '../Notifications/MuteContextMenuItem';
 import './ChannelContextMenu.css';
 
 interface ChannelContextMenuProps {
@@ -97,29 +98,12 @@ const ChannelContextMenu: React.FC<ChannelContextMenuProps> = ({
         }}
       />
 
-      {/* Mute Channel — disabled, no backend */}
-      <ContextMenu.Item
-        icon={
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M12.5 5.5v-1a2 2 0 00-2-2h-5a2 2 0 00-2 2v5a2 2 0 002 2h1"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-            />
-            <path d="M2 2l12 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            <path
-              d="M9 8a3 3 0 013 3v1H8"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-        }
-        label="Mute Channel"
-        disabled
-        onClick={() => {}}
+      {/* Mute / Unmute Channel — duration submenu when muting. */}
+      <MuteContextMenuItem
+        targetType="channel"
+        targetId={channel.id}
+        kindLabel="Channel"
+        onAction={onClose}
       />
 
       {/* Copy Link */}

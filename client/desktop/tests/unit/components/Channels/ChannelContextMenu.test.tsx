@@ -48,11 +48,19 @@ describe('ChannelContextMenu', () => {
     expect(screen.getByText('Mark as Read')).toBeInTheDocument();
   });
 
-  it('shows Mute Channel item (disabled)', () => {
+  it('shows Mute Channel item that opens the duration submenu', () => {
+    // The mute action is now live (issue #84) — the old "disabled
+    // placeholder" assertion has been replaced. The trigger shows
+    // "Mute Channel" when the channel is currently unmuted; clicking it
+    // opens a duration picker rather than firing a mute outright. Assert
+    // both halves so a regression on either path fails this test.
     renderMenu();
     const muteBtn = screen.getByText('Mute Channel');
     expect(muteBtn).toBeInTheDocument();
-    expect(muteBtn.closest('button')).toBeDisabled();
+    expect(muteBtn.closest('button')).not.toBeDisabled();
+    fireEvent.click(muteBtn);
+    expect(screen.getByText('For 15 minutes')).toBeInTheDocument();
+    expect(screen.getByText('Until I turn it back on')).toBeInTheDocument();
   });
 
   it('shows Edit/Delete for owner', () => {

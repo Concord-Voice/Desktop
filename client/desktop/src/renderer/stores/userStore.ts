@@ -7,6 +7,8 @@ import { getWebSocketService } from '../services/websocketService';
 import { e2eeService } from '../services/e2eeService';
 import { preferencesSyncService } from '../services/preferencesSync';
 import { savedGifsSyncService } from '../services/savedGifsSync';
+import { stopExpirySweep } from '../services/notificationPrefsService';
+import { useNotificationPrefsStore } from './notificationPrefsStore';
 import {
   deriveKeyFromPassword,
   deriveKeyArgon2id,
@@ -114,6 +116,11 @@ export const useUserStore = wrapStore(
           // Stop syncing preferences and saved GIFs before tearing down
           preferencesSyncService.stopWatching();
           savedGifsSyncService.stopWatching();
+          // Stop the mute-prefs expiry sweep timer and clear any in-memory
+          // prefs so the next user's session doesn't inherit the previous
+          // user's mute list.
+          stopExpirySweep();
+          useNotificationPrefsStore.getState().clearAll();
           // Reset sync suppression flag in case Settings was open during logout
           import('./settingsStore').then(({ setSyncSuppressed }) => setSyncSuppressed(false));
           e2eeService.clearKeys();

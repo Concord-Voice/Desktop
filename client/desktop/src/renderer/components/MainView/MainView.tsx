@@ -31,6 +31,7 @@ import { usePermissionStore } from '../../stores/permissionStore';
 import { Permissions, hasPermission } from '../../utils/permissions';
 import { useServerChannelSubscriptions } from '../../hooks/useServerChannelSubscriptions';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
+import { useDNDTransitionRefresh } from '../../hooks/useDNDTransitionRefresh';
 import ShortcutOverlay from '../ui/ShortcutOverlay';
 import ChannelSwitcher from '../ui/ChannelSwitcher';
 import { ServerWithRole } from '../../types/server';
@@ -106,6 +107,9 @@ const MainView: React.FC = () => {
   // Subscribe to ALL channels in the active server for unread tracking
   useServerChannelSubscriptions();
   useKeyboardShortcuts();
+  // When the user turns DND off, refetch unread counts for the active
+  // server so stale state from the suppressed-notify window resolves.
+  useDNDTransitionRefresh();
 
   const [isServerActionModalOpen, setIsServerActionModalOpen] = useState(false);
   const [isCreateServerModalOpen, setIsCreateServerModalOpen] = useState(false);

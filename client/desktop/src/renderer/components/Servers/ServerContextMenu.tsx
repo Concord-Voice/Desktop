@@ -6,6 +6,7 @@ import { useUserStore } from '../../stores/userStore';
 import { Permissions } from '../../utils/permissions';
 import { apiFetch } from '../../services/apiClient';
 import ContextMenu from '../ui/ContextMenu';
+import MuteContextMenuItem from '../Notifications/MuteContextMenuItem';
 import './ServerContextMenu.css';
 
 interface ServerContextMenuProps {
@@ -61,6 +62,14 @@ const ServerContextMenu: React.FC<ServerContextMenuProps> = ({
           apiFetch(`/api/v1/servers/${server.id}/read`, { method: 'POST' }).catch(() => {});
           onClose();
         }}
+      />
+
+      {/* Mute / Unmute Server — duration submenu when muting, instant unmute. */}
+      <MuteContextMenuItem
+        targetType="server"
+        targetId={server.id}
+        kindLabel="Server"
+        onAction={onClose}
       />
 
       {/* Server Settings — admin/owner only */}

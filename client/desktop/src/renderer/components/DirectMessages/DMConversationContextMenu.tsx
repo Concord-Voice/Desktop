@@ -1,5 +1,6 @@
 import React from 'react';
 import ContextMenu from '../ui/ContextMenu';
+import MuteContextMenuItem from '../Notifications/MuteContextMenuItem';
 import { useRotateKey } from '../../hooks/useRotateKey';
 import type { DMConversation } from '../../stores/dmStore';
 
@@ -31,7 +32,16 @@ const DMConversationContextMenu: React.FC<DMConversationContextMenuProps> = ({
 
   return (
     <ContextMenu position={position} onClose={onClose}>
-      {canRotateKey ? (
+      {/* Mute / Unmute Conversation — always available regardless of rotate-key
+          permissions; muting is user-scoped, not gated on group admin role. */}
+      <MuteContextMenuItem
+        targetType="dm"
+        targetId={conversation.id}
+        kindLabel="Conversation"
+        onAction={onClose}
+      />
+
+      {canRotateKey && (
         <ContextMenu.Item
           icon={
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -51,8 +61,6 @@ const DMConversationContextMenu: React.FC<DMConversationContextMenuProps> = ({
           disabled={rotateStatus === 'success'}
           onClick={handleRotate}
         />
-      ) : (
-        <ContextMenu.Item label="No actions available" disabled onClick={() => {}} />
       )}
     </ContextMenu>
   );

@@ -18,6 +18,7 @@ import { useVoiceStore } from '../../src/renderer/stores/voiceStore';
 import { useSSOStore } from '../../src/renderer/stores/ssoStore';
 import { useE2EEStore } from '../../src/renderer/stores/e2eeStore';
 import { usePendingRegistrationStore } from '../../src/renderer/stores/pendingRegistrationStore';
+import { useNotificationPrefsStore } from '../../src/renderer/stores/notificationPrefsStore';
 
 /**
  * Resets all Zustand stores to their initial state.
@@ -47,6 +48,7 @@ export function resetAllStores(): void {
   useSSOStore.getState().reset();
   useE2EEStore.getState().reset();
   usePendingRegistrationStore.getState().clearPending();
+  useNotificationPrefsStore.getState().clearAll();
 
   // Clear persisted state from localStorage AND sessionStorage
   // (pendingRegistrationStore persists to sessionStorage)
