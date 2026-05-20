@@ -35,6 +35,7 @@
  */
 
 import { apiFetch } from '../apiClient';
+import { API_BASE } from '@/renderer/config';
 
 const KLIPY_PROXY_BASE = '/api/v1/klipy';
 const CUSTOMER_ID_STORAGE_KEY = 'concord:klipy-customer-id';
@@ -55,6 +56,11 @@ const KLIPY_MEDIA_HOSTS = ['.klipy.com', '.klipy.io', 'klipy.com', 'klipy.io'];
  *
  * The control-plane endpoint validates the host against an allowlist before
  * fetching, so passing an arbitrary URL will result in a 400, not an SSRF.
+ *
+ * Returns an absolute URL (prefixed with API_BASE) so it resolves against the
+ * API host when used as <img src> / <video src>, rather than the renderer
+ * origin (which is `app://concord/` in bundled mode after #830 and would
+ * dead-end at the asar protocol handler with ERR_UNEXPECTED).
  */
 export function rewriteMediaUrl(url: string | undefined): string | undefined {
   if (!url) return url;
@@ -65,7 +71,7 @@ export function rewriteMediaUrl(url: string | undefined): string | undefined {
       (suffix) => host === suffix || host.endsWith('.' + suffix.replace(/^\./, ''))
     );
     if (!isKlipy) return url;
-    return `${KLIPY_PROXY_BASE}/media?url=${encodeURIComponent(url)}`;
+    return `${API_BASE}${KLIPY_PROXY_BASE}/media?url=${encodeURIComponent(url)}`;
   } catch {
     return url;
   }

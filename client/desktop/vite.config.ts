@@ -2,10 +2,11 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { cspProdStripPlugin } from './scripts/csp-prod-strip';
 
 export default defineConfig(() => {
   return {
-    plugins: [react()],
+    plugins: [react(), cspProdStripPlugin()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),

@@ -1,4 +1,5 @@
 import { klipyClient, rewriteMediaUrl } from '@/renderer/services/gifProvider/klipyClient';
+import { API_BASE } from '@/renderer/config';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
 // All KLIPY traffic now goes through the control-plane proxy via apiFetch.
@@ -298,7 +299,23 @@ describe('klipyClient', () => {
 });
 
 describe('rewriteMediaUrl', () => {
-  const proxy = (u: string) => `/api/v1/klipy/media?url=${encodeURIComponent(u)}`;
+  // The rewritten URL MUST be absolute — see the regression-guard test below
+  // and the comment on rewriteMediaUrl in klipyClient.ts for context.
+  const proxy = (u: string) => `${API_BASE}/api/v1/klipy/media?url=${encodeURIComponent(u)}`;
+
+  // Regression guard for the bundled-mode regression introduced by PR #830.
+  // The rewritten URL is consumed directly by <img src> / <video src>, which
+  // resolves relative URLs against the renderer origin (`app://concord/` in
+  // bundled mode after #830). A relative URL therefore dead-ends at the asar
+  // protocol handler with net::ERR_UNEXPECTED. The URL MUST be absolute AND
+  // MUST target the configured API host — binding to API_BASE explicitly
+  // closes the "wrong absolute host" gap that a loose `^https?://` regex
+  // would miss.
+  it('returns an absolute URL targeting API_BASE so <img src> resolves against the API host', () => {
+    const result = rewriteMediaUrl('https://media.klipy.com/a.mp4');
+    expect(result?.startsWith(API_BASE)).toBe(true);
+    expect(result).toContain('/api/v1/klipy/media?url=');
+  });
 
   it('rewrites klipy.com subdomains', () => {
     expect(rewriteMediaUrl('https://media.klipy.com/a.mp4')).toBe(
@@ -317,6 +334,16 @@ describe('rewriteMediaUrl', () => {
   it('does not rewrite non-KLIPY URLs', () => {
     const url = 'https://example.com/image.gif';
     expect(rewriteMediaUrl(url)).toBe(url);
+  });
+
+  // Defense in depth — explicit guard that non-KLIPY URLs aren't accidentally
+  // proxied through the API. The strict-equality test above already covers this
+  // implicitly, but a named invariant makes the intent visible to future readers
+  // and prevents a regression where `API_BASE` leaks into the passthrough path.
+  it('does not prefix API_BASE onto non-KLIPY URLs', () => {
+    const url = 'https://example.com/image.gif';
+    const result = rewriteMediaUrl(url);
+    expect(result?.startsWith(API_BASE)).toBe(false);
   });
 
   it('does not rewrite URLs that merely contain "klipy" in path', () => {

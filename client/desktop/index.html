@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -16,16 +16,18 @@
            resolution, PR #970).
       The meta tag below is the authoritative CSP for the renderer.
     -->
-    <meta http-equiv="Content-Security-Policy"
-          content="default-src 'self';
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
                    script-src 'self' 'wasm-unsafe-eval';
                    script-src-elem 'self' 'wasm-unsafe-eval';
                    style-src 'self' 'unsafe-inline';
                    connect-src 'self' ws://localhost:* http://localhost:* wss://localhost:* https://localhost:* ws://127.0.0.1:* http://127.0.0.1:* https://concordvoice.chat wss://concordvoice.chat https://*.concordvoice.chat wss://*.concordvoice.chat;
-                   img-src 'self' data: blob: https://cdn.jsdelivr.net;
-                   media-src 'self' blob:;
+                   img-src 'self' data: blob: https://cdn.jsdelivr.net http://localhost:* http://127.0.0.1:* https://concordvoice.chat https://*.concordvoice.chat;
+                   media-src 'self' blob: http://localhost:* http://127.0.0.1:* https://concordvoice.chat https://*.concordvoice.chat;
                    base-uri 'self';
-                   form-action 'self';">
+                   form-action 'self';"
+    />
     <title>Concord Voice</title>
   </head>
   <body>

@@ -1,5 +1,6 @@
 import { klipyProvider } from '@/renderer/services/gifProvider/klipyProvider';
 import type { KlipyGifItem } from '@/renderer/services/gifProvider/klipyClient';
+import { API_BASE } from '@/renderer/config';
 
 // Mock the low-level klipyClient so we can verify klipyProvider's translation logic
 // without making any real HTTP calls.
@@ -113,7 +114,7 @@ describe('klipyProvider', () => {
       getBySlugMock.mockResolvedValue(mockMp4Item);
       const r = await klipyProvider.getBySlug('mp4-only');
       expect(r.animatedUrl).toBe(
-        '/api/v1/klipy/media?url=' + encodeURIComponent('https://media.klipy.com/m.mp4')
+        `${API_BASE}/api/v1/klipy/media?url=` + encodeURIComponent('https://media.klipy.com/m.mp4')
       );
       expect(r.animatedKind).toBe('video');
     });
@@ -122,7 +123,7 @@ describe('klipyProvider', () => {
       getBySlugMock.mockResolvedValue(mockGifItem);
       const r = await klipyProvider.getBySlug('gif-only');
       expect(r.animatedUrl).toBe(
-        '/api/v1/klipy/media?url=' + encodeURIComponent('https://media.klipy.com/g.gif')
+        `${API_BASE}/api/v1/klipy/media?url=` + encodeURIComponent('https://media.klipy.com/g.gif')
       );
       expect(r.animatedKind).toBe('image');
     });
@@ -131,7 +132,7 @@ describe('klipyProvider', () => {
       getBySlugMock.mockResolvedValue(mockWebpItem);
       const r = await klipyProvider.getBySlug('webp-only');
       expect(r.animatedUrl).toBe(
-        '/api/v1/klipy/media?url=' + encodeURIComponent('https://media.klipy.com/w.webp')
+        `${API_BASE}/api/v1/klipy/media?url=` + encodeURIComponent('https://media.klipy.com/w.webp')
       );
       expect(r.animatedKind).toBe('image');
     });
@@ -140,7 +141,8 @@ describe('klipyProvider', () => {
       getBySlugMock.mockResolvedValue(mockMixedItem);
       const r = await klipyProvider.getBySlug('all-three');
       expect(r.animatedUrl).toBe(
-        '/api/v1/klipy/media?url=' + encodeURIComponent('https://media.klipy.com/all.mp4')
+        `${API_BASE}/api/v1/klipy/media?url=` +
+          encodeURIComponent('https://media.klipy.com/all.mp4')
       );
       expect(r.animatedKind).toBe('video');
     });
@@ -149,7 +151,7 @@ describe('klipyProvider', () => {
       getBySlugMock.mockResolvedValue(mockMp4Item);
       const r = await klipyProvider.getBySlug('mp4-only');
       expect(r.stillUrl).toBe(
-        '/api/v1/klipy/media?url=' + encodeURIComponent('https://media.klipy.com/m.jpg')
+        `${API_BASE}/api/v1/klipy/media?url=` + encodeURIComponent('https://media.klipy.com/m.jpg')
       );
     });
 
@@ -157,7 +159,7 @@ describe('klipyProvider', () => {
       getBySlugMock.mockResolvedValue(mockGifItem);
       const r = await klipyProvider.getBySlug('gif-only');
       expect(r.stillUrl).toBe(
-        '/api/v1/klipy/media?url=' + encodeURIComponent('https://media.klipy.com/g.gif')
+        `${API_BASE}/api/v1/klipy/media?url=` + encodeURIComponent('https://media.klipy.com/g.gif')
       );
     });
 
