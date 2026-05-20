@@ -4,6 +4,7 @@ import { useServerStore } from '../stores/serverStore';
 import { useChannelStore } from '../stores/channelStore';
 import { useUnreadStore } from '../stores/unreadStore';
 import { apiFetch } from '../services/apiClient';
+import { errorMessage } from '../utils/redactError';
 
 /**
  * Watches the user's self-status and refetches unread counts for the
@@ -60,8 +61,7 @@ export function useDNDTransitionRefresh(): void {
           else useUnreadStore.getState().clearServerUnread(activeServerId);
         })
         .catch((err) => {
-          // eslint-disable-next-line no-restricted-syntax -- pre-existing pattern preserved to keep PR #1086 narrowly scoped to npm-lint scope alignment; raw-err audit deferred to follow-up #1095 (per internal-reference "Console error logging")
-          console.warn('Failed to refresh unread counts after DND toggle-off:', err);
+          console.warn('Failed to refresh unread counts after DND toggle-off:', errorMessage(err));
         });
     });
     return unsub;

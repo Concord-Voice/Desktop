@@ -27,10 +27,7 @@ import { preferencesSyncService, type PreferencesSyncDeps } from './services/pre
 import { useSettingsStore } from './stores/settingsStore';
 import { useLayoutStore } from './stores/layoutStore';
 import { savedGifsSyncService } from './services/savedGifsSync';
-import {
-  hydrateNotificationPreferences,
-  startExpirySweep,
-} from './services/notificationPrefsService';
+import { tryHydrateNotificationPrefs } from './services/notificationPrefsService';
 import { usePrivacyStore } from './stores/privacyStore';
 import { klipyClient } from './services/gifProvider/klipyClient';
 import { clientConfigService } from './services/clientConfigService';
@@ -355,15 +352,9 @@ function App() {
             savedGifsSyncService.startWatching();
             await savedGifsSyncService.fetchAndApply();
             // Notification mute prefs hydration mirrors the fresh-login path
-            // in Login.tsx. Wrapping in try/catch keeps a network blip during
-            // restore from blocking the rest of the session-restore flow.
-            try {
-              await hydrateNotificationPreferences();
-              startExpirySweep();
-            } catch (err) {
-              // eslint-disable-next-line no-restricted-syntax -- pre-existing pattern preserved to keep PR #1086 narrowly scoped to npm-lint scope alignment; raw-err audit deferred to follow-up #1095 (per internal-reference "Console error logging")
-              console.warn('Failed to hydrate notification preferences:', err);
-            }
+            // in Login.tsx. The helper wraps its own try/catch so a network
+            // blip during restore doesn't block the session-restore flow.
+            await tryHydrateNotificationPrefs();
             console.debug('E2EE service restored from stored session keys');
           } catch (err) {
             console.warn(

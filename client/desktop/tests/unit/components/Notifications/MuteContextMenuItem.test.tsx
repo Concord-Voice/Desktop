@@ -181,4 +181,43 @@ describe('MuteContextMenuItem', () => {
     renderItem({ targetType: 'server', kindLabel: 'Server' });
     expect(screen.getByText('Mute Server')).toBeInTheDocument();
   });
+
+  it('swallows a setMutePreference rejection on the unmute path with a console.warn', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Seed an active mute so the trigger renders as "Unmute" and the click
+    // takes the direct setMutePreference(false, null) path (no submenu).
+    useNotificationPrefsStore.getState().setMute('server', TARGET_ID, true, null);
+    vi.mocked(setMutePreference).mockRejectedValueOnce(new Error('network down'));
+
+    renderItem({ targetType: 'server', kindLabel: 'Server' });
+    fireEvent.click(screen.getByText('Unmute Server'));
+
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+    const args = warnSpy.mock.calls[0];
+    expect(args[0]).toBe('Failed to unmute target:');
+    expect(args[1]).toBe('server');
+    expect(args[2]).toBe('network down');
+    warnSpy.mockRestore();
+  });
+
+  it('swallows a setMutePreference rejection on the mute path with a console.warn', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.mocked(setMutePreference).mockRejectedValueOnce(new Error('rate limited'));
+
+    renderItem({ targetType: 'channel', kindLabel: 'Channel' });
+    // Open the duration submenu, then pick the indefinite option to fire mute(true).
+    fireEvent.click(screen.getByText('Mute Channel'));
+    fireEvent.click(screen.getByText('Until I turn it back on'));
+
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledTimes(1);
+    });
+    const args = warnSpy.mock.calls[0];
+    expect(args[0]).toBe('Failed to mute target:');
+    expect(args[1]).toBe('channel');
+    expect(args[2]).toBe('rate limited');
+    warnSpy.mockRestore();
+  });
 });

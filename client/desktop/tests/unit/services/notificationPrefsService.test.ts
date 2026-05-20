@@ -21,6 +21,7 @@ import {
   mutedUntilFromDuration,
   startExpirySweep,
   stopExpirySweep,
+  tryHydrateNotificationPrefs,
   MUTE_DURATION_LABELS,
 } from '@/renderer/services/notificationPrefsService';
 import { useNotificationPrefsStore } from '@/renderer/stores/notificationPrefsStore';
@@ -175,6 +176,78 @@ describe('expiry sweep timer', () => {
     startExpirySweep();
     vi.advanceTimersByTime(60_000);
     expect(useNotificationPrefsStore.getState().mutedServers.has(SERVER_ID)).toBe(false);
+    stopExpirySweep();
+  });
+});
+
+describe('tryHydrateNotificationPrefs', () => {
+  it('hydrates and starts the expiry sweep on success', async () => {
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+    mockApiFetch.mockResolvedValueOnce(
+      mockJsonResponse({
+        preferences: [
+          {
+            target_type: 'server',
+            target_id: SERVER_ID,
+            muted: true,
+            muted_until: null,
+          },
+        ],
+      })
+    );
+
+    await tryHydrateNotificationPrefs();
+
+    // Hydration ran (store populated)
+    expect(useNotificationPrefsStore.getState().mutedServers.has(SERVER_ID)).toBe(true);
+    // Sweep started (setInterval called exactly once for the sweep timer)
+    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+    stopExpirySweep();
+  });
+
+  it('swallows hydrate failures with a console.warn (Error case)', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockApiFetch.mockResolvedValueOnce(mockJsonResponse({}, false));
+
+    // Must not throw — the helper swallows the rejection.
+    await expect(tryHydrateNotificationPrefs()).resolves.toBeUndefined();
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const args = warnSpy.mock.calls[0];
+    expect(args[0]).toBe('Failed to hydrate notification preferences:');
+    expect(args[1]).toBe('Failed to fetch notification preferences');
+    warnSpy.mockRestore();
+  });
+
+  it('swallows non-Error throws with the unknown_error fallback', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Force apiFetch to throw a non-Error value (rare but covered by errorMessage).
+    mockApiFetch.mockImplementationOnce(() => {
+      throw 'sso_mfa_failed';
+    });
+
+    await expect(tryHydrateNotificationPrefs()).resolves.toBeUndefined();
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const args = warnSpy.mock.calls[0];
+    expect(args[0]).toBe('Failed to hydrate notification preferences:');
+    expect(args[1]).toBe('unknown_error');
+    warnSpy.mockRestore();
+  });
+
+  it('repeated invocation is safe — startExpirySweep stays single-shot', async () => {
+    const setIntervalSpy = vi.spyOn(globalThis, 'setInterval');
+    mockApiFetch.mockResolvedValue(mockJsonResponse({ preferences: [] }));
+
+    await tryHydrateNotificationPrefs();
+    await tryHydrateNotificationPrefs();
+
+    // The first call registers the sweep timer; the second's startExpirySweep
+    // is a no-op (sweepTimer already set), so exactly one setInterval call.
+    expect(setIntervalSpy).toHaveBeenCalledTimes(1);
+    // Both invocations resolved without throwing — proven by the line above
+    // being reached.
+    expect(mockApiFetch).toHaveBeenCalledTimes(2);
     stopExpirySweep();
   });
 });

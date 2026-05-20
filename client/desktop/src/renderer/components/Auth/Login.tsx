@@ -6,10 +6,7 @@ import { preferencesSyncService } from '../../services/preferencesSync';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { savedGifsSyncService } from '../../services/savedGifsSync';
-import {
-  hydrateNotificationPreferences,
-  startExpirySweep,
-} from '../../services/notificationPrefsService';
+import { tryHydrateNotificationPrefs } from '../../services/notificationPrefsService';
 import { useAuthStore } from '../../stores/authStore';
 import { API_BASE, apiFetch, ensureMachineId } from '../../services/apiClient';
 import { UserProfile } from '../../stores/userStore';
@@ -371,15 +368,9 @@ const Login: React.FC<LoginProps> = ({
     await savedGifsSyncService.fetchAndApply();
     // Notification mute prefs: fetch the user's full set and start the
     // expiry sweep so timed mutes get reaped. Failure here is non-fatal —
-    // worst case the user sees notifications they previously muted until
-    // the next successful hydration.
-    try {
-      await hydrateNotificationPreferences();
-      startExpirySweep();
-    } catch (err) {
-      // eslint-disable-next-line no-restricted-syntax -- pre-existing pattern preserved to keep PR #1086 narrowly scoped to npm-lint scope alignment; raw-err audit deferred to follow-up #1095 (per internal-reference "Console error logging")
-      console.warn('Failed to hydrate notification preferences:', err);
-    }
+    // the helper swallows network blips with a console warning so the user
+    // can still proceed past login.
+    await tryHydrateNotificationPrefs();
 
     onSuccess({
       accessToken: data.access_token,

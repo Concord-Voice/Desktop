@@ -4,6 +4,7 @@ import {
   type MuteTargetType,
   type PreferenceWire,
 } from '../stores/notificationPrefsStore';
+import { errorMessage } from '../utils/redactError';
 
 // Re-export so existing service consumers (MuteContextMenuItem) keep working
 // without changing their import path. The canonical definition lives in the
@@ -132,4 +133,24 @@ export function stopExpirySweep(): void {
   if (sweepTimer === null) return;
   clearInterval(sweepTimer);
   sweepTimer = null;
+}
+
+/**
+ * Hydrate notification preferences and start the expiry sweep, swallowing
+ * network/parse failures with a console warning. Used by both fresh-login
+ * (Login.tsx) and session-restore (App.tsx) flows — a network blip here
+ * is non-fatal: the user can still send/receive, they just see notifications
+ * for muted targets until the next successful hydration.
+ *
+ * Extracted into a single helper so the two call sites stop duplicating the
+ * try/catch and so the inner catch contributes 0 cognitive complexity to
+ * the calling functions (App.tsx's restore() in particular was at 18/15).
+ */
+export async function tryHydrateNotificationPrefs(): Promise<void> {
+  try {
+    await hydrateNotificationPreferences();
+    startExpirySweep();
+  } catch (err) {
+    console.warn('Failed to hydrate notification preferences:', errorMessage(err));
+  }
 }
