@@ -225,6 +225,13 @@ describe('UserProfileModal', () => {
       expect(screen.getByText('Links')).toBeInTheDocument();
       expect(screen.getByText('github.com/test')).toBeInTheDocument();
     });
+
+    // Regression marker for #800: the global a[target='_blank'] CSS rule in
+    // index.css depends on this attribute being present. If a future refactor
+    // drops it, profile links go back to the invisible UA-default blue.
+    const link = screen.getByText('github.com/test').closest('a');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
   it('displays Member Since date from profile', async () => {

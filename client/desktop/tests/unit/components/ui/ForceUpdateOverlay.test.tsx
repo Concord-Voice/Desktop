@@ -155,6 +155,14 @@ describe('ForceUpdateOverlay', () => {
 
     expect(screen.getByText(/Download manually/)).toBeInTheDocument();
     expect(screen.getByText('Retry')).toBeInTheDocument();
+
+    // Regression marker for #800: the global a[target='_blank'] CSS rule in
+    // index.css depends on this attribute being present. If a future refactor
+    // drops it, the manual-download link goes back to the invisible
+    // UA-default blue against the dark overlay backdrop.
+    const link = screen.getByText(/Download manually/).closest('a');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
   });
 
   it('shows Continue Anyway after 2 failures', async () => {

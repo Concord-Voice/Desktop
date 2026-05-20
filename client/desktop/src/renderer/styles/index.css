@@ -516,8 +516,15 @@
   --motion-duration-slow: 400ms;
   --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
-  --link-color: var(--accent-primary);
-  --link-color-hover: var(--accent-hover);
+  /* Fox Den breaks the default --link-color = --accent-primary aliasing.
+     The accent (#ff6d00 orange) on #3d1e00 saddle-brown background is
+     technically 5.6:1 — passes WCAG AA — but perceived contrast is much
+     lower because both hues sit on the warm side of the wheel and the
+     link "blends" with the surrounding UI. Sky blue is complementary to
+     orange, lifts perceived contrast to ~9.5:1, and stays clearly
+     identifiable as a link rather than another accent surface. */
+  --link-color: #80d8ff;
+  --link-color-hover: #b3e5fc;
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
 }
@@ -566,8 +573,12 @@
   --motion-duration-slow: 400ms;
   --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
-  --link-color: var(--accent-primary);
-  --link-color-hover: var(--accent-hover);
+  /* Same warm-on-warm rationale as Fox Den Dark — accent (#e65100) on the
+     #fff3e0 cream background sits at ~5.0:1 mathematical contrast but reads
+     as a muddy orange-on-cream link rather than something obviously
+     interactive. Deep blue is complementary and lifts contrast to ~9.0:1. */
+  --link-color: #01579b;
+  --link-color-hover: #0277bd;
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
 }
@@ -1662,4 +1673,49 @@ body {
 /* Tooltip */
 .info-tooltip-popup {
   padding: calc(12px * var(--sp, 1)) calc(14px * var(--sp, 1));
+}
+
+/* ─── External-link styling (closes #800) ───────────────────────────────────
+ *
+ * Anchors that target a new window (target="_blank") are, by Concord
+ * convention, links to externally-hosted resources — chat-rendered URLs via
+ * Markdown's SafeLink, user-profile "Links" cards, and the ForceUpdateOverlay
+ * manual-download link are the current consumers. Before this rule, those
+ * anchors fell through to the user-agent's default ~#0000ee link blue, which
+ * is effectively invisible against the dark Concord palette.
+ *
+ * The styling is intentionally global on `a[target="_blank"]` (not scoped
+ * to a parent class) so any future surface rendering an external link picks
+ * up the theme-aware treatment for free. Internal navigation anchors don't
+ * carry target="_blank" and stay unaffected.
+ *
+ * Tokens `--link-color` and `--link-color-hover` were added to all 26 theme
+ * blocks by PR #1076 (design-token taxonomy, #1033) — this rule is the
+ * consumer that finally puts those tokens to work. Each color scheme can
+ * override them independently; the default initial value aliases to the
+ * accent family. Underline is always-on (relying on color alone would fail
+ * WCAG 1.4.1 contrast-only semantics).
+ * `:visited` is intentionally not differentiated even though the
+ * `--link-color-visited` token exists in the taxonomy. Two reasons: CSS
+ * locks `:visited` styling to a tiny property whitelist for history-leak
+ * prevention, and most modern chat apps don't distinguish visited links to
+ * avoid stale-feeling URLs in conversation. The token stays defined so a
+ * future surface (e.g., a docs viewer) can opt into a visited variant
+ * without re-establishing the taxonomy.
+ *
+ * Exemption: `.update-security-banner__cta` is excluded from the global
+ * color rule. The security update banner uses `color: inherit` so its CTA
+ * picks up the banner's local foreground (white-on-critical-red), which
+ * is the only readable choice against the danger-tinted background. The
+ * banner's own CSS already specifies the underline, so visually nothing
+ * changes — we just stop fighting its deliberate color decision. */
+a[target='_blank']:not(.update-security-banner__cta) {
+  color: var(--link-color);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 0.15s ease;
+}
+
+a[target='_blank']:not(.update-security-banner__cta):hover {
+  color: var(--link-color-hover);
 }

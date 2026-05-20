@@ -99,6 +99,28 @@ describe('MarkdownContent', () => {
       expect(link.tagName).toBe('A');
     });
 
+    it('emits target="_blank" so the global link-color rule applies (#800)', () => {
+      // The fix for #800 hangs theme-aware link styling off the
+      // a[target="_blank"] global selector in index.css. SafeLink is the
+      // single source of every chat-rendered anchor and must carry the
+      // marker for that styling to land. If a future refactor of SafeLink
+      // drops target="_blank", this assertion turns the silent regression
+      // (links go back to the invisible UA-default blue) into a failed test.
+      renderMd('[click me](https://example.com)');
+      const link = screen.getByText('click me');
+      expect(link.tagName).toBe('A');
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    });
+
+    it('autolinked URLs also carry target="_blank" (#800 coverage)', () => {
+      // Autolinked URLs go through the same SafeLink renderer as explicit
+      // [text](url) syntax, so the marker should be present here too.
+      renderMd('see https://example.com for more');
+      const link = screen.getByText('https://example.com');
+      expect(link).toHaveAttribute('target', '_blank');
+    });
+
     it('renders paragraphs', () => {
       renderMd('first\n\nsecond');
       expect(screen.getByText('first').tagName).toBe('P');
