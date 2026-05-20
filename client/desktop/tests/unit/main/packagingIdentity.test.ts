@@ -11,6 +11,10 @@ import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
+// ── Constants ────────────────────────────────────────────────────────────
+
+const EXPECTED_DISPLAY_NAME = 'Concord Voice';
+
 // ── Load configs ─────────────────────────────────────────────────────────
 
 const desktopRoot = path.resolve(__dirname, '../../../');
@@ -47,7 +51,7 @@ function getMakerOptions(config: any, platform: string) {
 describe('Packaging Identity (#382)', () => {
   describe('package.json', () => {
     it('has productName set to "Concord Voice" (display name with space)', () => {
-      expect(pkgJson.productName).toBe('Concord Voice');
+      expect(pkgJson.productName).toBe(EXPECTED_DISPLAY_NAME);
     });
 
     it('has name scoped to @concordvoice/', () => {
@@ -75,12 +79,12 @@ describe('Packaging Identity (#382)', () => {
   describe('forge.config.ts — packagerConfig', () => {
     it('has name set to "Concord Voice"', async () => {
       const config = await loadForgeConfig();
-      expect(config.packagerConfig?.name).toBe('Concord Voice');
+      expect(config.packagerConfig?.name).toBe(EXPECTED_DISPLAY_NAME);
     });
 
     it('has executableName set to "Concord Voice" (matches display name)', async () => {
       const config = await loadForgeConfig();
-      expect(config.packagerConfig?.executableName).toBe('Concord Voice');
+      expect(config.packagerConfig?.executableName).toBe(EXPECTED_DISPLAY_NAME);
     });
 
     it('has appBundleId set to com.concordvoice.desktop', async () => {
@@ -111,7 +115,7 @@ describe('Packaging Identity (#382)', () => {
 
     it('has win32metadata.ProductName set to "Concord Voice"', async () => {
       const config = await loadForgeConfig();
-      expect(config.packagerConfig?.win32metadata?.ProductName).toBe('Concord Voice');
+      expect(config.packagerConfig?.win32metadata?.ProductName).toBe(EXPECTED_DISPLAY_NAME);
     });
   });
 
@@ -201,7 +205,7 @@ describe('Packaging Identity (#382)', () => {
     it('has productName set', async () => {
       const config = await loadForgeConfig();
       const deb = getMakerOptions(config, 'Deb');
-      expect(deb.productName).toBe('Concord Voice');
+      expect(deb.productName).toBe(EXPECTED_DISPLAY_NAME);
     });
 
     it('has maintainer set with email', async () => {
@@ -248,7 +252,7 @@ describe('Packaging Identity (#382)', () => {
     it('has productName set', async () => {
       const config = await loadForgeConfig();
       const rpm = getMakerOptions(config, 'Rpm');
-      expect(rpm.productName).toBe('Concord Voice');
+      expect(rpm.productName).toBe(EXPECTED_DISPLAY_NAME);
     });
 
     it('has homepage set to HTTPS URL', async () => {
@@ -288,7 +292,7 @@ describe('Packaging Identity (#382)', () => {
     it('has productName set', async () => {
       const config = await loadForgeConfig();
       const appImage = getMakerOptions(config, 'AppImage');
-      expect(appImage.productName).toBe('Concord Voice');
+      expect(appImage.productName).toBe(EXPECTED_DISPLAY_NAME);
     });
   });
 
@@ -329,6 +333,21 @@ describe('Packaging Identity (#382)', () => {
     it('packagerConfig.name contains a space (display name)', async () => {
       const config = await loadForgeConfig();
       expect(config.packagerConfig?.name).toContain(' ');
+    });
+
+    it('Linux maker bin intentionally diverges from packagerConfig.executableName (asymmetry guard)', async () => {
+      // Locks in the deliberate platform asymmetry: macOS/Windows use the display
+      // name ("Concord Voice"); Linux maker bins use kebab-case ("concord-voice")
+      // per debian-policy §5.6.7. A future refactor that re-collapses these would
+      // silently pass the literal-value assertions in the Deb/Rpm/AppImage blocks
+      // without this guard.
+      const config = await loadForgeConfig();
+      const deb = getMakerOptions(config, 'Deb');
+      const rpm = getMakerOptions(config, 'Rpm');
+      const appImage = getMakerOptions(config, 'AppImage');
+      expect(deb.bin).not.toBe(config.packagerConfig?.executableName);
+      expect(rpm.bin).not.toBe(config.packagerConfig?.executableName);
+      expect(appImage.bin).not.toBe(config.packagerConfig?.executableName);
     });
 
     it('no maker config contains "electron" or "my-app" in identity fields', async () => {
