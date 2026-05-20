@@ -89,7 +89,35 @@ const config: ForgeConfig = {
     },
     ignore: [/\.map$/],
     name: 'Concord Voice',
-    executableName: 'Concord Voice',
+    // Per-platform executable name (#1077 follow-up).
+    //
+    // macOS / Windows: use the proper display name 'Concord Voice'. This is
+    // what users see in Activity Monitor (macOS), Task Manager (Windows), and
+    // crash reports — proper-name format is the user-facing expectation on
+    // those platforms.
+    //
+    // Linux: fall back to kebab-case 'concord-voice'. Two structural reasons:
+    //   (1) debian-policy §5.6.7 expects lowercase alphanumeric + hyphens for
+    //       binary names placed under /usr/bin/. Spaces work in the filesystem
+    //       but break shell completion, $PATH lookups, and most process-
+    //       management scripts.
+    //   (2) @reforged/maker-appimage's `bin:` option performs a literal-string
+    //       file lookup inside the packaged app directory. With
+    //       `bin: 'concord-voice'` (the Linux convention we keep in the Deb /
+    //       Rpm / AppImage maker configs below) but executableName set to
+    //       'Concord Voice', the lookup fails at make-time with "Could not
+    //       find executable 'concord-voice' in packaged application." Aligning
+    //       executableName to bin on Linux closes that gap.
+    //
+    // `process.platform` reflects the BUILDER's OS, not the target. This is
+    // correct in CI (each platform builds on its native runner per
+    // build-desktop.yml: ubuntu-latest for Linux, macos-latest for macOS,
+    // windows-latest for Windows). It would break for cross-compilation
+    // (e.g., `electron-forge make --platform=linux` on macOS would produce a
+    // Linux package with executableName='Concord Voice' because the builder
+    // is macOS). Cross-compilation isn't used by the project; if that
+    // changes, refactor to derive the target from argv instead.
+    executableName: process.platform === 'linux' ? 'concord-voice' : 'Concord Voice',
     icon: './build/icon',
     appBundleId: 'com.concordvoice.desktop',
     appCopyright: 'Copyright © 2026 Concord Voice LLC',

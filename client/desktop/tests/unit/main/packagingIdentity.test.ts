@@ -82,9 +82,21 @@ describe('Packaging Identity (#382)', () => {
       expect(config.packagerConfig?.name).toBe(EXPECTED_DISPLAY_NAME);
     });
 
-    it('has executableName set to "Concord Voice" (matches display name)', async () => {
+    it('has executableName set to the platform-appropriate form', async () => {
+      // Per-platform executable name (forge.config.ts:91 comment block).
+      //   Linux: 'concord-voice' (kebab-case, matches @reforged/maker-appimage bin: lookup)
+      //   macOS / Windows: 'Concord Voice' (proper display name visible in Activity Monitor / Task Manager)
+      //
+      // CI test jobs run on ubuntu-latest, so in CI this exercises the Linux
+      // branch. The macOS/Windows branches are validated end-to-end by the
+      // platform-native build jobs themselves (a packaging failure would fail
+      // those jobs before reaching test execution).
       const config = await loadForgeConfig();
-      expect(config.packagerConfig?.executableName).toBe(EXPECTED_DISPLAY_NAME);
+      if (process.platform === 'linux') {
+        expect(config.packagerConfig?.executableName).toBe('concord-voice');
+      } else {
+        expect(config.packagerConfig?.executableName).toBe(EXPECTED_DISPLAY_NAME);
+      }
     });
 
     it('has appBundleId set to com.concordvoice.desktop', async () => {
@@ -335,16 +347,45 @@ describe('Packaging Identity (#382)', () => {
       expect(config.packagerConfig?.name).toContain(' ');
     });
 
-    it('Linux maker bin intentionally diverges from packagerConfig.executableName (asymmetry guard)', async () => {
-      // Locks in the deliberate platform asymmetry: macOS/Windows use the display
-      // name ("Concord Voice"); Linux maker bins use kebab-case ("concord-voice")
-      // per debian-policy §5.6.7. A future refactor that re-collapses these would
-      // silently pass the literal-value assertions in the Deb/Rpm/AppImage blocks
-      // without this guard.
+    it('Linux maker bin matches executableName on Linux builds, diverges on macOS/Windows (alignment + asymmetry guard)', async () => {
+      // Locks in the platform-specific contract for Linux maker bin: vs.
+      // packagerConfig.executableName.
+      //
+      // On Linux builds (CI's ubuntu-latest runner):
+      //   The Linux maker `bin:` ('concord-voice') MUST equal executableName
+      //   ('concord-voice' via the per-platform conditional in forge.config.ts).
+      //   This equality is the load-bearing runtime invariant —
+      //   @reforged/maker-appimage performs a literal-string `bin:` lookup
+      //   inside the packaged app at make-time and only finds the binary
+      //   because executableName produces it with the matching name. A future
+      //   refactor that broke this equality (e.g., renaming the Linux maker
+      //   bins to 'concordvoice' without updating executableName) would fail
+      //   the next Linux build with "Could not find executable 'X' in
+      //   packaged application" — the exact failure mode this PR fixed.
+      //   See ADR-0004 and the inline comment in forge.config.ts.
+      //
+      // On macOS/Windows builds:
+      //   The asymmetry IS the design — executableName is 'Concord Voice'
+      //   (proper-name format visible in Activity Monitor / Task Manager /
+      //   crash reports) while Linux maker bin: stays at 'concord-voice'
+      //   per debian-policy §5.6.7. A future refactor that re-collapsed
+      //   these would silently pass the literal-value assertions in the
+      //   Deb/Rpm/AppImage blocks without this guard.
       const config = await loadForgeConfig();
       const deb = getMakerOptions(config, 'Deb');
       const rpm = getMakerOptions(config, 'Rpm');
       const appImage = getMakerOptions(config, 'AppImage');
+
+      if (process.platform === 'linux') {
+        // Linux contract: ALIGNMENT. Linux maker bin: MUST match executableName.
+        expect(deb.bin).toBe(config.packagerConfig?.executableName);
+        expect(rpm.bin).toBe(config.packagerConfig?.executableName);
+        expect(appImage.bin).toBe(config.packagerConfig?.executableName);
+        return;
+      }
+
+      // macOS/Windows contract: ASYMMETRY. Linux maker bin: MUST diverge from
+      // the display-name executableName.
       expect(deb.bin).not.toBe(config.packagerConfig?.executableName);
       expect(rpm.bin).not.toBe(config.packagerConfig?.executableName);
       expect(appImage.bin).not.toBe(config.packagerConfig?.executableName);

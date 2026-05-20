@@ -57,11 +57,21 @@ export default [
         // projectService rejects them. Listing them here lets the tests
         // run against the default TS project without the files being
         // present in tsconfig.json. Glob '**' is disallowed by ts-eslint,
-        // so we list the two paths explicitly.
+        // so we list paths explicitly.
+        //
+        // forge.config.ts lives at the package root rather than under
+        // src/, so it's not covered by tsconfig.json's `include:
+        // ["src/**/*"]`. It's still type-aware-lintable; listing it here
+        // routes it through the default TS project so the pre-commit
+        // eslint hook accepts it. Without this entry, any developer-CLI
+        // edit to forge.config.ts is rejected at pre-commit time with
+        // "was not found by the project service" (operator's Web IDE
+        // commits bypass local hooks so they don't trip on it).
         projectService: {
           allowDefaultProject: [
             'src/main/__lint-fixture__.ts',
             'src/renderer/__lint-fixture__.tsx',
+            'forge.config.ts',
           ],
         },
         tsconfigRootDir: import.meta.dirname,
