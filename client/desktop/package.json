@@ -78,7 +78,7 @@
     "@vitest/coverage-istanbul": "^4.1.6",
     "@vitest/coverage-v8": "^4.1.0",
     "concurrently": "^9.2.1",
-    "electron": "^42.0.1",
+    "electron": "^42.2.0",
     "esbuild": "^0.28.0",
     "@eslint-react/eslint-plugin": "^5.8.3",
     "eslint": "^10.4.0",
