@@ -260,14 +260,30 @@ class E2EEService {
    * throw a typed `E2EEKeyUnavailableError` carrying the server's code+pending.
    * Shared by `fetchAndUnwrapChannelKey` and `getChannelKeyByVersion` so both
    * paths stay byte-identical in behavior.
+   *
+   * When `contextId` is supplied and the server response is NO_KEY_YET + pending:true,
+   * fire-and-forget a peer-rewrap enrollment trigger (#1023). The server's
+   * GetUnifiedKeys handler already auto-enrolls on 404; this explicit POST is
+   * defense-in-depth and is idempotent on the server (ON CONFLICT DO NOTHING).
    */
-  private async throwKeyFetchError(res: Response): Promise<never> {
+  private async throwKeyFetchError(res: Response, contextId?: string): Promise<never> {
     if (res.status === 429) {
       const retryAfter = Number.parseInt(res.headers.get('Retry-After') || '30', 10);
       this.rateLimitedUntil = Date.now() + retryAfter * 1000;
     }
     const body = await safeJson<ErrorResponseShape>(res).catch(() => ({}) as ErrorResponseShape);
-    throw new E2EEKeyUnavailableError(body.code ?? 'NO_KEY_YET', body.pending ?? false);
+    const code = body.code ?? 'NO_KEY_YET';
+    const pending = body.pending ?? false;
+
+    // Fire-and-forget rewrap enrollment for the pending:true missing-key case (#1023).
+    if (contextId && code === 'NO_KEY_YET' && pending) {
+      this.requestRewrap(contextId).catch(() => {
+        // Intentionally swallowed — enrollment is best-effort; the existing
+        // pending:true classifier (retryable=true) drives the actual retry loop.
+      });
+    }
+
+    throw new E2EEKeyUnavailableError(code, pending);
   }
 
   /**
@@ -347,7 +363,7 @@ class E2EEService {
   private async fetchAndUnwrapChannelKey(channelId: string): Promise<CryptoKey> {
     const res = await apiFetch(`/api/v1/e2ee/keys/${channelId}`);
     if (!res.ok) {
-      await this.throwKeyFetchError(res);
+      await this.throwKeyFetchError(res, channelId);
     }
     const data = await safeJson<KeyResponseShape>(res);
     const wrappedKey: string = data.key.wrapped_key;
@@ -396,6 +412,41 @@ class E2EEService {
     // JIT unwrap: derive private key, unwrap channel key, private key falls out of scope
     const privateKey = await this.derivePrivateKey();
     return unwrapChannelKey(wrappedKey, privateKey);
+  }
+
+  /**
+   * Request peer-fulfilled rewrap for a missing key (#1023).
+   *
+   * Fire-and-forget enrollment trigger. The server INSERTs into
+   * pending_key_requests / dm_pending_key_requests; a peer client polling
+   * GetPendingKeyRequests fulfills by wrapping the CSK for this user.
+   *
+   * Idempotent: server uses ON CONFLICT DO NOTHING.
+   *
+   * Honors rateLimitedUntil per the existing pattern in getChannelKey
+   * (line 323-326) — no-op if rate-limited.
+   *
+   * Throws on non-2xx, non-429 responses; callers in the
+   * fetchAndUnwrapChannelKey path use `.catch(() => {})` to ignore.
+   */
+  async requestRewrap(contextId: string): Promise<void> {
+    if (Date.now() < this.rateLimitedUntil) {
+      return;
+    }
+
+    const res = await apiFetch(`/api/v1/e2ee/keys/${contextId}/rewrap`, {
+      method: 'POST',
+    });
+
+    if (res.status === 429) {
+      const retryAfter = Number.parseInt(res.headers.get('Retry-After') ?? '60', 10);
+      this.rateLimitedUntil = Date.now() + retryAfter * 1000;
+      return;
+    }
+
+    if (!res.ok) {
+      throw new Error(`requestRewrap failed: ${res.status}`);
+    }
   }
 
   /**
@@ -588,7 +639,7 @@ class E2EEService {
     // Fetch specific version from server
     const res = await apiFetch(`/api/v1/e2ee/keys/${channelId}?version=${version}`);
     if (!res.ok) {
-      await this.throwKeyFetchError(res);
+      await this.throwKeyFetchError(res, channelId);
     }
     const data = await safeJson<KeyResponseShape>(res);
     const wrappedKey: string = data.key.wrapped_key;

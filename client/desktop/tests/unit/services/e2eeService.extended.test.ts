@@ -620,4 +620,152 @@ describe('e2eeService — extended', () => {
       expect(e2eeService.getPreferencesKeyBase64()).toBeNull();
     });
   });
+
+  describe('requestRewrap (#1023)', () => {
+    it('POSTs to the rewrap endpoint with no body and resolves on 202', async () => {
+      mockApiFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        headers: new Headers(),
+        json: () => Promise.resolve({ enrolled: true, kind: 'dm' }),
+      } as unknown as Response);
+
+      await expect(
+        e2eeService.requestRewrap('11111111-1111-1111-1111-111111111111')
+      ).resolves.toBeUndefined();
+
+      expect(mockApiFetch).toHaveBeenCalledTimes(1);
+      const [url, init] = mockApiFetch.mock.calls[0];
+      expect(url).toMatch(/\/api\/v1\/e2ee\/keys\/11111111-1111-1111-1111-111111111111\/rewrap$/);
+      expect(init?.method).toBe('POST');
+      expect(init?.body).toBeUndefined();
+    });
+
+    it('updates rateLimitedUntil on 429 and resolves silently', async () => {
+      mockApiFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: new Headers({ 'Retry-After': '30' }),
+        json: () => Promise.resolve({}),
+      } as unknown as Response);
+
+      await expect(
+        e2eeService.requestRewrap('22222222-2222-2222-2222-222222222222')
+      ).resolves.toBeUndefined();
+
+      // Observable side-effect: the next call is a no-op (does not POST).
+      mockApiFetch.mockClear();
+      await e2eeService.requestRewrap('22222222-2222-2222-2222-222222222222');
+      expect(mockApiFetch).not.toHaveBeenCalled();
+    });
+
+    it('throws on other non-2xx responses', async () => {
+      mockApiFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        headers: new Headers(),
+        json: () => Promise.resolve({}),
+      } as unknown as Response);
+
+      await expect(
+        e2eeService.requestRewrap('33333333-3333-3333-3333-333333333333')
+      ).rejects.toThrow(/requestRewrap failed: 403/);
+    });
+
+    it('no-ops when rateLimitedUntil is in the future', async () => {
+      // Prime the rate-limit by triggering a 429 first
+      mockApiFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: new Headers({ 'Retry-After': '60' }),
+        json: () => Promise.resolve({}),
+      } as unknown as Response);
+      await e2eeService.requestRewrap('44444444-4444-4444-4444-444444444444');
+
+      // Second call should not hit the network
+      mockApiFetch.mockClear();
+      await e2eeService.requestRewrap('44444444-4444-4444-4444-444444444444');
+      expect(mockApiFetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('fetchAndUnwrapChannelKey fire-and-forget rewrap (#1023)', () => {
+    it('fires requestRewrap on NO_KEY_YET pending:true and still throws', async () => {
+      await e2eeService.initialize(
+        testPassword,
+        regKeys.wrappedPrivateKey,
+        regKeys.keyDerivationSalt
+      );
+
+      // First fetch: GET /e2ee/keys/X returns 404+pending:true
+      mockApiFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        headers: new Headers(),
+        json: () =>
+          Promise.resolve({ error: 'no key', code: 'NO_KEY_YET', kind: 'DM', pending: true }),
+      } as unknown as Response);
+      // Second fetch: POST /rewrap returns 202
+      mockApiFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        headers: new Headers(),
+        json: () => Promise.resolve({ enrolled: true, kind: 'dm' }),
+      } as unknown as Response);
+
+      const channelId = '55555555-5555-5555-5555-555555555555';
+      await expect(e2eeService.getChannelKey(channelId)).rejects.toMatchObject({
+        name: 'E2EEKeyUnavailableError',
+        code: 'NO_KEY_YET',
+        pending: true,
+      });
+
+      // The throw fires synchronously; the fire-and-forget POST happens before/around
+      // the throw. Allow a microtask to flush so the POST registers.
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(mockApiFetch).toHaveBeenCalledTimes(2);
+      expect(mockApiFetch.mock.calls[1][0]).toMatch(/\/rewrap$/);
+    });
+
+    it('does not throw even if requestRewrap rejects', async () => {
+      await e2eeService.initialize(
+        testPassword,
+        regKeys.wrappedPrivateKey,
+        regKeys.keyDerivationSalt
+      );
+
+      // First fetch: GET /e2ee/keys/X returns 404+pending:true
+      mockApiFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        headers: new Headers(),
+        json: () =>
+          Promise.resolve({
+            error: 'no key',
+            code: 'NO_KEY_YET',
+            kind: 'channel',
+            pending: true,
+          }),
+      } as unknown as Response);
+      // rewrap POST fails with 500
+      mockApiFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        headers: new Headers(),
+        json: () => Promise.resolve({}),
+      } as unknown as Response);
+
+      const channelId = '66666666-6666-6666-6666-666666666666';
+      await expect(e2eeService.getChannelKey(channelId)).rejects.toMatchObject({
+        name: 'E2EEKeyUnavailableError',
+      });
+
+      // Allow microtask for the fire-and-forget promise to settle
+      await new Promise((r) => setTimeout(r, 0));
+
+      // No unhandled rejection — the .catch() in the fire-and-forget pattern
+      // swallows the requestRewrap error. The original key-fetch error still surfaces.
+    });
+  });
 });

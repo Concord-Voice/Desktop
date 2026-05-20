@@ -229,7 +229,7 @@ describe('CreateChannelModal', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText('E2EE is not initialized. Please log out and log back in.')
+        screen.getByText('Setting up secure messaging — try again in a moment.')
       ).toBeInTheDocument();
     });
 
@@ -340,5 +340,36 @@ describe('CreateChannelModal', () => {
     const bulletinBtn = screen.getByText('Bulletin').closest('button');
     fireEvent.click(bulletinBtn!);
     expect(bulletinBtn).toHaveClass('selected');
+  });
+
+  describe('defect #2 banner text (#1023)', () => {
+    it('shows the new init-not-ready banner instead of the legacy log-out string', async () => {
+      // Force e2eeService.isInitialized to false — module mock has it as a writable
+      // property, so override via Object.defineProperty matching the existing pattern.
+      const original = e2eeService.isInitialized;
+      Object.defineProperty(e2eeService, 'isInitialized', { value: false, writable: true });
+
+      useMemberStore.setState({ members: [mockMember] });
+
+      render(<CreateChannelModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
+
+      fireEvent.change(screen.getByPlaceholderText('general-chat'), {
+        target: { value: 'test-channel' },
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByText('Create Channel', { selector: 'button[type="submit"]' }));
+      });
+
+      // Wait for the form-error banner to surface
+      const banner = await screen.findByText(/Setting up secure messaging/i);
+      expect(banner).toBeInTheDocument();
+
+      // The legacy string MUST NOT appear
+      expect(screen.queryByText(/log out and log back in/i)).not.toBeInTheDocument();
+
+      // Restore
+      Object.defineProperty(e2eeService, 'isInitialized', { value: original, writable: true });
+    });
   });
 });

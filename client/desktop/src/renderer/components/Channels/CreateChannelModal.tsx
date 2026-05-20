@@ -34,7 +34,7 @@ async function generateWrappedKeysForMembers(
   members: ServerMemberLike[]
 ): Promise<Record<string, string>> {
   if (!e2eeService.isInitialized) {
-    throw new Error('E2EE is not initialized. Please log out and log back in.');
+    throw new Error('Setting up secure messaging — try again in a moment.');
   }
 
   const memberPublicKeys = new Map<string, string>();
