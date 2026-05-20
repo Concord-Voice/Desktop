@@ -37,4 +37,11 @@ describe('SyntaxHelpModal', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
   });
+
+  it('shows the multi-line fenced-code-block tip (#807)', () => {
+    render(<SyntaxHelpModal open onClose={vi.fn()} />);
+    expect(
+      screen.getByText(/opening and closing triple-backticks each on their own line/i)
+    ).toBeInTheDocument();
+  });
 });

@@ -27,7 +27,10 @@ const CONSTRUCTS: Construct[] = [
   { source: '*italic*', rendered: 'italic' },
   { source: '~~strikethrough~~', rendered: 'strikethrough' },
   { source: '`inline code`', rendered: 'inline code' },
-  { source: '```\ncode block\n```', rendered: 'Fenced code block with highlighting' },
+  {
+    source: '```\ncode block\n```',
+    rendered: 'Fenced code block (opener and closer on their own lines)',
+  },
   { source: '> quote', rendered: 'Indented quote' },
   { source: '- item', rendered: 'Bulleted list' },
   { source: '1. item', rendered: 'Numbered list' },
@@ -131,7 +134,14 @@ const SyntaxHelpModal: React.FC<Props> = ({ open, onClose }) => {
             ))}
           </tbody>
         </table>
-        <footer>Markdown syntax counts toward the 24,000 character limit for messages.</footer>
+        <footer>
+          <p>
+            Tip: Fenced code blocks need the opening and closing triple-backticks each on their own
+            line. The text after the opening backticks is treated as the language identifier (used
+            for syntax highlighting).
+          </p>
+          <p>Markdown syntax counts toward the 24,000 character limit for messages.</p>
+        </footer>
       </div>
     </dialog>
   );

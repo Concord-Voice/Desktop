@@ -71,6 +71,46 @@ describe('MarkdownContent', () => {
       expect(tokenSpans.length).toBeGreaterThan(0);
     });
 
+    it('renders heading hierarchy with H1 > H2 > H3 font sizes (#807)', () => {
+      renderMd('# H1\n## H2\n### H3');
+      const h1 = screen.getByRole('heading', { level: 1 });
+      const h2 = screen.getByRole('heading', { level: 2 });
+      const h3 = screen.getByRole('heading', { level: 3 });
+      // MarkdownContent.css sets h1=1.6em, h2=1.3em, h3=1.1em.
+      // jsdom resolves font-size to the declared em-suffixed string.
+      const sizeOf = (el: HTMLElement): number => parseFloat(getComputedStyle(el).fontSize);
+      // Strict ordering invariant.
+      expect(sizeOf(h1)).toBeGreaterThan(sizeOf(h2));
+      expect(sizeOf(h2)).toBeGreaterThan(sizeOf(h3));
+      // Ratio-anchored assertion: with the new sizes the ratios are
+      // h1/h2 = 1.6/1.3 ≈ 1.23 and h2/h3 = 1.3/1.1 ≈ 1.18. The pre-#807
+      // values (1.3/1.18 ≈ 1.10 and 1.18/1.08 ≈ 1.09) would fail >1.15,
+      // so a revert to the compressed values would re-trigger this test.
+      // Ratios are unit-independent (em or px both resolve to the same ratio).
+      expect(sizeOf(h1) / sizeOf(h2)).toBeGreaterThan(1.15);
+      expect(sizeOf(h2) / sizeOf(h3)).toBeGreaterThan(1.15);
+    });
+
+    it('resets paragraph margin inside loose-list items (#807)', () => {
+      // GFM "loose list" — blank lines between items force <p> wrapping inside <li>.
+      const { container } = renderMd('- Item 1\n\n- Item 2\n\n- Item 3');
+      const items = container.querySelectorAll('li');
+      expect(items.length).toBe(3);
+      // Loose-list mode is proven by the presence of <p> inside each <li>.
+      for (const li of items) {
+        const innerP = li.querySelector('p');
+        expect(innerP).not.toBeNull();
+        if (innerP) {
+          // The CSS `.markdown-content li > p { margin: 0 }` must apply.
+          // jsdom serializes the margin shorthand as "0" (unitless) when the
+          // declared value is "0"; production browsers serialize it as "0px".
+          // Accept either form — both indicate the rule applied.
+          const margin = getComputedStyle(innerP).margin;
+          expect(['0', '0px']).toContain(margin);
+        }
+      }
+    });
+
     it('renders block quote', () => {
       renderMd('> hello');
       expect(screen.getByText('hello').closest('blockquote')).not.toBeNull();
