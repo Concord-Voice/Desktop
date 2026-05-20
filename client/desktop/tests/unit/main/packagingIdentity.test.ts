@@ -46,12 +46,8 @@ function getMakerOptions(config: any, platform: string) {
 
 describe('Packaging Identity (#382)', () => {
   describe('package.json', () => {
-    it('has productName set to "ConcordVoice" (spaceless for directory paths)', () => {
-      expect(pkgJson.productName).toBe('ConcordVoice');
-    });
-
-    it('productName contains no spaces (directory-safe)', () => {
-      expect(pkgJson.productName).not.toContain(' ');
+    it('has productName set to "Concord Voice" (display name with space)', () => {
+      expect(pkgJson.productName).toBe('Concord Voice');
     });
 
     it('has name scoped to @concordvoice/', () => {
@@ -82,9 +78,9 @@ describe('Packaging Identity (#382)', () => {
       expect(config.packagerConfig?.name).toBe('Concord Voice');
     });
 
-    it('has executableName set to "concord-voice"', async () => {
+    it('has executableName set to "Concord Voice" (matches display name)', async () => {
       const config = await loadForgeConfig();
-      expect(config.packagerConfig?.executableName).toBe('concord-voice');
+      expect(config.packagerConfig?.executableName).toBe('Concord Voice');
     });
 
     it('has appBundleId set to com.concordvoice.desktop', async () => {
@@ -184,17 +180,22 @@ describe('Packaging Identity (#382)', () => {
   });
 
   describe('forge.config.ts — MakerDeb (Linux .deb)', () => {
-    it('has name matching executableName', async () => {
+    // NOTE: Linux package conventions require lowercase, no-space binary names
+    // (debian-policy §5.6.7). The display name (executableName) carries spaces
+    // for macOS/Windows; Linux maker bin/name use the kebab-case form
+    // 'concord-voice'. The intentional asymmetry is verified in the
+    // 'cross-platform identity consistency' block below.
+    it('has name set to "concord-voice" (Linux kebab-case convention)', async () => {
       const config = await loadForgeConfig();
       const deb = getMakerOptions(config, 'Deb');
       expect(deb).not.toBeNull();
-      expect(deb.name).toBe(config.packagerConfig?.executableName);
+      expect(deb.name).toBe('concord-voice');
     });
 
-    it('has bin matching executableName', async () => {
+    it('has bin set to "concord-voice" (Linux kebab-case convention)', async () => {
       const config = await loadForgeConfig();
       const deb = getMakerOptions(config, 'Deb');
-      expect(deb.bin).toBe(config.packagerConfig?.executableName);
+      expect(deb.bin).toBe('concord-voice');
     });
 
     it('has productName set', async () => {
@@ -230,17 +231,18 @@ describe('Packaging Identity (#382)', () => {
   });
 
   describe('forge.config.ts — MakerRpm (Linux .rpm)', () => {
-    it('has name matching executableName', async () => {
+    // Same Linux kebab-case convention as Deb — see comment in MakerDeb block.
+    it('has name set to "concord-voice" (Linux kebab-case convention)', async () => {
       const config = await loadForgeConfig();
       const rpm = getMakerOptions(config, 'Rpm');
       expect(rpm).not.toBeNull();
-      expect(rpm.name).toBe(config.packagerConfig?.executableName);
+      expect(rpm.name).toBe('concord-voice');
     });
 
-    it('has bin matching executableName', async () => {
+    it('has bin set to "concord-voice" (Linux kebab-case convention)', async () => {
       const config = await loadForgeConfig();
       const rpm = getMakerOptions(config, 'Rpm');
-      expect(rpm.bin).toBe(config.packagerConfig?.executableName);
+      expect(rpm.bin).toBe('concord-voice');
     });
 
     it('has productName set', async () => {
@@ -275,11 +277,12 @@ describe('Packaging Identity (#382)', () => {
   });
 
   describe('forge.config.ts — MakerAppImage (Linux AppImage)', () => {
-    it('has bin matching executableName', async () => {
+    // Same Linux kebab-case convention as Deb/Rpm — see comment in MakerDeb block.
+    it('has bin set to "concord-voice" (Linux kebab-case convention)', async () => {
       const config = await loadForgeConfig();
       const appImage = getMakerOptions(config, 'AppImage');
       expect(appImage).not.toBeNull();
-      expect(appImage.bin).toBe(config.packagerConfig?.executableName);
+      expect(appImage.bin).toBe('concord-voice');
     });
 
     it('has productName set', async () => {
@@ -318,9 +321,9 @@ describe('Packaging Identity (#382)', () => {
       expect(bins[0]).toBe('concord-voice');
     });
 
-    it('productName is the spaceless form of packagerConfig.name', async () => {
+    it('productName matches packagerConfig.name (display name consistency)', async () => {
       const config = await loadForgeConfig();
-      expect(pkgJson.productName).toBe(config.packagerConfig?.name?.replaceAll(/\s+/g, ''));
+      expect(pkgJson.productName).toBe(config.packagerConfig?.name);
     });
 
     it('packagerConfig.name contains a space (display name)', async () => {

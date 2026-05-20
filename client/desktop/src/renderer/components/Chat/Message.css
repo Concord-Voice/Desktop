@@ -162,14 +162,6 @@
   line-height: 1.35;
 }
 
-.encrypted-indicator {
-  font-size: calc(12px * var(--font-scale, 1));
-  margin-right: 4px;
-  opacity: 0.5;
-  display: inline-flex;
-  vertical-align: middle;
-}
-
 .decrypt-failed {
   display: inline-flex;
   align-items: center;
@@ -180,7 +172,7 @@
 }
 
 .decrypt-failed.pending-keys {
-  color: var(--warning, #faa61a);
+  color: var(--state-encryption-pending);
   opacity: 0.9;
 }
 

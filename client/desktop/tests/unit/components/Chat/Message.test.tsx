@@ -61,11 +61,6 @@ describe('Message', () => {
     expect(screen.getByText('testuser')).toBeInTheDocument();
   });
 
-  it('always shows encrypted indicator (all messages are encrypted)', () => {
-    render(<Message message={mockMessage} currentUserId="user-2" showAvatar={true} />);
-    expect(document.querySelector('.encrypted-indicator')).toBeInTheDocument();
-  });
-
   it('shows pending status indicator', () => {
     render(<Message message={mockPendingMessage} currentUserId="user-1" showAvatar={true} />);
     // Pending message should have visual indicator
@@ -543,6 +538,62 @@ describe('Message', () => {
     );
     const msgText = document.querySelector('.message-text');
     expect(msgText?.className).not.toMatch(/emoji-jumbo/);
+  });
+
+  // ── Lock badge removal (#795) ──
+
+  it('does not render .encrypted-indicator on encrypted messages', () => {
+    // Assertion A — RED until Task 2 removes the <span className="encrypted-indicator"> from
+    // Message.tsx lines 392–394. A normal delivered message is structurally E2EE; no
+    // per-message badge should appear under the E2EE-everywhere posture (#201).
+    const { container } = render(
+      <Message message={mockMessage} currentUserId="user-2" showAvatar={true} />
+    );
+    expect(container.querySelector('.encrypted-indicator')).toBeNull();
+    expect(screen.queryByTitle('End-to-end encrypted')).toBeNull();
+  });
+
+  it('still renders <Lock> on decrypt-failed messages', () => {
+    // Assertion B — regression guard for #795: the legitimate error-state lock icon must
+    // remain after the decorative badge is removed.
+    render(
+      <Message
+        message={{ ...mockMessage, decryptFailed: true }}
+        currentUserId="user-2"
+        showAvatar={true}
+      />
+    );
+    expect(screen.getByText('Unable to decrypt this message')).toBeInTheDocument();
+    const failedSpan = screen
+      .getByText(/Unable to decrypt/)
+      .closest('.decrypt-failed') as HTMLElement | null;
+    expect(failedSpan).not.toBeNull();
+    // Use toBeTruthy not .not.toBeNull(): the optional-chained
+    // failedSpan?.querySelector returns undefined (not null) when failedSpan
+    // is null, and `.not.toBeNull()` passes on undefined. toBeTruthy fails on
+    // both null and undefined, so the assertion can't false-pass on a
+    // regression that broke the antecedent.
+    expect(failedSpan?.querySelector('svg')).toBeTruthy();
+  });
+
+  it('still renders <Lock> on pending-keys messages', () => {
+    // Assertion C — regression guard for #795: the legitimate pending-keys lock icon must
+    // remain after the decorative badge is removed.
+    render(
+      <Message
+        message={{ ...mockMessage, pendingKeys: true }}
+        currentUserId="user-2"
+        showAvatar={true}
+      />
+    );
+    expect(screen.getByText('Waiting for encryption keys...')).toBeInTheDocument();
+    const pendingSpan = screen
+      .getByText(/Waiting for encryption keys/)
+      .closest('.decrypt-failed.pending-keys') as HTMLElement | null;
+    expect(pendingSpan).not.toBeNull();
+    // See comment in decrypt-failed test above: toBeTruthy prevents false-pass
+    // when the antecedent .closest() returns null.
+    expect(pendingSpan?.querySelector('svg')).toBeTruthy();
   });
 
   // ── Avatar profile card ──

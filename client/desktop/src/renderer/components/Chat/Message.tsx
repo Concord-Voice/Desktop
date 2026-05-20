@@ -389,9 +389,6 @@ function MessageTextContent({
 
   return (
     <div className={'message-text' + (emojiClass ? ' ' + emojiClass : '')}>
-      <span className="encrypted-indicator" title="End-to-end encrypted">
-        <Lock size={12} />
-      </span>
       {contentNode}
       {!showAvatar && message.edited_at && <span className="message-edited-inline">(edited)</span>}
     </div>

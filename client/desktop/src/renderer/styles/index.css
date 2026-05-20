@@ -61,6 +61,40 @@
   --text-warning-strong: #f59e0b; /* Amber-500, high-contrast on dark backgrounds */
   /* Error text — readable foreground on red-tinted backgrounds */
   --text-error-strong: #f87171; /* Red-400, high-contrast on dark backgrounds */
+
+  /*
+   * Design-token taxonomy (#1033) — 19 tokens across 6 families:
+   *   - State (3):       --state-selected, --state-focused, --state-hover
+   *   - Typography (4):  --font-display-stack, --font-body-stack, --font-display-tracking, --font-display-tracking-tight
+   *   - Scale (3):       --radius-base, --radius-elevated, --radius-modal
+   *   - Motion (5):      --motion-duration-{fast,base,slow}, --motion-curve-{base,decel}
+   *   - Link (3):        --link-color, --link-color-hover, --link-color-visited
+   *   - Encryption (1):  --state-encryption-pending
+   *
+   * All tokens are mirrored across all 26 blocks (root, generic light, 12 schemes × 2 modes)
+   * with uniform initial values. Individual themes opt into per-token divergence in
+   * follow-up sibling issues — initial schema symmetry is the load-bearing invariant.
+   */
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Font Size Scaling */
@@ -116,6 +150,26 @@
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e; /* Amber-800, high-contrast on light backgrounds */
   --text-error-strong: #991b1b; /* Red-800, high-contrast on light backgrounds */
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Concord Dark (explicit scheme selector for identity scoping) */
@@ -146,6 +200,26 @@
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
   --text-error-strong: #f87171;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Concord Light (explicit scheme selector for identity scoping) */
@@ -176,6 +250,26 @@
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
   --text-error-strong: #991b1b;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Morky Dark */
@@ -206,6 +300,26 @@
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
   --text-error-strong: #f87171;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Morky Light */
@@ -236,6 +350,26 @@
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
   --text-error-strong: #991b1b;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Bardic Dark */
@@ -266,6 +400,26 @@
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
   --text-error-strong: #f87171;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Bardic Light */
@@ -296,6 +450,26 @@
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
   --text-error-strong: #991b1b;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Fox Den Dark */
@@ -326,6 +500,26 @@
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
   --text-error-strong: #f87171;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Fox Den Light */
@@ -356,6 +550,26 @@
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
   --text-error-strong: #991b1b;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Hacker Dark */
@@ -386,6 +600,26 @@
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
   --text-error-strong: #f87171;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Hacker Light */
@@ -416,6 +650,26 @@
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
   --text-error-strong: #991b1b;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Spooky Dark */
@@ -446,6 +700,26 @@
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
   --text-error-strong: #f87171;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Spooky Light */
@@ -476,6 +750,26 @@
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
   --text-error-strong: #991b1b;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Leviathan Dark */
@@ -506,6 +800,26 @@
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
   --text-error-strong: #f87171;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Leviathan Light */
@@ -536,6 +850,26 @@
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
   --text-error-strong: #991b1b;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Grassy Nill Dark */
@@ -566,6 +900,26 @@
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
   --text-error-strong: #f87171;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Grassy Nill Light */
@@ -596,6 +950,26 @@
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
   --text-error-strong: #991b1b;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Cotton Candy Dark */
@@ -626,6 +1000,26 @@
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
   --text-error-strong: #f87171;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Cotton Candy Light */
@@ -656,6 +1050,26 @@
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
   --text-error-strong: #991b1b;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Driftwood Dark */
@@ -686,6 +1100,26 @@
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
   --text-error-strong: #f87171;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Driftwood Light */
@@ -716,6 +1150,26 @@
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
   --text-error-strong: #991b1b;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Eclipse Dark */
@@ -746,6 +1200,26 @@
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
   --text-error-strong: #f87171;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Eclipse Light */
@@ -776,6 +1250,26 @@
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
   --text-error-strong: #991b1b;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Midnight Sky Dark */
@@ -806,6 +1300,26 @@
   --status-disconnected: #fa6464;
   --text-warning-strong: #f59e0b;
   --text-error-strong: #f87171;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 /* Midnight Sky Light */
@@ -836,6 +1350,26 @@
   --status-disconnected: #e05050;
   --text-warning-strong: #92400e;
   --text-error-strong: #991b1b;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
 }
 
 body {
