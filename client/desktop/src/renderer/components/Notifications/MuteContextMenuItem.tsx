@@ -81,6 +81,7 @@ const MuteContextMenuItem: React.FC<MuteContextMenuItemProps> = ({
       // an explicit "I do not want a mute here" — which is what defeats a
       // parent server's mute in the channel-override case.
       setMutePreference(targetType, targetId, false, null).catch((err: unknown) => {
+        // eslint-disable-next-line no-restricted-syntax -- pre-existing pattern preserved to keep PR #1086 narrowly scoped to npm-lint scope alignment; raw-err audit deferred to follow-up #1095 (per internal-reference "Console error logging")
         console.warn(`Failed to unmute ${targetType}:`, err);
       });
       onAction();
@@ -102,6 +103,7 @@ const MuteContextMenuItem: React.FC<MuteContextMenuItemProps> = ({
     (duration: MuteDuration) => {
       setMutePreference(targetType, targetId, true, mutedUntilFromDuration(duration)).catch(
         (err: unknown) => {
+          // eslint-disable-next-line no-restricted-syntax -- pre-existing pattern preserved to keep PR #1086 narrowly scoped to npm-lint scope alignment; raw-err audit deferred to follow-up #1095 (per internal-reference "Console error logging")
           console.warn(`Failed to mute ${targetType}:`, err);
         }
       );

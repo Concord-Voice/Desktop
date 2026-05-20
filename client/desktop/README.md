@@ -35,7 +35,9 @@ The app will start with hot-reload enabled. The renderer process runs on `http:/
 - `npm run build` - Build for production
 - `npm run package` - Package the app for distribution
 - `npm run make` - Create platform-specific installers
-- `npm run lint` - Run ESLint
+- `npm run lint` - Run ESLint with the same effective scope as the pre-commit hook.
+  Reports the same findings you would see at `git commit`. Excludes `tests/`
+  (which has its own type-check pipeline via Vitest).
 - `npm run typecheck` - Run TypeScript type checking
 
 ## Project Structure

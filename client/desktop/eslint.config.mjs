@@ -12,6 +12,13 @@ export default [
       'node_modules/',
       'coverage/**', // Istanbul HTML report artifacts
       '*.js',
+      // Mirror the pre-commit hook's `files: '.(ts|tsx)$'` regex — .mjs/.mts
+      // files are not scanned by the hook and are excluded here so that
+      // `npm run lint` and the hook cover the same effective file set.
+      '*.mjs',
+      '*.mts',
+      'scripts/*.mjs',
+      'scripts/*.mts',
     ],
   },
 
@@ -50,28 +57,33 @@ export default [
         // process). Required for @eslint-react's recommended-type-checked
         // rules to function.
         //
-        // allowDefaultProject: the two __lint-fixture__ paths are virtual
-        // files used by eslint-no-raw-err-console.test.ts and
-        // eslint-no-bare-anchor.test.ts — they pass a filePath to
-        // ESLint.lintText() but those files don't exist on disk, so the
-        // projectService rejects them. Listing them here lets the tests
-        // run against the default TS project without the files being
-        // present in tsconfig.json. Glob '**' is disallowed by ts-eslint,
-        // so we list paths explicitly.
+        // allowDefaultProject: files outside tsconfig's `rootDir: "./src"`
+        // that need type-aware linting. Two categories:
         //
-        // forge.config.ts lives at the package root rather than under
-        // src/, so it's not covered by tsconfig.json's `include:
-        // ["src/**/*"]`. It's still type-aware-lintable; listing it here
-        // routes it through the default TS project so the pre-commit
-        // eslint hook accepts it. Without this entry, any developer-CLI
-        // edit to forge.config.ts is rejected at pre-commit time with
-        // "was not found by the project service" (operator's Web IDE
-        // commits bypass local hooks so they don't trip on it).
+        // 1. Virtual lint-fixture paths — used by eslint-no-raw-err-console.test.ts
+        //    and eslint-no-bare-anchor.test.ts, which pass a filePath to
+        //    ESLint.lintText() without the files existing on disk. Listing them
+        //    here lets the tests run against the default TS project.
+        //
+        // 2. Build-tooling files outside `rootDir` — top-level config files and
+        //    scripts/*.test.ts that are scanned by the pre-commit eslint hook but
+        //    are not included in any tsconfig.json (intentionally — the main
+        //    bundle build excludes them). allowDefaultProject is the
+        //    typescript-eslint-recommended path for tooling files outside rootDir.
+        //    Glob '**' is disallowed by ts-eslint, so we enumerate explicitly.
         projectService: {
           allowDefaultProject: [
             'src/main/__lint-fixture__.ts',
             'src/renderer/__lint-fixture__.tsx',
+            // Top-level build-tooling configs (outside rootDir: "./src")
+            'vite.config.ts',
             'forge.config.ts',
+            'playwright.config.ts',
+            // scripts/ — build helpers + their colocated tests
+            'scripts/generate-update-manifest.test.ts',
+            'scripts/generate-buildtag.test.ts',
+            'scripts/generate-app-update.test.ts',
+            'scripts/verify-update-manifest.test.ts',
           ],
         },
         tsconfigRootDir: import.meta.dirname,

@@ -377,6 +377,7 @@ const Login: React.FC<LoginProps> = ({
       await hydrateNotificationPreferences();
       startExpirySweep();
     } catch (err) {
+      // eslint-disable-next-line no-restricted-syntax -- pre-existing pattern preserved to keep PR #1086 narrowly scoped to npm-lint scope alignment; raw-err audit deferred to follow-up #1095 (per internal-reference "Console error logging")
       console.warn('Failed to hydrate notification preferences:', err);
     }
 
