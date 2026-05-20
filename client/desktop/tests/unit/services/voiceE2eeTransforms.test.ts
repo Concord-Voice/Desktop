@@ -110,7 +110,7 @@ describe('applyLegacyDecryptPipeline', () => {
 
     expect(console.error).toHaveBeenCalledWith(
       'E2EE: createEncodedStreams failed on receiver:',
-      expect.any(Error)
+      expect.any(String)
     );
   });
 
@@ -143,7 +143,9 @@ describe('applyLegacyDecryptPipeline', () => {
 
     expect(controller.enqueue).not.toHaveBeenCalled();
     expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining('E2EE: dropping undecryptable frame for user-1'),
+      expect.stringContaining('E2EE: dropping undecryptable frame for sender'),
+      'user-1',
+      expect.any(Number),
       expect.any(Object)
     );
   });
@@ -185,7 +187,9 @@ describe('applyLegacyDecryptPipeline', () => {
     await capturedTransformFn!(frame, controller);
 
     expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining('E2EE: dropping frame for user-1'),
+      expect.stringContaining('E2EE: dropping frame for sender'),
+      'user-1',
+      expect.any(Number),
       expect.objectContaining({ trailerHex: expect.any(String), hasMagic: expect.any(Boolean) })
     );
   });
@@ -232,6 +236,31 @@ describe('applyLegacyDecryptPipeline', () => {
     }
 
     expect(callbacks.addDecryptKeyForUser).not.toHaveBeenCalled();
+  });
+
+  it('logs redacted error when the decrypt pipeline rejects', async () => {
+    // Make pipeTo reject so the .catch((err) => console.warn(...)) path fires
+    const rejectingReceiver: InsertableStreamsReceiver = {
+      createEncodedStreams: vi.fn().mockReturnValue({
+        readable: {
+          pipeThrough: vi.fn().mockReturnValue({
+            pipeTo: vi.fn().mockRejectedValue(new Error('boom')),
+          }),
+        },
+        writable: new WritableStream(),
+      }),
+    };
+    applyLegacyDecryptPipeline(
+      rejectingReceiver,
+      'user-1',
+      mockEncryption(),
+      mockCallbacks(),
+      false
+    );
+    // .catch fires asynchronously after the pipeline rejects
+    await vi.waitFor(() => {
+      expect(console.warn).toHaveBeenCalledWith('E2EE decrypt pipe error:', 'boom');
+    });
   });
 
   it('logs recovery on successful decrypt after failures', async () => {

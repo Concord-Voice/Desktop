@@ -1,10 +1,12 @@
-import { render, screen } from '../../../test-utils';
+import { render, screen, fireEvent, waitFor } from '../../../test-utils';
 import { EnforcementMenuItems } from '@/renderer/components/ui/EnforcementMenuItems';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
 vi.mock('@/renderer/components/ui/EnforcementMenuItems.css', () => ({}));
+
+const mockApiFetch = vi.fn().mockResolvedValue({});
 vi.mock('@/renderer/services/apiClient', () => ({
-  apiFetch: vi.fn().mockResolvedValue({}),
+  apiFetch: (...args: unknown[]) => mockApiFetch(...args),
 }));
 
 describe('EnforcementMenuItems', () => {
@@ -205,5 +207,38 @@ describe('EnforcementMenuItems', () => {
       />
     );
     expect(container.innerHTML).toBe('');
+  });
+
+  it('logs error when apiFetch throws during enforcement action', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const onClose = vi.fn();
+    mockApiFetch.mockRejectedValueOnce(new Error('network error'));
+
+    render(
+      <EnforcementMenuItems
+        targetUserId="user-1"
+        targetServerMuted={false}
+        targetServerDeafened={false}
+        targetIsMuted={false}
+        targetIsInVoice={true}
+        context={{
+          type: 'server',
+          serverId: 's1',
+          canMute: true,
+          canDeafen: false,
+          canModerate: true,
+        }}
+        onClose={onClose}
+      />
+    );
+
+    fireEvent.click(screen.getByText('Mute'));
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith('Enforcement action failed', 'network error');
+    });
+    // onClose is still called even after error
+    expect(onClose).toHaveBeenCalled();
+    consoleSpy.mockRestore();
   });
 });

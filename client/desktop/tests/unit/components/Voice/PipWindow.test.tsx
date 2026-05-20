@@ -564,5 +564,38 @@ describe('PipWindow', () => {
 
       expect(globalThis.electron?.closePipWindow).toHaveBeenCalled();
     });
+
+    it('logs error and stops loading when ScreenPip init throws', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockInit.mockRejectedValueOnce(new Error('screen init failed'));
+
+      render(<PipWindow />);
+
+      await waitFor(() => {
+        expect(consoleSpy).toHaveBeenCalledWith('[ScreenPip] Init failed:', 'screen init failed');
+      });
+      // After error, loading spinner is gone
+      expect(screen.queryByText('Connecting...')).not.toBeInTheDocument();
+      consoleSpy.mockRestore();
+    });
+  });
+
+  describe('FramesPipContent init error', () => {
+    beforeEach(() => {
+      mockPipId = 'frames-123';
+    });
+
+    it('logs error and stops loading when FramesPip init throws', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      mockInit.mockRejectedValueOnce(new Error('frames init failed'));
+
+      render(<PipWindow />);
+
+      await waitFor(() => {
+        expect(consoleSpy).toHaveBeenCalledWith('[FramesPip] Init failed:', 'frames init failed');
+      });
+      expect(screen.queryByText('Connecting...')).not.toBeInTheDocument();
+      consoleSpy.mockRestore();
+    });
   });
 });

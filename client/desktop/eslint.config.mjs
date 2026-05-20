@@ -213,6 +213,10 @@ export default [
   // constants are hand-audited at definition time).
   //
   // See internal-reference
+  //
+  // Also widens the main-process raw-err console rule to renderer (the
+  // raw-err selector previously lived in the src/main/** block; renderer
+  // services / hooks / stores can leak just as readily — see PR #1046).
   {
     files: ['src/renderer/**/*.{ts,tsx}'],
     rules: {
@@ -252,6 +256,20 @@ export default [
           message:
             'Renderer <a href={`https://...`}> must use target="_blank" rel="noopener noreferrer". ' +
             'See internal-reference',
+        },
+        // Raw-err logging guard — widened from src/main/** to src/renderer/**
+        // per PR #1046. The renderer ws service was logging `event.target.url`
+        // (containing the single-use auth ticket query param) via raw-Event
+        // arguments. Same Error.cause / Error.message propagation concern
+        // applies to all renderer code that catches exceptions from network,
+        // crypto, or storage APIs. Annotated exceptions require an inline
+        // `eslint-disable-next-line no-restricted-syntax -- <rationale>` per
+        // internal-reference
+        {
+          selector:
+            'CallExpression[callee.type="MemberExpression"][callee.object.name="console"][callee.property.name=/^(error|warn)$/] > Identifier:last-child:not(:first-child)',
+          message:
+            'Do not pass raw err/Error objects to console.error/warn — err.cause (ES2022) may propagate secrets (auth tickets, refresh tokens, response-body fragments). Use `(err as Error).message` or `error instanceof Error ? error.message : "unknown"` instead. See internal-reference "Console error logging". If the raw argument is an audit-safe structured value (server-sent WS payload for diagnostics, etc.), add `eslint-disable-next-line no-restricted-syntax -- <rationale>`.',
         },
       ],
     },

@@ -441,6 +441,26 @@ describe('ChatView', () => {
     expect(typeof onScrollToMessage).toBe('function');
   });
 
+  it('handlePinToggle logs redacted error when pinMessage rejects', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockPinMessage.mockRejectedValueOnce(new Error('boom'));
+    useChannelStore.setState({ activeChannelId: 'channel-1' });
+    render(<ChatView />);
+
+    await vi.waitFor(() => {
+      expect(mockGetChannelPins).toHaveBeenCalled();
+    });
+
+    const onPinToggle = capturedMessageListProps.onPinToggle as (msg: unknown) => Promise<void>;
+    // Trigger pin on an unpinned message — pinMessage rejects
+    await onPinToggle({ ...mockMessage, pinned_at: null });
+
+    await vi.waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to toggle pin:', 'boom');
+    });
+    consoleSpy.mockRestore();
+  });
+
   // ── Keyboard shortcut: toggle search panel ──
 
   it('toggles search panel via concord:toggle-search event', () => {

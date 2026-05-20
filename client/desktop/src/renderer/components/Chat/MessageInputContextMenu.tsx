@@ -1,5 +1,6 @@
 import React from 'react';
 import ContextMenu from '../ui/ContextMenu';
+import { errorMessage } from '../../utils/redactError';
 
 interface MessageInputContextMenuProps {
   position: { x: number; y: number };
@@ -21,7 +22,7 @@ const MessageInputContextMenu: React.FC<MessageInputContextMenuProps> = ({
         onPaste(text);
       }
     } catch (err) {
-      console.error('Failed to read clipboard:', err);
+      console.error('Failed to read clipboard:', errorMessage(err));
     }
     onClose();
   };

@@ -529,6 +529,26 @@ describe('DMChatArea', () => {
     });
   });
 
+  it('logs redacted error when mark-as-read fetch rejects', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // First call fetches messages (success), second call (POST /read) rejects
+    mockApiFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [] }) })
+      .mockRejectedValueOnce(new Error('boom'));
+    useDMStore.setState({
+      conversations: [makeConversation()],
+      clearUnread: vi.fn(),
+    });
+    render(<DMChatArea selectedThreadId="conv-1" />);
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[DMChatArea] Failed to mark conversation as read:',
+        'boom'
+      );
+    });
+    consoleSpy.mockRestore();
+  });
+
   // --- Username fallback in header ---
 
   it('falls back to username when participant has no display name', () => {

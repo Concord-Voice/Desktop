@@ -399,4 +399,18 @@ describe('AddFriendModal', () => {
       expect(mockSendRequest).toHaveBeenCalledWith('u1');
     });
   });
+
+  it('logs redacted error when generateFriendCode fails', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    useFriendStore.setState({
+      generateFriendCode: vi.fn().mockRejectedValueOnce(new Error('boom')),
+    });
+    render(<AddFriendModal isOpen={true} onClose={mockOnClose} />);
+    const generateBtn = screen.getByRole('button', { name: /Generate Code/i });
+    fireEvent.click(generateBtn);
+    await vi.waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to generate code:', 'boom');
+    });
+    consoleSpy.mockRestore();
+  });
 });

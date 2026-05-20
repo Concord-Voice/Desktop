@@ -408,7 +408,7 @@ describe('FriendsList', () => {
     await waitFor(() => {
       expect(consoleSpy).toHaveBeenCalledWith(
         'Failed to accept friend request:',
-        expect.any(Error)
+        expect.any(String)
       );
     });
     consoleSpy.mockRestore();
@@ -428,7 +428,7 @@ describe('FriendsList', () => {
     await waitFor(() => {
       expect(consoleSpy).toHaveBeenCalledWith(
         'Failed to decline friend request:',
-        expect.any(Error)
+        expect.any(String)
       );
     });
     consoleSpy.mockRestore();
@@ -546,7 +546,7 @@ describe('FriendsList', () => {
     fireEvent.click(screen.getByText('Remove Friend'));
 
     await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith('Failed to remove friend:', expect.any(Error));
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to remove friend:', expect.any(String));
     });
     consoleSpy.mockRestore();
   });

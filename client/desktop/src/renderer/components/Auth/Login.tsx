@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { unwrapLoginKeys, generateRegistrationKeys } from '../../utils/crypto';
 import { e2eeService } from '../../services/e2eeService';
+import { errorMessage } from '../../utils/redactError';
 import { preferencesSyncService } from '../../services/preferencesSync';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useLayoutStore } from '../../stores/layoutStore';
@@ -202,7 +203,7 @@ const Login: React.FC<LoginProps> = ({
 
       await completeLoginFromResponse(data);
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('Login error:', errorMessage(error));
       setErrors({
         general: error instanceof Error ? error.message : 'Login failed. Please try again.',
       });
@@ -295,7 +296,7 @@ const Login: React.FC<LoginProps> = ({
       );
       console.debug('Private key unwrapped and E2EE service initialized!');
     } catch (unwrapError) {
-      console.warn('Key unwrap failed, regenerating E2EE keys...', unwrapError);
+      console.warn('Key unwrap failed, regenerating E2EE keys...', errorMessage(unwrapError));
       const newKeys = await generateRegistrationKeys(formData.password);
 
       if (globalThis.electron?.storeRefreshToken) {

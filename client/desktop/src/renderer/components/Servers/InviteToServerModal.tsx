@@ -4,6 +4,7 @@ import CustomSelect from '../ui/CustomSelect';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useInviteStore } from '../../stores/inviteStore';
 import { ServerWithRole, ServerInviteWithCreator } from '../../types/server';
+import { errorMessage } from '../../utils/redactError';
 import './InviteToServerModal.css';
 
 const EMPTY_INVITES: ServerInviteWithCreator[] = [];
@@ -117,7 +118,7 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, serve
         setError('Failed to create invite');
       }
     } catch (err: unknown) {
-      console.error('Failed to create invite:', err);
+      console.error('Failed to create invite:', errorMessage(err));
       setError('Failed to create invite');
     } finally {
       setIsGenerating(false);

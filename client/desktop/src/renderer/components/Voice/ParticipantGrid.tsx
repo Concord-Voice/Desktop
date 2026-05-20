@@ -5,6 +5,7 @@ import { useAudioSettingsStore } from '../../stores/audioSettingsStore';
 import ParticipantTile from './ParticipantTile';
 import { useVoiceMagnification } from './useVoiceMagnification';
 import { useGridLayout } from '../../hooks/useGridLayout';
+import { errorMessage } from '../../utils/redactError';
 import './ParticipantGrid.css';
 
 /** Maximum boost gain: +18 dB ≈ 8x linear. Prevents extreme noise amplification. */
@@ -46,13 +47,17 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
 
     // Play the consumer stream through the <audio> element first
     el.srcObject = stream;
-    el.play().catch((err) => console.warn('Audio element play() rejected:', err));
+    el.play().catch((err) => {
+      console.warn('Audio element play() rejected:', errorMessage(err));
+    });
 
     const ctx = new AudioContext({ sampleRate: 48000 });
     ctxRef.current = ctx;
 
     if (ctx.state === 'suspended') {
-      ctx.resume().catch((err) => console.warn('AudioContext resume failed:', err));
+      ctx.resume().catch((err) => {
+        console.warn('AudioContext resume failed:', errorMessage(err));
+      });
     }
 
     // Capture the audio element's output into the Web Audio graph.
@@ -82,7 +87,9 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
       if ('setSinkId' in ctx) {
         (ctx as AudioContext & { setSinkId: (id: string) => Promise<void> })
           .setSinkId(outputDeviceId)
-          .catch((err) => console.warn('Failed to set audio output device:', err));
+          .catch((err) => {
+            console.warn('Failed to set audio output device:', errorMessage(err));
+          });
       } else if ('setSinkId' in el) {
         // Fallback: disconnect from ctx.destination, route through a destination node
         // to a separate <audio> element that supports setSinkId
@@ -93,7 +100,9 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
         fallbackEl.srcObject = fallbackDest.stream;
         (fallbackEl as HTMLAudioElement & { setSinkId: (id: string) => Promise<void> })
           .setSinkId(outputDeviceId)
-          .catch((err) => console.warn('Failed to set fallback audio output device:', err));
+          .catch((err) => {
+            console.warn('Failed to set fallback audio output device:', errorMessage(err));
+          });
         fallbackEl.play().catch(() => {});
       }
     }

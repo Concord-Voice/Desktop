@@ -84,6 +84,19 @@ describe('TuneInButton', () => {
     fireEvent.click(screen.getByRole('button'));
     expect(mockTuneIn).not.toHaveBeenCalled();
   });
+
+  it('logs error when tuneInToScreenShare throws', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockTuneIn.mockRejectedValueOnce(new Error('tune in failed'));
+
+    render(<TuneInButton share={mockShare} />);
+    fireEvent.click(screen.getByRole('button'));
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to tune in:', 'tune in failed');
+    });
+    consoleSpy.mockRestore();
+  });
 });
 
 describe('TuneInOverlay', () => {

@@ -397,4 +397,19 @@ describe('ConversationList', () => {
     expect(screen.getByText('Alice')).toBeInTheDocument();
     expect(screen.getByText('Charlie')).toBeInTheDocument();
   });
+
+  it('logs redacted error when openPersonalThread fails', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    useDMStore.setState({
+      conversations: [],
+      fetchConversations: vi.fn().mockResolvedValue(undefined),
+      openPersonalThread: vi.fn().mockRejectedValueOnce(new Error('boom')),
+    });
+    render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
+    fireEvent.click(screen.getByText('Personal Thread'));
+    await vi.waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to open personal thread:', 'boom');
+    });
+    consoleSpy.mockRestore();
+  });
 });

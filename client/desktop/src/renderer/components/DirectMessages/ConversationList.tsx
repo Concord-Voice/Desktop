@@ -4,6 +4,7 @@ import { useDMStore, type DMConversation } from '../../stores/dmStore';
 import { useUserStore } from '../../stores/userStore';
 import { e2eeService } from '../../services/e2eeService';
 import { useDraftMessageStore } from '../../stores/draftMessageStore';
+import { errorMessage } from '../../utils/redactError';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 import CreateGroupModal from './CreateGroupModal';
 import DMConversationContextMenu from './DMConversationContextMenu';
@@ -122,7 +123,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
       const conv = await openPersonalThread();
       onSelectThread(conv.id);
     } catch (err) {
-      console.error('Failed to open personal thread:', err);
+      console.error('Failed to open personal thread:', errorMessage(err));
     }
   };
 

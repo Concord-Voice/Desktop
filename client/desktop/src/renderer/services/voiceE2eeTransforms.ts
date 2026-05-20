@@ -7,6 +7,7 @@
  */
 
 import type { MediaEncryption } from './mediaEncryption';
+import { errorMessage } from '../utils/redactError';
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -53,7 +54,7 @@ function logDecryptFailure(
             .join(' ')
         : 'too-small';
     const hasMagic = fd.length >= 2 && fd.at(-2) === 0xde && fd.at(-1) === 0xad;
-    console.warn(`E2EE: dropping frame for ${senderUserId} (dropped: ${dropCount})`, {
+    console.warn('E2EE: dropping frame for sender (dropped count):', senderUserId, dropCount, {
       error: errMsg,
       frameSize: fd.length,
       localEpoch: encryption.getCurrentKeyId(),
@@ -62,10 +63,15 @@ function logDecryptFailure(
       trailerHex,
     });
   } else {
-    console.warn(`E2EE: dropping undecryptable frame for ${senderUserId} (dropped: ${dropCount})`, {
-      error: errMsg,
-      frameSize: frame.data.byteLength,
-    });
+    console.warn(
+      'E2EE: dropping undecryptable frame for sender (dropped count):',
+      senderUserId,
+      dropCount,
+      {
+        error: errMsg,
+        frameSize: frame.data.byteLength,
+      }
+    );
   }
 }
 
@@ -169,11 +175,11 @@ export function applyLegacyDecryptPipeline(
       .pipeThrough(transform)
       .pipeTo(writable)
       .catch((err: unknown) => {
-        console.warn('E2EE decrypt pipe error:', err);
+        console.warn('E2EE decrypt pipe error:', errorMessage(err));
       });
 
     console.debug(`E2EE: decrypt transform applied for ${senderUserId} (createEncodedStreams)`);
   } catch (err) {
-    console.error('E2EE: createEncodedStreams failed on receiver:', err);
+    console.error('E2EE: createEncodedStreams failed on receiver:', errorMessage(err));
   }
 }

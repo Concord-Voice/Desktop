@@ -1546,5 +1546,44 @@ describe('dmStore', () => {
       // Key already existed — should NOT create new keys
       expect(e2eeMock.createChannelKeys).not.toHaveBeenCalled();
     });
+
+    it('logs error when createChannelKeys throws during DM E2EE key distribution', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      // createChannelKeys throws → distributeChannelKeys throws → outer catch fires
+      e2eeMock.createChannelKeys.mockRejectedValueOnce(new Error('key wrap failed'));
+      server.use(
+        http.post(`${API_BASE}/api/v1/dm/conversations`, () => {
+          return HttpResponse.json({
+            conversation: {
+              id: 'conv-e2ee-fail',
+              is_group: false,
+              is_personal: false,
+              name: null,
+              participants: [
+                { user_id: 'user-1', username: 'alice' },
+                { user_id: 'user-2', username: 'bob' },
+              ],
+              last_message: null,
+              unread_count: 0,
+              created_at: '2025-01-01T00:00:00Z',
+            },
+          });
+        }),
+        http.get(`${API_BASE}/api/v1/users/:userId/public-key`, () => {
+          return HttpResponse.json({ public_key: 'mock-public-key' });
+        })
+      );
+
+      // openDM triggers ensureE2EEKey → distributeChannelKeys → createChannelKeys throws
+      await useDMStore.getState().openDM('user-2');
+
+      await vi.waitFor(() => {
+        expect(consoleSpy).toHaveBeenCalledWith(
+          'Failed to distribute E2EE key for DM:',
+          'key wrap failed'
+        );
+      });
+      consoleSpy.mockRestore();
+    });
   });
 });

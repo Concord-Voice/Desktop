@@ -6,6 +6,7 @@ import { SSOButton } from './SSOButton';
 import { useSSOFlow } from '../../hooks/useSSOFlow';
 import { generateRegistrationKeys, exportPublicKey } from '../../utils/crypto';
 import { API_BASE, ensureMachineId } from '../../services/apiClient';
+import { errorMessage } from '../../utils/redactError';
 import {
   usePendingRegistrationStore,
   type PendingRegistrationResponse,
@@ -173,7 +174,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
       usePendingRegistrationStore.getState().setPending(data);
       onSuccess({ pendingId: data.pending_id, email: data.email });
     } catch (error) {
-      console.error('Registration error:', error);
+      console.error('Registration error:', errorMessage(error));
       setErrors({
         general: error instanceof Error ? error.message : 'Registration failed. Please try again.',
       });

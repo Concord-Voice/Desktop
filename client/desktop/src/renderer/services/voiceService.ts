@@ -52,6 +52,7 @@ import {
   type DecryptRecoveryCallbacks,
   type InsertableStreamsReceiver,
 } from './voiceE2eeTransforms';
+import { errorMessage } from '../utils/redactError';
 
 // Toggle for verbose E2EE/SDP diagnostics — set to true when debugging
 // frame drops, BUNDLE collisions, or key rotation issues. When false,
@@ -367,7 +368,7 @@ class VoiceService {
         }
       }, 50); // 20 Hz poll
     } catch (err) {
-      console.warn('Failed to start local VAD:', err);
+      console.warn('Failed to start local VAD:', errorMessage(err));
     }
   }
 
@@ -820,7 +821,7 @@ class VoiceService {
       const params = sender.getParameters();
       params.degradationPreference = pref;
       sender.setParameters(params).catch((err: unknown) => {
-        console.warn('Failed to set degradationPreference:', err);
+        console.warn('Failed to set degradationPreference:', errorMessage(err));
       });
     } catch {
       // Ignore — rtpSender may not be available in all environments
@@ -1032,7 +1033,7 @@ class VoiceService {
       // Swap track on existing producer (no SDP renegotiation)
       await producer.replaceTrack({ track });
     } catch (err) {
-      console.warn('liveReplaceAudioTrack failed:', err);
+      console.warn('liveReplaceAudioTrack failed:', errorMessage(err));
     }
 
     producer.resume();
@@ -1073,7 +1074,10 @@ class VoiceService {
           err.name === 'OverconstrainedError' &&
           !isSystemDefault
         ) {
-          console.warn('Camera overconstrained during track replace, falling back:', err);
+          console.warn(
+            'Camera overconstrained during track replace, falling back:',
+            errorMessage(err)
+          );
           stream = await navigator.mediaDevices.getUserMedia({ video: true });
         } else {
           throw err;
@@ -1090,7 +1094,7 @@ class VoiceService {
         useVoiceStore.getState().updateParticipant(localUserId, { videoStream: stream });
       }
     } catch (err) {
-      console.warn('liveReplaceCameraTrack failed:', err);
+      console.warn('liveReplaceCameraTrack failed:', errorMessage(err));
     }
 
     producer.resume();
@@ -1304,7 +1308,7 @@ class VoiceService {
         this.producers.delete('screen-audio');
       });
     } catch (err) {
-      console.warn('Failed to re-produce screen audio:', err);
+      console.warn('Failed to re-produce screen audio:', errorMessage(err));
     }
   }
 
@@ -1794,7 +1798,10 @@ class VoiceService {
         },
       });
     } catch (err) {
-      console.warn('[VoiceService] Pre-acquire mic failed, will retry in produceAudio:', err);
+      console.warn(
+        '[VoiceService] Pre-acquire mic failed, will retry in produceAudio:',
+        errorMessage(err)
+      );
       return null;
     }
   }
@@ -1952,7 +1959,7 @@ class VoiceService {
           err.name === 'OverconstrainedError' &&
           constraints !== fallbackChain.at(-1)
         ) {
-          console.warn('Camera overconstrained, relaxing constraints:', err);
+          console.warn('Camera overconstrained, relaxing constraints:', errorMessage(err));
           continue;
         }
         throw err;
@@ -2048,7 +2055,7 @@ class VoiceService {
         if (uid) s.updateParticipant(uid, { videoStream: undefined, isVideoOn: false });
       });
     } catch (err) {
-      console.error('Failed to start camera:', err);
+      console.error('Failed to start camera:', errorMessage(err));
       if (this.localCameraStream) {
         for (const t of this.localCameraStream.getTracks()) t.stop();
         this.localCameraStream = null;
@@ -2162,7 +2169,7 @@ class VoiceService {
 
       console.debug('produceScreen: screen audio producer created', audioProducer.id);
     } catch (err) {
-      console.warn('Failed to produce screen audio:', err);
+      console.warn('Failed to produce screen audio:', errorMessage(err));
     }
   }
 
@@ -2293,7 +2300,7 @@ class VoiceService {
         this.stopLocalVAD();
       }
     } catch (error) {
-      console.error('[VoiceService] toggleMute failed:', error);
+      console.error('[VoiceService] toggleMute failed:', errorMessage(error));
       store.setMuted(wasMuted);
       this.applyOptimisticMute(store, wasMuted);
       try {
@@ -2840,10 +2847,10 @@ class VoiceService {
 
       const logSdp = () => {
         if (pc.localDescription) {
-          console.debug(`[SDP] ${label} local:`, pc.localDescription.sdp);
+          console.debug('[SDP] local:', label, pc.localDescription.sdp);
         }
         if (pc.remoteDescription) {
-          console.debug(`[SDP] ${label} remote:`, pc.remoteDescription.sdp);
+          console.debug('[SDP] remote:', label, pc.remoteDescription.sdp);
         }
       };
 
@@ -2893,19 +2900,25 @@ class VoiceService {
       if (kind === 'audio') {
         this.consumeQueueAudio = this.consumeQueueAudio
           .then(() => this.consumeProducerImpl(producerId, senderUserId, kind))
-          .catch((err) => console.error('Audio consume queue error:', err));
+          .catch((err) => {
+            console.error('Audio consume queue error:', errorMessage(err));
+          });
         await this.consumeQueueAudio;
       } else {
         this.consumeQueueVideo = this.consumeQueueVideo
           .then(() => this.consumeProducerImpl(producerId, senderUserId, kind))
-          .catch((err) => console.error('Video consume queue error:', err));
+          .catch((err) => {
+            console.error('Video consume queue error:', errorMessage(err));
+          });
         await this.consumeQueueVideo;
       }
     } else {
       // kind unknown: fall back to audio queue
       this.consumeQueueAudio = this.consumeQueueAudio
         .then(() => this.consumeProducerImpl(producerId, senderUserId, kind))
-        .catch((err) => console.error('Consume queue error:', err));
+        .catch((err) => {
+          console.error('Consume queue error:', errorMessage(err));
+        });
       await this.consumeQueueAudio;
     }
   }
@@ -3063,7 +3076,7 @@ class VoiceService {
       await this.emitAsync('resume-consumer', { consumerId: consumer.id });
       console.debug('[consume] consumer resumed', { consumerId: consumer.id });
     } catch (err) {
-      console.error('[consume] Failed to consume producer:', producerId, err);
+      console.error('[consume] Failed to consume producer:', producerId, errorMessage(err));
     }
   }
 
@@ -3287,6 +3300,7 @@ class VoiceService {
     });
 
     this.socket.on('disconnect', (reason) => {
+      // eslint-disable-next-line no-restricted-syntax -- reason is a string, not an Error; no err.cause propagation risk
       console.warn('Media plane disconnected:', reason);
       if (reason === 'io server disconnect') {
         // Server forcibly disconnected us — full cleanup
@@ -3311,6 +3325,7 @@ class VoiceService {
     });
 
     this.socket.on('error', ({ message }) => {
+      // eslint-disable-next-line no-restricted-syntax -- message is a string from a server-supplied socket error payload, not an Error; no err.cause propagation risk
       console.error('Media plane error:', message);
     });
 
@@ -3422,8 +3437,14 @@ class VoiceService {
         temporalLayer: currentLayers.temporalLayer,
       });
       console.warn(
-        `IGNIS RED: lowering spatial layer for consumer ${consumer.id}`,
-        `(rho=${rho.toFixed(2)}, decode p95=${p95DecodeMs.toFixed(1)}ms, fps=${currentFps})`
+        'IGNIS RED: lowering spatial layer for consumer:',
+        consumer.id,
+        'rho:',
+        rho.toFixed(2),
+        'decode p95ms:',
+        p95DecodeMs.toFixed(1),
+        'fps:',
+        currentFps // eslint-disable-line no-restricted-syntax -- currentFps is a number from RTCStatsReport, not an Error
       );
       return;
     }
@@ -3434,8 +3455,10 @@ class VoiceService {
         temporalLayer: currentLayers.temporalLayer - 1,
       });
       console.warn(
-        `IGNIS RED: lowering temporal layer for consumer ${consumer.id}`,
-        `(rho=${rho.toFixed(2)})`
+        'IGNIS RED: lowering temporal layer for consumer:',
+        consumer.id,
+        'rho:',
+        rho.toFixed(2)
       );
       return;
     }
@@ -3508,8 +3531,14 @@ class VoiceService {
           temporalLayer: currentLayers.temporalLayer - 1,
         });
         console.warn(
-          `IGNIS YELLOW: lowering temporal layer for consumer ${consumer.id}`,
-          `(rho=${rho.toFixed(2)}, decode p95=${p95DecodeMs.toFixed(1)}ms, fps=${currentFps})`
+          'IGNIS YELLOW: lowering temporal layer for consumer:',
+          consumer.id,
+          'rho:',
+          rho.toFixed(2),
+          'decode p95ms:',
+          p95DecodeMs.toFixed(1),
+          'fps:',
+          currentFps // eslint-disable-line no-restricted-syntax -- currentFps is a number from RTCStatsReport, not an Error
         );
       }
       return worstZone === 'red' ? 'red' : 'yellow';
@@ -3621,7 +3650,7 @@ class VoiceService {
       this.handleWorkerMessage(event.data);
     };
     this.e2eeWorker.onerror = (err) => {
-      console.error('E2EE Worker error:', err);
+      console.error('E2EE Worker error:', errorMessage(err));
     };
   }
 
@@ -3784,7 +3813,7 @@ class VoiceService {
         sender.transform = new RTCRtpScriptTransform(this.e2eeWorker, options);
         console.debug('E2EE: encrypt transform applied (RTCRtpScriptTransform)');
       } catch (err) {
-        console.error('E2EE: RTCRtpScriptTransform failed on sender:', err);
+        console.error('E2EE: RTCRtpScriptTransform failed on sender:', errorMessage(err));
       }
       return;
     }
@@ -3831,11 +3860,11 @@ class VoiceService {
           .pipeThrough(transform)
           .pipeTo(writable)
           .catch((err: unknown) => {
-            console.error('E2EE: encrypt pipe broken — frames stopped flowing:', err);
+            console.error('E2EE: encrypt pipe broken — frames stopped flowing:', errorMessage(err));
           });
         console.debug('E2EE: encrypt transform applied (createEncodedStreams)');
       } catch (err) {
-        console.error('E2EE: createEncodedStreams failed on sender:', err);
+        console.error('E2EE: createEncodedStreams failed on sender:', errorMessage(err));
       }
     } else {
       console.warn('E2EE: no Insertable Streams API available — frames will not be encrypted');
@@ -3872,7 +3901,7 @@ class VoiceService {
           `E2EE: decrypt transform applied for ${senderUserId} (RTCRtpScriptTransform)`
         );
       } catch (err) {
-        console.error('E2EE: RTCRtpScriptTransform failed on receiver:', err);
+        console.error('E2EE: RTCRtpScriptTransform failed on receiver:', errorMessage(err));
       }
       return;
     }

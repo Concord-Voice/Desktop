@@ -275,7 +275,7 @@ describe('MemberContextMenu — extended coverage', () => {
         fireEvent.click(screen.getByText('Send DM'));
       });
 
-      expect(consoleSpy).toHaveBeenCalledWith('Failed to open DM:', expect.any(Error));
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to open DM:', expect.any(String));
       expect(mockOnClose).toHaveBeenCalled();
       consoleSpy.mockRestore();
     });
@@ -307,7 +307,7 @@ describe('MemberContextMenu — extended coverage', () => {
         fireEvent.click(screen.getByText('Send Friend Request'));
       });
 
-      expect(consoleSpy).toHaveBeenCalledWith('Failed to send friend request:', expect.any(Error));
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to send friend request:', expect.any(String));
       expect(mockOnClose).toHaveBeenCalled();
       consoleSpy.mockRestore();
     });

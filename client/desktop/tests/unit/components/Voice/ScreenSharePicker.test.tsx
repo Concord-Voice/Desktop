@@ -200,4 +200,20 @@ describe('ScreenSharePicker', () => {
       expect(screen.queryByText('Loading sources...')).not.toBeInTheDocument();
     });
   });
+
+  it('logs error when getDesktopSources throws', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    (globalThis as Record<string, unknown>).electron = {
+      getDesktopSources: vi.fn().mockRejectedValue(new Error('IPC error')),
+    };
+
+    render(<ScreenSharePicker onSelect={mockOnSelect} onCancel={mockOnCancel} />);
+
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to get desktop sources:', 'IPC error');
+    });
+    // Loading ends even on error
+    expect(screen.queryByText('Loading sources...')).not.toBeInTheDocument();
+    consoleSpy.mockRestore();
+  });
 });

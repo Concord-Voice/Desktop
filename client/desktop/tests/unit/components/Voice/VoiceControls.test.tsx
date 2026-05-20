@@ -695,7 +695,7 @@ describe('VoiceControls', () => {
       fireEvent.click(screen.getByTitle('Stop Sharing'));
     });
 
-    expect(consoleSpy).toHaveBeenCalledWith('Failed to toggle screen share:', expect.any(Error));
+    expect(consoleSpy).toHaveBeenCalledWith('Failed to toggle screen share:', expect.any(String));
     consoleSpy.mockRestore();
   });
 

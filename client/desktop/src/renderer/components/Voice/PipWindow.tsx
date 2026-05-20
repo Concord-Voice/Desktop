@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
+import { errorMessage } from '../../utils/redactError';
 import {
   Pin,
   PinOff,
@@ -310,7 +311,7 @@ const FramesPipContent: React.FC<{
         // Signal ready — main window will pause its consumers
         await client.signalReady();
       } catch (err) {
-        console.error('[FramesPip] Init failed:', err);
+        console.error('[FramesPip] Init failed:', errorMessage(err));
       } finally {
         setLoading(false);
       }
@@ -416,7 +417,7 @@ const ScreenPipContent: React.FC<{
           await client.signalReady();
         }
       } catch (err) {
-        console.error('[ScreenPip] Init failed:', err);
+        console.error('[ScreenPip] Init failed:', errorMessage(err));
       } finally {
         setLoading(false);
       }

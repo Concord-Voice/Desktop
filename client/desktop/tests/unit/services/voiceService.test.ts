@@ -912,6 +912,22 @@ describe('VoiceService', () => {
     });
   });
 
+  // ===== toggleVideo — error path =====
+
+  describe('toggleVideo error path', () => {
+    it('logs error and sets videoSlotError when camera produce throws', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const { sendTransport } = await joinVoiceChannel();
+      mockGetUserMedia.mockResolvedValue(createMockMediaStream([{ kind: 'video' }]));
+      sendTransport.produce.mockRejectedValueOnce(new Error('camera produce failed'));
+
+      await voiceService.produceVideo();
+
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to start camera:', 'camera produce failed');
+      consoleSpy.mockRestore();
+    });
+  });
+
   // ===== toggleScreenShare =====
 
   describe('toggleScreenShare', () => {
@@ -2310,7 +2326,10 @@ describe('VoiceService', () => {
 
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       await svc.reProduceScreenAudio();
-      expect(warnSpy).toHaveBeenCalledWith('Failed to re-produce screen audio:', expect.any(Error));
+      expect(warnSpy).toHaveBeenCalledWith(
+        'Failed to re-produce screen audio:',
+        expect.any(String)
+      );
       warnSpy.mockRestore();
     });
   });

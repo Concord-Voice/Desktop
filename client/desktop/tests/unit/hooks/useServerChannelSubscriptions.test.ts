@@ -95,4 +95,41 @@ describe('useServerChannelSubscriptions', () => {
     // Removing cleanup prevents StrictMode double-mount thrashing.
     expect(mockUnsubscribeServer).not.toHaveBeenCalled();
   });
+
+  it('logs error when server unread-status fetch throws', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockApiFetch.mockRejectedValueOnce(new Error('network down'));
+    useChatStore.setState({ isConnected: true });
+    useServerStore.setState({ servers: [mockServer] });
+
+    renderHook(() => useServerChannelSubscriptions());
+
+    await vi.waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Failed to fetch server unread status:',
+        'network down'
+      );
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it('logs error when per-channel unread fetch throws', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // First call (unread-status) succeeds; second call (per-channel) throws
+    mockApiFetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ server_ids: [] }) })
+      .mockRejectedValueOnce(new Error('channel fetch failed'));
+    useChatStore.setState({ isConnected: true });
+    useServerStore.setState({ servers: [mockServer], activeServerId: 'server-1' });
+
+    renderHook(() => useServerChannelSubscriptions());
+
+    await vi.waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Failed to fetch unread counts:',
+        'channel fetch failed'
+      );
+    });
+    consoleSpy.mockRestore();
+  });
 });

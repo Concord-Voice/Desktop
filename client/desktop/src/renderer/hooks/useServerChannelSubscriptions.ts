@@ -15,6 +15,7 @@ import { useChannelStore } from '../stores/channelStore';
 import { useUnreadStore } from '../stores/unreadStore';
 import { getWebSocketService } from '../services/websocketService';
 import { apiFetch } from '../services/apiClient';
+import { errorMessage } from '../utils/redactError';
 
 export function useServerChannelSubscriptions() {
   const servers = useServerStore((s) => s.servers);
@@ -67,7 +68,7 @@ export function useServerChannelSubscriptions() {
             setInitialServerUnreads(data.server_ids || []);
           }
         } catch (err) {
-          console.error('Failed to fetch server unread status:', err);
+          console.error('Failed to fetch server unread status:', errorMessage(err));
         }
       })();
     }
@@ -125,7 +126,7 @@ export function useServerChannelSubscriptions() {
           }
         }
       } catch (err) {
-        console.error('Failed to fetch unread counts:', err);
+        console.error('Failed to fetch unread counts:', errorMessage(err));
       }
     };
     fetchUnreads();

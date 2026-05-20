@@ -4,6 +4,7 @@ import { wrapStore } from '../utils/createStore';
 import { apiFetch } from '../services/apiClient';
 import { e2eeService } from '../services/e2eeService';
 import { isPendingKeyError } from '../services/e2eeErrors';
+import { errorMessage } from '../utils/redactError';
 
 export interface DMParticipant {
   userId: string;
@@ -100,7 +101,7 @@ async function ensureE2EEKey(conv: DMConversation): Promise<void> {
 
     await distributeChannelKeys(conv.id, memberKeys);
   } catch (err) {
-    console.error('Failed to distribute E2EE key for DM:', err);
+    console.error('Failed to distribute E2EE key for DM:', errorMessage(err));
   }
 }
 
@@ -132,7 +133,7 @@ async function ensurePersonalThreadKey(conv: DMConversation): Promise<void> {
 
     await distributeChannelKeys(conv.id, memberKeys);
   } catch (err) {
-    console.error('Failed to distribute E2EE key for personal thread:', err);
+    console.error('Failed to distribute E2EE key for personal thread:', errorMessage(err));
   }
 }
 

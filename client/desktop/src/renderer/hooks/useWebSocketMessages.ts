@@ -427,6 +427,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       const channelId = data.channel_id;
 
       if (!channelId) {
+        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
         console.error('Message missing channel_id:', msg);
         return;
       }
@@ -434,6 +435,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       // the actual trust boundary; narrow here and capture into a typed local
       // so closures below don't lose the narrowing.
       if (typeof data.user_id !== 'string' || data.user_id.length === 0) {
+        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
         console.error('Message missing user_id:', msg);
         return;
       }
@@ -541,6 +543,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       const messageId = data.id;
 
       if (!channelId || !messageId) {
+        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
         console.error('Message update missing channel_id or id:', msg);
         return;
       }
@@ -559,6 +562,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       const messageId = data.id;
 
       if (!channelId || !messageId) {
+        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
         console.error('Message delete missing channel_id or id:', msg);
         return;
       }
@@ -677,6 +681,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       const username = data.username ?? '';
 
       if (!channelId || !userId) {
+        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
         console.error('Typing indicator missing channel_id or user_id:', msg);
         return;
       }
@@ -1131,10 +1136,12 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         conversationId.length === 0 ||
         conversationId.length > 128
       ) {
+        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
         console.error('DM message missing or malformed conversation_id:', msg);
         return;
       }
       if (!data.user_id || typeof data.user_id !== 'string') {
+        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
         console.error('DM message missing user_id:', msg);
         return;
       }
@@ -1359,6 +1366,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         typeof conv.is_group !== 'boolean' ||
         typeof conv.created_at !== 'string'
       ) {
+        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
         console.error('dm_conversation_created: malformed conversation envelope', msg);
         return;
       }
@@ -1377,6 +1385,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         }>
       >((acc, p) => {
         if (typeof p.user_id !== 'string' || typeof p.username !== 'string') {
+          // eslint-disable-next-line no-restricted-syntax -- p is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
           console.warn('dm_conversation_created: skipping malformed participant', p);
           return acc;
         }
@@ -1555,6 +1564,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
           typeof data.to_user_id !== 'string' ||
           typeof data.created_at !== 'string'
         ) {
+          // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
           console.error('friend_request_received: malformed payload', msg);
           return;
         }
@@ -1744,6 +1754,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
           })
         );
       } else {
+        // eslint-disable-next-line no-restricted-syntax -- data is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
         console.error('WebSocket error:', data);
       }
     });

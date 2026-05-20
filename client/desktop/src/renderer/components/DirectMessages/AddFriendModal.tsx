@@ -8,6 +8,7 @@ import {
 import { usePrivacyStore } from '../../stores/privacyStore';
 import { apiFetch } from '../../services/apiClient';
 import Modal from '../ui/Modal';
+import { errorMessage } from '../../utils/redactError';
 import CustomSelect from '../ui/CustomSelect';
 import './DirectMessages.css';
 
@@ -181,7 +182,7 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
       const code = await generateFriendCode({ maxUses, expiresIn, autoAccept });
       setGeneratedCode(code.code);
     } catch (err) {
-      console.error('Failed to generate code:', err);
+      console.error('Failed to generate code:', errorMessage(err));
     } finally {
       setIsGenerating(false);
     }

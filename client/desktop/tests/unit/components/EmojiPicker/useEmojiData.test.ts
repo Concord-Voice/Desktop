@@ -113,6 +113,33 @@ describe('useEmojiData — loadCategory', () => {
 
     expect(returned).toEqual([]);
   });
+
+  it('logs redacted error and returns empty array when loader throws during indexing', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // Make indexCategory throw — it runs inside the try block after the loader resolves
+    const shortcodeIndexModule = await import('@/renderer/components/EmojiPicker/shortcodeIndex');
+    const indexSpy = vi.spyOn(shortcodeIndexModule, 'indexCategory').mockImplementationOnce(() => {
+      throw new Error('boom');
+    });
+
+    // Clear cache so the loader path runs for smileys
+    mockCategoryMap.delete('smileys');
+
+    const { result } = renderHook(() => useEmojiData());
+    await waitFor(() => expect(result.current.categories.length).toBeGreaterThan(0));
+
+    let returned: EmojiEntry[] = [{ e: 'x', n: 'x', s: false, c: [] }];
+    await act(async () => {
+      returned = await result.current.loadCategory('smileys');
+    });
+
+    expect(returned).toEqual([]);
+    await vi.waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to load emoji category:', 'smileys', 'boom');
+    });
+    indexSpy.mockRestore();
+    consoleSpy.mockRestore();
+  });
 });
 
 describe('useEmojiData — getCategory', () => {

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { EmojiEntry, EmojiCategory } from './types';
+import { errorMessage } from '../../utils/redactError';
 import {
   getCachedCategory,
   setCachedCategory,
@@ -91,7 +92,7 @@ export function useEmojiData() {
       setLoadedCategories((prev) => new Set(prev).add(categoryId));
       return data;
     } catch (err) {
-      console.error('Failed to load emoji category:', categoryId, err);
+      console.error('Failed to load emoji category:', categoryId, errorMessage(err));
       return [];
     } finally {
       setLoadingCategory(null);

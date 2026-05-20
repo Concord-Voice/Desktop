@@ -339,7 +339,7 @@ describe('DirectMessagesView', () => {
     fireEvent.click(screen.getByText('Click Friend'));
 
     await vi.waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith('Failed to open DM:', expect.any(Error));
+      expect(consoleSpy).toHaveBeenCalledWith('Failed to open DM:', expect.any(String));
     });
     consoleSpy.mockRestore();
   });

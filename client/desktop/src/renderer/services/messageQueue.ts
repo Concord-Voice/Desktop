@@ -13,6 +13,7 @@
 
 import { classifyError } from './e2eeErrors';
 import { e2eeService } from './e2eeService';
+import { errorMessage } from '../utils/redactError';
 
 export enum MessageStatus {
   PENDING = 'pending', // Waiting to be sent
@@ -159,6 +160,7 @@ export class MessageQueue {
     if (message) {
       message.status = MessageStatus.FAILED;
       message.retryCount = message.maxRetries;
+      // eslint-disable-next-line no-restricted-syntax -- error is typed string (a caller-stringified error message), not a raw Error; no err.cause chain to propagate
       console.error('[MessageQueue] Message %s terminally failed: %s', messageId, error);
       this.callbacks.onMessageFailed?.(messageId, error);
       this.saveQueue();
@@ -270,7 +272,7 @@ export class MessageQueue {
         this.markAsSent(message.id);
         this.remove(message.id); // Server has persisted it — remove from queue
       } catch (error) {
-        console.error('[MessageQueue] Failed to send message %s:', message.id, error);
+        console.error('[MessageQueue] Failed to send message %s:', message.id, errorMessage(error));
 
         // Classify the error to decide retry vs terminal disposition (spec §6.5).
         // Retryable errors fall through to markAsFailed's existing retry-counter

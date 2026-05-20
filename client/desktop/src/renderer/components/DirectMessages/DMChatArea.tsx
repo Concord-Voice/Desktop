@@ -8,6 +8,7 @@ import TypingIndicator from '../Chat/TypingIndicator';
 import { useDMStore, type DMConversation } from '../../stores/dmStore';
 import { useUserStore } from '../../stores/userStore';
 import { useDMSubscription } from '../../hooks/useDMSubscription';
+import { errorMessage } from '../../utils/redactError';
 import { useMessageFetch } from '../../hooks/useMessageFetch';
 import { useChatController } from '../../hooks/useChatController';
 import { apiFetch } from '../../services/apiClient';
@@ -129,7 +130,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
     clearUnread(selectedThreadId);
     apiFetch(`/api/v1/dm/conversations/${selectedThreadId}/read`, { method: 'POST' }).catch(
       (error) => {
-        console.error('[DMChatArea] Failed to mark conversation as read:', error);
+        console.error('[DMChatArea] Failed to mark conversation as read:', errorMessage(error));
         if (previousUnread > 0) {
           useDMStore
             .getState()

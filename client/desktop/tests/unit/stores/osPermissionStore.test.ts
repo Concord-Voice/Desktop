@@ -83,6 +83,65 @@ describe('osPermissionStore', () => {
     await useOsPermissionStore.getState().openSettings('microphone');
     expect(window.electron.openPermissionSettings).toHaveBeenCalledWith('microphone');
   });
+
+  it('fetchAll logs error and sets isLoaded when checkAllPermissions throws', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    window.electron.checkAllPermissions = vi.fn().mockRejectedValue(new Error('IPC failure'));
+
+    await useOsPermissionStore.getState().fetchAll();
+
+    expect(consoleSpy).toHaveBeenCalledWith('[osPermissionStore] fetchAll failed:', 'IPC failure');
+    expect(useOsPermissionStore.getState().isLoaded).toBe(true);
+    consoleSpy.mockRestore();
+  });
+
+  it('checkOne logs error and returns current status when checkPermission throws', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    useOsPermissionStore.setState({ microphone: 'denied' });
+    window.electron.checkPermission = vi.fn().mockRejectedValue(new Error('check failed'));
+
+    const result = await useOsPermissionStore.getState().checkOne('microphone');
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[osPermissionStore] checkOne failed:',
+      'microphone',
+      'check failed'
+    );
+    expect(result).toBe('denied');
+    consoleSpy.mockRestore();
+  });
+
+  it('requestOne logs error and returns current status when requestPermission throws', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    useOsPermissionStore.setState({ camera: 'not-determined' });
+    window.electron.requestPermission = vi.fn().mockRejectedValue(new Error('request failed'));
+
+    const result = await useOsPermissionStore.getState().requestOne('camera');
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[osPermissionStore] requestOne failed:',
+      'camera',
+      'request failed'
+    );
+    expect(result).toBe('not-determined');
+    consoleSpy.mockRestore();
+  });
+
+  it('openSettings logs error when openPermissionSettings throws', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    window.electron.openPermissionSettings = vi
+      .fn()
+      .mockRejectedValue(new Error('settings failed'));
+
+    await useOsPermissionStore.getState().openSettings('microphone');
+
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[osPermissionStore] openSettings failed:',
+      'microphone',
+      'settings failed'
+    );
+    consoleSpy.mockRestore();
+  });
 });
 
 describe('ensureOsPermission', () => {

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import QRCode from 'qrcode';
 import { apiFetch } from '../../services/apiClient';
+import { errorMessage } from '../../utils/redactError';
 import TOTPInput from '../Auth/TOTPInput';
 import MFAVerifyPrompt from '../Auth/MFAVerifyPrompt';
 import BackupCodeDisplay from './BackupCodeDisplay';
@@ -224,7 +225,7 @@ const MFASetup: React.FC<MFASetupProps> = ({
         setTotpStep('done');
       }
     } catch (recoveryErr) {
-      console.warn('Recovery key generation failed, skipping:', recoveryErr);
+      console.warn('Recovery key generation failed, skipping:', errorMessage(recoveryErr));
       setTotpStep('done');
     } finally {
       setRecoveryLoading(false);
@@ -419,11 +420,7 @@ const MFASetup: React.FC<MFASetupProps> = ({
   const renderWebAuthnRegisteringStep = () => (
     <div className="mfa-setup-step" style={{ alignItems: 'center' }}>
       <div style={{ textAlign: 'center', padding: '20px 0' }}>
-        {error ? (
-          <ErrorBanner error={error} errorField="" size={20} />
-        ) : (
-          <WebAuthnWaitingPrompt />
-        )}
+        {error ? <ErrorBanner error={error} errorField="" size={20} /> : <WebAuthnWaitingPrompt />}
       </div>
       <div className="mfa-setup-actions" style={{ justifyContent: 'center' }}>
         {error ? (

@@ -6,6 +6,7 @@ import {
   type ScreenShareOptions,
 } from '../../stores/videoSettingsStore';
 import CustomSelect from '../ui/CustomSelect';
+import { errorMessage } from '../../utils/redactError';
 import './ScreenSharePicker.css';
 
 interface DesktopSource {
@@ -53,7 +54,7 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
           setSources(result);
         }
       } catch (err) {
-        console.error('Failed to get desktop sources:', err);
+        console.error('Failed to get desktop sources:', errorMessage(err));
       } finally {
         setLoading(false);
       }

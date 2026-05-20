@@ -8,6 +8,7 @@ import DMChatArea from './DMChatArea';
 import FriendsFlexSpace from './FriendsFlexSpace';
 import UserPanel from '../User/UserPanel';
 import PersistentVoiceBar from '../Voice/PersistentVoiceBar';
+import { errorMessage } from '../../utils/redactError';
 import ServerActionModal from '../Servers/ServerActionModal';
 import CreateServerModal from '../Servers/CreateServerModal';
 import JoinServerModal from '../Servers/JoinServerModal';
@@ -56,7 +57,7 @@ const DirectMessagesView: React.FC = () => {
         const conv = await useDMStore.getState().openDM(userId);
         setActiveConversation(conv.id);
       } catch (err) {
-        console.error('Failed to open DM:', err);
+        console.error('Failed to open DM:', errorMessage(err));
       }
     },
     [setActiveConversation]

@@ -296,6 +296,35 @@ describe('AudioOutput', () => {
     unmount();
     expect(mockClose).toHaveBeenCalled();
   });
+
+  it('logs redacted warning when HTMLAudioElement.play() rejects', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(HTMLAudioElement.prototype, 'play').mockRejectedValueOnce(new Error('boom'));
+
+    const stream = makeMockStream();
+    render(<AudioOutput stream={stream} />);
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith('Audio element play() rejected:', 'boom');
+    });
+  });
+
+  it('logs redacted warning when AudioContext.resume() rejects on suspended state', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Flip mock ctx to suspended so the resume() branch executes
+    const origState = mockAudioContext.state;
+    mockAudioContext.state = 'suspended';
+    mockAudioContext.resume = vi.fn().mockRejectedValueOnce(new Error('boom'));
+
+    const stream = makeMockStream();
+    render(<AudioOutput stream={stream} />);
+
+    await vi.waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith('AudioContext resume failed:', 'boom');
+    });
+
+    mockAudioContext.state = origState;
+  });
 });
 
 describe('UserFrameGrid', () => {

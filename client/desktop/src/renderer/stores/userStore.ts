@@ -3,6 +3,7 @@ import { devtools } from 'zustand/middleware';
 import { wrapStore } from '../utils/createStore';
 import { useAuthStore } from './authStore';
 import { apiFetch } from '../services/apiClient';
+import { errorMessage } from '../utils/redactError';
 import { getWebSocketService } from '../services/websocketService';
 import { e2eeService } from '../services/e2eeService';
 import { preferencesSyncService } from '../services/preferencesSync';
@@ -137,7 +138,7 @@ export const useUserStore = wrapStore(
               });
             }
           } catch (error) {
-            console.error('Logout API error:', error);
+            console.error('Logout API error:', errorMessage(error));
           }
 
           // Nuclear reset: login screen will appear, so wipe everything

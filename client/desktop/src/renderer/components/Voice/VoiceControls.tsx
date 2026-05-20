@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { errorMessage } from '../../utils/redactError';
 import {
   Mic,
   MicOff,
@@ -286,7 +287,7 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
     try {
       await toggleScreenShareAction(isScreenSharing, setShowScreenPicker);
     } catch (err) {
-      console.error('Failed to toggle screen share:', err);
+      console.error('Failed to toggle screen share:', errorMessage(err));
     }
   };
 
@@ -298,7 +299,7 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
     try {
       await (await getVoiceService()).toggleScreenShare(sourceId, options);
     } catch (err) {
-      console.error('Failed to start screen share:', err);
+      console.error('Failed to start screen share:', errorMessage(err));
     }
   };
 

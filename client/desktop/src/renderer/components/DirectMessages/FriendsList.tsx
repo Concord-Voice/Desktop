@@ -15,6 +15,7 @@ import ContextMenu from '../ui/ContextMenu';
 import MemberProfileCard, { type ProfileCardMember } from '../Members/MemberProfileCard';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 import AddFriendModal from './AddFriendModal';
+import { errorMessage } from '../../utils/redactError';
 import './DirectMessages.css';
 
 interface FriendsListProps {
@@ -66,7 +67,7 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
       try {
         await acceptRequest(requestId);
       } catch (err) {
-        console.error('Failed to accept friend request:', err);
+        console.error('Failed to accept friend request:', errorMessage(err));
       } finally {
         setActionLoading((prev) => {
           const next = { ...prev };
@@ -84,7 +85,7 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
       try {
         await declineRequest(requestId);
       } catch (err) {
-        console.error('Failed to decline friend request:', err);
+        console.error('Failed to decline friend request:', errorMessage(err));
       } finally {
         setActionLoading((prev) => {
           const next = { ...prev };
@@ -108,7 +109,7 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
       try {
         await removeFriend(userId);
       } catch (err) {
-        console.error('Failed to remove friend:', err);
+        console.error('Failed to remove friend:', errorMessage(err));
       }
     },
     [removeFriend]

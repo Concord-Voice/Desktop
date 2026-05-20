@@ -132,5 +132,19 @@ describe('userStore', () => {
       expect(useUserStore.getState().user).toBeNull();
       expect(useAuthStore.getState().accessToken).toBeNull();
     });
+
+    it('logs error when electron.logout throws, then still clears state', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      useUserStore.getState().setUser(mockUser);
+      useAuthStore.getState().setAccessToken('test-token');
+      window.electron.logout = vi.fn().mockRejectedValue(new Error('IPC logout failed'));
+
+      await useUserStore.getState().logout();
+
+      expect(consoleSpy).toHaveBeenCalledWith('Logout API error:', 'IPC logout failed');
+      // State still clears
+      expect(useUserStore.getState().user).toBeNull();
+      consoleSpy.mockRestore();
+    });
   });
 });

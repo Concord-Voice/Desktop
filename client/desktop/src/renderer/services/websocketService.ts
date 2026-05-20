@@ -15,6 +15,7 @@
 
 import { WS_BASE } from '../config';
 import { useAuthStore } from '../stores/authStore';
+import { errorMessage, errorName } from '../utils/redactError';
 
 // ─── Connection-boundary validation (defense-in-depth) ────────────────────
 //
@@ -251,7 +252,7 @@ export class WebSocketService {
     try {
       this.ws.send(JSON.stringify(message));
     } catch (error) {
-      console.error('Failed to send WebSocket message:', error);
+      console.error('Failed to send WebSocket message:', errorMessage(error));
     }
   }
 
@@ -650,7 +651,12 @@ export class WebSocketService {
     } catch (error) {
       // AbortError is expected when disconnect() cancels an in-flight ticket fetch
       if (error instanceof DOMException && error.name === 'AbortError') return;
-      console.error('Failed to create WebSocket connection:', error);
+      // Log error.name (e.g. "SyntaxError"), NOT the raw error or its message.
+      // `new WebSocket(url)` throws synchronously with a SyntaxError whose
+      // message includes the full URL — including the `?ticket=<hex>` query
+      // param. Logging .name preserves triage signal without leaking the
+      // single-use auth bearer.
+      console.error('[WebSocket] failed to create connection:', errorName(error));
       this.setState(ConnectionState.ERROR);
       this.scheduleReconnect();
     }
@@ -708,17 +714,33 @@ export class WebSocketService {
           try {
             handler(message);
           } catch (error) {
-            console.error('Error in message handler:', error);
+            console.error('Error in message handler:', errorMessage(error));
           }
         }
       }
     } catch (error) {
-      console.error('Failed to parse WebSocket message:', error);
+      console.error('Failed to parse WebSocket message:', errorMessage(error));
     }
   }
 
   private handleError(event: Event): void {
-    console.error('WebSocket error:', event);
+    // Log `event.type` (the string "error") rather than the raw `event` —
+    // serializing the Event would leak `event.target.url`, which contains
+    // the single-use auth `?ticket=<hex>` query param.
+    //
+    // Downgrade to warn during the first-attempt aggressive bounce: the
+    // 1006-then-retry pattern is the expected manifestation of the CF-edge
+    // upgrade flakiness already mitigated by the aggressive-backoff
+    // infrastructure (#769 / origin-502-storm). Surfacing as error every
+    // cold start is log noise that masks real failures. Once aggressive
+    // mode has burned through an attempt (or is off), restore the loud
+    // signal — that's when something is actually wrong.
+    const isExpectedFirstBounce = this.reconnectAttempts === 0 && this.aggressiveReconnect;
+    if (isExpectedFirstBounce) {
+      console.warn('[WebSocket] first-attempt transport drop (will retry):', event.type);
+    } else {
+      console.error('[WebSocket] transport error:', event.type);
+    }
     this.setState(ConnectionState.ERROR);
   }
 
@@ -882,7 +904,7 @@ export class WebSocketService {
       try {
         handler(this.state);
       } catch (error) {
-        console.error('Error in connection handler:', error);
+        console.error('Error in connection handler:', errorMessage(error));
       }
     }
   }

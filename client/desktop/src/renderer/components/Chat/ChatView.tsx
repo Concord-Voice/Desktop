@@ -8,6 +8,7 @@ import { pinMessage, unpinMessage, getChannelPins } from '../../services/pinServ
 import { useChannelStore } from '../../stores/channelStore';
 import { useUserStore } from '../../stores/userStore';
 import { useChannelSubscription } from '../../hooks/useChannelSubscription';
+import { errorMessage } from '../../utils/redactError';
 import { useMessageFetch } from '../../hooks/useMessageFetch';
 import { useChatController } from '../../hooks/useChatController';
 import { useUnreadStore } from '../../stores/unreadStore';
@@ -131,7 +132,7 @@ const ChatView: React.FC = () => {
           setPinnedCount((c) => c + 1);
         }
       } catch (err) {
-        console.error('Failed to toggle pin:', err);
+        console.error('Failed to toggle pin:', errorMessage(err));
       }
     },
     [activeChannelId]

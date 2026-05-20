@@ -18,6 +18,7 @@ import SSOEagerUnlock from './components/Auth/SSOEagerUnlock';
 import { useAuthStore } from './stores/authStore';
 import { useE2EEStore } from './stores/e2eeStore';
 import { useUserStore } from './stores/userStore';
+import { errorMessage } from './utils/redactError';
 import { useVideoSettingsStore } from './stores/videoSettingsStore';
 import { useOsPermissionStore, type OsPermissionType } from './stores/osPermissionStore';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -96,11 +97,13 @@ export function AuthFallback() {
 export function handleAppRootError() {
   import('./services/recoveryService')
     .then((m) => m.markRendererCrashed())
-    .catch((err) => console.error('[App] Failed to mark renderer crashed:', err));
+    .catch((err) => {
+      console.error('[App] Failed to mark renderer crashed:', errorMessage(err));
+    });
   import('./services/resetService')
     .then((m) => m.softRestart())
     .catch((err) => {
-      console.error('[App] Failed to soft-restart, forcing reload:', err);
+      console.error('[App] Failed to soft-restart, forcing reload:', errorMessage(err));
       globalThis.location.reload();
     });
 }
@@ -362,7 +365,10 @@ function App() {
             }
             console.debug('E2EE service restored from stored session keys');
           } catch (err) {
-            console.warn('Failed to restore E2EE keys — E2EE features will require re-login:', err);
+            console.warn(
+              'Failed to restore E2EE keys — E2EE features will require re-login:',
+              errorMessage(err)
+            );
           }
         }
       } else {

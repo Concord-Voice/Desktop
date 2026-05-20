@@ -8,6 +8,7 @@ import { useUserStore } from '../../stores/userStore';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { Permissions, MUTE_MEMBERS, DEAFEN_MEMBERS } from '../../utils/permissions';
 import ContextMenu from '../ui/ContextMenu';
+import { errorMessage } from '../../utils/redactError';
 import { EnforcementMenuItems } from '../ui/EnforcementMenuItems';
 
 interface MemberContextMenuProps {
@@ -104,7 +105,7 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
         console.error('Failed to toggle role: server returned non-OK');
       }
     } catch (error) {
-      console.error('Failed to toggle role:', error);
+      console.error('Failed to toggle role:', errorMessage(error));
     } finally {
       setTogglingRoleId(null);
     }
@@ -116,7 +117,7 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
       navigate('/app/dms');
       onClose();
     } catch (error) {
-      console.error('Failed to open DM:', error);
+      console.error('Failed to open DM:', errorMessage(error));
       onClose();
     }
   };
@@ -125,7 +126,7 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
     try {
       await useFriendStore.getState().sendRequest(member.user_id);
     } catch (error) {
-      console.error('Failed to send friend request:', error);
+      console.error('Failed to send friend request:', errorMessage(error));
     }
     onClose();
   };

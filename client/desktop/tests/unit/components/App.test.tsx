@@ -76,7 +76,42 @@ vi.mock('@/renderer/services/desktopNotificationService', () => ({
   },
 }));
 
-import App from '@/renderer/App';
+const mockMarkRendererCrashed = vi.fn().mockResolvedValue(undefined);
+const mockSoftRestart = vi.fn().mockResolvedValue(undefined);
+vi.mock('@/renderer/services/recoveryService', () => ({
+  markRendererCrashed: (...args: unknown[]) => mockMarkRendererCrashed(...args),
+}));
+vi.mock('@/renderer/services/resetService', () => ({
+  softRestart: (...args: unknown[]) => mockSoftRestart(...args),
+}));
+
+const mockInitializeFromStoredKeys = vi.fn().mockResolvedValue(undefined);
+vi.mock('@/renderer/services/e2eeService', () => ({
+  e2eeService: {
+    isInitialized: false,
+    initializeFromStoredKeys: (...args: unknown[]) => mockInitializeFromStoredKeys(...args),
+    encryptForChannel: vi.fn(),
+    decryptForChannel: vi.fn(),
+    getChannelKey: vi.fn(),
+    invalidateChannelKey: vi.fn(),
+  },
+}));
+
+vi.mock('@/renderer/services/preferencesSync', () => ({
+  preferencesSyncService: {
+    init: vi.fn(),
+    startWatching: vi.fn(),
+    fetchAndApply: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+vi.mock('@/renderer/services/savedGifsSync', () => ({
+  savedGifsSyncService: {
+    startWatching: vi.fn(),
+    fetchAndApply: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
+import App, { handleAppRootError } from '@/renderer/App';
 
 describe('App', () => {
   beforeEach(() => {
@@ -342,5 +377,47 @@ describe('App', () => {
     });
     expect(useAuthStore.getState().accessToken).toBeNull();
     expect(useE2EEStore.getState().needsSSOUnlock).toBe(false);
+  });
+});
+
+describe('handleAppRootError', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('logs error when markRendererCrashed rejects', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockMarkRendererCrashed.mockRejectedValueOnce(new Error('crash marker failed'));
+
+    handleAppRootError();
+
+    await vi.waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[App] Failed to mark renderer crashed:',
+        'crash marker failed'
+      );
+    });
+    consoleSpy.mockRestore();
+  });
+
+  it('logs error when softRestart rejects', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockSoftRestart.mockRejectedValueOnce(new Error('restart failed'));
+
+    // jsdom location.reload is non-configurable/non-writable; suppress the
+    // subsequent TypeError so the test can assert on console.error.
+    const origOnUnhandledRejection = globalThis.onunhandledrejection;
+    globalThis.onunhandledrejection = null;
+
+    handleAppRootError();
+
+    await vi.waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[App] Failed to soft-restart, forcing reload:',
+        'restart failed'
+      );
+    });
+    globalThis.onunhandledrejection = origOnUnhandledRejection;
+    consoleSpy.mockRestore();
   });
 });

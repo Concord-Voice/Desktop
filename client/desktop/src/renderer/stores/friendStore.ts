@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import { wrapStore } from '../utils/createStore';
 import { apiFetch, safeJson } from '../services/apiClient';
+import { errorMessage } from '../utils/redactError';
 import type { PresenceStatus } from './memberStore';
 
 // ── API response DTOs (server → client) ────────────────────────────────
@@ -253,7 +254,7 @@ export const useFriendStore = wrapStore(
 
             set({ pendingRequests: requests });
           } catch (error) {
-            console.error('Failed to fetch friend requests:', error);
+            console.error('Failed to fetch friend requests:', errorMessage(error));
           }
         },
 
@@ -378,7 +379,7 @@ export const useFriendStore = wrapStore(
             }));
             set({ friendCodes: codes });
           } catch (error) {
-            console.error('Failed to fetch friend codes:', error);
+            console.error('Failed to fetch friend codes:', errorMessage(error));
           }
         },
 

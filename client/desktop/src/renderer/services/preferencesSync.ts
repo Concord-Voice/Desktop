@@ -11,6 +11,7 @@
 
 import { e2eeService } from './e2eeService';
 import { apiFetch } from './apiClient';
+import { errorMessage } from '../utils/redactError';
 import type { AppearanceSettings } from '../stores/settingsStore';
 import type { MemberPanelMode, ServerFolder } from '../stores/layoutStore';
 
@@ -199,7 +200,7 @@ class PreferencesSyncService {
 
       console.debug('[PrefsSync] Applied remote preferences v' + data.preferences.version);
     } catch (err) {
-      console.warn('[PrefsSync] Failed to fetch/apply preferences:', err);
+      console.warn('[PrefsSync] Failed to fetch/apply preferences:', errorMessage(err));
     }
   }
 
@@ -327,7 +328,7 @@ class PreferencesSyncService {
         console.warn('[PrefsSync] Push failed:', res.status);
       }
     } catch (err) {
-      console.warn('[PrefsSync] Push error:', err);
+      console.warn('[PrefsSync] Push error:', errorMessage(err));
     }
   }
 

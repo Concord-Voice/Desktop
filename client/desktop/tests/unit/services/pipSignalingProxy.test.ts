@@ -530,5 +530,71 @@ describe('PipSignalingProxy', () => {
       // No new messages posted (proxy didn't try to handle them)
       expect(ch.posted.length).toBe(prevLength);
     });
+
+    it('logs redacted error via Unhandled RPC error catch when handleRpcRequest rejects', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const ch = getChannel();
+
+      // Force handleRpcRequest to reject by spying on the private method
+      const handleRpcSpy = vi
+        .spyOn(proxy as any, 'handleRpcRequest')
+        .mockRejectedValueOnce(new Error('boom'));
+
+      ch.simulateMessage({
+        kind: 'rpc-request',
+        id: 'req-unhandled',
+        pipId: 'test-pip',
+        method: 'request-state',
+        params: {},
+      });
+
+      await vi.waitFor(() => {
+        expect(consoleSpy).toHaveBeenCalledWith('[PipSignalingProxy] Unhandled RPC error:', 'boom');
+      });
+      handleRpcSpy.mockRestore();
+      consoleSpy.mockRestore();
+    });
+
+    it('logs error when respond postMessage throws (channel closed)', async () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const ch = getChannel();
+
+      // Close the channel so postMessage throws DOMException
+      ch.close();
+
+      // Simulate an RPC request — the proxy will try to respond but the channel is closed
+      ch.simulateMessage({
+        kind: 'rpc-request',
+        id: 'req-closed',
+        pipId: 'test-pip',
+        method: 'request-state',
+        params: {},
+      });
+
+      await vi.waitFor(() => {
+        expect(consoleSpy).toHaveBeenCalledWith(
+          '[PipSignalingProxy] Failed to send response:',
+          expect.any(String)
+        );
+      });
+      consoleSpy.mockRestore();
+    });
+
+    it('logs error when broadcast postMessage throws (channel closed)', () => {
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const ch = getChannel();
+
+      // Close the channel so postMessage throws
+      ch.close();
+
+      // Trigger a broadcast by changing voice store state
+      useVoiceStore.setState({ participants: { 'user-x': { userId: 'user-x' } as any } });
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[PipSignalingProxy] Failed to broadcast:',
+        expect.any(String)
+      );
+      consoleSpy.mockRestore();
+    });
   });
 });

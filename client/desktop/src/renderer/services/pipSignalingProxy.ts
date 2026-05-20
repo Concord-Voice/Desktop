@@ -29,6 +29,7 @@ import type {
 } from './pipSignalingTypes';
 import { useVoiceStore } from '../stores/voiceStore';
 import { useUserStore } from '../stores/userStore';
+import { errorMessage } from '../utils/redactError';
 import type { RtpCapabilities } from 'mediasoup-client/types';
 
 // Type for voiceService — imported lazily to avoid circular deps
@@ -113,7 +114,7 @@ export class PipSignalingProxy {
     if (msg.kind !== 'rpc-request') return;
 
     this.handleRpcRequest(msg).catch((err) => {
-      console.error('[PipSignalingProxy] Unhandled RPC error:', err);
+      console.error('[PipSignalingProxy] Unhandled RPC error:', errorMessage(err));
     });
   };
 
@@ -409,7 +410,7 @@ export class PipSignalingProxy {
     try {
       this.bc.postMessage(response);
     } catch (err) {
-      console.error('[PipSignalingProxy] Failed to send response:', err);
+      console.error('[PipSignalingProxy] Failed to send response:', errorMessage(err));
     }
   }
 
@@ -418,7 +419,7 @@ export class PipSignalingProxy {
     try {
       this.bc.postMessage(msg);
     } catch (err) {
-      console.error('[PipSignalingProxy] Failed to broadcast:', err);
+      console.error('[PipSignalingProxy] Failed to broadcast:', errorMessage(err));
     }
   }
 }

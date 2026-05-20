@@ -8,6 +8,7 @@
  */
 
 import { createStore } from '../utils/createStore';
+import { errorMessage } from '../utils/redactError';
 
 // ─── Types (mirror permissionManager.ts in main process) ──────────────
 
@@ -88,7 +89,7 @@ export const useOsPermissionStore = createStore<OsPermissionStoreState>()((set, 
         isLoaded: true,
       });
     } catch (err) {
-      console.error('[osPermissionStore] fetchAll failed:', err);
+      console.error('[osPermissionStore] fetchAll failed:', errorMessage(err));
       set({ isLoaded: true }); // Avoid perpetual loading state
     }
   },
@@ -100,7 +101,7 @@ export const useOsPermissionStore = createStore<OsPermissionStoreState>()((set, 
       set({ [type]: status });
       return status;
     } catch (err) {
-      console.error(`[osPermissionStore] checkOne(${type}) failed:`, err);
+      console.error('[osPermissionStore] checkOne failed:', type, errorMessage(err));
       return get()[type];
     }
   },
@@ -112,7 +113,7 @@ export const useOsPermissionStore = createStore<OsPermissionStoreState>()((set, 
       set({ [type]: status });
       return status;
     } catch (err) {
-      console.error(`[osPermissionStore] requestOne(${type}) failed:`, err);
+      console.error('[osPermissionStore] requestOne failed:', type, errorMessage(err));
       return get()[type];
     }
   },
@@ -122,7 +123,7 @@ export const useOsPermissionStore = createStore<OsPermissionStoreState>()((set, 
     try {
       await globalThis.electron.openPermissionSettings(type);
     } catch (err) {
-      console.error(`[osPermissionStore] openSettings(${type}) failed:`, err);
+      console.error('[osPermissionStore] openSettings failed:', type, errorMessage(err));
     }
   },
 

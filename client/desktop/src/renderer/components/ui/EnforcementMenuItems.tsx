@@ -1,6 +1,7 @@
 import { MicOff, HeadphoneOff, Lock } from 'lucide-react';
 import ContextMenu from './ContextMenu';
 import { apiFetch } from '../../services/apiClient';
+import { errorMessage } from '../../utils/redactError';
 import './EnforcementMenuItems.css';
 
 interface ServerContext {
@@ -110,7 +111,7 @@ export function EnforcementMenuItems({
     try {
       await apiFetch(path, { method });
     } catch (err) {
-      console.error('Enforcement action failed', err);
+      console.error('Enforcement action failed', errorMessage(err));
     }
     onClose();
   };

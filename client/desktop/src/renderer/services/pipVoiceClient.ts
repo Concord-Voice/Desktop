@@ -26,6 +26,7 @@ import {
   type CreateRecvTransportResult,
   type ConsumeResult,
 } from './pipSignalingTypes';
+import { errorMessage } from '../utils/redactError';
 import type { RtpCapabilities } from 'mediasoup-client/types';
 
 const RPC_TIMEOUT = 10_000;
@@ -176,7 +177,7 @@ export class PipVoiceClient {
 
       return stream;
     } catch (err) {
-      console.error(`[PipVoiceClient] Failed to consume producer ${producerId}:`, err);
+      console.error('[PipVoiceClient] Failed to consume producer:', producerId, errorMessage(err));
       return null;
     }
   }

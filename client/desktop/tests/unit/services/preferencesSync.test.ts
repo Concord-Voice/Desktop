@@ -178,6 +178,16 @@ describe('preferencesSyncService', () => {
       // Should not throw on server error
       await expect(preferencesSyncService.pushPreferences()).resolves.toBeUndefined();
     });
+
+    it('logs warn when pushPreferences network fetch throws', async () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      server.use(http.put(`${API_BASE}/api/v1/users/me/preferences`, () => HttpResponse.error()));
+
+      await preferencesSyncService.pushPreferences();
+
+      expect(consoleSpy).toHaveBeenCalledWith('[PrefsSync] Push error:', expect.any(String));
+      consoleSpy.mockRestore();
+    });
   });
 
   describe('fetchAndApply', () => {
@@ -275,6 +285,19 @@ describe('preferencesSyncService', () => {
 
       // Should not throw on server error
       await expect(preferencesSyncService.fetchAndApply()).resolves.toBeUndefined();
+    });
+
+    it('logs warn when fetchAndApply network fetch throws', async () => {
+      const consoleSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      server.use(http.get(`${API_BASE}/api/v1/users/me/preferences`, () => HttpResponse.error()));
+
+      await preferencesSyncService.fetchAndApply();
+
+      expect(consoleSpy).toHaveBeenCalledWith(
+        '[PrefsSync] Failed to fetch/apply preferences:',
+        expect.any(String)
+      );
+      consoleSpy.mockRestore();
     });
   });
 

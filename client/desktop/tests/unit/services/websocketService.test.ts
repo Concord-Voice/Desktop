@@ -702,3 +702,230 @@ describe('resubscribeChannels emits probe', () => {
     vi.useRealTimers();
   });
 });
+
+describe('handleError log level', () => {
+  let svc: WebSocketService;
+  let s: {
+    aggressiveReconnect: boolean;
+    reconnectAttempts: number;
+    setAggressiveReconnect: (v: boolean) => void;
+    handleError: (event: Event) => void;
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    svc = new WebSocketService('ws://localhost:8080');
+    s = svc as unknown as typeof s;
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  // Mirrors the first-attempt 1006 close pattern observed at cold-start: the
+  // aggressive-backoff infrastructure (#769) already absorbs a single CF-edge
+  // upgrade drop, so the matching `onerror` event is expected — not a signal
+  // worth surfacing as console.error. Downgrading to console.warn quiets the
+  // expected bounce while preserving the loud signal when aggressive mode has
+  // exhausted its budget. Also avoids logging the WebSocket `event` object
+  // directly, which would leak `event.target.url` (containing the ?ticket=
+  // query param) into the console.
+  it('logs warn (not error) on first-attempt transport drop during aggressive reconnect', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    s.setAggressiveReconnect(true);
+    s.reconnectAttempts = 0;
+
+    s.handleError(new Event('error'));
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('first-attempt transport drop'),
+      'error'
+    );
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(svc.getState()).toBe(ConnectionState.ERROR);
+  });
+
+  it('logs error once aggressive budget exhausted (reconnectAttempts > 0)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    s.setAggressiveReconnect(true);
+    s.reconnectAttempts = 1;
+
+    s.handleError(new Event('error'));
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('transport error'), 'error');
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(svc.getState()).toBe(ConnectionState.ERROR);
+  });
+
+  it('logs error when not in aggressive mode (normal exponential reconnect)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    s.setAggressiveReconnect(false);
+    s.reconnectAttempts = 0;
+
+    s.handleError(new Event('error'));
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('transport error'), 'error');
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(svc.getState()).toBe(ConnectionState.ERROR);
+  });
+
+  // Locks in the warn → error progression. If a future refactor breaks the
+  // order between scheduleReconnect's `reconnectAttempts++` and the next
+  // createConnection call (so attempts stays at 0 across multiple errors),
+  // this test catches it. Manual increment proxies scheduleReconnect's
+  // pre-createConnection bump (websocketService.ts ~line 790).
+  it('progresses warn → error across an aggressive-attempt increment', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    s.setAggressiveReconnect(true);
+    s.reconnectAttempts = 0;
+
+    s.handleError(new Event('error'));
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(errorSpy).not.toHaveBeenCalled();
+
+    // Simulate scheduleReconnect's increment-before-next-attempt.
+    s.reconnectAttempts = 1;
+
+    s.handleError(new Event('error'));
+    expect(warnSpy).toHaveBeenCalledTimes(1); // unchanged
+    expect(errorSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('createConnection error logging', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  // The createConnection catch block previously logged the raw `error`
+  // object. `new WebSocket(url)` synchronously throws a SyntaxError whose
+  // message includes the full URL — including the `?ticket=<hex>` query
+  // param. console.error('msg:', error) would expose the auth bearer in
+  // any log sink that serializes Error objects (including DevTools
+  // console output and any future telemetry pipeline). The fix logs
+  // error.name (a fixed identifier like 'Error' or 'SyntaxError'),
+  // preserving triage signal without leaking the ticket.
+  //
+  // Test strategy: use a fetch rejection as a proxy. It routes through
+  // the same catch block (createConnection awaits the ticket fetch
+  // first) and lets us assert the log shape without standing up an
+  // exploding-WebSocket constructor harness.
+  it('does not log raw Error object in createConnection catch (avoids ticket leak via Error.message)', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const sensitive = 'sensitive-ticket-abc123';
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(
+      new Error(`Network failed for https://x.com?ticket=${sensitive}`)
+    );
+
+    const svc = new WebSocketService('ws://localhost:8080');
+    const s = svc as unknown as {
+      token: string | null;
+      createConnection: (signal?: AbortSignal) => Promise<void>;
+    };
+    s.token = 'mock-jwt';
+    await s.createConnection();
+
+    expect(errorSpy).toHaveBeenCalled();
+    for (const call of errorSpy.mock.calls) {
+      for (const arg of call) {
+        // An Error instance would stringify to "Error: <message>", exposing the URL.
+        expect(arg).not.toBeInstanceOf(Error);
+        if (typeof arg === 'string') {
+          expect(arg).not.toContain(sensitive);
+          expect(arg).not.toContain('?ticket=');
+        }
+      }
+    }
+  });
+});
+
+describe('send / handleMessage / notifyConnectionHandlers error logging', () => {
+  let service: WebSocketService;
+  let mockFetch: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ ticket: 'mock-ticket' }),
+    });
+    globalThis.fetch = mockFetch;
+    service = new WebSocketService('ws://localhost:8080');
+  });
+
+  afterEach(() => {
+    service.disconnect();
+    vi.useRealTimers();
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it('logs redacted error when ws.send throws', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ws = await connectAndWaitForOpen(service);
+    ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
+
+    // Force the underlying ws.send to throw
+    ws.send = () => {
+      throw new Error('boom');
+    };
+
+    service.send({ type: 'chat_message', data: { text: 'hi' } });
+
+    expect(errorSpy).toHaveBeenCalledWith('Failed to send WebSocket message:', 'boom');
+  });
+
+  it('logs redacted error when a message handler throws', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ws = await connectAndWaitForOpen(service);
+    ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
+
+    service.on('test_event', () => {
+      throw new Error('boom');
+    });
+    ws.simulateMessage({ type: 'test_event', data: {} });
+
+    expect(errorSpy).toHaveBeenCalledWith('Error in message handler:', 'boom');
+  });
+
+  it('logs redacted error when incoming message is invalid JSON', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const ws = await connectAndWaitForOpen(service);
+    ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
+
+    // Bypass the simulateMessage helper to deliver non-JSON data directly
+    if (ws.onmessage) {
+      ws.onmessage(new MessageEvent('message', { data: 'not-valid-json{' }));
+    }
+
+    expect(errorSpy).toHaveBeenCalledWith('Failed to parse WebSocket message:', expect.any(String));
+  });
+
+  it('logs redacted error when a connection-state handler throws', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // onConnectionChange immediately invokes the handler once at registration
+    // (outside the notifyConnectionHandlers try/catch). Throw only on the
+    // SECOND invocation so we exercise the catch at line 907 specifically.
+    let callCount = 0;
+    service.onConnectionChange(() => {
+      if (callCount++ > 0) throw new Error('boom');
+    });
+    // Trigger setState → notifyConnectionHandlers (the catch we want)
+    service.connect('test-token');
+
+    expect(errorSpy).toHaveBeenCalledWith('Error in connection handler:', 'boom');
+  });
+});
