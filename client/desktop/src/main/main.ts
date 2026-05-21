@@ -69,6 +69,7 @@ import { IPC_CONTRACT_VERSION } from './ipcContract';
 import { registerIpcHandlers as registerPermissionHandlers } from './permissionManager';
 import { migrateUserData } from './userDataMigration';
 import { showSplash, closeSplash, updateSplashError } from './splashWindow';
+// diagnostic: trigger touch for #1110 baseline measurement (reverted in PR 3)
 
 // One-time migration: rename "Concord Voice" → "ConcordVoice" userData directory (#385).
 // Must run before any app.getPath('userData') reads (e.g. hw-accel prefs below).
