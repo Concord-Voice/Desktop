@@ -20,12 +20,32 @@
 let remoteSpaBaseUrl: string | null = null;
 let remoteSpaUrl: string | null = null;
 
+type SpaStateListener = (url: string | null) => void;
+const listeners = new Set<SpaStateListener>();
+
 export function getRemoteSpaBaseUrl(): string | null {
   return remoteSpaBaseUrl;
 }
 
 export function getRemoteSpaUrl(): string | null {
   return remoteSpaUrl;
+}
+
+/**
+ * Subscribe to SPA state changes. Listener is invoked synchronously with the
+ * full URL (or null) whenever `setRemoteSpaState` runs. Returns an
+ * unsubscribe function.
+ *
+ * Listeners are NOT wrapped in try/catch; throwing in a listener propagates
+ * to the caller of setRemoteSpaState. This is intentional per
+ * internal-reference — silent error swallowing in main-process
+ * code is forbidden.
+ */
+export function onSpaStateChange(listener: SpaStateListener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
 }
 
 /**
@@ -39,13 +59,14 @@ export function setRemoteSpaState(decisionUrl: string | null): void {
   if (decisionUrl === null) {
     remoteSpaBaseUrl = null;
     remoteSpaUrl = null;
-    return;
+  } else {
+    try {
+      remoteSpaBaseUrl = new URL(decisionUrl).origin;
+      remoteSpaUrl = decisionUrl;
+    } catch {
+      remoteSpaBaseUrl = null;
+      remoteSpaUrl = null;
+    }
   }
-  try {
-    remoteSpaBaseUrl = new URL(decisionUrl).origin;
-    remoteSpaUrl = decisionUrl;
-  } catch {
-    remoteSpaBaseUrl = null;
-    remoteSpaUrl = null;
-  }
+  listeners.forEach((l) => l(remoteSpaUrl));
 }

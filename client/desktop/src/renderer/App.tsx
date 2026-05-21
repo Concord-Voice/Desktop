@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Routes, Route, Navigate, Outlet, useNavigate } from 'react-router-dom';
+import { Titlebar } from './components/Titlebar/Titlebar';
 import AuthFlow from './components/Auth/AuthFlow';
 import MainView from './components/MainView/MainView';
 import DirectMessagesView from './components/DirectMessages/DirectMessagesView';
@@ -290,8 +291,6 @@ function buildPreferencesSyncDeps(): PreferencesSyncDeps {
 }
 
 function App() {
-  const [version, setVersion] = useState<string>('');
-  const [platform, setPlatform] = useState<string>('');
   // PiP windows don't need auth — they communicate via BroadcastChannel.
   // Skip session restore entirely to avoid unnecessary token rotations.
   const isPipWindow = globalThis.location.hash.startsWith('#/pip/');
@@ -378,12 +377,6 @@ function App() {
   }, [isPipWindow]);
 
   useEffect(() => {
-    // Get app info from Electron main process
-    if (globalThis.electron) {
-      globalThis.electron.getVersion().then(setVersion);
-      globalThis.electron.getPlatform().then(setPlatform);
-    }
-
     // Initialize OS permission state (non-blocking) and subscribe to changes (#197)
     let unsubPermission: (() => void) | undefined;
     if (globalThis.electron) {
@@ -410,11 +403,8 @@ function App() {
   if (isRestoring) {
     return (
       <ContextMenuProvider>
-        <div className="app">
-          <div className="title-bar">
-            <div className="title-bar-text">Concord Voice</div>
-          </div>
-        </div>
+        {!isPipWindow && <Titlebar />}
+        <div className="app" />
       </ContextMenuProvider>
     );
   }
@@ -422,16 +412,9 @@ function App() {
   return (
     <ErrorBoundary fallback={<AppRootFallback />} onError={handleAppRootError}>
       <ContextMenuProvider>
+        {!isPipWindow && <Titlebar />}
         <SpaFallbackOverlay />
         <div className="app">
-          <div className="title-bar">
-            <div className="title-bar-text">Concord Voice</div>
-            {version && (
-              <div className="title-bar-info">
-                v{version} • {platform}
-              </div>
-            )}
-          </div>
           <UpdateSecurityBanner />
           <UpdateBanner />
 

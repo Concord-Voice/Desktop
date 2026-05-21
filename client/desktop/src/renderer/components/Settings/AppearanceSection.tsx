@@ -4,6 +4,7 @@ import { useDraftAppearance, setDraftAppearanceSetting } from '../../hooks/useDr
 import { isValidHex } from '../../utils/colorUtils';
 import ToggleSwitch from './ToggleSwitch';
 import CollapsibleSection from './CollapsibleSection';
+import { ClientBehaviorSection } from './ClientBehaviorSection';
 
 const AppearanceSection: React.FC = () => {
   const appearance = useDraftAppearance();
@@ -299,6 +300,8 @@ const AppearanceSection: React.FC = () => {
           />
         </div>
       </CollapsibleSection>
+
+      <ClientBehaviorSection />
     </>
   );
 };

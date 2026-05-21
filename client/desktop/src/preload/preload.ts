@@ -321,6 +321,35 @@ contextBridge.exposeInMainWorld('electron', {
       ipcRenderer.invoke('sso:awaitCallback', port),
     cancelLoopback: (port: number): void => ipcRenderer.send('sso:cancelLoopback', port),
   },
+
+  // Window chrome control surface (#806): renderer pushes Client Behavior
+  // preferences so the main-process [X]/[-] intercept can route correctly,
+  // and the theme-color sync keeps the per-platform titleBarOverlay matching
+  // the active theme.
+  window: {
+    setClientBehavior: (cb: { toTray: string; toToolbar: string }): Promise<void> =>
+      ipcRenderer.invoke('window:setClientBehavior', cb),
+    quit: (): Promise<void> => ipcRenderer.invoke('window:quit'),
+    setTitleBarOverlayColor: (options: { color: string; symbolColor: string }): Promise<void> =>
+      ipcRenderer.invoke('window:setTitleBarOverlayColor', options),
+  },
+
+  // Version surface (#806): packaged app version + active SPA hash for the
+  // Titlebar version label. onChange fires when an SPA hot-update lands.
+  version: {
+    get: (): Promise<{ appVersion: string; spaHash: string | null }> =>
+      ipcRenderer.invoke('window:getVersionString'),
+    onChange: (callback: (data: { spaHash: string | null }) => void): (() => void) => {
+      const listener = (
+        _event: Electron.IpcRendererEvent,
+        data: { spaHash: string | null }
+      ): void => callback(data);
+      ipcRenderer.on('spa:versionChanged', listener);
+      return (): void => {
+        ipcRenderer.removeListener('spa:versionChanged', listener);
+      };
+    },
+  },
 });
 
 // Type definitions for the exposed API
@@ -495,6 +524,19 @@ export interface ElectronAPI {
       port: number
     ) => Promise<{ code: string; state: string; appleUserData?: string }>;
     cancelLoopback: (port: number) => void;
+  };
+
+  // Window chrome control surface (#806)
+  window: {
+    setClientBehavior: (cb: { toTray: string; toToolbar: string }) => Promise<void>;
+    quit: () => Promise<void>;
+    setTitleBarOverlayColor: (options: { color: string; symbolColor: string }) => Promise<void>;
+  };
+
+  // Version + SPA hash surface (#806)
+  version: {
+    get: () => Promise<{ appVersion: string; spaHash: string | null }>;
+    onChange: (callback: (data: { spaHash: string | null }) => void) => () => void;
   };
 }
 

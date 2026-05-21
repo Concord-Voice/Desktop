@@ -152,7 +152,8 @@ describe('App', () => {
 
   it('renders title bar', () => {
     render(<App />);
-    expect(screen.getByText('Concord Voice')).toBeInTheDocument();
+    // #806: branded Titlebar renders "CONCORD VOICE" in BaronNeue
+    expect(screen.getByText('CONCORD VOICE')).toBeInTheDocument();
   });
 
   it('renders auth flow on root path', () => {
@@ -167,8 +168,9 @@ describe('App', () => {
 
   it('renders title bar section', () => {
     const { container } = render(<App />);
-    expect(container.querySelector('.title-bar')).toBeInTheDocument();
-    expect(container.querySelector('.title-bar-text')).toBeInTheDocument();
+    // #806: .titlebar replaces the old .title-bar; .titlebar-title carries the brand text
+    expect(container.querySelector('.titlebar')).toBeInTheDocument();
+    expect(container.querySelector('.titlebar-title')).toBeInTheDocument();
   });
 
   it('prevents context menu on app container', () => {
@@ -219,10 +221,11 @@ describe('App', () => {
 
   // ── Title bar info ──
 
-  it('renders title bar text as Concord Voice', () => {
+  it('renders title bar text as CONCORD VOICE', () => {
     render(<App />);
-    const titleText = document.querySelector('.title-bar-text');
-    expect(titleText?.textContent).toBe('Concord Voice');
+    // #806: brand text is uppercase, rendered in BaronNeue per Titlebar.css
+    const titleText = document.querySelector('.titlebar-title');
+    expect(titleText?.textContent).toBe('CONCORD VOICE');
   });
 
   // ── Error boundary ──
@@ -248,7 +251,9 @@ describe('App', () => {
     const { container } = render(<App />);
     const app = container.querySelector('.app');
     expect(app).toBeInTheDocument();
-    const titleBar = app?.querySelector('.title-bar');
+    // #806: the new .titlebar is fixed-positioned as a sibling of .app,
+    // not nested inside it. Just verify both exist in the tree.
+    const titleBar = container.querySelector('.titlebar');
     expect(titleBar).toBeInTheDocument();
   });
 

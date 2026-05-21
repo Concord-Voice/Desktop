@@ -1,5 +1,11 @@
 import { registerOpenExternalHandler } from './ipc/openExternal';
 import { registerSSOIPC } from './ipc/sso';
+import { registerWindowControlsIpc, getCachedClientBehavior } from './ipc/windowControls';
+import { registerVersionInfoIpc } from './ipc/versionInfo';
+import { buildBrowserWindowConfig } from './browserWindowConfig';
+import { loadWindowState, attachWindowState } from './windowState';
+import { isWayland } from './waylandDetect';
+import { deriveCloseAction, deriveMinimizeAction } from '../shared/clientBehavior';
 import {
   app,
   BrowserWindow,
@@ -232,25 +238,43 @@ async function loadPackagedRenderer(window: BrowserWindow, _bundledPath: string)
 }
 
 const createWindow = async (): Promise<void> => {
-  // Create the browser window
-  mainWindow = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    minWidth: 800,
-    minHeight: 600,
-    webPreferences: {
-      preload: path.join(__dirname, '../preload/preload.js'),
-      nodeIntegration: false,
-      contextIsolation: true,
-      // Disabled in dev so the renderer can talk to the local Vite server
-      // and load arbitrary file:// assets without CORS friction.
-      sandbox: app.isPackaged,
-      webSecurity: app.isPackaged,
-    },
-    titleBarStyle: 'hidden',
-    backgroundColor: '#1a1a1a',
-    show: false, // Don't show until ready
+  // Build the per-platform BrowserWindow config (#806). Pure factory so
+  // each platform gets the correct titleBarStyle / titleBarOverlay shape:
+  //   - darwin → hiddenInset (preserves traffic-light controls)
+  //   - win32 / linux → hidden + titleBarOverlay (native min/max/close)
+  const baseConfig = buildBrowserWindowConfig({
+    platform: process.platform,
+    isWayland: isWayland(),
+    preloadPath: path.join(__dirname, '../preload/preload.js'),
+    isPackaged: app.isPackaged,
   });
+
+  // Restore the user's last window placement (#806). loadWindowState returns
+  // the saved bounds if window-state.json exists and the validator accepts
+  // them; otherwise defaults to centered (x/y undefined → OS default placement).
+  const savedState = loadWindowState();
+
+  mainWindow = new BrowserWindow({
+    ...baseConfig,
+    x: savedState.x,
+    y: savedState.y,
+    width: savedState.width,
+    height: savedState.height,
+  });
+
+  if (savedState.isMaximized) {
+    mainWindow.maximize();
+  }
+
+  // Wire resize/move/maximize/unmaximize/close listeners that persist
+  // bounds to window-state.json with 500ms debounce (#806).
+  attachWindowState(mainWindow);
+
+  // Register the window-control + version-info IPC surfaces (#806). The
+  // factory closures defer the window lookup so the late-bind window
+  // reference is always current (handles the brief teardown window).
+  registerWindowControlsIpc(() => mainWindow);
+  registerVersionInfoIpc(() => mainWindow);
 
   const bundledPath = path.join(__dirname, '../renderer/index.html');
 
@@ -314,6 +338,47 @@ const createWindow = async (): Promise<void> => {
       // Invalid URL — ignore (no externalization, deny in-app open).
     }
     return { action: 'deny' };
+  });
+
+  // Client Behavior [X] close intercept (#806). When the user clicks the
+  // native close button, route based on the cached Client Behavior:
+  //   - 'tray'    → hide() (stays running, accessed from system tray — #1099)
+  //   - 'toolbar' → minimize() (stays running in the OS taskbar)
+  //   - 'quit'    → app.quit() (graceful full-app shutdown)
+  // event.preventDefault() suppresses the default close → destroy path so the
+  // hide/minimize fall-throughs can take over. The 'quit' branch also calls
+  // preventDefault so app.quit can run its before-quit hooks without racing
+  // a window-destroy mid-shutdown.
+  mainWindow.on('close', (event) => {
+    if (!mainWindow) return;
+    const action = deriveCloseAction(getCachedClientBehavior());
+
+    if (action === 'tray') {
+      event.preventDefault();
+      mainWindow.hide();
+    } else if (action === 'toolbar') {
+      event.preventDefault();
+      mainWindow.minimize();
+    } else {
+      // action === 'quit'
+      event.preventDefault();
+      app.quit();
+    }
+  });
+
+  // Client Behavior [-] minimize intercept (#806). When the user clicks the
+  // native minimize button AND their Client Behavior config routes minimize
+  // to the system tray, redirect the post-fact minimize to hide(). Brief
+  // flicker is accepted per spec §3.2 trade-off — minimize is a post-fact
+  // event, not interceptible-before-the-OS-acts the way close is.
+  mainWindow.on('minimize', () => {
+    if (!mainWindow) return;
+    const action = deriveMinimizeAction(getCachedClientBehavior());
+    if (action === 'tray') {
+      mainWindow.restore();
+      mainWindow.hide();
+    }
+    // else: leave native minimize → toolbar as-is
   });
 
   mainWindow.on('closed', () => {
@@ -829,6 +894,11 @@ ipcMain.handle(
       minWidth: 160,
       minHeight: 120,
       frame: false,
+      // #806: opt out of the OS-drawn drop shadow so the lightweight chrome
+      // visually reads as "floating glass" rather than "compact app window".
+      // On macOS this drops the standard window shadow; on Wayland and X11
+      // the compositor decides regardless. Safe on Windows (no-op).
+      hasShadow: false,
       alwaysOnTop: true,
       skipTaskbar: true,
       resizable: true,
