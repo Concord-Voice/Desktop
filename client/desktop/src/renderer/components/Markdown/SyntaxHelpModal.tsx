@@ -140,7 +140,7 @@ const SyntaxHelpModal: React.FC<Props> = ({ open, onClose }) => {
             line. The text after the opening backticks is treated as the language identifier (used
             for syntax highlighting).
           </p>
-          <p>Markdown syntax counts toward the 24,000 character limit for messages.</p>
+          <p>Up to 5,120 characters per message. Longer messages are sent as a .md attachment.</p>
         </footer>
       </div>
     </dialog>

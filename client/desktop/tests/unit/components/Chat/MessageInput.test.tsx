@@ -493,3 +493,244 @@ describe('MessageInput', () => {
     expect(screen.getByTestId('attachment-preview')).toBeInTheDocument();
   });
 });
+
+// ── Cap reduction + overflow branch ──────────────────────────────────────────
+
+describe('MessageInput cap reduction + overflow', () => {
+  const onSendMessage = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    uploadMockOverrides.hasFiles = false;
+    uploadMockOverrides.isUploading = false;
+    uploadMockOverrides.files = [];
+    mockAddFiles.mockReturnValue(null);
+    mockUploadAll.mockResolvedValue({ ids: [], summaries: [] });
+  });
+
+  it('counter visible from 75% of 5120 (= 3840 chars)', () => {
+    render(<MessageInput onSendMessage={onSendMessage} />);
+    const textarea = screen.getByRole('textbox');
+
+    // Type 3839 chars — counter should not be visible (below the 75% threshold)
+    fireEvent.change(textarea, { target: { value: 'a'.repeat(3839) } });
+    expect(screen.queryByText(/3839/)).not.toBeInTheDocument();
+
+    // Type 3840 chars — counter appears (exactly 75% of 5120)
+    fireEvent.change(textarea, { target: { value: 'a'.repeat(3840) } });
+    expect(screen.getByText(/3840/)).toBeInTheDocument();
+    expect(screen.getByText(/\/5120/)).toBeInTheDocument();
+  });
+
+  it('counter goes red (error class) at 5121 chars', () => {
+    render(<MessageInput onSendMessage={onSendMessage} />);
+    const textarea = screen.getByRole('textbox');
+
+    // 5121 is one above the cap — the HARD_CAP (maxLength + 1000 = 6120) allows it through
+    fireEvent.change(textarea, { target: { value: 'a'.repeat(5121) } });
+    const counter = screen.getByText(/5121/);
+    expect(counter.className).toMatch(/error/);
+  });
+
+  it('does NOT truncate paste at 5120 — accepts up to DOS_PROTECTION_LIMIT', () => {
+    render(<MessageInput onSendMessage={onSendMessage} />);
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+
+    // Simulate paste of 6000 chars (above 5120 policy cap but below 1 MiB DoS ceiling)
+    fireEvent.change(textarea, { target: { value: 'b'.repeat(6000) } });
+
+    // Content should NOT be truncated to 5120 — the overflow path handles it
+    expect(textarea.value.length).toBe(6000);
+  });
+
+  it('triggers overflow path on send: uploads .md via additionalFiles and sends preview text', async () => {
+    mockUploadAll.mockResolvedValue({
+      ids: ['overflow-file-1'],
+      summaries: [
+        {
+          id: 'overflow-file-1',
+          file_type: 'file',
+          mime_type: 'text/markdown',
+          file_size: 5200,
+        },
+      ],
+    });
+
+    // Simulate 5121-char message — over the 5120-char cap
+    render(<MessageInput onSendMessage={onSendMessage} channelId="channel-1" />);
+    const textarea = screen.getByRole('textbox');
+
+    // Use fireEvent to set long content (userEvent.type is too slow for 5k chars)
+    fireEvent.change(textarea, { target: { value: 'x'.repeat(5121) } });
+
+    // Trigger send via Enter key (send button is disabled while content > maxLength)
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+
+    await vi.waitFor(() => {
+      // uploadAll must have been called with the overflow .md file as additionalFiles
+      expect(mockUploadAll).toHaveBeenCalled();
+      const [, , additionalFiles] = mockUploadAll.mock.calls[0] as [
+        string,
+        string | undefined,
+        File[] | undefined,
+      ];
+      expect(Array.isArray(additionalFiles)).toBe(true);
+      const overflowFile = additionalFiles![0];
+      expect(overflowFile.name).toMatch(/\.md$/);
+      expect(overflowFile.type).toBe('text/markdown');
+    });
+
+    // addFiles must NOT have been called with the overflow file —
+    // the fix routes it via uploadAll additionalFiles, not React state
+    expect(mockAddFiles).not.toHaveBeenCalled();
+
+    // onSendMessage must have been called with the PREVIEW text, not the full content
+    await vi.waitFor(() => {
+      expect(onSendMessage).toHaveBeenCalled();
+    });
+    const sentContent = onSendMessage.mock.calls[0][0] as string;
+    // Preview text is at most OVERFLOW_PREVIEW_CHARS (200) + the ellipsis char = 201
+    expect(sentContent.length).toBeLessThanOrEqual(201);
+    expect(sentContent.endsWith('…')).toBe(true);
+  });
+
+  it('blocks send with upload-error when content > 5120 and 5 attachments already queued', async () => {
+    // Simulate 5 files already attached (MAX_ATTACHMENTS)
+    uploadMockOverrides.hasFiles = true;
+    uploadMockOverrides.files = Array.from({ length: 5 }, (_, i) => ({
+      file: { name: `file${i}.txt` },
+      progress: 0,
+      status: 'pending',
+    }));
+
+    render(<MessageInput onSendMessage={onSendMessage} />);
+    const textarea = screen.getByRole('textbox');
+
+    // Enter 5121-char message
+    fireEvent.change(textarea, { target: { value: 'y'.repeat(5121) } });
+
+    // Attempt send
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+
+    // Should show the "remove an attachment" error message
+    await vi.waitFor(() => {
+      expect(screen.getByText(/remove an attachment/i)).toBeInTheDocument();
+    });
+
+    // onSendMessage should NOT have been called
+    expect(onSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('normal send path still works for content ≤ 5120 chars', async () => {
+    const user = (await import('@testing-library/user-event')).default;
+    const userSetup = user.setup();
+    render(<MessageInput onSendMessage={onSendMessage} />);
+    const textarea = screen.getByRole('textbox');
+    await userSetup.type(textarea, 'Short message under the cap');
+    await userSetup.keyboard('{Enter}');
+    expect(onSendMessage).toHaveBeenCalledWith(
+      'Short message under the cap',
+      undefined,
+      undefined,
+      undefined,
+      undefined
+    );
+  });
+
+  it('isSendingRef blocks concurrent send — double Enter fires onSendMessage only once', async () => {
+    // Make uploadAll slow so the first handleSend hasn't finished before the
+    // second keydown fires. isSendingRef should block the second invocation.
+    let resolveUpload!: () => void;
+    mockUploadAll.mockReturnValue(
+      new Promise<{ ids: string[]; summaries: unknown[] }>((resolve) => {
+        resolveUpload = () => resolve({ ids: [], summaries: [] });
+      })
+    );
+
+    uploadMockOverrides.hasFiles = true;
+
+    render(<MessageInput onSendMessage={onSendMessage} />);
+    const textarea = screen.getByRole('textbox');
+    fireEvent.change(textarea, { target: { value: 'Hello' } });
+
+    // Fire two Enter presses back-to-back before the first send resolves
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+
+    // Now let the first upload finish
+    resolveUpload();
+
+    await vi.waitFor(() => {
+      expect(onSendMessage).toHaveBeenCalledTimes(1);
+    });
+
+    // uploadAll should have been called only once — the second Enter was blocked
+    expect(mockUploadAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('uploadStatus shows after overflow send and persists until next overflow or error', async () => {
+    mockUploadAll.mockResolvedValue({
+      ids: ['overflow-file-1'],
+      summaries: [
+        {
+          id: 'overflow-file-1',
+          file_type: 'file',
+          mime_type: 'text/markdown',
+          file_size: 5200,
+        },
+      ],
+    });
+
+    render(<MessageInput onSendMessage={onSendMessage} channelId="channel-1" />);
+    const textarea = screen.getByRole('textbox');
+
+    // Send an overflow message to trigger the uploadStatus
+    fireEvent.change(textarea, { target: { value: 'x'.repeat(5121) } });
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+
+    await vi.waitFor(() => {
+      expect(screen.getByText(/long message sent as a .md/i)).toBeInTheDocument();
+    });
+
+    // The upload-status div renders for the overflow confirmation
+    const statusEl = screen.getByText(/long message sent as a .md/i);
+    expect(statusEl.closest('.upload-status')).toBeInTheDocument();
+  });
+
+  it('uploadStatus is hidden when uploadError is set (uploadError takes precedence)', async () => {
+    // First send an overflow message so uploadStatus is set
+    mockUploadAll
+      .mockResolvedValueOnce({
+        ids: ['overflow-file-1'],
+        summaries: [
+          { id: 'overflow-file-1', file_type: 'file', mime_type: 'text/markdown', file_size: 5200 },
+        ],
+      })
+      // Second call (for the file-attachment test) will reject
+      .mockRejectedValueOnce(new Error('Network error'));
+
+    uploadMockOverrides.hasFiles = true;
+
+    render(<MessageInput onSendMessage={onSendMessage} channelId="channel-1" />);
+    const textarea = screen.getByRole('textbox');
+
+    // First: send an overflow message to set uploadStatus
+    fireEvent.change(textarea, { target: { value: 'x'.repeat(5121) } });
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+
+    await vi.waitFor(() => {
+      expect(screen.getByText(/long message sent as a .md/i)).toBeInTheDocument();
+    });
+
+    // Second: trigger a failed upload — uploadError should override uploadStatus display
+    fireEvent.change(textarea, { target: { value: 'short message' } });
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
+
+    await vi.waitFor(() => {
+      expect(screen.getByText('Failed to upload attachments')).toBeInTheDocument();
+    });
+
+    // When uploadError is set, the upload-status div is hidden (conditional in JSX)
+    expect(screen.queryByText(/long message sent as a .md/i)).not.toBeInTheDocument();
+  });
+});

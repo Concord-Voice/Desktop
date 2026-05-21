@@ -5,7 +5,11 @@ import { resetAllStores } from '../../../helpers/store-helpers';
 
 const emptyLookup = { users: new Map(), roles: new Map() };
 
-/** Constructs a pathological Markdown string approaching the server cap (24000 bytes).
+/** Constructs a pathological Markdown string of the target byte length.
+ *  24,000 bytes is a perf-regression canary — a large but still-renderable
+ *  input. After the message-length policy raise (backend ciphertext cap now
+ *  65,536 / inline-renderable .md cap 256 KiB), 24,000 is no longer "the cap"
+ *  but remains a useful canary for renderer regressions.
  *  Mix of block constructs: nested quotes, lists, bold, inline code, links. */
 function buildWorstCaseMarkdown(targetLen: number): string {
   const parts: string[] = [];

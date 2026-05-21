@@ -6,6 +6,26 @@ import type { AttachmentSummary } from '@/renderer/types/chat';
 import { mockAttachment, mockAttachment2 } from '../../../mocks/fixtures';
 import { useSettingsStore } from '@/renderer/stores/settingsStore';
 import { fireEvent } from '@testing-library/react';
+import { resetAllStores } from '../../../helpers/store-helpers';
+
+// Mock OverflowMarkdownAttachment so we can assert dispatch without exercising
+// the full decrypt/expand path (covered by OverflowMarkdownAttachment.test.tsx).
+vi.mock('@/renderer/components/Chat/OverflowMarkdownAttachment', () => ({
+  __esModule: true,
+  default: ({
+    attachment,
+    previewBody,
+    channelId,
+  }: {
+    attachment: AttachmentSummary;
+    previewBody: string;
+    channelId: string;
+  }) => (
+    <div data-testid="overflow-md" data-attachment-id={attachment.id} data-channel-id={channelId}>
+      OVERFLOW: {previewBody}
+    </div>
+  ),
+}));
 
 // Mock apiClient
 const mockApiFetch = vi.fn();
@@ -486,5 +506,46 @@ describe('AttachmentDisplay', () => {
     // No inline width/height — falls back to CSS max-width/max-height
     expect(box.style.width).toBe('');
     expect(box.style.height).toBe('');
+  });
+});
+
+describe('AttachmentDisplay text/markdown dispatch', () => {
+  beforeEach(() => {
+    resetAllStores();
+    vi.clearAllMocks();
+  });
+
+  const mdAttachment: AttachmentSummary = {
+    id: 'att-md-1',
+    file_type: 'file',
+    mime_type: 'text/markdown',
+    file_size: 6000,
+  };
+
+  it('routes text/markdown attachments to OverflowMarkdownAttachment', () => {
+    render(
+      <AttachmentDisplay
+        attachments={[mdAttachment]}
+        channelId="ch-1"
+        messageBody="preview text…"
+      />
+    );
+    expect(screen.getByTestId('overflow-md')).toBeInTheDocument();
+    expect(screen.getByTestId('overflow-md')).toHaveAttribute('data-attachment-id', 'att-md-1');
+    expect(screen.getByTestId('overflow-md')).toHaveAttribute('data-channel-id', 'ch-1');
+    expect(screen.getByText(/preview text/)).toBeInTheDocument();
+  });
+
+  it('still routes non-markdown files to the generic FileAttachment', () => {
+    const pdfAttachment: AttachmentSummary = {
+      id: 'att-pdf-1',
+      file_type: 'file',
+      mime_type: 'application/pdf',
+      file_size: 100000,
+    };
+    render(<AttachmentDisplay attachments={[pdfAttachment]} channelId="ch-1" messageBody="" />);
+    // Generic file chip rendered — overflow component NOT mounted
+    expect(screen.queryByTestId('overflow-md')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /download/i })).toBeInTheDocument();
   });
 });

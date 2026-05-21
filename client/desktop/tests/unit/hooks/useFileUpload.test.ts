@@ -446,3 +446,138 @@ describe('useFileUpload — image dimension hydration', () => {
     expect(uploadResult?.summaries[0].height).toBe(600);
   });
 });
+
+// ---------------------------------------------------------------------------
+// uploadAll — additionalFiles paths (new code from round-2 extraction)
+//
+// These tests exercise the uploadAdditionalFiles + uploadPendingFiles helpers
+// that were extracted to keep uploadAll's cognitive complexity ≤ 15.
+// ---------------------------------------------------------------------------
+describe('useFileUpload — uploadAll with additionalFiles', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockApiFetch.mockResolvedValue({ ok: true, status: 201 });
+    mockSafeJson.mockResolvedValue({
+      file_id: 'additional-file-1',
+      file_type: 'file',
+      file_size: 200,
+    });
+  });
+
+  it('uploads additionalFiles when no pending files exist', async () => {
+    const { result } = renderHook(() => useFileUpload());
+
+    const overflowFile = createMockFile('overflow.md', 200, 'text/markdown');
+
+    let uploadResult: { ids: string[]; summaries: unknown[] } | undefined;
+    await act(async () => {
+      uploadResult = await result.current.uploadAll('channel-1', undefined, [overflowFile]);
+    });
+
+    expect(uploadResult?.ids).toContain('additional-file-1');
+    expect(uploadResult?.summaries).toHaveLength(1);
+    expect(mockApiFetch).toHaveBeenCalledWith(
+      '/api/v1/media/upload/attachment',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
+  it('uploads both pending files and additionalFiles when both are present', async () => {
+    // Return different IDs for successive calls
+    mockSafeJson
+      .mockResolvedValueOnce({ file_id: 'pending-file-1', file_type: 'photo', file_size: 100 })
+      .mockResolvedValueOnce({ file_id: 'additional-file-2', file_type: 'file', file_size: 200 });
+
+    const { result } = renderHook(() => useFileUpload());
+
+    act(() => {
+      result.current.addFiles([createMockFile('user.png', 100, 'image/png')]);
+    });
+
+    const overflowFile = createMockFile('overflow.md', 200, 'text/markdown');
+
+    let uploadResult: { ids: string[] } | undefined;
+    await act(async () => {
+      uploadResult = await result.current.uploadAll('channel-1', undefined, [overflowFile]);
+    });
+
+    expect(uploadResult?.ids).toHaveLength(2);
+    // Pending files come first (uploadPendingFiles), additionalFiles second (uploadAdditionalFiles)
+    expect(uploadResult?.ids[0]).toBe('pending-file-1');
+    expect(uploadResult?.ids[1]).toBe('additional-file-2');
+    expect(mockApiFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns empty result when no pending files and no additionalFiles', async () => {
+    const { result } = renderHook(() => useFileUpload());
+
+    let uploadResult: { ids: string[] } | undefined;
+    await act(async () => {
+      uploadResult = await result.current.uploadAll('channel-1', undefined, []);
+    });
+
+    expect(uploadResult?.ids).toHaveLength(0);
+    expect(mockApiFetch).not.toHaveBeenCalled();
+  });
+
+  it('uploads multiple additionalFiles in order', async () => {
+    mockSafeJson
+      .mockResolvedValueOnce({ file_id: 'add-id-0', file_type: 'file', file_size: 100 })
+      .mockResolvedValueOnce({ file_id: 'add-id-1', file_type: 'file', file_size: 100 })
+      .mockResolvedValueOnce({ file_id: 'add-id-2', file_type: 'file', file_size: 100 });
+
+    const { result } = renderHook(() => useFileUpload());
+
+    const files = [
+      createMockFile('a.md', 100, 'text/markdown'),
+      createMockFile('b.md', 100, 'text/markdown'),
+      createMockFile('c.md', 100, 'text/markdown'),
+    ];
+
+    let uploadResult: { ids: string[] } | undefined;
+    await act(async () => {
+      uploadResult = await result.current.uploadAll('channel-1', undefined, files);
+    });
+
+    expect(uploadResult?.ids).toEqual(['add-id-0', 'add-id-1', 'add-id-2']);
+    expect(mockApiFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('propagates error when apiFetch rejects on an additionalFile upload', async () => {
+    // First call succeeds, second throws
+    mockApiFetch
+      .mockResolvedValueOnce({ ok: true, status: 201 })
+      .mockRejectedValueOnce(new Error('network error'));
+    mockSafeJson.mockResolvedValueOnce({ file_id: 'add-id-0', file_type: 'file', file_size: 100 });
+
+    const { result } = renderHook(() => useFileUpload());
+
+    const files = [
+      createMockFile('a.md', 100, 'text/markdown'),
+      createMockFile('b.md', 100, 'text/markdown'),
+    ];
+
+    await expect(
+      act(async () => {
+        await result.current.uploadAll('channel-1', undefined, files);
+      })
+    ).rejects.toThrow('network error');
+
+    // Two fetch calls: first succeeded, second threw
+    expect(mockApiFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('marks isUploading false after additionalFiles upload completes', async () => {
+    const { result } = renderHook(() => useFileUpload());
+
+    expect(result.current.isUploading).toBe(false);
+
+    const overflowFile = createMockFile('overflow.md', 200, 'text/markdown');
+
+    await act(async () => {
+      await result.current.uploadAll('channel-1', undefined, [overflowFile]);
+    });
+
+    expect(result.current.isUploading).toBe(false);
+  });
+});

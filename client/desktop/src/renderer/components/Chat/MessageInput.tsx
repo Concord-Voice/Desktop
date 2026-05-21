@@ -15,15 +15,80 @@ import { useDraftMessage } from '../../hooks/useDraftMessage';
 import { useChatStore } from '../../stores/chatStore';
 import AttachmentUploadPreview from './AttachmentUploadPreview';
 import ReplyPreviewBar from './ReplyPreviewBar';
+import { composeMarkdownOverflow } from '../../utils/overflowToMarkdown';
+import { MAX_ATTACHMENTS } from '../../utils/attachmentCrypto';
 import './MessageInput.css';
 
-const MAX_CONTENT_LENGTH = 24000;
+const MAX_CONTENT_LENGTH = 5120;
+/** Renderer-side DoS ceiling: paste/typing beyond this is silently discarded.
+ *  Content between MAX_CONTENT_LENGTH and DOS_PROTECTION_LIMIT reaches
+ *  handleSend intact so the overflow path can synthesize a .md attachment. */
+const DOS_PROTECTION_LIMIT = 1_048_576; // 1 MiB plaintext
 // Counter visibility and warn thresholds are expressed as ratios of the
 // active limit so that a test or future caller passing a smaller
 // `maxLength` keeps the same 75%/95% behaviour the production constants
-// encode (18000 / 24000 = 0.75, 22800 / 24000 = 0.95).
+// encode (3840 / 5120 = 0.75, 4864 / 5120 = 0.95).
 const COUNTER_VISIBLE_RATIO = 0.75;
 const COUNTER_WARN_RATIO = 0.95;
+
+/**
+ * Determines whether content exceeds maxLength and, if so, synthesizes the
+ * overflow .md payload. Extracted from handleSend to keep its cognitive
+ * complexity within SonarQube's budget.
+ *
+ * NOTE: do NOT call addFiles with the returned overflowFiles — that schedules a
+ * React state update and uploadAll closes over the pre-update `files` snapshot,
+ * silently dropping the overflow file. Pass them via uploadAll's `additionalFiles`
+ * parameter instead.
+ */
+function prepareOverflowPayload(
+  trimmedContent: string,
+  maxLength: number
+): { finalContent: string; overflowFiles: File[] } {
+  if (trimmedContent.length <= maxLength) {
+    return { finalContent: trimmedContent, overflowFiles: [] };
+  }
+  const { previewText, fileBlob, filename } = composeMarkdownOverflow(trimmedContent);
+  return {
+    finalContent: previewText,
+    overflowFiles: [new File([fileBlob], filename, { type: 'text/markdown' })],
+  };
+}
+
+/**
+ * Runs the upload step inside handleSend, handling both pending user-added
+ * files and the optional overflow .md synthesized by prepareOverflowPayload.
+ * Returns the combined attachment ids + summaries on success, or null when an
+ * error was surfaced (the caller should bail without sending).
+ *
+ * Extracted from handleSend to keep its cognitive complexity ≤ 15.
+ */
+async function tryUploadAttachments(
+  uploadAll: (
+    channelId: string,
+    conversationId?: string,
+    additionalFiles?: File[]
+  ) => Promise<{ ids: string[]; summaries: AttachmentSummary[] }>,
+  channelId: string,
+  conversationId: string | undefined,
+  overflowFiles: File[],
+  setUploadError: (msg: string | null) => void,
+  setUploadStatus: (msg: string | null) => void
+): Promise<{ ids: string[]; summaries: AttachmentSummary[] } | null> {
+  setUploadError(null);
+  setUploadStatus(null);
+  try {
+    const result = await uploadAll(
+      channelId,
+      conversationId,
+      overflowFiles.length > 0 ? overflowFiles : undefined
+    );
+    return result;
+  } catch {
+    setUploadError('Failed to upload attachments');
+    return null;
+  }
+}
 
 function getCounterClass(charCount: number, limit: number): string {
   if (charCount > limit) return 'counter error';
@@ -84,6 +149,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
   } = useDraftMessage(draftTargetId);
   const [dragOver, setDragOver] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+  const isSendingRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const {
     files: uploadFiles,
@@ -165,7 +232,9 @@ const MessageInput: React.FC<MessageInputProps> = ({
         // Fallback: just append
         setContent((prev) => {
           const combined = prev + text;
-          return combined.length <= maxLength ? combined : combined.slice(0, maxLength);
+          return combined.length <= DOS_PROTECTION_LIMIT
+            ? combined
+            : combined.slice(0, DOS_PROTECTION_LIMIT);
         });
         return;
       }
@@ -175,7 +244,10 @@ const MessageInput: React.FC<MessageInputProps> = ({
       const before = content.slice(0, start);
       const after = content.slice(end);
       const combined = before + text + after;
-      const newContent = combined.length <= maxLength ? combined : combined.slice(0, maxLength);
+      const newContent =
+        combined.length <= DOS_PROTECTION_LIMIT
+          ? combined
+          : combined.slice(0, DOS_PROTECTION_LIMIT);
 
       setContent(newContent);
 
@@ -187,7 +259,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
         textarea.focus();
       });
     },
-    [content, maxLength]
+    [content]
   );
 
   const handleEmojiSelect = useCallback(
@@ -196,7 +268,9 @@ const MessageInput: React.FC<MessageInputProps> = ({
       if (!textarea) {
         setContent((prev) => {
           const combined = prev + emoji;
-          return combined.length <= maxLength ? combined : combined.slice(0, maxLength);
+          return combined.length <= DOS_PROTECTION_LIMIT
+            ? combined
+            : combined.slice(0, DOS_PROTECTION_LIMIT);
         });
         setShowEmojiPicker(false);
         return;
@@ -207,7 +281,10 @@ const MessageInput: React.FC<MessageInputProps> = ({
       const before = content.slice(0, start);
       const after = content.slice(end);
       const combined = before + emoji + after;
-      const newContent = combined.length <= maxLength ? combined : combined.slice(0, maxLength);
+      const newContent =
+        combined.length <= DOS_PROTECTION_LIMIT
+          ? combined
+          : combined.slice(0, DOS_PROTECTION_LIMIT);
 
       setContent(newContent);
       setShowEmojiPicker(false);
@@ -219,7 +296,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
         textarea.focus();
       });
     },
-    [content, maxLength]
+    [content]
   );
 
   const getPickerPosition = useCallback((anchor: HTMLButtonElement | null, width: number) => {
@@ -382,45 +459,77 @@ const MessageInput: React.FC<MessageInputProps> = ({
   };
 
   const handleSend = async () => {
-    const trimmedContent = content.trim();
-    if (trimmedContent.length > maxLength) return; // block over-limit even with attachments
-    const hasContent = trimmedContent.length > 0;
-    if (!hasContent && !hasFiles) return;
+    // Guard against concurrent invocations (e.g., double-tap Enter before
+    // isUploading becomes true on the next render cycle).
+    if (isSendingRef.current) return;
+    isSendingRef.current = true;
 
-    stopTypingIndicator();
-    const mentionMeta = buildMentionMeta(trimmedContent);
+    try {
+      const trimmedContent = content.trim();
+      const isOverflow = trimmedContent.length > maxLength;
 
-    // Upload attachments (if any) before sending
-    let attachmentIds: string[] | undefined;
-    let attachmentSummaries: import('../../types/chat').AttachmentSummary[] | undefined;
-    if (hasFiles) {
-      try {
-        setUploadError(null);
-        const targetId = conversationId || channelId || '';
-        const result = await uploadAll(targetId, conversationId);
-        if (result.ids.length > 0) {
-          attachmentIds = result.ids;
-          attachmentSummaries = result.summaries;
-        }
-      } catch {
-        setUploadError('Failed to upload attachments');
+      if (isOverflow && uploadFiles.length >= MAX_ATTACHMENTS) {
+        // Edge case: all 5 attachment slots are taken AND the message is over the cap.
+        // The overflow path needs a free slot for the .md attachment — block with a
+        // user-visible error so they can remove one attachment first.
+        setUploadError('Remove an attachment to send a long message as a .md file.');
         return;
       }
-    }
 
-    const sendContent = trimmedContent || (attachmentIds ? ' ' : '');
-    if (!sendContent) return;
+      const hasContent = trimmedContent.length > 0;
+      if (!hasContent && !hasFiles) return;
 
-    onSendMessage(sendContent, mentionMeta, replyingTo?.id, attachmentIds, attachmentSummaries);
-    setContent('');
-    clearDraftNow();
-    setShowMentions(false);
-    selectedMentionsRef.current = [];
-    clearFiles();
-    setUploadError(null);
-    onCancelReply?.();
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
+      stopTypingIndicator();
+
+      // Synthesize the overflow .md file if content exceeds the policy cap.
+      const { finalContent, overflowFiles } = prepareOverflowPayload(trimmedContent, maxLength);
+
+      const mentionMeta = buildMentionMeta(finalContent);
+
+      // Upload attachments (including any overflow .md file passed as additionalFiles).
+      // `hasFiles` reflects pending user-added files; `isOverflow` covers the
+      // synthesized .md that is passed synchronously via additionalFiles.
+      let attachmentIds: string[] | undefined;
+      let attachmentSummaries: AttachmentSummary[] | undefined;
+      if (hasFiles || isOverflow) {
+        const targetId = conversationId || channelId || '';
+        const uploadResult = await tryUploadAttachments(
+          uploadAll,
+          targetId,
+          conversationId,
+          overflowFiles,
+          setUploadError,
+          setUploadStatus
+        );
+        if (uploadResult === null) return; // error already toasted
+        if (uploadResult.ids.length > 0) {
+          attachmentIds = uploadResult.ids;
+          attachmentSummaries = uploadResult.summaries;
+        }
+      }
+
+      const sendContent = finalContent || (attachmentIds ? ' ' : '');
+      if (!sendContent) return;
+
+      onSendMessage(sendContent, mentionMeta, replyingTo?.id, attachmentIds, attachmentSummaries);
+
+      if (isOverflow) {
+        setUploadStatus('Long message sent as a .md attachment.');
+      } else {
+        setUploadError(null);
+      }
+
+      setContent('');
+      clearDraftNow();
+      setShowMentions(false);
+      selectedMentionsRef.current = [];
+      clearFiles();
+      onCancelReply?.();
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+    } finally {
+      isSendingRef.current = false;
     }
   };
 
@@ -471,9 +580,11 @@ const MessageInput: React.FC<MessageInputProps> = ({
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    // Allow input slightly above the active limit so the counter can go
-    // into the `error` state and the submit button can be disabled for the
-    // over-limit UX. Absolute safety cap prevents runaway pastes.
+    // Allow input slightly above the policy cap (maxLength + 1000) so the
+    // counter enters the `error` state and the send button is disabled for
+    // the over-limit UX — the overflow path then handles large content on
+    // send. Clipboard pastes are bounded by DOS_PROTECTION_LIMIT (1 MiB),
+    // which is enforced by handlePasteFromMenu and the native-paste handler.
     const HARD_CAP = maxLength + 1000;
     if (e.target.value.length <= HARD_CAP) {
       setContent(e.target.value);
@@ -522,7 +633,6 @@ const MessageInput: React.FC<MessageInputProps> = ({
   const charCount = content.length;
   const counterVisible = charCount >= Math.floor(maxLength * COUNTER_VISIBLE_RATIO);
   const counterClass = getCounterClass(charCount, maxLength);
-  const overLimit = charCount > maxLength;
 
   return (
     <div className="message-input-container">
@@ -576,6 +686,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
           )}
           {hasFiles && <AttachmentUploadPreview files={uploadFiles} onRemove={removeFile} />}
           {uploadError && <div className="upload-error">{uploadError}</div>}
+          {uploadStatus && !uploadError && <div className="upload-status">{uploadStatus}</div>}
           <textarea
             ref={textareaRef}
             className="message-input-textarea"
@@ -607,7 +718,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
             <button
               className="send-button"
               onClick={handleSend}
-              disabled={disabled || isUploading || (!content.trim() && !hasFiles) || overLimit}
+              disabled={disabled || isUploading || (!content.trim() && !hasFiles)}
               aria-label="Send message"
             >
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none">

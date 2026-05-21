@@ -523,7 +523,11 @@ const Message: React.FC<MessageProps> = ({
         )}
 
         {message.attachments && message.attachments.length > 0 && (
-          <AttachmentDisplay attachments={message.attachments} channelId={message.channel_id} />
+          <AttachmentDisplay
+            attachments={message.attachments}
+            channelId={message.channel_id}
+            messageBody={message.pendingKeys || message.decryptFailed ? '' : message.content}
+          />
         )}
 
         <MessageOverlays

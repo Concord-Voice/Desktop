@@ -5,11 +5,14 @@ import { e2eeService } from '../../services/e2eeService';
 import { decryptFile, formatFileSize } from '../../utils/attachmentCrypto';
 import type { AttachmentSummary } from '../../types/chat';
 import { useSettingsStore } from '../../stores/settingsStore';
+import OverflowMarkdownAttachment from './OverflowMarkdownAttachment';
 import './AttachmentDisplay.css';
 
 interface AttachmentDisplayProps {
   readonly attachments: AttachmentSummary[];
   readonly channelId: string;
+  /** Already-decrypted message body — used as preview for text/markdown attachments. */
+  readonly messageBody?: string;
 }
 
 interface AttachmentItemProps {
@@ -324,12 +327,26 @@ function FileAttachment({ attachment, channelId }: AttachmentItemProps) {
   );
 }
 
-const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({ attachments, channelId }) => {
+const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
+  attachments,
+  channelId,
+  messageBody,
+}) => {
   if (!attachments || attachments.length === 0) return null;
 
   return (
     <div className="attachment-display">
       {attachments.map((attachment) => {
+        if (attachment.file_type === 'file' && attachment.mime_type === 'text/markdown') {
+          return (
+            <OverflowMarkdownAttachment
+              key={attachment.id}
+              attachment={attachment}
+              previewBody={messageBody ?? ''}
+              channelId={channelId}
+            />
+          );
+        }
         if (attachment.file_type === 'photo' || attachment.file_type === 'animated') {
           return (
             <ImageAttachment key={attachment.id} attachment={attachment} channelId={channelId} />

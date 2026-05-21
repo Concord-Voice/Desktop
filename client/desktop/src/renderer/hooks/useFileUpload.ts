@@ -122,6 +122,100 @@ async function readImageDimensions(file: File): Promise<{ width: number; height:
   }
 }
 
+/**
+ * Iterates over the files-in-React-state array (the files the user added via
+ * the file picker or drag-and-drop) and uploads any that are still 'pending'.
+ * Already-done files are collected as-is. Mirrors the shape of
+ * uploadAdditionalFiles to keep uploadAll's cognitive complexity ≤ 15.
+ *
+ * @param files   - Snapshot of the React state files array at call time.
+ * @param setFiles - React setState dispatcher for per-file progress updates.
+ * @param channelKey - Encryption key for the channel.
+ * @param keyVersion - Key epoch for the upload metadata.
+ * @param channelId - Channel ID (used for server channels).
+ * @param conversationId - Conversation ID (used for DMs, takes precedence).
+ * @param abortRef - Shared abort flag; if set mid-loop, remaining files are skipped.
+ */
+async function uploadPendingFiles(
+  files: FileUploadState[],
+  setFiles: SetFilesFn,
+  channelKey: CryptoKey | null,
+  keyVersion: number | undefined,
+  channelId: string,
+  conversationId: string | undefined,
+  abortRef: React.MutableRefObject<boolean>
+): Promise<{ ids: string[]; summaries: AttachmentSummary[] }> {
+  const ids: string[] = [];
+  const summaries: AttachmentSummary[] = [];
+
+  for (let i = 0; i < files.length; i++) {
+    if (abortRef.current) break;
+    const entry = files[i];
+
+    // Already-done files: collect without re-uploading
+    if (entry.status !== 'pending') {
+      if (isDoneWithId(entry)) {
+        ids.push(entry.id);
+        summaries.push(buildSummary(entry.id, entry));
+      }
+      continue;
+    }
+
+    setFiles((prev) =>
+      prev.map((f, idx) => (idx === i ? { ...f, status: 'uploading' as const, progress: 0 } : f))
+    );
+
+    try {
+      const result = await uploadSingleFile(
+        entry,
+        channelKey,
+        keyVersion,
+        channelId,
+        conversationId
+      );
+      ids.push(result.file_id);
+      summaries.push(buildSummary(result.file_id, entry));
+      setFiles((prev) =>
+        prev.map((f, idx) =>
+          idx === i ? { ...f, status: 'done' as const, progress: 100, id: result.file_id } : f
+        )
+      );
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Upload failed';
+      setFiles((prev) =>
+        prev.map((f, idx) => (idx === i ? { ...f, status: 'error' as const, error: errorMsg } : f))
+      );
+    }
+  }
+
+  return { ids, summaries };
+}
+
+/**
+ * Uploads a list of extra files that are NOT in React state (e.g., the
+ * overflow .md synthesized by MessageInput). Extracted from uploadAll to keep
+ * its cognitive complexity within SonarQube's budget.
+ */
+async function uploadAdditionalFiles(
+  files: File[],
+  channelKey: CryptoKey | null,
+  keyVersion: number | undefined,
+  channelId: string,
+  conversationId: string | undefined,
+  abortRef: React.MutableRefObject<boolean>
+): Promise<{ ids: string[]; summaries: AttachmentSummary[] }> {
+  const ids: string[] = [];
+  const summaries: AttachmentSummary[] = [];
+  for (const file of files) {
+    if (abortRef.current) break;
+    const entry: FileUploadState = { file, progress: 0, status: 'pending' };
+    const result = await uploadSingleFile(entry, channelKey, keyVersion, channelId, conversationId);
+    ids.push(result.file_id);
+    summaries.push(buildSummary(result.file_id, entry));
+  }
+  return { ids, summaries };
+}
+
 function isDoneWithId(f: FileUploadState): f is FileUploadState & { id: string } {
   return f.status === 'done' && f.id != null;
 }
@@ -241,71 +335,60 @@ export function useFileUpload() {
   }, []);
 
   const uploadAll = useCallback(
-    async (channelId: string, conversationId?: string): Promise<UploadResult> => {
+    async (
+      channelId: string,
+      conversationId?: string,
+      /** Extra files to upload in the same call without going through React state.
+       *  Used by the overflow path in MessageInput to avoid the addFiles→setFiles
+       *  async-state-update race: the overflow .md File is passed here directly so
+       *  it is uploaded in the same uploadAll invocation rather than via a stale
+       *  closure snapshot. */
+      additionalFiles?: File[]
+    ): Promise<UploadResult> => {
       const hasPending = files.some((f) => f.status === 'pending');
-      if (!hasPending) {
+      const hasAdditional = additionalFiles && additionalFiles.length > 0;
+      if (!hasPending && !hasAdditional) {
         return collectDoneFiles(files);
       }
 
       setIsUploading(true);
       abortRef.current = false;
 
-      const ids: string[] = [];
-      const summaries: AttachmentSummary[] = [];
-
-      let channelKey: CryptoKey | null = null;
-      let keyVersion: number | undefined;
       const keyChannelId = conversationId || channelId;
-      channelKey = await e2eeService.getChannelKey(keyChannelId);
-      keyVersion = e2eeService.getCurrentKeyVersion(keyChannelId);
+      const channelKey = await e2eeService.getChannelKey(keyChannelId);
+      const keyVersion = e2eeService.getCurrentKeyVersion(keyChannelId);
 
-      for (let i = 0; i < files.length; i++) {
-        if (abortRef.current) break;
-        const entry = files[i];
+      // Upload pending files from React state (user-added via picker / drag-drop).
+      const pending = await uploadPendingFiles(
+        files,
+        setFiles,
+        channelKey,
+        keyVersion,
+        channelId,
+        conversationId,
+        abortRef
+      );
 
-        // Collect already-done files
-        if (entry.status !== 'pending') {
-          if (isDoneWithId(entry)) {
-            ids.push(entry.id);
-            summaries.push(buildSummary(entry.id, entry));
-          }
-          continue;
-        }
-
-        // Mark uploading
-        setFiles((prev) =>
-          prev.map((f, idx) =>
-            idx === i ? { ...f, status: 'uploading' as const, progress: 0 } : f
-          )
-        );
-
-        try {
-          const result = await uploadSingleFile(
-            entry,
-            channelKey,
-            keyVersion,
-            channelId,
-            conversationId
-          );
-          ids.push(result.file_id);
-          summaries.push(buildSummary(result.file_id, entry));
-          setFiles((prev) =>
-            prev.map((f, idx) =>
-              idx === i ? { ...f, status: 'done' as const, progress: 100, id: result.file_id } : f
+      // Upload any additional files passed synchronously (e.g., overflow .md).
+      // These are NOT in React state so they bypass the addFiles→setFiles
+      // async-update race entirely.
+      const extra =
+        hasAdditional && additionalFiles
+          ? await uploadAdditionalFiles(
+              additionalFiles,
+              channelKey,
+              keyVersion,
+              channelId,
+              conversationId,
+              abortRef
             )
-          );
-        } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : 'Upload failed';
-          setFiles((prev) =>
-            prev.map((f, idx) =>
-              idx === i ? { ...f, status: 'error' as const, error: errorMsg } : f
-            )
-          );
-        }
-      }
+          : { ids: [], summaries: [] };
 
       setIsUploading(false);
-      return { ids, summaries };
+      return {
+        ids: [...pending.ids, ...extra.ids],
+        summaries: [...pending.summaries, ...extra.summaries],
+      };
     },
     [files]
   );

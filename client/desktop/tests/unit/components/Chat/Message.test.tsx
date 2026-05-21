@@ -13,13 +13,23 @@ import {
   mockMessageWithAttachments,
 } from '../../../mocks/fixtures';
 
-// Mock AttachmentDisplay to avoid fetch/decrypt complexity
+// Mock AttachmentDisplay to avoid fetch/decrypt complexity.
+// Renders messageBody in a data-testid span so tests can assert on what was passed.
 vi.mock('@/renderer/components/Chat/AttachmentDisplay', () => ({
-  default: ({ attachments }: { attachments: { id: string }[] }) => (
+  default: ({
+    attachments,
+    messageBody,
+  }: {
+    attachments: { id: string }[];
+    messageBody?: string;
+  }) => (
     <div data-testid="attachment-display">
       {attachments.map((a) => (
         <span key={a.id}>{a.id}</span>
       ))}
+      {messageBody !== undefined && (
+        <span data-testid="attachment-message-body">{messageBody}</span>
+      )}
     </div>
   ),
 }));
@@ -887,5 +897,50 @@ describe('Message', () => {
     useMemberStore.getState().addMember(mockMember);
     render(<Message message={mockMessage} currentUserId="user-2" showAvatar={true} />);
     expect(screen.queryByTestId('gif-embed')).not.toBeInTheDocument();
+  });
+
+  // ── AttachmentDisplay messageBody guard (ciphertext leak prevention) ──
+
+  it('does not leak ciphertext to AttachmentDisplay messageBody when pendingKeys=true', () => {
+    // When message.pendingKeys is true, message.content is undecrypted ciphertext.
+    // The callsite must pass an empty string as messageBody to AttachmentDisplay,
+    // preventing OverflowMarkdownAttachment from rendering ciphertext as a preview.
+    useMemberStore.getState().addMember(mockMember);
+    render(
+      <Message
+        message={{
+          ...mockMessageWithAttachments,
+          pendingKeys: true,
+          content: 'CIPHERTEXT_NOT_DECRYPTED',
+        }}
+        currentUserId="user-2"
+        showAvatar={true}
+      />
+    );
+    // AttachmentDisplay should be rendered (attachments are shown regardless)
+    expect(screen.getByTestId('attachment-display')).toBeInTheDocument();
+    // The ciphertext must NOT appear in the messageBody slot passed to AttachmentDisplay
+    const bodySlot = screen.getByTestId('attachment-message-body');
+    expect(bodySlot.textContent).toBe('');
+    expect(screen.queryByText(/CIPHERTEXT_NOT_DECRYPTED/)).not.toBeInTheDocument();
+  });
+
+  it('does not leak content to AttachmentDisplay messageBody when decryptFailed=true', () => {
+    useMemberStore.getState().addMember(mockMember);
+    render(
+      <Message
+        message={{
+          ...mockMessageWithAttachments,
+          decryptFailed: true,
+          content: 'STALE_OR_INVALID_CONTENT',
+        }}
+        currentUserId="user-2"
+        showAvatar={true}
+      />
+    );
+    expect(screen.getByTestId('attachment-display')).toBeInTheDocument();
+    const bodySlot = screen.getByTestId('attachment-message-body');
+    expect(bodySlot.textContent).toBe('');
+    expect(screen.queryByText(/STALE_OR_INVALID_CONTENT/)).not.toBeInTheDocument();
   });
 });

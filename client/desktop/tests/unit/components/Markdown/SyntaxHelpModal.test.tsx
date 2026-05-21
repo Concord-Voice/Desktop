@@ -21,7 +21,7 @@ describe('SyntaxHelpModal', () => {
     expect(screen.getByText(/`inline code`/)).toBeInTheDocument();
     expect(screen.getByText(/\|\|spoiler\|\|/)).toBeInTheDocument();
     expect(screen.getByText(/:smile:/)).toBeInTheDocument();
-    expect(screen.getByText(/character limit/i)).toBeInTheDocument();
+    expect(screen.getByText(/5,120 characters per message/i)).toBeInTheDocument();
   });
 
   it('calls onClose when close button clicked', () => {
@@ -43,5 +43,13 @@ describe('SyntaxHelpModal', () => {
     expect(
       screen.getByText(/opening and closing triple-backticks each on their own line/i)
     ).toBeInTheDocument();
+  });
+
+  it('tooltip text reflects 5120-char cap with auto-overflow phrasing', () => {
+    render(<SyntaxHelpModal open onClose={vi.fn()} />);
+    expect(screen.getByText(/Up to 5,120 characters per message/)).toBeInTheDocument();
+    expect(screen.getByText(/sent as a \.md attachment/i)).toBeInTheDocument();
+    // Negative: legacy "24,000" wording must be gone
+    expect(screen.queryByText(/24,000/)).not.toBeInTheDocument();
   });
 });
