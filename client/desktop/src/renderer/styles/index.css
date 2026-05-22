@@ -1412,29 +1412,6 @@ body {
   width: 100vw;
 }
 
-/* Title Bar */
-.title-bar {
-  height: 32px;
-  background-color: var(--bg-secondary);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 12px 0 80px;
-  -webkit-app-region: drag;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.title-bar-text {
-  font-size: calc(13px * var(--font-scale, 1));
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.title-bar-info {
-  font-size: calc(11px * var(--font-scale, 1));
-  color: var(--text-muted);
-}
-
 /* Views */
 .view-container {
   flex: 1;

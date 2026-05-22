@@ -403,8 +403,7 @@ function App() {
   if (isRestoring) {
     return (
       <ContextMenuProvider>
-        {!isPipWindow && <Titlebar />}
-        <div className="app" />
+        <div className="app">{!isPipWindow && <Titlebar />}</div>
       </ContextMenuProvider>
     );
   }
@@ -412,9 +411,9 @@ function App() {
   return (
     <ErrorBoundary fallback={<AppRootFallback />} onError={handleAppRootError}>
       <ContextMenuProvider>
-        {!isPipWindow && <Titlebar />}
         <SpaFallbackOverlay />
         <div className="app">
+          {!isPipWindow && <Titlebar />}
           <UpdateSecurityBanner />
           <UpdateBanner />
 

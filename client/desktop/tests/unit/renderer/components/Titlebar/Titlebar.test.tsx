@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, act } from '@testing-library/react';
 import { Titlebar } from '@/renderer/components/Titlebar/Titlebar';
 
 const mockGet = vi.fn();
@@ -89,6 +89,78 @@ describe('Titlebar', () => {
     const { container } = render(<Titlebar />);
     expect(screen.getByText('CONCORD VOICE')).toBeInTheDocument();
     // No version label rendered because formatVersionText(null) returns ''
+    expect(container.querySelector('.titlebar-version')).toBeNull();
+  });
+
+  it('does not synthesize an empty appVersion when onChange fires before get() resolves', async () => {
+    let resolveGet: ((v: { appVersion: string; spaHash: string | null }) => void) | undefined;
+    let changeListener: ((data: { spaHash: string | null }) => void) | undefined;
+    mockGet.mockImplementation(
+      () =>
+        new Promise<{ appVersion: string; spaHash: string | null }>((r) => {
+          resolveGet = r;
+        })
+    );
+    mockOnChange.mockImplementation((cb) => {
+      changeListener = cb;
+      return () => {};
+    });
+
+    const { container } = render(<Titlebar />);
+
+    // Fire onChange BEFORE get() resolves. Pre-fix this synthesized
+    // { appVersion: '', spaHash: 'abc123' } and rendered 'v-abc123'.
+    // Wrap in act() to force the React state update to flush synchronously
+    // so the assertion below actually observes the (broken) rendered state.
+    // Without act(), waitFor's first poll catches the unflushed DOM and
+    // passes vacuously even against the buggy synthesis branch — the test
+    // would then fail to detect the bug it was written to catch.
+    await act(async () => {
+      changeListener!({ spaHash: 'abc123' });
+    });
+
+    // The version span should NOT exist yet (appVersion is still null).
+    // If the race-synthesis bug exists, this span would contain 'v-abc123'.
+    expect(container.querySelector('.titlebar-version')).toBeNull();
+
+    // Now resolve get(); the version span should appear with the correct text.
+    resolveGet!({ appVersion: '0.1.43', spaHash: 'abc123' });
+    await waitFor(() => {
+      expect(screen.getByText('v0.1.43-abc123')).toBeInTheDocument();
+    });
+  });
+
+  it('renders no version span when appVersion is empty string (degenerate upstream case)', async () => {
+    // Defense-in-depth against the Gitar #1153 finding: if `versionApi.get()`
+    // ever resolves with `appVersion: ''` (e.g., a misconfigured Electron
+    // build where `app.getVersion()` returns empty), formatVersionText must
+    // still return '' so the truthiness-gated `.titlebar-version` span is
+    // absent — NOT 'v' alone, which would render the exact broken state
+    // this PR aims to structurally prevent.
+    mockGet.mockResolvedValue({ appVersion: '', spaHash: null });
+    mockOnChange.mockReturnValue(() => {});
+    const { container } = render(<Titlebar />);
+    // Wait for the async get() resolution to flush, then assert.
+    await waitFor(() => {
+      // The async fetch ran (mock was awaited)
+      expect(mockGet).toHaveBeenCalled();
+    });
+    // No version span — empty appVersion produces empty versionText.
+    expect(container.querySelector('.titlebar-version')).toBeNull();
+    // Brand text still renders.
+    expect(container.querySelector('.titlebar-title')?.textContent).toBe('CONCORD VOICE');
+  });
+
+  it('renders no version span when appVersion is empty string AND spaHash is present', async () => {
+    // Stronger variant: even with a valid spaHash, an empty appVersion must
+    // NOT produce 'v-<hash>'. Pre-fix's `appVersion === null` check let this
+    // slip through; post-fix's truthiness check forecloses it.
+    mockGet.mockResolvedValue({ appVersion: '', spaHash: 'abc123' });
+    mockOnChange.mockReturnValue(() => {});
+    const { container } = render(<Titlebar />);
+    await waitFor(() => {
+      expect(mockGet).toHaveBeenCalled();
+    });
     expect(container.querySelector('.titlebar-version')).toBeNull();
   });
 
