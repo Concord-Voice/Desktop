@@ -1,4 +1,5 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { MicOff, HeadphoneOff, Lock } from 'lucide-react';
 import { useMemberStore, type ServerMember } from '../../stores/memberStore';
 import type { Role } from '../../types/server';
@@ -26,42 +27,123 @@ function AddRoleDropdown({
   onToggleRole: (userId: string, roleId: string, hasRole: boolean) => void;
 }>) {
   const [showDropdown, setShowDropdown] = useState(false);
+  const [popoverPos, setPopoverPos] = useState<{
+    x: number;
+    y: number;
+    width: number;
+  } | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const dropdownId = `role-dropdown-${memberId}`;
+
+  const handleToggle = () => {
+    if (!showDropdown && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setPopoverPos({
+        x: rect.left,
+        y: rect.bottom + 4,
+        width: rect.width,
+      });
+    } else {
+      setPopoverPos(null);
+    }
+    setShowDropdown(!showDropdown);
+  };
+
+  const handleClose = useCallback(() => {
+    setShowDropdown(false);
+    setPopoverPos(null);
+  }, []);
+
+  // Close-on-outside-click, Escape, and scroll. Issue #799: the dropdown
+  // renders via createPortal so it can escape its parent `.members-list`
+  // `overflow: auto` container — but that means clicks outside the popover
+  // node tree no longer auto-close it via DOM bubbling, so we wire a global
+  // mousedown listener. Scroll close mirrors the established UX in
+  // ServerBar's hover-card and ContextMenu surfaces.
+  useEffect(() => {
+    if (!showDropdown) return undefined;
+
+    const onMouseDown = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (popoverRef.current?.contains(target)) return;
+      if (triggerRef.current?.contains(target)) return;
+      handleClose();
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+
+    const onScroll = () => {
+      handleClose();
+    };
+
+    document.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('keydown', onKeyDown);
+    // Capture-phase listener so we close on scroll of any ancestor container,
+    // not just window/document.
+    document.addEventListener('scroll', onScroll, true);
+
+    return () => {
+      document.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('scroll', onScroll, true);
+    };
+  }, [showDropdown, handleClose]);
 
   return (
     <div className="member-role-add-wrapper">
       <button
+        ref={triggerRef}
         type="button"
         className="member-role-add-btn"
-        onClick={() => setShowDropdown(!showDropdown)}
+        onClick={handleToggle}
         aria-haspopup="true"
         aria-expanded={showDropdown}
         aria-controls={showDropdown ? dropdownId : undefined}
       >
         + Add Role
       </button>
-      {showDropdown && (
-        <div className="member-role-dropdown" id={dropdownId} role="menu">
-          {unassignedRoles.map((role) => (
-            <button
-              key={role.id}
-              type="button"
-              className="member-role-dropdown__item"
-              role="menuitem"
-              onClick={() => {
-                onToggleRole(memberId, role.id, false);
-                setShowDropdown(false);
-              }}
-            >
-              <span
-                className="role-color-dot"
-                style={{ backgroundColor: role.color || '#99aab5' }}
-              />
-              {role.name}
-            </button>
-          ))}
-        </div>
-      )}
+      {showDropdown &&
+        popoverPos &&
+        createPortal(
+          <div
+            ref={popoverRef}
+            className="member-role-dropdown member-role-dropdown--portal"
+            id={dropdownId}
+            role="menu"
+            style={{
+              position: 'fixed',
+              top: popoverPos.y,
+              left: popoverPos.x,
+              minWidth: popoverPos.width,
+              zIndex: 1100,
+            }}
+          >
+            {unassignedRoles.map((role) => (
+              <button
+                key={role.id}
+                type="button"
+                className="member-role-dropdown__item"
+                role="menuitem"
+                onClick={() => {
+                  onToggleRole(memberId, role.id, false);
+                  handleClose();
+                }}
+              >
+                <span
+                  className="role-color-dot"
+                  style={{ backgroundColor: role.color || '#99aab5' }}
+                />
+                {role.name}
+              </button>
+            ))}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

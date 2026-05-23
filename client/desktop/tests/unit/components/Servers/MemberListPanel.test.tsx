@@ -198,6 +198,95 @@ describe('MemberListPanel', () => {
     expect(defaultProps.onToggleRole).toHaveBeenCalledWith('u2', 'role-1', false);
   });
 
+  it('Add Role dropdown renders via portal to document.body (#799 — escapes parent overflow)', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const bobRow = screen.getByText('bob').closest('.member-row')!;
+    const addBtn = bobRow.querySelector('.member-role-add-btn') as HTMLElement;
+    fireEvent.click(addBtn);
+
+    const dropdown = document.querySelector('.member-role-dropdown--portal');
+    expect(dropdown).toBeInTheDocument();
+    // Portal target: dropdown must not be a descendant of the member-row that
+    // owns the trigger button. If it WERE inside `.member-row`, parent's
+    // `overflow: auto` would clip it — the bug this PR fixes.
+    expect(bobRow.contains(dropdown)).toBe(false);
+    expect(dropdown?.getAttribute('role')).toBe('menu');
+    // Fixed positioning is what lets the portal sit above the modal chrome.
+    expect((dropdown as HTMLElement).style.position).toBe('fixed');
+  });
+
+  it('Add Role dropdown closes on Escape (#799)', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const bobRow = screen.getByText('bob').closest('.member-row')!;
+    const addBtn = bobRow.querySelector('.member-role-add-btn') as HTMLElement;
+    fireEvent.click(addBtn);
+
+    expect(document.querySelector('.member-role-dropdown--portal')).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(document.querySelector('.member-role-dropdown--portal')).toBeNull();
+  });
+
+  it('Add Role dropdown closes when clicking outside (#799)', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const bobRow = screen.getByText('bob').closest('.member-row')!;
+    const addBtn = bobRow.querySelector('.member-role-add-btn') as HTMLElement;
+    fireEvent.click(addBtn);
+
+    expect(document.querySelector('.member-role-dropdown--portal')).toBeInTheDocument();
+    // Click on the body, NOT on the trigger or dropdown — should close.
+    fireEvent.mouseDown(document.body);
+    expect(document.querySelector('.member-role-dropdown--portal')).toBeNull();
+  });
+
+  it('Add Role dropdown closes on scroll (#799)', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const bobRow = screen.getByText('bob').closest('.member-row')!;
+    const addBtn = bobRow.querySelector('.member-role-add-btn') as HTMLElement;
+    fireEvent.click(addBtn);
+
+    expect(document.querySelector('.member-role-dropdown--portal')).toBeInTheDocument();
+    // Scroll on the document (capture-phase listener catches any ancestor scroll).
+    fireEvent.scroll(document);
+    expect(document.querySelector('.member-role-dropdown--portal')).toBeNull();
+  });
+
+  it('Add Role dropdown ignores clicks inside the dropdown itself (#799)', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const bobRow = screen.getByText('bob').closest('.member-row')!;
+    const addBtn = bobRow.querySelector('.member-role-add-btn') as HTMLElement;
+    fireEvent.click(addBtn);
+
+    const dropdown = document.querySelector('.member-role-dropdown--portal') as HTMLElement;
+    expect(dropdown).toBeInTheDocument();
+    // mousedown inside the dropdown should NOT close it (only outside-clicks close).
+    fireEvent.mouseDown(dropdown);
+    expect(document.querySelector('.member-role-dropdown--portal')).toBeInTheDocument();
+  });
+
+  it('Add Role dropdown ignores clicks on the trigger button itself (#799 — toggle via onClick, not mousedown)', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const bobRow = screen.getByText('bob').closest('.member-row')!;
+    const addBtn = bobRow.querySelector('.member-role-add-btn') as HTMLElement;
+    fireEvent.click(addBtn);
+
+    expect(document.querySelector('.member-role-dropdown--portal')).toBeInTheDocument();
+    // The trigger's own click handler toggles the dropdown — the global mousedown
+    // listener should ignore mousedown events on the trigger to avoid a stale-close
+    // race between mousedown (close) and click (toggle-open).
+    fireEvent.mouseDown(addBtn);
+    expect(document.querySelector('.member-role-dropdown--portal')).toBeInTheDocument();
+  });
+
+  it('clicking Add Role twice toggles the dropdown closed (#799)', () => {
+    render(<MemberListPanel {...defaultProps} />);
+    const bobRow = screen.getByText('bob').closest('.member-row')!;
+    const addBtn = bobRow.querySelector('.member-role-add-btn') as HTMLElement;
+    fireEvent.click(addBtn);
+    expect(document.querySelector('.member-role-dropdown--portal')).toBeInTheDocument();
+    fireEvent.click(addBtn);
+    expect(document.querySelector('.member-role-dropdown--portal')).toBeNull();
+  });
+
   it('clicking remove button on a role badge calls onToggleRole(userId, roleId, true)', () => {
     render(<MemberListPanel {...defaultProps} />);
     // Alice's remove button is visible inline (no expand needed)
