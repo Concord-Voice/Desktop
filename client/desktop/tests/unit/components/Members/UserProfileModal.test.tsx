@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '../../../test-utils';
+import { render, screen, fireEvent, waitFor, createEvent } from '../../../test-utils';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
 vi.mock('@/renderer/components/Members/UserProfileModal.css', () => ({}));
@@ -15,6 +15,18 @@ vi.mock('@/renderer/services/apiClient', () => ({
 
 import UserProfileModal from '@/renderer/components/Members/UserProfileModal';
 import type { ServerMember } from '@/renderer/stores/memberStore';
+
+// Match SafeLink.test.tsx's pattern: tests/setup.ts installs a base
+// `window.electron` mock; this helper attaches an openExternal vi.fn so
+// individual tests can assert IPC invocation. The cast layers narrow
+// down to the openExternal slot without leaning on `any`.
+const installOpenExternalMock = (openExternal: ReturnType<typeof vi.fn>): void => {
+  const electron = (window as unknown as { electron?: Record<string, unknown> }).electron;
+  if (!electron) {
+    throw new Error('window.electron must be pre-installed by tests/setup.ts');
+  }
+  electron.openExternal = openExternal;
+};
 
 const mockMember: ServerMember = {
   user_id: 'user-1',
@@ -43,6 +55,7 @@ describe('UserProfileModal', () => {
           },
         }),
     });
+    installOpenExternalMock(vi.fn());
   });
 
   it('renders nothing when isOpen is false', () => {
@@ -400,5 +413,218 @@ describe('UserProfileModal', () => {
       />
     );
     expect(screen.getByText(/3d ago/)).toBeInTheDocument();
+  });
+
+  describe('external link routing through open-external IPC (#775)', () => {
+    it('calls window.electron.openExternal with the href and preventDefaults the click', async () => {
+      const openExternal = vi.fn();
+      installOpenExternalMock(openExternal);
+      mockApiFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            user: {
+              links: ['https://example.com/portfolio'],
+              created_at: '2024-06-01T12:00:00Z',
+              header_image_url: null,
+            },
+          }),
+      });
+      render(
+        <UserProfileModal
+          isOpen={true}
+          onClose={mockOnClose}
+          member={mockMember}
+          presenceStatus="online"
+        />
+      );
+      await waitFor(() => {
+        expect(screen.getByText('example.com/portfolio')).toBeInTheDocument();
+      });
+      const link = screen.getByText('example.com/portfolio').closest('a');
+      if (link === null) throw new Error('link anchor not rendered');
+      // Construct the click event directly so we can assert defaultPrevented —
+      // a regression that drops the e.preventDefault() line would leave BOTH
+      // IPC routing AND default anchor activation firing simultaneously, which
+      // toHaveBeenCalledWith alone cannot detect.
+      const event = createEvent.click(link);
+      fireEvent(link, event);
+      expect(openExternal).toHaveBeenCalledWith('https://example.com/portfolio');
+      expect(event.defaultPrevented).toBe(true);
+    });
+
+    it('calls window.electron.openExternal with the href for http:// profile links (the #775 regression fix)', async () => {
+      const openExternal = vi.fn();
+      installOpenExternalMock(openExternal);
+      mockApiFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            user: {
+              links: ['http://legacy.example.com/portfolio'],
+              created_at: '2024-06-01T12:00:00Z',
+              header_image_url: null,
+            },
+          }),
+      });
+      render(
+        <UserProfileModal
+          isOpen={true}
+          onClose={mockOnClose}
+          member={mockMember}
+          presenceStatus="online"
+        />
+      );
+      await waitFor(() => {
+        expect(screen.getByText('legacy.example.com/portfolio')).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByText('legacy.example.com/portfolio'));
+      expect(openExternal).toHaveBeenCalledWith('http://legacy.example.com/portfolio');
+    });
+
+    it('does not call openExternal when the link is not clicked', async () => {
+      const openExternal = vi.fn();
+      installOpenExternalMock(openExternal);
+      render(
+        <UserProfileModal
+          isOpen={true}
+          onClose={mockOnClose}
+          member={mockMember}
+          presenceStatus="online"
+        />
+      );
+      await waitFor(() => {
+        expect(screen.getByText('github.com/test')).toBeInTheDocument();
+      });
+      expect(openExternal).not.toHaveBeenCalled();
+    });
+
+    it('attaches a catch handler when openExternal returns a Promise', async () => {
+      const openExternal = vi.fn().mockResolvedValue({ ok: true });
+      installOpenExternalMock(openExternal);
+      mockApiFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            user: {
+              links: ['https://promise.example.com/'],
+              created_at: '2024-06-01T12:00:00Z',
+              header_image_url: null,
+            },
+          }),
+      });
+      render(
+        <UserProfileModal
+          isOpen={true}
+          onClose={mockOnClose}
+          member={mockMember}
+          presenceStatus="online"
+        />
+      );
+      await waitFor(() => {
+        expect(screen.getByText('promise.example.com')).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByText('promise.example.com'));
+      expect(openExternal).toHaveBeenCalledWith('https://promise.example.com/');
+      // Returned Promise resolves successfully — no rejection, no thrown error.
+      // The test asserts that exercising the isPromiseLike branch doesn't raise.
+    });
+
+    it('silently swallows openExternal rejection (renderer treats as no-op)', async () => {
+      const openExternal = vi.fn().mockRejectedValue(new Error('main-process IPC denied'));
+      installOpenExternalMock(openExternal);
+      mockApiFetch.mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            user: {
+              links: ['https://denied.example.com/'],
+              created_at: '2024-06-01T12:00:00Z',
+              header_image_url: null,
+            },
+          }),
+      });
+      render(
+        <UserProfileModal
+          isOpen={true}
+          onClose={mockOnClose}
+          member={mockMember}
+          presenceStatus="online"
+        />
+      );
+      await waitFor(() => {
+        expect(screen.getByText('denied.example.com')).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByText('denied.example.com'));
+      // Let the rejected promise settle so the .catch handler runs.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      // The renderer must NOT crash and the unhandled-rejection listener must
+      // NOT fire. Reaching this point without an unhandled-rejection error
+      // proves the .catch attached and consumed the rejection.
+      expect(openExternal).toHaveBeenCalledWith('https://denied.example.com/');
+    });
+
+    it('handles openExternal returning undefined (preload bridge present but synchronous)', async () => {
+      const openExternal = vi.fn();
+      // vi.fn() defaults to returning undefined. isPromiseLike(undefined) is
+      // false, so no .catch is attached; the click is still preventDefault'd
+      // (no anchor activation happens in jsdom).
+      installOpenExternalMock(openExternal);
+      render(
+        <UserProfileModal
+          isOpen={true}
+          onClose={mockOnClose}
+          member={mockMember}
+          presenceStatus="online"
+        />
+      );
+      await waitFor(() => {
+        expect(screen.getByText('github.com/test')).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByText('github.com/test'));
+      expect(openExternal).toHaveBeenCalledWith('https://github.com/test');
+    });
+
+    it('falls through to default anchor when window.electron.openExternal is absent', async () => {
+      const electron = (window as unknown as { electron?: Record<string, unknown> }).electron;
+      const saved = electron?.openExternal;
+      if (electron) delete electron.openExternal;
+      try {
+        render(
+          <UserProfileModal
+            isOpen={true}
+            onClose={mockOnClose}
+            member={mockMember}
+            presenceStatus="online"
+          />
+        );
+        await waitFor(() => {
+          expect(screen.getByText('github.com/test')).toBeInTheDocument();
+        });
+        // No openExternal → click should not throw. jsdom default-anchor
+        // activation is a no-op; setWindowOpenHandler is a main-process
+        // surface that doesn't exist in the renderer test environment.
+        fireEvent.click(screen.getByText('github.com/test'));
+      } finally {
+        if (electron && saved !== undefined) electron.openExternal = saved;
+      }
+    });
+
+    it('preserves the target="_blank" + rel attributes (regression marker for #800 CSS rule)', async () => {
+      render(
+        <UserProfileModal
+          isOpen={true}
+          onClose={mockOnClose}
+          member={mockMember}
+          presenceStatus="online"
+        />
+      );
+      await waitFor(() => {
+        expect(screen.getByText('github.com/test')).toBeInTheDocument();
+      });
+      const link = screen.getByText('github.com/test').closest('a');
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    });
   });
 });

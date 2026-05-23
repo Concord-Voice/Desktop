@@ -49,6 +49,14 @@ const formatLinkDisplay = (url: string): string => {
   }
 };
 
+// Mirrors SafeLink.tsx's helper: narrow `Promise<unknown> | void` down to
+// the promise branch via a type-predicate so consumers don't need casts.
+function isPromiseLike(value: unknown): value is Promise<unknown> {
+  if (value === null || typeof value !== 'object') return false;
+  if (!('catch' in value)) return false;
+  return typeof value.catch === 'function';
+}
+
 const UserProfileModal: React.FC<UserProfileModalProps> = ({
   isOpen,
   onClose,
@@ -242,6 +250,34 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
                     href={link}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={(e) => {
+                      // Route through window.electron.openExternal so the OS browser is
+                      // used explicitly. The main-process IPC handler at
+                      // src/main/ipc/openExternal.ts re-validates sender frame AND the
+                      // http/https/mailto protocol allowlist — broader scheme coverage
+                      // than setWindowOpenHandler's https-only policy because the
+                      // explicit user click is consent. See internal-reference
+                      // "External-link scheme policy".
+                      const api = (
+                        globalThis as unknown as {
+                          electron?: { openExternal?: (url: string) => Promise<unknown> | void };
+                        }
+                      ).electron;
+                      if (api && typeof api.openExternal === 'function') {
+                        e.preventDefault();
+                        const result: Promise<unknown> | void = api.openExternal(link);
+                        if (isPromiseLike(result)) {
+                          result.catch(() => {
+                            /* main-process logged the failure; renderer treats as no-op */
+                          });
+                        }
+                      }
+                      // Else: default anchor activation. setWindowOpenHandler picks it
+                      // up and (for https) routes to shell.openExternal. The preload
+                      // bridge is always present in production (main.ts wires
+                      // preload.js on every BrowserWindow); this branch exists for
+                      // jsdom test cases that explicitly delete window.electron.openExternal.
+                    }}
                   >
                     <svg className="user-profile-modal-link-icon" viewBox="0 0 16 16" fill="none">
                       <path
