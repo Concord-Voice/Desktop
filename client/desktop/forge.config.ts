@@ -1,6 +1,7 @@
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
+import { MakerDMG } from '@electron-forge/maker-dmg';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
 import { MakerAppImage } from '@reforged/maker-appimage';
@@ -148,6 +149,31 @@ const config: ForgeConfig = {
       owners: 'Concord Voice LLC',
     }),
     new MakerZIP({}, ['darwin']),
+    // DMG installer (#1159 Phase 1) — branded drag-to-Applications experience.
+    // ZIP above remains the canonical artifact for electron-updater's auto-update
+    // chain (see latest-mac.yml generator in .github/workflows/build-desktop.yml).
+    // The .dmg is install-only; do NOT add it to the latest-mac.yml glob.
+    new MakerDMG(
+      {
+        background: './build/dmg-background.png',
+        icon: './build/icon.icns',
+        format: 'ULFO',
+        // Icon centers per design handoff spec
+        // (internal-reference §"Coordinates"):
+        //   .app icon center: (130, 200) on the 540×380 canvas
+        //   Applications shortcut center: (410, 200)
+        contents: (opts) => [
+          { x: 130, y: 200, type: 'file', path: opts.appPath },
+          { x: 410, y: 200, type: 'link', path: '/Applications' },
+        ],
+        additionalDMGOptions: {
+          window: {
+            size: { width: 540, height: 380 },
+          },
+        },
+      },
+      ['darwin']
+    ),
     new MakerDeb({
       options: {
         name: 'concord-voice',
