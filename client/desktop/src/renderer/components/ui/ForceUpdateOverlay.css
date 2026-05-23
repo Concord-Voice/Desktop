@@ -27,7 +27,7 @@
 }
 
 .force-update-icon {
-  color: var(--warning-color, #f39c12);
+  color: var(--text-warning-strong);
   margin-bottom: 16px;
 }
 
@@ -65,11 +65,11 @@
 }
 
 .force-update-status.success {
-  color: var(--success-color, #2ecc71);
+  color: var(--success-color);
 }
 
 .force-update-status.error {
-  color: var(--danger-color, #e74c3c);
+  color: var(--danger);
 }
 
 .force-update-spinner {
@@ -145,7 +145,7 @@
 }
 
 .force-update-btn.secondary:hover {
-  background: var(--bg-quaternary, var(--bg-tertiary));
+  background: var(--bg-tertiary);
   color: var(--text-primary);
 }
 
