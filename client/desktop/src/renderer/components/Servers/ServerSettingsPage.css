@@ -196,7 +196,7 @@
 
 .role-item.selected {
   background: var(--bg-tertiary);
-  border-left: 2px solid var(--accent-primary);
+  border-left: 2px solid var(--state-selected);
 }
 
 .role-color-dot {

@@ -40,15 +40,17 @@
 
 .form-input:focus {
   outline: none;
-  border-color: var(--accent-primary);
+  border-color: var(--state-focused);
   background: var(--bg-tertiary);
 }
 
-/* Enhanced keyboard focus visibility */
+/* Enhanced keyboard focus visibility — uses --state-focused (distinct from
+   --state-selected, which is --accent-primary) so a focused input doesn't
+   visually merge with adjacent selected list items / tabs. Issue #798. */
 .form-input:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--state-focused);
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(250, 112, 154, 0.15);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--state-focused) 15%, transparent);
 }
 
 .form-input.error {
