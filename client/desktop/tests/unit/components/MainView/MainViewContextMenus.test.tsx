@@ -1,9 +1,26 @@
+import { render as rtlRender, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { render } from '../../../test-utils';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { ModalProvider } from '@/renderer/components/ui/ModalContext';
 import { resetAllStores } from '../../../helpers/store-helpers';
 import MainViewContextMenus from '@/renderer/components/MainView/MainViewContextMenus';
 import type { ServerWithRole } from '@/renderer/types/server';
 import type { Channel, ChannelGroup } from '@/renderer/types/chat';
+
+/**
+ * Render the component at a specific route. Used by the DM-route gate test
+ * — the default test-utils `render` wraps in `BrowserRouter` rooted at `/`,
+ * which doesn't exercise the `useLocation().pathname.startsWith('/app/dms')`
+ * branch added in issue #984.
+ */
+function renderAtRoute(ui: React.ReactElement, route: string) {
+  return rtlRender(
+    <MemoryRouter initialEntries={[route]}>
+      <ModalProvider>{ui}</ModalProvider>
+    </MemoryRouter>
+  );
+}
 
 describe('MainViewContextMenus', () => {
   beforeEach(() => {
@@ -85,5 +102,45 @@ describe('MainViewContextMenus', () => {
 
     const { container } = render(<MainViewContextMenus {...allOpenProps} />);
     expect(container).toBeTruthy();
+  });
+
+  // Issue #984 — DM-route gate: empty-area menu must NOT render on /app/dms
+  describe('empty-area menu DM-route gate (#984)', () => {
+    const baseEmptyMenuProps = {
+      ...noopProps,
+      activeServer: {
+        id: 'server-1',
+        name: 'Test Server',
+        owner_id: 'user-1',
+        e2ee_default: false,
+        allow_embedded_content: false,
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z',
+        role: 'owner' as const,
+        member_count: 1,
+        online_count: 1,
+      },
+      canManageChannels: true,
+      emptyContextMenu: { position: { x: 100, y: 100 } },
+    };
+
+    it('renders Create Channel menu when right-clicking empty space on a server route', () => {
+      renderAtRoute(<MainViewContextMenus {...baseEmptyMenuProps} />, '/app/servers/server-1');
+      // ChannelListContextMenu surfaces "Create Channel" — fail-loud if it's missing OR if it leaks.
+      expect(screen.getByText(/Create Channel/i)).toBeTruthy();
+    });
+
+    it('does NOT render Create Channel menu when right-clicking empty space on /app/dms', () => {
+      renderAtRoute(<MainViewContextMenus {...baseEmptyMenuProps} />, '/app/dms');
+      expect(screen.queryByText(/Create Channel/i)).toBeNull();
+    });
+
+    it('does NOT render Create Channel menu when right-clicking empty space on a DM conversation route', () => {
+      renderAtRoute(
+        <MainViewContextMenus {...baseEmptyMenuProps} />,
+        '/app/dms/some-conversation-id'
+      );
+      expect(screen.queryByText(/Create Channel/i)).toBeNull();
+    });
   });
 });

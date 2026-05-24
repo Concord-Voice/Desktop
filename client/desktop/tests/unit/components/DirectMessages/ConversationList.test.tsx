@@ -412,4 +412,149 @@ describe('ConversationList', () => {
     });
     consoleSpy.mockRestore();
   });
+
+  // ─── #984 expansion: Block / Unfriend modal flow coverage ─────────────
+
+  describe('Block / Unfriend modal flows (#984)', () => {
+    // Helper: import friendStore lazily so the test file doesn't reach for it
+    // unless these tests run.
+    async function setupFriendStore(opts: {
+      blockUser?: ReturnType<typeof vi.fn>;
+      removeFriend?: ReturnType<typeof vi.fn>;
+      isFriend?: boolean;
+    }) {
+      const { useFriendStore } = await import('@/renderer/stores/friendStore');
+      useFriendStore.setState({
+        friends: opts.isFriend
+          ? [
+              {
+                userId: 'user-2',
+                username: 'alice',
+                displayName: 'Alice',
+                status: 'online',
+                avatarUrl: undefined,
+                createdAt: '2025-01-01T00:00:00Z',
+                accentColor: undefined,
+              },
+            ]
+          : [],
+        blockUser: opts.blockUser ?? vi.fn().mockResolvedValue(undefined),
+        removeFriend: opts.removeFriend ?? vi.fn().mockResolvedValue(undefined),
+      });
+    }
+
+    it('Block User flow: right-click → Block User → modal → Confirm → friendStore.blockUser called', async () => {
+      const blockSpy = vi.fn().mockResolvedValue(undefined);
+      await setupFriendStore({ blockUser: blockSpy });
+
+      const conv = {
+        ...makeConversation(),
+        id: 'conv-block',
+        participants: [
+          { userId: 'user-1', username: 'me', displayName: 'Me' },
+          { userId: 'user-2', username: 'alice', displayName: 'Alice' },
+        ],
+      };
+      useDMStore.setState({
+        conversations: [conv],
+        fetchConversations: vi.fn().mockResolvedValue(undefined),
+        openPersonalThread: vi.fn().mockResolvedValue(personalThread),
+      });
+
+      render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
+
+      // Right-click the conversation row to open the context menu.
+      const convButton = screen.getByLabelText('Alice');
+      fireEvent.contextMenu(convButton);
+
+      // Click "Block User" in the menu → ConversationList opens the modal.
+      const blockItem = await screen.findByText('Block User');
+      fireEvent.click(blockItem);
+
+      // ConfirmActionModal opens with the peer's display name in the title.
+      const modalTitle = await screen.findByText(/Block Alice/);
+      expect(modalTitle).toBeInTheDocument();
+
+      // Click the "Block" confirm button inside the modal. The modal has
+      // confirmLabel="Block", so look for that specific button.
+      const confirmButton = screen.getByRole('button', { name: /^Block$/ });
+      fireEvent.click(confirmButton);
+
+      await waitFor(() => {
+        expect(blockSpy).toHaveBeenCalledWith('user-2');
+      });
+    });
+
+    it('Unfriend flow: right-click → Unfriend (only when friend) → modal → Confirm → friendStore.removeFriend called', async () => {
+      const removeSpy = vi.fn().mockResolvedValue(undefined);
+      // isFriend: true so the Unfriend item is visible.
+      await setupFriendStore({ removeFriend: removeSpy, isFriend: true });
+
+      const conv = {
+        ...makeConversation(),
+        id: 'conv-unfriend',
+        participants: [
+          { userId: 'user-1', username: 'me', displayName: 'Me' },
+          { userId: 'user-2', username: 'alice', displayName: 'Alice' },
+        ],
+      };
+      useDMStore.setState({
+        conversations: [conv],
+        fetchConversations: vi.fn().mockResolvedValue(undefined),
+        openPersonalThread: vi.fn().mockResolvedValue(personalThread),
+      });
+
+      render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
+
+      const convButton = screen.getByLabelText('Alice');
+      fireEvent.contextMenu(convButton);
+
+      const unfriendItem = await screen.findByText('Unfriend');
+      fireEvent.click(unfriendItem);
+
+      const modalTitle = await screen.findByText(/Unfriend Alice/);
+      expect(modalTitle).toBeInTheDocument();
+
+      const confirmButton = screen.getByRole('button', { name: /^Unfriend$/ });
+      fireEvent.click(confirmButton);
+
+      await waitFor(() => {
+        expect(removeSpy).toHaveBeenCalledWith('user-2');
+      });
+    });
+
+    it('Block modal Cancel closes without calling blockUser (#984)', async () => {
+      const blockSpy = vi.fn().mockResolvedValue(undefined);
+      await setupFriendStore({ blockUser: blockSpy });
+
+      const conv = {
+        ...makeConversation(),
+        id: 'conv-cancel',
+        participants: [
+          { userId: 'user-1', username: 'me', displayName: 'Me' },
+          { userId: 'user-2', username: 'alice', displayName: 'Alice' },
+        ],
+      };
+      useDMStore.setState({
+        conversations: [conv],
+        fetchConversations: vi.fn().mockResolvedValue(undefined),
+        openPersonalThread: vi.fn().mockResolvedValue(personalThread),
+      });
+
+      render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
+
+      fireEvent.contextMenu(screen.getByLabelText('Alice'));
+      fireEvent.click(await screen.findByText('Block User'));
+      await screen.findByText(/Block Alice/);
+
+      const cancelButton = screen.getByRole('button', { name: /Cancel/i });
+      fireEvent.click(cancelButton);
+
+      // Modal closes, no API call fires.
+      await waitFor(() => {
+        expect(screen.queryByText(/Block Alice/)).not.toBeInTheDocument();
+      });
+      expect(blockSpy).not.toHaveBeenCalled();
+    });
+  });
 });

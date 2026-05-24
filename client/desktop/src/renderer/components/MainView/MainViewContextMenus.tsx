@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router-dom';
 import ServerContextMenu from '../Servers/ServerContextMenu';
 import ChannelContextMenu from '../Channels/ChannelContextMenu';
 import ChannelListContextMenu from '../Channels/ChannelListContextMenu';
@@ -31,6 +32,14 @@ export interface MainViewContextMenusProps {
 }
 
 const MainViewContextMenus = (props: MainViewContextMenusProps) => {
+  // activeServerId is preserved when the user navigates to /app/dms (so back-nav
+  // returns them to the same server), but that means a right-click in DM empty
+  // space would otherwise pass the activeServer && canManageChannels guard and
+  // render the server-page Create Channel / Create Category menu — the bug from
+  // issue #984. Read the route to suppress the empty-area menu on DM routes.
+  const location = useLocation();
+  const isDmRoute = location.pathname.startsWith('/app/dms');
+
   return (
     <>
       {props.serverContextMenu && (
@@ -63,7 +72,7 @@ const MainViewContextMenus = (props: MainViewContextMenusProps) => {
         />
       )}
 
-      {props.emptyContextMenu && props.activeServer && props.canManageChannels && (
+      {props.emptyContextMenu && !isDmRoute && props.activeServer && props.canManageChannels && (
         <ChannelListContextMenu
           position={props.emptyContextMenu.position}
           onClose={() => props.setEmptyContextMenu(null)}
