@@ -146,16 +146,8 @@ describe('useWebSocketMessages — coverage boost', () => {
       expect(fetchSpy).toHaveBeenCalled();
     });
 
-    it('ignores event without conversation_id', () => {
-      const { handler } = setupHandler('dm_participant_added');
-      const fetchSpy = vi.spyOn(useDMStore.getState(), 'fetchConversations');
-
-      act(() => {
-        handler({ type: 'dm_participant_added', data: {} });
-      });
-
-      expect(fetchSpy).not.toHaveBeenCalled();
-    });
+    // Removed in #709: tested in-handler bail when conversation_id was
+    // missing. Now structurally guaranteed by zod at dispatch boundary.
   });
 
   describe('dm_participant_removed handler', () => {
@@ -751,16 +743,8 @@ describe('useWebSocketMessages — coverage boost', () => {
       expect(setStatusSpy).not.toHaveBeenCalled();
     });
 
-    it('ignores event without user_id', () => {
-      const { handler } = setupHandler('presence');
-      const setStatusSpy = vi.spyOn(useMemberStore.getState(), 'setUserStatus');
-
-      act(() => {
-        handler({ type: 'presence', data: { status: 'online' } });
-      });
-
-      expect(setStatusSpy).not.toHaveBeenCalled();
-    });
+    // Removed in #709: tested in-handler bail when user_id was missing.
+    // Now structurally guaranteed by zod at dispatch boundary.
 
     it('updates DM participant and friend presence', () => {
       const { handler } = setupHandler('presence');
@@ -1292,57 +1276,15 @@ describe('useWebSocketMessages — coverage boost', () => {
     });
   });
 
-  describe('message handler — edge cases', () => {
-    it('ignores message without channel_id', () => {
-      const { handler } = setupHandler('message');
+  // Removed in #709: `message handler — edge cases` tested in-handler bail
+  // when channel_id was missing. Now structurally guaranteed by zod at
+  // dispatch boundary; equivalent coverage in websocketService.dispatch.test.ts.
 
-      act(() => {
-        handler({
-          type: 'message',
-          data: {
-            id: 'msg-no-ch',
-            user_id: 'user-2',
-            content: 'No channel',
-            username: 'alice',
-          },
-        });
-      });
-
-      expect(useChatStore.getState().messagesByChannel.size).toBe(0);
-    });
-  });
-
-  describe('message_delete handler — edge cases', () => {
-    it('ignores delete without channel_id or message_id', () => {
-      const { handler } = setupHandler('message_delete');
-
-      act(() => {
-        handler({ type: 'message_delete', data: { id: 'msg-1' } });
-      });
-
-      act(() => {
-        handler({ type: 'message_delete', data: { channel_id: 'channel-1' } });
-      });
-
-      // No crash
-    });
-  });
-
-  describe('typing handler — edge cases', () => {
-    it('ignores typing event without channel_id or user_id', () => {
-      const { handler } = setupHandler('typing');
-
-      act(() => {
-        handler({ type: 'typing', data: { user_id: 'user-2', is_typing: true } });
-      });
-
-      act(() => {
-        handler({ type: 'typing', data: { channel_id: 'ch-1', is_typing: true } });
-      });
-
-      // No crash
-    });
-  });
+  // Removed in #709: `message_delete handler — edge cases` and
+  // `typing handler — edge cases` tested in-handler bail when required
+  // fields were missing. Now structurally guaranteed by zod at dispatch
+  // boundary; equivalent coverage in websocketService.dispatch.test.ts.
+  // See internal-reference § WebSocket payload validation (rule 7).
 
   describe('dm_voice_state_update handler', () => {
     it('handles dm voice state update without crashing', () => {
@@ -1549,40 +1491,18 @@ describe('useWebSocketMessages — coverage boost', () => {
       expect(addSpy).not.toHaveBeenCalled();
     });
 
-    it('ignores event without channel_group', () => {
-      const { handler } = setupHandler('channel_group_created');
-
-      act(() => {
-        handler({ type: 'channel_group_created', data: {} });
-      });
-
-      // No crash
-    });
+    // Removed in #709: tested in-handler bail when channel_group was absent.
+    // Now structurally guaranteed by zod (channel_group required at dispatch).
   });
 
-  describe('channel_group_updated — missing data', () => {
-    it('ignores event without channel_group', () => {
-      const { handler } = setupHandler('channel_group_updated');
+  // Removed in #709: `channel_group_updated — missing data` tested
+  // in-handler bail when channel_group envelope was absent. Now
+  // structurally guaranteed by zod (channel_group: ChannelGroupPayloadSchema
+  // at dispatch).
 
-      act(() => {
-        handler({ type: 'channel_group_updated', data: {} });
-      });
-
-      // No crash
-    });
-  });
-
-  describe('channel_group_deleted — missing data', () => {
-    it('ignores event without group_id', () => {
-      const { handler } = setupHandler('channel_group_deleted');
-
-      act(() => {
-        handler({ type: 'channel_group_deleted', data: {} });
-      });
-
-      // No crash
-    });
-  });
+  // Removed in #709: `channel_group_deleted — missing data` tested
+  // in-handler bail when group_id was absent. Now structurally guaranteed
+  // by zod (group_id required at dispatch).
 
   // ── Additional branch coverage ───────────────────────────────────────
 
@@ -1596,7 +1516,14 @@ describe('useWebSocketMessages — coverage boost', () => {
       const { handler } = setupHandler('key_needed');
 
       act(() => {
-        handler({ type: 'key_needed', data: { channel_id: 'ch-1' } });
+        handler({
+          type: 'key_needed',
+          data: {
+            server_id: 'srv-1',
+            user_id: 'user-2',
+            channel_ids: ['ch-1'],
+          },
+        });
       });
 
       expect(mockProcessPendingKeyRequests).not.toHaveBeenCalled();
@@ -1611,7 +1538,14 @@ describe('useWebSocketMessages — coverage boost', () => {
       const { handler } = setupHandler('key_needed');
 
       act(() => {
-        handler({ type: 'key_needed', data: { channel_id: 'ch-1' } });
+        handler({
+          type: 'key_needed',
+          data: {
+            server_id: 'srv-1',
+            user_id: 'user-2',
+            channel_ids: ['ch-1'],
+          },
+        });
       });
 
       // The catch handler should swallow the error

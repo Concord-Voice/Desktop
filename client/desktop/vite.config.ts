@@ -40,7 +40,11 @@ export default defineConfig(() => {
           'scripts/**/*.{ts,mts,mjs}',
         ],
         exclude: [
-          'src/renderer/types/**',
+          // Keep type-only declarations out of coverage while allowing the
+          // ws-events runtime contract to be measured by Sonar.
+          'src/renderer/types/auth.ts',
+          'src/renderer/types/chat.ts',
+          'src/renderer/types/server.ts',
           '**/*.d.ts',
           // Test files are not coverage targets themselves.
           '**/*.test.{ts,tsx,mts}',

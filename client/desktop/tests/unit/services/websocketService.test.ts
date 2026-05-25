@@ -121,7 +121,13 @@ describe('WebSocketService', () => {
       const ws = await connectAndWaitForOpen(service);
 
       // Simulate 'connected' message to set CONNECTED state
-      ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
+      ws.simulateMessage({
+        type: 'connected',
+        data: {
+          client_id: '11111111-1111-4111-8111-111111111111',
+          user_id: '22222222-2222-4222-8222-222222222222',
+        },
+      });
 
       expect(service.getState()).toBe(ConnectionState.CONNECTED);
 
@@ -214,7 +220,13 @@ describe('WebSocketService', () => {
 
     it('clears connection info', async () => {
       const ws = await connectAndWaitForOpen(service);
-      ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
+      ws.simulateMessage({
+        type: 'connected',
+        data: {
+          client_id: '11111111-1111-4111-8111-111111111111',
+          user_id: '22222222-2222-4222-8222-222222222222',
+        },
+      });
       expect(service.getConnectionInfo()).not.toBeNull();
 
       service.disconnect();
@@ -227,33 +239,45 @@ describe('WebSocketService', () => {
       const ws = await connectAndWaitForOpen(service);
       ws.simulateMessage({
         type: 'connected',
-        data: { client_id: 'client-123', user_id: 'user-456' },
+        data: {
+          client_id: '11111111-1111-4111-8111-111111111111',
+          user_id: '22222222-2222-4222-8222-222222222222',
+        },
       });
 
       const info = service.getConnectionInfo();
-      expect(info?.clientId).toBe('client-123');
-      expect(info?.userId).toBe('user-456');
+      expect(info?.clientId).toBe('11111111-1111-4111-8111-111111111111');
+      expect(info?.userId).toBe('22222222-2222-4222-8222-222222222222');
     });
 
     it('calls registered message handlers', async () => {
       const ws = await connectAndWaitForOpen(service);
 
       const handler = vi.fn();
-      service.on('test_event', handler);
+      service.on('subscribed', handler);
 
-      ws.simulateMessage({ type: 'test_event', data: { foo: 'bar' } });
+      // Schema strips unknown keys at dispatch — `{ foo: 'bar' }` does not
+      // survive zod.parse against SubscribedSchema (which has no `foo`).
+      // Send a valid channel_id and expect the parsed shape to reach the handler.
+      ws.simulateMessage({
+        type: 'subscribed',
+        data: { channel_id: '33333333-3333-4333-8333-333333333333' },
+      });
 
-      expect(handler).toHaveBeenCalledWith({ type: 'test_event', data: { foo: 'bar' } });
+      expect(handler).toHaveBeenCalledWith({
+        type: 'subscribed',
+        data: { channel_id: '33333333-3333-4333-8333-333333333333' },
+      });
     });
 
     it('can remove message handlers', async () => {
       const ws = await connectAndWaitForOpen(service);
 
       const handler = vi.fn();
-      const off = service.on('test_event', handler);
+      const off = service.on('subscribed', handler);
       off();
 
-      ws.simulateMessage({ type: 'test_event', data: {} });
+      ws.simulateMessage({ type: 'subscribed', data: {} });
 
       expect(handler).not.toHaveBeenCalled();
     });
@@ -300,7 +324,13 @@ describe('WebSocketService', () => {
   describe('send methods', () => {
     it('sendMessage builds correct payload', async () => {
       const ws = await connectAndWaitForOpen(service);
-      ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
+      ws.simulateMessage({
+        type: 'connected',
+        data: {
+          client_id: '11111111-1111-4111-8111-111111111111',
+          user_id: '22222222-2222-4222-8222-222222222222',
+        },
+      });
 
       service.sendMessage('ch-1', 'Hello', { nonce: 'nonce-1' });
 
@@ -313,7 +343,13 @@ describe('WebSocketService', () => {
 
     it('sendMessage includes attachment_ids when provided', async () => {
       const ws = await connectAndWaitForOpen(service);
-      ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
+      ws.simulateMessage({
+        type: 'connected',
+        data: {
+          client_id: '11111111-1111-4111-8111-111111111111',
+          user_id: '22222222-2222-4222-8222-222222222222',
+        },
+      });
 
       service.sendMessage('ch-1', 'Files attached', {
         nonce: 'nonce-2',
@@ -326,7 +362,13 @@ describe('WebSocketService', () => {
 
     it('sendMessage omits attachment_ids when empty', async () => {
       const ws = await connectAndWaitForOpen(service);
-      ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
+      ws.simulateMessage({
+        type: 'connected',
+        data: {
+          client_id: '11111111-1111-4111-8111-111111111111',
+          user_id: '22222222-2222-4222-8222-222222222222',
+        },
+      });
 
       service.sendMessage('ch-1', 'No files');
 
@@ -336,7 +378,13 @@ describe('WebSocketService', () => {
 
     it('sendTypingIndicator builds correct payload', async () => {
       const ws = await connectAndWaitForOpen(service);
-      ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
+      ws.simulateMessage({
+        type: 'connected',
+        data: {
+          client_id: '11111111-1111-4111-8111-111111111111',
+          user_id: '22222222-2222-4222-8222-222222222222',
+        },
+      });
 
       service.sendTypingIndicator('ch-1', true);
 
@@ -348,7 +396,13 @@ describe('WebSocketService', () => {
 
     it('sendSetStatus builds correct payload', async () => {
       const ws = await connectAndWaitForOpen(service);
-      ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
+      ws.simulateMessage({
+        type: 'connected',
+        data: {
+          client_id: '11111111-1111-4111-8111-111111111111',
+          user_id: '22222222-2222-4222-8222-222222222222',
+        },
+      });
 
       service.sendSetStatus('dnd');
 
@@ -876,7 +930,13 @@ describe('send / handleMessage / notifyConnectionHandlers error logging', () => 
   it('logs redacted error when ws.send throws', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const ws = await connectAndWaitForOpen(service);
-    ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
+    ws.simulateMessage({
+      type: 'connected',
+      data: {
+        client_id: '11111111-1111-4111-8111-111111111111',
+        user_id: '22222222-2222-4222-8222-222222222222',
+      },
+    });
 
     // Force the underlying ws.send to throw
     ws.send = () => {
@@ -891,12 +951,18 @@ describe('send / handleMessage / notifyConnectionHandlers error logging', () => 
   it('logs redacted error when a message handler throws', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const ws = await connectAndWaitForOpen(service);
-    ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
+    ws.simulateMessage({
+      type: 'connected',
+      data: {
+        client_id: '11111111-1111-4111-8111-111111111111',
+        user_id: '22222222-2222-4222-8222-222222222222',
+      },
+    });
 
-    service.on('test_event', () => {
+    service.on('subscribed', () => {
       throw new Error('boom');
     });
-    ws.simulateMessage({ type: 'test_event', data: {} });
+    ws.simulateMessage({ type: 'subscribed', data: {} });
 
     expect(errorSpy).toHaveBeenCalledWith('Error in message handler:', 'boom');
   });
@@ -904,7 +970,13 @@ describe('send / handleMessage / notifyConnectionHandlers error logging', () => 
   it('logs redacted error when incoming message is invalid JSON', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const ws = await connectAndWaitForOpen(service);
-    ws.simulateMessage({ type: 'connected', data: { client_id: 'c1', user_id: 'u1' } });
+    ws.simulateMessage({
+      type: 'connected',
+      data: {
+        client_id: '11111111-1111-4111-8111-111111111111',
+        user_id: '22222222-2222-4222-8222-222222222222',
+      },
+    });
 
     // Bypass the simulateMessage helper to deliver non-JSON data directly
     if (ws.onmessage) {

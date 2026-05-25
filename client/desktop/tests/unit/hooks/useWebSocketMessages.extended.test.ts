@@ -375,7 +375,14 @@ describe('useWebSocketMessages — extended handlers', () => {
 
       const handler = ws.handlers.get('key_needed')!;
       act(() => {
-        handler({ type: 'key_needed', data: { channel_id: 'ch-1' } });
+        handler({
+          type: 'key_needed',
+          data: {
+            server_id: 'srv-1',
+            user_id: 'user-2',
+            channel_ids: ['ch-1'],
+          },
+        });
       });
 
       expect(mockProcessPendingKeyRequests).toHaveBeenCalled();
@@ -1009,18 +1016,8 @@ describe('useWebSocketMessages — extended handlers', () => {
       expect(handler).toBeDefined();
     });
 
-    it('ignores channels_reordered with non-array data', () => {
-      const ws = createMockWsService();
-      renderHook(() => useWebSocketMessages(ws as never));
-
-      const handler = ws.handlers.get('channels_reordered')!;
-      // Should not throw
-      act(() => {
-        handler({ type: 'channels_reordered', data: { channels: 'invalid' } });
-      });
-
-      expect(handler).toBeDefined();
-    });
+    // Removed in #709: tested in-handler bail when channels was non-array.
+    // Now structurally guaranteed by zod (channels: z.array(ChannelReorderEntrySchema) at dispatch).
   });
 
   describe('message handler — notification sound', () => {

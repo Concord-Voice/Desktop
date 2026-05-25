@@ -10,10 +10,11 @@ import { useChatStore } from '../stores/chatStore';
 import type { MessageWithStatus, Channel, ChannelGroup } from '../types/chat';
 import { useChannelStore } from '../stores/channelStore';
 import { useServerStore } from '../stores/serverStore';
-import { useMemberStore, PresenceStatus } from '../stores/memberStore';
+import { useMemberStore } from '../stores/memberStore';
 import { useUserStore } from '../stores/userStore';
 import { useUnreadStore } from '../stores/unreadStore';
-import { getWebSocketService, type WebSocketMessage } from '../services/websocketService';
+import { getWebSocketService } from '../services/websocketService';
+import type { WebSocketEvent } from '../types/ws-events';
 import { e2eeService } from '../services/e2eeService';
 import { isPendingKeyError } from '../services/e2eeErrors';
 import { preferencesSyncService } from '../services/preferencesSync';
@@ -94,10 +95,12 @@ function markServerUnreadWithMention(serverId: string, isMentioned: boolean): vo
 }
 
 /** Handle unread notification from server subscription. */
-function handleUnreadNotify(msg: WebSocketMessage): void {
+function handleUnreadNotify(msg: Extract<WebSocketEvent, { type: 'unread_notify' }>): void {
   const { data } = msg;
-  const channelId = data.channel_id as string | undefined;
-  const serverId = data.server_id as string | undefined;
+  // Schema (UnreadNotifySchema) already narrows both to `string | undefined`;
+  // no `as` cast needed. See internal-reference § WebSocket payload validation.
+  const channelId = data.channel_id;
+  const serverId = data.server_id;
 
   if (channelId && shouldSuppressLinkedTextNotification(channelId)) return;
 
@@ -243,14 +246,19 @@ function updateActiveParticipant(
 }
 
 /** Handle voice state updates — sidebar members + active participants. */
-function handleVoiceStateUpdate(msg: WebSocketMessage): void {
+function handleVoiceStateUpdate(
+  msg: Extract<WebSocketEvent, { type: 'voice_state_update' }>
+): void {
   const { data } = msg;
-  const channelId = data.channel_id as string | undefined;
-  const action = data.action as string | undefined;
-  if (!channelId || !action) return;
+  // channel_id + action are schema-required (UUID + VoiceActionSchema enum);
+  // user_id / server_id / username / display_name are schema-optional and
+  // already narrow to `string | undefined`. All `as` casts from the pre-schema
+  // era are gone — see internal-reference § WebSocket payload validation.
+  const channelId = data.channel_id;
+  const action = data.action;
 
-  const userId = data.user_id as string | undefined;
-  const serverId = data.server_id as string | undefined;
+  const userId = data.user_id;
+  const serverId = data.server_id;
   const voiceStore = useVoiceStore.getState();
   const localUserId = useUserStore.getState().user?.id;
 
@@ -260,8 +268,12 @@ function handleVoiceStateUpdate(msg: WebSocketMessage): void {
     channelId,
     userId,
     serverId,
-    username: (data.username as string) || 'Unknown',
-    displayName: data.display_name as string | undefined,
+    // Use `||` (not `??`) so empty strings also fall back to 'Unknown' —
+    // `VoiceStateUpdateSchema` permits `username: z.string().optional()` with
+    // no `.min(1)`, so a server-emitted empty string is schema-valid and would
+    // otherwise display as a blank participant name. (PR #1184 review.)
+    username: data.username || 'Unknown',
+    displayName: data.display_name,
     localUserId,
     isLocalUserInChannel: voiceStore.activeChannelId === channelId,
     voiceStore,
@@ -401,58 +413,36 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
   useEffect(() => {
     // Message handler
-    const unsubMessage = wsService.on('message', (msg: WebSocketMessage) => {
-      // user_id is typed optional/unknown here (rather than required `string`)
-      // so the runtime guard below is type-coherent with the cast: the cast
-      // describes the trust boundary (what the wire might send), and narrowing
-      // happens explicitly at the guard.
-      const data = msg.data as {
-        channel_id?: string;
-        id?: string;
-        user_id?: unknown;
-        username?: string;
-        display_name?: string;
-        avatar_url?: string;
-        content?: string;
-        key_version?: number;
-        gif_slug?: string;
-        reply_to_id?: string;
-        replied_to?: MessageWithStatus['replied_to'];
-        attachments?: MessageWithStatus['attachments'];
-        created_at?: string;
-        updated_at?: string;
-        mentioned?: boolean;
-        server_id?: string;
-      };
+    const unsubMessage = wsService.on('message', (msg) => {
+      // msg.data is narrowed to MessagePayload (validated at the dispatch
+      // boundary via zod — see services/websocketService.ts handleMessage).
+      // channel_id and user_id are schema-required UUIDs, so the PR #704
+      // hand-written runtime guards are now structurally guaranteed.
+      const data = msg.data;
       const channelId = data.channel_id;
-
-      if (!channelId) {
-        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
-        console.error('Message missing channel_id:', msg);
-        return;
-      }
-      // Runtime guard: the cast above types user_id as `unknown` to reflect
-      // the actual trust boundary; narrow here and capture into a typed local
-      // so closures below don't lose the narrowing.
-      if (typeof data.user_id !== 'string' || data.user_id.length === 0) {
-        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
-        console.error('Message missing user_id:', msg);
-        return;
-      }
-      const userId: string = data.user_id;
+      const userId = data.user_id;
 
       const keyVersion = data.key_version;
+      // Wire types allow `string | null` on nullable fields (e.g.
+      // display_name) where downstream Zustand types use `string | undefined`.
+      // Normalize null → undefined at this boundary so the store stays
+      // null-free.
       const baseMessage = {
         id: data.id || crypto.randomUUID(),
         channel_id: channelId,
         user_id: userId,
         username: data.username || 'Unknown',
-        display_name: data.display_name || undefined,
-        avatar_url: data.avatar_url || undefined,
+        display_name: data.display_name ?? undefined,
+        avatar_url: data.avatar_url ?? undefined,
         key_version: keyVersion,
         gif_slug: data.gif_slug || undefined,
         reply_to_id: data.reply_to_id || undefined,
-        replied_to: data.replied_to || undefined,
+        replied_to: data.replied_to
+          ? {
+              ...data.replied_to,
+              display_name: data.replied_to.display_name ?? undefined,
+            }
+          : undefined,
         attachments: data.attachments || undefined,
         created_at: data.created_at || new Date().toISOString(),
         updated_at: data.updated_at || new Date().toISOString(),
@@ -470,7 +460,9 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         maybeSpeakTTS
       );
 
-      // Decrypt replied_to content
+      // Decrypt replied_to content. `rt` is the normalized form from
+      // baseMessage (display_name already coerced null → undefined), so
+      // the spread below preserves the store-compatible shape.
       const rt = baseMessage.replied_to;
       if (rt?.content && e2eeService.isInitialized) {
         const rtKv = rt.key_version;
@@ -530,44 +522,22 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       }
     });
 
-    // Message update handler
-    const unsubUpdate = wsService.on('message_update', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        channel_id?: string;
-        id?: string;
-        content?: string;
-        edited_at?: string;
-        updated_at?: string;
-      };
-      const channelId = data.channel_id;
-      const messageId = data.id;
-
-      if (!channelId || !messageId) {
-        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
-        console.error('Message update missing channel_id or id:', msg);
-        return;
-      }
-
-      updateMessage(channelId, messageId, {
+    // Message update handler — msg.data narrowed to MessageUpdatePayload.
+    // edited_at is `string | null | undefined` at the wire; downstream state
+    // wants `string | undefined`, so normalize at this boundary.
+    const unsubUpdate = wsService.on('message_update', (msg) => {
+      const data = msg.data;
+      updateMessage(data.channel_id, data.id, {
         content: data.content,
-        edited_at: data.edited_at,
+        edited_at: data.edited_at ?? undefined,
         updated_at: data.updated_at || new Date().toISOString(),
       });
     });
 
-    // Message delete handler
-    const unsubDelete = wsService.on('message_delete', (msg: WebSocketMessage) => {
-      const data = msg.data as { channel_id?: string; id?: string };
-      const channelId = data.channel_id;
-      const messageId = data.id;
-
-      if (!channelId || !messageId) {
-        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
-        console.error('Message delete missing channel_id or id:', msg);
-        return;
-      }
-
-      deleteMessage(channelId, messageId);
+    // Message delete handler — msg.data narrowed to MessageDeletePayload.
+    const unsubDelete = wsService.on('message_delete', (msg) => {
+      const data = msg.data;
+      deleteMessage(data.channel_id, data.id);
     });
 
     // Reaction event handler (shared logic for added/removed)
@@ -606,21 +576,9 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       updateMessage(channelId, messageId, { reactions: updatedReactions });
     };
 
-    type ReactionPayload = {
-      channel_id?: string;
-      message_id?: string;
-      emoji?: string;
-      reaction_summary?: {
-        emoji: string;
-        count: number;
-        users: Array<{ user_id: string; username: string; display_name?: string }>;
-        me: boolean;
-      } | null;
-    };
-
-    const unsubReactionAdded = wsService.on('message_reaction_added', (msg: WebSocketMessage) => {
-      const data = msg.data as ReactionPayload;
-      if (!data.channel_id || !data.message_id || !data.emoji) return;
+    // Reaction handlers — msg.data narrowed to MessageReaction{Added,Removed}Payload.
+    const unsubReactionAdded = wsService.on('message_reaction_added', (msg) => {
+      const data = msg.data;
       applyReactionUpdate(
         data.channel_id,
         data.message_id,
@@ -629,148 +587,121 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       );
     });
 
-    const unsubReactionRemoved = wsService.on(
-      'message_reaction_removed',
-      (msg: WebSocketMessage) => {
-        const data = msg.data as ReactionPayload;
-        if (!data.channel_id || !data.message_id || !data.emoji) return;
-        applyReactionUpdate(
-          data.channel_id,
-          data.message_id,
-          data.emoji,
-          data.reaction_summary ?? null
-        );
-      }
-    );
+    const unsubReactionRemoved = wsService.on('message_reaction_removed', (msg) => {
+      const data = msg.data;
+      applyReactionUpdate(
+        data.channel_id,
+        data.message_id,
+        data.emoji,
+        data.reaction_summary ?? null
+      );
+    });
 
-    // Pin event handlers
-    const unsubMessagePinned = wsService.on('message_pinned', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        channel_id?: string;
-        message_id?: string;
-        pinned_at?: string;
-        pinned_by?: string;
-      };
-      if (!data.channel_id || !data.message_id) return;
+    // Pin event handlers — msg.data narrowed to MessagePinnedPayload / MessageUnpinnedPayload.
+    const unsubMessagePinned = wsService.on('message_pinned', (msg) => {
+      const data = msg.data;
       updateMessage(data.channel_id, data.message_id, {
         pinned_at: data.pinned_at,
         pinned_by: data.pinned_by,
       });
     });
 
-    const unsubMessageUnpinned = wsService.on('message_unpinned', (msg: WebSocketMessage) => {
-      const data = msg.data as { channel_id?: string; message_id?: string };
-      if (!data.channel_id || !data.message_id) return;
+    const unsubMessageUnpinned = wsService.on('message_unpinned', (msg) => {
+      const data = msg.data;
+      // channel_id is optional in the schema (DM path uses conversation_id);
+      // the channel path of this handler bails out if absent. The DM path
+      // is wired separately via the dm_message_delete/unpin flow.
+      if (!data.channel_id) return;
       updateMessage(data.channel_id, data.message_id, {
         pinned_at: undefined,
         pinned_by: undefined,
       });
     });
 
-    // Typing indicator handler
-    const unsubTyping = wsService.on('typing', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        channel_id?: string;
-        user_id?: string;
-        is_typing?: boolean;
-        username?: string;
-      };
-      const channelId = data.channel_id;
-      const userId = data.user_id;
-      const isTyping = data.is_typing ?? false;
-      const username = data.username ?? '';
-
-      if (!channelId || !userId) {
-        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
-        console.error('Typing indicator missing channel_id or user_id:', msg);
-        return;
-      }
-
-      setTyping(channelId, userId, isTyping, username);
+    // Typing indicator handler — msg.data narrowed to TypingPayload.
+    const unsubTyping = wsService.on('typing', (msg) => {
+      const data = msg.data;
+      setTyping(data.channel_id, data.user_id, data.is_typing, data.username ?? '');
     });
 
-    // Message acknowledgment handler — maps temp client IDs to server UUIDs
-    const unsubAck = wsService.on('message_ack', (msg: WebSocketMessage) => {
-      const data = msg.data as { nonce?: string; id?: string; channel_id?: string };
-      const nonce = data.nonce;
-      const serverId = data.id;
-      const channelId = data.channel_id;
-
-      if (nonce && serverId && channelId) {
-        updateMessageStatus(channelId, nonce, 'delivered', serverId);
+    // Message acknowledgment handler — msg.data narrowed to MessageAckPayload.
+    // nonce is optional (the client-side correlation token); when absent, the
+    // ack cannot be matched to a pending temp message so this is a no-op.
+    const unsubAck = wsService.on('message_ack', (msg) => {
+      const data = msg.data;
+      if (data.nonce) {
+        updateMessageStatus(data.channel_id, data.nonce, 'delivered', data.id);
       }
     });
 
-    // Member joined handler — updates member list in real time
-    const unsubMemberJoined = wsService.on('member_joined', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        server_id?: string;
-        user_id: string;
-        username?: string;
-        display_name?: string;
-        avatar_url?: string;
-        role?: 'owner' | 'admin' | 'member';
-      };
+    // Member joined — msg.data narrowed to MemberJoinedPayload.
+    // server_id + user_id are schema-required.
+    const unsubMemberJoined = wsService.on('member_joined', (msg) => {
+      const data = msg.data;
       const activeServerId = useServerStore.getState().activeServerId;
 
       // Only update if the event is for the currently viewed server
-      if (data.server_id && data.server_id === activeServerId) {
+      if (data.server_id === activeServerId) {
+        // Schema types `role` permissively (z.string().optional()) but the
+        // store interface narrows to the 3 known roles. Validate at the
+        // boundary so an unexpected server-emitted role (e.g., a new role
+        // added server-side before the client is updated) falls back to
+        // 'member' instead of poisoning role-based UI/permission logic.
+        // (PR #1184 review.)
+        const KNOWN_ROLES = ['owner', 'admin', 'member'] as const;
+        type KnownRole = (typeof KNOWN_ROLES)[number];
+        const role: KnownRole = KNOWN_ROLES.includes(data.role as KnownRole)
+          ? (data.role as KnownRole)
+          : 'member';
         useMemberStore.getState().addMember({
           user_id: data.user_id,
           username: data.username || 'Unknown',
-          display_name: data.display_name || undefined,
-          avatar_url: data.avatar_url || undefined,
-          role: data.role || 'member',
+          display_name: data.display_name ?? undefined,
+          avatar_url: data.avatar_url ?? undefined,
+          role,
           joined_at: new Date().toISOString(),
           roles: [],
         });
       }
     });
 
-    // Profile updated handler — updates messages and member list
-    const unsubProfileUpdated = wsService.on('profile_updated', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        user_id?: string;
-        username: string;
-        display_name?: string;
-        avatar_url?: string;
-        header_image_url?: string;
-        color_scheme?: string;
-      };
+    // Profile updated — msg.data narrowed to ProfileUpdatedPayload.
+    // user_id + username are schema-required; nullable fields normalized
+    // null → undefined at the store boundary.
+    const unsubProfileUpdated = wsService.on('profile_updated', (msg) => {
+      const data = msg.data;
       const userId = data.user_id;
-
-      if (!userId) return;
 
       // Update all messages from this user across all channels
       updateUserInMessages(userId, {
         username: data.username,
-        display_name: data.display_name,
-        avatar_url: data.avatar_url,
+        display_name: data.display_name ?? undefined,
+        avatar_url: data.avatar_url ?? undefined,
       });
 
       // Update member list if applicable
       useMemberStore.getState().updateMemberProfile(userId, {
         username: data.username,
-        display_name: data.display_name || undefined,
-        avatar_url: data.avatar_url || undefined,
-        header_image_url: data.header_image_url || undefined,
-        color_scheme: data.color_scheme || undefined,
+        display_name: data.display_name ?? undefined,
+        avatar_url: data.avatar_url ?? undefined,
+        header_image_url: data.header_image_url ?? undefined,
+        color_scheme: data.color_scheme ?? undefined,
       });
 
       // Update DM participant profiles
       useDMStore.getState().updateParticipantProfile(userId, {
         username: data.username,
-        displayName: data.display_name || undefined,
-        avatarUrl: data.avatar_url || undefined,
-        colorScheme: data.color_scheme || undefined,
+        displayName: data.display_name ?? undefined,
+        avatarUrl: data.avatar_url ?? undefined,
+        colorScheme: data.color_scheme ?? undefined,
       });
 
       // Update friend profiles
       useFriendStore.getState().updateFriendProfile(userId, {
         username: data.username,
-        displayName: data.display_name || undefined,
-        avatarUrl: data.avatar_url || undefined,
-        colorScheme: data.color_scheme || undefined,
+        displayName: data.display_name ?? undefined,
+        avatarUrl: data.avatar_url ?? undefined,
+        colorScheme: data.color_scheme ?? undefined,
       });
 
       // Update voice participant (active call tiles)
@@ -778,8 +709,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       if (voiceState.participants[userId]) {
         voiceState.updateParticipant(userId, {
           username: data.username,
-          displayName: data.display_name || undefined,
-          avatarUrl: data.avatar_url || undefined,
+          displayName: data.display_name ?? undefined,
+          avatarUrl: data.avatar_url ?? undefined,
         });
       }
 
@@ -791,8 +722,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
           updated[idx] = {
             ...updated[idx],
             username: data.username,
-            displayName: data.display_name || undefined,
-            avatarUrl: data.avatar_url || undefined,
+            displayName: data.display_name ?? undefined,
+            avatarUrl: data.avatar_url ?? undefined,
           };
           voiceState.setChannelVoiceMembers(channelId, updated);
         }
@@ -803,30 +734,24 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         useVoiceStore.setState({
           availableScreenShares: voiceState.availableScreenShares.map((s) =>
             s.userId === userId
-              ? { ...s, username: data.username, displayName: data.display_name || undefined }
+              ? { ...s, username: data.username, displayName: data.display_name ?? undefined }
               : s
           ),
         });
       }
     });
 
-    // Server updated handler — updates server list for all members
-    const unsubServerUpdated = wsService.on('server_updated', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        server_id?: string;
-        name?: string;
-        icon_url?: string | null;
-        banner_url?: string | null;
-        allow_embedded_content?: boolean;
-      };
-      const serverId = data.server_id;
-      if (!serverId) return;
+    // Server updated — msg.data narrowed to ServerUpdatedPayload.
+    // server_id is schema-required; remaining fields are optional (two
+    // emit variants per schema comment).
+    const unsubServerUpdated = wsService.on('server_updated', (msg) => {
+      const data = msg.data;
 
       // Only include `allow_embedded_content` when the payload supplies a
       // boolean. One `server_updated` variant (services/control-plane/internal/
       // websocket/hub.go:2244-2252) omits the field entirely; defaulting it to
       // `false` would silently flip the user's setting off on that variant.
-      useServerStore.getState().updateServer(serverId, {
+      useServerStore.getState().updateServer(data.server_id, {
         name: data.name,
         icon_url: data.icon_url ?? undefined,
         banner_url: data.banner_url ?? undefined,
@@ -836,63 +761,51 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       });
     });
 
-    // Channel updated handler — updates channel list for all server members
-    const unsubChannelUpdated = wsService.on('channel_updated', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        channel_id?: string;
-        name?: string;
-        type?: 'text' | 'voice';
-        emoji?: string | null;
-        group_id?: string | null;
-      };
-      const channelId = data.channel_id;
-      if (!channelId) return;
-
-      useChannelStore.getState().updateChannel(channelId, {
+    // Channel updated — msg.data narrowed to ChannelUpdatedPayload.
+    // channel_id schema-required; `type` is z.string().optional() on the
+    // wire but the store narrows to the 3 known channel kinds, so cast at
+    // the boundary. Keep this in sync with `Channel.type` in types/chat.ts.
+    // (PR #1184 review: previously omitted 'bulletin'.)
+    const unsubChannelUpdated = wsService.on('channel_updated', (msg) => {
+      const data = msg.data;
+      useChannelStore.getState().updateChannel(data.channel_id, {
         name: data.name,
-        type: data.type,
+        type: data.type as 'text' | 'voice' | 'bulletin' | undefined,
         emoji: data.emoji ?? undefined,
         group_id: data.group_id ?? null,
       });
     });
 
-    // Channel created handler — adds new channel to the list for all server members
-    const unsubChannelCreated = wsService.on('channel_created', (msg: WebSocketMessage) => {
-      const data = msg.data as { channel?: Channel };
-      const channel = data.channel;
-      if (!channel) return;
-
+    // Channel created — msg.data narrowed to ChannelCreatedPayload (envelope
+    // required; channel object schema-validated at dispatch).
+    // The wire shape (ChannelPayloadSchema) needs an `as Channel` cast
+    // because the store type aliases that the renderer uses are richer
+    // (e.g. derived UI state); the wire fields are a strict subset.
+    const unsubChannelCreated = wsService.on('channel_created', (msg) => {
+      const channel = msg.data.channel as unknown as Channel;
       const activeServerId = useServerStore.getState().activeServerId;
       if (channel.server_id === activeServerId) {
         useChannelStore.getState().addChannel(channel);
       }
     });
 
-    // Channel deleted handler — removes channel and cascades cleanup
-    const unsubChannelDeleted = wsService.on('channel_deleted', (msg: WebSocketMessage) => {
-      const data = msg.data as { channel_id?: string };
-      const channelId = data.channel_id;
-      if (!channelId) return;
-
-      useChannelStore.getState().removeChannel(channelId);
+    // Channel deleted — msg.data narrowed to ChannelDeletedPayload.
+    const unsubChannelDeleted = wsService.on('channel_deleted', (msg) => {
+      useChannelStore.getState().removeChannel(msg.data.channel_id);
     });
 
-    // Channel group created handler
-    const unsubGroupCreated = wsService.on('channel_group_created', (msg: WebSocketMessage) => {
-      const data = msg.data as { channel_group?: ChannelGroup };
-      const group = data.channel_group;
-      if (!group) return;
+    // Channel group created — msg.data narrowed to ChannelGroupCreatedPayload.
+    const unsubGroupCreated = wsService.on('channel_group_created', (msg) => {
+      const group = msg.data.channel_group as unknown as ChannelGroup;
       const activeServerId = useServerStore.getState().activeServerId;
       if (group.server_id === activeServerId) {
         useChannelStore.getState().addChannelGroup(group);
       }
     });
 
-    // Channel group updated handler
-    const unsubGroupUpdated = wsService.on('channel_group_updated', (msg: WebSocketMessage) => {
-      const data = msg.data as { channel_group?: ChannelGroup };
-      const group = data.channel_group;
-      if (!group) return;
+    // Channel group updated — msg.data narrowed to ChannelGroupUpdatedPayload.
+    const unsubGroupUpdated = wsService.on('channel_group_updated', (msg) => {
+      const group = msg.data.channel_group;
       useChannelStore.getState().updateChannelGroup(group.id, {
         name: group.name,
         position: group.position,
@@ -900,20 +813,17 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       });
     });
 
-    // Channel group deleted handler
-    const unsubGroupDeleted = wsService.on('channel_group_deleted', (msg: WebSocketMessage) => {
-      const data = msg.data as { group_id?: string };
-      const groupId = data.group_id;
-      if (!groupId) return;
-      useChannelStore.getState().removeChannelGroup(groupId);
+    // Channel group deleted — msg.data narrowed to ChannelGroupDeletedPayload.
+    const unsubGroupDeleted = wsService.on('channel_group_deleted', (msg) => {
+      useChannelStore.getState().removeChannelGroup(msg.data.group_id);
     });
 
-    // Channels reordered handler — bulk position/group update
-    const unsubChannelsReordered = wsService.on('channels_reordered', (msg: WebSocketMessage) => {
-      const channels = msg.data.channels;
-      if (!Array.isArray(channels)) return;
+    // Channels reordered — msg.data narrowed to ChannelsReorderedPayload.
+    // channels array is schema-required, each entry validated against
+    // ChannelReorderEntrySchema. No inline cast needed.
+    const unsubChannelsReordered = wsService.on('channels_reordered', (msg) => {
       useChannelStore.getState().reorderChannels(
-        channels.map((c: { channel_id: string; group_id: string | null; position: number }) => ({
+        msg.data.channels.map((c) => ({
           channel_id: c.channel_id,
           group_id: c.group_id,
           position: c.position,
@@ -921,21 +831,14 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       );
     });
 
-    // Server deleted handler — removes server and cascades cleanup
-    const unsubServerDeleted = wsService.on('server_deleted', (msg: WebSocketMessage) => {
-      const data = msg.data as { server_id?: string };
-      const serverId = data.server_id;
-      if (!serverId) return;
-
-      useServerStore.getState().removeServer(serverId);
+    // Server deleted — msg.data narrowed to ServerDeletedPayload.
+    const unsubServerDeleted = wsService.on('server_deleted', (msg) => {
+      useServerStore.getState().removeServer(msg.data.server_id);
     });
 
-    // Member removed handler — handles both kicks and self-leave
-    const unsubMemberRemoved = wsService.on('member_removed', (msg: WebSocketMessage) => {
-      const data = msg.data as { server_id?: string; user_id?: string };
-      const serverId = data.server_id;
-      const removedUserId = data.user_id;
-      if (!serverId || !removedUserId) return;
+    // Member removed — msg.data narrowed to MemberRemovedPayload.
+    const unsubMemberRemoved = wsService.on('member_removed', (msg) => {
+      const { server_id: serverId, user_id: removedUserId } = msg.data;
 
       const selfId = useUserStore.getState().user?.id;
       if (removedUserId === selfId) {
@@ -951,13 +854,20 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
     });
 
     // Lightweight unread notification handler — from server subscription
-    const unsubUnreadNotify = wsService.on('unread_notify', (msg: WebSocketMessage) => {
+    const unsubUnreadNotify = wsService.on('unread_notify', (msg) => {
       handleUnreadNotify(msg);
     });
 
     // Key needed handler — auto-process pending key requests for new members
-    const unsubKeyNeeded = wsService.on('key_needed', (msg: WebSocketMessage) => {
-      console.debug('[WebSocket] key_needed event received:', msg.data);
+    const unsubKeyNeeded = wsService.on('key_needed', (msg) => {
+      // PII/metadata-minimization (CWE-532): KeyNeededPayload carries server_id +
+      // user_id + channel_ids, which together reveal key-distribution access
+      // patterns. Log only the channel count — sufficient for debugging without
+      // creating a per-user correlation record. See internal-reference
+      console.debug(
+        '[WebSocket] key_needed event received, channel_count:',
+        msg.data.channel_ids.length
+      );
       if (e2eeService.isInitialized) {
         e2eeService.processPendingKeyRequests().catch((err) => {
           console.debug('[WebSocket] processPendingKeyRequests failed:', err);
@@ -967,23 +877,21 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       }
     });
 
-    // Key revocation handler — a channel's key epoch was revoked (member removal or theft)
-    const unsubKeyRevocation = wsService.on('key_revocation', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        channel_id?: string;
-        new_epoch?: number;
-        reason?: string;
-        removed_user_id?: string;
-      };
+    // Key revocation — msg.data narrowed to KeyRevocationPayload. ALL
+    // fields are .optional() in the schema (two emit shapes: server-channel
+    // rotation vs friend-block). The handler is a no-op when channel_id
+    // is absent (friend-block branch) — that's the intended structural
+    // behavior, not a defensive guard.
+    const unsubKeyRevocation = wsService.on('key_revocation', (msg) => {
+      const data = msg.data;
       const channelId = data.channel_id;
-      const newEpoch = data.new_epoch;
 
       if (!channelId) return;
       console.debug(
         '[WebSocket] key_revocation:',
         channelId,
         'new_epoch:',
-        newEpoch,
+        data.new_epoch,
         'reason:',
         data.reason
       );
@@ -994,17 +902,20 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       // Dispatch event for rotation coordinator
       globalThis.dispatchEvent(
         new CustomEvent('e2ee-key-rotation', {
-          detail: { channelId, newEpoch, removedUserId: data.removed_user_id, reason: data.reason },
+          detail: {
+            channelId,
+            newEpoch: data.new_epoch,
+            removedUserId: data.removed_user_id,
+            reason: data.reason,
+          },
         })
       );
     });
 
-    // Key delivered handler — a channel key was distributed to the current user
-    const unsubKeyDelivered = wsService.on('key_delivered', (msg: WebSocketMessage) => {
-      const data = msg.data as { channel_id?: string; user_id?: string };
-      const channelId = data.channel_id;
-      const targetUserId = data.user_id;
-      if (!channelId) return;
+    // Key delivered — msg.data narrowed to KeyDeliveredPayload.
+    // channel_id + user_id are schema-required UUIDs.
+    const unsubKeyDelivered = wsService.on('key_delivered', (msg) => {
+      const { channel_id: channelId, user_id: targetUserId } = msg.data;
 
       // Only act if this key delivery is for the current user
       const selfId = useUserStore.getState().user?.id;
@@ -1027,11 +938,12 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       savedGifsSyncService.fetchAndApply();
     });
 
-    // Presence snapshot handler — received on connection with all online users and their statuses
-    const unsubPresenceSnapshot = wsService.on('presence_snapshot', (msg: WebSocketMessage) => {
-      // Enhanced format: array of { user_id, status } objects
-      if (msg.data.users && Array.isArray(msg.data.users)) {
-        const users = msg.data.users as Array<{ user_id: string; status: string }>;
+    // Presence snapshot — msg.data narrowed to PresenceSnapshotPayload.
+    // Both `users` (enhanced) and `online_user_ids` (legacy back-compat)
+    // are schema-optional; the handler prefers `users` when present.
+    const unsubPresenceSnapshot = wsService.on('presence_snapshot', (msg) => {
+      if (msg.data.users) {
+        const users = msg.data.users;
         useMemberStore.getState().setPresenceSnapshot(users);
 
         // Also update DM participant and friend presence
@@ -1039,11 +951,11 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         const friendState = useFriendStore.getState();
         for (const u of users) {
           dmState.updateParticipantProfile(u.user_id, { status: u.status });
-          friendState.updateFriendPresence(u.user_id, u.status as PresenceStatus);
+          friendState.updateFriendPresence(u.user_id, u.status);
         }
       } else if (msg.data.online_user_ids) {
         // Backward compatibility: simple list of online user IDs
-        const userIds = msg.data.online_user_ids as string[];
+        const userIds = msg.data.online_user_ids;
         useMemberStore.getState().setOnlineUsers(userIds);
 
         const dmState2 = useDMStore.getState();
@@ -1055,12 +967,10 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       }
     });
 
-    // Presence change handler — individual status updates (online/offline/dnd/invisible)
-    const unsubPresence = wsService.on('presence', (msg: WebSocketMessage) => {
-      const userId = msg.data.user_id as string;
-      const status = msg.data.status as PresenceStatus;
-      const timestamp = msg.data.timestamp as number | undefined;
-      if (!userId) return;
+    // Presence change — msg.data narrowed to PresencePayload.
+    // user_id (UUID) + status (PresenceStatusSchema enum) are schema-required.
+    const unsubPresence = wsService.on('presence', (msg) => {
+      const { user_id: userId, status, timestamp } = msg.data;
 
       // Skip overriding self user's status from broadcast — selfStatus is the local source of truth.
       // The server broadcasts "offline" for invisible users, so trusting the broadcast
@@ -1080,71 +990,39 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
     });
 
     // Server online counts handler — updates online_count on server objects after presence changes
-    const unsubServerOnlineCounts = wsService.on(
-      'server_online_counts',
-      (msg: WebSocketMessage) => {
-        const counts = msg.data.counts as Record<string, number> | undefined;
-        if (counts) {
-          useServerStore.getState().updateOnlineCounts(counts);
-        }
+    const unsubServerOnlineCounts = wsService.on('server_online_counts', (msg) => {
+      // msg.data is narrowed to ServerOnlineCountsPayload via generic on()
+      const counts = msg.data.counts;
+      if (counts) {
+        useServerStore.getState().updateOnlineCounts(counts);
       }
-    );
+    });
 
     // Server voice counts handler — updates voice counts for tooltip display
-    const unsubServerVoiceCounts = wsService.on('server_voice_counts', (msg: WebSocketMessage) => {
-      const counts = msg.data.counts as Record<string, number> | undefined;
+    const unsubServerVoiceCounts = wsService.on('server_voice_counts', (msg) => {
+      // msg.data is narrowed to ServerVoiceCountsPayload via generic on()
+      const counts = msg.data.counts;
       if (counts) {
         useVoiceStore.getState().setServerVoiceCounts(counts);
       }
     });
 
     // Voice state update handler — from control plane via NATS
-    const unsubVoiceState = wsService.on('voice_state_update', (msg: WebSocketMessage) => {
+    const unsubVoiceState = wsService.on('voice_state_update', (msg) => {
       handleVoiceStateUpdate(msg);
     });
 
     // ── DM event handlers ──────────────────────────────────────────────
 
     // DM message handler (mirrors 'message' handler for server channels)
-    const unsubDMMessage = wsService.on('dm_message', (msg: WebSocketMessage) => {
-      // Fields that need runtime validation are typed optional/unknown so
-      // the cast describes the trust boundary honestly; narrowing happens
-      // at the guards below.
-      const data = msg.data as {
-        conversation_id?: unknown;
-        channel_id?: unknown;
-        id?: string;
-        user_id?: unknown;
-        username?: string;
-        display_name?: string;
-        avatar_url?: string;
-        content?: string;
-        key_version?: number;
-        gif_slug?: string;
-        attachments?: MessageWithStatus['attachments'];
-        created_at?: string;
-        updated_at?: string;
-      };
-      const conversationId = data.conversation_id || data.channel_id;
-
-      // Runtime guard: the structural cast above doesn't validate at runtime.
-      // A malicious/malformed server-sent conversation_id could inject arbitrary
-      // strings into Zustand keys (notification confusion, spoofed previews).
-      // Enforce string shape + reasonable length before any store write.
-      if (
-        typeof conversationId !== 'string' ||
-        conversationId.length === 0 ||
-        conversationId.length > 128
-      ) {
-        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
-        console.error('DM message missing or malformed conversation_id:', msg);
-        return;
-      }
-      if (!data.user_id || typeof data.user_id !== 'string') {
-        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
-        console.error('DM message missing user_id:', msg);
-        return;
-      }
+    const unsubDMMessage = wsService.on('dm_message', (msg) => {
+      // msg.data narrowed to DMMessagePayload — conversation_id + user_id
+      // are schema-required UUIDs; the PR #704 runtime guards (length/typeof
+      // checks) are now structurally guaranteed at the dispatch boundary.
+      // channel_id is an optional back-compat alias; conversation_id is the
+      // canonical key.
+      const data = msg.data;
+      const conversationId = data.conversation_id;
 
       const dmKeyVersion = data.key_version;
       const baseMessage = {
@@ -1152,8 +1030,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         channel_id: conversationId,
         user_id: data.user_id,
         username: data.username || 'Unknown',
-        display_name: data.display_name || undefined,
-        avatar_url: data.avatar_url || undefined,
+        display_name: data.display_name ?? undefined,
+        avatar_url: data.avatar_url ?? undefined,
         key_version: dmKeyVersion,
         gif_slug: data.gif_slug || undefined,
         attachments: data.attachments || undefined,
@@ -1167,9 +1045,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         userId: data.user_id,
         username: data.username || 'Unknown',
         createdAt: data.created_at || new Date().toISOString(),
-        ...(data.attachments?.length
-          ? { attachmentType: data.attachments[0].file_type as string }
-          : {}),
+        ...(data.attachments?.length ? { attachmentType: data.attachments[0].file_type } : {}),
       };
 
       addEncryptedMessage(
@@ -1213,103 +1089,42 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       }
     });
 
-    // DM message ack handler
-    const unsubDMAck = wsService.on('dm_message_ack', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        nonce?: string;
-        id?: string;
-        conversation_id?: string;
-        channel_id?: string;
-      };
-      const nonce = data.nonce;
-      const serverId = data.id;
-      const conversationId = data.conversation_id || data.channel_id;
-
-      if (nonce && serverId && conversationId) {
-        updateMessageStatus(conversationId, nonce, 'delivered', serverId);
-      }
+    // DM message ack handler — msg.data narrowed to DMMessageAckPayload.
+    // nonce, id, conversation_id are all schema-required.
+    const unsubDMAck = wsService.on('dm_message_ack', (msg) => {
+      const data = msg.data;
+      updateMessageStatus(data.conversation_id, data.nonce, 'delivered', data.id);
     });
 
-    // DM message update handler
-    const unsubDMUpdate = wsService.on('dm_message_update', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        conversation_id?: string;
-        channel_id?: string;
-        id?: string;
-        content?: string;
-        edited_at?: string;
-        updated_at?: string;
-      };
-      const conversationId = data.conversation_id || data.channel_id;
-      const messageId = data.id;
-
-      if (conversationId && messageId) {
-        updateMessage(conversationId, messageId, {
-          content: data.content,
-          edited_at: data.edited_at,
-          updated_at: data.updated_at || new Date().toISOString(),
-        });
-      }
+    // DM message update handler — msg.data narrowed to DMMessageUpdatePayload.
+    const unsubDMUpdate = wsService.on('dm_message_update', (msg) => {
+      const data = msg.data;
+      updateMessage(data.conversation_id, data.id, {
+        content: data.content,
+        edited_at: data.edited_at,
+        updated_at: data.updated_at || new Date().toISOString(),
+      });
     });
 
-    // DM message delete handler
-    const unsubDMDelete = wsService.on('dm_message_delete', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        conversation_id?: string;
-        channel_id?: string;
-        id?: string;
-      };
-      const conversationId = data.conversation_id || data.channel_id;
-      const messageId = data.id;
-
-      if (conversationId && messageId) {
-        deleteMessage(conversationId, messageId);
-      }
+    // DM message delete handler — msg.data narrowed to DMMessageDeletePayload.
+    const unsubDMDelete = wsService.on('dm_message_delete', (msg) => {
+      const data = msg.data;
+      deleteMessage(data.conversation_id, data.id);
     });
 
-    // DM typing indicator handler
-    const unsubDMTyping = wsService.on('dm_typing', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        conversation_id?: string;
-        channel_id?: string;
-        user_id?: string;
-        is_typing?: boolean;
-        username?: string;
-      };
-      const conversationId = data.conversation_id || data.channel_id;
-      const userId = data.user_id;
-      const isTyping = data.is_typing ?? false;
-      const username = data.username ?? '';
-
-      if (conversationId && userId) {
-        setTyping(conversationId, userId, isTyping, username);
-      }
+    // DM typing indicator handler — msg.data narrowed to DMTypingPayload.
+    const unsubDMTyping = wsService.on('dm_typing', (msg) => {
+      const data = msg.data;
+      setTyping(data.conversation_id, data.user_id, data.is_typing ?? false, data.username ?? '');
     });
 
-    // DM unread notification (for conversations the user is NOT subscribed to)
-    const unsubDMUnread = wsService.on('dm_unread_notify', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        conversation_id?: string;
-        mentioned?: boolean;
-        user_id?: string;
-        last_message?: {
-          content?: string;
-          user_id?: string;
-          username?: string;
-          created_at?: string;
-        };
-      };
+    // DM unread notification — msg.data narrowed to DMUnreadNotifyPayload.
+    // conversation_id is schema-required UUID; the runtime shape guard is
+    // structural now.
+    const unsubDMUnread = wsService.on('dm_unread_notify', (msg) => {
+      const data = msg.data;
       const conversationId = data.conversation_id;
       const isDMMentioned = data.mentioned === true;
-
-      // Runtime shape guard — see dm_message handler for rationale.
-      if (
-        typeof conversationId !== 'string' ||
-        conversationId.length === 0 ||
-        conversationId.length > 128
-      ) {
-        return;
-      }
 
       // DND check: same rationale as in handleUnreadNotify — the broadest
       // suppression sits first.
@@ -1340,186 +1155,118 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       notificationSoundService.play('dm');
     });
 
-    // DM conversation created (when another user opens a DM with us)
-    const unsubDMConvCreated = wsService.on('dm_conversation_created', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        conversation?: {
-          id: string;
-          is_group: boolean;
-          is_personal?: boolean;
-          name?: string | null;
-          participants?: Array<Record<string, unknown>>;
-          icon_url?: string;
-          created_by?: string;
-          created_at: string;
-        };
-      };
-      if (!data.conversation) return;
-      const conv = data.conversation;
-
-      // Runtime guard on the conversation envelope; the cast lies about
-      // required fields not actually present at runtime.
-      if (
-        typeof conv.id !== 'string' ||
-        conv.id.length === 0 ||
-        conv.id.length > 128 ||
-        typeof conv.is_group !== 'boolean' ||
-        typeof conv.created_at !== 'string'
-      ) {
-        // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
-        console.error('dm_conversation_created: malformed conversation envelope', msg);
-        return;
-      }
-
-      // Field-validate each participant before admission to Zustand state.
-      // A missing user_id/username would poison the participants array and
-      // propagate undefined through UI lookups keyed on those fields.
-      const participants = (conv.participants || []).reduce<
-        Array<{
-          userId: string;
-          username: string;
-          displayName: string | undefined;
-          avatarUrl: string | undefined;
-          colorScheme: string | undefined;
-          role: 'admin' | 'member' | undefined;
-        }>
-      >((acc, p) => {
-        if (typeof p.user_id !== 'string' || typeof p.username !== 'string') {
-          // eslint-disable-next-line no-restricted-syntax -- p is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
-          console.warn('dm_conversation_created: skipping malformed participant', p);
-          return acc;
-        }
-        acc.push({
-          userId: p.user_id,
-          username: p.username,
-          displayName: typeof p.display_name === 'string' ? p.display_name : undefined,
-          avatarUrl: typeof p.avatar_url === 'string' ? p.avatar_url : undefined,
-          colorScheme: typeof p.color_scheme === 'string' ? p.color_scheme : undefined,
-          role: p.role === 'admin' || p.role === 'member' ? p.role : undefined,
-        });
-        return acc;
-      }, []);
+    // DM conversation created — msg.data narrowed to DMConversationCreatedPayload.
+    // The conversation envelope (id, is_group, created_at, participants) is
+    // schema-validated at the dispatch boundary, so the per-field runtime
+    // guards are structural now. Each participant in the array is
+    // schema-narrowed to ParticipantSchema — no per-element type guard needed.
+    const unsubDMConvCreated = wsService.on('dm_conversation_created', (msg) => {
+      const conv = msg.data.conversation;
+      // participants is schema-optional (server may omit on empty
+      // conversations) — default to [] so map() is safe and the store gets
+      // a normalized empty array rather than undefined.
+      const participants = (conv.participants ?? []).map((p) => ({
+        userId: p.user_id,
+        username: p.username,
+        displayName: p.display_name ?? undefined,
+        avatarUrl: p.avatar_url ?? undefined,
+        colorScheme: p.color_scheme ?? undefined,
+        role: p.role,
+      }));
 
       useDMStore.getState().addConversation({
         id: conv.id,
         isGroup: conv.is_group,
         isPersonal: conv.is_personal ?? false,
-        name: conv.name || null,
+        name: conv.name ?? null,
         participants,
-        iconUrl: conv.icon_url || undefined,
-        createdBy: conv.created_by || undefined,
+        iconUrl: conv.icon_url ?? undefined,
+        createdBy: conv.created_by ?? undefined,
         lastMessage: null,
         unreadCount: 0,
         createdAt: conv.created_at,
       });
     });
 
-    // DM participant added to group
-    const unsubDMParticipantAdded = wsService.on(
-      'dm_participant_added',
-      (msg: WebSocketMessage) => {
-        const data = msg.data as {
-          conversation_id?: string;
-          user_id?: unknown;
-          username?: unknown;
-          display_name?: unknown;
-          avatar_url?: unknown;
-          color_scheme?: unknown;
-        };
-        const conversationId = data.conversation_id;
-        if (!conversationId) return;
-
-        const dmStore = useDMStore.getState();
-        const conv = dmStore.conversations.find((c) => c.id === conversationId);
-        if (!conv) {
-          console.debug(
-            '[WebSocket] dm_participant_added: conversation not loaded, fetching',
-            conversationId
-          );
-          dmStore.fetchConversations();
-          return;
-        }
-
-        // Add participant locally if not already present
-        const userId = data.user_id as string;
-        if (userId && !conv.participants.some((p) => p.userId === userId)) {
-          dmStore.updateConversation(conversationId, {
-            participants: [
-              ...conv.participants,
-              {
-                userId,
-                username: (data.username as string) || 'Unknown',
-                displayName: (data.display_name as string) ?? undefined,
-                avatarUrl: (data.avatar_url as string) ?? undefined,
-                colorScheme: (data.color_scheme as string) ?? undefined,
-                role: 'member',
-              },
-            ],
-          });
-        }
-      }
-    );
-
-    // DM participant removed from group
-    const unsubDMParticipantRemoved = wsService.on(
-      'dm_participant_removed',
-      (msg: WebSocketMessage) => {
-        const data = msg.data as { conversation_id?: string; user_id?: string };
-        const conversationId = data.conversation_id;
-        const removedUserId = data.user_id;
-        if (!conversationId || !removedUserId) return;
-
-        // Check if we were the one removed
-        const currentUser = useUserStore.getState().user;
-        if (removedUserId === currentUser?.id) {
-          useDMStore.getState().removeConversation(conversationId);
-          return;
-        }
-
-        // Remove participant from conversation locally
-        const dmStore = useDMStore.getState();
-        const conv = dmStore.conversations.find((c) => c.id === conversationId);
-        if (conv) {
-          dmStore.updateConversation(conversationId, {
-            participants: conv.participants.filter((p) => p.userId !== removedUserId),
-          });
-        }
-      }
-    );
-
-    // DM member role changed
-    const unsubDMRoleChanged = wsService.on('dm_role_changed', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        conversation_id?: string;
-        user_id?: string;
-        role?: string;
-      };
+    // DM participant added — msg.data narrowed to DMParticipantAddedPayload.
+    // conversation_id + user_id schema-required; username/display_name/etc
+    // are cast-only fields (server omits, handler tolerates absence).
+    const unsubDMParticipantAdded = wsService.on('dm_participant_added', (msg) => {
+      const data = msg.data;
       const conversationId = data.conversation_id;
-      const userId = data.user_id;
-      const role = data.role;
-      if (!conversationId || !userId || !role) return;
+
+      const dmStore = useDMStore.getState();
+      const conv = dmStore.conversations.find((c) => c.id === conversationId);
+      if (!conv) {
+        console.debug(
+          '[WebSocket] dm_participant_added: conversation not loaded, fetching',
+          conversationId
+        );
+        dmStore.fetchConversations();
+        return;
+      }
+
+      // Add participant locally if not already present
+      if (!conv.participants.some((p) => p.userId === data.user_id)) {
+        dmStore.updateConversation(conversationId, {
+          participants: [
+            ...conv.participants,
+            {
+              userId: data.user_id,
+              username: data.username || 'Unknown',
+              displayName: data.display_name ?? undefined,
+              avatarUrl: data.avatar_url ?? undefined,
+              colorScheme: data.color_scheme ?? undefined,
+              role: 'member',
+            },
+          ],
+        });
+      }
+    });
+
+    // DM participant removed — msg.data narrowed to DMParticipantRemovedPayload.
+    const unsubDMParticipantRemoved = wsService.on('dm_participant_removed', (msg) => {
+      const { conversation_id: conversationId, user_id: removedUserId } = msg.data;
+
+      // Check if we were the one removed
+      const currentUser = useUserStore.getState().user;
+      if (removedUserId === currentUser?.id) {
+        useDMStore.getState().removeConversation(conversationId);
+        return;
+      }
+
+      // Remove participant from conversation locally
+      const dmStore = useDMStore.getState();
+      const conv = dmStore.conversations.find((c) => c.id === conversationId);
+      if (conv) {
+        dmStore.updateConversation(conversationId, {
+          participants: conv.participants.filter((p) => p.userId !== removedUserId),
+        });
+      }
+    });
+
+    // DM member role changed — msg.data narrowed to DMRoleChangedPayload.
+    // role is z.enum(['admin', 'member']) so the cast is gone.
+    const unsubDMRoleChanged = wsService.on('dm_role_changed', (msg) => {
+      const { conversation_id: conversationId, user_id: userId, role } = msg.data;
 
       const dmStore = useDMStore.getState();
       const conv = dmStore.conversations.find((c) => c.id === conversationId);
       if (conv) {
         dmStore.updateConversation(conversationId, {
-          participants: conv.participants.map((p) =>
-            p.userId === userId ? { ...p, role: role as 'admin' | 'member' } : p
-          ),
+          participants: conv.participants.map((p) => (p.userId === userId ? { ...p, role } : p)),
         });
       }
     });
 
-    // DM group deleted
-    const unsubDMGroupDeleted = wsService.on('dm_group_deleted', (msg: WebSocketMessage) => {
-      const data = msg.data as { conversation_id?: string };
-      if (data.conversation_id) {
-        useDMStore.getState().removeConversation(data.conversation_id);
-      }
+    // DM group deleted — msg.data narrowed to DMGroupDeletedPayload.
+    const unsubDMGroupDeleted = wsService.on('dm_group_deleted', (msg) => {
+      useDMStore.getState().removeConversation(msg.data.conversation_id);
     });
 
     // DM subscribed confirmation
-    const unsubDMSubscribed = wsService.on('dm_subscribed', (msg: WebSocketMessage) => {
+    const unsubDMSubscribed = wsService.on('dm_subscribed', (msg) => {
+      // msg.data is narrowed to DMSubscribedPayload via generic on()
       console.debug(
         '[WebSocket] Subscribed to DM:',
         msg.data.conversation_id || msg.data.channel_id
@@ -1528,126 +1275,96 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // ── Friend event handlers ────────────────────────────────────────────
 
-    type FriendPayload = {
-      id: string;
-      user_id: string;
-      username: string;
-      display_name?: string;
-      avatar_url?: string;
-      color_scheme?: string;
-      status?: PresenceStatus;
-    };
-
-    type FriendRequestPayload = {
-      id: string;
-      from_user_id: string;
-      from_username: string;
-      from_display_name?: string;
-      from_avatar_url?: string;
-      to_user_id: string;
-      to_username: string;
-      to_display_name?: string;
-      to_avatar_url?: string;
-      created_at: string;
-    };
-
-    const unsubFriendRequestReceived = wsService.on(
-      'friend_request_received',
-      (msg: WebSocketMessage) => {
-        const data = msg.data as FriendRequestPayload;
-        // Runtime guard: the cast above is not runtime-validated. Refuse
-        // request payloads that are missing the minimum set of fields rather
-        // than polluting the friend-request list with partial records.
-        if (
-          typeof data.id !== 'string' ||
-          typeof data.from_user_id !== 'string' ||
-          typeof data.to_user_id !== 'string' ||
-          typeof data.created_at !== 'string'
-        ) {
-          // eslint-disable-next-line no-restricted-syntax -- msg is a server-supplied WS payload object, not an Error; logged for diagnostics (no err.cause propagation risk)
-          console.error('friend_request_received: malformed payload', msg);
-          return;
-        }
-        useFriendStore.getState().addRequest({
+    // msg.data narrowed to FriendRequestPayload via the FriendRequestReceivedSchema.
+    // id, from_user_id, from_username, created_at are schema-required.
+    //
+    // NOTE(#981): to_user_id and to_username are .optional() in the schema
+    // pending the server-side fix that emits them. Until that lands, drop
+    // records missing the to_* fields rather than polluting the request
+    // list with one-sided records. Once #981 is fixed (server emits
+    // to_* fields), tighten the schema to required and remove this guard.
+    const unsubFriendRequestReceived = wsService.on('friend_request_received', (msg) => {
+      const data = msg.data;
+      if (!data.to_user_id || !data.to_username) {
+        // PII-minimization (CWE-532): never log the full payload — it carries
+        // from_username / from_display_name / from_avatar_url. Emit only the
+        // request id + structural flags identifying which to_* fields were
+        // missing. See internal-reference
+        console.warn('friend_request_received: missing to_* fields (see #981)', {
           id: data.id,
-          fromUserId: data.from_user_id,
-          fromUsername: data.from_username,
-          fromDisplayName: data.from_display_name,
-          fromAvatarUrl: data.from_avatar_url,
-          toUserId: data.to_user_id,
-          toUsername: data.to_username,
-          toDisplayName: data.to_display_name,
-          toAvatarUrl: data.to_avatar_url,
-          direction: 'received',
-          createdAt: data.created_at,
+          has_to_user_id: !!data.to_user_id,
+          has_to_username: !!data.to_username,
         });
-
-        // Notification sound for friend request
-        notificationSoundService.play('friend-request');
+        return;
       }
-    );
+      useFriendStore.getState().addRequest({
+        id: data.id,
+        fromUserId: data.from_user_id,
+        fromUsername: data.from_username,
+        fromDisplayName: data.from_display_name ?? undefined,
+        fromAvatarUrl: data.from_avatar_url ?? undefined,
+        toUserId: data.to_user_id,
+        toUsername: data.to_username,
+        toDisplayName: data.to_display_name ?? undefined,
+        toAvatarUrl: data.to_avatar_url ?? undefined,
+        direction: 'received',
+        createdAt: data.created_at,
+      });
 
-    const unsubFriendRequestAccepted = wsService.on(
-      'friend_request_accepted',
-      (msg: WebSocketMessage) => {
-        const data = msg.data as {
-          request_id?: string;
-          id?: string;
-          friend?: FriendPayload;
-          user_id?: string;
-          username?: string;
-          display_name?: string;
-          avatar_url?: string;
-          color_scheme?: string;
-        };
-        const store = useFriendStore.getState();
+      // Notification sound for friend request
+      notificationSoundService.play('friend-request');
+    });
 
-        // Remove the pending request (backend sends "id", not "request_id")
-        const requestId = data.request_id || data.id;
-        if (requestId) {
-          store.removeRequest(requestId);
-        }
+    // msg.data narrowed to FriendRequestAcceptedPayload. Schema is permissive
+    // (flat + nested forms both accepted). Handler branches on which form
+    // arrived. Backend currently emits flat form.
+    const unsubFriendRequestAccepted = wsService.on('friend_request_accepted', (msg) => {
+      const data = msg.data;
+      const store = useFriendStore.getState();
 
-        // Add the new friend — handle both nested and flat payload formats.
-        // Backend currently sends flat fields (user_id, username, etc.)
-        // for the user who accepted the request.
-        if (data.friend) {
-          store.addFriend({
-            id: data.friend.id,
-            userId: data.friend.user_id,
-            username: data.friend.username,
-            displayName: data.friend.display_name,
-            avatarUrl: data.friend.avatar_url,
-            colorScheme: data.friend.color_scheme,
-            status: data.friend.status || 'offline',
-          });
-        } else if (data.user_id && data.username) {
-          store.addFriend({
-            id: requestId || '',
-            userId: data.user_id,
-            username: data.username,
-            displayName: data.display_name,
-            avatarUrl: data.avatar_url,
-            colorScheme: data.color_scheme,
-            status: 'online',
-          });
-        }
+      // Remove the pending request (backend sends "id", not "request_id")
+      const requestId = data.request_id || data.id;
+      if (requestId) {
+        store.removeRequest(requestId);
       }
-    );
 
-    const unsubFriendRemoved = wsService.on('friend_removed', (msg: WebSocketMessage) => {
-      const data = msg.data as { user_id?: string };
-      if (data.user_id) {
-        useFriendStore.getState().removeFriendByUserId(data.user_id);
+      // Add the new friend — handle both nested and flat payload formats.
+      if (data.friend) {
+        store.addFriend({
+          id: data.friend.id,
+          userId: data.friend.user_id,
+          username: data.friend.username,
+          displayName: data.friend.display_name ?? undefined,
+          avatarUrl: data.friend.avatar_url ?? undefined,
+          colorScheme: data.friend.color_scheme ?? undefined,
+          status: data.friend.status || 'offline',
+        });
+      } else if (data.user_id && data.username) {
+        store.addFriend({
+          id: requestId || '',
+          userId: data.user_id,
+          username: data.username,
+          displayName: data.display_name ?? undefined,
+          avatarUrl: data.avatar_url ?? undefined,
+          colorScheme: data.color_scheme ?? undefined,
+          status: 'online',
+        });
       }
     });
 
-    const unsubFriendCodeClaimed = wsService.on('friend_code_claimed', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        status?: string;
-        friend?: FriendPayload;
-        request?: FriendRequestPayload;
-      };
+    // msg.data narrowed to FriendRemovedPayload — user_id is schema-required.
+    const unsubFriendRemoved = wsService.on('friend_removed', (msg) => {
+      useFriendStore.getState().removeFriendByUserId(msg.data.user_id);
+    });
+
+    // msg.data narrowed to FriendCodeClaimedPayload.
+    // Known bug per ws-events.ts FriendCodeClaimedSchema comment: server
+    // emits FLAT claimer fields but this handler currently only handles
+    // the NESTED `friend`/`request` form. Schema accepts both shapes;
+    // handler short-circuits silently on flat-form. Phase E follow-up tracks
+    // wiring up flat-form admission.
+    const unsubFriendCodeClaimed = wsService.on('friend_code_claimed', (msg) => {
+      const data = msg.data;
       const store = useFriendStore.getState();
 
       if (data.status === 'accepted' && data.friend) {
@@ -1656,23 +1373,24 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
           id: data.friend.id,
           userId: data.friend.user_id,
           username: data.friend.username,
-          displayName: data.friend.display_name,
-          avatarUrl: data.friend.avatar_url,
-          colorScheme: data.friend.color_scheme,
+          displayName: data.friend.display_name ?? undefined,
+          avatarUrl: data.friend.avatar_url ?? undefined,
+          colorScheme: data.friend.color_scheme ?? undefined,
           status: data.friend.status || 'offline',
         });
       } else if (data.status === 'pending' && data.request) {
-        // Pending: add to incoming requests
+        // Pending: add to incoming requests. to_* fields may be missing per
+        // #981 — fall back to empty string.
         store.addRequest({
           id: data.request.id,
           fromUserId: data.request.from_user_id,
           fromUsername: data.request.from_username,
-          fromDisplayName: data.request.from_display_name,
-          fromAvatarUrl: data.request.from_avatar_url,
-          toUserId: data.request.to_user_id,
-          toUsername: data.request.to_username,
-          toDisplayName: data.request.to_display_name,
-          toAvatarUrl: data.request.to_avatar_url,
+          fromDisplayName: data.request.from_display_name ?? undefined,
+          fromAvatarUrl: data.request.from_avatar_url ?? undefined,
+          toUserId: data.request.to_user_id ?? '',
+          toUsername: data.request.to_username ?? '',
+          toDisplayName: data.request.to_display_name ?? undefined,
+          toAvatarUrl: data.request.to_avatar_url ?? undefined,
           direction: 'received',
           createdAt: data.request.created_at,
         });
@@ -1684,17 +1402,10 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // ── DM voice state update handler ────────────────────────────────────
 
-    const unsubDMVoiceState = wsService.on('dm_voice_state_update', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        conversation_id?: string;
-        action: string;
-        user_id?: string;
-      };
-      const conversationId = data.conversation_id;
-      const action = data.action; // 'joined' | 'left' | 'room_empty' | enforcement actions
-      const userId = data.user_id;
-
-      if (!conversationId) return;
+    // msg.data narrowed to DMVoiceStateUpdatePayload — conversation_id + action
+    // are schema-required (UUID + VoiceActionSchema enum).
+    const unsubDMVoiceState = wsService.on('dm_voice_state_update', (msg) => {
+      const { conversation_id: conversationId, action, user_id: userId } = msg.data;
 
       console.debug('[WebSocket] DM voice state update:', action, conversationId, userId);
 
@@ -1730,17 +1441,15 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
     });
 
     // Subscribed confirmation handler
-    const unsubSubscribed = wsService.on('subscribed', (msg: WebSocketMessage) => {
+    const unsubSubscribed = wsService.on('subscribed', (msg) => {
+      // msg.data is narrowed to SubscribedPayload via generic on()
       console.debug('[WebSocket] Subscribed to channel:', msg.data.channel_id);
     });
 
-    // Error handler
-    const unsubError = wsService.on('error', (msg: WebSocketMessage) => {
-      const data = msg.data as {
-        code?: string;
-        channel_id?: string;
-        current_epoch?: number;
-      };
+    // Error handler — msg.data narrowed to ErrorPayload. All fields are
+    // schema-optional; handler branches on the `epoch_revoked` code shape.
+    const unsubError = wsService.on('error', (msg) => {
+      const data = msg.data;
       if (data.code === 'epoch_revoked' && data.channel_id) {
         console.warn('[WebSocket] Epoch revoked for channel', data.channel_id, '→ re-fetching key');
         e2eeService.invalidateChannelKey(data.channel_id);

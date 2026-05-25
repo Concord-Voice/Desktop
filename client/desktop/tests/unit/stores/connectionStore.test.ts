@@ -13,6 +13,7 @@ describe('connectionStore', () => {
     expect(state.lostAt).toBeNull();
     expect(state.lastVoiceChannelId).toBeNull();
     expect(state.recoveryAttempts).toBe(0);
+    expect(state.wireViolationCount).toBe(0);
   });
 
   it('transitions to grace_period and sets lostAt', () => {
@@ -70,10 +71,27 @@ describe('connectionStore', () => {
     expect(useConnectionStore.getState().recoveryAttempts).toBe(2);
   });
 
+  it('increments wire violation count by 1 per call', () => {
+    useConnectionStore.getState().incrementWireViolation();
+    expect(useConnectionStore.getState().wireViolationCount).toBe(1);
+    useConnectionStore.getState().incrementWireViolation();
+    useConnectionStore.getState().incrementWireViolation();
+    expect(useConnectionStore.getState().wireViolationCount).toBe(3);
+  });
+
+  it('reset() clears wireViolationCount', () => {
+    useConnectionStore.getState().incrementWireViolation();
+    useConnectionStore.getState().incrementWireViolation();
+    expect(useConnectionStore.getState().wireViolationCount).toBe(2);
+    useConnectionStore.getState().reset();
+    expect(useConnectionStore.getState().wireViolationCount).toBe(0);
+  });
+
   it('resets all state', () => {
     useConnectionStore.getState().startGracePeriod();
     useConnectionStore.getState().setLastVoiceChannelId('voice-1');
     useConnectionStore.getState().incrementRecoveryAttempts();
+    useConnectionStore.getState().incrementWireViolation();
     useConnectionStore.getState().setDiagnostics({
       internet: 'failed',
       serverReachable: 'failed',
@@ -90,6 +108,7 @@ describe('connectionStore', () => {
     expect(state.lostAt).toBeNull();
     expect(state.lastVoiceChannelId).toBeNull();
     expect(state.recoveryAttempts).toBe(0);
+    expect(state.wireViolationCount).toBe(0);
   });
 
   it('supports full recovery phase flow', () => {

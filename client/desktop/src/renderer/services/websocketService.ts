@@ -15,7 +15,14 @@
 
 import { WS_BASE } from '../config';
 import { useAuthStore } from '../stores/authStore';
+import { useConnectionStore } from '../stores/connectionStore';
 import { errorMessage, errorName } from '../utils/redactError';
+import {
+  WebSocketEventSchema,
+  scrubZodIssues,
+  type WebSocketEvent,
+  type WSEventType,
+} from '../types/ws-events';
 
 // ─── Connection-boundary validation (defense-in-depth) ────────────────────
 //
@@ -67,20 +74,33 @@ export enum ConnectionState {
   ERROR = 'error',
 }
 
-export interface WebSocketMessage {
+/**
+ * Outgoing command surface — what the client SENDS to the server. Loose-typed
+ * for now; typing this side with a discriminated union (symmetric to incoming
+ * WebSocketEvent) is out of scope for #709 and tracked as a follow-up issue.
+ */
+interface OutgoingWebSocketCommand {
   type: string;
-  // Untyped JSON payload from the server. Handlers must narrow at the
-  // boundary (e.g. `const channelId = data.channel_id as string | undefined`)
-  // or validate via a type guard.
   data: Record<string, unknown>;
 }
+
+/**
+ * @deprecated Use `WebSocketEvent` from '../types/ws-events' instead — it
+ * carries the same shape but as a discriminated union (validated at dispatch).
+ * This alias preserves source-compat for existing handler call sites while the
+ * Phase C migration drops the explicit annotation in favor of TS inference
+ * from the generic `on<T>()` signature. Remove this alias after Phase C9's
+ * final cast-removal sweep — tracked in
+ * {@link https://github.com/markdrogersjr/Concord/issues/1185 #1185}.
+ */
+export type WebSocketMessage = WebSocketEvent;
 
 export interface ConnectionInfo {
   clientId: string;
   userId: string;
 }
 
-type MessageHandler = (message: WebSocketMessage) => void;
+type MessageHandler = (message: WebSocketEvent) => void;
 type ConnectionHandler = (state: ConnectionState) => void;
 
 /**
@@ -237,9 +257,13 @@ export class WebSocketService {
   }
 
   /**
-   * Send a message to the WebSocket server
+   * Send an outgoing command to the WebSocket server.
+   *
+   * Outgoing commands currently use OutgoingWebSocketCommand's permissive
+   * shape. The stricter discriminated-union follow-up is tracked separately
+   * from #709.
    */
-  send(message: WebSocketMessage): void {
+  send(message: OutgoingWebSocketCommand): void {
     if (this.ws?.readyState !== WebSocket.OPEN) {
       // Subscription lifecycle messages are expected when WS isn't open (startup, teardown)
       const subTypes = ['subscribe', 'subscribe_server', 'unsubscribe', 'unsubscribe_server'];
@@ -487,22 +511,44 @@ export class WebSocketService {
   }
 
   /**
-   * Add a message handler for a specific message type
+   * Add a message handler for a specific event type.
+   *
+   * The generic `T` is inferred from the `messageType` literal at the call
+   * site, and TypeScript narrows the handler's `event` parameter to the
+   * matching schema's payload via `Extract<WebSocketEvent, { type: T }>`.
+   *
+   * Runtime validation happens BEFORE handler dispatch (see handleMessage).
+   * Handlers can rely on event.data conforming to the schema — no defensive
+   * `if (!field)` checks needed for schema-required fields.
+   *
+   * @example
+   *   wsService.on('dm_message', (event) => {
+   *     // event.data is typed as DMMessagePayload — no cast required
+   *     useDMStore.getState().receive(event.data.conversation_id, event.data.content);
+   *   });
    */
-  on(messageType: string, handler: MessageHandler): () => void {
+  on<T extends WSEventType>(
+    messageType: T,
+    handler: (event: Extract<WebSocketEvent, { type: T }>) => void
+  ): () => void {
     let handlers = this.messageHandlers.get(messageType);
     if (!handlers) {
       handlers = new Set();
       this.messageHandlers.set(messageType, handlers);
     }
 
-    handlers.add(handler);
+    // The handler's parameter type is narrower than MessageHandler — the
+    // internal Map stores broader types and we narrow at dispatch via the
+    // type discriminator. Cast is safe because handleMessage only invokes a
+    // handler with an event whose `type` matches the handler's registration
+    // key (post-safeParse).
+    handlers.add(handler as MessageHandler);
 
     // Return unsubscribe function
     return () => {
       const handlers = this.messageHandlers.get(messageType);
       if (handlers) {
-        handlers.delete(handler);
+        handlers.delete(handler as MessageHandler);
         if (handlers.size === 0) {
           this.messageHandlers.delete(messageType);
         }
@@ -675,51 +721,103 @@ export class WebSocketService {
   }
 
   private handleMessage(event: MessageEvent): void {
+    // ── 1. JSON parse (transport-level failure: log + drop, no counter) ────
+    let raw: unknown;
     try {
-      const message: WebSocketMessage = JSON.parse(event.data);
-
-      // Handle special message types
-      switch (message.type) {
-        case 'connected':
-          this.connectionInfo = {
-            clientId: message.data.client_id as string,
-            userId: message.data.user_id as string,
-          };
-          console.debug('[WebSocket] connected:', this.connectionInfo);
-
-          // Create a fresh connection-ready promise BEFORE sending the probe
-          // so consumers that subscribe now observe the unresolved state.
-          this.createConnectionReadyPromise();
-
-          // Resubscribe to channels after reconnect (task 5 adds probe emission here)
-          this.resubscribeChannels();
-
-          // Now that handshake is complete, mark as connected
-          this.setState(ConnectionState.CONNECTED);
-          break;
-
-        case 'error':
-          console.error('WebSocket server error:', message.data);
-          break;
-
-        case 'connection_ready':
-          this.resolveConnectionReady();
-          break;
-      }
-
-      // Notify message handlers
-      const handlers = this.messageHandlers.get(message.type);
-      if (handlers) {
-        for (const handler of handlers) {
-          try {
-            handler(message);
-          } catch (error) {
-            console.error('Error in message handler:', errorMessage(error));
-          }
-        }
-      }
+      raw = JSON.parse(event.data);
     } catch (error) {
       console.error('Failed to parse WebSocket message:', errorMessage(error));
+      return;
+    }
+
+    // ── 2. Schema validation at the trust boundary ────────────────────────
+    // PII-scrubbing invariant: the log call MUST use scrubZodIssues() so the
+    // rejected payload's `received` field (which can carry PII — DM content,
+    // usernames, avatar URLs) does NOT flow into the log sink.
+    // See internal-reference and the sentinel-string test in
+    // tests/unit/services/websocketService.dispatch.test.ts.
+    const parsed = WebSocketEventSchema.safeParse(raw);
+    if (!parsed.success) {
+      const rawType =
+        typeof raw === 'object' && raw !== null && 'type' in raw
+          ? String((raw as { type?: unknown }).type)
+          : '<unknown>';
+      // Discriminator-mismatch produces issues[0].code === 'invalid_union' in
+      // zod 4.x (the pre-4 name was 'invalid_union_discriminator'). When the
+      // discriminator value isn't in the union's literal list, this is the
+      // "unknown event type" case — client may be outdated relative to server.
+      const isUnknownType = parsed.error.issues.some((i) => i.code === 'invalid_union');
+      // Format-string injection defense (CWE-134): keep the prefix string a
+      // constant literal; never interpolate the server-supplied `rawType` into
+      // the format string itself. console.error treats argument 1 as a printf-
+      // like format string, so a `rawType` containing `%s`/`%d` would consume
+      // the second argument unexpectedly. The structured object below carries
+      // `rawType` as a typed field, where it's safe.
+      const logPrefix = isUnknownType
+        ? '[WS] unknown event type — client may be outdated'
+        : '[WS] wire violation';
+      // eslint-disable-next-line no-restricted-syntax -- structured metadata only (PII-scrubbed); not an Error object
+      console.error(logPrefix, {
+        type: rawType,
+        issues: scrubZodIssues(parsed.error.issues),
+      });
+      useConnectionStore.getState().incrementWireViolation();
+      return;
+    }
+    const message: WebSocketEvent = parsed.data;
+
+    // ── 3. Internal handling for envelope-level event types ───────────────
+    // These are consumed by wsService itself, not by wsService.on() subscribers.
+    // The schema-narrowed `message.data.<field>` accesses are now type-safe
+    // (no `as string` casts) because ConnectedSchema / ConnectionReadySchema
+    // are in WebSocketEventSchema.
+    switch (message.type) {
+      case 'connected':
+        this.connectionInfo = {
+          clientId: message.data.client_id,
+          userId: message.data.user_id,
+        };
+        // Reset the wire-violation counter at the start of each fresh
+        // connection. Per-connection reset (not cumulative across reconnects)
+        // produces an actionable session-level drift signal, not one inflated
+        // by reconnect storms during network outages.
+        useConnectionStore.setState({ wireViolationCount: 0 });
+        console.debug('[WebSocket] connected:', this.connectionInfo);
+
+        // Create a fresh connection-ready promise BEFORE sending the probe
+        // so consumers that subscribe now observe the unresolved state.
+        this.createConnectionReadyPromise();
+
+        // Resubscribe to channels after reconnect (task 5 adds probe emission here)
+        this.resubscribeChannels();
+
+        // Now that handshake is complete, mark as connected
+        this.setState(ConnectionState.CONNECTED);
+        break;
+
+      case 'error':
+        // eslint-disable-next-line no-restricted-syntax -- message.data is server-supplied payload object (not Error); logged for diagnostics
+        console.error('WebSocket server error:', message.data);
+        break;
+
+      case 'connection_ready':
+        this.resolveConnectionReady();
+        break;
+    }
+
+    // ── 4. Dispatch to subscriber handlers ────────────────────────────────
+    // Per-handler try/catch isolates exceptions — one buggy handler can't
+    // break others for the same event type. Validation failures (above)
+    // never reach this loop, so handlers can rely on schema-guaranteed shape.
+    const handlers = this.messageHandlers.get(message.type);
+    if (handlers) {
+      for (const handler of handlers) {
+        try {
+          handler(message);
+        } catch (error) {
+          console.error('Error in message handler:', errorMessage(error));
+        }
+      }
     }
   }
 

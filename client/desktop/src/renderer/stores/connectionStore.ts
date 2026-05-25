@@ -32,6 +32,21 @@ interface ConnectionState {
   /** Number of recovery attempts in this disconnection episode */
   recoveryAttempts: number;
 
+  /**
+   * Cumulative count of WebSocket payloads rejected by schema validation
+   * since the current connection was established. Resets to 0 on every
+   * fresh connection (handled by the 'connected' envelope event in
+   * websocketService.handleMessage, via `useConnectionStore.setState({ wireViolationCount: 0 })`).
+   *
+   * Surface: no UI today. Read via useConnectionStore.getState().wireViolationCount
+   * for debug-panel visibility (future). Persistent non-zero values during a
+   * session indicate server/client schema drift; the per-event `[WS] wire violation`
+   * log entries reveal which event types are drifting.
+   *
+   * @see internal-reference §5
+   */
+  wireViolationCount: number;
+
   /** Start the grace period (called when WS transitions to RECONNECTING) */
   startGracePeriod: () => void;
 
@@ -56,6 +71,12 @@ interface ConnectionState {
   /** Increment recovery attempt counter */
   incrementRecoveryAttempts: () => void;
 
+  /**
+   * Increment the wire-violation counter. Called from wsService.handleMessage
+   * when WebSocketEventSchema.safeParse rejects an incoming payload.
+   */
+  incrementWireViolation: () => void;
+
   /** Reset everything (called when connection is restored or session resets) */
   reset: () => void;
 }
@@ -66,6 +87,7 @@ export const useConnectionStore = createStore<ConnectionState>()((set) => ({
   lostAt: null,
   lastVoiceChannelId: null,
   recoveryAttempts: 0,
+  wireViolationCount: 0,
 
   startGracePeriod: () =>
     set({
@@ -102,6 +124,11 @@ export const useConnectionStore = createStore<ConnectionState>()((set) => ({
       recoveryAttempts: s.recoveryAttempts + 1,
     })),
 
+  incrementWireViolation: () =>
+    set((s) => ({
+      wireViolationCount: s.wireViolationCount + 1,
+    })),
+
   reset: () =>
     set({
       phase: 'stable',
@@ -109,5 +136,6 @@ export const useConnectionStore = createStore<ConnectionState>()((set) => ({
       lostAt: null,
       lastVoiceChannelId: null,
       recoveryAttempts: 0,
+      wireViolationCount: 0,
     }),
 }));

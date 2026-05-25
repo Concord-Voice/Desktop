@@ -38,7 +38,7 @@ Full analysis was performed during Phase 1A architecture decisions (internal).
 | **serverStore** | Server list, active server | ✅ active server ID | 1A |
 | **userStore** | User profile, preferences | ❌ | 1A |
 | **channelStore** | Channel list, active channel | ✅ active channel ID | 1B |
-| **connectionStore** | WebSocket connection state | ❌ | 1B |
+| **connectionStore** | WebSocket connection state + `wireViolationCount` (PR #1184) | ❌ | 1B |
 | **memberStore** | Server members, roles | ❌ | 1B |
 | **layoutStore** | UI layout state (sidebar, panels) | ✅ partial | 1B |
 | **settingsStore** | App settings, theme, font scale | ✅ | 1B |

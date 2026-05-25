@@ -82,9 +82,15 @@ async function connectAndWaitForOpen(
 }
 
 function markConnected(ws: MockWebSocket) {
+  // client_id + user_id must be valid UUIDs (ConnectedSchema in ws-events.ts
+  // tightens both to UUID); non-UUID values are rejected by safeParse at the
+  // dispatch boundary and never reach the CONNECTED-state transition.
   ws.simulateMessage({
     type: 'connected',
-    data: { client_id: 'c1', user_id: 'u1' },
+    data: {
+      client_id: '11111111-1111-4111-8111-111111111111',
+      user_id: '22222222-2222-4222-8222-222222222222',
+    },
   });
 }
 
@@ -384,10 +390,10 @@ describe('WebSocketService — extended', () => {
       const errorHandler = vi.fn(() => {
         throw new Error('Handler crashed');
       });
-      service.on('test_type', errorHandler);
+      service.on('subscribed', errorHandler);
 
       const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-      ws.simulateMessage({ type: 'test_type', data: {} });
+      ws.simulateMessage({ type: 'subscribed', data: {} });
       errorSpy.mockRestore();
 
       expect(errorHandler).toHaveBeenCalled();
