@@ -1,41 +1,68 @@
 #!/bin/bash
-# Patch Electron's helper app Info.plist files with NSMicrophoneUsageDescription
-# and NSCameraUsageDescription keys. Required for macOS TCC to allow getUserMedia
-# in dev mode (the renderer helper process calls getUserMedia, not the main process).
+# Post-install hook with two responsibilities:
 #
-# Without these keys, macOS kills the process with SIGABRT before any JS error
-# handling can kick in. This runs automatically via npm postinstall.
+#   1. Cross-platform: trigger Electron's lazy-download install so that
+#      node_modules/electron/path.txt exists. Required for `electron/index.js`
+#      to load successfully at vitest module-graph resolution time, even when
+#      tests mock electron (the mock applies AFTER node resolves the path).
+#      Electron 42+ no longer auto-runs its install.js as part of npm
+#      postinstall; we trigger it explicitly here.
+#
+#   2. macOS-only: patch Electron's helper-app Info.plist files with
+#      NSMicrophoneUsageDescription and NSCameraUsageDescription. Required
+#      for macOS TCC to allow getUserMedia in dev mode (the renderer helper
+#      process calls getUserMedia, not the main process). Without these keys,
+#      macOS kills the process with SIGABRT before any JS error handling can
+#      kick in.
+#
+# Runs automatically via npm postinstall.
 
 set -euo pipefail
 
 ELECTRON_APP="node_modules/electron/dist/Electron.app"
+ELECTRON_PATH_TXT="node_modules/electron/path.txt"
 
-if [ "$(uname)" != "Darwin" ]; then
-  echo "[patch-electron-plist] Not macOS, skipping"
-  exit 0
-fi
-
-# Electron 42+ downloads Electron.app lazily; deliberately force install here so postinstall can patch it.
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 1: Cross-platform — ensure Electron binary is installed so path.txt
+# exists. Without this, vitest on Linux flakes: `electron/index.js` reads
+# path.txt at module-load time (before vi.mock can take effect), and missing
+# path.txt triggers an in-process download that races with parallel test
+# files.
 #
 # Note on concurrency: @electron/get does NOT lock its cache directory. The
-# cache is GLOBAL (~/Library/Caches/electron/ on macOS, via envPaths()), so the
-# race surface is any concurrent `npm install` on the same machine that pulls
-# Electron — NOT just within the same node_modules/. This is safe today because
-# Concord CI runners have clean filesystems and no concurrent Electron-pulling
-# jobs. If that changes (e.g., shared self-hosted runners, parallel dep-bumps),
-# behavior becomes undefined and this assumption needs to be revisited. See
-# #983 for the underlying analysis.
-if [ ! -d "$ELECTRON_APP" ] && [ -x "node_modules/.bin/install-electron" ]; then
-  echo "[patch-electron-plist] Electron.app not present (v42+ lazy download); triggering install-electron..."
-  if ! node_modules/.bin/install-electron; then
-    rc=$?
-    echo "[patch-electron-plist] install-electron failed (rc=$rc); macOS dev launches will SIGABRT until resolved" >&2
-    exit "$rc"
+# cache is GLOBAL (~/Library/Caches/electron/ on macOS, ~/.cache/electron/ on
+# Linux, via envPaths()), so the race surface is any concurrent `npm install`
+# on the same machine that pulls Electron — NOT just within the same
+# node_modules/. This is safe today because Concord CI runners have clean
+# filesystems and no concurrent Electron-pulling jobs. If that changes (e.g.,
+# shared self-hosted runners, parallel dep-bumps), behavior becomes undefined
+# and this assumption needs to be revisited. See #983 for the underlying
+# analysis.
+if [ ! -f "$ELECTRON_PATH_TXT" ] && [ -x "node_modules/.bin/install-electron" ]; then
+  echo "[patch-electron-plist] electron/path.txt not present (v42+ lazy download); triggering install-electron..."
+  # Disable set -e locally so we can capture the real exit code; in the prior
+  # `if ! cmd; then rc=$?; fi` shape, $? was the status of the negated `! cmd`
+  # (always 0 on failure), making the fail-closed branch never fire (Copilot
+  # review on #1204 caught this).
+  set +e
+  node_modules/.bin/install-electron
+  install_rc=$?
+  set -e
+  if [ "$install_rc" -ne 0 ]; then
+    echo "[patch-electron-plist] install-electron failed (rc=$install_rc); test/dev launches will fail until resolved" >&2
+    exit "$install_rc"
   fi
 fi
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 2: macOS-only — Info.plist patching for TCC getUserMedia consent.
+if [ "$(uname)" != "Darwin" ]; then
+  echo "[patch-electron-plist] Not macOS, skipping Info.plist patch"
+  exit 0
+fi
+
 if [ ! -d "$ELECTRON_APP" ]; then
-  echo "[patch-electron-plist] Electron.app not found, skipping"
+  echo "[patch-electron-plist] Electron.app not found, skipping Info.plist patch"
   exit 0
 fi
 
