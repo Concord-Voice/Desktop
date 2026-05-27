@@ -178,20 +178,10 @@ describe('PinnedMessagesPanel', () => {
     });
   });
 
-  it('truncates long message content', async () => {
-    const longContent = 'A'.repeat(250);
-    await enableE2EE();
-    mockGetChannelKey.mockResolvedValue({} as CryptoKey);
-    mockDecryptWithKey.mockResolvedValueOnce(longContent);
-    mockGetChannelPins.mockResolvedValue([{ ...mockPins[0], content: longContent }]);
-
-    render(<PinnedMessagesPanel {...defaultProps} />);
-
-    await waitFor(() => {
-      const contentEl = document.querySelector('.pinned-message-content');
-      expect(contentEl?.textContent).toHaveLength(203); // 200 + "..."
-    });
-  });
+  // Truncation test removed in #805: the new PinContent component delegates
+  // long-text handling to MarkdownContent (which respects markdown boundaries)
+  // and the panel's CSS height clamp, rather than a fixed character cap that
+  // would corrupt markdown formatting at the cut point.
 
   describe('E2EE decryption', () => {
     const encryptedPin: MessageWithUser = {

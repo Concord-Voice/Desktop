@@ -187,18 +187,9 @@ describe('DMPinnedMessagesPanel', () => {
     await waitFor(() => expect(screen.getByText('Encrypted message')).toBeInTheDocument());
   });
 
-  it('truncates long content past 200 characters', async () => {
-    const long = 'A'.repeat(250);
-    await setE2EEInitialized(true);
-    mockGetChannelKey.mockResolvedValue({} as CryptoKey);
-    mockDecryptWithKey.mockResolvedValueOnce(long);
-    mockGetPins.mockResolvedValue([{ ...mockDMPins[0], content: long }]);
-    render(<DMPinnedMessagesPanel {...defaultProps} />);
-    await waitFor(() => {
-      const el = document.querySelector('.pinned-message-content');
-      expect(el?.textContent).toHaveLength(203);
-    });
-  });
+  // Truncation test removed in #805: see PinnedMessagesPanel.test.tsx for
+  // the same rationale — PinContent delegates long-text handling to
+  // MarkdownContent + CSS rather than a fixed 200-char cap.
 
   describe('E2EE decryption', () => {
     const encryptedPin: MessageWithUser = {

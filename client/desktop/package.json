@@ -1,7 +1,7 @@
 {
   "name": "@concordvoice/desktop",
   "productName": "Concord Voice",
-  "version": "0.1.46",
+  "version": "0.1.47",
   "description": "Concord Voice Desktop Client - Privacy-first voice communication",
   "main": "dist/main/main.js",
   "author": "Concord Voice Team",
@@ -108,7 +108,7 @@
   "overrides": {
     "tar": "^7.5.11",
     "@tootallnate/once": "^3.0.1",
-    "tmp": "^0.2.5",
+    "tmp": "^0.2.6",
     "serialize-javascript": "^7.0.3",
     "minimatch": "^9.0.7",
     "rollup": "^4.59.0",

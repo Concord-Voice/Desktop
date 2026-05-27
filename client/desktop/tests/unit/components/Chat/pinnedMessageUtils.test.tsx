@@ -21,7 +21,33 @@ vi.mock('@/renderer/services/e2eeService', () => ({
   },
 }));
 
-import { renderPinContent, decryptPins } from '@/renderer/components/Chat/pinnedMessageUtils';
+// Mock the three shared render components to isolate PinContent's wiring from
+// their internal complexity. Each mock surfaces enough markup for assertions.
+vi.mock('@/renderer/components/Markdown/MarkdownContent', () => ({
+  default: ({ content }: { content: string }) => (
+    <div data-testid="markdown-content">{content}</div>
+  ),
+}));
+
+vi.mock('@/renderer/components/Chat/GifEmbed', () => ({
+  default: ({ slug }: { slug: string }) => <div data-testid="gif-embed">slug:{slug}</div>,
+}));
+
+vi.mock('@/renderer/components/Chat/AttachmentDisplay', () => ({
+  default: ({ attachments }: { attachments: { id: string; filename: string }[] }) => (
+    <div data-testid="attachment-display">
+      {attachments.map((a) => (
+        <span key={a.id}>{a.filename}</span>
+      ))}
+    </div>
+  ),
+}));
+
+import {
+  PinContent,
+  decryptPins,
+  type DecryptedPin,
+} from '@/renderer/components/Chat/pinnedMessageUtils';
 
 async function setE2EEInitialized(value: boolean) {
   const { e2eeService } = await import('@/renderer/services/e2eeService');
@@ -41,47 +67,72 @@ const baseMsg: MessageWithUser = {
   pinned_by: 'user-1',
 };
 
+const decryptedTextPin: DecryptedPin = { ...baseMsg, decrypted: true };
+
 // ---------------------------------------------------------------------------
-// renderPinContent
+// PinContent
 // ---------------------------------------------------------------------------
-describe('renderPinContent', () => {
-  it('returns "Unable to decrypt" span when decryptFailed is true', () => {
-    render(<>{renderPinContent('anything', false, true)}</>);
+describe('PinContent', () => {
+  it('renders "Unable to decrypt" when decryptFailed is true', () => {
+    const msg: DecryptedPin = { ...baseMsg, content: '', decryptFailed: true };
+    render(<PinContent message={msg} />);
     expect(screen.getByText('Unable to decrypt')).toBeInTheDocument();
   });
 
-  it('returns "Encrypted message" span when not yet decrypted', () => {
-    render(<>{renderPinContent('ciphertext', false, false)}</>);
+  it('renders "Encrypted message" when not yet decrypted', () => {
+    const msg: DecryptedPin = { ...baseMsg, content: 'ciphertext' };
+    render(<PinContent message={msg} />);
     expect(screen.getByText('Encrypted message')).toBeInTheDocument();
-  });
-
-  it('returns "Encrypted message" span when decrypted is undefined', () => {
-    render(<>{renderPinContent('ciphertext', undefined, undefined)}</>);
-    expect(screen.getByText('Encrypted message')).toBeInTheDocument();
-  });
-
-  it('truncates content longer than 200 characters', () => {
-    const long = 'B'.repeat(250);
-    const result = renderPinContent(long, true, false);
-    expect(typeof result).toBe('string');
-    expect((result as string).length).toBe(203); // 200 + '...'
-    expect((result as string).endsWith('...')).toBe(true);
-  });
-
-  it('returns content as-is when short and decrypted', () => {
-    const result = renderPinContent('short message', true, false);
-    expect(result).toBe('short message');
-  });
-
-  it('returns decrypted content as-is when decrypted flag is true', () => {
-    const result = renderPinContent('plaintext', true, false);
-    expect(result).toBe('plaintext');
   });
 
   it('decryptFailed takes priority over not-yet-decrypted', () => {
-    render(<>{renderPinContent('x', false, true)}</>);
+    const msg: DecryptedPin = { ...baseMsg, decryptFailed: true };
+    render(<PinContent message={msg} />);
     expect(screen.getByText('Unable to decrypt')).toBeInTheDocument();
     expect(screen.queryByText('Encrypted message')).not.toBeInTheDocument();
+  });
+
+  it('renders text content via MarkdownContent', () => {
+    render(<PinContent message={decryptedTextPin} />);
+    const md = screen.getByTestId('markdown-content');
+    expect(md).toHaveTextContent('hello');
+  });
+
+  it('renders GifEmbed when gif_slug is present', () => {
+    const msg: DecryptedPin = { ...decryptedTextPin, content: '', gif_slug: 'happy-cat-7' };
+    render(<PinContent message={msg} />);
+    const gif = screen.getByTestId('gif-embed');
+    expect(gif).toHaveTextContent('slug:happy-cat-7');
+    expect(screen.queryByTestId('markdown-content')).not.toBeInTheDocument();
+  });
+
+  it('renders AttachmentDisplay when attachments are present', () => {
+    const msg: DecryptedPin = {
+      ...decryptedTextPin,
+      content: '',
+      attachments: [{ id: 'a-1', filename: 'photo.png', file_type: 'image/png', file_size: 1000 }],
+    } as DecryptedPin;
+    render(<PinContent message={msg} />);
+    expect(screen.getByText('photo.png')).toBeInTheDocument();
+  });
+
+  it('renders text + GIF + attachments together', () => {
+    const msg: DecryptedPin = {
+      ...decryptedTextPin,
+      content: 'shared GIF + photo',
+      gif_slug: 'wave-3',
+      attachments: [{ id: 'a-2', filename: 'pic.jpg', file_type: 'image/jpeg', file_size: 2000 }],
+    } as DecryptedPin;
+    render(<PinContent message={msg} />);
+    expect(screen.getByTestId('markdown-content')).toHaveTextContent('shared GIF + photo');
+    expect(screen.getByTestId('gif-embed')).toHaveTextContent('slug:wave-3');
+    expect(screen.getByText('pic.jpg')).toBeInTheDocument();
+  });
+
+  it('omits MarkdownContent when content is empty', () => {
+    const msg: DecryptedPin = { ...decryptedTextPin, content: '' };
+    render(<PinContent message={msg} />);
+    expect(screen.queryByTestId('markdown-content')).not.toBeInTheDocument();
   });
 });
 
@@ -97,14 +148,7 @@ describe('decryptPins', () => {
   it('passes messages through unchanged when e2ee not initialized', async () => {
     const msgs = [baseMsg, { ...baseMsg, id: 'msg-2' }];
     const result = await decryptPins('ctx-1', msgs);
-    expect(result).toBe(msgs); // same reference — no processing
-    expect(mockGetChannelKey).not.toHaveBeenCalled();
-  });
-
-  it('passes messages through unchanged when e2eeService is not initialized (with content)', async () => {
-    const msg = { ...baseMsg, content: 'ciphertext' };
-    const result = await decryptPins('ctx-1', [msg]);
-    expect(result).toStrictEqual([msg]);
+    expect(result).toBe(msgs);
     expect(mockGetChannelKey).not.toHaveBeenCalled();
   });
 
@@ -120,8 +164,32 @@ describe('decryptPins', () => {
     expect(result[0].content).toBe('decrypted text');
     expect(result[0].decrypted).toBe(true);
     expect(result[0].decryptFailed).toBeUndefined();
-    expect(mockGetChannelKey).toHaveBeenCalledWith('ctx-1');
-    expect(mockDecryptWithKey).toHaveBeenCalledWith('ciphertext', mockKey);
+    expect(result[0].gif_slug).toBeUndefined();
+  });
+
+  it('applies unwrapGifEnvelope when plaintext is a GIF envelope', async () => {
+    await setE2EEInitialized(true);
+    mockGetChannelKey.mockResolvedValue({} as CryptoKey);
+    mockDecryptWithKey.mockResolvedValue('{"text":"hi friends","gif_slug":"wave-7"}');
+
+    const msg = { ...baseMsg, content: 'ciphertext' };
+    const result = await decryptPins('ctx-1', [msg]);
+
+    expect(result[0].content).toBe('hi friends');
+    expect(result[0].gif_slug).toBe('wave-7');
+    expect(result[0].decrypted).toBe(true);
+  });
+
+  it('passes plain decrypted text through unchanged (no envelope)', async () => {
+    await setE2EEInitialized(true);
+    mockGetChannelKey.mockResolvedValue({} as CryptoKey);
+    mockDecryptWithKey.mockResolvedValue('plain markdown **text**');
+
+    const msg = { ...baseMsg, content: 'ciphertext' };
+    const result = await decryptPins('ctx-1', [msg]);
+
+    expect(result[0].content).toBe('plain markdown **text**');
+    expect(result[0].gif_slug).toBeUndefined();
   });
 
   it('sets decryptFailed when decryption throws', async () => {

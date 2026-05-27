@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { getChannelPins, unpinMessage } from '../../services/pinService';
-import { renderPinContent, decryptPins, type DecryptedPin } from './pinnedMessageUtils';
+import { PinContent, decryptPins, type DecryptedPin } from './pinnedMessageUtils';
 import './PinnedMessagesPanel.css';
 
 export interface PinnedMessagesPanelProps {
@@ -86,7 +86,7 @@ const PinnedMessagesPanel: React.FC<PinnedMessagesPanelProps> = ({
                   <span className="pinned-message-author">{msg.display_name || msg.username}</span>
                 </div>
                 <div className="pinned-message-content">
-                  {renderPinContent(msg.content, msg.decrypted, msg.decryptFailed)}
+                  <PinContent message={msg} />
                 </div>
                 <div className="pinned-message-actions">
                   <button className="pinned-message-jump" onClick={() => handleJump(msg.id)}>
