@@ -7,6 +7,7 @@ import VoiceAudioSection from './VoiceAudioSection';
 import AccessibilitySection from './AccessibilitySection';
 import NotificationSection from './NotificationSection';
 import AboutUpdateSection from './AboutUpdateSection';
+import ExpandCollapseAllButton from './ExpandCollapseAllButton';
 import './SettingsPage.css';
 
 type SettingsSection =
@@ -390,6 +391,12 @@ const SettingsPage: React.FC = () => {
               ref={contentRef}
               className={`settings-content${isPending ? ' settings-content-loading' : ''}`}
             >
+              {/* Expand/Collapse All control (closes #297). Self-hides when
+                  the active panel has no collapsible sections, so this row
+                  collapses to zero visual cost on flat-layout future tabs. */}
+              <div className="settings-content-header">
+                <ExpandCollapseAllButton containerRef={contentRef} />
+              </div>
               {renderSection()}
             </div>
           </div>

@@ -219,6 +219,119 @@
   transition-duration: 0s;
 }
 
+/*
+ * Smooth open/close animation on <details.settings-collapsible> (closes #297).
+ *
+ * Uses three modern Chromium CSS primitives (all available in Electron 42's
+ * bundled Chromium 136, the minimum we ship):
+ *   - ::details-content        (Chromium 131+) — the implicit pseudo wrapping
+ *                                                a <details> element's body
+ *   - interpolate-size: allow-keywords (Chromium 129+) — lets `auto`-sized
+ *                                                       block-size animate
+ *   - @starting-style          (Chromium 117+) — starting values for entry
+ *                                                transitions
+ *
+ * Net effect: clicking a section header transitions the body height from
+ * 0 → auto over 200ms (closing reverses). The `[data-reduce-animations='true']`
+ * opt-out collapses the transition to 0s so the existing accessibility
+ * preference is honored.
+ */
+.settings-collapsible::details-content {
+  block-size: 0;
+  overflow: hidden;
+  /* `allow-discrete` lets `content-visibility` toggle survive the transition
+     so the body is visible during the closing animation, not snapped away by
+     the browser the instant `[open]` is removed. */
+  transition:
+    block-size 200ms ease,
+    content-visibility 200ms ease allow-discrete;
+  interpolate-size: allow-keywords;
+}
+
+.settings-collapsible[open]::details-content {
+  block-size: auto;
+}
+
+/* Entry transition starting state: when [open] is first applied, animate
+   from 0 height up. Without @starting-style the body would just appear at
+   final height with no transition. */
+@starting-style {
+  .settings-collapsible[open]::details-content {
+    block-size: 0;
+  }
+}
+
+[data-reduce-animations='true'] .settings-collapsible::details-content {
+  transition-duration: 0s;
+}
+
+/* ─── Expand/Collapse All Button (#297) ─────────────────────────────────── */
+
+.settings-expand-collapse-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.settings-expand-collapse-all-btn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
+}
+
+.settings-expand-collapse-all-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.settings-expand-collapse-all-chevron {
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+}
+
+/* Mirror the per-section chevron-rotation convention: chevron points down
+   when more is hidden (action = expand), up when everything is open
+   (action = collapse). Keeps the visual language consistent with the
+   chevron on each section header. */
+.settings-expand-collapse-all-chevron[data-expanded='true'] {
+  transform: rotate(180deg);
+}
+
+[data-reduce-animations='true'] .settings-expand-collapse-all-chevron {
+  transition-duration: 0s;
+}
+
+/* Header row above the rendered settings section. Holds the
+   Expand/Collapse All button right-aligned (the button self-hides when
+   the active panel has no collapsibles, in which case this row collapses
+   to zero visual cost via the empty-but-zero-height path below). */
+.settings-content-header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding: 0 0 12px 0;
+  min-height: 0;
+}
+
+.settings-content-header:empty {
+  /* When the ExpandCollapseAllButton returns null (hasSections=false),
+     the header row leaves no <button> child. The :empty selector collapses
+     the row entirely so the rendered section sits flush against the top. */
+  padding: 0;
+}
+
 .settings-section-description {
   font-size: calc(13px * var(--font-scale, 1));
   color: var(--text-muted);
