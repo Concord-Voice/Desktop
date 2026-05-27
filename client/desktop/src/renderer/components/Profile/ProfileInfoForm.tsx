@@ -59,7 +59,20 @@ const ProfileInfoForm: React.FC = () => {
   const avatarReset = avatar.reset;
   const headerReset = header.reset;
 
-  // Initialize form from user store
+  // Initialize form from user store.
+  //
+  // Rationale for the eslint-disable below:
+  //  - Fields are read as a snapshot-at-switch so that an in-place mutation
+  //    in the store (e.g., presence propagation, avatar upload, or this
+  //    form's own save) does NOT reset the user's unsaved edits.
+  //  - avatarReset / headerReset are stable useCallback references from
+  //    useImageUpload (extracted at :59-60) and don't change between
+  //    renders, so they're safe to include without causing churn.
+  //  - The lint rule sees `user.username`, `user.display_name`, etc. inside
+  //    the effect and demands `user` in deps. We deliberately depart from
+  //    that: keying on `user?.id` is the load-bearing invariant.
+  // Mirrors the snapshot-on-switch pattern at
+  // ServerSettingsPage.tsx:200-225.
   useEffect(() => {
     if (user) {
       setUsername(user.username);
@@ -69,7 +82,8 @@ const ProfileInfoForm: React.FC = () => {
       headerReset(user.header_image_url || null);
       setLinks(user.links || []);
     }
-  }, [user, avatarReset, headerReset]);
+    // eslint-disable-next-line @eslint-react/exhaustive-deps -- snapshot-on-switch; see block comment above effect
+  }, [user?.id, avatarReset, headerReset]);
 
   // Link handlers
   const handleAddLink = () => {
