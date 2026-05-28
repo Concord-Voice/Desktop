@@ -557,4 +557,116 @@ describe('ConversationList', () => {
       expect(blockSpy).not.toHaveBeenCalled();
     });
   });
+
+  describe('View Profile modal flow (#1208)', () => {
+    async function setupFriendStore(opts: { isFriend?: boolean } = {}) {
+      const { useFriendStore } = await import('@/renderer/stores/friendStore');
+      useFriendStore.setState({
+        friends: opts.isFriend
+          ? [
+              {
+                id: 'f-1',
+                userId: 'user-2',
+                username: 'alice',
+                displayName: 'Alice',
+                status: 'online',
+                createdAt: '2025-01-01T00:00:00Z',
+              },
+            ]
+          : [],
+        blockUser: vi.fn().mockResolvedValue(undefined),
+        removeFriend: vi.fn().mockResolvedValue(undefined),
+      });
+    }
+
+    function setupConversation(id = 'conv-vp') {
+      const conv = {
+        ...makeConversation(),
+        id,
+        participants: [
+          { userId: 'user-1', username: 'me', displayName: 'Me' },
+          { userId: 'user-2', username: 'alice', displayName: 'Alice' },
+        ],
+      };
+      useDMStore.setState({
+        conversations: [conv],
+        fetchConversations: vi.fn().mockResolvedValue(undefined),
+        openPersonalThread: vi.fn().mockResolvedValue(personalThread),
+      });
+      return conv;
+    }
+
+    it('right-click → View Profile opens DMProfileModal with peer identity', async () => {
+      await setupFriendStore();
+      setupConversation();
+
+      render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
+
+      fireEvent.contextMenu(screen.getByLabelText('Alice'));
+      fireEvent.click(await screen.findByText('View Profile'));
+
+      // Modal renders with peer's @username
+      expect(await screen.findByText('@alice')).toBeInTheDocument();
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+
+    it('View Profile → Send Message: invokes onSelectThread and closes modal', async () => {
+      await setupFriendStore();
+      const conv = setupConversation('conv-send');
+
+      render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
+
+      fireEvent.contextMenu(screen.getByLabelText('Alice'));
+      fireEvent.click(await screen.findByText('View Profile'));
+      fireEvent.click(await screen.findByRole('button', { name: 'Send Message' }));
+
+      expect(mockOnSelectThread).toHaveBeenCalledWith(conv.id);
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+    });
+
+    it('View Profile → Block: closes modal and opens ConfirmActionModal', async () => {
+      await setupFriendStore();
+      setupConversation();
+
+      render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
+
+      fireEvent.contextMenu(screen.getByLabelText('Alice'));
+      fireEvent.click(await screen.findByText('View Profile'));
+      fireEvent.click(await screen.findByRole('button', { name: 'Block' }));
+
+      // ConfirmActionModal opens with peer name in title
+      expect(await screen.findByText(/Block Alice/)).toBeInTheDocument();
+    });
+
+    it('View Profile → Unfriend (when friend): closes modal and opens ConfirmActionModal', async () => {
+      await setupFriendStore({ isFriend: true });
+      setupConversation();
+
+      render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
+
+      fireEvent.contextMenu(screen.getByLabelText('Alice'));
+      fireEvent.click(await screen.findByText('View Profile'));
+      fireEvent.click(await screen.findByRole('button', { name: 'Unfriend' }));
+
+      expect(await screen.findByText(/Unfriend Alice/)).toBeInTheDocument();
+    });
+
+    it('View Profile → ✕ button: closes modal without side effects', async () => {
+      await setupFriendStore();
+      setupConversation();
+
+      render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
+
+      fireEvent.contextMenu(screen.getByLabelText('Alice'));
+      fireEvent.click(await screen.findByText('View Profile'));
+      fireEvent.click(await screen.findByLabelText('Close profile'));
+
+      await waitFor(() => {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      });
+      expect(mockOnSelectThread).not.toHaveBeenCalled();
+    });
+  });
 });

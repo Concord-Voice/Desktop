@@ -356,4 +356,77 @@ describe('DMConversationContextMenu', () => {
       expect(screen.queryByText('Unfriend')).not.toBeInTheDocument();
     });
   });
+
+  describe('View Profile menu item (#1208)', () => {
+    it('shows "View Profile" for 1:1 DMs when onViewProfile is provided', () => {
+      const onViewProfile = vi.fn();
+      render(
+        <DMConversationContextMenu
+          conversation={makeConversation()}
+          currentUserId={CURRENT_USER_ID}
+          position={{ x: 100, y: 100 }}
+          onClose={mockOnClose}
+          onViewProfile={onViewProfile}
+        />
+      );
+      expect(screen.getByText('View Profile')).toBeInTheDocument();
+    });
+
+    it('hides "View Profile" for group DMs', () => {
+      const onViewProfile = vi.fn();
+      render(
+        <DMConversationContextMenu
+          conversation={makeConversation({ isGroup: true, name: 'Test Group' })}
+          currentUserId={CURRENT_USER_ID}
+          position={{ x: 100, y: 100 }}
+          onClose={mockOnClose}
+          onViewProfile={onViewProfile}
+        />
+      );
+      expect(screen.queryByText('View Profile')).not.toBeInTheDocument();
+    });
+
+    it('hides "View Profile" for personal DMs (self-notes)', () => {
+      const onViewProfile = vi.fn();
+      render(
+        <DMConversationContextMenu
+          conversation={makeConversation({ isPersonal: true })}
+          currentUserId={CURRENT_USER_ID}
+          position={{ x: 100, y: 100 }}
+          onClose={mockOnClose}
+          onViewProfile={onViewProfile}
+        />
+      );
+      expect(screen.queryByText('View Profile')).not.toBeInTheDocument();
+    });
+
+    it('clicking "View Profile" invokes onViewProfile(conversation) then closes the menu', () => {
+      const onViewProfile = vi.fn();
+      const conv = makeConversation({ id: 'conv-42' });
+      render(
+        <DMConversationContextMenu
+          conversation={conv}
+          currentUserId={CURRENT_USER_ID}
+          position={{ x: 100, y: 100 }}
+          onClose={mockOnClose}
+          onViewProfile={onViewProfile}
+        />
+      );
+      fireEvent.click(screen.getByText('View Profile'));
+      expect(onViewProfile).toHaveBeenCalledWith(conv);
+      expect(mockOnClose).toHaveBeenCalled();
+    });
+
+    it('hides "View Profile" entirely when onViewProfile prop is undefined', () => {
+      render(
+        <DMConversationContextMenu
+          conversation={makeConversation()}
+          currentUserId={CURRENT_USER_ID}
+          position={{ x: 100, y: 100 }}
+          onClose={mockOnClose}
+        />
+      );
+      expect(screen.queryByText('View Profile')).not.toBeInTheDocument();
+    });
+  });
 });

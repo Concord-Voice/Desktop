@@ -10,6 +10,7 @@ import { resolveUserAccentColors } from '../../utils/schemeColors';
 import CreateGroupModal from './CreateGroupModal';
 import ConfirmActionModal from '../ui/ConfirmActionModal';
 import DMConversationContextMenu from './DMConversationContextMenu';
+import DMProfileModal from './DMProfileModal';
 import './DirectMessages.css';
 
 interface ConversationListProps {
@@ -68,6 +69,9 @@ const ConversationList: React.FC<ConversationListProps> = ({
   // Ban / Kick lifted-state pattern.
   const [blockTarget, setBlockTarget] = useState<DMConversation | null>(null);
   const [unfriendTarget, setUnfriendTarget] = useState<DMConversation | null>(null);
+  // DM Profile modal target (#1208). Same lifted-state pattern as block/unfriend
+  // so the modal continues rendering after the context menu unmounts.
+  const [profileTarget, setProfileTarget] = useState<DMConversation | null>(null);
   const blockUser = useFriendStore((s) => s.blockUser);
   const removeFriend = useFriendStore((s) => s.removeFriend);
   const conversations = useDMStore((s) => s.conversations);
@@ -276,6 +280,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
           onClose={() => setContextMenu(null)}
           onBlockUser={(conv) => setBlockTarget(conv)}
           onUnfriend={(conv) => setUnfriendTarget(conv)}
+          onViewProfile={(conv) => setProfileTarget(conv)}
         />
       )}
 
@@ -323,6 +328,37 @@ const ConversationList: React.FC<ConversationListProps> = ({
           await removeFriend(peer.userId);
         }}
       />
+
+      {/* DM Profile modal (#1208). Shown when a peer is set via the context-menu
+          "View Profile" item. onVoiceCall is intentionally undefined — #1209's
+          follow-up adds the callback that hooks into the voice-call subsystem.
+          Block / Unfriend reuse the existing lifted-state confirmation modals. */}
+      {profileTarget &&
+        (() => {
+          const peer = profileTarget.participants.find((p) => p.userId !== currentUserId);
+          if (!peer) return null;
+          return (
+            <DMProfileModal
+              isOpen={true}
+              onClose={() => setProfileTarget(null)}
+              peer={peer}
+              conversation={profileTarget}
+              onSendMessage={(conv) => {
+                onSelectThread(conv.id);
+                setProfileTarget(null);
+              }}
+              onBlockUser={(conv) => {
+                setProfileTarget(null);
+                setBlockTarget(conv);
+              }}
+              onUnfriend={(conv) => {
+                setProfileTarget(null);
+                setUnfriendTarget(conv);
+              }}
+              // onVoiceCall intentionally omitted — #1209 wires this.
+            />
+          );
+        })()}
     </div>
   );
 };

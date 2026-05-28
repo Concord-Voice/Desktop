@@ -22,6 +22,7 @@ interface ApiFriendDTO {
   avatar_url?: string;
   color_scheme?: string;
   status?: PresenceStatus;
+  created_at?: string;
 }
 
 interface ApiFriendRequestDTO {
@@ -101,6 +102,7 @@ export interface Friend {
   avatarUrl?: string;
   colorScheme?: string;
   status: PresenceStatus;
+  createdAt?: string;
 }
 
 export interface FriendCode {
@@ -218,6 +220,7 @@ export const useFriendStore = wrapStore(
               avatarUrl: f.avatar_url,
               colorScheme: f.color_scheme,
               status: f.status || 'offline',
+              createdAt: f.created_at,
             }));
 
             set({ friends, isLoading: false });

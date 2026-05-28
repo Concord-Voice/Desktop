@@ -276,6 +276,28 @@ describe('friendStore', () => {
       expect(friend.colorScheme).toBe('morky');
     });
 
+    it('maps created_at to createdAt', async () => {
+      server.use(
+        http.get(`${API_BASE}/api/v1/friends`, () => {
+          return HttpResponse.json({
+            friends: [
+              {
+                id: 'f-1',
+                user_id: 'user-2',
+                username: 'bob',
+                status: 'online',
+                created_at: '2025-03-14T12:00:00Z',
+              },
+            ],
+          });
+        })
+      );
+
+      await useFriendStore.getState().fetchFriends();
+      const friend = useFriendStore.getState().friends[0];
+      expect(friend.createdAt).toBe('2025-03-14T12:00:00Z');
+    });
+
     it('defaults status to offline when not provided', async () => {
       server.use(
         http.get(`${API_BASE}/api/v1/friends`, () => {

@@ -19,6 +19,7 @@ interface DMConversationContextMenuProps {
    */
   onBlockUser?: (conversation: DMConversation) => void;
   onUnfriend?: (conversation: DMConversation) => void;
+  onViewProfile?: (conversation: DMConversation) => void;
 }
 
 const DMConversationContextMenu: React.FC<DMConversationContextMenuProps> = ({
@@ -28,6 +29,7 @@ const DMConversationContextMenu: React.FC<DMConversationContextMenuProps> = ({
   onClose,
   onBlockUser,
   onUnfriend,
+  onViewProfile,
 }) => {
   const canRotateKey = !conversation.isGroup || conversation.createdBy === currentUserId;
 
@@ -105,8 +107,34 @@ const DMConversationContextMenu: React.FC<DMConversationContextMenuProps> = ({
     onUnfriend(conversation);
   };
 
+  const handleViewProfile = () => {
+    if (!isOneOnOne || !peer || !onViewProfile) return;
+    onViewProfile(conversation);
+    onClose();
+  };
+
   return (
     <ContextMenu position={position} onClose={onClose}>
+      {/* View Profile — 1:1 DMs only. Opens DMProfileModal via the parent
+          (ConversationList) which owns the lifted modal state. Per #1208. */}
+      {isOneOnOne && peer && onViewProfile && (
+        <ContextMenu.Item
+          icon={
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+              <circle cx="8" cy="6" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+              <path
+                d="M3 13c0-2.5 2.25-4 5-4s5 1.5 5 4"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+          }
+          label="View Profile"
+          onClick={handleViewProfile}
+        />
+      )}
+
       {/* Mark as Read — only visible when there are unread messages */}
       {conversation.unreadCount > 0 && (
         <ContextMenu.Item

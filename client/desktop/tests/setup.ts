@@ -1,3 +1,29 @@
+// HTMLDialogElement polyfill — jsdom 29 does not implement showModal/close.
+// Components using the native <dialog> element call these imperatively; in
+// the browser they work, but in jsdom we need a minimal shim that toggles
+// the `open` attribute and dispatches the close event so React listeners fire.
+// Each method is guarded individually so a future jsdom version that lands
+// `close()` before `showModal()` (or vice versa) doesn't get its native
+// implementation masked by the polyfill.
+{
+  const proto = (
+    globalThis as typeof globalThis & { HTMLDialogElement?: { prototype: HTMLDialogElement } }
+  ).HTMLDialogElement?.prototype;
+  if (proto) {
+    if (typeof proto.showModal !== 'function') {
+      proto.showModal = function showModal(this: HTMLDialogElement) {
+        this.setAttribute('open', '');
+      };
+    }
+    if (typeof proto.close !== 'function') {
+      proto.close = function close(this: HTMLDialogElement) {
+        this.removeAttribute('open');
+        this.dispatchEvent(new Event('close'));
+      };
+    }
+  }
+}
+
 // Fix localStorage: modern Node versions expose `globalThis.localStorage` as a stub
 // without working methods (setItem/getItem). Zustand persist middleware references
 // the bare `localStorage` global. Replace it with a proper in-memory implementation.
