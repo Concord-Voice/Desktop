@@ -54,6 +54,36 @@ if [ ! -f "$ELECTRON_PATH_TXT" ] && [ -x "node_modules/.bin/install-electron" ];
   fi
 fi
 
+# Safety net: install-electron sometimes returns rc=0 without writing path.txt.
+# Empirically observed on PR #1213 (CI runs job 78207140452 + 78208242015):
+# install-electron exited in <1 second with no output, but path.txt was still
+# missing 7 minutes later when vitest tried to load `electron/index.js`. The
+# likely cause is install.js's `isInstalled()` short-circuit racing with the
+# `~/.cache/electron/` cache state — but the practical fix is independent of
+# diagnosis: if path.txt is missing after install-electron returned 0, write
+# it ourselves so `electron/index.js:47 getElectronPath` succeeds at module-
+# load time. Tests mock electron via vi.mock anyway, so the binary path
+# pointed at by path.txt doesn't need to actually exist for tests to pass.
+if [ ! -f "$ELECTRON_PATH_TXT" ]; then
+  case "$(uname -s)" in
+    Darwin)
+      printf 'Electron.app/Contents/MacOS/Electron' > "$ELECTRON_PATH_TXT"
+      ;;
+    Linux)
+      printf 'electron' > "$ELECTRON_PATH_TXT"
+      ;;
+    MINGW*|MSYS*|CYGWIN*)
+      printf 'electron.exe' > "$ELECTRON_PATH_TXT"
+      ;;
+    *)
+      echo "[patch-electron-plist] WARN: unknown platform $(uname -s); cannot write path.txt safety net" >&2
+      ;;
+  esac
+  if [ -f "$ELECTRON_PATH_TXT" ]; then
+    echo "[patch-electron-plist] Safety net: wrote path.txt manually after install-electron exited 0 without it"
+  fi
+fi
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Step 2: macOS-only — Info.plist patching for TCC getUserMedia consent.
 if [ "$(uname)" != "Darwin" ]; then

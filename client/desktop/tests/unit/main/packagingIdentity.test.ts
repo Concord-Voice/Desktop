@@ -7,7 +7,8 @@
  * Prevents regressions where a name change in one place silently creates
  * shared-resource conflicts with other Electron apps.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
+import type { ForgeConfig } from '@electron-forge/shared-types';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -25,6 +26,59 @@ const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
 async function loadForgeConfig() {
   const mod = await import('../../../forge.config');
   return mod.default;
+}
+
+// Captured at module-load time — the pristine, un-mutated property descriptor
+// for process.platform. Used by the defense-in-depth Layer 2 restoration in
+// every describe.each block's afterAll so that recovery does not depend on
+// the previous test having left a clean state. See loadForgeConfigForPlatform
+// JSDoc below for the two-layer pattern.
+const PRISTINE_PLATFORM_DESCRIPTOR = Object.getOwnPropertyDescriptor(process, 'platform')!;
+
+/**
+ * Load forge.config.ts with a specific process.platform value forced via
+ * Object.defineProperty + vi.resetModules() + dynamic re-import. Required for
+ * exercising the forge.config.ts:121 per-platform executableName conditional
+ * across linux/darwin/win32 in a single PR CI run on ubuntu-latest.
+ *
+ * Restoration discipline (defense-in-depth):
+ *   Layer 1 (helper-internal): try/finally captures the FULL property
+ *     descriptor before mutation and restores it before the function returns,
+ *     even if dynamic import throws. Capturing the descriptor (not just .value)
+ *     preserves enumerable/writable/configurable attributes — Object.defineProperty
+ *     in modify-mode preserves omitted attributes per ECMAScript spec, but
+ *     descriptor-capture-and-restore is strictly stronger defense against
+ *     future Node.js or ECMAScript semantic drift.
+ *   Layer 2 (caller-side): describe.each blocks use afterAll() to restore
+ *     PRISTINE_PLATFORM_DESCRIPTOR — independent of whatever Layer 1 left in
+ *     place — as a safety net if a future refactor bypasses this helper's
+ *     try/finally.
+ *
+ * Side effect: vi.resetModules() invalidates the ENTIRE module cache, not just
+ * forge.config.ts. The next dynamic import of any module (including loadForgeConfig's
+ * import of forge.config.ts elsewhere in this file) re-evaluates the module graph
+ * with the now-restored process.platform. This is intentional — the cache reset is
+ * what allows the per-platform re-import — but adding cached state to forge.config.ts
+ * or its imports would silently break here.
+ *
+ * Dependency: forge.config.ts:67-81 buildtag.json fail-loud guard stays
+ * filtered by isForgePackaging (process.argv-driven). Vitest runs do not have
+ * 'electron-forge' in process.argv, so the guard does not trip during these
+ * re-imports. If a future change removes the isForgePackaging filter, this
+ * helper will start throwing on CI runners (CI=true is set there).
+ *
+ * See internal-reference
+ */
+async function loadForgeConfigForPlatform(platform: NodeJS.Platform): Promise<ForgeConfig> {
+  const originalDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
+  Object.defineProperty(process, 'platform', { ...originalDescriptor, value: platform });
+  try {
+    vi.resetModules();
+    const mod = await import('../../../forge.config');
+    return mod.default;
+  } finally {
+    Object.defineProperty(process, 'platform', originalDescriptor);
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────
@@ -82,23 +136,6 @@ describe('Packaging Identity (#382)', () => {
       expect(config.packagerConfig?.name).toBe(EXPECTED_DISPLAY_NAME);
     });
 
-    it('has executableName set to the platform-appropriate form', async () => {
-      // Per-platform executable name (forge.config.ts:91 comment block).
-      //   Linux: 'concord-voice' (kebab-case, matches @reforged/maker-appimage bin: lookup)
-      //   macOS / Windows: 'Concord Voice' (proper display name visible in Activity Monitor / Task Manager)
-      //
-      // CI test jobs run on ubuntu-latest, so in CI this exercises the Linux
-      // branch. The macOS/Windows branches are validated end-to-end by the
-      // platform-native build jobs themselves (a packaging failure would fail
-      // those jobs before reaching test execution).
-      const config = await loadForgeConfig();
-      if (process.platform === 'linux') {
-        expect(config.packagerConfig?.executableName).toBe('concord-voice');
-      } else {
-        expect(config.packagerConfig?.executableName).toBe(EXPECTED_DISPLAY_NAME);
-      }
-    });
-
     it('has appBundleId set to com.concordvoice.desktop', async () => {
       const config = await loadForgeConfig();
       expect(config.packagerConfig?.appBundleId).toBe('com.concordvoice.desktop');
@@ -128,6 +165,42 @@ describe('Packaging Identity (#382)', () => {
     it('has win32metadata.ProductName set to "Concord Voice"', async () => {
       const config = await loadForgeConfig();
       expect(config.packagerConfig?.win32metadata?.ProductName).toBe(EXPECTED_DISPLAY_NAME);
+    });
+  });
+
+  // Per-platform executableName branch coverage in PR CI (#1096).
+  //
+  // CI test shards run exclusively on ubuntu-latest, so the existing tests
+  // that branch on the runtime process.platform only ever exercise the Linux
+  // branch. This describe.each uses loadForgeConfigForPlatform() to force-load
+  // forge.config.ts under each NodeJS.Platform value in turn, exercising all
+  // three branches in a single PR CI run.
+  //
+  // Defense-in-depth restoration:
+  //   Layer 1 (in helper): try/finally restores process.platform inside the
+  //     helper before it returns.
+  //   Layer 2 (here): afterAll re-restores from the captured originalPlatform
+  //     in case a future refactor bypasses the helper's try/finally.
+  describe.each([
+    ['linux', 'concord-voice'],
+    ['darwin', 'Concord Voice'],
+    ['win32', 'Concord Voice'],
+  ] as const)('forge.config.ts — executableName on %s', (platform, expected) => {
+    let config: ForgeConfig;
+
+    beforeAll(async () => {
+      config = await loadForgeConfigForPlatform(platform);
+    });
+
+    afterAll(() => {
+      // Layer 2 defense-in-depth: restore the pristine descriptor captured at
+      // module load (independent of whatever Layer 1's helper-internal finally
+      // left in place).
+      Object.defineProperty(process, 'platform', PRISTINE_PLATFORM_DESCRIPTOR);
+    });
+
+    it(`has executableName === '${expected}'`, () => {
+      expect(config.packagerConfig?.executableName).toBe(expected);
     });
   });
 
@@ -200,7 +273,7 @@ describe('Packaging Identity (#382)', () => {
     // (debian-policy §5.6.7). The display name (executableName) carries spaces
     // for macOS/Windows; Linux maker bin/name use the kebab-case form
     // 'concord-voice'. The intentional asymmetry is verified in the
-    // 'cross-platform identity consistency' block below.
+    // 'Linux maker bin: contract on %s' describe.each block below (post-#1096).
     it('has name set to "concord-voice" (Linux kebab-case convention)', async () => {
       const config = await loadForgeConfig();
       const deb = getMakerOptions(config, 'Deb');
@@ -347,50 +420,6 @@ describe('Packaging Identity (#382)', () => {
       expect(config.packagerConfig?.name).toContain(' ');
     });
 
-    it('Linux maker bin matches executableName on Linux builds, diverges on macOS/Windows (alignment + asymmetry guard)', async () => {
-      // Locks in the platform-specific contract for Linux maker bin: vs.
-      // packagerConfig.executableName.
-      //
-      // On Linux builds (CI's ubuntu-latest runner):
-      //   The Linux maker `bin:` ('concord-voice') MUST equal executableName
-      //   ('concord-voice' via the per-platform conditional in forge.config.ts).
-      //   This equality is the load-bearing runtime invariant —
-      //   @reforged/maker-appimage performs a literal-string `bin:` lookup
-      //   inside the packaged app at make-time and only finds the binary
-      //   because executableName produces it with the matching name. A future
-      //   refactor that broke this equality (e.g., renaming the Linux maker
-      //   bins to 'concordvoice' without updating executableName) would fail
-      //   the next Linux build with "Could not find executable 'X' in
-      //   packaged application" — the exact failure mode this PR fixed.
-      //   See ADR-0004 and the inline comment in forge.config.ts.
-      //
-      // On macOS/Windows builds:
-      //   The asymmetry IS the design — executableName is 'Concord Voice'
-      //   (proper-name format visible in Activity Monitor / Task Manager /
-      //   crash reports) while Linux maker bin: stays at 'concord-voice'
-      //   per debian-policy §5.6.7. A future refactor that re-collapsed
-      //   these would silently pass the literal-value assertions in the
-      //   Deb/Rpm/AppImage blocks without this guard.
-      const config = await loadForgeConfig();
-      const deb = getMakerOptions(config, 'Deb');
-      const rpm = getMakerOptions(config, 'Rpm');
-      const appImage = getMakerOptions(config, 'AppImage');
-
-      if (process.platform === 'linux') {
-        // Linux contract: ALIGNMENT. Linux maker bin: MUST match executableName.
-        expect(deb.bin).toBe(config.packagerConfig?.executableName);
-        expect(rpm.bin).toBe(config.packagerConfig?.executableName);
-        expect(appImage.bin).toBe(config.packagerConfig?.executableName);
-        return;
-      }
-
-      // macOS/Windows contract: ASYMMETRY. Linux maker bin: MUST diverge from
-      // the display-name executableName.
-      expect(deb.bin).not.toBe(config.packagerConfig?.executableName);
-      expect(rpm.bin).not.toBe(config.packagerConfig?.executableName);
-      expect(appImage.bin).not.toBe(config.packagerConfig?.executableName);
-    });
-
     it('no maker config contains "electron" or "my-app" in identity fields', async () => {
       const config = await loadForgeConfig();
       for (const maker of config.makers ?? []) {
@@ -403,5 +432,117 @@ describe('Packaging Identity (#382)', () => {
         expect(name).not.toBe('electron');
       }
     });
+  });
+
+  // Linux maker bin: alignment + asymmetry contract per platform (#1096).
+  //
+  // Locks in the platform-specific contract for Linux maker bin: vs.
+  // packagerConfig.executableName, exercising ALL three platforms in one PR
+  // CI run via loadForgeConfigForPlatform() rather than only the runner's
+  // native platform.
+  //
+  // On Linux builds:
+  //   The Linux maker `bin:` ('concord-voice') MUST equal executableName
+  //   ('concord-voice' via the per-platform conditional in forge.config.ts).
+  //   This equality is the load-bearing runtime invariant —
+  //   @reforged/maker-appimage performs a literal-string `bin:` lookup
+  //   inside the packaged app at make-time and only finds the binary
+  //   because executableName produces it with the matching name. A future
+  //   refactor that broke this equality (e.g., renaming the Linux maker
+  //   bins to 'concordvoice' without updating executableName) would fail
+  //   the next Linux build with "Could not find executable 'X' in
+  //   packaged application" — the exact failure mode PR #1084 fixed.
+  //   See the inline comment in forge.config.ts:93-120 for the contract;
+  //   ADR-0004 documents the release-job gating that surfaced this bug
+  //   class at push:main time, not the bin:/executableName contract itself.
+  //
+  // On macOS/Windows builds:
+  //   The asymmetry IS the design — executableName is 'Concord Voice'
+  //   (proper-name format visible in Activity Monitor / Task Manager /
+  //   crash reports) while Linux maker bin: stays at 'concord-voice'
+  //   per debian-policy §5.6.7. A future refactor that re-collapsed
+  //   these would silently pass the literal-value assertions in the
+  //   Deb/Rpm/AppImage blocks without this guard.
+  describe.each([
+    ['linux', 'aligns'],
+    ['darwin', 'diverges'],
+    ['win32', 'diverges'],
+  ] as const)('Linux maker bin: contract on %s', (platform, expectation) => {
+    let config: ForgeConfig;
+
+    beforeAll(async () => {
+      config = await loadForgeConfigForPlatform(platform);
+    });
+
+    afterAll(() => {
+      // Layer 2 defense-in-depth — see executableName describe.each above.
+      Object.defineProperty(process, 'platform', PRISTINE_PLATFORM_DESCRIPTOR);
+    });
+
+    it(`maker bin: ${expectation} executableName`, () => {
+      const deb = getMakerOptions(config, 'Deb');
+      const rpm = getMakerOptions(config, 'Rpm');
+      const appImage = getMakerOptions(config, 'AppImage');
+      if (expectation === 'aligns') {
+        expect(deb.bin).toBe(config.packagerConfig?.executableName);
+        expect(rpm.bin).toBe(config.packagerConfig?.executableName);
+        expect(appImage.bin).toBe(config.packagerConfig?.executableName);
+      } else {
+        expect(deb.bin).not.toBe(config.packagerConfig?.executableName);
+        expect(rpm.bin).not.toBe(config.packagerConfig?.executableName);
+        expect(appImage.bin).not.toBe(config.packagerConfig?.executableName);
+      }
+    });
+  });
+});
+
+describe('loadForgeConfigForPlatform helper integrity', () => {
+  afterAll(() => {
+    // Layer 2 defense-in-depth — symmetric with the describe.each blocks above.
+    Object.defineProperty(process, 'platform', PRISTINE_PLATFORM_DESCRIPTOR);
+  });
+
+  it('returns DIFFERENT executableName values across platforms (proves vi.resetModules + mutation actually works)', async () => {
+    const linuxConfig = await loadForgeConfigForPlatform('linux');
+    const darwinConfig = await loadForgeConfigForPlatform('darwin');
+    expect(linuxConfig.packagerConfig?.executableName).not.toBe(
+      darwinConfig.packagerConfig?.executableName
+    );
+  });
+
+  it('restores process.platform descriptor exactly after each call (all attributes preserved)', async () => {
+    const before = Object.getOwnPropertyDescriptor(process, 'platform');
+    await loadForgeConfigForPlatform('darwin');
+    const after = Object.getOwnPropertyDescriptor(process, 'platform');
+    // Tests descriptor-equality, not just value-equality. Catches a regression
+    // where future "simplification" of the helper drops { ...originalDescriptor }
+    // and reverts to { value, configurable: true }-only — which would lose
+    // enumerable: true on the first call.
+    expect(after).toEqual(before);
+  });
+
+  it('restores process.platform if dynamic import throws (Layer 1 try/finally works on rejection)', async () => {
+    const before = Object.getOwnPropertyDescriptor(process, 'platform');
+
+    // Force the helper's dynamic import to throw on next evaluation.
+    // Vitest wraps factory throws in a module-mock-error envelope, so
+    // assert on rejection alone (any throw counts) rather than message text.
+    // The substantive assertion is the descriptor-equality check below — the
+    // helper's try/finally must restore process.platform even when the
+    // import rejects.
+    vi.doMock('../../../forge.config', () => {
+      throw new Error('simulated import failure (test)');
+    });
+
+    await expect(loadForgeConfigForPlatform('linux')).rejects.toThrow();
+
+    const after = Object.getOwnPropertyDescriptor(process, 'platform');
+    expect(after).toEqual(before);
+
+    // Cleanup: remove the mock + reset modules so subsequent imports get the
+    // real forge.config.ts. (vi.doUnmock alone doesn't invalidate the module
+    // cache — both are needed to fully restore.)
+    vi.doUnmock('../../../forge.config');
+    vi.resetModules();
   });
 });
