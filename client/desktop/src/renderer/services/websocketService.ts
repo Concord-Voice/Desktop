@@ -84,17 +84,6 @@ interface OutgoingWebSocketCommand {
   data: Record<string, unknown>;
 }
 
-/**
- * @deprecated Use `WebSocketEvent` from '../types/ws-events' instead — it
- * carries the same shape but as a discriminated union (validated at dispatch).
- * This alias preserves source-compat for existing handler call sites while the
- * Phase C migration drops the explicit annotation in favor of TS inference
- * from the generic `on<T>()` signature. Remove this alias after Phase C9's
- * final cast-removal sweep — tracked in
- * {@link https://github.com/markdrogersjr/Concord/issues/1185 #1185}.
- */
-export type WebSocketMessage = WebSocketEvent;
-
 export interface ConnectionInfo {
   clientId: string;
   userId: string;
