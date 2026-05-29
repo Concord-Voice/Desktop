@@ -75,8 +75,8 @@ describe('dmStore', () => {
       expect(state.activeConversationId).toBeNull();
       expect(state.isLoading).toBe(false);
       expect(state.error).toBeNull();
-      expect(state.dmCallActive).toBe(false);
-      expect(state.dmCallConversationId).toBeNull();
+      // Removed in #1209: dmCallActive / dmCallConversationId tests
+      // (fields deleted; DM call state is on voiceStore now).
     });
   });
 
@@ -328,34 +328,11 @@ describe('dmStore', () => {
     });
   });
 
-  // ── DM voice call state ───────────────────────────────────────────────
-
-  describe('DM voice call state', () => {
-    it('sets DM call active with conversation', () => {
-      useDMStore.getState().setDMCallActive(true, 'conv-1');
-      expect(useDMStore.getState().dmCallActive).toBe(true);
-      expect(useDMStore.getState().dmCallConversationId).toBe('conv-1');
-    });
-
-    it('clears DM call state when set inactive', () => {
-      useDMStore.getState().setDMCallActive(true, 'conv-1');
-      useDMStore.getState().setDMCallActive(false);
-      expect(useDMStore.getState().dmCallActive).toBe(false);
-      expect(useDMStore.getState().dmCallConversationId).toBeNull();
-    });
-
-    it('handles setDMCallActive(true) without conversationId', () => {
-      useDMStore.getState().setDMCallActive(true);
-      expect(useDMStore.getState().dmCallActive).toBe(true);
-      expect(useDMStore.getState().dmCallConversationId).toBeNull();
-    });
-
-    it('clears conversationId when deactivating regardless of passed id', () => {
-      useDMStore.getState().setDMCallActive(true, 'conv-1');
-      useDMStore.getState().setDMCallActive(false, 'conv-1');
-      expect(useDMStore.getState().dmCallConversationId).toBeNull();
-    });
-  });
+  // Removed in #1209: DM voice call state describe block — fields
+  // dmCallActive / dmCallConversationId / setDMCallActive deleted.
+  // DM call state lives on voiceStore (isDMCall, dmConversationId,
+  // callState). The 4 tests below were tightly bound to the deleted
+  // fields with no salvageable assertions for the new layout.
 
   // ── updateParticipantProfile ──────────────────────────────────────────
 
@@ -857,15 +834,14 @@ describe('dmStore', () => {
     it('resets all DM state', () => {
       useDMStore.getState().addConversation(mockConversation);
       useDMStore.getState().setActiveConversation('conv-1');
-      useDMStore.getState().setDMCallActive(true, 'conv-1');
 
       useDMStore.getState().clearDMs();
 
       const state = useDMStore.getState();
       expect(state.conversations).toHaveLength(0);
       expect(state.activeConversationId).toBeNull();
-      expect(state.dmCallActive).toBe(false);
-      expect(state.dmCallConversationId).toBeNull();
+      // Removed in #1209: dmCallActive / dmCallConversationId assertions
+      // (fields deleted; DM call state is on voiceStore now).
     });
   });
 

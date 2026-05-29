@@ -143,9 +143,9 @@ interface DMState {
   isLoading: boolean;
   error: string | null;
 
-  // DM voice call state
-  dmCallActive: boolean;
-  dmCallConversationId: string | null;
+  // Removed in #1209: dmCallActive / dmCallConversationId / setDMCallActive
+  // were never read by any component. DM call state lives on voiceStore
+  // (isDMCall, dmConversationId, callState). Single source of truth.
 
   // API actions
   fetchConversations: () => Promise<void>;
@@ -173,9 +173,6 @@ interface DMState {
     updates: Partial<Omit<DMParticipant, 'userId'>>
   ) => void;
 
-  // DM voice
-  setDMCallActive: (active: boolean, conversationId?: string | null) => void;
-
   clearDMs: () => void;
 
   // Group management actions
@@ -199,8 +196,6 @@ export const useDMStore = wrapStore(
           activeConversationId: null,
           isLoading: false,
           error: null,
-          dmCallActive: false,
-          dmCallConversationId: null,
 
           fetchConversations: async () => {
             if (get().isLoading) return;
@@ -404,18 +399,10 @@ export const useDMStore = wrapStore(
               ),
             })),
 
-          setDMCallActive: (active: boolean, conversationId?: string | null) =>
-            set({
-              dmCallActive: active,
-              dmCallConversationId: active ? (conversationId ?? null) : null,
-            }),
-
           clearDMs: () =>
             set({
               conversations: [],
               activeConversationId: null,
-              dmCallActive: false,
-              dmCallConversationId: null,
             }),
 
           addGroupMember: async (conversationId: string, userId: string) => {

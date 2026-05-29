@@ -13,6 +13,8 @@ const PipWindow = lazy(() => import('./components/Voice/PipWindow'));
 import ForceUpdateOverlay from './components/ui/ForceUpdateOverlay';
 import UpdateBanner from './components/ui/UpdateBanner';
 import { UpdateSecurityBanner } from './components/Updates/UpdateSecurityBanner';
+import { IncomingCallBanner } from './components/Voice/IncomingCallBanner';
+import { OutgoingCallModal } from './components/Voice/OutgoingCallModal';
 import { useUpdateErrorListener } from './hooks/useUpdateErrorListener';
 import MFAChallengeModal from './components/Auth/MFAChallengeModal';
 import SSOEagerUnlock from './components/Auth/SSOEagerUnlock';
@@ -416,6 +418,11 @@ function App() {
           {!isPipWindow && <Titlebar />}
           <UpdateSecurityBanner />
           <UpdateBanner />
+          {/* DM voice call ring UI (#1209). IncomingCallBanner: corner banner
+              for callee. OutgoingCallModal: centered modal for caller. Both
+              are render-nothing when voiceStore.callState.kind is idle. */}
+          <IncomingCallBanner />
+          <OutgoingCallModal />
 
           <ForceUpdateOverlay />
           <MFAChallengeModal />

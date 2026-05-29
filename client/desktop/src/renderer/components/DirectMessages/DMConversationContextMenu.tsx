@@ -5,6 +5,7 @@ import { useRotateKey } from '../../hooks/useRotateKey';
 import { useDMStore, type DMConversation } from '../../stores/dmStore';
 import { useFriendStore } from '../../stores/friendStore';
 import { apiFetch } from '../../services/apiClient';
+import { initiateDMCall } from '../../services/voiceService/callStateMachine';
 
 interface DMConversationContextMenuProps {
   conversation: DMConversation;
@@ -164,6 +165,38 @@ const DMConversationContextMenu: React.FC<DMConversationContextMenuProps> = ({
         kindLabel="Conversation"
         onAction={onClose}
       />
+
+      {/* Voice Call — #1209. 1:1 DMs only for now; group calls deferred
+          to follow-up #1219 (will flip the isOneOnOne gate to show for
+          group conversations too). */}
+      {isOneOnOne && (
+        <ContextMenu.Item
+          icon={
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path
+                d="M3 4a1 1 0 011-1h2.28a1 1 0 01.95.68l1 3a1 1 0 01-.27 1.03L5.6 9.31a8 8 0 003.09 3.09l1.6-1.36a1 1 0 011.03-.27l3 1a1 1 0 01.68.95V15a1 1 0 01-1 1h-1C7.4 16 0 8.6 0 0v-1z"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinejoin="round"
+                transform="translate(0.5, 0)"
+              />
+            </svg>
+          }
+          label="Voice Call"
+          onClick={() => {
+            void initiateDMCall(conversation.id).catch((err: unknown) => {
+              // initiateDMCall rolls state back to idle on failure (see
+              // callStateMachine). .catch here prevents unhandled-rejection
+              // at the menu-click boundary (Copilot #1231 finding C8).
+              console.error(
+                'Voice Call menu item:',
+                err instanceof Error ? err.message : 'non-Error thrown'
+              );
+            });
+            onClose();
+          }}
+        />
+      )}
 
       {/* Block User — 1:1 DMs only. Destructive; routes through parent-owned
           confirmation modal (lifted state per MemberListPanel Ban/Kick

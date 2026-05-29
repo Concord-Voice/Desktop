@@ -330,6 +330,15 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
 
             {messages.map((message, index) => {
               const dateDividerLabel = shouldShowDateDivider(index);
+              // Follow-up (#1209 F6 dispatch): when a message has type='call_event',
+              // render <CallEventMessage payload={message.call_event_payload} />
+              // instead of <Message>. Requires extending the Message interface
+              // (chat.ts) + backend message-fetch serializer (control-plane
+              // /api/v1/dm/.../messages handler) to include the `type` and
+              // `call_event_payload` columns. The CallEventMessage component
+              // is ready at components/DirectMessages/CallEventMessage.tsx
+              // and the call_event rows ARE being written to the DB
+              // (verified in dm/handlers_test.go). Tracked in #1209 follow-up.
               return (
                 <React.Fragment key={message.id}>
                   {dateDividerLabel && (

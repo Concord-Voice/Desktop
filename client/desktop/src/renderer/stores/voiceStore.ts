@@ -1,4 +1,5 @@
 import { createStore } from '../utils/createStore';
+import type { CallState } from '../services/voiceService/callStateMachine';
 
 // ---------------------------------------------------------------------------
 // Persisted device settings (per-machine via localStorage)
@@ -280,6 +281,13 @@ interface VoiceState {
   callerDMRole: DMCallerRole;
   effectivePermissions: bigint;
 
+  // DM voice call ring state machine (#1209 plan task D2/D3). Mirror of
+  // the call-state machinery in voiceService/callStateMachine.ts —
+  // exposed on the store so UI components (IncomingCallBanner,
+  // OutgoingCallModal, sidebar "in-call" indicator) can subscribe to
+  // state transitions via selective Zustand subscriptions. See spec §7.4.
+  callState: CallState;
+
   // Solo bandwidth saving (applies to both DM calls and server voice)
   isSoloBandwidthSaving: boolean;
   soloBandwidthNotification: boolean;
@@ -379,6 +387,9 @@ interface VoiceState {
   setGroupDMInfo: (isGroupDM: boolean, callerRole: DMCallerRole) => void;
   setEffectivePermissions: (permissions: bigint) => void;
 
+  // DM voice call ring state machine setter (#1209)
+  setCallState: (state: CallState) => void;
+
   // Solo bandwidth saving
   setSoloBandwidthSaving: (saving: boolean) => void;
   setSoloBandwidthNotification: (show: boolean) => void;
@@ -477,6 +488,7 @@ const initialState = {
   isGroupDM: false,
   callerDMRole: null as DMCallerRole,
   effectivePermissions: 0n,
+  callState: { kind: 'idle' } as CallState,
   isSoloBandwidthSaving: false,
   soloBandwidthNotification: false,
   codecFloor: null as string[] | null,
@@ -761,6 +773,8 @@ export const useVoiceStore = createStore<VoiceState>()((set) => ({
 
   setGroupDMInfo: (isGroupDM, callerDMRole) => set({ isGroupDM, callerDMRole }),
   setEffectivePermissions: (effectivePermissions) => set({ effectivePermissions }),
+
+  setCallState: (callState) => set({ callState }),
 
   setSoloBandwidthSaving: (isSoloBandwidthSaving) => set({ isSoloBandwidthSaving }),
   setSoloBandwidthNotification: (soloBandwidthNotification) => set({ soloBandwidthNotification }),

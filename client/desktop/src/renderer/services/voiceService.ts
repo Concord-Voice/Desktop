@@ -183,7 +183,11 @@ interface JoinResponse {
   allowed: boolean;
   media_server_url: string;
   ice_servers: Array<{ urls: string; username?: string; credential?: string }>;
-  channel: {
+  // Server-channel responses include `channel`; DM voice responses omit it
+  // and include `conversation` with {id, is_group, caller_role} instead.
+  // The renderer synthesizes a channel-like object for DM at join time
+  // (peerName lookup against dmStore) per #1209 plan task F4.
+  channel?: {
     id: string;
     name: string;
     server_id: string;
@@ -193,6 +197,7 @@ interface JoinResponse {
   server_muted?: boolean;
   server_deafened?: boolean;
   conversation?: {
+    id?: string;
     is_group?: boolean;
     caller_role?: 'admin' | 'member';
   };
@@ -1500,6 +1505,52 @@ class VoiceService {
     });
   }
 
+  /**
+   * Synthesize a channel-shaped object for DM voice joins where the server
+   * response includes `conversation` instead of `channel` (#1209 plan F4
+   * spec §7.9). Extracted from joinChannel to keep that function's
+   * cognitive complexity within the project's S3776 bound. The synth name
+   * is "group name" for group DMs, peer's displayName for 1:1 DMs (via
+   * the utils/dm.peerName helper, which is store-agnostic per the
+   * SonarCloud architecture rule), or a fallback string.
+   */
+  private async synthesizeDMChannel(channelId: string): Promise<{
+    id: string;
+    name: string;
+    server_id: string;
+    audio_quality_tier: string | null;
+  }> {
+    const { useDMStore: importedDMStore } = await import('../stores/dmStore');
+    const { useUserStore: importedUserStore } = await import('../stores/userStore');
+    const conversation = importedDMStore.getState().conversations.find((c) => c.id === channelId);
+    const currentUserId = importedUserStore.getState().user?.id;
+    const synthName = await this.resolveDMChannelName(conversation, currentUserId);
+    return {
+      id: channelId,
+      name: synthName,
+      server_id: '', // DM rooms aren't server-scoped (per spec §3.4)
+      audio_quality_tier: null,
+    };
+  }
+
+  /** Resolve the display name for a DM voice call (group name, peer name, or fallback). */
+  private async resolveDMChannelName(
+    conversation:
+      | {
+          isGroup: boolean;
+          name: string | null;
+          participants: Array<{ userId: string; username: string; displayName?: string }>;
+        }
+      | undefined,
+    currentUserId: string | undefined
+  ): Promise<string> {
+    if (!conversation) return 'Voice call';
+    if (conversation.isGroup) return conversation.name ?? 'Group voice call';
+    if (!currentUserId) return 'Voice call';
+    const { peerName: synthesizePeerName } = await import('../utils/dm');
+    return synthesizePeerName(conversation.participants, currentUserId);
+  }
+
   /** Authorize and join a voice channel */
   async joinChannel(channelId: string, joinType: 'channel' | 'dm' = 'channel'): Promise<void> {
     const store = useVoiceStore.getState();
@@ -1528,7 +1579,19 @@ class VoiceService {
       const joinData: JoinResponse = await res.json();
       if (!joinData.allowed) throw new Error('Not allowed to join this channel');
 
-      const { media_server_url, channel } = joinData;
+      const { media_server_url } = joinData;
+      // For DM voice joins the response omits `channel` and includes
+      // `conversation` instead. Synthesize a channel-shaped object from
+      // the conversation + dmStore peer/group-name lookup per spec §7.9
+      // (#1209 plan task F4 — VoiceView channelName synthesis). Extracted
+      // into synthesizeDMChannel to keep joinChannel's cognitive complexity
+      // under the 15-statement bound (was 19 before extraction).
+      const channel =
+        joinData.channel ??
+        (joinType === 'dm' ? await this.synthesizeDMChannel(channelId) : undefined);
+      if (!channel) {
+        throw new Error('Voice join response missing channel info');
+      }
 
       store.setActiveChannel(channel.id, channel.name, channel.server_id);
 
@@ -1556,6 +1619,17 @@ class VoiceService {
           username: user?.username || 'unknown',
           displayName: user?.display_name || undefined,
           avatarUrl: user?.avatar_url || undefined,
+          // room_kind routing hint per #1209 spec §6.5 / plan task C1.
+          // Tells the media-plane which control-plane endpoint to
+          // authoritatively validate against (server-channel join vs DM
+          // authorize). The user's identity for AUTHORIZATION is established
+          // by the JWT (token field above) — the room_kind hint just selects
+          // which validation endpoint runs. The username/displayName/
+          // avatarUrl fields here are client-supplied display data, NOT
+          // identity claims, and are documented as a known gap in
+          // internal-reference (server uses JWT-derived userId
+          // for participation enforcement).
+          room_kind: joinType === 'dm' ? 'dm' : 'channel',
         },
         transports: ['websocket'],
         reconnection: true,
@@ -1625,9 +1699,22 @@ class VoiceService {
    * cognitive-complexity bound. See voiceService.test.ts regression cases
    * for the contract this method enforces.
    */
+  /**
+   * Sanitize an unknown thrown value for safe logging. Strips ASCII
+   * control characters (defends against CRLF log injection — Sonar S4790)
+   * and caps length so a pathologically long error message can't blow up
+   * log volume. Used by handleJoinFailure and its cleanup-error sibling.
+   */
+  private sanitizeErrForLog(err: unknown): string {
+    const raw = err instanceof Error ? err.message : 'non-Error thrown';
+    return raw.replace(/[\x00-\x1F\x7F]/g, '').slice(0, 200);
+  }
+
   private async handleJoinFailure(err: unknown): Promise<void> {
     const store = useVoiceStore.getState();
-    console.error('Failed to join voice channel:', err instanceof Error ? err.message : err);
+    // Sanitized error for log sink — strips control chars + bounds length
+    // (Sonar S4790 / internal-reference "Console error logging").
+    console.error('Failed to join voice channel:', this.sanitizeErrForLog(err));
     notificationSoundService.stopAllLoops();
     // Defense in depth: if cleanup() throws (mediasoup transport teardown,
     // E2EE worker crash mid-destroy, etc.), the store.reset() + 'error'
@@ -1639,7 +1726,7 @@ class VoiceService {
     } catch (cleanupErr) {
       console.error(
         'Cleanup failed during join-error recovery:',
-        cleanupErr instanceof Error ? cleanupErr.message : cleanupErr
+        this.sanitizeErrForLog(cleanupErr)
       );
     }
     // store.setActiveChannel runs early in joinChannel (before mic / media-

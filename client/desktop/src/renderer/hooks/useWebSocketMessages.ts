@@ -14,6 +14,12 @@ import { useMemberStore } from '../stores/memberStore';
 import { useUserStore } from '../stores/userStore';
 import { useUnreadStore } from '../stores/unreadStore';
 import { getWebSocketService } from '../services/websocketService';
+import {
+  handleCallInvited,
+  handleCallCanceled,
+  handleCallDeclined,
+  handleCallTimedOut,
+} from '../services/voiceService/callStateMachine';
 import type { WebSocketEvent } from '../types/ws-events';
 import { e2eeService } from '../services/e2eeService';
 import { isPendingKeyError } from '../services/e2eeErrors';
@@ -1485,6 +1491,25 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       store.enterFatal();
     });
 
+    // ── DM voice call ring handlers (#1209 plan task E3) ─────────────────
+    // Each handler is implemented in services/voiceService/callStateMachine.ts
+    // (Task E2); this hook just wires the dispatch boundary. Payloads are
+    // schema-validated upstream in websocketService.handleMessage per
+    // internal-reference "WebSocket payload validation" — handlers
+    // operate on already-narrowed types.
+    const unsubDMVoiceCallInvited = wsService.on('dm_voice_call_invited', (msg) => {
+      handleCallInvited(msg.data);
+    });
+    const unsubDMVoiceCallCanceled = wsService.on('dm_voice_call_canceled', (msg) => {
+      handleCallCanceled(msg.data);
+    });
+    const unsubDMVoiceCallDeclined = wsService.on('dm_voice_call_declined', (msg) => {
+      handleCallDeclined(msg.data);
+    });
+    const unsubDMVoiceCallTimedOut = wsService.on('dm_voice_call_timed_out', (msg) => {
+      handleCallTimedOut(msg.data);
+    });
+
     // Cleanup handlers
     return () => {
       unsubMessage();
@@ -1536,6 +1561,10 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       unsubFriendRemoved();
       unsubFriendCodeClaimed();
       unsubDMVoiceState();
+      unsubDMVoiceCallInvited();
+      unsubDMVoiceCallCanceled();
+      unsubDMVoiceCallDeclined();
+      unsubDMVoiceCallTimedOut();
       unsubSubscribed();
       unsubError();
       unsubSessionRevoked();

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { MessageSquare, Users, BookOpen, UserPlus, PenLine } from 'lucide-react';
 import { useDMStore, type DMConversation } from '../../stores/dmStore';
 import { useUserStore } from '../../stores/userStore';
+import { useVoiceStore } from '../../stores/voiceStore';
 import { useFriendStore } from '../../stores/friendStore';
 import { e2eeService } from '../../services/e2eeService';
 import { useDraftMessageStore } from '../../stores/draftMessageStore';
@@ -78,6 +79,14 @@ const ConversationList: React.FC<ConversationListProps> = ({
   const fetchConversations = useDMStore((s) => s.fetchConversations);
   const openPersonalThread = useDMStore((s) => s.openPersonalThread);
   const currentUserId = useUserStore((s) => s.user?.id) || '';
+
+  // In-call indicator (#1209 plan task F5): returns the convId IF the
+  // local user is currently in a DM voice call, else null. The selector
+  // returns a string|null so the comparison `inCallForThisConv === conv.id`
+  // re-renders only the matching list item when state transitions.
+  const inCallForThisConv = useVoiceStore((s) =>
+    s.callState.kind === 'in-call' && s.isDMCall ? s.dmConversationId : null
+  );
   const drafts = useDraftMessageStore((s) => s.drafts);
 
   // Cache of decrypted last message previews (conversationId → {plaintext, ciphertext})
@@ -254,6 +263,19 @@ const ConversationList: React.FC<ConversationListProps> = ({
                 <div className="conversation-bottom-row">
                   <span className="conversation-preview">{preview}</span>
                   <div className="conversation-badges">
+                    {/* In-call indicator (#1209 plan task F5). Shows when
+                        this user is in a DM voice call for this conversation.
+                        Group multi-participant variant ("3 of 5 in call")
+                        is deferred to follow-up #1219. */}
+                    {inCallForThisConv === conv.id && (
+                      <span
+                        className="conversation-in-call-badge"
+                        title="In voice call"
+                        aria-label="In voice call"
+                      >
+                        🔊
+                      </span>
+                    )}
                     {drafts[conv.id] && (
                       <span className="conversation-draft-indicator" title="Draft message">
                         <PenLine size={12} />
