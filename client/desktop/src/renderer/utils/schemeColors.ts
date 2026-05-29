@@ -35,6 +35,7 @@ const SCHEME_ACCENTS: Record<string, [primary: string, secondary: string]> = {
   driftwood: ['#c8a46c', '#a07848'],
   eclipse: ['#cc0000', '#880000'],
   midnightsky: ['#6d8cff', '#a78bfa'],
+  agency: ['#e0004e', '#017fa4'],
 };
 
 function buildGradient(primary: string, secondary: string): string {

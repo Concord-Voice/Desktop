@@ -1,6 +1,6 @@
 /**
  * WCAG 2.1 AA contrast guard for `--link-color` (and `--link-color-hover`)
- * against `--bg-primary` across all 26 theme blocks in `index.css`.
+ * against `--bg-primary` across all 28 theme blocks in `index.css`.
  *
  * ## Why this test exists
  *
@@ -124,7 +124,7 @@ function isExempt(block: string, token: '--link-color' | '--link-color-hover'): 
   return KNOWN_NONCOMPLIANT_BLOCKS.some((e) => e.block === block && e.token === token);
 }
 
-const ALL_26_BLOCKS = [
+const ALL_28_BLOCKS = [
   ':root',
   "[data-theme='light']",
   "[data-scheme='concord']",
@@ -151,6 +151,8 @@ const ALL_26_BLOCKS = [
   "[data-scheme='eclipse'][data-theme='light']",
   "[data-scheme='midnightsky']",
   "[data-scheme='midnightsky'][data-theme='light']",
+  "[data-scheme='agency']",
+  "[data-scheme='agency'][data-theme='light']",
 ] as const;
 
 /**
@@ -158,7 +160,7 @@ const ALL_26_BLOCKS = [
  *
  * Uses plain string search (indexOf) rather than a dynamic RegExp so that
  * Semgrep's ReDoS taint-sink rule (CWE-1333) is not triggered. The selector
- * strings in ALL_26_BLOCKS are compile-time constants, but the static analyser
+ * strings in ALL_28_BLOCKS are compile-time constants, but the static analyser
  * cannot prove that without data-flow analysis across array indexing.
  *
  * Algorithm:
@@ -445,7 +447,7 @@ describe('WCAG-AA link contrast across all theme blocks', () => {
   const css = readFileSync(cssPath, 'utf-8');
   const rootBody = extractBlockBody(css, ':root') ?? '';
 
-  describe.each(ALL_26_BLOCKS)('block %s', (block) => {
+  describe.each(ALL_28_BLOCKS)('block %s', (block) => {
     const blockBody = extractBlockBody(css, block);
 
     it('block exists', () => {
@@ -587,12 +589,12 @@ describe('exemption discipline', () => {
     }
   });
 
-  it('every exempted block exists in ALL_26_BLOCKS', () => {
-    const validBlocks = new Set<string>(ALL_26_BLOCKS);
+  it('every exempted block exists in ALL_28_BLOCKS', () => {
+    const validBlocks = new Set<string>(ALL_28_BLOCKS);
     for (const e of KNOWN_NONCOMPLIANT_BLOCKS) {
       expect(
         validBlocks.has(e.block),
-        `Exempted block '${e.block}' is not in ALL_26_BLOCKS — typo or stale entry`
+        `Exempted block '${e.block}' is not in ALL_28_BLOCKS — typo or stale entry`
       ).toBe(true);
     }
   });

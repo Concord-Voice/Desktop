@@ -6,124 +6,90 @@ import ToggleSwitch from './ToggleSwitch';
 import CollapsibleSection from './CollapsibleSection';
 import { ClientBehaviorSection } from './ClientBehaviorSection';
 
+// Module-scope constants — declared outside the component so they're not
+// re-allocated on every render. SCHEME_TUPLES is the flat tuple form produced
+// by the dedup refactor — the per-scheme `{ value, label, gradient }` object
+// shape gets constructed once below via .map(), avoiding the literal
+// duplication that SonarQube flags as the array grows.
+const SCHEME_TUPLES: ReadonlyArray<
+  readonly [AppearanceSettings['colorScheme'], string, string, string, string]
+> = [
+  ['concord', 'Concord Voice', '#0d0821', '#fa709a', '#ffe13f'],
+  ['eclipse', 'Eclipse', '#000000', '#cc0000', '#880000'],
+  ['morky', '9th Circle', '#0a0a0a', '#e63946', '#ff6b35'],
+  ['foxden', 'Fox Den', '#1a0e02', '#ff6d00', '#ff9100'],
+  ['spooky', 'Spooky', '#0a0a0a', '#ff6a00', '#8b20aa'],
+  ['driftwood', 'Driftwood', '#120e0a', '#c8a46c', '#a07848'],
+  ['grassynill', 'Grassy Nill', '#0c0e08', '#6b8e23', '#8b7355'],
+  ['hacker', 'Hacker', '#000000', '#00ff41', '#00ee38'],
+  ['leviathan', 'Leviathan', '#020c14', '#0ea5e9', '#06b6d4'],
+  ['midnightsky', 'Midnight Sky', '#060a18', '#6d8cff', '#a78bfa'],
+  ['bardic', 'Bardic', '#120a1e', '#c471ed', '#f64f8e'],
+  ['cottoncandy', 'Cotton Candy', '#0a0810', '#ff6ea8', '#40c8ff'],
+  ['agency', 'Agency', '#0d294a', '#e0004e', '#017fa4'],
+];
+
+const colorSchemes: {
+  value: AppearanceSettings['colorScheme'];
+  label: string;
+  gradient: string;
+}[] = SCHEME_TUPLES.map(([value, label, bg, primary, secondary]) => ({
+  value,
+  label,
+  gradient: `linear-gradient(135deg, ${bg}, ${primary}, ${secondary})`,
+}));
+
+const themes: { value: AppearanceSettings['theme']; label: string; icon: React.ReactNode }[] = [
+  {
+    value: 'dark',
+    label: 'Dark',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <path
+          d="M21 12.79A9 9 0 119.21 1a7 7 0 0011.79 11.79z"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
+    value: 'light',
+    label: 'Light',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <circle cx="11" cy="11" r="5" stroke="currentColor" strokeWidth="1.5" />
+        <path
+          d="M11 1v2M11 19v2M3.22 3.22l1.42 1.42M17.36 17.36l1.42 1.42M1 11h2M19 11h2M3.22 18.78l1.42-1.42M17.36 4.64l1.42-1.42"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+  {
+    value: 'system',
+    label: 'System',
+    icon: (
+      <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
+        <rect x="2" y="3" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M8 21h6M11 17v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+];
+
+const fontSizes: { value: AppearanceSettings['fontSize']; label: string }[] = [
+  { value: 'small', label: 'Small' },
+  { value: 'default', label: 'Default' },
+  { value: 'large', label: 'Large' },
+];
+
 const AppearanceSection: React.FC = () => {
   const appearance = useDraftAppearance();
-
-  const colorSchemes: {
-    value: AppearanceSettings['colorScheme'];
-    label: string;
-    gradient: string;
-  }[] = [
-    {
-      value: 'concord',
-      label: 'Concord Voice',
-      gradient: 'linear-gradient(135deg, #0d0821, #fa709a, #ffe13f)',
-    },
-    {
-      value: 'eclipse',
-      label: 'Eclipse',
-      gradient: 'linear-gradient(135deg, #000000, #cc0000, #880000)',
-    },
-    {
-      value: 'morky',
-      label: '9th Circle',
-      gradient: 'linear-gradient(135deg, #0a0a0a, #e63946, #ff6b35)',
-    },
-    {
-      value: 'foxden',
-      label: 'Fox Den',
-      gradient: 'linear-gradient(135deg, #1a0e02, #ff6d00, #ff9100)',
-    },
-    {
-      value: 'spooky',
-      label: 'Spooky',
-      gradient: 'linear-gradient(135deg, #0a0a0a, #ff6a00, #8b20aa)',
-    },
-    {
-      value: 'driftwood',
-      label: 'Driftwood',
-      gradient: 'linear-gradient(135deg, #120e0a, #c8a46c, #a07848)',
-    },
-    {
-      value: 'grassynill',
-      label: 'Grassy Nill',
-      gradient: 'linear-gradient(135deg, #0c0e08, #6b8e23, #8b7355)',
-    },
-    {
-      value: 'hacker',
-      label: 'Hacker',
-      gradient: 'linear-gradient(135deg, #000000, #00ff41, #00ee38)',
-    },
-    {
-      value: 'leviathan',
-      label: 'Leviathan',
-      gradient: 'linear-gradient(135deg, #020c14, #0ea5e9, #06b6d4)',
-    },
-    {
-      value: 'midnightsky',
-      label: 'Midnight Sky',
-      gradient: 'linear-gradient(135deg, #060a18, #6d8cff, #a78bfa)',
-    },
-    {
-      value: 'bardic',
-      label: 'Bardic',
-      gradient: 'linear-gradient(135deg, #120a1e, #c471ed, #f64f8e)',
-    },
-    {
-      value: 'cottoncandy',
-      label: 'Cotton Candy',
-      gradient: 'linear-gradient(135deg, #0a0810, #ff6ea8, #40c8ff)',
-    },
-  ];
-
-  const themes: { value: AppearanceSettings['theme']; label: string; icon: React.ReactNode }[] = [
-    {
-      value: 'dark',
-      label: 'Dark',
-      icon: (
-        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-          <path
-            d="M21 12.79A9 9 0 119.21 1a7 7 0 0011.79 11.79z"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      ),
-    },
-    {
-      value: 'light',
-      label: 'Light',
-      icon: (
-        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-          <circle cx="11" cy="11" r="5" stroke="currentColor" strokeWidth="1.5" />
-          <path
-            d="M11 1v2M11 19v2M3.22 3.22l1.42 1.42M17.36 17.36l1.42 1.42M1 11h2M19 11h2M3.22 18.78l1.42-1.42M17.36 4.64l1.42-1.42"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          />
-        </svg>
-      ),
-    },
-    {
-      value: 'system',
-      label: 'System',
-      icon: (
-        <svg width="22" height="22" viewBox="0 0 22 22" fill="none">
-          <rect x="2" y="3" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M8 21h6M11 17v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      ),
-    },
-  ];
-
-  const fontSizes: { value: AppearanceSettings['fontSize']; label: string }[] = [
-    { value: 'small', label: 'Small' },
-    { value: 'default', label: 'Default' },
-    { value: 'large', label: 'Large' },
-  ];
 
   return (
     <>

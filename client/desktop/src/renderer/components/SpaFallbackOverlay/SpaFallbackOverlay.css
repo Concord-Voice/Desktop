@@ -1,7 +1,7 @@
 /*
  * #830 Option C — non-blocking fallback diagnostic banner. Wired to the
  * actual theme tokens defined per-scheme in styles/index.css so it
- * adapts across all 12 color schemes:
+ * adapts across all 13 color schemes:
  *   --bg-secondary        — surface color (light/dark per theme)
  *   --text-warning-strong — high-contrast amber warning text per
  *                           styles/index.css definitions; also used as

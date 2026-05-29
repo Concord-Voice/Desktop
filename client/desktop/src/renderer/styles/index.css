@@ -20,6 +20,46 @@
   font-style: normal;
 }
 
+/* Agency theme fonts — SIL OFL 1.1 (see public/branding/Concord-Voice/fonts/LICENSES.md) */
+@font-face {
+  font-family: 'Atkinson Hyperlegible Next';
+  src:
+    url('/branding/Concord-Voice/fonts/AtkinsonHyperlegibleNextVF-Variable.woff2')
+      format('woff2-variations'),
+    url('/branding/Concord-Voice/fonts/AtkinsonHyperlegibleNextVF-Variable.woff2') format('woff2');
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Lato';
+  src: url('/branding/Concord-Voice/fonts/Lato-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Lato';
+  src: url('/branding/Concord-Voice/fonts/Lato-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Lato';
+  src: url('/branding/Concord-Voice/fonts/Lato-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Lato';
+  src: url('/branding/Concord-Voice/fonts/Lato-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
 :root {
   /* Font Scale & Spacing Scale */
   --font-scale: 1;
@@ -71,7 +111,7 @@
    *   - Link (3):        --link-color, --link-color-hover, --link-color-visited
    *   - Encryption (1):  --state-encryption-pending
    *
-   * All tokens are mirrored across all 26 blocks (root, generic light, 12 schemes × 2 modes)
+   * All tokens are mirrored across all 28 blocks (root, generic light, 13 schemes × 2 modes)
    * with uniform initial values. Individual themes opt into per-token divergence in
    * follow-up sibling issues — initial schema symmetry is the load-bearing invariant.
    */
@@ -1381,6 +1421,113 @@
   --link-color-hover: var(--accent-hover);
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
+}
+
+/* Agency Dark — atmospheric near-black with magenta + cyan brand accents.
+ * Theme inspired by the "Agency" concept of digital self-determination.
+ * Brand provenance + font installation steps: docs/design/agency-theme-handoff.md */
+[data-scheme='agency'] {
+  --bg-primary: #050912;
+  --bg-secondary: #0a1224;
+  --bg-tertiary: #0d294a;
+  --text-primary: #f0f5fa;
+  --text-secondary: #94a8c4;
+  --text-muted: #5e718f;
+  --accent-primary: #e0004e;
+  --accent-secondary: #017fa4;
+  --accent-hover: #ff1860;
+  --gradient-brand: linear-gradient(90deg, #e0004e 0%, #017fa4 100%);
+  --success: #6ccdb8;
+  --danger: #ff2050;
+  --border-color: #1e3258;
+  --accent-color: var(--accent-primary);
+  --error-color: var(--danger);
+  --success-color: var(--success);
+  --text-tertiary: #455770;
+  --bg-hover: #122545;
+  --bg-active: #1a3666;
+  --on-accent: #ffffff;
+  --danger-hover: #ff3060;
+  --status-connected: #6ccdb8;
+  --status-connecting: #f1b435;
+  --status-disconnected: #e0004e;
+  --text-warning-strong: #f1b435;
+  --text-error-strong: #ff5070;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'Atkinson Hyperlegible Next', 'Lato', system-ui, sans-serif;
+  --font-body-stack: 'Lato', 'Atkinson Hyperlegible Next', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  /* Link color = brand mint (AAA 10.4:1 on bg-primary).
+   * Brand cyan #017fa4 falls 0.2 short of WCAG AA (4.27) on this near-black bg,
+   * so mint takes the link role and cyan stays in icon/button role (3.0 floor). */
+  --link-color: #6ccdb8;
+  --link-color-hover: #8eecd6;
+  --link-color-visited: #105f66;
+  --state-encryption-pending: #f1b435;
+}
+
+/* Agency Light — palette inverted with darkened accents for WCAG AA+ contrast. */
+[data-scheme='agency'][data-theme='light'] {
+  --bg-primary: #f5f7fa;
+  --bg-secondary: #eaeff6;
+  --bg-tertiary: #d9e2ed;
+  --text-primary: #0a1424;
+  --text-secondary: #3a4a66;
+  --text-muted: #5e708a;
+  --accent-primary: #a30038;
+  --accent-secondary: #015a73;
+  --accent-hover: #c8004a;
+  --gradient-brand: linear-gradient(90deg, #a30038 0%, #015a73 100%);
+  --success: #2a8a72;
+  --danger: #c4003d;
+  --border-color: #b8c4d4;
+  --accent-color: var(--accent-primary);
+  --error-color: var(--danger);
+  --success-color: var(--success);
+  --text-tertiary: #768aa6;
+  --bg-hover: #e0e8f0;
+  --bg-active: #cdd9e6;
+  --on-accent: #ffffff;
+  --danger-hover: #a30030;
+  --status-connected: #2a8a72;
+  --status-connecting: #a87000;
+  --status-disconnected: #c4003d;
+  --text-warning-strong: #92400e;
+  --text-error-strong: #991b1b;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'Atkinson Hyperlegible Next', 'Lato', system-ui, sans-serif;
+  --font-body-stack: 'Lato', 'Atkinson Hyperlegible Next', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  /* Light variant: darker cyan family hits AA on pale-cool bg.
+   * Hover is even deeper (12.15:1 AAA) — more contrast = "lift" on light bg. */
+  --link-color: #015a73;
+  --link-color-hover: #013548;
+  --link-color-visited: #105f66;
+  --state-encryption-pending: #b07a00;
 }
 
 body {

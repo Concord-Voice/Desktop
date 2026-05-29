@@ -33,6 +33,7 @@ export interface AppearanceSettings {
     | 'driftwood'
     | 'eclipse'
     | 'midnightsky'
+    | 'agency'
     | 'custom';
   fontSize: 'small' | 'default' | 'large';
   compactMode: boolean;

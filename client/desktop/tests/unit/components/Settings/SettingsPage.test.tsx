@@ -303,9 +303,9 @@ describe('SettingsPage', () => {
     render(<SettingsPage />);
     const customCircle = document.querySelector('.color-scheme-circle.custom-add');
     expect(customCircle).toBeInTheDocument();
-    // 12 built-in + 1 custom = 13 total circles
+    // 13 built-in + 1 custom = 14 total circles
     const allCircles = document.querySelectorAll('.color-scheme-circle');
-    expect(allCircles.length).toBe(13);
+    expect(allCircles.length).toBe(14);
   });
 
   it('clicking custom circle when no customColors opens picker with defaults', () => {

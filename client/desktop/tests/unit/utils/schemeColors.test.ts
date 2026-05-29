@@ -70,7 +70,7 @@ describe('schemeColors', () => {
       expect(result).toBeNull();
     });
 
-    it('returns colors for all 12 preset schemes', () => {
+    it('returns colors for all 13 preset schemes', () => {
       const schemes = [
         'concord',
         'morky',
@@ -84,6 +84,7 @@ describe('schemeColors', () => {
         'driftwood',
         'eclipse',
         'midnightsky',
+        'agency',
       ];
       for (const scheme of schemes) {
         const result = resolveUserAccentColors(JSON.stringify({ scheme }));
