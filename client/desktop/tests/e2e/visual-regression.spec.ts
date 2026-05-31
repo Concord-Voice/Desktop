@@ -1,24 +1,26 @@
 /**
  * Playwright visual-regression spec for Concord Voice — spec §4.7 + §6.4.
  *
- * IMPORTANT — BASELINES NOT YET CAPTURED
- * ----------------------------------------
- * This test structure is committed without baseline PNGs.  The Playwright
- * Chromium binary was not installed in the agent environment that authored
- * this file, so no baselines could be captured safely.  Running the test
- * as-is will fail with "snapshot not found" until you capture baselines:
+ * CI ENFORCEMENT (post-#1074)
+ * ---------------------------
+ * This spec runs in `.github/workflows/playwright.yml` on every PR
+ * touching `client/desktop/**`. Visual diffs against the committed
+ * baselines are non-blocking — a snapshot mismatch posts a sticky PR
+ * comment with the diff artifact link but does NOT fail CI.
  *
+ * Re-baselining is handled by a one-shot bot-authored follow-up PR
+ * (Linux baselines + Mac-baseline deletion). The existing Mac-captured
+ * baselines (`*-chromium-darwin.png`) remain until that follow-up PR
+ * merges; CI runs on Linux will produce subpixel-rendering drift in
+ * the meantime, surfaced as the non-blocking sticky comment.
+ *
+ * Local re-baselining (developer workflow):
  *   1. npx playwright install          # one-time: fetch Chromium binary
  *   2. In a separate shell:
  *        cd client/desktop && npx vite --port 3001
  *   3. cd client/desktop && npx playwright test visual-regression --update-snapshots
- *   4. Commit the generated PNGs under:
- *        tests/e2e/visual-regression.spec.ts-snapshots/
- *      using a separate commit:
- *        "test: capture Playwright visual regression baselines"
- *
- * Before pushing the draft PR (dev-lifecycle Phase 5) the developer performs
- * steps 1–4 and includes the baseline commit.
+ *   4. The CI follow-up PR handles canonical Linux baselines; do NOT
+ *      commit local Mac baselines unless instructed.
  *
  * SURFACE SCOPE — WHY ONLY login
  * --------------------------------
@@ -34,11 +36,9 @@
  *
  * The safe, reliably-reachable surface is '/' (login page).  All 19 design
  * tokens ARE loaded at '/' (styles/index.css is part of the React bundle),
- * so theming is exercisable there.  Once CI and auth-fixture helpers are in
- * place, additional baselines for /app sub-views can be added here.
- *
- * F.1 follow-up issue tracks wiring Playwright into CI — until that lands,
- * visual-regression baselines are enforced by local runs only.
+ * so theming is exercisable there.  Once auth-fixture helpers are in place,
+ * additional baselines for /app sub-views can be added here.  See #1075 for
+ * the planned authenticated-surface expansion.
  *
  * References:
  *   spec §4.7 + §6.4  →  internal-reference
@@ -78,27 +78,31 @@ const MODES = [
 
 for (const surface of SURFACES) {
   for (const mode of MODES) {
-    test(`${surface.label} ${mode.label} matches baseline`, async ({ page }) => {
-      await page.goto(surface.url);
+    test(
+      `${surface.label} ${mode.label} matches baseline`,
+      { tag: '@renderer-only' },
+      async ({ page }) => {
+        await page.goto(surface.url);
 
-      // Apply theme mode.  Omitting data-theme keeps the default dark mode;
-      // setting 'light' switches to the light variant of whatever scheme is
-      // active (concord-light by default).
-      await page.evaluate((t) => {
-        if (t !== null) {
-          document.documentElement.setAttribute('data-theme', t);
-        } else {
-          document.documentElement.removeAttribute('data-theme');
-        }
-      }, mode.theme);
+        // Apply theme mode.  Omitting data-theme keeps the default dark mode;
+        // setting 'light' switches to the light variant of whatever scheme is
+        // active (concord-light by default).
+        await page.evaluate((t) => {
+          if (t !== null) {
+            document.documentElement.setAttribute('data-theme', t);
+          } else {
+            document.documentElement.removeAttribute('data-theme');
+          }
+        }, mode.theme);
 
-      // Wait for network idle to ensure fonts + async CSS are fully applied.
-      await page.waitForLoadState('networkidle');
+        // Wait for network idle to ensure fonts + async CSS are fully applied.
+        await page.waitForLoadState('networkidle');
 
-      await expect(page).toHaveScreenshot(`${surface.label}-${mode.label}.png`, {
-        maxDiffPixels: 100,
-      });
-    });
+        await expect(page).toHaveScreenshot(`${surface.label}-${mode.label}.png`, {
+          maxDiffPixels: 100,
+        });
+      }
+    );
   }
 }
 
@@ -115,39 +119,43 @@ for (const surface of SURFACES) {
  * removed or the selector becomes incorrect, this test catches it immediately
  * without requiring a visual diff.
  */
-test('reduce-animations cascade zeros motion durations', async ({ page }) => {
-  await page.goto('/');
+test(
+  'reduce-animations cascade zeros motion durations',
+  { tag: '@renderer-only' },
+  async ({ page }) => {
+    await page.goto('/');
 
-  // Inject a probe element with a known non-zero transition. Reading
-  // transition-duration on documentElement alone (the prior pattern) is a
-  // false-confidence assertion: the CSS spec default for elements with no
-  // transition declared is '0s', so the cascade rule could be silently
-  // removed and the test would still pass. By probing an element with a
-  // non-zero baseline transition, we prove the cascade rule actually wins.
-  await page.evaluate(() => {
-    const probe = document.createElement('div');
-    probe.id = '__reduce-animations-probe__';
-    probe.style.transition = 'opacity 500ms ease';
-    document.body.appendChild(probe);
-  });
+    // Inject a probe element with a known non-zero transition. Reading
+    // transition-duration on documentElement alone (the prior pattern) is a
+    // false-confidence assertion: the CSS spec default for elements with no
+    // transition declared is '0s', so the cascade rule could be silently
+    // removed and the test would still pass. By probing an element with a
+    // non-zero baseline transition, we prove the cascade rule actually wins.
+    await page.evaluate(() => {
+      const probe = document.createElement('div');
+      probe.id = '__reduce-animations-probe__';
+      probe.style.transition = 'opacity 500ms ease';
+      document.body.appendChild(probe);
+    });
 
-  // Baseline: the probe's transition-duration is 500ms before the override.
-  const before = await page.evaluate(() => {
-    const el = document.getElementById('__reduce-animations-probe__');
-    return el ? getComputedStyle(el).transitionDuration : '';
-  });
-  expect(before, 'probe transition-duration before cascade override').toBe('0.5s');
+    // Baseline: the probe's transition-duration is 500ms before the override.
+    const before = await page.evaluate(() => {
+      const el = document.getElementById('__reduce-animations-probe__');
+      return el ? getComputedStyle(el).transitionDuration : '';
+    });
+    expect(before, 'probe transition-duration before cascade override').toBe('0.5s');
 
-  // Activate the reduced-motion override.
-  await page.evaluate(() => {
-    document.documentElement.setAttribute('data-reduce-animations', 'true');
-  });
+    // Activate the reduced-motion override.
+    await page.evaluate(() => {
+      document.documentElement.setAttribute('data-reduce-animations', 'true');
+    });
 
-  // After: the cascade rule (`[data-reduce-animations='true'] *` with
-  // `transition-duration: 0s !important`) wins, zeroing the probe transition.
-  const after = await page.evaluate(() => {
-    const el = document.getElementById('__reduce-animations-probe__');
-    return el ? getComputedStyle(el).transitionDuration : '';
-  });
-  expect(after, 'probe transition-duration after cascade override').toBe('0s');
-});
+    // After: the cascade rule (`[data-reduce-animations='true'] *` with
+    // `transition-duration: 0s !important`) wins, zeroing the probe transition.
+    const after = await page.evaluate(() => {
+      const el = document.getElementById('__reduce-animations-probe__');
+      return el ? getComputedStyle(el).transitionDuration : '';
+    });
+    expect(after, 'probe transition-duration after cascade override').toBe('0s');
+  }
+);

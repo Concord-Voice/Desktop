@@ -63,36 +63,40 @@ const ALL_19_TOKENS = [
 ] as const;
 
 for (const combo of STRATIFIED_SAMPLE) {
-  test(`all 19 design tokens resolve in ${combo.label}`, async ({ page }) => {
-    // Navigate to the login page — no auth required; styles/index.css is loaded
-    // as part of the React entry bundle.
-    await page.goto('/');
+  test(
+    `all 19 design tokens resolve in ${combo.label}`,
+    { tag: '@renderer-only' },
+    async ({ page }) => {
+      // Navigate to the login page — no auth required; styles/index.css is loaded
+      // as part of the React entry bundle.
+      await page.goto('/');
 
-    // Apply the stratified scheme/theme combination to the document root.
-    // data-scheme selects the color scheme; data-theme selects dark/light mode.
-    // Omitting data-theme keeps the scheme in its default (dark) mode.
-    await page.evaluate(
-      ({ scheme, theme }) => {
-        document.documentElement.setAttribute('data-scheme', scheme);
-        if (theme !== null) {
-          document.documentElement.setAttribute('data-theme', theme);
-        } else {
-          document.documentElement.removeAttribute('data-theme');
-        }
-      },
-      { scheme: combo.scheme, theme: combo.theme }
-    );
-
-    // Resolve every token and assert non-empty. An empty string indicates the
-    // token is undeclared in the active cascade block — a schema-symmetry failure.
-    for (const token of ALL_19_TOKENS) {
-      const value = await page.evaluate(
-        (tok) => getComputedStyle(document.documentElement).getPropertyValue(tok).trim(),
-        token
+      // Apply the stratified scheme/theme combination to the document root.
+      // data-scheme selects the color scheme; data-theme selects dark/light mode.
+      // Omitting data-theme keeps the scheme in its default (dark) mode.
+      await page.evaluate(
+        ({ scheme, theme }) => {
+          document.documentElement.setAttribute('data-scheme', scheme);
+          if (theme !== null) {
+            document.documentElement.setAttribute('data-theme', theme);
+          } else {
+            document.documentElement.removeAttribute('data-theme');
+          }
+        },
+        { scheme: combo.scheme, theme: combo.theme }
       );
-      expect(value, `Token ${token} must resolve in theme ${combo.label}`).not.toBe('');
+
+      // Resolve every token and assert non-empty. An empty string indicates the
+      // token is undeclared in the active cascade block — a schema-symmetry failure.
+      for (const token of ALL_19_TOKENS) {
+        const value = await page.evaluate(
+          (tok) => getComputedStyle(document.documentElement).getPropertyValue(tok).trim(),
+          token
+        );
+        expect(value, `Token ${token} must resolve in theme ${combo.label}`).not.toBe('');
+      }
     }
-  });
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -107,29 +111,33 @@ for (const combo of STRATIFIED_SAMPLE) {
  * --accent-primary), we prove each scheme block's per-token override is actually
  * winning the cascade.
  */
-test('per-scheme overrides win the cascade for var()-bound tokens', async ({ page }) => {
-  await page.goto('/');
+test(
+  'per-scheme overrides win the cascade for var()-bound tokens',
+  { tag: '@renderer-only' },
+  async ({ page }) => {
+    await page.goto('/');
 
-  async function resolveToken(scheme: string, token: string): Promise<string> {
-    await page.evaluate((s) => {
-      document.documentElement.setAttribute('data-scheme', s);
-      document.documentElement.removeAttribute('data-theme');
-    }, scheme);
-    return page.evaluate(
-      (t) => getComputedStyle(document.documentElement).getPropertyValue(t).trim(),
-      token
-    );
+    async function resolveToken(scheme: string, token: string): Promise<string> {
+      await page.evaluate((s) => {
+        document.documentElement.setAttribute('data-scheme', s);
+        document.documentElement.removeAttribute('data-theme');
+      }, scheme);
+      return page.evaluate(
+        (t) => getComputedStyle(document.documentElement).getPropertyValue(t).trim(),
+        token
+      );
+    }
+
+    // --link-color binds to var(--accent-primary), which is per-scheme distinct.
+    // concord's --accent-primary is pink/brand; hacker's is green/monospace. They
+    // MUST differ — if not, one scheme's override was lost from the cascade.
+    const concordLink = await resolveToken('concord', '--link-color');
+    const hackerLink = await resolveToken('hacker', '--link-color');
+    expect(concordLink, 'concord --link-color must resolve').not.toBe('');
+    expect(hackerLink, 'hacker --link-color must resolve').not.toBe('');
+    expect(concordLink).not.toBe(hackerLink);
   }
-
-  // --link-color binds to var(--accent-primary), which is per-scheme distinct.
-  // concord's --accent-primary is pink/brand; hacker's is green/monospace. They
-  // MUST differ — if not, one scheme's override was lost from the cascade.
-  const concordLink = await resolveToken('concord', '--link-color');
-  const hackerLink = await resolveToken('hacker', '--link-color');
-  expect(concordLink, 'concord --link-color must resolve').not.toBe('');
-  expect(hackerLink, 'hacker --link-color must resolve').not.toBe('');
-  expect(concordLink).not.toBe(hackerLink);
-});
+);
 
 // ---------------------------------------------------------------------------
 // --state-encryption-pending direct value assertion
@@ -143,21 +151,25 @@ test('per-scheme overrides win the cascade for var()-bound tokens', async ({ pag
  * runtime value assertion, a typo or scope-creep edit in the token's value would
  * not be caught by the per-token non-emptiness test.
  */
-test('--state-encryption-pending resolves to #faa61a (the sole-consumer color)', async ({
-  page,
-}) => {
-  await page.goto('/');
-  await page.evaluate(() => {
-    document.documentElement.setAttribute('data-scheme', 'concord');
-    document.documentElement.removeAttribute('data-theme');
-  });
+test(
+  '--state-encryption-pending resolves to #faa61a (the sole-consumer color)',
+  { tag: '@renderer-only' },
+  async ({ page }) => {
+    await page.goto('/');
+    await page.evaluate(() => {
+      document.documentElement.setAttribute('data-scheme', 'concord');
+      document.documentElement.removeAttribute('data-theme');
+    });
 
-  // CSS custom property values returned by getPropertyValue are the raw
-  // declaration text — '#faa61a' verbatim, not the normalized rgb() form.
-  // (Normalization only happens when the value is consumed as a property.)
-  const value = await page.evaluate(() =>
-    getComputedStyle(document.documentElement).getPropertyValue('--state-encryption-pending').trim()
-  );
+    // CSS custom property values returned by getPropertyValue are the raw
+    // declaration text — '#faa61a' verbatim, not the normalized rgb() form.
+    // (Normalization only happens when the value is consumed as a property.)
+    const value = await page.evaluate(() =>
+      getComputedStyle(document.documentElement)
+        .getPropertyValue('--state-encryption-pending')
+        .trim()
+    );
 
-  expect(value).toBe('#faa61a');
-});
+    expect(value).toBe('#faa61a');
+  }
+);

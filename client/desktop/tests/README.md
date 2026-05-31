@@ -134,6 +134,37 @@ Zustand stores are tested directly — call actions, assert state changes. MSW i
 
 Tests run in GitHub Actions via `.github/workflows/build.yml` on every push to `main` and all PRs. The workflow runs desktop tests in parallel with control-plane and media-plane checks, then uploads coverage to SonarQube for Quality Gate enforcement.
 
+### E2E (Playwright)
+
+The 8 e2e specs in `tests/e2e/` run in `.github/workflows/playwright.yml` on every PR touching `client/desktop/**`, `services/control-plane/**`, `docker-compose*.yml`, or the workflow file itself. Spec scope is conditional:
+
+- **Renderer-only specs** (`visual-regression`, `design-tokens`, `bundled-fallback-login`) — tagged with `{ tag: '@renderer-only' }`. Run on every PR. Need only the Vite dev server.
+- **Full-stack specs** (`auth`, `channels`, `invites`, `messaging`, `servers`) — untagged (default). Run ONLY when the PR also touches `services/control-plane/**` or migrations. Need a running backend (Postgres + Redis + control-plane).
+
+The workflow uses `services:` blocks for Postgres + Redis; the control-plane Go binary starts via `go run ./cmd/server &` conditionally based on `dorny/paths-filter` output.
+
+**Visual-regression failure semantics:** non-blocking. A snapshot diff against the committed baseline posts a sticky PR comment with the diff artifact link, but the workflow exits 0 (green CI). Real test failures (assertion, timeout, navigation) exit 1 (red CI).
+
+**Re-baselining:** the canonical Linux baselines are captured + committed by a one-shot bot-authored follow-up PR after #1074 merges. The original Mac-captured `*-chromium-darwin.png` baselines remain in the tree until that PR merges; PRs in the meantime will see non-blocking drift comments from Mac→Linux subpixel rendering differences.
+
+To run e2e locally (renderer-only specs, no backend needed):
+
+```bash
+cd client/desktop
+npx playwright test --grep @renderer-only
+```
+
+To run e2e locally (all specs, requires backend running at `http://localhost:8080`):
+
+```bash
+# In a separate shell, start the backend stack
+./scripts/concord-dev.sh up
+
+# Then run e2e
+cd client/desktop
+npx playwright test
+```
+
 Pre-commit hooks (`./scripts/install-git-hooks.sh`) provide local linting and type-checking before push.
 
 Coverage target: **80%+** on new code (enforced by SonarQube Quality Gate).

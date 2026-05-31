@@ -84,6 +84,7 @@ export default [
             'scripts/generate-buildtag.test.ts',
             'scripts/generate-app-update.test.ts',
             'scripts/verify-update-manifest.test.ts',
+            'scripts/classify-playwright-results.test.ts',
             'scripts/csp-prod-strip.ts',
           ],
         },
