@@ -241,7 +241,7 @@ const AboutUpdateSection: React.FC = () => {
         </div>
 
         <div className="about-legal">
-          <span className="about-legal-text">BSL 1.1 License &middot; Concord Voice</span>
+          <span className="about-legal-text">CVSL 1.0 License &middot; Concord Voice</span>
         </div>
       </CollapsibleSection>
 

@@ -346,10 +346,10 @@ describe('Packaging Identity (#382)', () => {
       expect(rpm.homepage).toMatch(/^https:\/\//);
     });
 
-    it('has license set to BUSL-1.1', async () => {
+    it('has license set to LicenseRef-CVSL-1.0', async () => {
       const config = await loadForgeConfig();
       const rpm = getMakerOptions(config, 'Rpm');
-      expect(rpm.license).toBe('BUSL-1.1');
+      expect(rpm.license).toBe('LicenseRef-CVSL-1.0');
     });
 
     it('has description set', async () => {

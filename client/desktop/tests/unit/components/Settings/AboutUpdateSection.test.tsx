@@ -78,7 +78,7 @@ describe('AboutUpdateSection', () => {
   });
   it('renders license text', () => {
     render(<AboutUpdateSection />);
-    expect(screen.getByText(/BSL 1.1 License/)).toBeInTheDocument();
+    expect(screen.getByText(/CVSL 1.0 License/)).toBeInTheDocument();
   });
 
   it('renders app version after loading', async () => {
