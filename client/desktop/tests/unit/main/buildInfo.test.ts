@@ -161,6 +161,88 @@ describe('resolveBuildtagPath', () => {
   });
 });
 
+describe('deriveSha7FromBuildTag', () => {
+  // Pure function — no fs mocking concerns, but `vi.resetModules()` lets each
+  // case import freshly without cache leakage from the getBuildTag describe.
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.resetModules();
+  });
+
+  it('returns first 7 chars of sha8 portion for release tag (HIGH #17)', async () => {
+    const { deriveSha7FromBuildTag } = await import('../../../src/main/buildInfo');
+    // build-desktop.yml emits release-${GITHUB_SHA:0:8}; the server's SPA
+    // registry is keyed by sha7. Slicing the prefix and first 7 hex chars
+    // returns the canonical key.
+    expect(deriveSha7FromBuildTag('release-abcdef12')).toBe('abcdef1');
+  });
+
+  it('lowercases the derived sha7 (registry keys are lowercase hex)', async () => {
+    const { deriveSha7FromBuildTag } = await import('../../../src/main/buildInfo');
+    expect(deriveSha7FromBuildTag('release-ABCDEF12')).toBe('abcdef1');
+  });
+
+  it('returns "" for PR-smoke tag (not commit-derived)', async () => {
+    const { deriveSha7FromBuildTag } = await import('../../../src/main/buildInfo');
+    expect(deriveSha7FromBuildTag('pr-smoke-25592711033')).toBe('');
+  });
+
+  it('returns "" for "unknown" (missing buildtag.json in dev)', async () => {
+    const { deriveSha7FromBuildTag } = await import('../../../src/main/buildInfo');
+    expect(deriveSha7FromBuildTag('unknown')).toBe('');
+  });
+
+  it('returns "" when release prefix is followed by non-hex content', async () => {
+    // Fail-loud: a workflow change emitting `release-foo` must produce '' so the
+    // server returns ATTESTATION_UNKNOWN_RELEASE (terminal/diagnosable) rather
+    // than a 3-char "sha7" the server cannot resolve (silent-corrupt).
+    const { deriveSha7FromBuildTag } = await import('../../../src/main/buildInfo');
+    expect(deriveSha7FromBuildTag('release-not-hex')).toBe('');
+  });
+
+  it('returns "" when release prefix is followed by fewer than 7 hex chars', async () => {
+    const { deriveSha7FromBuildTag } = await import('../../../src/main/buildInfo');
+    expect(deriveSha7FromBuildTag('release-abc')).toBe('');
+  });
+
+  it('handles a longer hex commit hash (e.g. full sha40) by slicing to 7', async () => {
+    const { deriveSha7FromBuildTag } = await import('../../../src/main/buildInfo');
+    expect(deriveSha7FromBuildTag('release-1234567890abcdef')).toBe('1234567');
+  });
+
+  it('returns "" for empty string', async () => {
+    const { deriveSha7FromBuildTag } = await import('../../../src/main/buildInfo');
+    expect(deriveSha7FromBuildTag('')).toBe('');
+  });
+});
+
+describe('getBuildSha7', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    vi.resetModules();
+  });
+
+  it('returns sha7 derived from buildtag.json release tag', async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ tag: 'release-deadbeef' }));
+    const { getBuildSha7 } = await import('../../../src/main/buildInfo');
+    expect(getBuildSha7()).toBe('deadbee');
+  });
+
+  it("returns '' when buildtag.json is absent", async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    const { getBuildSha7 } = await import('../../../src/main/buildInfo');
+    expect(getBuildSha7()).toBe('');
+  });
+
+  it("returns '' for PR-smoke builds (non-release tag)", async () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({ tag: 'pr-smoke-12345' }));
+    const { getBuildSha7 } = await import('../../../src/main/buildInfo');
+    expect(getBuildSha7()).toBe('');
+  });
+});
+
 describe('renderer-context grep audit (regression guard)', () => {
   // Hardcoded paths derived from __dirname at compile time — never user input.
   const rendererDir = path.resolve(__dirname, '../../../src/renderer');
@@ -237,5 +319,63 @@ describe('renderer-context grep audit (regression guard)', () => {
   it('no production renderer source references __BUILD_TAG__', () => {
     const hits = findHitsInRenderer('__BUILD_TAG__');
     expect(hits).toEqual([]);
+  });
+});
+
+describe('getBuildCertHash', () => {
+  // getBuildCertHash memoizes in module state — use vi.resetModules() + dynamic
+  // import per test, mirroring the getBuildTag describe above. Pass an explicit
+  // resourcesPath arg so tests don't depend on process.resourcesPath.
+
+  beforeEach(async () => {
+    vi.resetAllMocks();
+    vi.resetModules();
+  });
+
+  it('returns cert_hash when cert-hash.json is present and well-formed', async () => {
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({ cert_hash: 'sha256:deadbeef' }) // pragma: allowlist secret
+    );
+    const { getBuildCertHash } = await import('../../../src/main/buildInfo');
+    expect(getBuildCertHash('/fake/resources')).toBe('sha256:deadbeef'); // pragma: allowlist secret
+  });
+
+  it("returns '' when cert-hash.json has a malformed payload (missing cert_hash)", async () => {
+    vi.mocked(fs.readFileSync).mockReturnValue('{}');
+    const { getBuildCertHash } = await import('../../../src/main/buildInfo');
+    expect(getBuildCertHash('/fake/resources')).toBe('');
+  });
+
+  it("returns '' when reading cert-hash.json throws (file absent or EACCES)", async () => {
+    vi.mocked(fs.readFileSync).mockImplementation(() => {
+      throw Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' });
+    });
+    const { getBuildCertHash } = await import('../../../src/main/buildInfo');
+    expect(getBuildCertHash('/fake/resources')).toBe('');
+  });
+
+  it('caches the cert_hash value across repeated calls (no re-read)', async () => {
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({ cert_hash: 'sha256:first' }) // pragma: allowlist secret
+    );
+    const { getBuildCertHash } = await import('../../../src/main/buildInfo');
+    expect(getBuildCertHash('/fake/resources')).toBe('sha256:first'); // pragma: allowlist secret
+    // Underlying source changes — cached result should win.
+    vi.mocked(fs.readFileSync).mockReturnValue(
+      JSON.stringify({ cert_hash: 'sha256:second' }) // pragma: allowlist secret
+    );
+    expect(getBuildCertHash('/fake/resources')).toBe('sha256:first'); // pragma: allowlist secret
+    expect(vi.mocked(fs.readFileSync).mock.calls.length).toBe(1);
+  });
+
+  it("caches '' from thrown-error path across repeated calls", async () => {
+    vi.mocked(fs.readFileSync).mockImplementation(() => {
+      throw new Error('EACCES: permission denied');
+    });
+    const { getBuildCertHash } = await import('../../../src/main/buildInfo');
+    expect(getBuildCertHash('/fake/resources')).toBe('');
+    // Subsequent call must not re-read.
+    expect(getBuildCertHash('/fake/resources')).toBe('');
+    expect(vi.mocked(fs.readFileSync).mock.calls.length).toBe(1);
   });
 });

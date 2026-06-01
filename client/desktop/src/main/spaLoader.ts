@@ -19,8 +19,11 @@
  */
 
 import { net } from 'electron';
+import { createHash } from 'node:crypto';
 import { IPC_CONTRACT_VERSION } from './ipcContract';
 import { getPersistedApiBase } from './tokenManager';
+import { setSpaHash, setSpaVersion } from './spaState';
+import { getBuildSha7 } from './buildInfo';
 
 const CONFIG_TIMEOUT_MS = 5_000;
 
@@ -155,4 +158,73 @@ const EXPECTED_BUNDLED_REASON_PREFIXES = [
 
 export function isUnexpectedBundled(reason: string): boolean {
   return !EXPECTED_BUNDLED_REASON_PREFIXES.some((prefix) => reason.startsWith(prefix));
+}
+
+/**
+ * Regex to extract the deploy SHA from a remote SPA URL path of the form
+ * `/spa/<sha>/...`. Mirrors the pattern in versionInfo.ts.
+ */
+const SPA_SHA_RE = /^\/spa\/([a-f0-9]+)\/?/i;
+
+/**
+ * Capture the SHA-256 hash of the entry HTML bytes that the renderer loaded,
+ * and persist it — alongside the effective loader mode and SPA version — in
+ * the spaState singletons so the attestation request can include them.
+ *
+ * This is BEST-EFFORT: a capture failure MUST NOT throw (the caller awaits it
+ * inside the renderer-load path and a throw would break SPA loading). On
+ * error, the singletons retain whatever value they held before this call.
+ *
+ * Hash format: `sha256:<lowercase-hex>`, matching CI's `shasum -a 256` output.
+ *
+ * @param mode    The effective loader mode ('remote' or 'bundled').
+ * @param remoteUrl The resolved remote SPA URL (required when mode='remote').
+ */
+export async function captureSpaHash(
+  mode: 'remote' | 'bundled',
+  remoteUrl?: string
+): Promise<void> {
+  try {
+    // Determine the URL to fetch the entry HTML from.
+    const entryUrl = mode === 'remote' && remoteUrl ? remoteUrl : 'app://concord/index.html';
+
+    const response = await net.fetch(entryUrl);
+    const arrayBuffer = await response.arrayBuffer();
+    const bytes = Buffer.from(arrayBuffer);
+
+    const hash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+
+    // Derive the SPA version:
+    //   remote  → the <sha> segment from the URL path (/spa/<sha>/index.html)
+    //   bundled → sha7 derived from the build tag baked into the app at CI time
+    //
+    // The server's SPA registry is keyed by sha7 (main-cd.yml publishes with
+    // `GITHUB_SHA:0:7`), so the bundled-mode `spa_version` MUST be sha7 too.
+    // Using `getBuildTag()` directly here ships `release-<sha8>` (8 chars +
+    // prefix) which the server cannot resolve → 403 ATTESTATION_UNKNOWN_RELEASE
+    // even for legitimately-built bundles. `getBuildSha7()` returns the
+    // canonical sha7 form for release builds and '' for PR-smoke / dev builds
+    // (the latter is the correct fail-loud posture — non-release bundles are
+    // not in the server's registry).
+    let version: string;
+    if (mode === 'remote' && remoteUrl) {
+      try {
+        const pathname = new URL(remoteUrl).pathname;
+        const shaMatch = SPA_SHA_RE.exec(pathname);
+        version = shaMatch ? shaMatch[1] : '';
+      } catch {
+        version = '';
+      }
+    } else {
+      version = getBuildSha7();
+    }
+
+    setSpaHash(hash);
+    setSpaVersion(version);
+  } catch (err) {
+    // Best-effort capture: swallow the error so the caller's SPA load path
+    // is not interrupted. The singletons retain their previous values.
+    // Per internal-reference, never pass raw err to console.warn.
+    console.warn('[SpaLoader] hash capture failed:', (err as Error).message);
+  }
 }

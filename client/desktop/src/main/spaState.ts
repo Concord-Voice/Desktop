@@ -48,6 +48,36 @@ export function onSpaStateChange(listener: SpaStateListener): () => void {
   };
 }
 
+// ─── SPA attestation capture state (Task 17 / #677) ─────────────────────────
+// These singletons record the hash of the entry HTML bytes the client loaded
+// and the SPA version string. A later task reads them when assembling the
+// attestation request payload.
+//
+// Note: an earlier iteration also tracked a loader-mode singleton (remote
+// vs bundled), but the dual-hash → single-hash collapse (see the
+// 2026-05-31 reconciliation spec for #677) made the loader mode dead weight
+// on the attestation wire. The mode DECISION (remote vs bundled) still
+// lives in spaLoader.ts and drives delivery selection — only its
+// attestation export was removed.
+
+let spaHash = '';
+let spaVersion = '';
+
+export function setSpaHash(h: string): void {
+  spaHash = h;
+}
+export function getSpaHash(): string {
+  return spaHash;
+}
+export function setSpaVersion(v: string): void {
+  spaVersion = v;
+}
+export function getSpaVersion(): string {
+  return spaVersion;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * Atomically set or clear both SPA-state variables. Pass a valid URL to set
  * both (origin extracted via `new URL(decisionUrl).origin`); pass `null` to

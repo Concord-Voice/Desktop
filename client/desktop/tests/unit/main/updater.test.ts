@@ -336,4 +336,36 @@ describe('updater', () => {
       expect(mockLogger.error).toHaveBeenCalledWith(expect.stringMatching(/SECURITY/));
     });
   });
+
+  describe('forceCheckForUpdates', () => {
+    it('triggers autoUpdater.checkForUpdates for attestation_required', async () => {
+      const { updater } = await loadModule();
+      updater.initAutoUpdater(() => null);
+
+      await updater.forceCheckForUpdates('attestation_required');
+
+      expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalledOnce();
+      expect(mockLogger.info).toHaveBeenCalledWith('forceCheckForUpdates: attestation_required');
+    });
+
+    it('triggers autoUpdater.checkForUpdates for user_triggered', async () => {
+      const { updater } = await loadModule();
+      updater.initAutoUpdater(() => null);
+
+      await updater.forceCheckForUpdates('user_triggered');
+
+      expect(mockAutoUpdater.checkForUpdates).toHaveBeenCalledOnce();
+      expect(mockLogger.info).toHaveBeenCalledWith('forceCheckForUpdates: user_triggered');
+    });
+
+    it('propagates the rejection when the underlying check fails', async () => {
+      const { updater } = await loadModule();
+      updater.initAutoUpdater(() => null);
+      mockAutoUpdater.checkForUpdates.mockRejectedValueOnce(new Error('feed unreachable'));
+
+      await expect(updater.forceCheckForUpdates('attestation_required')).rejects.toThrow(
+        'feed unreachable'
+      );
+    });
+  });
 });

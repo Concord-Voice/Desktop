@@ -52,8 +52,22 @@
  *        is reserved for incident-response forensics where a deployed
  *        install needs runtime identification without filesystem access
  *        to the bundle source.
+ * - v11: Client attestation token bridge (#677): attestation:get-token
+ *        and attestation:clear-token handlers. Renderer reads the
+ *        main-process-cached attestation token to attach as the
+ *        X-Attestation-Token header on gated requests, and clears it
+ *        after a 403 to force re-attestation. Server's spaIpcContract is
+ *        NOT bumped — channels are additive and gated behind
+ *        REQUIRE_CLIENT_ATTESTATION (default false).
+ * - v12: updater:force-check handler (#677): renderer-triggered immediate
+ *        update check, used by the attestation 403-retry path to pull a
+ *        newer signed build when the server rejects the current client.
+ *        Always uses the pinned generic feed (#719) — never honors a
+ *        server-supplied URL. Server's spaIpcContract is NOT bumped —
+ *        the channel is additive and gated behind REQUIRE_CLIENT_ATTESTATION
+ *        (default false); older shells without it simply never call it.
  */
-export const IPC_CONTRACT_VERSION = 10;
+export const IPC_CONTRACT_VERSION = 12;
 
 /**
  * Result shape returned by performRefresh() in the main process and

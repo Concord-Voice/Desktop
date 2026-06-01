@@ -99,3 +99,88 @@ export function getBuildTag(): string {
   }
   return cachedTag;
 }
+
+/**
+ * Derive the 7-character commit hash (sha7) from a build tag.
+ *
+ * The build tag format from `.github/workflows/build-desktop.yml` is:
+ *   - Release/push : `release-<sha8>`   → sha7 = first 7 chars of sha8
+ *   - PR-mode      : `pr-smoke-<run-id>` → sha7 = ''   (not a commit-derived tag)
+ *
+ * The server's SPA attestation registry is keyed by sha7 (main-cd.yml publishes
+ * with `GITHUB_SHA:0:7`), so bundled-mode attestation MUST send the sha7 form
+ * rather than the build tag. Returns '' for tags that are not commit-derived;
+ * the attestation middleware will surface `ATTESTATION_UNKNOWN_RELEASE` (a
+ * terminal code) which is the correct posture for non-release builds.
+ *
+ * Pure function — exported only for direct callers that already have a tag.
+ * Callers that want the runtime sha7 should use `getBuildSha7()` instead.
+ */
+export function deriveSha7FromBuildTag(tag: string): string {
+  // `release-<sha8>` → return first 7 chars of the sha8 portion.
+  const RELEASE_PREFIX = 'release-';
+  if (tag.startsWith(RELEASE_PREFIX)) {
+    const sha = tag.slice(RELEASE_PREFIX.length);
+    // Defensive: require ≥7 lowercase-hex chars before treating as a commit hash.
+    // A future workflow change that emits `release-foo` would otherwise yield
+    // a 3-char "sha7" that the server cannot resolve. The hex predicate keeps
+    // the failure mode loud (empty string → ATTESTATION_UNKNOWN_RELEASE) rather
+    // than silent-corrupt.
+    if (/^[a-f0-9]{7,}$/i.test(sha)) {
+      return sha.slice(0, 7).toLowerCase();
+    }
+  }
+  return '';
+}
+
+/**
+ * Returns the 7-character commit hash (sha7) of the build, derived from the
+ * baked `buildtag.json` tag. Returns '' for non-release builds (PR-smoke, dev,
+ * malformed tag). Used by the SPA loader's bundled-mode path to populate the
+ * `spa_version` attestation signal — the server's SPA registry is keyed by
+ * sha7, not by build tag.
+ */
+export function getBuildSha7(): string {
+  return deriveSha7FromBuildTag(getBuildTag());
+}
+
+let cachedCertHash: string | null = null;
+
+/**
+ * Structural type predicate for the `cert-hash.json` payload shape.
+ * Mirrors `isBuildtagPayload` above.
+ */
+function isCertHashPayload(value: unknown): value is { cert_hash: string } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'cert_hash' in value &&
+    typeof (value as Record<string, unknown>).cert_hash === 'string'
+  );
+}
+
+/**
+ * Returns the SHA-256 code-signing-cert fingerprint baked into the packaged
+ * app at build time by `.github/workflows/build-desktop.yml` (see Task 23),
+ * read from `<resourcesPath>/cert-hash.json`. Dev builds legitimately lack
+ * this file, so a read/parse failure returns '' (silent — unlike getBuildTag,
+ * cert-hash absence is expected in dev and not diagnostic). Memoized for the
+ * process lifetime (pins on first call regardless of outcome, matching
+ * getBuildTag).
+ *
+ * Parameterized with a default arg (mirroring resolveBuildtagPath) so unit
+ * tests can inject a resources path without mutating process globals.
+ */
+export function getBuildCertHash(
+  resourcesPath: string | undefined = process.resourcesPath
+): string {
+  if (cachedCertHash !== null) return cachedCertHash;
+  try {
+    const filePath = path.join(resourcesPath ?? process.cwd(), 'cert-hash.json');
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8')) as unknown;
+    cachedCertHash = isCertHashPayload(parsed) ? parsed.cert_hash : '';
+  } catch {
+    cachedCertHash = '';
+  }
+  return cachedCertHash;
+}

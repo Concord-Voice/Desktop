@@ -350,6 +350,22 @@ contextBridge.exposeInMainWorld('electron', {
       };
     },
   },
+
+  // Attestation token bridge (#677): renderer reads the main-process-cached
+  // attestation token to attach as X-Attestation-Token, and clears it after
+  // a 403 to force re-attest.
+  attestation: {
+    getToken: (): Promise<string | null> => ipcRenderer.invoke('attestation:get-token'),
+    clearToken: (): Promise<void> => ipcRenderer.invoke('attestation:clear-token'),
+  },
+
+  // Force an immediate update check (#677): the attestation 403-retry path
+  // calls this to pull a newer signed build when the server rejects the
+  // current client. Always uses the pinned feed (#719).
+  updater: {
+    forceCheckForUpdates: (reason: 'attestation_required' | 'user_triggered'): Promise<void> =>
+      ipcRenderer.invoke('updater:force-check', reason),
+  },
 });
 
 // Type definitions for the exposed API
@@ -537,6 +553,17 @@ export interface ElectronAPI {
   version: {
     get: () => Promise<{ appVersion: string; spaHash: string | null }>;
     onChange: (callback: (data: { spaHash: string | null }) => void) => () => void;
+  };
+
+  // Attestation token bridge (#677)
+  attestation: {
+    getToken: () => Promise<string | null>;
+    clearToken: () => Promise<void>;
+  };
+
+  // Force-check bridge (#677)
+  updater: {
+    forceCheckForUpdates: (reason: 'attestation_required' | 'user_triggered') => Promise<void>;
   };
 }
 

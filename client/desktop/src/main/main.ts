@@ -1,5 +1,6 @@
 import { registerOpenExternalHandler } from './ipc/openExternal';
 import { registerSSOIPC } from './ipc/sso';
+import { registerAttestationIpc } from './ipc/attestation';
 import { registerWindowControlsIpc, getCachedClientBehavior } from './ipc/windowControls';
 import { registerVersionInfoIpc } from './ipc/versionInfo';
 import { buildBrowserWindowConfig } from './browserWindowConfig';
@@ -43,6 +44,7 @@ import {
   stopAutoUpdater,
   setUpdateFeedUrl,
   checkForUpdates,
+  forceCheckForUpdates,
   downloadUpdate,
   safeQuitAndInstall,
   getAllowPrerelease,
@@ -61,7 +63,7 @@ import {
   type SentinelResult,
 } from './updateSafety';
 import { resolveAppProtocolPath } from './appProtocol';
-import { resolveSpaSource, isUnexpectedBundled } from './spaLoader';
+import { resolveSpaSource, isUnexpectedBundled, captureSpaHash } from './spaLoader';
 import { handleDidFailLoad, handleSpaRequestSelfHeal } from './spaSelfHealMainFrame';
 import { buildRemotePipUrl, isValidPipOpenSender } from './pipUrl';
 import { getRemoteSpaBaseUrl, getRemoteSpaUrl, setRemoteSpaState } from './spaState';
@@ -190,6 +192,9 @@ async function loadPackagedRenderer(window: BrowserWindow, _bundledPath: string)
     try {
       setRemoteSpaState(decision.url);
       await window.loadURL(decision.url);
+      // Capture the entry HTML hash for client attestation (#677). Best-effort:
+      // captureSpaHash never throws, so this cannot break the load path.
+      await captureSpaHash('remote', decision.url);
       return;
     } catch {
       console.warn('[SpaLoader] Failed to load remote SPA, falling back to bundled');
@@ -209,6 +214,10 @@ async function loadPackagedRenderer(window: BrowserWindow, _bundledPath: string)
   // the protocol.handle contract or the asar bundle is corrupt).
   try {
     await window.loadURL('app://concord/index.html');
+    // Capture the entry HTML hash for client attestation (#677). Covers both
+    // genuine bundled mode AND the remote→bundled fallback, so the effective
+    // mode is always reflected accurately.  Best-effort: never throws.
+    await captureSpaHash('bundled');
   } catch (err) {
     console.error('[SpaLoader] bundled app:// loadURL failed:', (err as Error).message);
     updateSplashError('Could not load application — please reinstall');
@@ -417,6 +426,7 @@ app.whenReady().then(async () => {
 
   registerOpenExternalHandler(getRemoteSpaBaseUrl);
   registerSSOIPC(getRemoteSpaBaseUrl);
+  registerAttestationIpc(getRemoteSpaBaseUrl);
   // Permission request handler: explicitly allow app-required permissions, deny risky ones.
   // Notifications are allowed (JIT-managed by permissionManager #197).
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -745,6 +755,15 @@ ipcMain.handle('update:setAllowPrerelease', (_event, enabled: boolean) =>
   setAllowPrerelease(enabled)
 );
 ipcMain.handle('update:getLogPath', () => getUpdateLogPath());
+// No sender-frame validation, by parity with the sibling `update:*` handlers
+// above. `forceCheckForUpdates` only triggers a check against the pinned
+// electron-updater feed (#719); `reason` flows solely to a log line and cannot
+// influence the network target. Worst case from a compromised renderer is a
+// redundant check against our own server (DoS-equivalent) — strictly less
+// powerful than the adjacent unvalidated update:download / update:install.
+ipcMain.handle('updater:force-check', (_event, reason: 'attestation_required' | 'user_triggered') =>
+  forceCheckForUpdates(reason)
+);
 
 // Developer Mode (gates DevTools in packaged builds — REMOVE BEFORE BETA)
 ipcMain.handle('app:getDeveloperMode', () => readDeveloperModePref());

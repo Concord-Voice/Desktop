@@ -27,6 +27,19 @@ test.describe('Authentication', () => {
   });
 
   test('session persists across reload', async ({ page }) => {
+    // Session restore requires the `globalThis.electron.restoreSession` IPC
+    // bridge, which is undefined in the Playwright web context (Vite dev
+    // server). The renderer's `useAuthStore` has no `persist` middleware
+    // (authStore.ts:14-29) and `main.tsx:60` explicitly removes any legacy
+    // `concord-auth` localStorage key at startup, so the in-memory access
+    // token does not survive a page reload outside Electron.
+    //
+    // #1263's spec assumed Zustand persist + safeStorage rehydration, but
+    // that path doesn't exist in this codebase. Skipping in web context
+    // until either (a) an electron-forge end-to-end test covers the IPC
+    // path, or (b) authStore gains a renderer-side persistence shim.
+    test.skip(typeof globalThis.electron === 'undefined', 'session restore requires electron IPC');
+
     await registerUser(page);
 
     // Reload the page

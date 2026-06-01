@@ -14,6 +14,7 @@
 
 import { useAuthStore } from '../stores/authStore';
 import { API_BASE } from '../config';
+import type { TerminalAttestationCode } from '../stores/attestationFailureStore';
 
 export { API_BASE } from '../config';
 
@@ -306,6 +307,196 @@ async function handleRefreshFailure(): Promise<void> {
 }
 
 /**
+ * Internal raw-fetch helper.
+ *
+ * Every API request in this module funnels through this single function so
+ * URL construction is centralized — `${API_BASE}${path}` happens exactly here
+ * and nowhere else. `path` is the relative API route supplied by internal
+ * callers (always `/api/v1/...` shaped). The function is the only place that
+ * concatenates the constant API_BASE with caller-supplied path.
+ *
+ * `credentials: 'include'` is non-negotiable for the auth cookie path.
+ */
+function apiFetchRaw(
+  path: string,
+  init: RequestInit | undefined,
+  headers: Headers
+): Promise<Response> {
+  return fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers,
+    credentials: 'include',
+  });
+}
+
+/**
+ * Attestation error codes that trigger the silent re-attest + retry path.
+ * These indicate a stale/invalid token that might succeed after a cache
+ * clear and fresh fetch — the underlying build identity is still valid.
+ */
+const ATTESTATION_REATTEST_CODES = new Set([
+  'ATTESTATION_EXPIRED',
+  'ATTESTATION_INVALID',
+  'ATTESTATION_MISSING',
+]);
+
+/**
+ * Attestation error codes that indicate this build is permanently rejected.
+ * No retry; surface the update modal and return the original 403 to the caller.
+ *
+ * Typed as `Set<TerminalAttestationCode>` so the Set acts as a structural
+ * type-guard: `ATTESTATION_TERMINAL_CODES.has(code)` does not narrow `code`
+ * (it's still `string`), but iterating against the typed Set keeps the
+ * source-of-truth aligned with the store's TerminalAttestationCode union.
+ * Narrowing happens at the use site via `isTerminalAttestationCode()`.
+ */
+const ATTESTATION_TERMINAL_CODES: ReadonlySet<TerminalAttestationCode> =
+  new Set<TerminalAttestationCode>([
+    'ATTESTATION_UNKNOWN_RELEASE',
+    'CLIENT_VERSION_TOO_OLD',
+    'ATTESTATION_REVOKED',
+  ]);
+
+/**
+ * Type-narrow a string code to TerminalAttestationCode. Use at boundaries
+ * where we know the code passed ATTESTATION_TERMINAL_CODES.has() but TS
+ * cannot infer the narrowing from `Set<X>.has(string)`.
+ */
+function isTerminalAttestationCode(code: string): code is TerminalAttestationCode {
+  return (ATTESTATION_TERMINAL_CODES as ReadonlySet<string>).has(code);
+}
+
+/**
+ * Parsed shape of a 403 attestation failure body. Fields are all optional —
+ * the server may omit any of them and a non-JSON body yields all-undefined.
+ */
+interface AttestationFailureBody {
+  code: string | null;
+  requiredMinVersion: string | undefined;
+  downloadHelpUrl: string | undefined;
+}
+
+/**
+ * Parse a 403 response body into the AttestationFailureBody shape.
+ * Uses response.clone() so the original response body remains readable by
+ * callers if we fall through and return the original response unchanged.
+ */
+async function parseAttestationBody(response: Response): Promise<AttestationFailureBody> {
+  const body = (await response
+    .clone()
+    .json()
+    .catch(() => ({}))) as Record<string, unknown>;
+  return {
+    code: typeof body.code === 'string' ? body.code : null,
+    requiredMinVersion:
+      typeof body.requiredMinVersion === 'string' ? body.requiredMinVersion : undefined,
+    downloadHelpUrl: typeof body.downloadHelpUrl === 'string' ? body.downloadHelpUrl : undefined,
+  };
+}
+
+/**
+ * Build request headers for an attestation retry: bearer token (if present),
+ * session ID (if present), machine ID (if present), and the fresh attestation
+ * token. X-Session-ID is required for the server to locate the per-session
+ * attestation token record (keyed by session_id + machine_id) — omitting it on
+ * the retry guarantees a second 403 even with the fresh token.
+ */
+function buildAttestationRetryHeaders(
+  init: RequestInit | undefined,
+  mid: string | null,
+  freshAttToken: string
+): Headers {
+  const headers = new Headers(init?.headers);
+  const currentToken = useAuthStore.getState().accessToken;
+  if (currentToken) headers.set('Authorization', `Bearer ${currentToken}`);
+  const sessionId = useAuthStore.getState().sessionId;
+  if (sessionId) headers.set('X-Session-ID', sessionId);
+  if (mid) headers.set('X-Machine-Id', mid);
+  headers.set('X-Attestation-Token', freshAttToken);
+  return headers;
+}
+
+/**
+ * Re-attest path: clear cached attestation token, fetch a fresh one, and
+ * retry the request ONCE with the new token. If the mint returns null/empty
+ * (inert mint milestone), return the original 403 unchanged.
+ */
+async function handleReattestPath(
+  path: string,
+  init: RequestInit | undefined,
+  response: Response,
+  mid: string | null
+): Promise<Response> {
+  await globalThis.electron?.attestation?.clearToken();
+  const fresh = await globalThis.electron?.attestation?.getToken();
+  if (!fresh) return response;
+
+  // Retry ONCE with the fresh attestation token. Raw fetch — no recursion.
+  const retryHeaders = buildAttestationRetryHeaders(init, mid, fresh);
+  return apiFetchRaw(path, init, retryHeaders);
+}
+
+/**
+ * Terminal path: this build is permanently rejected. Trigger an update check
+ * and surface the failure modal via the store. Returns the original 403 so
+ * callers see the unmodified server response.
+ *
+ * Accepts a pre-narrowed TerminalAttestationCode so the modal cannot be
+ * opened with an unrecognized code that would render inappropriate UX.
+ */
+async function handleTerminalAttestationPath(
+  code: TerminalAttestationCode,
+  body: AttestationFailureBody,
+  response: Response
+): Promise<Response> {
+  await globalThis.electron?.updater?.forceCheckForUpdates('attestation_required');
+
+  const { useAttestationFailureStore } = await import('../stores/attestationFailureStore');
+  useAttestationFailureStore.getState().showFailure({
+    code,
+    requiredMinVersion: body.requiredMinVersion,
+    downloadHelpUrl: body.downloadHelpUrl,
+  });
+
+  return response;
+}
+
+/**
+ * Handle a 403 response that may carry an attestation failure code.
+ *
+ * Routing:
+ * - Re-attest codes (EXPIRED/INVALID/MISSING): clear cached token, fetch
+ *   fresh token, retry ONCE. If fresh token is null/empty (mint is inert in
+ *   this milestone), return original 403 without retry.
+ * - Terminal codes (UNKNOWN_RELEASE/VERSION_TOO_OLD/REVOKED): trigger
+ *   forceCheckForUpdates + surface failure modal; return original 403.
+ * - Any other 403 (RBAC denial, non-attestation error, non-JSON body):
+ *   return original 403 untouched — existing callers must keep working.
+ *
+ * Never loops back into apiFetch. Retry uses raw fetch exactly once.
+ */
+async function handle403Attestation(
+  path: string,
+  init: RequestInit | undefined,
+  response: Response,
+  mid: string | null
+): Promise<Response> {
+  const body = await parseAttestationBody(response);
+
+  if (body.code !== null && ATTESTATION_REATTEST_CODES.has(body.code)) {
+    return handleReattestPath(path, init, response, mid);
+  }
+
+  if (body.code !== null && isTerminalAttestationCode(body.code)) {
+    return handleTerminalAttestationPath(body.code, body, response);
+  }
+
+  // Non-attestation 403 (RBAC denial, unknown code, non-JSON body, etc.).
+  // Return untouched — existing callers depend on seeing the raw 403.
+  return response;
+}
+
+/**
  * Attempt to recover from a 401 response by refreshing the token and retrying.
  * Returns the retried response on success, or the original 401 on failure.
  */
@@ -338,11 +529,24 @@ async function handle401Recovery(
     return response;
   }
 
-  // Retry with new token
+  // Retry with new token. The retry rebuilds headers from `init?.headers`,
+  // which drops the Authorization / X-Session-ID / X-Machine-Id / X-Attestation-Token
+  // values set by the original apiFetch call (those were attached to the request
+  // Headers, not echoed back into `init`). Re-attach all four so the retried
+  // request matches the original surface — otherwise an attestation-enabled
+  // server will 403 the retry because it cannot locate the per-session token
+  // record without X-Session-ID, and would also reject a missing X-Attestation-Token.
   const retryHeaders = new Headers(init?.headers);
   retryHeaders.set('Authorization', `Bearer ${newToken}`);
+  const sessionId = useAuthStore.getState().sessionId;
+  if (sessionId) retryHeaders.set('X-Session-ID', sessionId);
   if (mid) retryHeaders.set('X-Machine-Id', mid);
-  return fetch(`${API_BASE}${path}`, { ...init, headers: retryHeaders, credentials: 'include' });
+  // Pull the CURRENT cached attestation token; same source as apiFetch's initial
+  // injection. If the renderer-side bridge is absent (web/test path) or the cache
+  // is empty (mint inert), omit the header — never set it to undefined or ''.
+  const attToken = await globalThis.electron?.attestation?.getToken();
+  if (attToken) retryHeaders.set('X-Attestation-Token', attToken);
+  return apiFetchRaw(path, init, retryHeaders);
 }
 
 export async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
@@ -352,16 +556,32 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
   if (token) {
     headers.set('Authorization', `Bearer ${token}`);
   }
+  // X-Session-ID is required by the attestation middleware to look up the
+  // per-session token record keyed by (session_id, machine_id). Omitting it
+  // when attestation is enabled produces 403 ATTESTATION_MISSING / EXPIRED.
+  // Read from authStore (populated by /auth/login and /auth/refresh responses).
+  const sessionId = useAuthStore.getState().sessionId;
+  if (sessionId) {
+    headers.set('X-Session-ID', sessionId);
+  }
   const mid = getMachineIdSync();
   if (mid) {
     headers.set('X-Machine-Id', mid);
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers,
-    credentials: 'include',
-  });
+  // Attach attestation token if present. Optional-chained so the web/test
+  // path where globalThis.electron is undefined proceeds without the header.
+  const attToken = await globalThis.electron?.attestation?.getToken();
+  if (attToken) {
+    headers.set('X-Attestation-Token', attToken);
+  }
+
+  const response = await apiFetchRaw(path, init, headers);
+
+  // Intercept 403 attestation failures before the 401 path.
+  if (response.status === 403) {
+    return handle403Attestation(path, init, response, mid);
+  }
 
   // If not 401, return as-is
   if (response.status !== 401) {

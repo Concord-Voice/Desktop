@@ -310,6 +310,19 @@ export async function checkForUpdates(): Promise<void> {
   }
 }
 
+/**
+ * Force an immediate update check, bypassing the scheduled-check cadence.
+ * Invoked by the renderer's attestation 403-retry path (and user-triggered
+ * "check now" actions). Always uses the pinned generic feed (#719) — never a
+ * server-supplied URL.
+ */
+export async function forceCheckForUpdates(
+  reason: 'attestation_required' | 'user_triggered'
+): Promise<void> {
+  logger?.info(`forceCheckForUpdates: ${reason}`);
+  await autoUpdater.checkForUpdates();
+}
+
 export function downloadUpdate(): Promise<string[]> {
   return autoUpdater.downloadUpdate();
 }

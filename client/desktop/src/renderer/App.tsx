@@ -17,6 +17,7 @@ import { IncomingCallBanner } from './components/Voice/IncomingCallBanner';
 import { OutgoingCallModal } from './components/Voice/OutgoingCallModal';
 import { useUpdateErrorListener } from './hooks/useUpdateErrorListener';
 import MFAChallengeModal from './components/Auth/MFAChallengeModal';
+import AttestationFailedModalHost from './components/AttestationFailedModal';
 import SSOEagerUnlock from './components/Auth/SSOEagerUnlock';
 import { useAuthStore } from './stores/authStore';
 import { useE2EEStore } from './stores/e2eeStore';
@@ -426,6 +427,7 @@ function App() {
 
           <ForceUpdateOverlay />
           <MFAChallengeModal />
+          <AttestationFailedModalHost />
           <Suspense fallback={null}>
             <Routes>
               <Route
