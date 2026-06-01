@@ -222,9 +222,14 @@ function resolveToHex(
 ): string | null {
   const trimmed = value.trim();
 
-  // Case 1: direct hex
+  // Case 1: direct hex — validate the shape (#RGB or #RRGGBB) so a malformed
+  // `#`-value (e.g. `#xyz`, `#1234`) resolves to null and surfaces via the
+  // caller's contextual "did not resolve to hex for block ..." guard, instead
+  // of slipping through to an unscoped `Invalid hex color` throw from parseHex
+  // downstream. Makes resolveToHex the true upstream gate parseHex documents
+  // it to be (#1272 — enhanced-pr-review silent-failure finding).
   if (trimmed.startsWith('#')) {
-    return trimmed;
+    return isValidHexLiteral(trimmed) ? trimmed : null;
   }
 
   // Case 2: var() indirection
@@ -317,6 +322,31 @@ function parseHex(hex: string): { r: number; g: number; b: number } {
   return { r, g, b };
 }
 
+/**
+ * True if `value` is a well-formed `#RGB` or `#RRGGBB` hex literal — the two
+ * shapes `parseHex` accepts. Plain-string scan (no RegExp) to stay within this
+ * file's Semgrep CWE-1333 discipline. Used by `resolveToHex` Case 1 to reject a
+ * malformed `#`-value so the caller's block-context guard reports it, rather
+ * than a downstream `parseHex` throw with no block name (#1272).
+ */
+function isValidHexLiteral(value: string): boolean {
+  if (!value.startsWith('#')) {
+    return false;
+  }
+  const body = value.slice(1);
+  if (body.length !== 3 && body.length !== 6) {
+    return false;
+  }
+  for (const ch of body) {
+    const isHexDigit =
+      (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F');
+    if (!isHexDigit) {
+      return false;
+    }
+  }
+  return true;
+}
+
 describe('wcagContrast helper', () => {
   it('returns 21.0 for white-on-black (WCAG max)', () => {
     expect(wcagContrast('#ffffff', '#000000')).toBeCloseTo(21.0, 1);
@@ -393,6 +423,21 @@ describe('resolveToHex helper', () => {
     // resolves to a named color returns null, which is the safe failure mode.
     expect(resolveToHex('var(--unresolved, tomato)', themeBody, rootBody)).toBeNull();
   });
+
+  it('returns null for a malformed hex literal so the caller reports block context (#1272)', () => {
+    // Pre-#1272, Case 1 returned any `#`-prefixed string as-is, so a malformed
+    // value bypassed the null guard and threw an unscoped `Invalid hex color`
+    // from parseHex (no block name). Now it resolves to null and the caller's
+    // contextual "did not resolve to hex for block ..." guard fires instead.
+    expect(resolveToHex('#xyz', themeBody, rootBody)).toBeNull();
+    expect(resolveToHex('#1234', themeBody, rootBody)).toBeNull();
+    expect(resolveToHex('#11111111', themeBody, rootBody)).toBeNull();
+  });
+
+  it('still returns well-formed 3- and 6-digit hex literals as-is', () => {
+    expect(resolveToHex('#fff', themeBody, rootBody)).toBe('#fff');
+    expect(resolveToHex('#ff6d00', themeBody, rootBody)).toBe('#ff6d00');
+  });
 });
 
 describe('WCAG-AA link contrast across all theme blocks', () => {
@@ -450,19 +495,18 @@ describe('WCAG-AA link contrast across all theme blocks', () => {
       }
     );
 
-    const hoverTest = isExempt(block, '--link-color-hover') ? it.skip : it;
+    // The hover variant is optional: a block may inherit --link-color-hover from
+    // :root (enforced by :root's own assertion). Gate at collection time so an
+    // undeclared token reports as a visible SKIP, not a silent green pass (#1272
+    // — honest-skip); an in-body early `return` would show a misleading pass.
+    // Also skips KNOWN_NONCOMPLIANT exemptions.
+    const hoverValue = extractDeclaration(blockBody ?? '', '--link-color-hover');
+    const hoverTest = hoverValue === null || isExempt(block, '--link-color-hover') ? it.skip : it;
     hoverTest(
       `--link-color-hover has WCAG AA contrast ≥ ${WCAG_AA_THRESHOLD}:1 against --bg-primary`,
       () => {
-        const hoverValue = extractDeclaration(blockBody ?? '', '--link-color-hover');
         const bgValue = extractDeclaration(blockBody ?? '', '--bg-primary');
-        if (hoverValue === null) {
-          // The hover variant is optional structurally; if it's missing, skip
-          // rather than fail — this test only enforces the contract for blocks
-          // that declare the token.
-          return;
-        }
-        const hoverHex = resolveToHex(hoverValue, blockBody ?? '', rootBody);
+        const hoverHex = resolveToHex(hoverValue ?? '', blockBody ?? '', rootBody);
         const bgHex = resolveToHex(bgValue ?? '', blockBody ?? '', rootBody);
 
         if (hoverHex === null || bgHex === null) {
@@ -478,6 +522,45 @@ describe('WCAG-AA link contrast across all theme blocks', () => {
         ).toBeGreaterThanOrEqual(WCAG_AA_THRESHOLD);
       }
     );
+
+    // #1183: body-text contrast guard. --text-primary / --text-secondary must meet
+    // WCAG 2.1 AA (≥ 4.5:1 normal text) against --bg-primary. All 28 blocks already
+    // pass (verified at authoring), so no exemption inventory is needed — these
+    // assertions lock in compliance and catch future regressions. Only blocks that
+    // *declare* the token are enforced (inherited values are covered by :root —
+    // today all 28 blocks declare both, so every pair is checked directly).
+    //
+    // Deliberately scoped to text (the 4.5:1 threshold). The non-text surface —
+    // accent/status/focus-ring colours at the 3:1 WCAG 1.4.11 threshold — is a
+    // separate follow-up under #1183 (different threshold + per-pair design calls).
+    for (const textToken of ['--text-primary', '--text-secondary'] as const) {
+      // Gate at collection time so a token inherited from :root (undeclared in
+      // this block) reports as a visible SKIP rather than a silent green pass
+      // (#1272 — honest-skip); an in-body early `return` would show a misleading
+      // pass.
+      const textValue = extractDeclaration(blockBody ?? '', textToken);
+      const textTest = textValue === null ? it.skip : it;
+      textTest(
+        `${textToken} has WCAG AA contrast ≥ ${WCAG_AA_THRESHOLD}:1 against --bg-primary`,
+        () => {
+          const bgValue = extractDeclaration(blockBody ?? '', '--bg-primary');
+          const textHex = resolveToHex(textValue ?? '', blockBody ?? '', rootBody);
+          const bgHex = resolveToHex(bgValue ?? '', blockBody ?? '', rootBody);
+
+          if (textHex === null || bgHex === null) {
+            throw new Error(
+              `Could not resolve ${textToken} or --bg-primary to hex for block ${block}`
+            );
+          }
+
+          const ratio = wcagContrast(textHex, bgHex);
+          expect(
+            ratio,
+            `Theme '${block}' ${textToken} '${textHex}' on bg '${bgHex}' = ${ratio.toFixed(2)}:1, below WCAG AA ${WCAG_AA_THRESHOLD}:1`
+          ).toBeGreaterThanOrEqual(WCAG_AA_THRESHOLD);
+        }
+      );
+    }
   });
 });
 
