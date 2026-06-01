@@ -206,8 +206,8 @@
   --motion-duration-slow: 400ms;
   --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
-  --link-color: var(--accent-primary);
-  --link-color-hover: var(--accent-hover);
+  --link-color: #ae4e6b;
+  --link-color-hover: #9f576e;
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
 }
@@ -306,8 +306,8 @@
   --motion-duration-slow: 400ms;
   --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
-  --link-color: var(--accent-primary);
-  --link-color-hover: var(--accent-hover);
+  --link-color: #ae4e6b;
+  --link-color-hover: #9f576e;
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
 }
@@ -406,8 +406,8 @@
   --motion-duration-slow: 400ms;
   --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
-  --link-color: var(--accent-primary);
-  --link-color-hover: var(--accent-hover);
+  --link-color: #cf333f;
+  --link-color-hover: #c73c49;
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
 }
@@ -506,8 +506,8 @@
   --motion-duration-slow: 400ms;
   --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
-  --link-color: var(--accent-primary);
-  --link-color-hover: var(--accent-hover);
+  --link-color: #9d46c1;
+  --link-color-hover: #8f57a4;
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
 }
@@ -618,7 +618,7 @@
      as a muddy orange-on-cream link rather than something obviously
      interactive. Deep blue is complementary and lifts contrast to ~9.0:1. */
   --link-color: #01579b;
-  --link-color-hover: #0277bd;
+  --link-color-hover: #0272b4;
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
 }
@@ -717,8 +717,8 @@
   --motion-duration-slow: 400ms;
   --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
-  --link-color: var(--accent-primary);
-  --link-color-hover: var(--accent-hover);
+  --link-color: #00821e;
+  --link-color-hover: #008220;
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
 }
@@ -817,8 +817,8 @@
   --motion-duration-slow: 400ms;
   --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
-  --link-color: var(--accent-primary);
-  --link-color-hover: var(--accent-hover);
+  --link-color: #b24a00;
+  --link-color-hover: #ae4f00;
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
 }
@@ -917,8 +917,8 @@
   --motion-duration-slow: 400ms;
   --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
-  --link-color: var(--accent-primary);
-  --link-color-hover: var(--accent-hover);
+  --link-color: #0273ad;
+  --link-color-hover: #0a74a4;
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
 }
@@ -1017,8 +1017,8 @@
   --motion-duration-slow: 400ms;
   --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
-  --link-color: var(--accent-primary);
-  --link-color-hover: var(--accent-hover);
+  --link-color: #577619;
+  --link-color-hover: #59761d;
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
 }
@@ -1117,8 +1117,8 @@
   --motion-duration-slow: 400ms;
   --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
-  --link-color: var(--accent-primary);
-  --link-color-hover: var(--accent-hover);
+  --link-color: #c92065;
+  --link-color-hover: #b83a73;
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
 }
@@ -1217,8 +1217,8 @@
   --motion-duration-slow: 400ms;
   --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
-  --link-color: var(--accent-primary);
-  --link-color-hover: var(--accent-hover);
+  --link-color: #826536;
+  --link-color-hover: #80663a;
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
 }
@@ -1267,7 +1267,7 @@
   --motion-duration-slow: 400ms;
   --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
-  --link-color: var(--accent-primary);
+  --link-color: #d83e3e;
   --link-color-hover: var(--accent-hover);
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
@@ -1417,8 +1417,8 @@
   --motion-duration-slow: 400ms;
   --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
-  --link-color: var(--accent-primary);
-  --link-color-hover: var(--accent-hover);
+  --link-color: #4462cf;
+  --link-color-hover: #4f65b9;
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
 }

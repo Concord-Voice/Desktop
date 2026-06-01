@@ -44,80 +44,33 @@ import { describe, expect, it } from 'vitest';
 const WCAG_AA_THRESHOLD = 4.5;
 
 /**
- * Blocks where `--link-color` and/or `--link-color-hover` currently fail the
- * AA threshold against `--bg-primary`. Discovered during the initial test
- * implementation (2026-05-23). Each entry is suppressed via `.skip` so the
- * suite is green; new theme blocks added without an exemption WILL fail loud.
+ * Exemption list for theme blocks whose `--link-color` / `--link-color-hover`
+ * fall below the WCAG-AA threshold (4.5:1) against `--bg-primary`.
  *
- * The exemption list is the inventory of design follow-up needed before
- * v1.0.0 (release: 1.0). Fix pattern mirrors Fox Den dark (issue #800 /
- * PR #1090): override `--link-color` per-theme to a hue that achieves AA
- * against `--bg-primary` — sky blue against warm backgrounds, etc.
+ * As of #1182 this list is INTENTIONALLY EMPTY. The 24 previously-failing
+ * (block, token) pairs across 13 themes were fixed with explicit per-theme
+ * `--link-color` / `--link-color-hover` overrides in `index.css` (decoupled
+ * from `--accent-primary`, mirroring the Fox Den precedent from #800 /
+ * PR #1090). The guard now enforces AA on every block with zero exemptions
+ * and zero `.skip`.
  *
- * The Fox Den DARK block ([data-scheme='foxden']) is intentionally NOT
- * exempted — its override already meets AA (verified by the resolveToHex
- * helper test). Fox Den LIGHT's hover (4.38:1) just misses the floor;
- * documented here because the link itself (#01579b on #fff3e0) passes.
+ * The mechanism (`isExempt` + the `it.skip` branches below) is retained on
+ * purpose: a future theme that regresses below AA — or a new block added
+ * without a compliant link color — fails LOUD rather than being silently
+ * skipped. The #1183 guard-expansion (non-text / focus-ring contrast) stacks
+ * on top of it.
  *
- * **Remove an entry from this list ONLY by fixing the theme's contrast,
- * never by lowering the threshold or carving out a per-theme exception.**
+ * **If an entry is ever re-added, do so ONLY as a temporary, issue-tracked
+ * exemption, and remove it by fixing the theme's contrast — never by lowering
+ * the threshold or carving out a per-theme exception.**
  */
 const KNOWN_NONCOMPLIANT_BLOCKS: ReadonlyArray<{
   block: string;
   token: '--link-color' | '--link-color-hover';
   ratio: number;
 }> = [
-  // Light themes: pastel `--accent-primary` (e.g., #fa709a) below AA on near-white --bg-primary
-  { block: "[data-theme='light']", token: '--link-color', ratio: 2.46 },
-  { block: "[data-theme='light']", token: '--link-color-hover', ratio: 2.01 },
-  { block: "[data-scheme='concord'][data-theme='light']", token: '--link-color', ratio: 2.46 },
-  {
-    block: "[data-scheme='concord'][data-theme='light']",
-    token: '--link-color-hover',
-    ratio: 2.01,
-  },
-  { block: "[data-scheme='morky'][data-theme='light']", token: '--link-color', ratio: 3.92 },
-  { block: "[data-scheme='morky'][data-theme='light']", token: '--link-color-hover', ratio: 3.05 },
-  { block: "[data-scheme='bardic'][data-theme='light']", token: '--link-color', ratio: 3.89 },
-  { block: "[data-scheme='bardic'][data-theme='light']", token: '--link-color-hover', ratio: 2.62 },
-  { block: "[data-scheme='foxden'][data-theme='light']", token: '--link-color-hover', ratio: 4.38 },
-  { block: "[data-scheme='hacker'][data-theme='light']", token: '--link-color', ratio: 4.27 },
-  { block: "[data-scheme='hacker'][data-theme='light']", token: '--link-color-hover', ratio: 2.93 },
-  { block: "[data-scheme='spooky'][data-theme='light']", token: '--link-color', ratio: 3.78 },
-  { block: "[data-scheme='spooky'][data-theme='light']", token: '--link-color-hover', ratio: 3.03 },
-  { block: "[data-scheme='leviathan'][data-theme='light']", token: '--link-color', ratio: 3.74 },
-  {
-    block: "[data-scheme='leviathan'][data-theme='light']",
-    token: '--link-color-hover',
-    ratio: 2.53,
-  },
-  { block: "[data-scheme='grassynill'][data-theme='light']", token: '--link-color', ratio: 4.47 },
-  {
-    block: "[data-scheme='grassynill'][data-theme='light']",
-    token: '--link-color-hover',
-    ratio: 3.43,
-  },
-  { block: "[data-scheme='cottoncandy'][data-theme='light']", token: '--link-color', ratio: 3.13 },
-  {
-    block: "[data-scheme='cottoncandy'][data-theme='light']",
-    token: '--link-color-hover',
-    ratio: 2.66,
-  },
-  { block: "[data-scheme='driftwood'][data-theme='light']", token: '--link-color', ratio: 3.58 },
-  {
-    block: "[data-scheme='driftwood'][data-theme='light']",
-    token: '--link-color-hover',
-    ratio: 2.73,
-  },
-  // Dark themes: saturated red on near-black
-  { block: "[data-scheme='eclipse']", token: '--link-color', ratio: 3.57 },
-  // Midnightsky light: muted blue on cool-white
-  { block: "[data-scheme='midnightsky'][data-theme='light']", token: '--link-color', ratio: 4.17 },
-  {
-    block: "[data-scheme='midnightsky'][data-theme='light']",
-    token: '--link-color-hover',
-    ratio: 2.7,
-  },
+  // Intentionally empty as of #1182 — every block now meets AA in index.css.
+  // See the exemption-list contract above for why the mechanism is retained.
 ];
 
 function isExempt(block: string, token: '--link-color' | '--link-color-hover'): boolean {
@@ -580,6 +533,10 @@ describe('failure-path: detects deliberately-bad link/bg pair', () => {
 });
 
 describe('exemption discipline', () => {
+  // KNOWN_NONCOMPLIANT_BLOCKS is empty as of #1182, so these three invariant
+  // checks currently pass vacuously. They are retained to harden the exemption
+  // mechanism for any future (issue-tracked) re-population — e.g. the #1183
+  // guard-expansion. See the exemption-list contract above the array.
   it('KNOWN_NONCOMPLIANT_BLOCKS contains no duplicates', () => {
     const seen = new Set<string>();
     for (const e of KNOWN_NONCOMPLIANT_BLOCKS) {
