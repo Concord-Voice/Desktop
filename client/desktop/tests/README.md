@@ -132,7 +132,7 @@ Zustand stores are tested directly — call actions, assert state changes. MSW i
 
 ## CI/CD
 
-Tests run in GitHub Actions via `.github/workflows/build.yml` on every push to `main` and all PRs. The workflow runs desktop tests in parallel with control-plane and media-plane checks, then uploads coverage to SonarQube for Quality Gate enforcement.
+Tests run in GitHub Actions via `.github/workflows/build.yml`, invoked via `workflow_call` from `pr-ci.yml` on every PR. The workflow runs desktop tests in parallel with control-plane and media-plane checks, then uploads coverage to SonarQube for Quality Gate enforcement.
 
 ### E2E (Playwright)
 
