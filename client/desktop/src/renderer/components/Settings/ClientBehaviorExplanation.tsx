@@ -14,7 +14,7 @@ interface Props {
 const CLOSE_QUIT_TEXT =
   'Click the [×] button — Concord Voice will quit gracefully (saves session, closes media plane connections).';
 const CLOSE_OS_QUIT_TEXT =
-  'Right-click the app icon in the dock or tray and select Quit, or use your OS task manager.';
+  'To quit, reopen the window from the taskbar or dock if needed, then use the Quit button in the user menu. On macOS you can also press ⌘Q or right-click the dock icon and choose Quit.';
 const MINIMIZE_BUTTON_TEXT = 'Click the [—] button in the title bar.';
 const CLOSE_BUTTON_TEXT = 'Click the [×] button in the title bar.';
 const NO_TOOLBAR_BUTTON_TEXT = 'No button is configured. Adjust your settings above to enable.';

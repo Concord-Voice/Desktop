@@ -57,17 +57,21 @@ describe('isOptionDisabled — mutex rule', () => {
   });
 });
 
-describe('isOptionDisabled — coverage rule', () => {
-  it('disables "none" on toTray when toToolbar is "close" (would leave [-] unclaimed)', () => {
+describe('isOptionDisabled — no coverage violation possible (#1148)', () => {
+  // deriveCloseAction / deriveMinimizeAction are total functions: every button
+  // always resolves to a destination, so a "coverage violation" cannot occur.
+  // The mutex is the only real disable rule. These configs are all valid and
+  // must remain selectable.
+  it('allows "close" on toToolbar when toTray is "none" (#1148 — both buttons → toolbar, quit via app-icon menu)', () => {
+    expect(isOptionDisabled('toToolbar', 'close', quitCB)).toBe(false);
+  });
+
+  it('allows "none" on toTray when toToolbar is "close" (symmetric to #1148)', () => {
     const cb: ClientBehavior = { toTray: 'close', toToolbar: 'close' };
-    expect(isOptionDisabled('toTray', 'none', cb)).toBe(true);
+    expect(isOptionDisabled('toTray', 'none', cb)).toBe(false);
   });
 
-  it('disables "close" on toToolbar when toTray is "none" (same coverage rule, other direction)', () => {
-    expect(isOptionDisabled('toToolbar', 'close', quitCB)).toBe(true);
-  });
-
-  it('allows "none" on toTray when toToolbar is "minimize" (no coverage violation)', () => {
+  it('allows "none" on toTray when toToolbar is "minimize"', () => {
     expect(isOptionDisabled('toTray', 'none', defaultCB)).toBe(false);
   });
 });

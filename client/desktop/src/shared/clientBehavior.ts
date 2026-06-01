@@ -25,11 +25,13 @@ export function deriveMinimizeAction(cb: ClientBehavior): MinimizeAction {
   return 'toolbar';
 }
 
-// Mutex: the same button cannot be assigned to both destinations.
-// Coverage: every visible button must have a destination, EXCEPT [×] which
-// can legally fall through to graceful Quit (handled by deriveCloseAction).
-// The two rules are orthogonal — Cognitive Complexity stays below 15 per
-// SonarQube typescript:S3776 by splitting into single-responsibility helpers.
+// Mutex is the ONLY disable rule: the same destination value cannot be assigned
+// to both buttons (toTray and toToolbar). There is deliberately no "coverage"
+// rule — deriveCloseAction and deriveMinimizeAction are total functions, so
+// every button always resolves to a destination ([×] can fall through to Quit;
+// [—] is always 'tray' or 'toolbar'). A config where a button is "unclaimed"
+// cannot exist, so disabling options to prevent one was dead logic that wrongly
+// blocked the valid {toTray:'none', toToolbar:'close'} config (#1148).
 
 function isMutexConflict(
   setting: 'toTray' | 'toToolbar',
@@ -40,30 +42,10 @@ function isMutexConflict(
   return option === otherValue;
 }
 
-function isCoverageViolation(
-  setting: 'toTray' | 'toToolbar',
-  option: string,
-  currentCB: ClientBehavior
-): boolean {
-  // Picking 'none' for toTray when toToolbar='close' leaves the [—] button
-  // with no destination.
-  if (setting === 'toTray' && option === 'none' && currentCB.toToolbar === 'close') {
-    return true;
-  }
-  // Picking 'close' for toToolbar when toTray='none' is the symmetric case:
-  // [—] has no destination because toToolbar is now also 'close'.
-  if (setting === 'toToolbar' && option === 'close' && currentCB.toTray === 'none') {
-    return true;
-  }
-  return false;
-}
-
 export function isOptionDisabled(
   setting: 'toTray' | 'toToolbar',
   option: string,
   currentCB: ClientBehavior
 ): boolean {
-  return (
-    isMutexConflict(setting, option, currentCB) || isCoverageViolation(setting, option, currentCB)
-  );
+  return isMutexConflict(setting, option, currentCB);
 }

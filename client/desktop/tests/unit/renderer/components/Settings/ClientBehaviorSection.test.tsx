@@ -41,29 +41,27 @@ describe('ClientBehaviorSection', () => {
     expect(useSettingsStore.getState().clientBehavior.toTray).toBe('none');
   });
 
-  it('grays out "close" in toToolbar when toTray is "none" (coverage rule)', () => {
+  // #1148: there is no "coverage" rule. Both derivers are total, so every button
+  // always has a destination — these configs are valid and must be selectable.
+  it('allows "close" in toToolbar when toTray is "none" (#1148 — both buttons → toolbar, quit via app-icon menu)', () => {
     useSettingsStore.setState({
       clientBehavior: { toTray: 'none', toToolbar: 'minimize' },
     });
     render(<ClientBehaviorSection />);
     const toToolbarClose = screen.getByLabelText(/To Toolbar.*Close/i);
-    expect(toToolbarClose).toBeDisabled();
+    expect(toToolbarClose).not.toBeDisabled();
   });
 
-  // Coverage additions during SonarQube reconcile — exercise the disabledReason
-  // symmetric branches (toTray 'none' under toToolbar='close' coverage rule).
-  it('disables "none" on toTray with explanatory title tooltip when toToolbar is "close"', () => {
-    // Swap configuration triggers the coverage rule for 'none' on toTray:
-    // with toToolbar='close', picking toTray='none' would leave [—] unclaimed.
+  it('allows "none" on toTray when toToolbar is "close" (symmetric to #1148) with no coverage tooltip', () => {
     useSettingsStore.setState({
       clientBehavior: { toTray: 'minimize', toToolbar: 'close' },
     });
     render(<ClientBehaviorSection />);
     const toTrayNone = screen.getByLabelText(/To Tray.*None/i);
-    expect(toTrayNone).toBeDisabled();
-    // The label (parent of the input) carries the tooltip
+    expect(toTrayNone).not.toBeDisabled();
+    // The removed coverage rule no longer attaches a "no destination" tooltip.
     const label = toTrayNone.closest('label');
-    expect(label?.getAttribute('title')).toMatch(/Would leave the \[—\] button/);
+    expect(label?.getAttribute('title') ?? '').not.toMatch(/Would leave the \[—\] button/);
   });
 
   it('updates clientBehavior when user changes toToolbar', () => {

@@ -23,10 +23,10 @@ const TO_TOOLBAR_OPTIONS: { value: ToToolbarChoice; label: string }[] = [
 
 /**
  * Produce the user-facing reason an option is disabled, surfaced via the
- * native title="" tooltip. The two categories are:
- *   - mutex: same button already assigned to the other destination
- *   - coverage: selecting this would leave the [-] button unclaimed,
- *     creating a config the spec rejects (§3.4)
+ * native title="" tooltip. The only disable rule is the mutex: the same
+ * destination value is already assigned to the other setting. (There is no
+ * "coverage" rule — every button always resolves to a destination; see
+ * clientBehavior.ts and #1148.)
  */
 function disabledReason(
   setting: 'toTray' | 'toToolbar',
@@ -34,12 +34,6 @@ function disabledReason(
   cb: ClientBehavior
 ): string | undefined {
   if (!isOptionDisabled(setting, option, cb)) return undefined;
-  if (setting === 'toTray' && option === 'none' && cb.toToolbar === 'close') {
-    return 'Would leave the [—] button with no destination. Pick "Minimize" for To Toolbar to enable this.';
-  }
-  if (setting === 'toToolbar' && option === 'close' && cb.toTray === 'none') {
-    return 'Would leave the [—] button with no destination. Pick "Minimize" or "Close" for To Tray to enable this.';
-  }
   return `Already selected for ${setting === 'toTray' ? 'To Toolbar' : 'To Tray'}.`;
 }
 

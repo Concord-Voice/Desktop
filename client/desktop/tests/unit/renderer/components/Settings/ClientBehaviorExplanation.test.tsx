@@ -8,7 +8,7 @@ describe('ClientBehaviorExplanation', () => {
     const cb: ClientBehavior = { toTray: 'close', toToolbar: 'minimize' };
     render(<ClientBehaviorExplanation clientBehavior={cb} />);
     expect(screen.getByText(/To Close Concord Voice/i)).toBeInTheDocument();
-    expect(screen.getByText(/Right-click the app icon/i)).toBeInTheDocument();
+    expect(screen.getByText(/Quit button in the user menu/i)).toBeInTheDocument();
     expect(screen.getByText(/click the \[—\] button/i)).toBeInTheDocument();
     expect(screen.getByText(/click the \[×\] button/i)).toBeInTheDocument();
   });
@@ -24,6 +24,6 @@ describe('ClientBehaviorExplanation', () => {
   it('renders swap-config (minimize, close) correctly', () => {
     const cb: ClientBehavior = { toTray: 'minimize', toToolbar: 'close' };
     render(<ClientBehaviorExplanation clientBehavior={cb} />);
-    expect(screen.getByText(/Right-click the app icon/i)).toBeInTheDocument();
+    expect(screen.getByText(/Quit button in the user menu/i)).toBeInTheDocument();
   });
 });
