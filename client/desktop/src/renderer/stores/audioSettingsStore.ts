@@ -38,6 +38,12 @@ export interface AudioSettings {
   // Volume
   inputVolume: number; // 0–200 (percent), default 100. Applied via GainNode in mic pipeline.
   outputVolume: number; // 0–200 (percent), default 100. Applied via GainNode per remote participant.
+  /**
+   * Per-participant output volume overrides, keyed by userId (percent, 0–200).
+   * Multiplied with master `outputVolume` at playback time. Missing keys default
+   * to 100 (treated as unity — no adjustment relative to master).
+   */
+  perParticipantVolume: Record<string, number>;
 
   // Quiet boost (receiver-side upward compressor)
   quietBoost: boolean; // Dynamically amplify quiet participants
@@ -66,6 +72,8 @@ interface AudioSettingsState extends AudioSettings {
   setAudioPriority: (priority: AudioPriority) => void;
   setInputVolume: (volume: number) => void;
   setOutputVolume: (volume: number) => void;
+  setParticipantVolume: (userId: string, volume: number) => void;
+  clearParticipantVolume: (userId: string) => void;
   setQuietBoost: (enabled: boolean) => void;
   setQuietBoostThreshold: (threshold: number) => void;
   setNetworkType: (type: 'auto' | 'wifi' | 'wired') => void;
@@ -90,71 +98,88 @@ const defaults: AudioSettings = {
   audioPriority: 'medium',
   inputVolume: 100,
   outputVolume: 100,
+  perParticipantVolume: {},
   quietBoost: false,
   quietBoostThreshold: -35,
   networkType: 'auto',
   packetLossWarningThreshold: 3,
 };
 
-export const useAudioSettingsStore = wrapStore(create<AudioSettingsState>()(
-  persist(
-    (set) => ({
-      ...defaults,
+export const useAudioSettingsStore = wrapStore(
+  create<AudioSettingsState>()(
+    persist(
+      (set) => ({
+        ...defaults,
 
-      setAdvancedMode: (advancedMode) => set({ advancedMode }),
-      setNoiseCancellation: (noiseCancellation) => set({ noiseCancellation }),
-      setEchoCancellation: (echoCancellation) => set({ echoCancellation }),
-      setAutoGainControl: (autoGainControl) => set({ autoGainControl }),
-      setNoiseGateMode: (noiseGateMode) => set({ noiseGateMode }),
-      setNoiseGateLevel: (noiseGateLevel) =>
-        set({ noiseGateLevel: Math.max(-80, Math.min(-20, noiseGateLevel)) }),
-      setMusicMode: (musicMode) => set({ musicMode }),
-      setFrameSize: (frameSize) => set({ frameSize }),
-      setSilenceDetection: (silenceDetection) => set({ silenceDetection }),
-      setStereoOverride: (stereoOverride) => set({ stereoOverride }),
-      setInlineFec: (inlineFec) => set({ inlineFec }),
-      setFecHeadroom: (fecHeadroom) => set({ fecHeadroom }),
-      setOpusNack: (opusNack) => set({ opusNack }),
-      setAdaptivePtime: (adaptivePtime) => set({ adaptivePtime }),
-      setAudioPriority: (audioPriority) => set({ audioPriority }),
-      setInputVolume: (inputVolume) =>
-        set({ inputVolume: Math.max(0, Math.min(200, inputVolume)) }),
-      setOutputVolume: (outputVolume) =>
-        set({ outputVolume: Math.max(0, Math.min(200, outputVolume)) }),
-      setQuietBoost: (quietBoost) => set({ quietBoost }),
-      setQuietBoostThreshold: (quietBoostThreshold) =>
-        set({ quietBoostThreshold: Math.max(-50, Math.min(-20, quietBoostThreshold)) }),
-      setNetworkType: (networkType) => set({ networkType }),
-      setPacketLossWarningThreshold: (packetLossWarningThreshold) =>
-        set({ packetLossWarningThreshold }),
-    }),
-    {
-      name: 'concord:audio-advanced',
-      version: 2,
-      migrate: (persistedState: unknown, version: number) => {
-        const state = persistedState as Record<string, unknown>;
-        if (version === 0) {
-          // v0→v1: Rename fecMode → autoFecMode, add advancedMode + stereoOverride
-          if (state.fecMode) {
-            state.autoFecMode = state.fecMode === 'auto' ? 'default' : 'manual';
-            delete state.fecMode;
+        setAdvancedMode: (advancedMode) => set({ advancedMode }),
+        setNoiseCancellation: (noiseCancellation) => set({ noiseCancellation }),
+        setEchoCancellation: (echoCancellation) => set({ echoCancellation }),
+        setAutoGainControl: (autoGainControl) => set({ autoGainControl }),
+        setNoiseGateMode: (noiseGateMode) => set({ noiseGateMode }),
+        setNoiseGateLevel: (noiseGateLevel) =>
+          set({ noiseGateLevel: Math.max(-80, Math.min(-20, noiseGateLevel)) }),
+        setMusicMode: (musicMode) => set({ musicMode }),
+        setFrameSize: (frameSize) => set({ frameSize }),
+        setSilenceDetection: (silenceDetection) => set({ silenceDetection }),
+        setStereoOverride: (stereoOverride) => set({ stereoOverride }),
+        setInlineFec: (inlineFec) => set({ inlineFec }),
+        setFecHeadroom: (fecHeadroom) => set({ fecHeadroom }),
+        setOpusNack: (opusNack) => set({ opusNack }),
+        setAdaptivePtime: (adaptivePtime) => set({ adaptivePtime }),
+        setAudioPriority: (audioPriority) => set({ audioPriority }),
+        setInputVolume: (inputVolume) =>
+          set({ inputVolume: Math.max(0, Math.min(200, inputVolume)) }),
+        setOutputVolume: (outputVolume) =>
+          set({ outputVolume: Math.max(0, Math.min(200, outputVolume)) }),
+        setParticipantVolume: (userId, volume) =>
+          set((state) => ({
+            perParticipantVolume: {
+              ...state.perParticipantVolume,
+              [userId]: Math.max(0, Math.min(200, volume)),
+            },
+          })),
+        clearParticipantVolume: (userId) =>
+          set((state) => {
+            if (!(userId in state.perParticipantVolume)) return state;
+            const next = { ...state.perParticipantVolume };
+            delete next[userId];
+            return { perParticipantVolume: next };
+          }),
+        setQuietBoost: (quietBoost) => set({ quietBoost }),
+        setQuietBoostThreshold: (quietBoostThreshold) =>
+          set({ quietBoostThreshold: Math.max(-50, Math.min(-20, quietBoostThreshold)) }),
+        setNetworkType: (networkType) => set({ networkType }),
+        setPacketLossWarningThreshold: (packetLossWarningThreshold) =>
+          set({ packetLossWarningThreshold }),
+      }),
+      {
+        name: 'concord:audio-advanced',
+        version: 2,
+        migrate: (persistedState: unknown, version: number) => {
+          const state = persistedState as Record<string, unknown>;
+          if (version === 0) {
+            // v0→v1: Rename fecMode → autoFecMode, add advancedMode + stereoOverride
+            if (state.fecMode) {
+              state.autoFecMode = state.fecMode === 'auto' ? 'default' : 'manual';
+              delete state.fecMode;
+            }
+            if (typeof state.fecManualPercent === 'number' && state.fecManualPercent > 40) {
+              state.fecManualPercent = 40;
+            }
+            if (state.advancedMode === undefined) state.advancedMode = false;
+            if (state.stereoOverride === undefined) state.stereoOverride = null;
           }
-          if (typeof state.fecManualPercent === 'number' && state.fecManualPercent > 40) {
-            state.fecManualPercent = 40;
+          if (version <= 1) {
+            // v1→v2: autoFecMode + fecManualPercent → inlineFec + fecHeadroom
+            const mode = state.autoFecMode as string | undefined;
+            state.inlineFec = mode !== 'off';
+            state.fecHeadroom = mode !== 'off' && mode !== 'manual';
+            delete state.autoFecMode;
+            delete state.fecManualPercent;
           }
-          if (state.advancedMode === undefined) state.advancedMode = false;
-          if (state.stereoOverride === undefined) state.stereoOverride = null;
-        }
-        if (version <= 1) {
-          // v1→v2: autoFecMode + fecManualPercent → inlineFec + fecHeadroom
-          const mode = state.autoFecMode as string | undefined;
-          state.inlineFec = mode !== 'off';
-          state.fecHeadroom = mode !== 'off' && mode !== 'manual';
-          delete state.autoFecMode;
-          delete state.fecManualPercent;
-        }
-        return state as unknown as AudioSettingsState;
-      },
-    }
+          return state as unknown as AudioSettingsState;
+        },
+      }
+    )
   )
-));
+);

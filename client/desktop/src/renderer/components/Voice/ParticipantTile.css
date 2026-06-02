@@ -180,3 +180,40 @@
 .participant-tile__status--screen {
   color: var(--accent-primary);
 }
+
+.participant-tile__menu-trigger {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  padding: 0;
+  z-index: 4;
+}
+
+.participant-tile:hover .participant-tile__menu-trigger,
+.participant-tile__menu-trigger:focus-visible {
+  opacity: 1;
+}
+
+.participant-tile__menu-trigger:focus-visible {
+  outline: 2px solid var(--accent-primary, #4a9eff);
+  outline-offset: 2px;
+}
+
+.participant-tile--compact .participant-tile__menu-trigger {
+  width: 16px;
+  height: 16px;
+  top: 4px;
+  left: 4px;
+}

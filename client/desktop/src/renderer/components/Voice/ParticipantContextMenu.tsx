@@ -1,5 +1,6 @@
 import ContextMenu from '../ui/ContextMenu';
 import { EnforcementMenuItems } from '../ui/EnforcementMenuItems';
+import { ParticipantVolumeRow } from './ParticipantVolumeRow';
 import { useVoiceStore, type VoiceParticipant } from '../../stores/voiceStore';
 import { MUTE_MEMBERS, DEAFEN_MEMBERS } from '../../utils/permissions';
 
@@ -50,16 +51,20 @@ export function ParticipantContextMenu({
   return (
     <ContextMenu position={position} onClose={onClose}>
       <ContextMenu.Header>{participant.displayName || participant.username}</ContextMenu.Header>
+      <ParticipantVolumeRow userId={participant.userId} />
       {enforcementContext && (
-        <EnforcementMenuItems
-          targetUserId={participant.userId}
-          targetServerMuted={participant.serverMuted}
-          targetServerDeafened={participant.serverDeafened}
-          targetIsMuted={participant.isMuted}
-          targetIsInVoice={true}
-          context={enforcementContext}
-          onClose={onClose}
-        />
+        <>
+          <ContextMenu.Separator />
+          <EnforcementMenuItems
+            targetUserId={participant.userId}
+            targetServerMuted={participant.serverMuted}
+            targetServerDeafened={participant.serverDeafened}
+            targetIsMuted={participant.isMuted}
+            targetIsInVoice={true}
+            context={enforcementContext}
+            onClose={onClose}
+          />
+        </>
       )}
     </ContextMenu>
   );

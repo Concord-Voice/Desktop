@@ -120,8 +120,9 @@ describe('ParticipantGrid — extended coverage', () => {
         },
       });
       const { container } = render(<ParticipantGrid />);
-      // Should have both audio and visual elements
-      expect(container.querySelector('audio')).toBeInTheDocument();
+      // <audio> lives in the effect closure (DOM-less AudioOutput), so verify
+      // the audio graph via the mock and the visual layer via the DOM.
+      expect(mockAudioContext.createMediaElementSource).toHaveBeenCalled();
       expect(container.querySelector('.user-frame-grid')).toBeInTheDocument();
     });
   });

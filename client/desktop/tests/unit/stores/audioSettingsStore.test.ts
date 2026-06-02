@@ -22,6 +22,7 @@ beforeEach(() => {
     audioPriority: 'off',
     inputVolume: 100,
     outputVolume: 100,
+    perParticipantVolume: {},
     quietBoost: false,
     quietBoostThreshold: -40,
     networkType: 'auto',
@@ -114,5 +115,47 @@ describe('audioSettingsStore', () => {
   it('sets audio priority', () => {
     useAudioSettingsStore.getState().setAudioPriority('high');
     expect(useAudioSettingsStore.getState().audioPriority).toBe('high');
+  });
+
+  describe('per-participant volume', () => {
+    it('defaults to an empty record', () => {
+      expect(useAudioSettingsStore.getState().perParticipantVolume).toEqual({});
+    });
+
+    it('sets a participant volume', () => {
+      useAudioSettingsStore.getState().setParticipantVolume('user-1', 75);
+      expect(useAudioSettingsStore.getState().perParticipantVolume['user-1']).toBe(75);
+    });
+
+    it('clamps below 0 to 0', () => {
+      useAudioSettingsStore.getState().setParticipantVolume('user-1', -10);
+      expect(useAudioSettingsStore.getState().perParticipantVolume['user-1']).toBe(0);
+    });
+
+    it('clamps above 200 to 200', () => {
+      useAudioSettingsStore.getState().setParticipantVolume('user-1', 500);
+      expect(useAudioSettingsStore.getState().perParticipantVolume['user-1']).toBe(200);
+    });
+
+    it('setting one participant does not disturb others', () => {
+      useAudioSettingsStore.getState().setParticipantVolume('user-1', 50);
+      useAudioSettingsStore.getState().setParticipantVolume('user-2', 150);
+      expect(useAudioSettingsStore.getState().perParticipantVolume).toEqual({
+        'user-1': 50,
+        'user-2': 150,
+      });
+    });
+
+    it('clearParticipantVolume removes the entry', () => {
+      useAudioSettingsStore.getState().setParticipantVolume('user-1', 50);
+      useAudioSettingsStore.getState().clearParticipantVolume('user-1');
+      expect(useAudioSettingsStore.getState().perParticipantVolume).toEqual({});
+    });
+
+    it('clearParticipantVolume on a missing key is a no-op', () => {
+      useAudioSettingsStore.getState().setParticipantVolume('user-1', 75);
+      useAudioSettingsStore.getState().clearParticipantVolume('user-nonexistent');
+      expect(useAudioSettingsStore.getState().perParticipantVolume).toEqual({ 'user-1': 75 });
+    });
   });
 });

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useMemo, useState } from 'react';
-import { MicOff, HeadphoneOff, Lock, Monitor } from 'lucide-react';
+import { MicOff, HeadphoneOff, Lock, Monitor, MoreVertical } from 'lucide-react';
 import { ParticipantContextMenu } from './ParticipantContextMenu';
 import type { VoiceParticipant } from '../../stores/voiceStore';
 import { useMemberStore } from '../../stores/memberStore';
@@ -118,9 +118,22 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
 
   const handleContextMenu = (e: React.MouseEvent) => {
-    if (isLocal) return; // No context menu on yourself
+    // Always stop the browser default + propagation so right-clicks on a tile
+    // don't bubble up to the channel/voice-channel context menu. Local users
+    // don't get their own menu, but we still swallow the event.
     e.preventDefault();
+    e.stopPropagation();
+    if (isLocal) return;
     setCtxMenu({ x: e.clientX, y: e.clientY });
+  };
+
+  // Keyboard equivalent for the right-click menu: a native <button> trigger
+  // rendered at the tile's corner. The button gets Enter/Space + focus for
+  // free from native semantics — no role/tabIndex/onKeyDown on the outer div.
+  const handleMenuButtonClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    setCtxMenu({ x: rect.left, y: rect.bottom });
   };
 
   return (
@@ -128,7 +141,7 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
       className={`participant-tile${hasVideo ? ' participant-tile--video' : ''}${compact ? ' participant-tile--compact' : ''}`}
       {...scopeProps}
       style={{ ...scopeProps.style, ...scaleStyle }}
-      onContextMenu={isLocal ? undefined : handleContextMenu}
+      onContextMenu={handleContextMenu}
     >
       {hasVideo ? (
         /* Video mode — fills the frame, name overlay at bottom */
@@ -179,6 +192,17 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
           </div>
         )}
       </div>
+      {!isLocal && (
+        <button
+          type="button"
+          className="participant-tile__menu-trigger"
+          onClick={handleMenuButtonClick}
+          aria-haspopup="menu"
+          aria-label={`Open menu for ${displayName}`}
+        >
+          <MoreVertical size={14} aria-hidden="true" />
+        </button>
+      )}
       {ctxMenu && (
         <ParticipantContextMenu
           participant={participant}

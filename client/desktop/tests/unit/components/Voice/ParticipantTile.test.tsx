@@ -1,9 +1,15 @@
 import React from 'react';
-import { render, screen } from '../../../test-utils';
+import { render, screen, fireEvent } from '../../../test-utils';
 import { useMemberStore } from '@/renderer/stores/memberStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
 vi.mock('@/renderer/components/Voice/ParticipantTile.css', () => ({}));
+vi.mock('@/renderer/components/Voice/ParticipantVolumeRow.css', () => ({}));
+vi.mock('@/renderer/components/ui/ContextMenu.css', () => ({}));
+vi.mock('@/renderer/components/ui/EnforcementMenuItems.css', () => ({}));
+vi.mock('@/renderer/services/apiClient', () => ({
+  apiFetch: vi.fn().mockResolvedValue({}),
+}));
 vi.mock('@/renderer/hooks/useUserThemeScope', () => ({
   useUserThemeScope: () => ({ scopeProps: { style: {} } }),
 }));
@@ -246,5 +252,77 @@ describe('ParticipantTile', () => {
     const { container } = render(<ParticipantTile participant={makeParticipant()} />);
     // Should render without crashing with custom colors
     expect(container.querySelector('.participant-tile')).toBeInTheDocument();
+  });
+
+  // ── Context menu — right-click behavior ────────────────────────────────
+
+  it('right-click on a remote tile prevents default and stops propagation', () => {
+    const parentHandler = vi.fn();
+    const { container } = render(
+      <div onContextMenu={parentHandler}>
+        <ParticipantTile participant={makeParticipant()} isLocal={false} />
+      </div>
+    );
+    const tile = container.querySelector('.participant-tile') as HTMLElement;
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    const preventDefaultSpy = vi.spyOn(event, 'preventDefault');
+    const stopPropagationSpy = vi.spyOn(event, 'stopPropagation');
+    tile.dispatchEvent(event);
+    expect(preventDefaultSpy).toHaveBeenCalled();
+    expect(stopPropagationSpy).toHaveBeenCalled();
+    // Parent's handler should NOT fire because propagation was stopped
+    expect(parentHandler).not.toHaveBeenCalled();
+  });
+
+  it('right-click on a local tile stops propagation too (no channel menu leak)', () => {
+    const parentHandler = vi.fn();
+    const { container } = render(
+      <div onContextMenu={parentHandler}>
+        <ParticipantTile participant={makeParticipant()} isLocal />
+      </div>
+    );
+    const tile = container.querySelector('.participant-tile') as HTMLElement;
+    fireEvent.contextMenu(tile);
+    // Parent's handler should NOT fire — we swallow right-clicks even for local
+    expect(parentHandler).not.toHaveBeenCalled();
+  });
+
+  it('right-click on a remote tile opens the ParticipantContextMenu', () => {
+    const { container } = render(
+      <ParticipantTile participant={makeParticipant()} isLocal={false} />
+    );
+    const tile = container.querySelector('.participant-tile') as HTMLElement;
+    fireEvent.contextMenu(tile);
+    // The menu renders the participant's display name and the volume slider
+    expect(screen.getAllByText('Test User').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByLabelText('Participant volume')).toBeInTheDocument();
+  });
+
+  it('right-click on a local tile does NOT open the ParticipantContextMenu', () => {
+    const { container } = render(<ParticipantTile participant={makeParticipant()} isLocal />);
+    const tile = container.querySelector('.participant-tile') as HTMLElement;
+    fireEvent.contextMenu(tile);
+    // No participant-volume control should exist for local user
+    expect(screen.queryByLabelText('Participant volume')).not.toBeInTheDocument();
+  });
+
+  // ── Keyboard / menu-trigger button — keyboard-accessible alternative to right-click ──
+
+  it('renders a menu-trigger button on remote tiles', () => {
+    render(<ParticipantTile participant={makeParticipant()} isLocal={false} />);
+    expect(screen.getByLabelText('Open menu for Test User')).toBeInTheDocument();
+  });
+
+  it('does NOT render a menu-trigger button on local tiles', () => {
+    render(<ParticipantTile participant={makeParticipant()} isLocal />);
+    expect(screen.queryByLabelText(/Open menu for/)).not.toBeInTheDocument();
+  });
+
+  it('clicking the menu-trigger button opens the ParticipantContextMenu', () => {
+    render(<ParticipantTile participant={makeParticipant()} isLocal={false} />);
+    const trigger = screen.getByLabelText('Open menu for Test User');
+    fireEvent.click(trigger);
+    // Same menu content as right-click — verifies onClick → setCtxMenu wiring
+    expect(screen.getByLabelText('Participant volume')).toBeInTheDocument();
   });
 });

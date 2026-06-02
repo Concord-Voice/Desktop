@@ -5,6 +5,7 @@ import { resetAllStores } from '../../../helpers/store-helpers';
 
 vi.mock('@/renderer/components/ui/ContextMenu.css', () => ({}));
 vi.mock('@/renderer/components/ui/EnforcementMenuItems.css', () => ({}));
+vi.mock('@/renderer/components/Voice/ParticipantVolumeRow.css', () => ({}));
 vi.mock('@/renderer/services/apiClient', () => ({
   apiFetch: vi.fn().mockResolvedValue({}),
 }));
@@ -178,5 +179,23 @@ describe('ParticipantContextMenu', () => {
     // But no enforcement items
     expect(screen.queryByText('Mute')).not.toBeInTheDocument();
     expect(screen.queryByText('Server Mute')).not.toBeInTheDocument();
+  });
+
+  it('always renders the per-participant volume row (regardless of permissions)', () => {
+    // No enforcement context (no server, no DM) — volume row should still render
+    useVoiceStore.setState({
+      isDMCall: false,
+      activeServerId: null,
+      activeChannelId: null,
+      effectivePermissions: 0,
+    });
+    render(
+      <ParticipantContextMenu
+        participant={baseParticipant}
+        position={{ x: 0, y: 0 }}
+        onClose={() => {}}
+      />
+    );
+    expect(screen.getByLabelText('Participant volume')).toBeInTheDocument();
   });
 });

@@ -1,4 +1,5 @@
 import React from 'react';
+import { act } from 'react';
 import { render, screen } from '../../../test-utils';
 import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { useUserStore } from '@/renderer/stores/userStore';
@@ -62,8 +63,9 @@ const mockAudioContext = {
 // Install / restore globals in beforeAll/afterAll so they don't leak into
 // other test files when Vitest runs suites concurrently.
 beforeAll(() => {
-  // jsdom doesn't implement HTMLAudioElement.play
+  // jsdom doesn't implement HTMLAudioElement.play / pause
   vi.spyOn(HTMLAudioElement.prototype, 'play').mockResolvedValue(undefined);
+  vi.spyOn(HTMLAudioElement.prototype, 'pause').mockImplementation(() => {});
 
   // Regular function (not arrow) so `new AudioContext(...)` works.
   // A constructor that returns an object uses that returned object.
@@ -141,7 +143,7 @@ describe('AudioOutputs', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders an audio element for a remote participant with audioStream', () => {
+  it('instantiates an AudioOutput for a remote participant with audioStream', () => {
     useVoiceStore.setState({
       participants: {
         'remote-1': {
@@ -156,11 +158,11 @@ describe('AudioOutputs', () => {
         },
       },
     });
-    const { container } = render(<AudioOutputs />);
-    expect(container.querySelectorAll('audio').length).toBeGreaterThanOrEqual(1);
+    render(<AudioOutputs />);
+    expect(mockAudioContext.createMediaElementSource).toHaveBeenCalledTimes(1);
   });
 
-  it('renders an audio element for a remote participant with screenAudioStream', () => {
+  it('instantiates an AudioOutput for a remote participant with screenAudioStream', () => {
     useVoiceStore.setState({
       participants: {
         'remote-1': {
@@ -175,11 +177,11 @@ describe('AudioOutputs', () => {
         },
       },
     });
-    const { container } = render(<AudioOutputs />);
-    expect(container.querySelectorAll('audio').length).toBeGreaterThanOrEqual(1);
+    render(<AudioOutputs />);
+    expect(mockAudioContext.createMediaElementSource).toHaveBeenCalledTimes(1);
   });
 
-  it('renders separate audio elements for audioStream and screenAudioStream', () => {
+  it('instantiates separate AudioOutputs for audioStream and screenAudioStream', () => {
     useVoiceStore.setState({
       participants: {
         'remote-1': {
@@ -195,11 +197,11 @@ describe('AudioOutputs', () => {
         },
       },
     });
-    const { container } = render(<AudioOutputs />);
-    expect(container.querySelectorAll('audio').length).toBe(2);
+    render(<AudioOutputs />);
+    expect(mockAudioContext.createMediaElementSource).toHaveBeenCalledTimes(2);
   });
 
-  it('renders audio elements for multiple remote participants', () => {
+  it('instantiates AudioOutputs for multiple remote participants', () => {
     useVoiceStore.setState({
       participants: {
         'remote-1': {
@@ -224,8 +226,8 @@ describe('AudioOutputs', () => {
         },
       },
     });
-    const { container } = render(<AudioOutputs />);
-    expect(container.querySelectorAll('audio').length).toBe(2);
+    render(<AudioOutputs />);
+    expect(mockAudioContext.createMediaElementSource).toHaveBeenCalledTimes(2);
   });
 
   it('excludes local user from audio outputs even if they have a stream', () => {
@@ -253,9 +255,9 @@ describe('AudioOutputs', () => {
         },
       },
     });
-    const { container } = render(<AudioOutputs />);
-    // Only 1 audio element — for remote-1, not local-user
-    expect(container.querySelectorAll('audio').length).toBe(1);
+    render(<AudioOutputs />);
+    // Only remote-1 gets an AudioOutput, not the local user.
+    expect(mockAudioContext.createMediaElementSource).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -270,10 +272,11 @@ describe('AudioOutput', () => {
     });
   });
 
-  it('renders a hidden audio element', () => {
+  it('renders no DOM output — audio element lives in the effect closure', () => {
     const stream = makeMockStream();
     const { container } = render(<AudioOutput stream={stream} />);
-    expect(container.querySelector('audio')).toBeInTheDocument();
+    expect(container.querySelector('audio')).toBeNull();
+    expect(container.firstChild).toBeNull();
   });
 
   it('sets up AudioContext on mount', () => {
@@ -295,6 +298,125 @@ describe('AudioOutput', () => {
     const { unmount } = render(<AudioOutput stream={stream} />);
     unmount();
     expect(mockClose).toHaveBeenCalled();
+  });
+
+  it('pauses the fallback <audio> element on unmount when output-device routing falls back', () => {
+    // Force the output-device fallback branch: AudioContext WITHOUT setSinkId,
+    // but the per-element <audio> WITH setSinkId. Save originals to restore.
+    const ctxOrig: { setSinkId?: unknown } = mockAudioContext as { setSinkId?: unknown };
+    const origCtxSetSinkId = ctxOrig.setSinkId;
+    delete ctxOrig.setSinkId;
+    const fallbackDestStream = {} as MediaStream;
+    const origCreateMediaStreamDestination = (
+      mockAudioContext as { createMediaStreamDestination?: unknown }
+    ).createMediaStreamDestination;
+    (
+      mockAudioContext as { createMediaStreamDestination: () => unknown }
+    ).createMediaStreamDestination = vi.fn(() => ({ stream: fallbackDestStream }));
+
+    // Spy on document.createElement so we can capture the fallback <audio> element.
+    // The component creates two audio elements: the primary `el` and the fallback.
+    const audioElements: HTMLAudioElement[] = [];
+    const origCreate = document.createElement.bind(document);
+    const createSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const el = origCreate(tag);
+      if (tag === 'audio') {
+        // Make the element eligible for the el-based fallback (has setSinkId).
+        Object.assign(el, { setSinkId: vi.fn().mockResolvedValue(undefined) });
+        audioElements.push(el as HTMLAudioElement);
+      }
+      return el;
+    });
+
+    const stream = makeMockStream();
+    const { unmount } = render(<AudioOutput stream={stream} outputDeviceId="device-fallback" />);
+
+    // The fallback element is created after the primary el and the fallback path runs.
+    expect(audioElements.length).toBeGreaterThanOrEqual(2);
+    const fallbackEl = audioElements[audioElements.length - 1];
+    const pauseSpy = vi.spyOn(fallbackEl, 'pause');
+
+    unmount();
+
+    expect(pauseSpy).toHaveBeenCalled();
+
+    // Restore mocks/state so subsequent tests aren't affected.
+    createSpy.mockRestore();
+    if (origCtxSetSinkId !== undefined) {
+      (mockAudioContext as { setSinkId: unknown }).setSinkId = origCtxSetSinkId;
+    }
+    if (origCreateMediaStreamDestination !== undefined) {
+      (mockAudioContext as { createMediaStreamDestination: unknown }).createMediaStreamDestination =
+        origCreateMediaStreamDestination;
+    } else {
+      delete (mockAudioContext as { createMediaStreamDestination?: unknown })
+        .createMediaStreamDestination;
+    }
+  });
+
+  // Per-participant volume — volumeGain should apply master × perParticipant.
+  //
+  // Note on the mock: `mockGainNode.gain` is shared across all gain node
+  // instances (spread-copy preserves the inner reference). This means the
+  // initial-value assertions here reflect the LAST assignment made during
+  // AudioOutput setup, which is the final `volumeGain.gain.value` write.
+  describe('per-participant volume', () => {
+    it('initializes volumeGain to master × per-participant volume', () => {
+      useAudioSettingsStore.setState({
+        outputVolume: 80,
+        perParticipantVolume: { 'user-1': 50 },
+      });
+      const stream = makeMockStream();
+      render(<AudioOutput stream={stream} userId="user-1" />);
+      // 0.8 master × 0.5 per-participant = 0.4
+      expect(mockGainNode.gain.value).toBeCloseTo(0.4, 5);
+    });
+
+    it('falls back to master volume only when userId is omitted', () => {
+      useAudioSettingsStore.setState({
+        outputVolume: 60,
+        perParticipantVolume: { 'user-1': 50 },
+      });
+      const stream = makeMockStream();
+      render(<AudioOutput stream={stream} />);
+      expect(mockGainNode.gain.value).toBeCloseTo(0.6, 5);
+    });
+
+    it('falls back to master × 100% when no per-participant override exists', () => {
+      useAudioSettingsStore.setState({
+        outputVolume: 120,
+        perParticipantVolume: {},
+      });
+      const stream = makeMockStream();
+      render(<AudioOutput stream={stream} userId="user-1" />);
+      expect(mockGainNode.gain.value).toBeCloseTo(1.2, 5);
+    });
+
+    it('updates volumeGain via setTargetAtTime when per-participant volume changes', () => {
+      useAudioSettingsStore.setState({
+        outputVolume: 100,
+        perParticipantVolume: { 'user-1': 100 },
+      });
+      const stream = makeMockStream();
+      render(<AudioOutput stream={stream} userId="user-1" />);
+
+      // Clear prior calls from initial render
+      mockGainNode.gain.setTargetAtTime.mockClear();
+
+      // Change the participant volume — triggers the reactive effect.
+      // Wrap in act() so React flushes the effect after the external update.
+      act(() => {
+        useAudioSettingsStore.setState({
+          perParticipantVolume: { 'user-1': 50 },
+        });
+      });
+
+      // The effect should call setTargetAtTime with the new combined value (0.5).
+      const combinedCalls = mockGainNode.gain.setTargetAtTime.mock.calls.filter(
+        (call: unknown[]) => Math.abs((call[0] as number) - 0.5) < 1e-5
+      );
+      expect(combinedCalls.length).toBeGreaterThanOrEqual(1);
+    });
   });
 
   it('logs redacted warning when HTMLAudioElement.play() rejects', async () => {

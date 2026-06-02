@@ -12,25 +12,40 @@ import './ParticipantGrid.css';
 const MAX_BOOST_LINEAR = Math.pow(10, 18 / 20); // ~7.94
 
 /**
- * Hidden audio element that plays a remote participant's audio stream.
- * Routes through a Web Audio GainNode chain for output volume + quiet user boost.
+ * Plays a remote participant's audio stream through a Web Audio GainNode
+ * chain for output volume + quiet user boost. Renders nothing visible — the
+ * internal <audio> element is created in the effect and never attached to
+ * the DOM (see the effect body for why).
  *
- * Chain: source → analyser → volumeGain → boostGain → destination → <audio>
+ * Chain: <audio>.srcObject → createMediaElementSource → analyser → volumeGain
+ *        → boostGain → ctx.destination
+ *
+ * `volumeGain` applies the combined master × per-participant volume. When
+ * `userId` is provided the per-participant override (default 100) is mixed in;
+ * otherwise only the master `outputVolume` applies.
  */
-export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: string }> = ({
-  stream,
-  outputDeviceId,
-}) => {
-  const audioRef = useRef<HTMLAudioElement>(null);
+export const AudioOutput: React.FC<{
+  stream: MediaStream;
+  outputDeviceId?: string;
+  userId?: string;
+}> = ({ stream, outputDeviceId, userId }) => {
   const ctxRef = useRef<AudioContext | null>(null);
   const volumeGainRef = useRef<GainNode | null>(null);
   const boostGainRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const boostTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Output-device fallback path creates a separate <audio> element bound to a
+  // MediaStreamDestination. Track it so we can pause + detach on unmount —
+  // without this, the fallback element keeps playing the silent stream and
+  // retains the AudioContext destination graph.
+  const fallbackElRef = useRef<HTMLAudioElement | null>(null);
 
   const outputVolume = useAudioSettingsStore((s) => s.outputVolume);
   const quietBoost = useAudioSettingsStore((s) => s.quietBoost);
   const quietBoostThreshold = useAudioSettingsStore((s) => s.quietBoostThreshold);
+  const participantVolume = useAudioSettingsStore((s) =>
+    userId ? (s.perParticipantVolume[userId] ?? 100) : 100
+  );
 
   // Set up the Web Audio processing chain.
   //
@@ -41,9 +56,15 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
   // Fix: let the <audio> element play the stream, then capture its output via
   // createMediaElementSource. This routes the element's decoded audio through
   // the Web Audio chain (volume, boost, analysis) → ctx.destination.
+  //
+  // Important: we create the <audio> element INSIDE the effect rather than
+  // reusing a ref'd JSX element. `createMediaElementSource` can only be called
+  // once per HTMLMediaElement — even after the old AudioContext is closed,
+  // the element stays bound to the orphaned source node. React Strict Mode's
+  // double-mount (mount → cleanup → remount) would otherwise throw on the
+  // second invocation. Creating a fresh element per mount avoids this.
   useEffect(() => {
-    const el = audioRef.current;
-    if (!el) return;
+    const el = document.createElement('audio');
 
     // Play the consumer stream through the <audio> element first
     el.srcObject = stream;
@@ -70,7 +91,12 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
     const boostGain = ctx.createGain();
     boostGain.gain.value = 1;
     const volumeGain = ctx.createGain();
-    volumeGain.gain.value = useAudioSettingsStore.getState().outputVolume / 100;
+    {
+      const state = useAudioSettingsStore.getState();
+      const master = state.outputVolume / 100;
+      const perParticipant = userId ? (state.perParticipantVolume[userId] ?? 100) / 100 : 1;
+      volumeGain.gain.value = master * perParticipant;
+    }
 
     source.connect(analyser);
     analyser.connect(volumeGain);
@@ -104,6 +130,7 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
             console.warn('Failed to set fallback audio output device:', errorMessage(err));
           });
         fallbackEl.play().catch(() => {});
+        fallbackElRef.current = fallbackEl;
       }
     }
 
@@ -121,25 +148,31 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
         clearInterval(boostTimerRef.current);
         boostTimerRef.current = null;
       }
+      // Stop playback and unbind the stream so the element can be GC'd.
+      el.pause();
       el.srcObject = null;
+      if (fallbackElRef.current) {
+        fallbackElRef.current.pause();
+        fallbackElRef.current.srcObject = null;
+        fallbackElRef.current = null;
+      }
       if (ctx.state !== 'closed') ctx.close().catch(() => {});
       ctxRef.current = null;
       volumeGainRef.current = null;
       boostGainRef.current = null;
       analyserRef.current = null;
     };
-  }, [stream, outputDeviceId]);
+    // `userId` is stable for a given AudioOutput instance (the parent keys by
+    // userId), but ESLint needs it listed since we read it during setup.
+  }, [stream, outputDeviceId, userId]);
 
-  // Update output volume in real-time
+  // Update output volume in real-time. Applies master × per-participant.
   useEffect(() => {
     if (volumeGainRef.current && ctxRef.current && ctxRef.current.state !== 'closed') {
-      volumeGainRef.current.gain.setTargetAtTime(
-        outputVolume / 100,
-        ctxRef.current.currentTime,
-        0.01
-      );
+      const combined = (outputVolume / 100) * (participantVolume / 100);
+      volumeGainRef.current.gain.setTargetAtTime(combined, ctxRef.current.currentTime, 0.01);
     }
-  }, [outputVolume]);
+  }, [outputVolume, participantVolume]);
 
   // Quiet user boost: dynamic gain based on audio level
   useEffect(() => {
@@ -210,12 +243,15 @@ export const AudioOutput: React.FC<{ stream: MediaStream; outputDeviceId?: strin
     };
   }, [quietBoost, quietBoostThreshold]);
 
-  return <audio ref={audioRef} />;
+  // The <audio> element is created inside the effect — nothing to render here.
+  return null;
 };
 
 /**
- * Audio outputs for all remote participants (hidden <audio> elements).
- * Separated so they can be rendered independently of the visual layout.
+ * Audio outputs for all remote participants. Each `<AudioOutput>` returns
+ * `null` — its `<audio>` element lives in the effect closure, not in the
+ * rendered DOM. Separated so the audio graph can be managed independently
+ * of the visual layout.
  */
 export const AudioOutputs: React.FC = () => {
   const participants = useVoiceStore((s) => s.participants);
@@ -232,6 +268,7 @@ export const AudioOutputs: React.FC = () => {
             key={`audio-${p.userId}`}
             stream={p.audioStream}
             outputDeviceId={audioOutputDeviceId || undefined}
+            userId={p.userId}
           />,
         ];
       })}
@@ -242,6 +279,7 @@ export const AudioOutputs: React.FC = () => {
             key={`screen-audio-${p.userId}`}
             stream={p.screenAudioStream}
             outputDeviceId={audioOutputDeviceId || undefined}
+            userId={p.userId}
           />,
         ];
       })}
