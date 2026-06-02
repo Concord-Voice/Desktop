@@ -28,6 +28,8 @@ import { useSSOStore } from '../../stores/ssoStore';
 import { useAuthStore } from '../../stores/authStore';
 import { completeSSORegistration, SSOServiceError } from '../../services/ssoService';
 import { generateRegistrationKeys, exportPublicKey } from '../../utils/crypto';
+import { e2eeService } from '../../services/e2eeService';
+import { errorMessage } from '../../utils/redactError';
 import './SSOPassphraseSetup.css';
 
 interface CompleteRegistrationErrorBody {
@@ -109,6 +111,53 @@ const SSOPassphraseSetup: React.FC = () => {
           publicKey: publicKeyBase64,
         });
         setAccessToken(accessToken);
+
+        // Initialize e2eeService so E2EE is live for THIS session — mirrors the
+        // post-registration init added to Register.tsx in #1278. Without this, an
+        // SSO user who just set their passphrase has e2eeService.isInitialized ===
+        // false and is blocked from creating channels / sending messages ("Setting
+        // up secure messaging — try again in a moment.") until a logout→login. The
+        // keys were generated above and the server now holds the wrapped private
+        // key, so it is safe to establish the session here.
+        //
+        // The two failure modes are handled SEPARATELY (per #1278 review):
+        //   1. initialize() failure → clearKeys(). finalizeKeys assigns wrappingKey
+        //      before later steps, so a mid-init throw could leave isInitialized
+        //      === true on a half-initialized service; rolling back makes it
+        //      honestly false. Non-fatal: SSO registration already succeeded
+        //      server-side, so a client-side hiccup must not fail the flow.
+        try {
+          await e2eeService.initialize(
+            passphrase,
+            keys.wrappedPrivateKey,
+            keys.keyDerivationSalt,
+            keys.keyDerivationAlg
+          );
+        } catch (initError) {
+          e2eeService.clearKeys();
+          console.warn(
+            'E2EE init after SSO passphrase setup failed; secure messaging will require a manual re-login:',
+            errorMessage(initError)
+          );
+        }
+
+        //   2. storeE2EEKeys() failure → warn only, NO clearKeys. Persisting to the
+        //      OS keychain lets E2EE survive an app restart (App.tsx session-restore
+        //      rehydrates only from stored keys). A persistence failure must NOT
+        //      destroy the valid in-memory session from (1). (If (1) failed,
+        //      getSessionKeys returns null after clearKeys, so this block no-ops.)
+        try {
+          const sessionKeys = e2eeService.getSessionKeys();
+          if (sessionKeys && globalThis.electron?.storeE2EEKeys) {
+            await globalThis.electron.storeE2EEKeys(sessionKeys);
+          }
+        } catch (storeError) {
+          console.warn(
+            'Failed to persist E2EE session keys to keychain (E2EE active for this session only):',
+            errorMessage(storeError)
+          );
+        }
+
         // Returning to phase 'idle' lets AuthFlow re-evaluate based on the
         // new accessToken in authStore (the user is now logged in).
         setSSOState({ phase: 'idle' });
