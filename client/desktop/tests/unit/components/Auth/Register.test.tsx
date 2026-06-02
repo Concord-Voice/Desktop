@@ -3,6 +3,7 @@ import Register from '@/renderer/components/Auth/Register';
 import { vi } from 'vitest';
 import { usePendingRegistrationStore } from '@/renderer/stores/pendingRegistrationStore';
 import { useAuthStore } from '@/renderer/stores/authStore';
+import { e2eeService } from '@/renderer/services/e2eeService';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
 // Mock global fetch
@@ -20,6 +21,37 @@ vi.mock('@/renderer/utils/crypto', () => ({
   exportPublicKey: vi.fn().mockResolvedValue('mock-public-key'),
 }));
 
+// Mock e2eeService — Register must initialize it with the generated keys on a
+// successful registration so a new user has E2EE ready at /app without a
+// separate login (otherwise channel creation hits "Setting up secure messaging"
+// until logout→login). See #1274.
+//
+// Stateful (per #1278 review): initialize() flips `initialized` on, clearKeys()
+// off, and getSessionKeys() returns keys ONLY while initialized — mirroring the
+// real service so the failure-path tests can't false-pass on a post-clearKeys
+// persist (getSessionKeys → null after clearKeys, so the persist block no-ops).
+// `e2eeState` is reset per test in beforeEach.
+const e2eeState = vi.hoisted(() => ({ initialized: false }));
+vi.mock('@/renderer/services/e2eeService', () => ({
+  e2eeService: {
+    initialize: vi.fn(async () => {
+      e2eeState.initialized = true;
+    }),
+    getSessionKeys: vi.fn(() =>
+      e2eeState.initialized
+        ? {
+            wrappingKeyBase64: 'wk',
+            preferencesKeyBase64: 'pk',
+            wrappedPrivateKeyBase64: 'wpk', // pragma: allowlist secret
+          }
+        : null
+    ),
+    clearKeys: vi.fn(() => {
+      e2eeState.initialized = false;
+    }),
+  },
+}));
+
 // Mock useSSOFlow so we can assert the SSOButton wiring without exercising
 // the full loopback flow. The actual flow is covered in ssoService.test.ts.
 const beginSSOMock = vi.fn();
@@ -34,8 +66,16 @@ describe('Register', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    e2eeState.initialized = false;
     resetAllStores();
     usePendingRegistrationStore.getState().clearPending();
+  });
+
+  afterEach(() => {
+    // Tests that exercise E2EE persistence override window.electron.storeE2EEKeys
+    // on the shared preload mock (tests/setup.ts). Remove the override so it
+    // can't leak into later tests and make them order-dependent. (#1278 review.)
+    delete (window.electron as unknown as { storeE2EEKeys?: unknown }).storeE2EEKeys;
   });
 
   it('renders registration form', () => {
@@ -174,6 +214,148 @@ describe('Register', () => {
       pendingId: 'mock-pending-id',
       email: 'test@example.com',
     });
+  });
+
+  it('initializes e2eeService with the generated keys on successful registration', async () => {
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        pending_id: 'mock-pending-id',
+        email: 'test@example.com',
+        expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+        code_expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+      }),
+    });
+
+    // storeE2EEKeys is not in the default window.electron mock; add a spy so we
+    // can assert the session keys are persisted to the OS keychain.
+    const storeE2EEKeysMock = vi.fn().mockResolvedValue(undefined);
+    (window.electron as unknown as { storeE2EEKeys: typeof storeE2EEKeysMock }).storeE2EEKeys =
+      storeE2EEKeysMock;
+
+    const user = userEvent.setup();
+    render(<Register onBack={onBack} onSuccess={onSuccess} onSwitchToLogin={onSwitchToLogin} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('your_username'), 'testuser');
+    await user.type(
+      screen.getByPlaceholderText('Create a strong password'),
+      'MySecurePassword123!'
+    );
+    await user.type(screen.getByPlaceholderText('Confirm your password'), 'MySecurePassword123!');
+    await user.click(screen.getByText(/at least 16 years old/));
+    await user.click(screen.getByText('Create Account'));
+
+    // Mocked crypto returns wrappedPrivateKey/salt='mock', alg='argon2id'; the
+    // password typed is 'MySecurePassword123!'. Initializing here is what lets a
+    // freshly-registered user create channels / message without a re-login.
+    await vi.waitFor(() => {
+      expect(e2eeService.initialize).toHaveBeenCalledWith(
+        'MySecurePassword123!',
+        'mock',
+        'mock',
+        'argon2id'
+      );
+    });
+
+    // Session keys must be persisted to the OS keychain (mirrors Login.tsx) so
+    // E2EE survives an app restart — otherwise the gate returns on next launch.
+    expect(storeE2EEKeysMock).toHaveBeenCalledWith({
+      wrappingKeyBase64: 'wk',
+      preferencesKeyBase64: 'pk',
+      wrappedPrivateKeyBase64: 'wpk', // pragma: allowlist secret
+    });
+
+    // Registration still completes, and init must precede navigation (onSuccess)
+    // so E2EE is ready by the time the user reaches /app.
+    expect(onSuccess).toHaveBeenCalledWith({
+      pendingId: 'mock-pending-id',
+      email: 'test@example.com',
+    });
+    const initOrder = vi.mocked(e2eeService.initialize).mock.invocationCallOrder[0];
+    const onSuccessOrder = onSuccess.mock.invocationCallOrder[0];
+    expect(initOrder).toBeLessThan(onSuccessOrder);
+  });
+
+  it('completes registration even if e2eeService init fails (non-fatal)', async () => {
+    vi.mocked(e2eeService.initialize).mockRejectedValueOnce(new Error('init boom'));
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        pending_id: 'mock-pending-id',
+        email: 'test@example.com',
+        expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+        code_expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+      }),
+    });
+
+    const user = userEvent.setup();
+    render(<Register onBack={onBack} onSuccess={onSuccess} onSwitchToLogin={onSwitchToLogin} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('your_username'), 'testuser');
+    await user.type(
+      screen.getByPlaceholderText('Create a strong password'),
+      'MySecurePassword123!'
+    );
+    await user.type(screen.getByPlaceholderText('Confirm your password'), 'MySecurePassword123!');
+    await user.click(screen.getByText(/at least 16 years old/));
+    await user.click(screen.getByText('Create Account'));
+
+    // A failed E2EE pre-init must NOT break an otherwise-successful registration
+    // — the user falls back to the prior behavior (secure messaging needs a
+    // manual logout→login). The catch must also clearKeys() to roll back any
+    // partial init so isInitialized is honestly false (not a half-init singleton).
+    await vi.waitFor(() => {
+      expect(onSuccess).toHaveBeenCalledWith({
+        pendingId: 'mock-pending-id',
+        email: 'test@example.com',
+      });
+    });
+    expect(usePendingRegistrationStore.getState().pendingId).toBe('mock-pending-id');
+    expect(e2eeService.clearKeys).toHaveBeenCalled();
+  });
+
+  it('keeps the in-memory E2EE session when only keychain persistence fails', async () => {
+    // initialize() succeeds but storeE2EEKeys() throws (e.g. keychain locked).
+    // clearKeys() must NOT be called — destroying the valid in-memory session
+    // over a persistence failure would lose E2EE for the current session, not
+    // just on restart (#1278 review, Gitar finding).
+    const storeE2EEKeysMock = vi.fn().mockRejectedValue(new Error('keychain locked'));
+    (window.electron as unknown as { storeE2EEKeys: typeof storeE2EEKeysMock }).storeE2EEKeys =
+      storeE2EEKeysMock;
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 201,
+      json: async () => ({
+        pending_id: 'mock-pending-id',
+        email: 'test@example.com',
+        expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+        code_expires_at: new Date(Date.now() + 2 * 60_000).toISOString(),
+      }),
+    });
+
+    const user = userEvent.setup();
+    render(<Register onBack={onBack} onSuccess={onSuccess} onSwitchToLogin={onSwitchToLogin} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('your_username'), 'testuser');
+    await user.type(
+      screen.getByPlaceholderText('Create a strong password'),
+      'MySecurePassword123!'
+    );
+    await user.type(screen.getByPlaceholderText('Confirm your password'), 'MySecurePassword123!');
+    await user.click(screen.getByText(/at least 16 years old/));
+    await user.click(screen.getByText('Create Account'));
+
+    await vi.waitFor(() => {
+      expect(storeE2EEKeysMock).toHaveBeenCalled();
+    });
+    expect(onSuccess).toHaveBeenCalledWith({
+      pendingId: 'mock-pending-id',
+      email: 'test@example.com',
+    });
+    // The persistence failure must leave the in-memory session intact.
+    expect(e2eeService.clearKeys).not.toHaveBeenCalled();
   });
 
   it('shows error on registration failure', async () => {

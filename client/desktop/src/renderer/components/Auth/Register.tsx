@@ -6,6 +6,7 @@ import { SSOButton } from './SSOButton';
 import { useSSOFlow } from '../../hooks/useSSOFlow';
 import { generateRegistrationKeys, exportPublicKey } from '../../utils/crypto';
 import { API_BASE, ensureMachineId } from '../../services/apiClient';
+import { e2eeService } from '../../services/e2eeService';
 import { errorMessage } from '../../utils/redactError';
 import {
   usePendingRegistrationStore,
@@ -170,6 +171,55 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
       }
 
       console.debug('Registration successful, pending email verification...');
+
+      // Initialize the E2EE service with the keys we just generated, so the user
+      // can use encrypted features (channel creation, messaging) immediately
+      // after verifying their email. The registration flow otherwise never calls
+      // e2eeService.initialize (only Login.tsx does), leaving
+      // e2eeService.isInitialized === false and blocking channel creation with
+      // "Setting up secure messaging — try again in a moment". Post-registration
+      // the user reaches /app straight from email-verification (no intervening
+      // login), so without this they'd be stuck until a manual logout→login.
+      //
+      // The two failure modes are handled SEPARATELY (per #1278 review):
+      //
+      //   1. initialize() failure → clearKeys(). finalizeKeys assigns wrappingKey
+      //      before later steps, so a mid-init throw could leave isInitialized
+      //      === true on a half-initialized service; rolling back makes it
+      //      honestly false. Non-fatal: registration already succeeded
+      //      server-side; secure messaging falls back to a manual logout→login.
+      try {
+        await e2eeService.initialize(
+          formData.password,
+          keys.wrappedPrivateKey,
+          keys.keyDerivationSalt,
+          keys.keyDerivationAlg
+        );
+      } catch (initError) {
+        e2eeService.clearKeys();
+        console.warn(
+          'E2EE init after registration failed; secure messaging will require a manual re-login:',
+          errorMessage(initError)
+        );
+      }
+
+      //   2. storeE2EEKeys() failure → warn only, NO clearKeys. Persisting to the
+      //      OS keychain lets E2EE survive an app restart (App.tsx session-restore
+      //      rehydrates only from stored keys). A persistence failure must NOT
+      //      destroy the valid in-memory session from (1) — the current session
+      //      still works; only restart-survival is lost. (If (1) failed, getSessionKeys
+      //      returns null after clearKeys, so this block no-ops.)
+      try {
+        const sessionKeys = e2eeService.getSessionKeys();
+        if (sessionKeys && globalThis.electron?.storeE2EEKeys) {
+          await globalThis.electron.storeE2EEKeys(sessionKeys);
+        }
+      } catch (storeError) {
+        console.warn(
+          'Failed to persist E2EE session keys to keychain (E2EE active for this session only):',
+          errorMessage(storeError)
+        );
+      }
 
       usePendingRegistrationStore.getState().setPending(data);
       onSuccess({ pendingId: data.pending_id, email: data.email });
