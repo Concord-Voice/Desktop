@@ -15,6 +15,10 @@ const SCHEME_TUPLES: ReadonlyArray<
   readonly [AppearanceSettings['colorScheme'], string, string, string, string]
 > = [
   ['concord', 'Concord Voice', '#0d0821', '#fa709a', '#ffe13f'],
+  // Defacto's swatch is grey-dominant (canvas → mid-grey → blue accent) so it
+  // reads as a NEUTRAL theme in the picker, not a blue one. These stops drive
+  // ONLY the swatch gradient; identity accents live in schemeColors.ts.
+  ['defacto', 'Defacto', '#1c1c1f', '#3a3a40', '#58a6ff'],
   ['eclipse', 'Eclipse', '#000000', '#cc0000', '#880000'],
   ['morky', '9th Circle', '#0a0a0a', '#e63946', '#ff6b35'],
   ['foxden', 'Fox Den', '#1a0e02', '#ff6d00', '#ff9100'],

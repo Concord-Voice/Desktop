@@ -34,6 +34,7 @@ export interface AppearanceSettings {
     | 'eclipse'
     | 'midnightsky'
     | 'agency'
+    | 'defacto'
     | 'custom';
   fontSize: 'small' | 'default' | 'large';
   compactMode: boolean;

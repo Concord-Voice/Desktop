@@ -70,7 +70,7 @@ describe('schemeColors', () => {
       expect(result).toBeNull();
     });
 
-    it('returns colors for all 13 preset schemes', () => {
+    it('returns colors for all 14 preset schemes', () => {
       const schemes = [
         'concord',
         'morky',
@@ -85,6 +85,7 @@ describe('schemeColors', () => {
         'eclipse',
         'midnightsky',
         'agency',
+        'defacto',
       ];
       for (const scheme of schemes) {
         const result = resolveUserAccentColors(JSON.stringify({ scheme }));
@@ -92,6 +93,13 @@ describe('schemeColors', () => {
         expect(result!.accentPrimary).toBeTruthy();
         expect(result!.gradient).toContain('linear-gradient');
       }
+    });
+
+    it('returns defacto accent colors', () => {
+      const result = resolveUserAccentColors(JSON.stringify({ scheme: 'defacto' }));
+      expect(result).not.toBeNull();
+      expect(result!.accentPrimary).toBe('#58a6ff');
+      expect(result!.accentSecondary).toBe('#79c0ff');
     });
   });
 

@@ -153,10 +153,12 @@ describe('SettingsPage', () => {
 
   it('changes color scheme on click', () => {
     render(<SettingsPage />);
-    // Click the Eclipse color scheme circle (second one)
     const circles = document.querySelectorAll('.color-scheme-circle');
-    expect(circles.length).toBeGreaterThan(1);
-    fireEvent.click(circles[1]); // Eclipse
+    expect(circles.length).toBeGreaterThan(2);
+    // Defacto is index 1 (inserted after Concord); Eclipse shifts to index 2.
+    fireEvent.click(circles[1]); // Defacto
+    expect(useSettingsStore.getState().appearance.colorScheme).toBe('defacto');
+    fireEvent.click(circles[2]); // Eclipse
     expect(useSettingsStore.getState().appearance.colorScheme).toBe('eclipse');
   });
 
@@ -303,9 +305,9 @@ describe('SettingsPage', () => {
     render(<SettingsPage />);
     const customCircle = document.querySelector('.color-scheme-circle.custom-add');
     expect(customCircle).toBeInTheDocument();
-    // 13 built-in + 1 custom = 14 total circles
+    // 14 built-in + 1 custom = 15 total circles
     const allCircles = document.querySelectorAll('.color-scheme-circle');
-    expect(allCircles.length).toBe(14);
+    expect(allCircles.length).toBe(15);
   });
 
   it('clicking custom circle when no customColors opens picker with defaults', () => {

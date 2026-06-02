@@ -51,6 +51,11 @@ describe('settingsStore', () => {
       expect(document.documentElement.dataset.scheme).toBe('hacker');
     });
 
+    it('applies defacto scheme to data-scheme attribute', () => {
+      useSettingsStore.getState().setColorScheme('defacto');
+      expect(document.documentElement.dataset.scheme).toBe('defacto');
+    });
+
     it('applies font size to data-fontsize attribute', () => {
       useSettingsStore.getState().setFontSize('large');
       expect(document.documentElement.dataset.fontsize).toBe('large');

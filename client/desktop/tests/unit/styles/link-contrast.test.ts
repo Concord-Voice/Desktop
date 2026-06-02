@@ -1,6 +1,6 @@
 /**
  * WCAG 2.1 AA contrast guard for `--link-color` (and `--link-color-hover`)
- * against `--bg-primary` across all 28 theme blocks in `index.css`.
+ * against `--bg-primary` across all 30 theme blocks in `index.css`.
  *
  * ## Why this test exists
  *
@@ -77,7 +77,7 @@ function isExempt(block: string, token: '--link-color' | '--link-color-hover'): 
   return KNOWN_NONCOMPLIANT_BLOCKS.some((e) => e.block === block && e.token === token);
 }
 
-const ALL_28_BLOCKS = [
+const ALL_30_BLOCKS = [
   ':root',
   "[data-theme='light']",
   "[data-scheme='concord']",
@@ -106,6 +106,8 @@ const ALL_28_BLOCKS = [
   "[data-scheme='midnightsky'][data-theme='light']",
   "[data-scheme='agency']",
   "[data-scheme='agency'][data-theme='light']",
+  "[data-scheme='defacto']",
+  "[data-scheme='defacto'][data-theme='light']",
 ] as const;
 
 /**
@@ -113,7 +115,7 @@ const ALL_28_BLOCKS = [
  *
  * Uses plain string search (indexOf) rather than a dynamic RegExp so that
  * Semgrep's ReDoS taint-sink rule (CWE-1333) is not triggered. The selector
- * strings in ALL_28_BLOCKS are compile-time constants, but the static analyser
+ * strings in ALL_30_BLOCKS are compile-time constants, but the static analyser
  * cannot prove that without data-flow analysis across array indexing.
  *
  * Algorithm:
@@ -445,7 +447,7 @@ describe('WCAG-AA link contrast across all theme blocks', () => {
   const css = readFileSync(cssPath, 'utf-8');
   const rootBody = extractBlockBody(css, ':root') ?? '';
 
-  describe.each(ALL_28_BLOCKS)('block %s', (block) => {
+  describe.each(ALL_30_BLOCKS)('block %s', (block) => {
     const blockBody = extractBlockBody(css, block);
 
     it('block exists', () => {
@@ -524,11 +526,11 @@ describe('WCAG-AA link contrast across all theme blocks', () => {
     );
 
     // #1183: body-text contrast guard. --text-primary / --text-secondary must meet
-    // WCAG 2.1 AA (≥ 4.5:1 normal text) against --bg-primary. All 28 blocks already
+    // WCAG 2.1 AA (≥ 4.5:1 normal text) against --bg-primary. All 30 blocks already
     // pass (verified at authoring), so no exemption inventory is needed — these
     // assertions lock in compliance and catch future regressions. Only blocks that
     // *declare* the token are enforced (inherited values are covered by :root —
-    // today all 28 blocks declare both, so every pair is checked directly).
+    // today all 30 blocks declare both, so every pair is checked directly).
     //
     // Deliberately scoped to text (the 4.5:1 threshold). The non-text surface —
     // accent/status/focus-ring colours at the 3:1 WCAG 1.4.11 threshold — is a
@@ -629,12 +631,12 @@ describe('exemption discipline', () => {
     }
   });
 
-  it('every exempted block exists in ALL_28_BLOCKS', () => {
-    const validBlocks = new Set<string>(ALL_28_BLOCKS);
+  it('every exempted block exists in ALL_30_BLOCKS', () => {
+    const validBlocks = new Set<string>(ALL_30_BLOCKS);
     for (const e of KNOWN_NONCOMPLIANT_BLOCKS) {
       expect(
         validBlocks.has(e.block),
-        `Exempted block '${e.block}' is not in ALL_28_BLOCKS — typo or stale entry`
+        `Exempted block '${e.block}' is not in ALL_30_BLOCKS — typo or stale entry`
       ).toBe(true);
     }
   });

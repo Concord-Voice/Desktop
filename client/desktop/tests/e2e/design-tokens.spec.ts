@@ -7,11 +7,11 @@
  * is meaningful. The complementary Vitest file-parse test (design-tokens.test.ts)
  * catches typos in source CSS; this test catches runtime cascade failures.
  *
- * Stratified sample: 4 visually-distinct schemes (concord = brand baseline,
+ * Stratified sample: 5 visually-distinct schemes (concord = brand baseline,
  * hacker = high-contrast monospace, spooky = warm orange, midnightsky = cool
- * deep blue) × 2 modes = 8 combinations per spec §6.3. Schema symmetry
- * guarantees the other 8 schemes resolve identically; the file-parse test
- * covers them.
+ * deep blue, defacto = neutral graphite) × 2 modes = 10 combinations per spec
+ * §6.3. Schema symmetry guarantees the other 9 schemes resolve identically; the
+ * file-parse test covers them.
  *
  * The test navigates to '/' which renders the login/connection page — no auth
  * required, but styles/index.css is loaded as part of the React bundle.
@@ -32,6 +32,8 @@ const STRATIFIED_SAMPLE = [
   { scheme: 'spooky', theme: 'light', label: 'spooky-light' },
   { scheme: 'midnightsky', theme: null, label: 'midnightsky-dark' },
   { scheme: 'midnightsky', theme: 'light', label: 'midnightsky-light' },
+  { scheme: 'defacto', theme: null, label: 'defacto-dark' },
+  { scheme: 'defacto', theme: 'light', label: 'defacto-light' },
 ] as const;
 
 const ALL_19_TOKENS = [
