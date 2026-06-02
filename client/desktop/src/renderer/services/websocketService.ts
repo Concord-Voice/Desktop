@@ -745,7 +745,9 @@ export class WebSocketService {
       const logPrefix = isUnknownType
         ? '[WS] unknown event type — client may be outdated'
         : '[WS] wire violation';
-      // eslint-disable-next-line no-restricted-syntax -- structured metadata only (PII-scrubbed); not an Error object
+      // Structured metadata only — issues are PII-scrubbed via scrubZodIssues. The last
+      // console.error arg here is an object literal (not a bare Error identifier), so the
+      // no-restricted-syntax raw-err guard's selector doesn't match.
       console.error(logPrefix, {
         type: rawType,
         issues: scrubZodIssues(parsed.error.issues),
@@ -785,7 +787,9 @@ export class WebSocketService {
         break;
 
       case 'error':
-        // eslint-disable-next-line no-restricted-syntax -- message.data is server-supplied payload object (not Error); logged for diagnostics
+        // message.data is an ErrorSchema-validated server payload object (not a JS Error).
+        // The last console.error arg is a member-expression, not a bare Error identifier,
+        // so the no-restricted-syntax raw-err guard's selector doesn't match.
         console.error('WebSocket server error:', message.data);
         break;
 

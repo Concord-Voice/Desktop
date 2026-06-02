@@ -87,6 +87,18 @@ export default [
             'scripts/classify-playwright-results.test.ts',
             'scripts/csp-prod-strip.ts',
           ],
+          // The 9 on-disk allowDefaultProject files (3 root configs + 5
+          // scripts/*.test.ts + csp-prod-strip.ts) exceed typescript-eslint's
+          // default cap of 8 default-project files, so a full-tree `npm run lint`
+          // (`eslint .`) fails with "Too many files (>8) have matched the default
+          // project". The per-file pre-commit eslint hook never trips this (it
+          // lints only staged files), so the breakage was invisible to both gates
+          // until a manual `npm run lint`. These tooling files are intentionally
+          // kept out of every tsconfig (see the note above), so raising the
+          // bounded cap is the right-sized fix; the perf caveat in the option's
+          // name is immaterial for ~9 tiny tooling files. If this set grows much
+          // larger, prefer moving scripts/ into a dedicated scripts/tsconfig.json.
+          maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 12,
         },
         tsconfigRootDir: import.meta.dirname,
       },
