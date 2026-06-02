@@ -1,17 +1,19 @@
 import { test, expect } from '@playwright/test';
-import { registerUser, createServer, createChannel } from './helpers';
+import { registerAndLogin, createServer, createChannel } from './helpers';
 
 test.describe('Messaging', () => {
   test.beforeEach(async ({ page }) => {
-    await registerUser(page);
+    // registerAndLogin (not registerUser): channel creation + encrypted
+    // messaging need e2eeService initialized, which only login does. See #1274.
+    await registerAndLogin(page);
     await createServer(page, 'Messaging Test Server');
     await createChannel(page, 'chat');
-    // Select the channel
-    await page.getByText('chat').click();
+    // Select the channel (sidebar item is a button named after the channel)
+    await page.getByRole('button', { name: 'chat', exact: true }).click();
   });
 
   test('send a message', async ({ page }) => {
-    const textarea = page.getByRole('textbox');
+    const textarea = page.getByRole('textbox', { name: 'Message input' });
     await textarea.fill('Hello from E2E test!');
     await textarea.press('Enter');
 
@@ -20,7 +22,7 @@ test.describe('Messaging', () => {
   });
 
   test('message appears in list', async ({ page }) => {
-    const textarea = page.getByRole('textbox');
+    const textarea = page.getByRole('textbox', { name: 'Message input' });
     await textarea.fill('Visible message');
     await textarea.press('Enter');
 
@@ -30,7 +32,7 @@ test.describe('Messaging', () => {
   });
 
   test('multiple messages appear in order', async ({ page }) => {
-    const textarea = page.getByRole('textbox');
+    const textarea = page.getByRole('textbox', { name: 'Message input' });
 
     await textarea.fill('First message');
     await textarea.press('Enter');
@@ -42,7 +44,7 @@ test.describe('Messaging', () => {
   });
 
   test('empty message is not sent', async ({ page }) => {
-    const textarea = page.getByRole('textbox');
+    const textarea = page.getByRole('textbox', { name: 'Message input' });
     const messagesBefore = await page.locator('.message').count();
 
     // Try to send empty message

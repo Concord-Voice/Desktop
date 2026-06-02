@@ -240,24 +240,68 @@ export async function loginUser(
 }
 
 /**
+ * Register a fresh user AND log in, leaving e2eeService initialized.
+ *
+ * The registration-confirm flow does NOT call e2eeService.initialize — only
+ * login does (Login.tsx). A registration-only session therefore cannot create
+ * channels or send messages: CreateChannelModal guards key-wrapping behind
+ * e2eeService.isInitialized and shows "Setting up secure messaging" otherwise.
+ * Specs that exercise channels/messaging must use this helper, not registerUser
+ * alone. See #1274.
+ */
+export async function registerAndLogin(page: Page): Promise<{ username: string; email: string }> {
+  const creds = await registerUser(page);
+  await loginUser(page, creds.email);
+  return creds;
+}
+
+/**
  * Create a server via the UI.
  * Assumes user is already logged in.
  */
 export async function createServer(page: Page, name: string): Promise<void> {
-  // Click the add server button
-  await page.getByLabel('Add a Server').click();
+  // Open the create-server modal via the server-bar button. Its accessible
+  // name is "Add Server" (ServerBar.tsx aria-label), NOT "Add a Server" — the
+  // latter was stale and silently broke every server/channel/messaging spec
+  // until the #1274 reconciliation.
+  await page.getByLabel('Add Server').click();
 
-  // Wait for the modal/form
-  await expect(page.getByText(/create.*server/i)).toBeVisible({ timeout: 5_000 });
+  // "Add Server" opens a chooser (ServerActionModal: "Create a Server" /
+  // "Join a Server"), not the create form directly — pick "Create a Server".
+  // This intermediate step was the gap remaining after the first #1274 pass.
+  await page.getByRole('button', { name: 'Create a Server' }).click();
 
-  // Fill server name
-  await page.getByPlaceholder(/server name/i).fill(name);
+  // The server-name field is labeled "Server Name" (its placeholder is
+  // "My Awesome Server", so a placeholder-based locator no longer matches —
+  // use the associated <label>).
+  const nameInput = page.getByLabel('Server Name');
+  await expect(nameInput).toBeVisible({ timeout: 5_000 });
+  await nameInput.fill(name);
 
-  // Submit
-  await page.getByRole('button', { name: /create/i }).click();
+  // Submit via form.requestSubmit(): clicking <button type="submit"> does not
+  // reliably fire React 19's onSubmit in this codebase (same quirk documented
+  // for registerUser/loginUser above).
+  await page.evaluate(() => {
+    const form = document.querySelector<HTMLFormElement>('form.create-server-form');
+    if (!form) throw new Error('Create-server form not found');
+    form.requestSubmit();
+  });
 
-  // Wait for server to appear
-  await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+  // Ensure the new server is active. handleCreateServerSuccess calls
+  // setActiveServer, but that races the server-list load: the new server is
+  // sometimes auto-selected (its bar icon becomes "Toggle channel panel") and
+  // sometimes not (icon stays "${name} server"). Poll for the channel-panel
+  // header (<h3>, level-3 to avoid the placeholder heading); if it's not
+  // showing, click the still-inactive bar icon to select it. Clicking is
+  // best-effort — once active, that by-name icon no longer exists.
+  const header = page.getByRole('heading', { name, level: 3 });
+  const inactiveIcon = page.getByLabel(`${name} server`);
+  await expect(async () => {
+    if (await inactiveIcon.isVisible().catch(() => false)) {
+      await inactiveIcon.click().catch(() => {});
+    }
+    await expect(header).toBeVisible({ timeout: 1_500 });
+  }).toPass({ timeout: 20_000 });
 }
 
 /**
@@ -265,18 +309,35 @@ export async function createServer(page: Page, name: string): Promise<void> {
  * Assumes user is already logged in and has a server selected.
  */
 export async function createChannel(page: Page, name: string): Promise<void> {
-  // Click "New Channel" or similar button
-  const newChannelBtn = page.getByText(/new channel/i);
-  await newChannelBtn.click();
+  // Open the create-channel modal via the ServerActionBar two-step flow:
+  // the "Add" button toggles an inline popup, then the "Channel" item opens
+  // the modal. The old single getByText(/new channel/i) matched nothing.
+  // `exact: true` on "Add" is required — a substring match would also hit the
+  // server-bar "Add Server" button. The "Add" affordance only renders for users
+  // with MANAGE_CHANNELS, which the server owner (our test user) has.
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('button', { name: 'Channel', exact: true }).click();
 
-  // Fill channel name
-  await page.getByPlaceholder(/channel name/i).fill(name);
+  // The field is labeled "Channel Name" (placeholder is "general-chat", so the
+  // old /channel name/i placeholder locator is stale).
+  const nameInput = page.getByLabel('Channel Name');
+  await expect(nameInput).toBeVisible({ timeout: 5_000 });
+  await nameInput.fill(name);
 
-  // Submit
-  await page.getByRole('button', { name: /create/i }).click();
-
-  // Wait for channel to appear in sidebar
-  await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
+  // Submit, retrying until the channel appears. Right after registration the
+  // E2EE service may still be initializing; CreateChannelModal guards channel
+  // creation behind `e2eeService.isInitialized` and shows "Setting up secure
+  // messaging — try again in a moment." (CreateChannelModal.tsx). The modal
+  // stays open on that guard, so we re-submit until E2EE is ready and the
+  // channel is created. `?.requestSubmit()` no-ops once the modal closes on
+  // success, so a successful create is not double-submitted.
+  const channelButton = page.getByRole('button', { name, exact: true });
+  await expect(async () => {
+    await page.evaluate(() => {
+      document.querySelector<HTMLFormElement>('form.create-channel-form')?.requestSubmit();
+    });
+    await expect(channelButton).toBeVisible({ timeout: 2_000 });
+  }).toPass({ timeout: 30_000 });
 }
 
 /**

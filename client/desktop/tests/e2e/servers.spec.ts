@@ -9,17 +9,21 @@ test.describe('Servers', () => {
   test('create a server', async ({ page }) => {
     await createServer(page, 'E2E Test Server');
 
-    // Server name should be visible
-    await expect(page.getByText('E2E Test Server')).toBeVisible();
+    // The active server's channel-panel header (<h3>) shows its name. (We can't
+    // assert the bar icon by name: an ACTIVE server's icon is relabeled
+    // "Toggle channel panel", so `${name} server` only matches inactive servers.)
+    await expect(page.getByRole('heading', { name: 'E2E Test Server', level: 3 })).toBeVisible();
   });
 
   test('server appears in server bar', async ({ page }) => {
     await createServer(page, 'Bar Test Server');
 
-    // The server icon should appear in the server bar
-    // Server bar shows the first letter of the server name
-    const serverIcon = page.getByLabel(/Bar Test Server/i);
-    await expect(serverIcon).toBeVisible({ timeout: 5_000 });
+    // Confirm the created server is active and rendered (its channel-panel <h3>).
+    // The active server's bar icon is relabeled "Toggle channel panel", so a
+    // name-based bar-icon assertion isn't viable for a single active server.
+    await expect(page.getByRole('heading', { name: 'Bar Test Server', level: 3 })).toBeVisible({
+      timeout: 5_000,
+    });
   });
 
   test('can switch between servers', async ({ page }) => {

@@ -7,13 +7,18 @@ test.describe('Invites', () => {
     await createServer(page, 'Invite Test Server');
 
     // Look for invite/settings button
-    const inviteBtn = page.getByText(/invite/i);
+    // Target the Invite button by role+exact name — `getByText(/invite/i)` also
+    // matched the server-name heading ("Invite Test Server"), a flaky multi-match.
+    const inviteBtn = page.getByRole('button', { name: 'Invite', exact: true });
     if (await inviteBtn.isVisible().catch(() => false)) {
       await inviteBtn.click();
 
-      // Should show an invite code or generate button
-      const codeOrGenerate = page.getByText(/invite code|generate|copy/i);
-      await expect(codeOrGenerate).toBeVisible({ timeout: 5_000 });
+      // The invite popup shows an "Invite Code" header + a "Generate Code"
+      // button. Assert the button specifically — the old broad regex matched
+      // both elements, a strict-mode multi-match flake.
+      await expect(page.getByRole('button', { name: 'Generate Code' })).toBeVisible({
+        timeout: 5_000,
+      });
     }
   });
 
@@ -26,22 +31,27 @@ test.describe('Invites', () => {
     // 1. A second browser context with a different user
     // 2. Direct API manipulation
     // For now, verify the invite flow exists on the UI
-    const inviteBtn = page.getByText(/invite/i);
+    // Target the Invite button by role+exact name — `getByText(/invite/i)` also
+    // matched the server-name heading ("Invite Test Server"), a flaky multi-match.
+    const inviteBtn = page.getByRole('button', { name: 'Invite', exact: true });
     if (await inviteBtn.isVisible().catch(() => false)) {
       await inviteBtn.click();
-      // Verify invite UI elements exist
-      const inviteUI = page.getByText(/invite|code|share/i);
-      await expect(inviteUI).toBeVisible({ timeout: 5_000 });
+      // Verify the invite popup opened. The "Generate Code" button is a stable
+      // single-match anchor — a broad getByText regex multi-matches the popup.
+      await expect(page.getByRole('button', { name: 'Generate Code' })).toBeVisible({
+        timeout: 5_000,
+      });
     }
   });
 
   test('join server form accepts invite code', async ({ page }) => {
     await registerUser(page);
 
-    // Click add server
-    await page.getByLabel('Add a Server').click();
+    // Click add server (opens the ServerActionModal chooser). The button's
+    // aria-label is "Add Server" (was stale "Add a Server" pre-#1274).
+    await page.getByLabel('Add Server').click();
 
-    // Look for "Join" option
+    // Look for "Join" option (the "Join a Server" choice in the chooser)
     const joinOption = page.getByText(/join.*server|join.*invite/i);
     if (await joinOption.isVisible().catch(() => false)) {
       await joinOption.click();
