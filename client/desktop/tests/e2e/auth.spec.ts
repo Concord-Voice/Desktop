@@ -50,16 +50,20 @@ test.describe('Authentication', () => {
   });
 
   test('logout returns to login page', async ({ page }) => {
-    await registerUser(page);
+    const { username } = await registerUser(page);
 
-    // Look for logout button or menu
-    const logoutBtn = page.getByText(/log\s*out|sign\s*out/i);
-    if (await logoutBtn.isVisible().catch(() => false)) {
-      await logoutBtn.click();
-      // Should be back at login/connection page
-      await expect(page.getByText(/welcome|sign in|connect/i)).toBeVisible({
-        timeout: 10_000,
-      });
-    }
+    // The logout control lives in UserPopover, which only mounts while the popover
+    // is open — so open the UserPanel avatar menu first (aria-label "User menu for
+    // <username>", UserPanel.tsx), then click "Log Out" (UserPopover.tsx). The owner
+    // always has this affordance, so the old `if (visible)` guard was a vacuous pass:
+    // it would go silently green if the selector ever drifted. Unconditional now.
+    await page.getByLabel(`User menu for ${username}`).click();
+    await page.getByRole('button', { name: 'Log Out' }).click();
+
+    // handleLogout navigates to '/' → the ConnectionSelector. Its "Sign In to
+    // Existing Account" option is a stable anchor proving we left /app.
+    await expect(page.getByText('Sign In to Existing Account')).toBeVisible({
+      timeout: 10_000,
+    });
   });
 });

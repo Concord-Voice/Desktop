@@ -30,33 +30,43 @@ test.describe('Servers', () => {
     await createServer(page, 'Server Alpha');
     await createServer(page, 'Server Beta');
 
-    // Click on Server Alpha
-    const alphaIcon = page.getByLabel(/Server Alpha/i);
-    if (await alphaIcon.isVisible().catch(() => false)) {
-      await alphaIcon.click();
-      // Should show Server Alpha's channels
-      await expect(page.getByText('Server Alpha')).toBeVisible({ timeout: 5_000 });
-    }
+    // Server Beta is now active (its rail icon is relabeled "Toggle channel panel");
+    // Server Alpha is inactive, with aria-label "Server Alpha server" (ServerBar.tsx).
+    // Switch to Alpha. Unconditional: a logged-in user with two servers always has
+    // this affordance, so the old `if (visible)` guard hid both regressions and any
+    // selector drift behind a silent green.
+    const alphaIcon = page.getByLabel('Server Alpha server');
+    await expect(alphaIcon).toBeVisible();
+    await alphaIcon.click();
+
+    // Alpha's channel-panel header (<h3>, level 3) confirms the switch landed.
+    await expect(page.getByRole('heading', { name: 'Server Alpha', level: 3 })).toBeVisible({
+      timeout: 5_000,
+    });
   });
 
   test('delete a server', async ({ page }) => {
     await createServer(page, 'Delete Me Server');
 
-    // Right-click on the server icon for context menu, or find settings
-    const serverIcon = page.getByLabel(/Delete Me Server/i);
-    if (await serverIcon.isVisible().catch(() => false)) {
-      await serverIcon.click({ button: 'right' });
+    // The created server is active; its rail icon is "Toggle channel panel" and
+    // right-clicking it opens the server context menu (ServerBar.tsx handleContextMenu,
+    // which is wired on the active-server icon too). The old test right-clicked a
+    // by-name locator that never matches the ACTIVE server, then bailed silently
+    // through three nested `if (visible)` guards — a fully vacuous pass.
+    await page.getByLabel('Toggle channel panel').click({ button: 'right' });
 
-      const deleteOption = page.getByText(/delete/i);
-      if (await deleteOption.isVisible().catch(() => false)) {
-        await deleteOption.click();
+    // Owner-only "Delete Server" context-menu item (ServerContextMenu.tsx) opens
+    // DeleteServerModal; the menu closes as the modal opens.
+    await page.getByRole('button', { name: 'Delete Server' }).click();
 
-        // Confirm deletion if there's a modal
-        const confirmBtn = page.getByRole('button', { name: /delete|confirm/i });
-        if (await confirmBtn.isVisible().catch(() => false)) {
-          await confirmBtn.click();
-        }
-      }
-    }
+    // DeleteServerModal is a type-to-confirm dialog (ConfirmActionModal.tsx): the
+    // input's placeholder is the server name, and the confirm button enables only
+    // once the typed value matches.
+    await page.getByPlaceholder('Delete Me Server').fill('Delete Me Server');
+    await page.getByRole('button', { name: 'Delete Server' }).click();
+
+    // Deleting the only server leaves no active server → the rail renders the
+    // "No active server" placeholder (ServerBar.tsx), confirming the delete took.
+    await expect(page.getByLabel('No active server')).toBeVisible({ timeout: 10_000 });
   });
 });
