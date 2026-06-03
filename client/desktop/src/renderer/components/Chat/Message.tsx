@@ -21,6 +21,8 @@ import {
 import MarkdownContent from '../Markdown/MarkdownContent';
 import AttachmentDisplay from './AttachmentDisplay';
 import GifEmbed from './GifEmbed';
+import { useMessageProfileCard } from '../../hooks/useMessageProfileCard';
+import MessageProfileCardHost from './MessageProfileCardHost';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { usePrivacyStore } from '../../stores/privacyStore';
 import './Message.css';
@@ -138,20 +140,24 @@ function MessageHeader({
   message,
   senderRoleEmoji,
   senderRoleColor,
+  onOpenProfile,
 }: Readonly<{
   message: MessageWithStatus;
   senderRoleEmoji: string | null;
   senderRoleColor: string | null;
+  onOpenProfile: (position: { x: number; y: number }) => void;
 }>) {
   return (
     <div className="message-header">
       {senderRoleEmoji && <span className="message-role-emoji">{senderRoleEmoji}</span>}
-      <span
+      <button
+        type="button"
         className="message-username"
         style={senderRoleColor ? { color: senderRoleColor } : undefined}
+        onClick={(e) => onOpenProfile({ x: e.clientX, y: e.clientY })}
       >
         {message.display_name || message.username}
-      </span>
+      </button>
       <span className="message-timestamp">{formatTimestamp(message.created_at)}</span>
       {message.edited_at && <span className="message-edited">(edited)</span>}
       {message.pinned_at && (
@@ -466,6 +472,18 @@ const Message: React.FC<MessageProps> = ({
     [handleEditSubmit, handleEditCancel]
   );
 
+  // Shared profile-card state for this message — the avatar and the username
+  // both open the same card (which carries the Send Friend Request action, #226).
+  // The hook is pure state (no JSX); MessageProfileCardHost renders the card +
+  // modal subtree below. Split lets the hook stay in hooks/ without importing
+  // from components/ (Sonar typescript:S6804).
+  const profileCardState = useMessageProfileCard({
+    message,
+    currentUserId,
+    chatContext,
+  });
+  const { openProfileAt } = profileCardState;
+
   const showReplyPreview = Boolean(message.replied_to || message.reply_to_id);
   const messageClassName = [
     'message',
@@ -478,12 +496,12 @@ const Message: React.FC<MessageProps> = ({
 
   return (
     <article className={messageClassName} onContextMenu={handleContextMenu}>
+      <MessageProfileCardHost state={profileCardState} />
       <MessageAvatar
         message={message}
-        currentUserId={currentUserId}
+        onOpenProfile={openProfileAt}
         showAvatar={showAvatar}
         senderColors={senderColors}
-        chatContext={chatContext}
       />
       <div className="message-content-wrapper">
         {showReplyPreview && (
@@ -494,6 +512,7 @@ const Message: React.FC<MessageProps> = ({
             message={message}
             senderRoleEmoji={senderRoleEmoji}
             senderRoleColor={senderRoleColor}
+            onOpenProfile={openProfileAt}
           />
         )}
 

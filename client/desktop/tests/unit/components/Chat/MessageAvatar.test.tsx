@@ -1,10 +1,12 @@
 import { render, screen, fireEvent } from '../../../test-utils';
 import MessageAvatar from '@/renderer/components/Chat/MessageAvatar';
-import { mockMessage, mockMessage2, mockMember } from '../../../mocks/fixtures';
-import { useMemberStore } from '@/renderer/stores/memberStore';
-import { useFriendStore } from '@/renderer/stores/friendStore';
+import { mockMessage } from '../../../mocks/fixtures';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
+// MessageAvatar is a pure trigger after #226 — it renders the avatar and calls
+// onOpenProfile with a viewport position. The member-resolution + profile-card
+// state it used to own now lives in useMessageProfileCard (see that hook's
+// test for the resolution-precedence coverage).
 describe('MessageAvatar', () => {
   beforeEach(() => {
     resetAllStores();
@@ -15,12 +17,11 @@ describe('MessageAvatar', () => {
     render(
       <MessageAvatar
         message={messageWithAvatar}
-        currentUserId="user-2"
         showAvatar={true}
         senderColors={null}
+        onOpenProfile={vi.fn()}
       />
     );
-
     const img = document.querySelector('.avatar-image') as HTMLImageElement;
     expect(img).toBeInTheDocument();
     expect(img.src).toBe('https://example.com/avatar.png');
@@ -30,12 +31,11 @@ describe('MessageAvatar', () => {
     render(
       <MessageAvatar
         message={mockMessage}
-        currentUserId="user-2"
         showAvatar={true}
         senderColors={null}
+        onOpenProfile={vi.fn()}
       />
     );
-
     const circle = document.querySelector('.avatar-circle');
     expect(circle).toBeInTheDocument();
     expect(circle!.textContent).toBe('T'); // "Test User" → "T"
@@ -45,14 +45,12 @@ describe('MessageAvatar', () => {
     render(
       <MessageAvatar
         message={mockMessage}
-        currentUserId="user-2"
         showAvatar={true}
         senderColors={{ gradient: 'linear-gradient(135deg, #ff0000, #00ff00)' }}
+        onOpenProfile={vi.fn()}
       />
     );
-
     const circle = document.querySelector('.avatar-circle') as HTMLElement;
-    expect(circle).toBeInTheDocument();
     expect(circle.style.background).toContain('linear-gradient');
   });
 
@@ -60,140 +58,13 @@ describe('MessageAvatar', () => {
     render(
       <MessageAvatar
         message={mockMessage}
-        currentUserId="user-2"
         showAvatar={false}
         senderColors={null}
+        onOpenProfile={vi.fn()}
       />
     );
-
-    const gutter = document.querySelector('.message-gutter');
-    expect(gutter).toBeInTheDocument();
+    expect(document.querySelector('.message-gutter')).toBeInTheDocument();
     expect(document.querySelector('.message-avatar')).not.toBeInTheDocument();
-  });
-
-  it('opens profile card on avatar click with server member data', () => {
-    useMemberStore.getState().addMember(mockMember);
-
-    render(
-      <MessageAvatar
-        message={mockMessage}
-        currentUserId="user-2"
-        showAvatar={true}
-        senderColors={null}
-      />
-    );
-
-    const avatarButton = screen.getByLabelText('View user profile');
-    fireEvent.click(avatarButton);
-
-    expect(document.querySelector('.member-profile-card')).toBeInTheDocument();
-  });
-
-  it('closes profile card on re-click (toggle)', () => {
-    useMemberStore.getState().addMember(mockMember);
-
-    render(
-      <MessageAvatar
-        message={mockMessage}
-        currentUserId="user-2"
-        showAvatar={true}
-        senderColors={null}
-      />
-    );
-
-    const avatarButton = screen.getByLabelText('View user profile');
-
-    // First click opens
-    fireEvent.click(avatarButton);
-    expect(document.querySelector('.member-profile-card')).toBeInTheDocument();
-
-    // Second click closes (toggle)
-    fireEvent.click(avatarButton);
-    expect(document.querySelector('.member-profile-card')).not.toBeInTheDocument();
-  });
-
-  it('falls back to friend store when member not found', () => {
-    // Don't add member to memberStore — force friend store fallback
-    useFriendStore.setState({
-      friends: [
-        {
-          odId: 'od-1',
-          odStatus: 'accepted',
-          odTimestamp: '2025-01-01T00:00:00Z',
-          userId: 'user-1',
-          username: 'testuser',
-          displayName: 'Test User',
-          avatarUrl: null,
-          colorScheme: undefined,
-        },
-      ],
-    });
-
-    render(
-      <MessageAvatar
-        message={mockMessage}
-        currentUserId="user-2"
-        showAvatar={true}
-        senderColors={null}
-      />
-    );
-
-    const avatarButton = screen.getByLabelText('View user profile');
-    fireEvent.click(avatarButton);
-
-    expect(avatarButton).toBeInTheDocument();
-  });
-
-  it('falls back to message data as last resort', () => {
-    // Neither member store nor friend store has this user
-    render(
-      <MessageAvatar
-        message={mockMessage2}
-        currentUserId="user-1"
-        showAvatar={true}
-        senderColors={null}
-      />
-    );
-
-    const avatarButton = screen.getByLabelText('View user profile');
-    fireEvent.click(avatarButton);
-
-    expect(avatarButton).toBeInTheDocument();
-  });
-
-  it('skips server member lookup in DM context and uses friend store', () => {
-    // Add member to server store — should be ignored in DM context
-    useMemberStore.getState().addMember(mockMember);
-    useFriendStore.setState({
-      friends: [
-        {
-          odId: 'od-1',
-          odStatus: 'accepted',
-          odTimestamp: '2025-01-01T00:00:00Z',
-          userId: 'user-1',
-          username: 'testuser',
-          displayName: 'Test User',
-          avatarUrl: null,
-          colorScheme: undefined,
-        },
-      ],
-    });
-
-    render(
-      <MessageAvatar
-        message={mockMessage}
-        currentUserId="user-2"
-        showAvatar={true}
-        senderColors={null}
-        chatContext="dm"
-      />
-    );
-
-    const avatarButton = screen.getByLabelText('View user profile');
-    fireEvent.click(avatarButton);
-
-    // Profile card should open (using friend store data, not server member data)
-    expect(document.querySelector('.member-profile-card')).toBeInTheDocument();
   });
 
   it('uses username initial when no display_name', () => {
@@ -205,13 +76,56 @@ describe('MessageAvatar', () => {
     render(
       <MessageAvatar
         message={messageNoDisplay}
-        currentUserId="user-2"
         showAvatar={true}
         senderColors={null}
+        onOpenProfile={vi.fn()}
       />
     );
+    expect(document.querySelector('.avatar-circle')!.textContent).toBe('F');
+  });
 
-    const circle = document.querySelector('.avatar-circle');
-    expect(circle!.textContent).toBe('F'); // "foobar" → "F"
+  it('calls onOpenProfile with the click position on avatar click', () => {
+    const onOpenProfile = vi.fn();
+    render(
+      <MessageAvatar
+        message={mockMessage}
+        showAvatar={true}
+        senderColors={null}
+        onOpenProfile={onOpenProfile}
+      />
+    );
+    fireEvent.click(screen.getByLabelText('View user profile'), { clientX: 42, clientY: 99 });
+    expect(onOpenProfile).toHaveBeenCalledWith({ x: 42, y: 99 });
+  });
+
+  it('calls onOpenProfile from the element center on Enter keydown', () => {
+    const onOpenProfile = vi.fn();
+    render(
+      <MessageAvatar
+        message={mockMessage}
+        showAvatar={true}
+        senderColors={null}
+        onOpenProfile={onOpenProfile}
+      />
+    );
+    fireEvent.keyDown(screen.getByLabelText('View user profile'), { key: 'Enter' });
+    // jsdom getBoundingClientRect returns zeros; assert the shape, not values.
+    expect(onOpenProfile).toHaveBeenCalledWith(
+      expect.objectContaining({ x: expect.any(Number), y: expect.any(Number) })
+    );
+  });
+
+  it('does not call onOpenProfile when no avatar is shown', () => {
+    const onOpenProfile = vi.fn();
+    render(
+      <MessageAvatar
+        message={mockMessage}
+        showAvatar={false}
+        senderColors={null}
+        onOpenProfile={onOpenProfile}
+      />
+    );
+    expect(screen.queryByLabelText('View user profile')).not.toBeInTheDocument();
+    expect(onOpenProfile).not.toHaveBeenCalled();
   });
 });

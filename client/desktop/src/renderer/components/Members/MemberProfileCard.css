@@ -225,3 +225,59 @@
   color: var(--accent-primary);
   background: var(--bg-secondary);
 }
+
+/* ─── Action row (friend request + view full profile) ───────────────────── */
+
+.member-profile-actions {
+  display: flex;
+  flex-direction: column;
+  gap: calc(6px * var(--sp, 1));
+}
+
+/* Send-friend-request button — primary-accent treatment to distinguish the
+   actionable "send" state from the secondary "View Full Profile". Inert and
+   error variants below tone it down / signal failure. */
+.send-friend-request-btn {
+  width: 100%;
+  padding: calc(8px * var(--sp, 1));
+  border-radius: 6px;
+  font-size: calc(12px * var(--font-scale, 1));
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: 1px solid var(--accent-primary);
+  background: var(--accent-primary);
+  color: var(--on-accent);
+}
+
+.send-friend-request-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* Already-friends / pending — non-interactive label, muted. */
+.send-friend-request-btn--inert {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+/* Transient post-send confirmation. */
+.send-friend-request-btn--sent {
+  background: var(--success);
+  border-color: var(--success);
+  color: var(--on-accent);
+}
+
+/* Send failed — surfaces the error message inline. */
+.send-friend-request-btn--error {
+  background: var(--bg-tertiary);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.send-friend-request-btn:disabled {
+  opacity: 0.8;
+  cursor: default;
+}

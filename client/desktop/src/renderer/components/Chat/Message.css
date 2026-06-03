@@ -97,10 +97,23 @@
   flex-shrink: 0;
 }
 
+/* Username is a <button> (opens the author profile card, #226) but must read
+   as inline text — strip the native button chrome and only reveal
+   interactivity on hover. */
 .message-username {
   font-weight: 600;
   color: var(--text-primary);
   font-size: calc(15px * var(--font-scale, 1));
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.message-username:hover {
+  text-decoration: underline;
 }
 
 .message-timestamp {

@@ -3,13 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { ServerMember, useMemberStore } from '../../stores/memberStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useDMStore } from '../../stores/dmStore';
-import { useFriendStore } from '../../stores/friendStore';
 import { useUserStore } from '../../stores/userStore';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { Permissions, MUTE_MEMBERS, DEAFEN_MEMBERS } from '../../utils/permissions';
 import ContextMenu from '../ui/ContextMenu';
 import { errorMessage } from '../../utils/redactError';
 import { EnforcementMenuItems } from '../ui/EnforcementMenuItems';
+import { useFriendRequestState } from '../../hooks/useFriendRequestState';
 
 interface MemberContextMenuProps {
   member: ServerMember;
@@ -44,10 +44,11 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
   const assignRole = usePermissionStore((s) => s.assignRole);
   const unassignRole = usePermissionStore((s) => s.unassignRole);
 
-  const isFriend = useFriendStore((s) => s.friends.some((f) => f.userId === member.user_id));
-  const hasPendingRequest = useFriendStore((s) =>
-    s.pendingRequests.some((r) => r.fromUserId === member.user_id || r.toUserId === member.user_id)
-  );
+  // Friend-request relationship state + send action, shared with the member
+  // profile card and chat profile card via the same hook (single source of
+  // truth for the Friends / Request Pending / Send Friend Request labels).
+  const friendReq = useFriendRequestState(member.user_id);
+  const { isFriend, hasPendingRequest } = friendReq;
 
   const isSelf = member.user_id === currentUserId;
   const targetIsOwner = member.user_id === ownerUserId;
@@ -72,13 +73,6 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
       fetchRoles(serverId);
     }
   }, [canAssignRole, showRolePicker, serverRoles, fetchRoles, serverId]);
-
-  // Friend request button label
-  const friendLabel = (() => {
-    if (isFriend) return 'Friends';
-    if (hasPendingRequest) return 'Request Pending';
-    return 'Send Friend Request';
-  })();
 
   // RBAC roles sorted by position (highest first), excluding the default @everyone role
   const assignableRoles = (serverRoles ?? [])
@@ -122,12 +116,11 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
     }
   };
 
-  const handleSendFriendRequest = async () => {
-    try {
-      await useFriendStore.getState().sendRequest(member.user_id);
-    } catch (error) {
-      console.error('Failed to send friend request:', errorMessage(error));
-    }
+  const handleSendFriendRequest = () => {
+    // Fire-and-forget; the hook records the error internally. The context menu
+    // closes immediately (matching every other menu action) — rich inline
+    // feedback lives on the profile-card surface, not the transient menu.
+    void friendReq.send();
     onClose();
   };
 
@@ -206,7 +199,7 @@ const MemberContextMenu: React.FC<MemberContextMenuProps> = ({
               />
             </svg>
           }
-          label={friendLabel}
+          label={friendReq.label}
           disabled={isFriend || hasPendingRequest}
           onClick={handleSendFriendRequest}
         />

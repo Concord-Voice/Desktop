@@ -631,6 +631,19 @@ describe('Message', () => {
     expect(card?.querySelector('.member-profile-name')).toBeInTheDocument();
   });
 
+  it('opens profile card on username click (#226 — username is a trigger too)', async () => {
+    const user = userEvent.setup();
+    render(<Message message={mockMessage} currentUserId="user-2" showAvatar={true} />);
+    // The username button shares the author's profile-card opener with the
+    // avatar (lifted into useMessageProfileCard). Click the header username
+    // specifically (not the avatar) and assert the same card opens.
+    const usernameBtn = screen.getByRole('button', {
+      name: mockMessage.display_name || mockMessage.username,
+    });
+    await user.click(usernameBtn);
+    expect(document.querySelector('.member-profile-card')).toBeInTheDocument();
+  });
+
   // ── Role display ──
 
   it('shows role emoji for members with display_separately role', () => {

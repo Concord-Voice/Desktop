@@ -1,6 +1,8 @@
 import { render, screen, fireEvent } from '../../../test-utils';
 import MemberProfileCard from '@/renderer/components/Members/MemberProfileCard';
 import { mockMember, mockMember2 } from '../../../mocks/fixtures';
+import { useUserStore } from '@/renderer/stores/userStore';
+import { resetAllStores } from '../../../helpers/store-helpers';
 
 describe('MemberProfileCard', () => {
   const mockOnClose = vi.fn();
@@ -13,6 +15,7 @@ describe('MemberProfileCard', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetAllStores();
   });
 
   it('renders member username and display name', () => {
@@ -120,5 +123,46 @@ describe('MemberProfileCard', () => {
   it('renders member username with @ prefix', () => {
     render(<MemberProfileCard {...defaultProps} />);
     expect(screen.getByText('@testuser')).toBeInTheDocument();
+  });
+
+  // ── Send Friend Request action (#226) ──
+
+  it('renders the Send Friend Request action for another user', () => {
+    // No current user set as this member → not self → affordance visible.
+    render(<MemberProfileCard {...defaultProps} />);
+    expect(screen.getByRole('button', { name: 'Send friend request' })).toBeInTheDocument();
+  });
+
+  it('hides the friend-request action on the viewer’s own card', () => {
+    // Current user IS this member → self → affordance hidden. With no
+    // onViewFullProfile callback either, the whole action row is suppressed.
+    useUserStore.setState({
+      user: {
+        id: mockMember.user_id,
+        username: mockMember.username,
+        email: 'me@test.com',
+        email_verified: true,
+        e2ee_preference: false,
+      },
+    });
+    render(<MemberProfileCard {...defaultProps} />);
+    expect(screen.queryByRole('button', { name: 'Send friend request' })).not.toBeInTheDocument();
+    expect(document.querySelector('.member-profile-actions')).not.toBeInTheDocument();
+  });
+
+  it('still renders the action row for self when View Full Profile is available', () => {
+    useUserStore.setState({
+      user: {
+        id: mockMember.user_id,
+        username: mockMember.username,
+        email: 'me@test.com',
+        email_verified: true,
+        e2ee_preference: false,
+      },
+    });
+    render(<MemberProfileCard {...defaultProps} onViewFullProfile={vi.fn()} />);
+    // Friend button hidden (self) but the row persists for View Full Profile.
+    expect(screen.queryByRole('button', { name: 'Send friend request' })).not.toBeInTheDocument();
+    expect(screen.getByText('View Full Profile')).toBeInTheDocument();
   });
 });

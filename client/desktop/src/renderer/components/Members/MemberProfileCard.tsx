@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
 import type { PresenceStatus } from '../../stores/memberStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 import { useUserThemeScope } from '../../hooks/useUserThemeScope';
+import SendFriendRequestButton from './SendFriendRequestButton';
+import { useFriendRequestState } from '../../hooks/useFriendRequestState';
 import './MemberProfileCard.css';
 
 /** Flexible member shape that works for both ServerMembers and Friends */
@@ -35,6 +37,9 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
   onViewFullProfile,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
+  // Drives whether the friend-request row renders at all (hidden for self).
+  const { visible: friendActionVisible } = useFriendRequestState(member.user_id);
+  const showActions = friendActionVisible || !!onViewFullProfile;
 
   // Close on outside click or Escape
   useEffect(() => {
@@ -225,18 +230,27 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
           </>
         )}
 
-        {onViewFullProfile && (
+        {showActions && (
           <>
             <div className="member-profile-separator" />
-            <button
-              className="member-profile-view-full-btn"
-              onClick={() => {
-                onClose();
-                onViewFullProfile();
-              }}
-            >
-              View Full Profile
-            </button>
+            <div className="member-profile-actions">
+              <SendFriendRequestButton
+                userId={member.user_id}
+                className="member-profile-action-btn"
+                onSent={onClose}
+              />
+              {onViewFullProfile && (
+                <button
+                  className="member-profile-view-full-btn"
+                  onClick={() => {
+                    onClose();
+                    onViewFullProfile();
+                  }}
+                >
+                  View Full Profile
+                </button>
+              )}
+            </div>
           </>
         )}
       </div>

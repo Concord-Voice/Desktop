@@ -297,7 +297,11 @@ describe('MemberContextMenu — extended coverage', () => {
     });
 
     it('handles sendRequest error gracefully', async () => {
-      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      // After #226 the menu delegates to the shared useFriendRequestState hook,
+      // which captures the rejection in its own state rather than logging to
+      // console. The menu's contract here is narrower: it fires the send and
+      // closes without throwing. The error surfaces on the profile-card
+      // surface (which keeps the hook mounted), not the transient menu.
       const mockSendRequest = vi.fn().mockRejectedValue(new Error('Already sent'));
       useFriendStore.setState({ sendRequest: mockSendRequest } as never);
 
@@ -307,9 +311,8 @@ describe('MemberContextMenu — extended coverage', () => {
         fireEvent.click(screen.getByText('Send Friend Request'));
       });
 
-      expect(consoleSpy).toHaveBeenCalledWith('Failed to send friend request:', expect.any(String));
+      expect(mockSendRequest).toHaveBeenCalled();
       expect(mockOnClose).toHaveBeenCalled();
-      consoleSpy.mockRestore();
     });
   });
 });
