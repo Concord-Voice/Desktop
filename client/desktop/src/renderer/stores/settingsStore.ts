@@ -39,7 +39,40 @@ export interface AppearanceSettings {
   fontSize: 'small' | 'default' | 'large';
   compactMode: boolean;
   reduceAnimations: boolean;
+  /**
+   * Continuous UI scale multiplier. Coexists with `fontSize` (discrete) —
+   * uiScale compounds into `--ui-scale` and is multiplied by `--sp-base`
+   * + `--font-scale` so the two controls stack rather than override each
+   * other. Clamped to [0.85, 1.5]; default 1.0 is a no-op.
+   */
+  uiScale: number;
+  /**
+   * High-contrast mode. Toggles `data-high-contrast` on the document root;
+   * a CSS layer in index.css boosts contrast for the highest-impact
+   * surfaces (text on tinted backgrounds, borders, focus rings). First-pass
+   * — does not perfectly retune every theme but ships a working toggle.
+   */
+  highContrast: boolean;
   customColors: CustomColors | null;
+}
+
+/** Lower + upper bound for uiScale; defaults match the slider range.
+ *
+ * Max is capped at 1.30 (not the original 1.50) so users can't push the UI
+ * into a layout-breaking zone — the chat preview tile and a few other
+ * narrow surfaces start collapsing past ~1.20 even with a responsive grid.
+ * Layout robustness is the right long-term answer; until every surface is
+ * known-safe at 1.50, the cap protects the user from a usability cliff.
+ * Font Size's discrete "Large" still compounds on top, so the practical
+ * upper limit is 1.175 × 1.30 ≈ 1.53 — comparable to the original cap. */
+export const UI_SCALE_MIN = 0.85;
+export const UI_SCALE_MAX = 1.3;
+export const UI_SCALE_DEFAULT = 1;
+
+/** Clamp + sanity-check uiScale on the way in (slider, persisted state). */
+export function clampUiScale(value: number): number {
+  if (!Number.isFinite(value)) return UI_SCALE_DEFAULT;
+  return Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, value));
 }
 
 export type { CustomColors } from '../utils/colorUtils';
@@ -52,6 +85,8 @@ interface SettingsState {
   setFontSize: (size: AppearanceSettings['fontSize']) => void;
   setCompactMode: (enabled: boolean) => void;
   setReduceAnimations: (enabled: boolean) => void;
+  setUiScale: (value: number) => void;
+  setHighContrast: (enabled: boolean) => void;
   setCustomColors: (colors: CustomColors) => void;
   setClientBehavior: (value: ClientBehavior) => void;
 }
@@ -62,6 +97,8 @@ const defaultAppearance: AppearanceSettings = {
   fontSize: 'default',
   compactMode: false,
   reduceAnimations: false,
+  uiScale: UI_SCALE_DEFAULT,
+  highContrast: false,
   customColors: null,
 };
 
@@ -99,6 +136,18 @@ function applyReduceAnimations(enabled: boolean) {
   document.documentElement.dataset.reduceAnimations = enabled ? 'true' : 'false';
 }
 
+function applyUiScale(value: number) {
+  // Apply via custom property so existing var(--sp-base, ...) and
+  // var(--font-scale, ...) consumers compound with it without code change.
+  // The CSS layer in index.css multiplies --sp-base and --font-scale by
+  // --ui-scale via calc().
+  document.documentElement.style.setProperty('--ui-scale', String(clampUiScale(value)));
+}
+
+function applyHighContrast(enabled: boolean) {
+  document.documentElement.dataset.highContrast = enabled ? 'true' : 'false';
+}
+
 export const useSettingsStore = wrapStore(
   create<SettingsState>()(
     persist(
@@ -129,6 +178,16 @@ export const useSettingsStore = wrapStore(
         setReduceAnimations: (reduceAnimations) =>
           set((state) => ({
             appearance: { ...state.appearance, reduceAnimations },
+          })),
+
+        setUiScale: (uiScale) =>
+          set((state) => ({
+            appearance: { ...state.appearance, uiScale: clampUiScale(uiScale) },
+          })),
+
+        setHighContrast: (highContrast) =>
+          set((state) => ({
+            appearance: { ...state.appearance, highContrast },
           })),
 
         setCustomColors: (customColors) =>
@@ -228,6 +287,20 @@ useSettingsStore.subscribe(
 useSettingsStore.subscribe(
   (state) => state.appearance.reduceAnimations,
   (reduceAnimations) => applyReduceAnimations(reduceAnimations),
+  { fireImmediately: true }
+);
+
+// Subscribe to UI scale changes and apply to DOM
+useSettingsStore.subscribe(
+  (state) => state.appearance.uiScale,
+  (uiScale) => applyUiScale(uiScale),
+  { fireImmediately: true }
+);
+
+// Subscribe to high contrast changes and apply to DOM
+useSettingsStore.subscribe(
+  (state) => state.appearance.highContrast,
+  (highContrast) => applyHighContrast(highContrast),
   { fireImmediately: true }
 );
 

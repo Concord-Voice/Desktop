@@ -74,7 +74,11 @@
   justify-content: center;
   font-size: calc(22px * var(--font-scale, 1));
   font-weight: 700;
-  color: #fff;
+  /* Use bg-primary (the opposite end of the brightness range from
+     gradient-brand in every theme) for the letter so it stays readable
+     in High Contrast mode where gradient-brand is bright yellow→cyan.
+     Matches the .avatar-circle pattern in Message.css. */
+  color: var(--bg-primary);
   border: 2px solid var(--bg-primary);
 }
 

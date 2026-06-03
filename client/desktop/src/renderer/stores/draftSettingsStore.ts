@@ -155,16 +155,24 @@ function applyTierDefaultsToDrafts(
   }
 }
 
-/** Restore appearance settings from a snapshot back to the real store. */
+/** Restore appearance settings from a snapshot back to the real store.
+ *
+ * Iterates over snapshot.appearance keys and dispatches each to the matching
+ * `set<Key>` setter via callSetter, rather than hand-listing each setter
+ * — that previous shape silently regressed every time a new appearance
+ * setting was added (originally missed `highContrast` and `uiScale`,
+ * causing Revert to wipe the draft state without undoing the live-preview
+ * write-through, leaving the DOM in the modified state).
+ *
+ * Guard: customColors=null means "no custom theme defined." Calling
+ * setCustomColors(null) would push the colorScheme to 'custom' as a side
+ * effect (see useSettingsStore.setCustomColors), which is wrong — skip the
+ * null case explicitly to match the original snapshot semantics. */
 function restoreAppearanceFromSnapshot(snapshot: SettingsSnapshot): void {
-  const store = useSettingsStore.getState();
-  store.setTheme(snapshot.appearance.theme);
-  store.setColorScheme(snapshot.appearance.colorScheme);
-  store.setFontSize(snapshot.appearance.fontSize);
-  store.setCompactMode(snapshot.appearance.compactMode);
-  store.setReduceAnimations(snapshot.appearance.reduceAnimations);
-  if (snapshot.appearance.customColors) {
-    store.setCustomColors(snapshot.appearance.customColors);
+  const store = useSettingsStore.getState() as unknown as Record<string, unknown>;
+  for (const [key, value] of Object.entries(snapshot.appearance)) {
+    if (key === 'customColors' && value === null) continue;
+    callSetter(store, key, value);
   }
 }
 

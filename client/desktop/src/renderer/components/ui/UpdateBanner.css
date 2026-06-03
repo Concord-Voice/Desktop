@@ -59,7 +59,7 @@
 .update-banner__btn.primary {
   padding: 4px 12px;
   background: var(--accent-primary);
-  color: white;
+  color: var(--on-accent); /* HCM: see SettingsPage.css .settings-pending-blob-apply */
 }
 
 .update-banner__btn.primary:hover {

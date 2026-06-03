@@ -129,7 +129,7 @@
 
 .connection-lost-btn.primary {
   background: var(--accent-primary);
-  color: white;
+  color: var(--on-accent); /* HCM: see SettingsPage.css .settings-pending-blob-apply */
 }
 
 .connection-lost-btn.primary:hover {

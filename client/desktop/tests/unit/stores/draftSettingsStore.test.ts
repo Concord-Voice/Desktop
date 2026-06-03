@@ -498,6 +498,34 @@ describe('draftSettingsStore', () => {
       useDraftSettingsStore.getState().revert();
       expect(useDraftSettingsStore.getState().snapshot).not.toBeNull();
     });
+
+    // Regression: every settable appearance key must be restored to its
+    // snapshot value on revert — not just the originally-listed ones.
+    // The first version of restoreAppearanceFromSnapshot hand-listed the 5
+    // setters it knew about and silently missed `highContrast` + `uiScale`
+    // when those were added in #489, so toggling either then clicking Revert
+    // would reset the slider/toggle UI position but leave the DOM in the
+    // modified state (because the draft preview's write-through to the real
+    // store was never undone). The fix iterates over snapshot keys and
+    // dispatches each via callSetter, so future additions can't regress this.
+    it('restores highContrast and uiScale on revert (regression)', () => {
+      useSettingsStore.getState().setHighContrast(false);
+      useSettingsStore.getState().setUiScale(1);
+      useDraftSettingsStore.getState().initialize();
+
+      // Live-preview modifications via draft writes — these write through to
+      // the real store immediately (the draft store's intended behavior).
+      useDraftSettingsStore.getState().setAppearanceDraft('highContrast', true);
+      useDraftSettingsStore.getState().setAppearanceDraft('uiScale', 1.25);
+      expect(useSettingsStore.getState().appearance.highContrast).toBe(true);
+      expect(useSettingsStore.getState().appearance.uiScale).toBe(1.25);
+
+      useDraftSettingsStore.getState().revert();
+
+      // Real store must reflect the snapshot, not the modified live values.
+      expect(useSettingsStore.getState().appearance.highContrast).toBe(false);
+      expect(useSettingsStore.getState().appearance.uiScale).toBe(1);
+    });
   });
 
   // ── Edge cases ────────────────────────────────────────────────────────

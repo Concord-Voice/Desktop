@@ -2,9 +2,9 @@ import React from 'react';
 import type { AppearanceSettings, CustomColors } from '../../stores/settingsStore';
 import { useDraftAppearance, setDraftAppearanceSetting } from '../../hooks/useDraftSettings';
 import { isValidHex } from '../../utils/colorUtils';
-import ToggleSwitch from './ToggleSwitch';
 import CollapsibleSection from './CollapsibleSection';
 import { ClientBehaviorSection } from './ClientBehaviorSection';
+import SettingsPreviewPanel from './SettingsPreviewPanel';
 
 // Module-scope constants — declared outside the component so they're not
 // re-allocated on every render. SCHEME_TUPLES is the flat tuple form produced
@@ -86,17 +86,13 @@ const themes: { value: AppearanceSettings['theme']; label: string; icon: React.R
   },
 ];
 
-const fontSizes: { value: AppearanceSettings['fontSize']; label: string }[] = [
-  { value: 'small', label: 'Small' },
-  { value: 'default', label: 'Default' },
-  { value: 'large', label: 'Large' },
-];
-
 const AppearanceSection: React.FC = () => {
   const appearance = useDraftAppearance();
 
   return (
     <>
+      <SettingsPreviewPanel />
+
       <CollapsibleSection id="section-color-scheme" title="Color Scheme">
         <p className="settings-section-description">Pick a color palette for the entire app.</p>
         <span className="color-scheme-active-label">
@@ -224,52 +220,9 @@ const AppearanceSection: React.FC = () => {
         </div>
       </CollapsibleSection>
 
-      <CollapsibleSection id="section-display" title="Display">
-        <div className="form-group">
-          <span className="form-label">Font Size</span>
-          <div className="font-size-selector">
-            {fontSizes.map((fs) => (
-              <button
-                key={fs.value}
-                className={`font-size-option ${fs.value} ${appearance.fontSize === fs.value ? 'selected' : ''}`}
-                onClick={() => setDraftAppearanceSetting('fontSize', fs.value)}
-              >
-                {fs.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Compact Mode</span>
-            <span className="settings-row-hint">
-              {appearance.compactMode
-                ? 'Enabled. Padding and spacing are reduced throughout the interface, fitting more content on screen.'
-                : 'Disabled. Standard padding and spacing for a comfortable, spacious layout.'}
-            </span>
-          </div>
-          <ToggleSwitch
-            checked={appearance.compactMode}
-            onChange={(v) => setDraftAppearanceSetting('compactMode', v)}
-          />
-        </div>
-
-        <div className="settings-row">
-          <div className="settings-row-info">
-            <span className="settings-row-label">Reduce Animations</span>
-            <span className="settings-row-hint">
-              {appearance.reduceAnimations
-                ? 'Enabled. Motion and transitions are minimized throughout the interface for a snappier experience.'
-                : 'Disabled. Standard animations and transitions are used for a fluid interface.'}
-            </span>
-          </div>
-          <ToggleSwitch
-            checked={appearance.reduceAnimations}
-            onChange={(v) => setDraftAppearanceSetting('reduceAnimations', v)}
-          />
-        </div>
-      </CollapsibleSection>
+      {/* Display settings (font size, compact mode, reduce animations) +
+          UI scale + high contrast moved to Accessibility per #489. They
+          live in `<DisplaySection>` inside AccessibilitySection. */}
 
       <ClientBehaviorSection />
     </>

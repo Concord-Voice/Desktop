@@ -132,7 +132,7 @@
 
 .force-update-btn.primary {
   background: var(--accent-primary);
-  color: white;
+  color: var(--on-accent); /* HCM: see SettingsPage.css .settings-pending-blob-apply */
 }
 
 .force-update-btn.primary:hover {

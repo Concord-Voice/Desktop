@@ -299,6 +299,8 @@ class PreferencesSyncService {
           fontSize: settings.fontSize,
           compactMode: settings.compactMode,
           reduceAnimations: settings.reduceAnimations,
+          uiScale: settings.uiScale,
+          highContrast: settings.highContrast,
           customColors: settings.customColors,
         },
         layout: {

@@ -155,7 +155,6 @@ const NAV_SUBSECTIONS: Record<string, { id: string; label: string }[]> = {
   appearance: [
     { id: 'color-scheme', label: 'Color Scheme' },
     { id: 'theme', label: 'Theme' },
-    { id: 'display', label: 'Display' },
   ],
   privacy: [
     { id: 'privacy-settings', label: 'Privacy' },
@@ -174,7 +173,10 @@ const NAV_SUBSECTIONS: Record<string, { id: string; label: string }[]> = {
     { id: 'audio-config', label: 'Audio Configuration' },
     { id: 'video-screen', label: 'Video Configuration' },
   ],
-  accessibility: [{ id: 'tts', label: 'Text-to-Speech' }],
+  accessibility: [
+    { id: 'display', label: 'Display' },
+    { id: 'tts', label: 'Text-to-Speech' },
+  ],
   about: [
     { id: 'client-info', label: 'Client Info' },
     { id: 'update-settings', label: 'Update Settings' },

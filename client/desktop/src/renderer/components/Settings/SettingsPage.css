@@ -618,6 +618,54 @@
   font-size: 16px;
 }
 
+/* ─── UI Scale slider (#489) ───────────────────────────────────────────────
+   Coexists with the discrete Font Size selector; CSS compounding lives in
+   :root via `--ui-scale × --font-scale-discrete`. */
+.ui-scale-slider-row {
+  display: flex;
+  align-items: center;
+  gap: calc(12px * var(--sp, 1));
+  margin-top: calc(8px * var(--sp, 1));
+}
+
+.ui-scale-slider {
+  flex: 1;
+  min-width: 120px;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+}
+
+.ui-scale-value {
+  font-family: 'SourceSans', sans-serif;
+  font-size: calc(13px * var(--font-scale, 1));
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  min-width: 48px;
+  text-align: right;
+}
+
+.ui-scale-reset-btn {
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-family: 'SourceSans', sans-serif;
+  font-size: calc(12px * var(--font-scale, 1));
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.ui-scale-reset-btn:hover:not(:disabled) {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.ui-scale-reset-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
 /* Toggle switch */
 .settings-toggle {
   position: relative;
@@ -875,7 +923,8 @@
 
 .revocation-mode-btn.active {
   background: var(--accent-primary);
-  color: #fff;
+  /* See .settings-pending-blob-apply for the HCM rationale on --on-accent. */
+  color: var(--on-accent);
   cursor: default;
 }
 
@@ -2062,7 +2111,12 @@
   background: var(--accent-primary);
   border: none;
   border-radius: 6px;
-  color: #fff;
+  /* Use the theme's on-accent token instead of hardcoded white so the
+     button stays readable in High Contrast mode (where --accent-primary
+     is pure yellow and --on-accent flips to pure black). #489 contrast
+     pass discovered the original `#fff` here unreadable against HCM
+     yellow. */
+  color: var(--on-accent);
   font-size: calc(13px * var(--font-scale, 1));
   font-weight: 600;
   font-family: 'SourceSans', sans-serif;
@@ -2190,7 +2244,8 @@
 
 .settings-notification-permission-btn {
   background: var(--accent-primary);
-  color: #fff;
+  /* See .settings-pending-blob-apply for the HCM rationale on --on-accent. */
+  color: var(--on-accent);
   border: none;
   border-radius: 8px;
   padding: 8px 16px;

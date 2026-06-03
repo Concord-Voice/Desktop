@@ -68,7 +68,7 @@
 
 .about-info-copy-btn:hover {
   background: var(--accent-primary);
-  color: white;
+  color: var(--on-accent); /* HCM: see SettingsPage.css .settings-pending-blob-apply */
 }
 
 /* ─── Third-party services ────────────────────────────────────────── */
@@ -152,7 +152,7 @@
   border-radius: 6px;
   border: none;
   background: var(--accent-primary);
-  color: var(--text-on-accent, #fff);
+  color: var(--on-accent);
   font-size: calc(13px * var(--font-scale, 1));
   font-family: 'SourceSans', sans-serif;
   font-weight: 500;
@@ -243,12 +243,12 @@
 
 .about-update-action-btn:hover {
   background: var(--accent-primary);
-  color: var(--text-on-accent, #fff);
+  color: var(--on-accent);
 }
 
 .about-update-action-btn--primary {
   background: var(--accent-primary);
-  color: var(--text-on-accent, #fff);
+  color: var(--on-accent);
 }
 
 .about-update-action-btn--primary:hover {

@@ -1,4 +1,11 @@
-import { useSettingsStore, setSyncSuppressed } from '@/renderer/stores/settingsStore';
+import {
+  useSettingsStore,
+  setSyncSuppressed,
+  clampUiScale,
+  UI_SCALE_DEFAULT,
+  UI_SCALE_MIN,
+  UI_SCALE_MAX,
+} from '@/renderer/stores/settingsStore';
 import { resetAllStores } from '../../helpers/store-helpers';
 
 describe('settingsStore', () => {
@@ -13,6 +20,9 @@ describe('settingsStore', () => {
     expect(appearance.fontSize).toBe('default');
     expect(appearance.compactMode).toBe(false);
     expect(appearance.reduceAnimations).toBe(false);
+    // #489 — new accessibility-display fields
+    expect(appearance.uiScale).toBe(UI_SCALE_DEFAULT);
+    expect(appearance.highContrast).toBe(false);
   });
 
   it('setTheme updates theme', () => {
@@ -38,6 +48,59 @@ describe('settingsStore', () => {
   it('setReduceAnimations toggles animations', () => {
     useSettingsStore.getState().setReduceAnimations(true);
     expect(useSettingsStore.getState().appearance.reduceAnimations).toBe(true);
+  });
+
+  // ─── #489 — UI scale + high contrast ────────────────────────────────────
+
+  describe('uiScale (#489)', () => {
+    it('setUiScale updates the value', () => {
+      useSettingsStore.getState().setUiScale(1.2);
+      expect(useSettingsStore.getState().appearance.uiScale).toBe(1.2);
+    });
+
+    it('clamps below UI_SCALE_MIN', () => {
+      useSettingsStore.getState().setUiScale(0.5);
+      expect(useSettingsStore.getState().appearance.uiScale).toBe(UI_SCALE_MIN);
+    });
+
+    it('clamps above UI_SCALE_MAX', () => {
+      useSettingsStore.getState().setUiScale(3);
+      expect(useSettingsStore.getState().appearance.uiScale).toBe(UI_SCALE_MAX);
+    });
+
+    it('non-finite input falls back to default', () => {
+      useSettingsStore.getState().setUiScale(Number.NaN);
+      expect(useSettingsStore.getState().appearance.uiScale).toBe(UI_SCALE_DEFAULT);
+    });
+
+    it('exposes clampUiScale as a pure helper', () => {
+      expect(clampUiScale(1)).toBe(1);
+      expect(clampUiScale(0.5)).toBe(UI_SCALE_MIN);
+      expect(clampUiScale(3)).toBe(UI_SCALE_MAX);
+      // Non-finite inputs (NaN, Infinity) fall back to the default rather
+      // than getting clamped — they're not meaningful scale values.
+      expect(clampUiScale(Number.POSITIVE_INFINITY)).toBe(UI_SCALE_DEFAULT);
+      expect(clampUiScale(Number.NaN)).toBe(UI_SCALE_DEFAULT);
+    });
+
+    it('applies uiScale to --ui-scale CSS custom property on the doc root', () => {
+      useSettingsStore.getState().setUiScale(1.25);
+      expect(document.documentElement.style.getPropertyValue('--ui-scale')).toBe('1.25');
+    });
+  });
+
+  describe('highContrast (#489)', () => {
+    it('setHighContrast toggles the value', () => {
+      useSettingsStore.getState().setHighContrast(true);
+      expect(useSettingsStore.getState().appearance.highContrast).toBe(true);
+    });
+
+    it('applies highContrast to data-high-contrast attribute', () => {
+      useSettingsStore.getState().setHighContrast(true);
+      expect(document.documentElement.dataset.highContrast).toBe('true');
+      useSettingsStore.getState().setHighContrast(false);
+      expect(document.documentElement.dataset.highContrast).toBe('false');
+    });
   });
 
   describe('DOM attribute application', () => {

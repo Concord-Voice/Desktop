@@ -85,22 +85,41 @@ describe('SettingsPage', () => {
     expect(screen.getByText('System')).toBeInTheDocument();
   });
 
-  it('renders font size options', () => {
+  // #489 — Display settings (font size, compact mode, reduce animations) plus
+  // UI Scale and High Contrast moved from Appearance to Accessibility. These
+  // tests navigate to the new tab before asserting.
+
+  it('renders font size options under Accessibility', () => {
     render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Accessibility'));
     expect(screen.getByText('Font Size')).toBeInTheDocument();
     expect(screen.getByText('Small')).toBeInTheDocument();
     expect(screen.getByText('Default')).toBeInTheDocument();
     expect(screen.getByText('Large')).toBeInTheDocument();
   });
 
-  it('renders compact mode toggle', () => {
+  it('renders compact mode toggle under Accessibility', () => {
     render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Accessibility'));
     expect(screen.getByText('Compact Mode')).toBeInTheDocument();
   });
 
-  it('renders reduce animations toggle', () => {
+  it('renders reduce animations toggle under Accessibility', () => {
     render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Accessibility'));
     expect(screen.getByText('Reduce Animations')).toBeInTheDocument();
+  });
+
+  it('renders UI Scale slider under Accessibility (#489)', () => {
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Accessibility'));
+    expect(screen.getByLabelText('UI Scale')).toBeInTheDocument();
+  });
+
+  it('renders High Contrast toggle under Accessibility (#489)', () => {
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Accessibility'));
+    expect(screen.getByText('High Contrast')).toBeInTheDocument();
   });
 
   it('switches to privacy section on nav click', () => {
@@ -119,6 +138,7 @@ describe('SettingsPage', () => {
 
   it('changes font size on click', () => {
     render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Accessibility'));
     fireEvent.click(screen.getByText('Large'));
     expect(useSettingsStore.getState().appearance.fontSize).toBe('large');
   });
@@ -131,6 +151,7 @@ describe('SettingsPage', () => {
 
   it('toggles compact mode', () => {
     render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Accessibility'));
     const toggle = screen
       .getByText('Compact Mode')
       .closest('.settings-row')
@@ -142,6 +163,7 @@ describe('SettingsPage', () => {
 
   it('toggles reduce animations', () => {
     render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Accessibility'));
     const toggle = screen
       .getByText('Reduce Animations')
       .closest('.settings-row')
@@ -164,6 +186,7 @@ describe('SettingsPage', () => {
 
   it('changes font size to small', () => {
     render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Accessibility'));
     fireEvent.click(screen.getByText('Small'));
     expect(useSettingsStore.getState().appearance.fontSize).toBe('small');
   });

@@ -120,7 +120,7 @@
 
 .sso-link-confirm__submit {
   background: var(--accent-primary);
-  color: var(--text-on-accent, var(--text-primary));
+  color: var(--on-accent);
 }
 
 .sso-link-confirm__submit:hover:not(:disabled) {

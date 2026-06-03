@@ -109,7 +109,7 @@
   font-size: calc(14px * var(--font-scale, 1));
   font-weight: 600;
   background: var(--accent-primary);
-  color: var(--text-on-accent, var(--text-primary));
+  color: var(--on-accent);
   border: none;
   border-radius: 8px;
   cursor: pointer;
