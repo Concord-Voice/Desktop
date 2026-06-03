@@ -13,7 +13,11 @@ import { UPDATE_ENDPOINT_URL } from '../src/constants/updateEndpoint.mts';
 import { fileURLToPath } from 'node:url';
 
 export function renderAppUpdateYaml(url: string = UPDATE_ENDPOINT_URL): string {
-  return `provider: generic\nurl: ${url}\n`;
+  // updaterCacheDirName pins electron-updater's cache subdir to a stable,
+  // spaceless name, independent of app.getName()/productName. Without it the
+  // updater derived the cache dir from the (mutable) product name and churned it
+  // across the v0.1.38 rename. See ADR-0011 D1 + internal-reference
+  return `provider: generic\nurl: ${url}\nupdaterCacheDirName: ConcordVoice\n`;
 }
 
 /* istanbul ignore next -- thin CLI entry shim; renderAppUpdateYaml is covered by tests */

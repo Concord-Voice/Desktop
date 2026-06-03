@@ -353,7 +353,11 @@ export async function safeQuitAndInstall(): Promise<void> {
     return;
   }
 
-  logger?.info('Safety backup created, proceeding with quitAndInstall()');
+  // On macOS/Windows no file backup is taken (Squirrel.Mac / NSIS handle the
+  // atomic swap); prepareForUpdate() only writes the rollback sentinel. The old
+  // wording falsely implied a backup. The sentinel log already reports
+  // "(backup: none)" accurately. Linux AppImage is the only path that backs up.
+  logger?.info('Safety sentinel written, proceeding with quitAndInstall()');
   autoUpdater.quitAndInstall();
 }
 

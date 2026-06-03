@@ -46,6 +46,7 @@ vi.mock('electron', () => ({
   },
   app: {
     getPath: vi.fn(() => '/tmp/test-userdata'),
+    setPath: vi.fn(), // pinUserDataPath.ts calls app.setPath at import time (#1291)
     getAppPath: vi.fn(() => '/tmp/test-app'),
     getVersion: vi.fn(() => '1.0.0-test'),
     requestSingleInstanceLock: vi.fn(() => true),

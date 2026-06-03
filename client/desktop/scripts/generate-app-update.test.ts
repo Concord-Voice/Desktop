@@ -46,10 +46,18 @@ describe('renderAppUpdateYaml', () => {
     expect(parsed.url).toBe(override);
   });
 
-  it('produces YAML with exactly the two expected keys', () => {
+  it('produces YAML with exactly the three expected keys', () => {
     const yaml = renderAppUpdateYaml();
     const parsed = parseYaml(yaml);
-    expect(Object.keys(parsed).sort()).toEqual(['provider', 'url']);
+    expect(Object.keys(parsed).sort()).toEqual(['provider', 'updaterCacheDirName', 'url']);
+  });
+
+  it('pins the updater cache dir to the spaceless ConcordVoice', () => {
+    const yaml = renderAppUpdateYaml();
+    const parsed = parseYaml(yaml);
+    // Decouples electron-updater's cache dir from app.getName()/productName so a
+    // display-name change never churns ~/Library/Caches/<name>. See ADR-0011 D1.
+    expect(parsed.updaterCacheDirName).toBe('ConcordVoice');
   });
 
   it('ends with a trailing newline (POSIX text-file convention)', () => {

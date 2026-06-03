@@ -3,68 +3,139 @@ import path from 'node:path';
 import { app } from 'electron';
 
 /**
- * Old userData directory name (productName had a space: "Concord Voice").
- * New name is "ConcordVoice" (spaceless, set in package.json productName).
+ * Consolidate any legacy userData tree into the pinned canonical directory.
  *
- * This migration runs once on first launch after the rename to preserve
- * auth tokens (safeStorage), E2EE keys, update preferences, and hw-accel
- * settings for existing alpha users.
+ * Background: userData is now pinned to the spaceless "ConcordVoice" by
+ * pinUserDataPath.ts, independent of productName. Earlier builds resolved it to
+ * the spaced "Concord Voice" (when productName was spaced) or already to
+ * "ConcordVoice" (the #385 convention). The v0.1.38 productName revert split
+ * users across both trees. This migration consolidates them onto the pinned dir.
  *
- * Must be called before app.whenReady() — Electron resolves and creates
- * the userData directory during initialization.
+ * Best-effort + non-destructive: the RSA keypair is server-escrowed (ADR-0011),
+ * so a wrong guess costs at most one re-login, never data — we archive, never
+ * delete. Must run after pinUserDataPath.ts and before any userData read.
  */
-const OLD_DIR_NAME = 'Concord Voice';
+const CANONICAL_DIR_NAME = 'ConcordVoice';
+const LEGACY_SPACED_NAME = 'Concord Voice';
+// Files whose mtime indicates which tree most recently held a live session or
+// E2EE key state. secure-e2ee.dat is included so a tree holding key material but
+// a stale/absent token still registers as live (Gitar + e2ee-reviewer, #1314).
+const LIVENESS_PROBE_FILES = ['secure-token.dat', 'secure-e2ee.dat', 'token-meta.json'];
 
-/**
- * Resolve the parent directory that contains the userData folder.
- * On each platform this is:
- *   Windows: %APPDATA%
- *   macOS:   ~/Library/Application Support
- *   Linux:   ~/.config  (or $XDG_CONFIG_HOME)
- */
+/** Parent dir that contains the userData folder (e.g. ~/Library/Application Support). */
 export function resolveUserDataParent(): string {
-  // app.getPath('userData') returns <parent>/<productName>.
-  // We want just the parent.
   return path.dirname(app.getPath('userData'));
 }
 
-/**
- * Migrate the old "Concord Voice" userData directory to "ConcordVoice".
- *
- * Rules:
- * - Only migrates if old dir exists AND new dir does NOT exist
- * - If both exist, leaves both untouched (don't overwrite)
- * - If rename fails, logs a warning and continues (Electron creates fresh userData)
- * - Safe to call multiple times (idempotent)
- */
-export function migrateUserData(): void {
-  const parent = resolveUserDataParent();
-  const oldPath = path.join(parent, OLD_DIR_NAME);
-  const newPath = app.getPath('userData'); // Already points to "ConcordVoice"
+/** Narrow an unknown thrown value to a log-safe message (never key material). */
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
-  // Nothing to migrate
-  if (!fs.existsSync(oldPath)) return;
-
-  // Verify old path is actually a directory (not a stray file)
+function isDirectory(p: string): boolean {
   try {
-    const stat = fs.statSync(oldPath);
-    if (!stat.isDirectory()) return;
+    return fs.statSync(p).isDirectory();
   } catch {
+    return false;
+  }
+}
+
+/** Newest mtime (ms) among known liveness-probe files in `dir`; 0 if none. */
+function livenessMtime(dir: string): number {
+  let newest = 0;
+  for (const file of LIVENESS_PROBE_FILES) {
+    try {
+      const m = fs.statSync(path.join(dir, file)).mtimeMs;
+      if (m > newest) newest = m;
+    } catch {
+      // probe file absent — skip
+    }
+  }
+  return newest;
+}
+
+/** Archive a dir out of the way (rename, never delete). Returns dest or null. */
+function archiveDir(dir: string): string | null {
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15); // YYYYMMDD-HHMMSS, mirroring the Chromium Cache.bak-<ts> convention
+  const dest = `${dir}.bak-${stamp}`;
+  try {
+    fs.renameSync(dir, dest);
+    return dest;
+  } catch (err: unknown) {
+    console.warn(`[migration] Failed to archive "${path.basename(dir)}": ${errText(err)}`);
+    return null;
+  }
+}
+
+/** Move a directory, warning (not throwing) on failure. Returns whether it moved. */
+function moveDir(from: string, to: string): boolean {
+  try {
+    fs.renameSync(from, to);
+    return true;
+  } catch (err: unknown) {
+    console.warn(`[migration] Failed to consolidate userData directory: ${errText(err)}`);
+    return false;
+  }
+}
+
+/** Case A — only the legacy spaced tree holds data: move it into the pinned dir. */
+function consolidateLoneLegacy(legacy: string, target: string): void {
+  if (moveDir(legacy, target)) {
+    console.debug(`[migration] Consolidated "${LEGACY_SPACED_NAME}" → "${CANONICAL_DIR_NAME}"`);
+  }
+}
+
+/** Case B — both trees exist: keep the live one (newest token mtime), archive the stale one. */
+function consolidateConflict(legacy: string, target: string): void {
+  if (livenessMtime(legacy) > livenessMtime(target)) {
+    promoteLegacy(legacy, target);
     return;
   }
-
-  // New dir already exists — don't overwrite (already migrated or fresh install)
-  if (fs.existsSync(newPath)) return;
-
-  try {
-    fs.renameSync(oldPath, newPath);
+  const archived = archiveDir(legacy);
+  if (archived !== null) {
     console.debug(
-      `[migration] Renamed userData directory: "${OLD_DIR_NAME}" → "${path.basename(newPath)}"`
+      `[migration] Kept live "${CANONICAL_DIR_NAME}"; archived stale "${path.basename(archived)}"`
     );
+  }
+}
+
+/**
+ * Promote the newer legacy tree into the pinned dir: archive the stale canonical,
+ * then move legacy in. If the move fails AFTER the archive succeeded, roll the
+ * archive back so the pinned userData path is never left missing (which would
+ * force an avoidable re-login). Flagged by Gitar + Copilot on #1314.
+ */
+function promoteLegacy(legacy: string, target: string): void {
+  const archived = archiveDir(target);
+  if (archived === null) return; // archive failed → both trees intact, bail
+  if (moveDir(legacy, target)) {
+    console.debug(
+      `[migration] Consolidated newer "${LEGACY_SPACED_NAME}" → "${CANONICAL_DIR_NAME}" ` +
+        `(archived stale "${path.basename(archived)}")`
+    );
+    return;
+  }
+  // Move failed after a successful archive — restore the canonical dir.
+  try {
+    fs.renameSync(archived, target);
+    console.warn(`[migration] Move failed after archive; restored "${CANONICAL_DIR_NAME}"`);
   } catch (err: unknown) {
-    // Rename can fail on cross-device moves or permission issues.
-    // Log and continue — Electron will create a fresh userData directory.
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    console.warn(`[migration] Failed to rename userData directory: ${errorMessage}`);
+    console.warn(
+      `[migration] Move + rollback failed; "${CANONICAL_DIR_NAME}" remains archived as ` +
+        `"${path.basename(archived)}": ${errText(err)}`
+    );
+  }
+}
+
+export function migrateUserData(): void {
+  const target = app.getPath('userData'); // pinned: <parent>/ConcordVoice
+  const legacy = path.join(path.dirname(target), LEGACY_SPACED_NAME);
+
+  if (!isDirectory(legacy)) return; // only canonical (or neither) — nothing to consolidate
+
+  if (isDirectory(target)) {
+    consolidateConflict(legacy, target); // both exist — the post-revert split
+  } else {
+    consolidateLoneLegacy(legacy, target); // only the legacy spaced tree has data
   }
 }

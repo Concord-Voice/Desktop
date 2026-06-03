@@ -1,3 +1,6 @@
+// MUST be the first import: pins userData before tokenManager/machineId/updater
+// capture app.getPath('userData') at module-load time. See pinUserDataPath.ts.
+import './pinUserDataPath';
 import { registerOpenExternalHandler } from './ipc/openExternal';
 import { registerSSOIPC } from './ipc/sso';
 import { registerAttestationIpc } from './ipc/attestation';
@@ -72,8 +75,16 @@ import { registerIpcHandlers as registerPermissionHandlers } from './permissionM
 import { migrateUserData } from './userDataMigration';
 import { showSplash, closeSplash, updateSplashError } from './splashWindow';
 
-// One-time migration: rename "Concord Voice" → "ConcordVoice" userData directory (#385).
-// Must run before any app.getPath('userData') reads (e.g. hw-accel prefs below).
+// One-time migration: consolidate any legacy userData tree into the pinned
+// "ConcordVoice" dir (#1291). Runs after pinUserDataPath.ts has set the path,
+// before any userData read below.
+//
+// Note: this runs before the single-instance lock (acquired later, in
+// app.whenReady). A rare concurrent double-launch could race two migrations,
+// but every fs op is guarded + idempotent and archives rather than deletes, and
+// promoteLegacy rolls back a failed move — so the worst case is a caught warn,
+// never data loss (#1314 review, Gitar). Acquiring the lock this early would
+// reorder unrelated startup and isn't worth the risk.
 migrateUserData();
 
 // Hardware acceleration preference — must be checked before app.whenReady()
