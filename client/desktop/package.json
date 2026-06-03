@@ -94,7 +94,7 @@
     "rehype-parse": "^9.0.1",
     "rehype-stringify": "^10.0.1",
     "selfsigned": "^5.5.0",
-    "tsx": "^4.22.3",
+    "tsx": "^4.22.4",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.60.0",
     "unicode-emoji-json": "^0.9.0",
