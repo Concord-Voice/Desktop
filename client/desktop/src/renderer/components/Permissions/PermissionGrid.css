@@ -15,10 +15,9 @@
   padding: 12px 16px;
   background: var(--bg-tertiary);
   border-bottom: 1px solid var(--border-color);
-  font-family: 'BaronNeue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   font-size: calc(13px * var(--font-scale, 1));
   letter-spacing: 0.08em;
-  text-transform: uppercase;
   color: var(--text-secondary);
 }
 

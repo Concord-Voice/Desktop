@@ -39,7 +39,7 @@
 
 /* Page title (inside nav sidebar) */
 .settings-page-title {
-  font-family: 'BaronNeue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   font-size: calc(22px * var(--font-scale, 1));
   margin-bottom: 16px;
   color: var(--text-primary);
@@ -152,7 +152,7 @@
 }
 
 .settings-section-title {
-  font-family: 'BaronNeue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   font-size: calc(18px * var(--font-scale, 1));
   color: var(--text-primary);
   margin-bottom: 20px;
@@ -395,7 +395,7 @@
   display: block;
   font-size: calc(20px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'BaronNeue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   color: var(--accent-primary);
   margin-bottom: 12px;
 }

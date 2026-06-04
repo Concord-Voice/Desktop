@@ -70,7 +70,7 @@
 .server-bar-active-icon .server-bar-icon-initial {
   font-size: calc(16px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'BaronNeue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   color: var(--text-primary);
 }
 
@@ -209,7 +209,7 @@
 .server-bar-icon .server-bar-icon-initial {
   font-size: calc(14px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'BaronNeue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   color: var(--text-primary);
 }
 

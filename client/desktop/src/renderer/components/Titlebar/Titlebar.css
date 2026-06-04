@@ -1,6 +1,6 @@
 @font-face {
-  font-family: 'Baron Neue';
-  src: url('/branding/Concord-Voice/fonts/BaronNeue.woff') format('woff');
+  font-family: 'Droidiga';
+  src: url('/branding/Concord-Voice/fonts/Droidiga.otf') format('opentype');
   font-weight: normal;
   font-style: normal;
   font-display: block;
@@ -27,10 +27,9 @@
 }
 
 .titlebar-title {
-  font-family: 'Baron Neue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   font-size: 13px;
   letter-spacing: 0.08em;
-  text-transform: uppercase;
   app-region: drag;
 }
 

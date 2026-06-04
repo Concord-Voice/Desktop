@@ -142,7 +142,7 @@
   font-size: calc(15px * var(--font-scale, 1));
   font-weight: 600;
   color: var(--text-primary);
-  font-family: 'BaronNeue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   letter-spacing: 0.3px;
 }
 
@@ -194,11 +194,10 @@
   color: var(--bg-primary);
   font-size: calc(15px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'BaronNeue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   letter-spacing: 0.5px;
   cursor: pointer;
   transition: all 0.2s ease;
-  text-transform: uppercase;
 }
 
 .connection-continue:hover:not(:disabled) {

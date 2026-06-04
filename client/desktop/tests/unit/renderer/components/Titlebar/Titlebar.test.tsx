@@ -16,11 +16,11 @@ beforeEach(() => {
 });
 
 describe('Titlebar', () => {
-  it('renders the centered "CONCORD VOICE" brand text', () => {
+  it('renders the centered "Concord Voice" brand text', () => {
     mockGet.mockResolvedValue({ appVersion: '0.1.40', spaHash: 'abc123' });
     mockOnChange.mockReturnValue(() => {});
     render(<Titlebar />);
-    expect(screen.getByText('CONCORD VOICE')).toBeInTheDocument();
+    expect(screen.getByText('Concord Voice')).toBeInTheDocument();
   });
 
   it('fetches and displays the version + SPA hash', async () => {
@@ -87,7 +87,7 @@ describe('Titlebar', () => {
     // in Titlebar's useEffect should skip the fetch + subscription.
     (window as unknown as { electron: unknown }).electron = {};
     const { container } = render(<Titlebar />);
-    expect(screen.getByText('CONCORD VOICE')).toBeInTheDocument();
+    expect(screen.getByText('Concord Voice')).toBeInTheDocument();
     // No version label rendered because formatVersionText(null) returns ''
     expect(container.querySelector('.titlebar-version')).toBeNull();
   });
@@ -148,7 +148,7 @@ describe('Titlebar', () => {
     // No version span — empty appVersion produces empty versionText.
     expect(container.querySelector('.titlebar-version')).toBeNull();
     // Brand text still renders.
-    expect(container.querySelector('.titlebar-title')?.textContent).toBe('CONCORD VOICE');
+    expect(container.querySelector('.titlebar-title')?.textContent).toBe('Concord Voice');
   });
 
   it('renders no version span when appVersion is empty string AND spaHash is present', async () => {

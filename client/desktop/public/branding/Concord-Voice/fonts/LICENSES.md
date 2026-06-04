@@ -1,6 +1,6 @@
 # Font Licenses — `client/desktop/public/branding/Concord-Voice/fonts/`
 
-This directory ships font binaries used by Concord Voice's `client/desktop` Electron client. Each file is licensed under the SIL Open Font License (OFL) v1.1, which permits free use, study, modification, embedding, redistribution, and sale **with** software (not by themselves). This file carries the required attribution per OFL §2.
+This directory ships font binaries used by Concord Voice's `client/desktop` Electron client. Most files are licensed under the SIL Open Font License (OFL) v1.1 — full text below — which permits free use, study, modification, embedding, redistribution, and sale **with** software (not by themselves). The display / brand face **Droidiga** is the exception: it is freeware licensed by its designer for commercial use (the designer's own grant, not OFL). This file carries the required OFL attribution per §2 and documents Droidiga's freeware terms.
 
 ---
 
@@ -8,13 +8,37 @@ This directory ships font binaries used by Concord Voice's `client/desktop` Elec
 
 | File | Family | Copyright | Source |
 |---|---|---|---|
-| `BaronNeue.woff` | BaronNeue | — (pre-existing Concord brand asset) | — |
-| `SourceSans.otf` | SourceSans | — (pre-existing Concord brand asset) | — |
+| `Droidiga.otf` | Droidiga | © 2013 Frank Hemmekam | https://www.fontspace.com/droidiga-font-f29933 |
+| `SourceSans.otf` | Source Sans Pro | © 2010, 2012 Adobe Systems Inc. (Paul D. Hunt) — RFN "Source" | https://github.com/adobe-fonts/source-sans-pro |
 | `AtkinsonHyperlegibleNextVF-Variable.woff2` | Atkinson Hyperlegible Next | © 2024 Braille Institute of America, Inc. | https://www.brailleinstitute.org/freefont/ |
 | `Lato-Regular.ttf` | Lato | © 2010-2014 tyPoland Łukasz Dziedzic | https://fonts.google.com/specimen/Lato |
 | `Lato-Bold.ttf` | Lato | © 2010-2014 tyPoland Łukasz Dziedzic | https://fonts.google.com/specimen/Lato |
 | `Lato-Italic.ttf` | Lato | © 2010-2014 tyPoland Łukasz Dziedzic | https://fonts.google.com/specimen/Lato |
 | `Lato-BoldItalic.ttf` | Lato | © 2010-2014 tyPoland Łukasz Dziedzic | https://fonts.google.com/specimen/Lato |
+
+---
+
+## Droidiga
+
+Copyright © 2013 Frank Hemmekam. "Droidiga" is a trademark of Frank Hemmekam.
+
+Droidiga is the display / brand face for Concord Voice — the wordmark, headings, and primary action buttons. Its designer distributes it as **freeware, licensed for commercial use**, including embedding and redistribution within application software (which is how Concord ships it).
+
+It replaced the previously-bundled **Baron Neue** (also by Hemmekam), which is free for *personal* use only and requires a paid license for commercial use. Concord did not hold that license, so Baron Neue was removed in favor of its freely-commercial sibling. (Droidiga's decorative glyphs sit in the lowercase slots where Baron Neue's were uppercase — which is why Concord's display surfaces render Title Case rather than ALL-CAPS.)
+
+Droidiga is **not** under the SIL Open Font License; the freeware grant is the designer's own. Re-verify the current terms at the source before redistribution.
+
+Source: <https://www.fontspace.com/droidiga-font-f29933>
+
+---
+
+## Source Sans Pro
+
+Copyright © 2010, 2012 Adobe Systems Incorporated (<http://www.adobe.com/>), with Reserved Font Name **"Source"**. Designed by Paul D. Hunt.
+
+Source Sans Pro is Concord's body typeface. It is licensed under the **SIL Open Font License, Version 1.1** (full text below).
+
+Source: <https://github.com/adobe-fonts/source-sans-pro>
 
 ---
 

@@ -119,10 +119,9 @@
   border-radius: 6px;
   color: var(--bg-primary);
   font-weight: 700;
-  font-family: 'BaronNeue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   font-size: calc(12px * var(--font-scale, 1));
   cursor: pointer;
-  text-transform: uppercase;
   letter-spacing: 0.5px;
   transition: all 0.2s ease;
 }
@@ -137,9 +136,8 @@
 }
 
 .section-header {
-  font-family: 'BaronNeue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   font-size: calc(12px * var(--font-scale, 1));
-  text-transform: uppercase;
   letter-spacing: 1px;
   color: var(--text-muted);
   margin-bottom: 8px;

@@ -61,7 +61,7 @@
 }
 
 .message-list-empty h3 {
-  font-family: 'BaronNeue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   font-size: calc(24px * var(--font-scale, 1));
   color: var(--text-primary);
   margin-bottom: calc(8px * var(--sp, 1));

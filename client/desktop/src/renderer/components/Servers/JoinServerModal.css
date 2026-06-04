@@ -59,7 +59,7 @@
 .join-preview-initial {
   font-size: calc(20px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'BaronNeue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   color: var(--text-primary);
 }
 
@@ -118,11 +118,10 @@
   color: var(--bg-primary);
   font-size: calc(14px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'BaronNeue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   letter-spacing: 0.5px;
   cursor: pointer;
   transition: all 0.2s ease;
-  text-transform: uppercase;
   display: flex;
   align-items: center;
   gap: 8px;

@@ -64,7 +64,7 @@ export const Titlebar: React.FC = () => {
 
   return (
     <div className={`titlebar ${isMac ? 'titlebar--mac' : ''}`}>
-      <span className="titlebar-title">CONCORD VOICE</span>
+      <span className="titlebar-title">Concord Voice</span>
       {versionText && <span className="titlebar-version">{versionText}</span>}
     </div>
   );

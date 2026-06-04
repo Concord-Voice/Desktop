@@ -34,7 +34,7 @@
 .server-title {
   font-size: calc(24px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'BaronNeue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   color: var(--text-primary);
   letter-spacing: 0.3px;
 }
@@ -141,11 +141,10 @@
   color: var(--bg-primary);
   font-size: calc(15px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'BaronNeue', sans-serif;
+  font-family: 'Droidiga', sans-serif;
   letter-spacing: 0.5px;
   cursor: pointer;
   transition: all 0.2s ease;
-  text-transform: uppercase;
 }
 
 .server-connect-btn:hover:not(:disabled) {

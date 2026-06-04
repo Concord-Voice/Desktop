@@ -152,8 +152,10 @@ describe('App', () => {
 
   it('renders title bar', () => {
     render(<App />);
-    // #806: branded Titlebar renders "CONCORD VOICE" in BaronNeue
-    expect(screen.getByText('CONCORD VOICE')).toBeInTheDocument();
+    // #806: branded Titlebar renders "Concord Voice" in Droidiga.
+    // Title Case (not ALL-CAPS) since the BaronNeue→Droidiga swap: Droidiga's
+    // decorative glyphs are in the lowercase slots, so caps would render plain.
+    expect(screen.getByText('Concord Voice')).toBeInTheDocument();
   });
 
   it('renders auth flow on root path', () => {
@@ -221,11 +223,12 @@ describe('App', () => {
 
   // ── Title bar info ──
 
-  it('renders title bar text as CONCORD VOICE', () => {
+  it('renders title bar text as Concord Voice', () => {
     render(<App />);
-    // #806: brand text is uppercase, rendered in BaronNeue per Titlebar.css
+    // Brand text in Droidiga (Title Case) per Titlebar.css — re-cased from
+    // ALL-CAPS during the BaronNeue→Droidiga font swap.
     const titleText = document.querySelector('.titlebar-title');
-    expect(titleText?.textContent).toBe('CONCORD VOICE');
+    expect(titleText?.textContent).toBe('Concord Voice');
   });
 
   // ── Error boundary ──

@@ -7,8 +7,8 @@
 
 /* Concord Brand Fonts */
 @font-face {
-  font-family: 'BaronNeue';
-  src: url('/branding/Concord-Voice/fonts/BaronNeue.woff') format('woff');
+  font-family: 'Droidiga';
+  src: url('/branding/Concord-Voice/fonts/Droidiga.otf') format('opentype');
   font-weight: normal;
   font-style: normal;
 }
@@ -134,7 +134,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -211,7 +211,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -261,7 +261,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -311,7 +311,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -361,7 +361,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -411,7 +411,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -461,7 +461,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -511,7 +511,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -561,7 +561,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -618,7 +618,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -672,7 +672,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -722,7 +722,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -772,7 +772,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -822,7 +822,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -872,7 +872,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -922,7 +922,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -972,7 +972,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -1022,7 +1022,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -1072,7 +1072,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -1122,7 +1122,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -1172,7 +1172,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -1222,7 +1222,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -1272,7 +1272,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -1322,7 +1322,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -1372,7 +1372,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -1422,7 +1422,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -1579,7 +1579,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
@@ -1629,7 +1629,7 @@
   --state-selected: var(--accent-primary);
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
-  --font-display-stack: 'BaronNeue', system-ui, sans-serif;
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
