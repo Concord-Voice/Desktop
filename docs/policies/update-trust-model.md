@@ -122,4 +122,4 @@ Step 4 catches the concrete threat of a tampered manifest between sign and publi
 
 - internal reference omitted — design spec
 - internal reference omitted — macOS as-shipped design
-- [`SECURITY.md`](../../SECURITY.md) — vulnerability reporting policy
+- [`SECURITY.md`](../../.github/SECURITY.md) — vulnerability reporting policy
