@@ -22,7 +22,14 @@ export const Titlebar: React.FC = () => {
   // two slices update independently and the formatter gates on appVersion.
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [spaHash, setSpaHash] = useState<string | null>(null);
-  const isMac = typeof navigator !== 'undefined' && navigator.platform.includes('Mac');
+  const platform =
+    typeof navigator !== 'undefined'
+      ? ((navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData
+          ?.platform ??
+        navigator.platform ??
+        '')
+      : '';
+  const isMac = platform.toLowerCase().includes('mac');
 
   useEffect(() => {
     // Defensive `?.` chains: in unit-test environments and during the brief

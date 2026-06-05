@@ -172,4 +172,29 @@ describe('Titlebar', () => {
     unmount();
     expect(unsubscribe).toHaveBeenCalled();
   });
+
+  // Platform detection: jsdom provides userAgentData=undefined so the
+  // implementation falls back to navigator.platform, which the spy controls.
+  // This exercises the navigator.platform fallback branch (Finding 1).
+  describe('platform detection (titlebar--mac modifier)', () => {
+    it('applies titlebar--mac class on Mac platform', () => {
+      const spy = vi.spyOn(window.navigator, 'platform', 'get');
+      spy.mockReturnValue('MacIntel');
+      mockGet.mockResolvedValue({ appVersion: '0.1.40', spaHash: null });
+      mockOnChange.mockReturnValue(() => {});
+      const { container } = render(<Titlebar />);
+      expect(container.querySelector('.titlebar.titlebar--mac')).not.toBeNull();
+      spy.mockRestore();
+    });
+
+    it('does not apply titlebar--mac class on non-Mac platform', () => {
+      const spy = vi.spyOn(window.navigator, 'platform', 'get');
+      spy.mockReturnValue('Win32');
+      mockGet.mockResolvedValue({ appVersion: '0.1.40', spaHash: null });
+      mockOnChange.mockReturnValue(() => {});
+      const { container } = render(<Titlebar />);
+      expect(container.querySelector('.titlebar.titlebar--mac')).toBeNull();
+      spy.mockRestore();
+    });
+  });
 });
