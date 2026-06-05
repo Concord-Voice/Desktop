@@ -287,7 +287,8 @@ describe('WebSocketService', () => {
     it('notifies immediately with current state', () => {
       const callback = vi.fn();
       service.onConnectionChange(callback);
-      // Immediately called with current state (DISCONNECTED)
+      // Immediately called exactly once with current state (DISCONNECTED)
+      expect(callback).toHaveBeenCalledTimes(1);
       expect(callback).toHaveBeenCalledWith(ConnectionState.DISCONNECTED);
     });
 

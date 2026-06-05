@@ -177,6 +177,8 @@ describe('preferencesSyncService', () => {
 
       // Should not throw on server error
       await expect(preferencesSyncService.pushPreferences()).resolves.toBeUndefined();
+      // The encrypt step completed successfully before the HTTP failure
+      expect(e2eeService.encryptPreferences).toHaveBeenCalledTimes(1);
     });
 
     it('logs warn when pushPreferences network fetch throws', async () => {
@@ -285,6 +287,8 @@ describe('preferencesSyncService', () => {
 
       // Should not throw on server error
       await expect(preferencesSyncService.fetchAndApply()).resolves.toBeUndefined();
+      // Local settings must remain unchanged when the server fetch fails
+      expect(useSettingsStore.getState().appearance.theme).toBe('dark');
     });
 
     it('logs warn when fetchAndApply network fetch throws', async () => {

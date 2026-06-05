@@ -27,7 +27,6 @@ import {
   type ConsumeResult,
 } from './pipSignalingTypes';
 import { errorMessage } from '../utils/redactError';
-import type { RtpCapabilities } from 'mediasoup-client/types';
 
 const RPC_TIMEOUT = 10_000;
 /** Shorter timeout for the initial request-state RPC (retried on failure) */
@@ -147,7 +146,7 @@ export class PipVoiceClient {
       const result = await this.rpc<ConsumeResult>('consume', {
         producerId,
         transportId: this.recvTransport.id,
-        rtpCapabilities: this.device.rtpCapabilities as RtpCapabilities,
+        rtpCapabilities: this.device.rtpCapabilities,
       });
 
       // Create local consumer

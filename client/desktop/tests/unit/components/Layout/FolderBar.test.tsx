@@ -54,17 +54,16 @@ describe('FolderBar', () => {
     // The dropdown is a portal'd component-local state, not store state —
     // asserting DOM portal presence is brittle under jsdom's zero-rect refs.
     // Instead, spy on console.error to catch any React error / handler throw
-    // during the two-click toggle sequence. Combined with the test passing at
-    // all (which proves render + fireEvent didn't crash), this covers the
-    // observable failure mode without depending on portal layout.
+    // during the two-click toggle sequence and also verify the folder chip is
+    // still present in the DOM (proving the component survived both clicks).
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    try {
-      fireEvent.click(folderBtn);
-      fireEvent.click(folderBtn);
-      expect(errorSpy).not.toHaveBeenCalled();
-    } finally {
-      errorSpy.mockRestore();
-    }
+    fireEvent.click(folderBtn);
+    fireEvent.click(folderBtn);
+    // No React errors should have been emitted during the toggle sequence
+    expect(errorSpy).not.toHaveBeenCalled();
+    // Folder chip must still be mounted after both clicks
+    expect(screen.getByText('My Folder')).toBeInTheDocument();
+    errorSpy.mockRestore();
   });
 
   it('shows folder context menu on right click', () => {
