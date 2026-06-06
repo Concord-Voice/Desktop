@@ -73,6 +73,23 @@ describe('spaLoader — defensive /api/v1/spa/ sentinel', () => {
     expect(result.mode).toBe('remote');
     expect(result.url).toBe('https://api.concordvoice.chat/spa/abc1234/index.html');
   });
+
+  // T4a (#976): SPA bundle moved to Cloudflare Pages at a constant host.
+  // spaLoader validates https + contract only (no host allowlist by design —
+  // spec §8 defers host pinning; see internal-reference "Auto-Updater").
+  it('accepts the Cloudflare Pages SPA URL (T4a, #976)', async () => {
+    mockConfigResponse('https://spa.concordvoice.chat/index.html', 7);
+    const result = await resolveSpaSource();
+    expect(result.mode).toBe('remote');
+    expect(result.url).toBe('https://spa.concordvoice.chat/index.html');
+  });
+
+  it('rejects non-HTTPS Pages-shaped URL (http:// still blocked)', async () => {
+    mockConfigResponse('http://spa.concordvoice.chat/index.html', 7);
+    const result = await resolveSpaSource();
+    expect(result.mode).toBe('bundled');
+    expect(result.reason).toMatch(/non-HTTPS protocol/);
+  });
 });
 
 describe('isUnexpectedBundled', () => {

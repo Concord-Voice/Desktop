@@ -6,15 +6,20 @@
     <!--
       CSP chain for the desktop SPA:
         1. services/control-plane/internal/middleware/security.go sets
-           `default-src 'none'` globally.
-        2. services/control-plane/internal/spa/handler.go deletes that
-           header on /spa/* responses (per #914 — keeping it would intersect
-           with the meta tag below and block the bundle).
+           `default-src 'none'` globally on API responses.
+        2. SPA response headers are now set by the Cloudflare Pages
+           `client/desktop/public/_headers` file (post-#976, T4a).
+           The Go handler (internal/spa/handler.go) was removed in #976;
+           `_headers` does NOT impose `default-src 'none'` on SPA responses
+           (mirrors the old handler behavior — a meta-CSP + `default-src`
+           interaction would block the bundle, per #914).
         3. Cloudflare's JavaScript Detections (JSD) bot-intelligence
            injection is disabled zone-wide via Super Bot Fight Mode →
            JavaScript Detections (Pro plan, 2026-05-13, #917 Tier 2
            resolution, PR #970).
       The meta tag below is the authoritative CSP for the renderer.
+      connect-src already covers *.concordvoice.chat, so the SPA origin
+      moving to spa.concordvoice.chat requires no connect-src change.
     -->
     <meta
       http-equiv="Content-Security-Policy"

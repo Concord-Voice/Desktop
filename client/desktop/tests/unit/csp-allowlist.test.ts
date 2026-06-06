@@ -5,7 +5,16 @@ import { describe, it, expect } from 'vitest';
 
 describe('CSP allowlist (issue #817 regression guard)', () => {
   const indexHtml = readFileSync(resolve(__dirname, '../../index.html'), 'utf-8');
-  const match = indexHtml.match(/connect-src([^;]+);/);
+  // Scope the parse to the CSP <meta> tag's content attribute, NOT the first
+  // "connect-src" anywhere in the file. A doc comment mentioning "connect-src"
+  // (added for #976) previously poisoned this parse — the regex matched the
+  // comment instead of the real directive. Extract the double-quoted content
+  // attribute value first ([^"]* so single-quoted CSP keywords like 'self' and
+  // 'none' inside are preserved), then locate connect-src within it.
+  const cspContent =
+    indexHtml.match(/http-equiv=["']Content-Security-Policy["'][\s\S]*?content="([^"]*)"/i)?.[1] ??
+    '';
+  const match = cspContent.match(/connect-src([^;]+);/);
   const directive = (match?.[1] ?? '').trim();
 
   // Parse the connect-src directive into individual tokens (host patterns
