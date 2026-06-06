@@ -17,8 +17,10 @@ beforeEach(() => {
 
 describe('settingsStore — clientBehavior slice', () => {
   it('has default clientBehavior on init', () => {
+    // Interim default flipped to toTray:'none' (→ [X] quits) so first-run close
+    // does not hide into a non-existent tray; reverts once tray #1099 lands (#1383).
     const cb = useSettingsStore.getState().clientBehavior;
-    expect(cb).toEqual({ toTray: 'close', toToolbar: 'minimize' });
+    expect(cb).toEqual({ toTray: 'none', toToolbar: 'minimize' });
   });
 
   it('updates clientBehavior when setClientBehavior is called', () => {

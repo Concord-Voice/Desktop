@@ -9,8 +9,13 @@ export interface ClientBehavior {
 export type CloseAction = 'tray' | 'toolbar' | 'quit';
 export type MinimizeAction = 'tray' | 'toolbar';
 
+// Interim default (#1383): first-run [X] resolves to 'quit' — deriveCloseAction
+// returns 'quit' when neither button is set to 'close'. The previous default
+// toTray:'close' hid the window into a system tray that does not exist yet
+// (tray feature #1099 is still open), leaving an invisible, unrecoverable
+// process. Revert toTray to 'close' once #1099 lands a real tray icon.
 export const DEFAULT_CLIENT_BEHAVIOR: ClientBehavior = {
-  toTray: 'close',
+  toTray: 'none',
   toToolbar: 'minimize',
 };
 

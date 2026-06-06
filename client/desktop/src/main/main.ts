@@ -157,6 +157,13 @@ if (app.isPackaged) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+
+// Set true by the before-quit handler so the [X] close intercept can
+// distinguish a genuine app quit (⌘Q, Dock→Quit, window:quit/app:quit, the
+// updater relaunch) from the user clicking the window close button. Without
+// this guard the intercept's preventDefault() cancels Electron's app.quit()
+// sequence and the app becomes unquittable — force-quit only (#1383).
+let isQuitting = false;
 // SPA-load state lives in ./spaState so spaSelfHeal.ts can mutate it on
 // fallback/recovery paths. See that module for the lockstep invariant and
 // reader/writer enumeration.
@@ -369,8 +376,16 @@ const createWindow = async (): Promise<void> => {
   // hide/minimize fall-throughs can take over. The 'quit' branch also calls
   // preventDefault so app.quit can run its before-quit hooks without racing
   // a window-destroy mid-shutdown.
+  //
+  // isQuitting guard (#1383): once a genuine quit is underway, before-quit has
+  // already fired and set isQuitting = true. We MUST let this close proceed
+  // (no preventDefault) or we veto Electron's own app.quit() sequence and the
+  // app becomes unquittable. This also resolves the 'quit' branch's
+  // re-entrancy: app.quit() → before-quit sets the flag → re-fired close →
+  // early return here → window destroys → quit completes.
   mainWindow.on('close', (event) => {
     if (!mainWindow) return;
+    if (isQuitting) return;
     const action = deriveCloseAction(getCachedClientBehavior());
 
     if (action === 'tray') {
@@ -595,6 +610,9 @@ app.on('window-all-closed', () => {
 
 // Clean up scheduled update checks on quit; flush update log (#383)
 app.on('before-quit', () => {
+  // Release the [X] close intercept's veto so the window can actually close and
+  // the quit can complete — without this, app.quit() deadlocks (#1383).
+  isQuitting = true;
   const ul = getUpdateLogger();
   ul?.info('Application quitting');
   ul?.flush();
