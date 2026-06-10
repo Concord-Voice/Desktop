@@ -9,13 +9,13 @@ export interface ClientBehavior {
 export type CloseAction = 'tray' | 'toolbar' | 'quit';
 export type MinimizeAction = 'tray' | 'toolbar';
 
-// Interim default (#1383): first-run [X] resolves to 'quit' — deriveCloseAction
-// returns 'quit' when neither button is set to 'close'. The previous default
-// toTray:'close' hid the window into a system tray that does not exist yet
-// (tray feature #1099 is still open), leaving an invisible, unrecoverable
-// process. Revert toTray to 'close' once #1099 lands a real tray icon.
+// Default (#1099): [×] hides to the system tray (close-to-tray), the behavior
+// #806 designed for. src/main/tray.ts is the affordance to reopen (left-click)
+// or quit (context menu). The #1383-era interim default (toTray:'none') is
+// retired; persisted snapshots of the exact interim combo are migrated by
+// settingsStore's persist version-1 migration.
 export const DEFAULT_CLIENT_BEHAVIOR: ClientBehavior = {
-  toTray: 'none',
+  toTray: 'close',
   toToolbar: 'minimize',
 };
 

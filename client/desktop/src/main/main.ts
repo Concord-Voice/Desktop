@@ -5,6 +5,7 @@ import { registerOpenExternalHandler } from './ipc/openExternal';
 import { registerSSOIPC } from './ipc/sso';
 import { registerAttestationIpc } from './ipc/attestation';
 import { registerWindowControlsIpc, getCachedClientBehavior } from './ipc/windowControls';
+import { initTray, destroyTray, isTrayActive } from './tray';
 import { registerVersionInfoIpc } from './ipc/versionInfo';
 import { buildBrowserWindowConfig } from './browserWindowConfig';
 import { loadWindowState, attachWindowState } from './windowState';
@@ -369,10 +370,10 @@ const createWindow = async (): Promise<void> => {
 
   // Client Behavior [X] close intercept (#806). When the user clicks the
   // native close button, route based on the cached Client Behavior:
-  //   - 'tray'    → hide() (stays running, accessed from system tray — #1099)
-  //   - 'toolbar' → minimize() (stays running in the OS taskbar)
-  //   - 'quit'    → app.quit() (graceful full-app shutdown)
-  // event.preventDefault() suppresses the default close → destroy path so the
+  //   - 'tray'    -> hide() (stays running, accessed from system tray, #1099)
+  //   - 'toolbar' -> minimize() (stays running in the OS taskbar)
+  //   - 'quit'    -> app.quit() (graceful full-app shutdown)
+  // event.preventDefault() suppresses the default close -> destroy path so the
   // hide/minimize fall-throughs can take over. The 'quit' branch also calls
   // preventDefault so app.quit can run its before-quit hooks without racing
   // a window-destroy mid-shutdown.
@@ -381,8 +382,16 @@ const createWindow = async (): Promise<void> => {
   // already fired and set isQuitting = true. We MUST let this close proceed
   // (no preventDefault) or we veto Electron's own app.quit() sequence and the
   // app becomes unquittable. This also resolves the 'quit' branch's
-  // re-entrancy: app.quit() → before-quit sets the flag → re-fired close →
-  // early return here → window destroys → quit completes.
+  // re-entrancy: app.quit() -> before-quit sets the flag -> re-fired close ->
+  // early return here -> window destroys -> quit completes.
+  //
+  // Trayless fallback (#1099): if action='tray' but the tray failed to
+  // initialize (sandboxed env, missing StatusNotifier host, etc.),
+  // mainWindow.hide() would strand an invisible, unrecoverable resident
+  // process on Windows/Linux (macOS still has Dock activate). Quit instead so
+  // a trayless session degrades to a recoverable state. window-all-closed's
+  // !isTrayActive() branch alone is not enough: preventDefault()+hide() means
+  // the window never actually closes, so window-all-closed never fires.
   mainWindow.on('close', (event) => {
     if (!mainWindow) return;
     if (isQuitting) return;
@@ -390,7 +399,11 @@ const createWindow = async (): Promise<void> => {
 
     if (action === 'tray') {
       event.preventDefault();
-      mainWindow.hide();
+      if (isTrayActive()) {
+        mainWindow.hide();
+      } else {
+        app.quit();
+      }
     } else if (action === 'toolbar') {
       event.preventDefault();
       mainWindow.minimize();
@@ -404,16 +417,21 @@ const createWindow = async (): Promise<void> => {
   // Client Behavior [-] minimize intercept (#806). When the user clicks the
   // native minimize button AND their Client Behavior config routes minimize
   // to the system tray, redirect the post-fact minimize to hide(). Brief
-  // flicker is accepted per spec §3.2 trade-off — minimize is a post-fact
+  // flicker is accepted per spec §3.2 trade-off; minimize is a post-fact
   // event, not interceptible-before-the-OS-acts the way close is.
+  //
+  // Trayless fallback (#1099): if tray init failed, calling restore()+hide()
+  // would strand the window invisibly with no taskbar entry. Skip the
+  // redirect so the native minimize stands and the window stays recoverable
+  // from the taskbar.
   mainWindow.on('minimize', () => {
     if (!mainWindow) return;
     const action = deriveMinimizeAction(getCachedClientBehavior());
-    if (action === 'tray') {
+    if (action === 'tray' && isTrayActive()) {
       mainWindow.restore();
       mainWindow.hide();
     }
-    // else: leave native minimize → toolbar as-is
+    // else: leave native minimize -> toolbar as-is
   });
 
   mainWindow.on('closed', () => {
@@ -567,6 +585,11 @@ app.whenReady().then(async () => {
 
   createWindow();
 
+  // System tray (#1099): init after the first window exists so the activate
+  // handler has a window to reveal. Init failure is non-fatal — the app runs
+  // trayless and window-all-closed keeps its quit (see handler below).
+  initTray({ getMainWindow: () => mainWindow, createWindow });
+
   // Notify renderer of rollback after window is created (#384)
   if (rollbackResult) {
     // Capture to local const so TypeScript narrows through the setTimeout closure.
@@ -601,9 +624,13 @@ app.whenReady().then(async () => {
   });
 });
 
-// Quit when all windows are closed (except on macOS)
+// Quit when all windows are closed — except on macOS (platform convention)
+// and except when the tray is active: the tray is the persistent affordance
+// to reopen or quit (#1099). If tray init FAILED, isTrayActive() is false and
+// the pre-#1099 quit-on-all-closed behavior is preserved, so a trayless
+// session can never strand an invisible resident process.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (process.platform !== 'darwin' && !isTrayActive()) {
     app.quit();
   }
 });
@@ -613,6 +640,8 @@ app.on('before-quit', () => {
   // Release the [X] close intercept's veto so the window can actually close and
   // the quit can complete — without this, app.quit() deadlocks (#1383).
   isQuitting = true;
+  // Release the OS tray resource so no orphaned icon outlives the app (#1099).
+  destroyTray();
   const ul = getUpdateLogger();
   ul?.info('Application quitting');
   ul?.flush();

@@ -79,6 +79,20 @@ vi.mock('electron', () => ({
   nativeImage: {
     createFromPath: vi.fn(() => ({ isEmpty: () => false, toDataURL: () => '' })),
   },
+  // Tray/Menu stubs (#1099): main.ts initTray runs during whenReady. Without
+  // these, initTray's graceful-failure path fires (console.error noise) and
+  // isTrayActive() reads false, silently changing window-all-closed semantics
+  // under test.
+  Tray: vi.fn().mockImplementation(function () {
+    return {
+      setToolTip: vi.fn(),
+      setContextMenu: vi.fn(),
+      on: vi.fn(),
+      destroy: vi.fn(),
+      isDestroyed: vi.fn(() => false),
+    };
+  }),
+  Menu: { buildFromTemplate: vi.fn((template: unknown) => ({ template })) },
   clipboard: { writeText: vi.fn() },
   desktopCapturer: { getSources: vi.fn(() => Promise.resolve([])) },
   screen: {
@@ -241,11 +255,12 @@ describe('quit lifecycle deadlock — regression for #1383', () => {
   }
 });
 
-describe('first-run close default — regression for #1383 (secondary defect)', () => {
-  it('default [X] (not quitting) must not hide into a non-existent tray', async () => {
-    // No system Tray is constructed (feature #1099 still open). The default
-    // Client Behavior hides on [X], so first-run close hides the window into a
-    // tray that does not exist. The interim fix flips the default so [X] quits.
+describe('first-run close default — tray landed (#1099, supersedes the #1383 interim)', () => {
+  it('default [X] (not quitting) hides to the system tray', async () => {
+    // The tray exists now (#1099): the default Client Behavior routes [X] to
+    // hide-to-tray, the behavior #806 designed for. The #1383 interim default
+    // (toTray:'none' → [X] quits) is retired; its persisted snapshots are
+    // migrated by settingsStore persist v1.
     const { closeHandlers } = await importMainUnderPlatform('darwin');
     expect(closeHandlers.length).toBeGreaterThan(0);
 
@@ -256,13 +271,10 @@ describe('first-run close default — regression for #1383 (secondary defect)', 
     const event = { preventDefault: vi.fn() };
     fireClose(closeHandlers, event);
 
-    expect(
-      mockMainWindow.hide,
-      'first-run [X] must not hide into a non-existent tray'
-    ).not.toHaveBeenCalled();
+    expect(mockMainWindow.hide, 'default [X] hides to the tray (#1099)').toHaveBeenCalled();
     expect(
       mockApp.quit,
-      'first-run [X] should quit (interim default until tray #1099 lands)'
-    ).toHaveBeenCalled();
+      'default [X] must not quit now that the tray exists'
+    ).not.toHaveBeenCalled();
   });
 });

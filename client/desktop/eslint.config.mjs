@@ -85,6 +85,7 @@ export default [
             'scripts/generate-app-update.test.ts',
             'scripts/verify-update-manifest.test.ts',
             'scripts/classify-playwright-results.test.ts',
+            'scripts/generate-tray-icons.test.ts',
             'scripts/csp-prod-strip.ts',
           ],
           // The 9 on-disk allowDefaultProject files (3 root configs + 5

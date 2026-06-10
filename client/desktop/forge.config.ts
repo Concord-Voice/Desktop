@@ -72,6 +72,13 @@ if (fs.existsSync('../../NOTICE.md')) {
 // `process.argv`, so they don't trip the guard. This avoids a self-induced
 // test failure where the CI test job (CI=true, vitest loading the config)
 // would otherwise throw before any test ran.
+// System tray icons (#1099). Committed static assets; extraResource copies the
+// directory to <Resources>/tray/ in packaged builds (consumed by
+// resolveTrayIconPath in src/main/tray.ts). existsSync-guarded for consistency
+// with the entries above.
+if (fs.existsSync('./assets/tray')) {
+  extraResource.push('./assets/tray');
+}
 const isForgePackaging = process.argv.some((arg) => arg.includes('electron-forge'));
 if (fs.existsSync('./buildtag.json')) {
   extraResource.push('./buildtag.json');

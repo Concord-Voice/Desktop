@@ -148,6 +148,24 @@ function applyHighContrast(enabled: boolean) {
   document.documentElement.dataset.highContrast = enabled ? 'true' : 'false';
 }
 
+// v0 → v1 (#1099): the #1383 interim default {toTray:'none', toToolbar:'minimize'}
+// was snapshotted into localStorage for any user who changed ANY setting while
+// it was live (no partialize — the whole store persists, and merge spreads
+// persisted over defaults). Map the EXACT interim-default combo back to the
+// intended default; any other combo is a deliberate user choice and passes
+// through untouched. Exported for unit tests.
+export function migratePersistedSettings(persisted: unknown, version: number): unknown {
+  const p = persisted as { clientBehavior?: ClientBehavior } | undefined;
+  if (
+    version < 1 &&
+    p?.clientBehavior?.toTray === 'none' &&
+    p.clientBehavior.toToolbar === 'minimize'
+  ) {
+    return { ...p, clientBehavior: { ...DEFAULT_CLIENT_BEHAVIOR } };
+  }
+  return persisted;
+}
+
 export const useSettingsStore = wrapStore(
   create<SettingsState>()(
     persist(
@@ -207,6 +225,13 @@ export const useSettingsStore = wrapStore(
       })),
       {
         name: 'concord-settings',
+        version: 1,
+        // Cast: zustand's PersistOptions types migrate as returning the full
+        // state, but the migrated value is the raw persisted PARTIAL — the
+        // custom merge below shapes it over defaults (same reason merge
+        // already casts `persisted as Partial<SettingsState>`).
+        migrate: (persistedState, version) =>
+          migratePersistedSettings(persistedState, version) as SettingsState,
         merge: (persisted, current) => {
           const p = persisted as Partial<SettingsState> | undefined;
           return {
