@@ -13,6 +13,7 @@ Concord Voice uses [Zustand](https://github.com/pmndrs/zustand) for state manage
 ### Why Zustand over Redux?
 
 **Key Decision Factors:**
+
 - **Development Speed:** 40% less boilerplate code saves ~1.5 days
 - **Bundle Size:** 77% smaller (critical for Electron startup time)
 - **Type Safety:** Better TypeScript DX reduces security bugs
@@ -31,40 +32,40 @@ Full analysis was performed during Phase 1A architecture decisions (internal).
 
 ### Store Inventory
 
-| Store | Purpose | Persisted | Phase |
-|-------|---------|-----------|-------|
-| **authStore** | JWT tokens, auth state | ✅ refresh token only | 1A |
-| **chatStore** | Messages, typing, connection | ❌ (privacy) | 1A |
-| **serverStore** | Server list, active server | ✅ active server ID | 1A |
-| **userStore** | User profile, preferences | ❌ | 1A |
-| **channelStore** | Channel list, active channel | ✅ active channel ID | 1B |
-| **connectionStore** | WebSocket connection state + `wireViolationCount` (PR #1184) | ❌ | 1B |
-| **memberStore** | Server members, roles | ❌ | 1B |
-| **layoutStore** | UI layout state (sidebar, panels) | ✅ partial | 1B |
-| **settingsStore** | App settings, theme, font scale | ✅ | 1B |
-| **unreadStore** | Unread message counts | ❌ | 1B |
-| **inviteStore** | Server invites | ❌ | 1B |
-| **draftSettingsStore** | Unsaved settings drafts | ❌ | 1B |
-| **ttsSettingsStore** | Text-to-speech settings | ✅ | 1B |
-| **voiceStore** | Voice state, participants, quality tiers | ✅ device settings | 1C |
-| **audioSettingsStore** | Audio input/output device prefs | ✅ | 1C |
-| **videoSettingsStore** | Video device and codec prefs | ✅ | 1C |
-| **dmStore** | DM conversations, participants | ❌ | 1C |
-| **friendStore** | Friend list, friend requests | ❌ | 1C |
-| **privacyStore** | Privacy settings, friend codes | ❌ | 1C |
-| **clientConfigStore** | Server-provided client configuration | ❌ | 2A |
-| **mfaChallengeStore** | MFA challenge state during auth flows | ❌ | 2A |
-| **notificationStore** | Desktop notification preferences and queue | ✅ | 2A |
-| **osPermissionStore** | OS-level permission states (mic, camera, screen) | ❌ | 2A |
-| **permissionStore** | RBAC permission state for current server/channel | ❌ | 2A |
-| **channelScrollStore** | Per-channel scroll position tracking | ❌ | 2B |
-| **draftMessageStore** | Per-channel unsent message drafts | ❌ | 2B |
-| **keyboardShortcutStore** | Keyboard shortcut configuration and state | ✅ | 2B |
-| **notificationNavigationStore** | Notification click navigation targets | ❌ | 2B |
-| **savedGifsStore** | User's saved/favourite GIFs (Klipy integration) | ✅ | 2B |
-| **settingsOverlayStore** | Settings panel open/close and active tab state | ❌ | 2B |
+| Store                           | Purpose                                                      | Persisted             | Phase |
+| ------------------------------- | ------------------------------------------------------------ | --------------------- | ----- |
+| **authStore**                   | JWT tokens, auth state                                       | ✅ refresh token only | 1A    |
+| **chatStore**                   | Messages, typing, connection                                 | ❌ (privacy)          | 1A    |
+| **serverStore**                 | Server list, active server                                   | ✅ active server ID   | 1A    |
+| **userStore**                   | User profile, preferences                                    | ❌                    | 1A    |
+| **channelStore**                | Channel list, active channel                                 | ✅ active channel ID  | 1B    |
+| **connectionStore**             | WebSocket connection state + `wireViolationCount` (PR #1184) | ❌                    | 1B    |
+| **memberStore**                 | Server members, roles                                        | ❌                    | 1B    |
+| **layoutStore**                 | UI layout state (sidebar, panels)                            | ✅ partial            | 1B    |
+| **settingsStore**               | App settings, theme, font scale                              | ✅                    | 1B    |
+| **unreadStore**                 | Unread message counts                                        | ❌                    | 1B    |
+| **inviteStore**                 | Server invites                                               | ❌                    | 1B    |
+| **draftSettingsStore**          | Unsaved settings drafts                                      | ❌                    | 1B    |
+| **ttsSettingsStore**            | Text-to-speech settings                                      | ✅                    | 1B    |
+| **voiceStore**                  | Voice state, participants, quality tiers                     | ✅ device settings    | 1C    |
+| **audioSettingsStore**          | Audio input/output device prefs                              | ✅                    | 1C    |
+| **videoSettingsStore**          | Video device and codec prefs                                 | ✅                    | 1C    |
+| **dmStore**                     | DM conversations, participants                               | ❌                    | 1C    |
+| **friendStore**                 | Friend list, friend requests                                 | ❌                    | 1C    |
+| **privacyStore**                | Privacy settings, friend codes                               | ❌                    | 1C    |
+| **clientConfigStore**           | Server-provided client configuration                         | ❌                    | 2A    |
+| **mfaChallengeStore**           | MFA challenge state during auth flows                        | ❌                    | 2A    |
+| **notificationStore**           | Desktop notification preferences and queue                   | ✅                    | 2A    |
+| **osPermissionStore**           | OS-level permission states (mic, camera, screen)             | ❌                    | 2A    |
+| **permissionStore**             | RBAC permission state for current server/channel             | ❌                    | 2A    |
+| **channelScrollStore**          | Per-channel scroll position tracking                         | ❌                    | 2B    |
+| **draftMessageStore**           | Per-channel unsent message drafts                            | ❌                    | 2B    |
+| **keyboardShortcutStore**       | Keyboard shortcut configuration and state                    | ✅                    | 2B    |
+| **notificationNavigationStore** | Notification click navigation targets                        | ❌                    | 2B    |
+| **savedGifsStore**              | User's saved/favourite GIFs (Klipy integration)              | ✅                    | 2B    |
+| **settingsOverlayStore**        | Settings panel open/close and active tab state               | ❌                    | 2B    |
 
-**Total: 30 Zustand stores** across Phases 1A–2B
+**Total: 36 Zustand stores** across Phases 1A–2B — see internal-reference "Key Counts" for the authoritative count. The inventory above details 30 core stores; 6 added in later work (`attestationFailureStore`, `e2eeStore`, `notificationPrefsStore`, `pendingRegistrationStore`, `ssoStore`, `updateStatusStore`) are not yet broken out individually here — see `src/renderer/stores/` for the canonical set.
 
 ---
 
@@ -77,6 +78,7 @@ Full analysis was performed during Phase 1A architecture decisions (internal).
 **Location:** `src/renderer/stores/authStore.ts`
 
 **State:**
+
 ```typescript
 interface AuthState {
   accessToken: string | null;
@@ -87,6 +89,7 @@ interface AuthState {
 ```
 
 **Persistence:**
+
 - ✅ **Persists:** `refreshToken` only (30-day lifetime)
 - ❌ **Does NOT persist:** `accessToken` (15-minute lifetime, security best practice)
 - **Storage Key:** `concord-auth`
@@ -95,6 +98,7 @@ interface AuthState {
 **DevTools:** Enabled as "AuthStore"
 
 **Usage:**
+
 ```typescript
 import { useAuthStore } from '@/stores/authStore';
 
@@ -115,6 +119,7 @@ const token = useAuthStore.getState().accessToken;
 **Location:** `src/renderer/stores/chatStore.ts`
 
 **State:**
+
 ```typescript
 interface ChatState {
   // Messages by channel ID
@@ -136,6 +141,7 @@ interface ChatState {
 ```
 
 **Persistence:**
+
 - ❌ **Does NOT persist** (privacy-first design)
 - **Privacy Rationale:** Messages should not persist across app restarts for security
 - **Offline Queue:** Handled separately by `messageQueue.ts` (uses localStorage)
@@ -143,24 +149,25 @@ interface ChatState {
 **DevTools:** Enabled as "ChatStore"
 
 **Key Features:**
+
 - Message deduplication (by ID)
 - Delivery status tracking (pending → sent → delivered → failed)
 - Auto-cleanup of old typing indicators (5-second timeout)
 - Optimistic UI updates
 
 **Integration:**
+
 - `useWebSocket.ts` - Real-time message updates
 - `useMessaging.ts` - Send messages with delivery tracking
 - `messageQueue.ts` - Offline message queue
 
 **Usage:**
+
 ```typescript
 import { useChatStore } from '@/stores/chatStore';
 
 // Get messages for a channel
-const messages = useChatStore((state) =>
-  state.messagesByChannel.get(channelId) || []
-);
+const messages = useChatStore((state) => state.messagesByChannel.get(channelId) || []);
 
 // Add a new message
 const addMessage = useChatStore((state) => state.addMessage);
@@ -180,6 +187,7 @@ updateStatus(channelId, clientMessageId, 'delivered', serverMessageId);
 **Location:** `src/renderer/stores/serverStore.ts`
 
 **State:**
+
 ```typescript
 interface ServerState {
   servers: ServerWithRole[];
@@ -197,6 +205,7 @@ interface ServerState {
 ```
 
 **Persistence:**
+
 - ✅ **Persists:** `activeServerId` only
 - ❌ **Does NOT persist:** `servers` list (re-fetched on login)
 - **Storage Key:** `concord-servers`
@@ -205,6 +214,7 @@ interface ServerState {
 **DevTools:** Enabled as "ServerStore"
 
 **Usage:**
+
 ```typescript
 import { useServerStore } from '@/stores/serverStore';
 
@@ -231,6 +241,7 @@ setActiveServer(serverId);
 **Location:** `src/renderer/stores/userStore.ts`
 
 **State:**
+
 ```typescript
 interface UserState {
   user: UserProfile | null;
@@ -242,22 +253,25 @@ interface UserState {
   clearUser: () => void;
   logout: () => Promise<void>;
   updateProfile: (accessToken, updates: UpdateProfileData) => Promise<void>;
-  changePassword: (accessToken, currentPassword, newPassword) => Promise<{success, error?}>;
+  changePassword: (accessToken, currentPassword, newPassword) => Promise<{ success; error? }>;
 }
 ```
 
 **Persistence:**
+
 - ❌ **Does NOT persist** (re-fetched on login)
 - **Security Rationale:** User data is sensitive and should not persist locally
 
 **DevTools:** Enabled as "UserStore"
 
 **Key Features:**
+
 - Password change with E2EE key re-wrapping (crucial for E2EE)
 - Profile updates (username, display_name, bio, avatar, links)
 - Logout clears all stores (authStore, chatStore, serverStore)
 
 **Usage:**
+
 ```typescript
 import { useUserStore } from '@/stores/userStore';
 
@@ -286,29 +300,35 @@ const result = await changePassword(accessToken, currentPwd, newPwd);
 **All stores** use Zustand's `devtools` middleware for debugging.
 
 **Setup:**
+
 ```typescript
 import { devtools } from 'zustand/middleware';
 
 export const useChatStore = create<ChatState>()(
   devtools(
-    (set, get) => ({ /* store logic */ }),
+    (set, get) => ({
+      /* store logic */
+    }),
     { name: 'ChatStore' } // Shows up in Redux DevTools!
   )
 );
 ```
 
 **Usage:**
+
 1. Install [Redux DevTools Extension](https://github.com/reduxjs/redux-devtools)
 2. Open browser DevTools → Redux tab
 3. See all Zustand stores (AuthStore, ChatStore, ServerStore, UserStore)
 
 **Features:**
+
 - ✅ State inspection
 - ✅ State changes tracking
-- ⚠️  Limited time-travel (not full Redux time-travel)
-- ⚠️  No action filtering (Zustand uses direct state updates)
+- ⚠️ Limited time-travel (not full Redux time-travel)
+- ⚠️ No action filtering (Zustand uses direct state updates)
 
 **Disable in Production:**
+
 ```typescript
 // DevTools automatically disabled in production builds
 // No manual configuration needed
@@ -321,18 +341,21 @@ export const useChatStore = create<ChatState>()(
 **authStore** and **serverStore** use Zustand's `persist` middleware.
 
 **Setup:**
+
 ```typescript
 import { persist, devtools } from 'zustand/middleware';
 
 export const useAuthStore = create<AuthState>()(
   devtools(
     persist(
-      (set) => ({ /* store logic */ }),
+      (set) => ({
+        /* store logic */
+      }),
       {
         name: 'concord-auth', // localStorage key
         partialize: (state) => ({
-          refreshToken: state.refreshToken // Only persist refresh token
-        })
+          refreshToken: state.refreshToken, // Only persist refresh token
+        }),
       }
     ),
     { name: 'AuthStore' }
@@ -341,11 +364,13 @@ export const useAuthStore = create<AuthState>()(
 ```
 
 **Privacy Controls:**
+
 - Use `partialize` to control EXACTLY what persists
 - Example: authStore persists `refreshToken` but NOT `accessToken`
 - Default: Entire state persists (use partialize for fine-grained control)
 
 **Storage:**
+
 - Default: `localStorage`
 - Alternative: `sessionStorage`, custom storage adapter
 
@@ -356,26 +381,27 @@ export const useAuthStore = create<AuthState>()(
 ### 1. Selector Optimization
 
 **Bad (triggers re-render on any state change):**
+
 ```typescript
 const store = useChatStore();
 const messages = store.messagesByChannel.get(channelId);
 ```
 
 **Good (only re-renders when specific data changes):**
+
 ```typescript
-const messages = useChatStore((state) =>
-  state.messagesByChannel.get(channelId) || []
-);
+const messages = useChatStore((state) => state.messagesByChannel.get(channelId) || []);
 ```
 
 **Best (custom equality function for complex objects):**
+
 ```typescript
 import { shallow } from 'zustand/shallow';
 
 const { addMessage, updateMessage } = useChatStore(
   (state) => ({
     addMessage: state.addMessage,
-    updateMessage: state.updateMessage
+    updateMessage: state.updateMessage,
   }),
   shallow
 );
@@ -386,6 +412,7 @@ const { addMessage, updateMessage } = useChatStore(
 ### 2. Non-Reactive Access
 
 **Use `getState()` for one-time reads (no re-render):**
+
 ```typescript
 // In event handler, WebSocket callback, etc.
 wsService.onMessage('message', (data) => {
@@ -399,11 +426,14 @@ wsService.onMessage('message', (data) => {
 ### 3. Privacy & Security
 
 **Messages should NOT persist:**
+
 ```typescript
 // chatStore - NO persistence (privacy)
 export const useChatStore = create<ChatState>()(
   devtools(
-    (set, get) => ({ /* ... */ }),
+    (set, get) => ({
+      /* ... */
+    }),
     { name: 'ChatStore' }
   )
   // No persist middleware!
@@ -411,15 +441,17 @@ export const useChatStore = create<ChatState>()(
 ```
 
 **Auth tokens - partial persistence:**
+
 ```typescript
 // authStore - ONLY persist refresh token
 partialize: (state) => ({
-  refreshToken: state.refreshToken // ✅ Persist
+  refreshToken: state.refreshToken, // ✅ Persist
   // accessToken: NOT persisted ❌
-})
+});
 ```
 
 **Logout - clear ALL stores:**
+
 ```typescript
 // userStore.logout()
 logout: async () => {
@@ -428,7 +460,7 @@ logout: async () => {
   useAuthStore.getState().clearTokens();
   useServerStore.getState().clearServers();
   useChatStore.getState().reset();
-}
+};
 ```
 
 ---
@@ -436,6 +468,7 @@ logout: async () => {
 ### 4. TypeScript Type Safety
 
 **Always define state interface:**
+
 ```typescript
 interface ChatState {
   messagesByChannel: Map<string, MessageWithStatus[]>;
@@ -447,6 +480,7 @@ export const useChatStore = create<ChatState>()(/* ... */);
 ```
 
 **Benefits:**
+
 - Full autocomplete in components
 - Compile-time type checking
 - Prevents runtime errors (critical for E2EE)
@@ -456,13 +490,14 @@ export const useChatStore = create<ChatState>()(/* ... */);
 ### 5. Store Composition
 
 **Stores can call other stores:**
+
 ```typescript
 // userStore calls authStore and serverStore
 logout: async () => {
   set({ user: null });
   useAuthStore.getState().clearTokens(); // ✅ Cross-store access
   useServerStore.getState().clearServers();
-}
+};
 ```
 
 **But avoid circular dependencies!**
@@ -474,6 +509,7 @@ logout: async () => {
 ### Unit Testing Stores
 
 **Example (authStore):**
+
 ```typescript
 import { renderHook, act } from '@testing-library/react';
 import { useAuthStore } from '@/stores/authStore';
@@ -508,6 +544,7 @@ describe('authStore', () => {
 **If we ever need Redux** (e.g., for complex state machines):
 
 **Option 1: Incremental Migration**
+
 ```typescript
 // Keep Zustand stores for simple state
 export const useChatStore = create(...); // Keep as-is
@@ -521,11 +558,13 @@ const complexFeatureStore = configureStore({
 ```
 
 **Option 2: Full Migration**
+
 - Estimated effort: 2-3 days
 - Use `redux-zustand-adapter` for gradual transition
 - Low risk (both are JavaScript state)
 
 **When to Consider:**
+
 - Need advanced time-travel debugging
 - Complex async flows (e.g., saga patterns)
 - Team grows beyond 5 developers
@@ -549,6 +588,7 @@ const complexFeatureStore = configureStore({
 ### Q: How do I clear all data on logout?
 
 **A:** Call each store's clear method:
+
 ```typescript
 useAuthStore.getState().clearTokens();
 useChatStore.getState().reset();
@@ -561,6 +601,7 @@ Or use the `userStore.logout()` action which does this automatically.
 ### Q: How do I debug WebSocket → Store flow?
 
 **A:**
+
 1. Enable Redux DevTools extension
 2. Open DevTools → Redux tab → Select "ChatStore"
 3. Watch state changes as WebSocket messages arrive
@@ -571,16 +612,19 @@ Or use the `userStore.logout()` action which does this automatically.
 ## Performance Benchmarks
 
 **Bundle Size:**
+
 - Zustand: 45KB (minified)
 - Redux Toolkit: 155KB + React-Redux 45KB = 200KB
 - **Savings:** 155KB (77% smaller)
 
 **Memory Usage:**
+
 - Zustand: ~4MB (all 30 stores loaded)
 - Redux: ~12MB (estimated with DevTools + middleware)
 - **Savings:** ~8MB
 
 **Electron Startup Time:**
+
 - With Zustand: ~1.2s
 - With Redux (estimated): ~1.3s
 - **Improvement:** ~100ms faster
@@ -606,5 +650,7 @@ Or use the `userStore.logout()` action which does this automatically.
 ---
 
 **Maintained by:** Mark (Backend) + Michael (Frontend)
+
 <!-- audit-exempt: historical reference (v0.1.0-Alpha is a shipped versioned identifier) -->
+
 **Next Review:** Before v0.1.0-Alpha release

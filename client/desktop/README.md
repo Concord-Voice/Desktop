@@ -53,7 +53,7 @@ desktop/
 │   └── renderer/      # React application
 │       ├── components/ # React components
 │       ├── hooks/     # Custom React hooks
-│       ├── stores/    # State management (30 Zustand stores)
+│       ├── stores/    # State management (36 Zustand stores)
 │       ├── utils/     # Utility functions
 │       ├── styles/    # CSS styles
 │       ├── App.tsx    # Main app component
@@ -68,16 +68,21 @@ desktop/
 ## Architecture
 
 ### Main Process
+
 The main process (`src/main/main.ts`) handles:
+
 - Window creation and management
 - System integration
 - IPC communication with renderer
 
 ### Preload Script
+
 The preload script (`src/preload/preload.ts`) provides a secure bridge between main and renderer processes using `contextBridge`.
 
 ### Renderer Process
+
 The renderer process is a React application that handles:
+
 - UI rendering
 - User interactions
 - WebRTC connections
@@ -106,8 +111,9 @@ This will create platform-specific installers in the `out/` directory.
 ## Features
 
 ### Phase 1A: Authentication & E2EE ✅
+
 - User registration with E2EE key generation (RSA-OAEP **4096-bit**)
-- Login with automatic key unwrapping (PBKDF2 600k iterations)
+- Login with automatic key unwrapping (Argon2id key derivation)
 - Token management (access + refresh tokens)
 - Session management with device tracking
 - Password strength meter (5-tier system)
@@ -116,6 +122,7 @@ This will create platform-specific installers in the `out/` directory.
 - Connection selector (hosted vs self-hosted)
 
 ### Phase 1B: Channels & Text Chat ✅
+
 - Server creation/management with icons and header images
 - Channel list with E2EE indicators
 - Real-time messaging via WebSocket (ticket-based auth)
@@ -127,6 +134,7 @@ This will create platform-specific installers in the `out/` directory.
 - Compact mode, resizable panels, font scaling
 
 ### Phase 1C: Voice & Media ✅
+
 - WebRTC voice channels via mediasoup SFU
 - Video and screen sharing UI
 - DM system with conversations and voice calls
@@ -135,9 +143,10 @@ This will create platform-specific installers in the `out/` directory.
 - Channel groups with drag-and-drop ordering
 - Custom context menus
 - Profile popovers
-- **30 Zustand stores** (Zustand 5.0.12) for state management — see [STATE_MANAGEMENT.md](docs/STATE_MANAGEMENT.md) and internal-reference for authoritative counts
+- **36 Zustand stores** (Zustand 5.0.12) for state management — see [STATE_MANAGEMENT.md](docs/STATE_MANAGEMENT.md) and internal-reference for authoritative counts
 
 ### Security ✅
+
 - Electron hardening: safeStorage, ASAR, sandbox, context isolation
 - Secure IPC via preload scripts (no @electron/remote)
 - CSP configured
