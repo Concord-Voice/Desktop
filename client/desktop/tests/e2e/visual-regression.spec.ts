@@ -3,7 +3,7 @@
  *
  * CI ENFORCEMENT (post-#1074)
  * ---------------------------
- * This spec runs in `.github/workflows/playwright.yml` on every PR
+ * Runs MANUALLY via `npm run test:e2e` — CI enforcement was removed in #1435.
  * touching `client/desktop/**`. Visual diffs against the committed
  * baselines are non-blocking — a snapshot mismatch posts a sticky PR
  * comment with the diff artifact link but does NOT fail CI.

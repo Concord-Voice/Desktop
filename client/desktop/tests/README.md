@@ -136,7 +136,7 @@ Tests run in GitHub Actions via `.github/workflows/build.yml`, invoked via `work
 
 ### E2E (Playwright)
 
-The 8 e2e specs in `tests/e2e/` run in `.github/workflows/playwright.yml` on every PR touching `client/desktop/**`, `services/control-plane/**`, `docker-compose*.yml`, or the workflow file itself. Spec scope is conditional:
+The 8 e2e specs in `tests/e2e/` run **manually** via `npm run test:e2e` — CI enforcement was removed in #1435 (advisory-only signal, macOS visual-baseline flakiness; see the historical playwright ADR-0011).
 
 - **Renderer-only specs** (`visual-regression`, `design-tokens`, `bundled-fallback-login`) — tagged with `{ tag: '@renderer-only' }`. Run on every PR. Need only the Vite dev server.
 - **Full-stack specs** (`auth`, `channels`, `invites`, `messaging`, `servers`) — untagged (default). Run ONLY when the PR also touches `services/control-plane/**` or migrations. Need a running backend (Postgres + Redis + control-plane).

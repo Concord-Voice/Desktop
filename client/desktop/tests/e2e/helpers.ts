@@ -16,10 +16,11 @@ const API_BASE = 'http://localhost:8080';
  * `timeoutMs` before giving up, since the backend's Redis write happens
  * concurrently with the API response.
  *
- * REQUIRES: control-plane started with `CONCORD_ENV=test`. The
- * `.github/workflows/playwright.yml` "Start control-plane (background)"
- * step sets this; local-dev backends typically do NOT, which makes the
- * full registerUser flow CI-only-verifiable.
+ * REQUIRES: control-plane started with `CONCORD_ENV=test`. (The removed
+ * CI workflow's "Start control-plane (background)" step used to set this —
+ * CI enforcement was removed in #1435; these specs run manually via
+ * `npm run test:e2e`.) Local-dev backends typically do NOT set it, so start
+ * the backend with CONCORD_ENV=test before a manual run.
  *
  * @throws if the key is absent after `timeoutMs`, with a hint about
  *         the most likely cause (CONCORD_ENV not set).
