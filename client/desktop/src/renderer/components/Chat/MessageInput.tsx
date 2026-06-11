@@ -13,6 +13,7 @@ import type { AttachmentSummary, MessageWithStatus } from '../../types/chat';
 import { useFileUpload } from '../../hooks/useFileUpload';
 import { useDraftMessage } from '../../hooks/useDraftMessage';
 import { useChatStore } from '../../stores/chatStore';
+import { usePermissionStore } from '../../stores/permissionStore';
 import AttachmentUploadPreview from './AttachmentUploadPreview';
 import ReplyPreviewBar from './ReplyPreviewBar';
 import { composeMarkdownOverflow } from '../../utils/overflowToMarkdown';
@@ -174,6 +175,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
     { x: 0, y: 0, anchorCenterX: 0 }
   );
   const gifsEnabled = useClientConfigStore((s) => s.featureFlags.gifsEnabled ?? false);
+  const fetchChannelOverrides = usePermissionStore((s) => s.fetchChannelOverrides);
   const [showMentions, setShowMentions] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const emojiBtnRef = useRef<HTMLButtonElement>(null);
@@ -194,6 +196,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
   // Restore draft content and reply context when channel/conversation changes
   useEffect(() => {
     if (initialDraft) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- external-data sync: hydrate the input from the persisted draft on channel/conversation switch
       setContent(initialDraft.text);
       // Restore reply context if the draft had one and the message is still in memory
       if (initialDraft.replyToId && draftTargetId) {
@@ -204,9 +207,23 @@ const MessageInput: React.FC<MessageInputProps> = ({
         }
       }
     } else {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- external-data sync: clear the input when the target channel has no persisted draft
       setContent('');
     }
   }, [initialDraft, draftTargetId]);
+
+  // Warm the channel's SBAC permission overrides so MentionAutocomplete can compute the
+  // viewer's channel-effective mention permissions before the first '@'. No-op in DMs.
+  useEffect(() => {
+    if (serverId && channelId) {
+      // Fire-and-forget; fetchChannelOverrides handles its own errors internally. Using
+      // `.catch` (the codebase's fire-and-forget idiom) instead of the `void` operator
+      // keeps both no-floating-promises and SonarQube S3735 satisfied.
+      fetchChannelOverrides(channelId).catch(() => {
+        /* swallowed: the store action already handles/logs failures */
+      });
+    }
+  }, [serverId, channelId, fetchChannelOverrides]);
 
   // Save draft when reply context changes (so switching channels preserves reply state)
   const prevReplyRef = useRef(replyingTo);
@@ -387,7 +404,12 @@ const MessageInput: React.FC<MessageInputProps> = ({
     };
   }, [onTyping]);
 
-  // Detect @ trigger for mention autocomplete
+  // Detect @ trigger for mention autocomplete. showMentions is derived from content+cursorPos,
+  // which are mutated by 6+ handlers (typing, emoji/gif/mention insert, draft restore, send);
+  // centralizing the derivation in one effect is clearer than scattering @-detection across
+  // every handler, and Escape-to-dismiss needs an imperative override the derived value can't
+  // express — so this is an intentional set-state-in-effect, not the anti-pattern.
+  /* eslint-disable @eslint-react/set-state-in-effect -- intentional centralized derivation; see comment above */
   useEffect(() => {
     if (!content) {
       setShowMentions(false);
@@ -408,6 +430,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
       setShowMentions(false);
     }
   }, [content, cursorPos]);
+  /* eslint-enable @eslint-react/set-state-in-effect -- re-enable after the intentional centralized-derivation effect above */
 
   const handleMentionSelect = useCallback(
     (mention: ParsedMention, replacementText: string) => {

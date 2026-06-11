@@ -152,6 +152,72 @@ export function parsePermissions(permsStr: string | number | undefined): bigint 
 }
 
 /**
+ * Minimal structural shape of a channel permission override. Declared locally so
+ * permissions.ts stays free of any store import (avoids a util→store cycle).
+ * `ChannelOverride` from permissionStore is structurally assignable to this.
+ */
+export interface PermissionOverride {
+  target_type: 'user' | 'role';
+  target_id: string;
+  allow: number | string;
+  deny: number | string;
+}
+
+/**
+ * Compute the viewer's channel-effective permission bitmask by folding SBAC channel
+ * overrides into a server-level base permission. Mirrors the control-plane resolver
+ * (services/control-plane/internal/rbac/resolver.go `applyChannelOverrides`) exactly:
+ *
+ *   effective = ((base | role_allow) & ~role_deny | user_allow) & ~user_deny
+ *
+ * Owner/Administrator bypass — both are immune to channel overrides, but for DIFFERENT
+ * reasons in the backend, so the frontend must mirror both:
+ *   - OWNER: bypassed via an owner-id match in computeEffectivePermissions (resolver.go
+ *     step 2) — returns OwnerPermissions and skips applyChannelOverrides entirely.
+ *     OwnerPermissions does NOT carry PermAdministrator (types.go: "Owner does NOT get
+ *     PermAdministrator by default"), so the ADMINISTRATOR-bit check below would MISS an
+ *     owner. The caller passes `viewerIsOwner` (from the viewer's `ServerMember.role`).
+ *   - ADMINISTRATOR: bypassed inside applyChannelOverrides when base carries
+ *     PermAdministrator (resolver.go:162-163) — mirrored by the `& ADMINISTRATOR` check.
+ * Role masks are OR-accumulated across ONLY the viewer's roles; the user override is final.
+ *
+ * @param basePerm      Server-level effective permission for the viewer (no channel overrides).
+ * @param overrides     Channel overrides for the target channel, or undefined if not loaded.
+ * @param viewerUserId  The viewer's user id (selects the user-target override).
+ * @param viewerRoleIds The viewer's role ids in this server (selects role-target overrides).
+ * @param viewerIsOwner True if the viewer is the server owner (owner-id bypass mirror).
+ */
+export function resolveChannelPermissions(
+  basePerm: bigint,
+  overrides: readonly PermissionOverride[] | undefined,
+  viewerUserId: string,
+  viewerRoleIds: ReadonlySet<string>,
+  viewerIsOwner = false
+): bigint {
+  // Owner & Administrator are immune to channel overrides (see the two backend paths above).
+  if (viewerIsOwner || (basePerm & ADMINISTRATOR) !== 0n) return basePerm;
+  if (!overrides || overrides.length === 0) return basePerm;
+
+  let roleAllow = 0n;
+  let roleDeny = 0n;
+  let userAllow = 0n;
+  let userDeny = 0n;
+
+  for (const o of overrides) {
+    if (o.target_type === 'role' && viewerRoleIds.has(o.target_id)) {
+      roleAllow |= parsePermissions(o.allow);
+      roleDeny |= parsePermissions(o.deny);
+    } else if (o.target_type === 'user' && o.target_id === viewerUserId) {
+      userAllow |= parsePermissions(o.allow);
+      userDeny |= parsePermissions(o.deny);
+    }
+  }
+
+  // base → role allow → role deny → user allow → user deny (user deny = final authority).
+  return (((basePerm | roleAllow) & ~roleDeny) | userAllow) & ~userDeny;
+}
+
+/**
  * Permission metadata for the UI toggle grid.
  * Grouped by category for display.
  */

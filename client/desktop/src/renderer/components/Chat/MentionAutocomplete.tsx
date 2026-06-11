@@ -11,8 +11,10 @@ import { AtSign, Users, Shield } from 'lucide-react';
 import { useMemberStore } from '../../stores/memberStore';
 import { useDMStore } from '../../stores/dmStore';
 import { usePermissionStore } from '../../stores/permissionStore';
+import { useUserStore } from '../../stores/userStore';
 import {
   hasPermission,
+  resolveChannelPermissions,
   MENTION_EVERYONE,
   MENTION_USERS,
   MENTION_ROLES,
@@ -28,11 +30,10 @@ export interface MentionAutocompleteProps {
   /** Server ID for permission checks (undefined = DM context, all mentions allowed) */
   serverId?: string;
   /**
-   * Channel ID — currently unused at runtime (destructured as `_channelId`).
-   * The SBAC override lookup that would consume this is deferred per #600:
-   * it needs a component-context permission resolver that doesn't exist yet.
-   * Kept in the public prop type so callers wiring up mention autocomplete
-   * don't need to migrate twice when SBAC overrides land.
+   * Channel ID for SBAC override resolution. When provided alongside `serverId`,
+   * the viewer's effective mention permissions are computed as
+   * (server base ⊕ channel allow/deny overrides) via `resolveChannelPermissions`,
+   * mirroring the control-plane resolver. Undefined in DM context.
    */
   channelId?: string;
   /** DM conversation ID — when set, source members from DM participants instead of server members */
@@ -113,13 +114,14 @@ function buildUserMentions(
   return results;
 }
 
+// eslint-disable-next-line @eslint-react/no-forward-ref -- forwardRef retained intentionally; the React 19 ref-as-prop migration would force a full-component re-indent disproportionate to this change
 const MentionAutocomplete = forwardRef<MentionAutocompleteHandle, MentionAutocompleteProps>(
   (
     {
       text,
       cursorPosition,
       serverId,
-      channelId: _channelId,
+      channelId,
       onSelect,
       onClose,
       anchorRef: _anchorRef,
@@ -154,6 +156,20 @@ const MentionAutocomplete = forwardRef<MentionAutocompleteHandle, MentionAutocom
     }, [conversationId, dmConversations, serverMembers]);
     const serverPermissions = usePermissionStore((s) => s.serverPermissions);
     const serverRoles = usePermissionStore((s) => s.serverRoles);
+    const channelOverrides = usePermissionStore((s) => s.channelOverrides);
+    const viewerUserId = useUserStore((s) => s.user?.id ?? '');
+
+    // The viewer's role ids + owner flag in this server, used to resolve SBAC overrides.
+    // Owner detection mirrors the backend owner-id bypass (resolver.go step 2): OwnerPermissions
+    // does NOT carry the ADMINISTRATOR bit, so the resolver needs the explicit owner signal to
+    // exempt owners from channel overrides the way the server does.
+    const { viewerRoleIds, viewerIsOwner } = useMemo(() => {
+      const self = serverMembers.find((m) => m.user_id === viewerUserId);
+      return {
+        viewerRoleIds: new Set((self?.roles ?? []).map((r) => r.role_id)),
+        viewerIsOwner: self?.role === 'owner',
+      };
+    }, [serverMembers, viewerUserId]);
 
     // Extract the @query from text at cursor position
     const query = useMemo(() => {
@@ -184,15 +200,34 @@ const MentionAutocomplete = forwardRef<MentionAutocompleteHandle, MentionAutocom
         };
       }
       const basePerm = serverPermissions[serverId] ?? 0n;
-      // Deferred: see #600 — requires SBAC permission resolver in component context
-      const hasMentionEveryone = hasPermission(basePerm, MENTION_EVERYONE);
+      // Fold channel-level SBAC overrides into the base permission when a channel is in
+      // context, mirroring the control-plane resolver (internal/rbac/resolver.go). The
+      // server is the enforcement boundary; this only narrows/widens what we *suggest*.
+      const effectivePerm = channelId
+        ? resolveChannelPermissions(
+            basePerm,
+            channelOverrides[channelId],
+            viewerUserId,
+            viewerRoleIds,
+            viewerIsOwner
+          )
+        : basePerm;
+      const hasMentionEveryone = hasPermission(effectivePerm, MENTION_EVERYONE);
       return {
         canMentionEveryone: hasMentionEveryone,
         canMentionHere: hasMentionEveryone, // @here requires same permission as @all in server context
-        canMentionUsers: hasPermission(basePerm, MENTION_USERS),
-        canMentionRoles: hasPermission(basePerm, MENTION_ROLES),
+        canMentionUsers: hasPermission(effectivePerm, MENTION_USERS),
+        canMentionRoles: hasPermission(effectivePerm, MENTION_ROLES),
       };
-    }, [serverId, serverPermissions]);
+    }, [
+      serverId,
+      channelId,
+      serverPermissions,
+      channelOverrides,
+      viewerUserId,
+      viewerRoleIds,
+      viewerIsOwner,
+    ]);
 
     // Build filtered options
     const options = useMemo(() => {
@@ -210,6 +245,7 @@ const MentionAutocomplete = forwardRef<MentionAutocompleteHandle, MentionAutocom
 
     // Reset selection when options change
     useEffect(() => {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: reset the highlighted index to the top whenever the (single, memoized) option list changes
       setSelectedIndex(0);
     }, [options]);
 

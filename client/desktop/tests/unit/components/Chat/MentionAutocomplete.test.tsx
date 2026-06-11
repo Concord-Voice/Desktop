@@ -6,6 +6,7 @@ import MentionAutocomplete, {
 import { useMemberStore } from '@/renderer/stores/memberStore';
 import { useDMStore } from '@/renderer/stores/dmStore';
 import { usePermissionStore } from '@/renderer/stores/permissionStore';
+import { useUserStore } from '@/renderer/stores/userStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 import { mockMember, mockMember2 } from '../../../mocks/fixtures';
 import { MENTION_EVERYONE, MENTION_USERS, MENTION_ROLES } from '@/renderer/utils/permissions';
@@ -488,5 +489,130 @@ describe('MentionAutocomplete', () => {
     // Role name should be colored
     const label = screen.getByText('Moderator');
     expect(label.style.color).toBe('rgb(231, 76, 60)');
+  });
+
+  // ── Channel SBAC overrides (#600) ──
+  describe('channel SBAC overrides', () => {
+    const VIEWER_ID = 'user-1';
+
+    beforeEach(() => {
+      // Viewer = user-1 carrying the Moderator role; outer beforeEach already granted
+      // all three mention perms via serverPermissions['server-1'].
+      useUserStore.setState({
+        user: { id: VIEWER_ID, username: 'testuser', e2ee_preference: false },
+      });
+      useMemberStore.setState({
+        members: [
+          {
+            ...mockMember,
+            user_id: VIEWER_ID,
+            // mockMember defaults role:'owner'; owners are immune to overrides, so the
+            // override-applies cases below MUST use a non-owner viewer (see owner test).
+            role: 'member',
+            roles: [{ role_id: 'role-mod', role_name: 'Moderator', position: 1 }],
+          },
+          mockMember2,
+        ],
+      });
+    });
+
+    it('suppresses @all when a channel override denies MENTION_EVERYONE to the viewer role', () => {
+      usePermissionStore.setState({
+        channelOverrides: {
+          'channel-1': [
+            {
+              id: 'ovr-1',
+              channel_id: 'channel-1',
+              target_type: 'role',
+              target_id: 'role-mod',
+              allow: '0',
+              deny: MENTION_EVERYONE.toString(),
+              created_at: '2025-01-01T00:00:00Z',
+              updated_at: '2025-01-01T00:00:00Z',
+            },
+          ],
+        },
+      });
+      render(<MentionAutocomplete {...defaultProps} text="@a" cursorPosition={2} />);
+      expect(screen.queryByText('all')).not.toBeInTheDocument();
+    });
+
+    it('still offers @all when no override denies MENTION_EVERYONE', () => {
+      usePermissionStore.setState({ channelOverrides: { 'channel-1': [] } });
+      render(<MentionAutocomplete {...defaultProps} text="@a" cursorPosition={2} />);
+      expect(screen.getByText('all')).toBeInTheDocument();
+    });
+
+    it('surfaces role mentions when an override grants MENTION_ROLES the base lacks', () => {
+      usePermissionStore.setState({
+        serverPermissions: { 'server-1': MENTION_USERS },
+        serverRoles: {
+          'server-1': [
+            {
+              id: 'role-pingable',
+              server_id: 'server-1',
+              name: 'Pingable',
+              color: '#3498db',
+              permissions: '0',
+              position: 2,
+              is_default: false,
+              display_separately: false,
+              mentionable: true,
+              created_at: '2025-01-01T00:00:00Z',
+              updated_at: '2025-01-01T00:00:00Z',
+            },
+          ],
+        },
+        channelOverrides: {
+          'channel-1': [
+            {
+              id: 'ovr-2',
+              channel_id: 'channel-1',
+              target_type: 'role',
+              target_id: 'role-mod',
+              allow: MENTION_ROLES.toString(),
+              deny: '0',
+              created_at: '2025-01-01T00:00:00Z',
+              updated_at: '2025-01-01T00:00:00Z',
+            },
+          ],
+        },
+      });
+      render(<MentionAutocomplete {...defaultProps} text="@Ping" cursorPosition={5} />);
+      expect(screen.getByText('Pingable')).toBeInTheDocument();
+    });
+
+    it('does not apply overrides to a server owner — @all stays offered despite a denying override', () => {
+      useMemberStore.setState({
+        members: [
+          {
+            ...mockMember,
+            user_id: VIEWER_ID,
+            role: 'owner',
+            roles: [{ role_id: 'role-mod', role_name: 'Moderator', position: 1 }],
+          },
+          mockMember2,
+        ],
+      });
+      usePermissionStore.setState({
+        channelOverrides: {
+          'channel-1': [
+            {
+              id: 'ovr-owner',
+              channel_id: 'channel-1',
+              target_type: 'role',
+              target_id: 'role-mod',
+              allow: '0',
+              deny: MENTION_EVERYONE.toString(),
+              created_at: '2025-01-01T00:00:00Z',
+              updated_at: '2025-01-01T00:00:00Z',
+            },
+          ],
+        },
+      });
+      render(<MentionAutocomplete {...defaultProps} text="@a" cursorPosition={2} />);
+      // Owner is immune to channel overrides (mirrors the backend owner-id bypass).
+      expect(screen.getByText('all')).toBeInTheDocument();
+    });
   });
 });

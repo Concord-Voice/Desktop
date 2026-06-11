@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '../../../test-utils';
 import MessageInput from '@/renderer/components/Chat/MessageInput';
+import { usePermissionStore } from '@/renderer/stores/permissionStore';
 import { vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
 
@@ -54,6 +55,20 @@ describe('MessageInput', () => {
     uploadMockOverrides.hasFiles = false;
     uploadMockOverrides.isUploading = false;
     uploadMockOverrides.files = [];
+  });
+
+  it('warm-fetches channel SBAC overrides on mount when serverId + channelId are present', () => {
+    const fetchSpy = vi.fn().mockResolvedValue(undefined);
+    usePermissionStore.setState({ fetchChannelOverrides: fetchSpy });
+    render(<MessageInput onSendMessage={onSendMessage} serverId="server-1" channelId="channel-1" />);
+    expect(fetchSpy).toHaveBeenCalledWith('channel-1');
+  });
+
+  it('does not warm-fetch overrides in DM context (no serverId)', () => {
+    const fetchSpy = vi.fn().mockResolvedValue(undefined);
+    usePermissionStore.setState({ fetchChannelOverrides: fetchSpy });
+    render(<MessageInput onSendMessage={onSendMessage} conversationId="dm-1" />);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('renders textarea', () => {
