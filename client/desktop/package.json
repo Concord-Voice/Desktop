@@ -1,7 +1,7 @@
 {
   "name": "@concordvoice/desktop",
   "productName": "Concord Voice",
-  "version": "0.1.59",
+  "version": "0.1.60",
   "description": "Concord Voice Desktop Client - Privacy-first voice communication",
   "main": "dist/main/main.js",
   "author": "Concord Voice Team",
@@ -39,6 +39,7 @@
     "electron-squirrel-startup": "^1.0.0",
     "electron-updater": "^6.8.9",
     "hash-wasm": "^4.12.0",
+    "jose": "6.2.3",
     "lowlight": "^3.3.0",
     "lucide-react": "^1.17.0",
     "mediasoup-client": "^3.20.0",

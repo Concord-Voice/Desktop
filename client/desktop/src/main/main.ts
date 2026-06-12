@@ -3,6 +3,7 @@
 import './pinUserDataPath';
 import { registerOpenExternalHandler } from './ipc/openExternal';
 import { registerSSOIPC } from './ipc/sso';
+import { cancelActiveAppleFlow } from './oauth/apple/appleFlow';
 import { registerAttestationIpc } from './ipc/attestation';
 import { registerWindowControlsIpc, getCachedClientBehavior } from './ipc/windowControls';
 import { initTray, destroyTray, isTrayActive } from './tray';
@@ -435,6 +436,10 @@ const createWindow = async (): Promise<void> => {
   });
 
   mainWindow.on('closed', () => {
+    // #974: a window-less Apple SSO flow has no UI to deliver its result to —
+    // tear it down so the loopback listener and 5-minute deadline don't
+    // outlive the renderer.
+    cancelActiveAppleFlow();
     mainWindow = null;
   });
 

@@ -66,8 +66,15 @@
  *        server-supplied URL. Server's spaIpcContract is NOT bumped —
  *        the channel is additive and gated behind REQUIRE_CLIENT_ATTESTATION
  *        (default false); older shells without it simply never call it.
+ * - v13: Client-driven Apple SSO (#974): sso:appleSignIn handler (runs the
+ *        full main-process Apple flow — PKCE, loopback, broker secret,
+ *        Apple /auth/token, jose verification, /session POST) and the
+ *        sso:appleCancel teardown channel. Server's spaIpcContract is NOT
+ *        bumped — the channels are additive, and an older shell without
+ *        them yields a clean renderer-side error (the legacy renderer-
+ *        driven apple path no longer exists server-side; Callback 410s).
  */
-export const IPC_CONTRACT_VERSION = 12;
+export const IPC_CONTRACT_VERSION = 13;
 
 /**
  * Result shape returned by performRefresh() in the main process and

@@ -16,9 +16,14 @@
  * Privacy: this module never logs the OAuth code, the SSO token, or the
  * mfa_challenge_token. Errors propagate as `Error` with stable string codes
  * (e.g. `oauth_state_mismatch`) so UI can localize without inspecting payload.
+ *
+ * Post-#974 the apple provider short-circuits to the main-process flow via
+ * `sso:appleSignIn`; the loopback-driving path below is google-only until #975.
  */
 
 import { apiFetch, safeJson } from './apiClient';
+
+import type { AppleSignInResult } from '@/shared/appleSso';
 
 export type SSOProvider = 'google' | 'apple';
 
@@ -80,6 +85,14 @@ interface StartResponse {
  * Always cleans up the loopback listener via `cancelLoopback` in `finally`.
  */
 export async function startSSOFlow(provider: SSOProvider): Promise<SSOResult> {
+  // Apple (#974): the flow is fully main-process-driven — PKCE, loopback,
+  // broker, Apple /auth/token, local jose verification, and the /session
+  // POST all happen behind one IPC invoke. The renderer receives only the
+  // final discriminated result; no OAuth material crosses IPC. Google keeps
+  // the renderer-driven loopback path below until #975.
+  if (provider === 'apple') {
+    return startAppleSSOFlow();
+  }
   // Prefer globalThis over window for the preload-bridged Electron API surface
   // — keeps the service callable from any execution context (worker, ESM eval,
   // future server-side render of the renderer code) without a window binding.
@@ -130,6 +143,44 @@ export async function startSSOFlow(provider: SSOProvider): Promise<SSOResult> {
     return interpretCallbackResponse(payload);
   } finally {
     globalThis.electron.sso.cancelLoopback(lo.port);
+  }
+}
+
+/**
+ * Maps the main process's AppleSignInResult onto the renderer's SSOResult
+ * union. The `error` kind throws its stable taxonomy code (spec §Failure
+ * taxonomy) so useSSOFlow's catch surfaces `{ phase: 'error', message }`
+ * exactly as the google path does.
+ */
+async function startAppleSSOFlow(): Promise<SSOResult> {
+  const result: AppleSignInResult = await globalThis.electron.sso.appleSignIn();
+  switch (result.kind) {
+    case 'tokens':
+      return { kind: 'logged_in', accessToken: result.accessToken };
+    case 'mfa_challenge':
+      return {
+        kind: 'mfa_required',
+        mfaChallengeToken: result.mfaChallengeToken,
+        methods: result.methods,
+        recoveryOnlyMethods: result.recoveryOnlyMethods,
+        webauthnOptions: result.webauthnOptions,
+      };
+    case 'sso_token':
+      if (result.branch === 'new_user') {
+        return {
+          kind: 'register_required',
+          ssoToken: result.ssoToken,
+          email: result.email,
+          name: result.name,
+        };
+      }
+      return {
+        kind: 'link_available',
+        ssoToken: result.ssoToken,
+        maskedEmail: result.maskedEmail,
+      };
+    case 'error':
+      throw new Error(result.code);
   }
 }
 

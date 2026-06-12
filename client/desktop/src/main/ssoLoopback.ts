@@ -45,9 +45,11 @@ export interface LoopbackResult {
   /**
    * Raw Apple `user` form field, present only on Apple's FIRST authentication
    * for a given Services ID. Subsequent auths and Google's GET path leave it
-   * undefined. The renderer treats this value as opaque and forwards it to
-   * the backend `/sso/apple/callback` POST body as `apple_user_data`; the
-   * backend `AppleProvider.Exchange` parses the embedded name JSON.
+   * undefined.
+   * Post-#974 the MAIN-process appleFlow consumes this directly and forwards
+   * it to POST /auth/sso/apple/session as `apple_user_data`, where the server
+   * parses the embedded name JSON. (The legacy /callback route is 410-gated
+   * for apple.) Treated as opaque on this side either way.
    */
   appleUserData?: string;
 }

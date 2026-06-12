@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
+import type { AppleSignInResult } from '../shared/appleSso';
+
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
 // Desktop source info for screen share picker
@@ -312,6 +314,7 @@ contextBridge.exposeInMainWorld('electron', {
   // delivers the first-auth `user` JSON; the loopback surfaces it as the
   // optional appleUserData field, undefined for Google or Apple subsequent
   // auths.
+  // #974: appleSignIn runs the whole Apple flow main-side; appleCancel tears it down.
   sso: {
     startLoopback: (): Promise<{ port: number; redirectURI: string }> =>
       ipcRenderer.invoke('sso:startLoopback'),
@@ -320,6 +323,8 @@ contextBridge.exposeInMainWorld('electron', {
     ): Promise<{ code: string; state: string; appleUserData?: string }> =>
       ipcRenderer.invoke('sso:awaitCallback', port),
     cancelLoopback: (port: number): void => ipcRenderer.send('sso:cancelLoopback', port),
+    appleSignIn: (): Promise<AppleSignInResult> => ipcRenderer.invoke('sso:appleSignIn'),
+    appleCancel: (): void => ipcRenderer.send('sso:appleCancel'),
   },
 
   // Window chrome control surface (#806): renderer pushes Client Behavior
@@ -540,6 +545,8 @@ export interface ElectronAPI {
       port: number
     ) => Promise<{ code: string; state: string; appleUserData?: string }>;
     cancelLoopback: (port: number) => void;
+    appleSignIn: () => Promise<AppleSignInResult>;
+    appleCancel: () => void;
   };
 
   // Window chrome control surface (#806)

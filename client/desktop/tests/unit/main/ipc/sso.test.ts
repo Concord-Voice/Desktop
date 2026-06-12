@@ -12,6 +12,7 @@
  * not the HTTP listener (that's covered by ssoLoopback.test.ts). The mock lets
  * us verify the cleanup contract deterministically without binding real ports.
  */
+import { net } from 'electron';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 // vi.mock is hoisted above ALL `const` declarations, so any references to
@@ -67,10 +68,32 @@ vi.mock('electron', () => ({
     handle: mocked.handleSpy,
     on: mocked.onSpy,
   },
+  net: { fetch: vi.fn() },
+  shell: { openExternal: vi.fn() },
 }));
 
 vi.mock('../../../../src/main/ssoLoopback', () => ({
   startLoopback: mocked.startLoopback,
+}));
+
+const appleMocks = vi.hoisted(() => ({
+  runAppleSignIn: vi.fn(async () => ({ kind: 'tokens', accessToken: 'at-1' })),
+  cancelActiveAppleFlow: vi.fn(),
+}));
+
+vi.mock('../../../../src/main/oauth/apple/appleFlow', () => ({
+  runAppleSignIn: appleMocks.runAppleSignIn,
+  cancelActiveAppleFlow: appleMocks.cancelActiveAppleFlow,
+}));
+
+// idTokenVerifier pulls in jose (ESM/WebCrypto) — stub it so this jsdom
+// suite never loads it; the real module has its own node-env suite.
+vi.mock('../../../../src/main/oauth/apple/idTokenVerifier', () => ({
+  verifyAppleIDToken: vi.fn(),
+}));
+
+vi.mock('../../../../src/main/apiBaseUrl', () => ({
+  getApiBaseUrl: vi.fn(() => 'http://localhost:8080'),
 }));
 
 import { registerSSOIPC } from '@/main/ipc/sso';
@@ -94,6 +117,8 @@ describe('sso IPC handlers', () => {
     port: number
   ) => Promise<{ code: string; state: string }>;
   let cancelLoopbackHandler: (event: FakeInvokeEvent, port: number) => void;
+  let appleSignInHandler: (event: FakeInvokeEvent) => Promise<unknown>;
+  let appleCancelHandler: (event: FakeInvokeEvent) => void;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -110,6 +135,14 @@ describe('sso IPC handlers', () => {
     startLoopbackHandler = startCall[1];
     awaitCallbackHandler = awaitCall[1];
     cancelLoopbackHandler = cancelCall[1];
+
+    const appleSignInCall = mocked.handleSpy.mock.calls.find((c) => c[0] === 'sso:appleSignIn');
+    const appleCancelCall = mocked.onSpy.mock.calls.find((c) => c[0] === 'sso:appleCancel');
+    if (!appleSignInCall || !appleCancelCall) {
+      throw new Error('apple IPC handlers not registered');
+    }
+    appleSignInHandler = appleSignInCall[1];
+    appleCancelHandler = appleCancelCall[1];
   });
 
   describe('sender-frame validation', () => {
@@ -197,6 +230,58 @@ describe('sso IPC handlers', () => {
       await expect(awaitCallbackHandler({ senderFrame: { url: TRUSTED } }, 12345)).rejects.toThrow(
         /unknown port/i
       );
+    });
+  });
+
+  describe('apple sign-in channels (#974)', () => {
+    it('sso:appleSignIn rejects untrusted sender frames without starting a flow', async () => {
+      await expect(appleSignInHandler({ senderFrame: { url: UNTRUSTED } })).rejects.toThrow(
+        /untrusted/i
+      );
+      expect(appleMocks.runAppleSignIn).not.toHaveBeenCalled();
+    });
+
+    it('sso:appleSignIn relays the orchestrator result for trusted frames', async () => {
+      const result = await appleSignInHandler({ senderFrame: { url: TRUSTED } });
+      expect(result).toEqual({ kind: 'tokens', accessToken: 'at-1' });
+      expect(appleMocks.runAppleSignIn).toHaveBeenCalledTimes(1);
+      const deps = appleMocks.runAppleSignIn.mock.calls[0][0];
+      expect(deps.apiBase).toBe('http://localhost:8080');
+      expect(typeof deps.controlPlaneFetch).toBe('function');
+      expect(typeof deps.openExternal).toBe('function');
+    });
+
+    it('controlPlaneFetch resolves every input shape to a URL string and pins credentials', async () => {
+      // S6551 regression: String(Request) would coerce to '[object Request]'.
+      // Each fetch-input shape must reach net.fetch as its URL string, and
+      // every call must carry credentials:'include' (the refresh-cookie jar
+      // contract, plan deviation D2).
+      await appleSignInHandler({ senderFrame: { url: TRUSTED } });
+      const deps = appleMocks.runAppleSignIn.mock.calls[0][0];
+      const netFetch = vi.mocked(net.fetch);
+
+      await deps.controlPlaneFetch('https://api.test/a');
+      await deps.controlPlaneFetch(new URL('https://api.test/b'));
+      await deps.controlPlaneFetch({ url: 'https://api.test/c' }); // Request-shaped
+
+      expect(netFetch.mock.calls.map((c) => c[0])).toEqual([
+        'https://api.test/a',
+        'https://api.test/b',
+        'https://api.test/c',
+      ]);
+      for (const call of netFetch.mock.calls) {
+        expect((call[1] as RequestInit).credentials).toBe('include');
+      }
+    });
+
+    it('sso:appleCancel tears down the active flow for trusted frames', () => {
+      appleCancelHandler({ senderFrame: { url: TRUSTED } });
+      expect(appleMocks.cancelActiveAppleFlow).toHaveBeenCalledTimes(1);
+    });
+
+    it('sso:appleCancel silently no-ops for untrusted frames', () => {
+      appleCancelHandler({ senderFrame: { url: UNTRUSTED } });
+      expect(appleMocks.cancelActiveAppleFlow).not.toHaveBeenCalled();
     });
   });
 });

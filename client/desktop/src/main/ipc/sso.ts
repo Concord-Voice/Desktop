@@ -2,7 +2,7 @@
  * SSO IPC bridge — wires the loopback HTTP server in `ssoLoopback.ts` to the
  * renderer's OAuth flow.
  *
- * Channel surface (3):
+ * Channel surface (5):
  *   - `sso:startLoopback` (invoke)  — spin up a 127.0.0.1 ephemeral-port server
  *                                     and return `{port, redirectURI}` for the
  *                                     renderer to embed in the provider URL.
@@ -12,6 +12,14 @@
  *   - `sso:cancelLoopback` (send)   — best-effort tear-down for a port the
  *                                     renderer abandoned (user closed the
  *                                     auth tab, switched flows, etc).
+ *   - `sso:appleSignIn` (invoke)    — run the FULL client-driven Apple flow
+ *                                     (#974) in the main process: PKCE,
+ *                                     loopback, broker client_secret, Apple
+ *                                     /auth/token, local jose verification,
+ *                                     /session POST. Resolves to the
+ *                                     discriminated AppleSignInResult; no
+ *                                     OAuth material crosses IPC.
+ *   - `sso:appleCancel` (send)      — tear down the in-flight Apple flow.
  *
  * Sender-frame validation (the only layer the renderer cannot bypass) is
  * enforced via `isPermittedFrameUrl` — the same helper `openExternal.ts` uses,
@@ -24,13 +32,32 @@
  * promise settles — if the renderer never calls awaitCallback the active map
  * does not leak forever.
  */
-import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
+import { ipcMain, net, shell, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 
+import { getApiBaseUrl } from '../apiBaseUrl';
+import { cancelActiveAppleFlow, runAppleSignIn } from '../oauth/apple/appleFlow';
+import { appleTokenCall } from '../oauth/apple/appleTokenCall';
+import { verifyAppleIDToken } from '../oauth/apple/idTokenVerifier';
+import { signClientSecret } from '../oauth/apple/signClientSecret';
 import { startLoopback, type LoopbackHandle } from '../ssoLoopback';
 
 import { isPermittedFrameUrl } from './frameValidation';
 
 type RemoteSpaOriginProvider = () => string | null;
+
+/**
+ * Resolves any fetch-input shape to its URL string — String(input) on a
+ * Request would coerce to '[object Request]' (sonar S6551). Typed via
+ * Parameters<typeof fetch>[0] instead of naming RequestInfo: the
+ * main-process build (tsconfig.main.json) has no DOM lib, so the
+ * RequestInfo alias doesn't exist there — CI's build:main rejects it
+ * while the root tsconfig's typecheck accepts it.
+ */
+function resolveFetchUrl(input: Parameters<typeof fetch>[0]): string {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.href;
+  return input.url;
+}
 
 const active = new Map<number, LoopbackHandle>();
 
@@ -92,5 +119,42 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
     if (!handle) return;
     handle.close();
     active.delete(port);
+  });
+
+  ipcMain.handle('sso:appleSignIn', async (event) => {
+    if (!checkFrame(event, getSpaBaseUrl)) {
+      throw new Error('sso:appleSignIn rejected: untrusted sender frame');
+    }
+    return runAppleSignIn({
+      apiBase: getApiBaseUrl(),
+      // Electron net.fetch + credentials:'include' (NOT Node's fetch): the
+      // /session response sets the refresh-token cookie, which must land in
+      // the default-session jar — the SAME jar the renderer's /auth/refresh
+      // reads. Node's fetch would silently drop it and strand the session at
+      // access-token expiry (15 min). Plan deviation D2.
+      controlPlaneFetch: ((input: Parameters<typeof fetch>[0], init?: RequestInit) =>
+        net.fetch(resolveFetchUrl(input), { ...init, credentials: 'include' })) as typeof fetch,
+      // Apple endpoints are cookie-less by design — plain global fetch.
+      appleFetch: fetch,
+      openExternal: async (url: string) => {
+        // Defense-in-depth: the authorize URL comes from our own server, but
+        // an https-only gate keeps a tampered response from launching
+        // arbitrary schemes (passive-nav posture, internal-reference
+        // §External-link scheme policy).
+        if (!url.startsWith('https://')) {
+          throw new Error('sso_initiate_failed');
+        }
+        await shell.openExternal(url);
+      },
+      startLoopback,
+      signClientSecret,
+      appleTokenCall,
+      verifyIdToken: verifyAppleIDToken,
+    });
+  });
+
+  ipcMain.on('sso:appleCancel', (event) => {
+    if (!checkFrame(event, getSpaBaseUrl)) return;
+    cancelActiveAppleFlow();
   });
 }
