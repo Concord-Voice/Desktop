@@ -271,7 +271,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
             onScrollToMessage={handleScrollToMessage}
             onPinToggle={handlePinToggle}
             canPin={true}
-            persistenceKey={selectedThreadId || undefined}
+            persistenceKey={selectedThreadId}
           />
         </div>
 
@@ -288,7 +288,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
               onTyping={sendTyping}
               channelName={threadName}
               disabled={!currentUserId}
-              conversationId={selectedThreadId || undefined}
+              conversationId={selectedThreadId}
               replyingTo={replyingTo}
               onCancelReply={cancelReply}
             />
@@ -300,16 +300,14 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
         <GroupInfoPanel conversation={activeConv} onClose={() => setShowGroupInfo(false)} />
       )}
 
-      {selectedThreadId && (
-        <DMPinnedMessagesPanel
-          conversationId={selectedThreadId}
-          isOpen={showPinnedPanel}
-          onClose={() => setShowPinnedPanel(false)}
-          onScrollToMessage={handleScrollToMessage}
-          canPin={true}
-          onUnpin={() => setPinnedCount((c) => Math.max(0, c - 1))}
-        />
-      )}
+      <DMPinnedMessagesPanel
+        conversationId={selectedThreadId}
+        isOpen={showPinnedPanel}
+        onClose={() => setShowPinnedPanel(false)}
+        onScrollToMessage={handleScrollToMessage}
+        canPin={true}
+        onUnpin={() => setPinnedCount((c) => Math.max(0, c - 1))}
+      />
     </div>
   );
 };
