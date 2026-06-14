@@ -4,17 +4,26 @@ import { useAudioSettingsStore } from '@/renderer/stores/audioSettingsStore';
 import { useTTSSettingsStore } from '@/renderer/stores/ttsSettingsStore';
 import { resetAllStores } from '../../helpers/store-helpers';
 
-// Mock settingsStore's syncColorSchemeToServer and spy on setSyncSuppressed (called in apply)
-const setSyncSuppressedSpy = vi.fn();
+// Mock settingsStore's syncColorSchemeToServer (called via the draft apply flow).
 vi.mock('@/renderer/stores/settingsStore', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/renderer/stores/settingsStore')>();
-  const originalSetSyncSuppressed = actual.setSyncSuppressed;
   return {
     ...actual,
     syncColorSchemeToServer: vi.fn(),
-    setSyncSuppressed: (...args: Parameters<typeof originalSetSyncSuppressed>) => {
+  };
+});
+
+// Spy on setSyncSuppressed — it now lives in the colorSyncSuppression leaf
+// module (extracted from settingsStore to avoid the teardown-racing dynamic
+// import); the draft apply/teardown flow calls it from there.
+const setSyncSuppressedSpy = vi.fn();
+vi.mock('@/renderer/stores/colorSyncSuppression', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/renderer/stores/colorSyncSuppression')>();
+  return {
+    ...actual,
+    setSyncSuppressed: (...args: Parameters<typeof actual.setSyncSuppressed>) => {
       setSyncSuppressedSpy(...args);
-      return originalSetSyncSuppressed(...args);
+      return actual.setSyncSuppressed(...args);
     },
   };
 });

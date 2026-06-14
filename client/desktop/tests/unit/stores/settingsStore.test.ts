@@ -1,6 +1,5 @@
 import {
   useSettingsStore,
-  setSyncSuppressed,
   clampUiScale,
   UI_SCALE_DEFAULT,
   UI_SCALE_MIN,
@@ -135,16 +134,8 @@ describe('settingsStore', () => {
     });
   });
 
-  describe('setSyncSuppressed', () => {
-    it('exports setSyncSuppressed as a function', () => {
-      expect(typeof setSyncSuppressed).toBe('function');
-    });
-
-    it('can be called with true and false without throwing', () => {
-      expect(() => setSyncSuppressed(true)).not.toThrow();
-      expect(() => setSyncSuppressed(false)).not.toThrow();
-    });
-  });
+  // setSyncSuppressed / isSyncSuppressed moved to the colorSyncSuppression leaf
+  // module; their tests live in tests/unit/stores/colorSyncSuppression.test.ts.
 
   describe('persistence', () => {
     it('persists settings to localStorage', () => {

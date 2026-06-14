@@ -2,10 +2,10 @@ import { createStore } from '../utils/createStore';
 import {
   useSettingsStore,
   syncColorSchemeToServer,
-  setSyncSuppressed,
   type AppearanceSettings,
   type CustomColors,
 } from './settingsStore';
+import { setSyncSuppressed } from './colorSyncSuppression';
 import { useAudioSettingsStore, type AudioSettings } from './audioSettingsStore';
 import { useVideoSettingsStore, type VideoSettings } from './videoSettingsStore';
 import { useTTSSettingsStore, type TTSSettings } from './ttsSettingsStore';

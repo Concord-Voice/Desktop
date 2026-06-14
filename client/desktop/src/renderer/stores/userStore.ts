@@ -10,6 +10,7 @@ import { preferencesSyncService } from '../services/preferencesSync';
 import { savedGifsSyncService } from '../services/savedGifsSync';
 import { stopExpirySweep } from '../services/notificationPrefsService';
 import { useNotificationPrefsStore } from './notificationPrefsStore';
+import { setSyncSuppressed } from './colorSyncSuppression';
 import {
   deriveKeyFromPassword,
   deriveKeyArgon2id,
@@ -122,8 +123,12 @@ export const useUserStore = wrapStore(
           // user's mute list.
           stopExpirySweep();
           useNotificationPrefsStore.getState().clearAll();
-          // Reset sync suppression flag in case Settings was open during logout
-          import('./settingsStore').then(({ setSyncSuppressed }) => setSyncSuppressed(false));
+          // Reset sync suppression flag in case Settings was open during logout.
+          // STATIC import of the leaf colorSyncSuppression module — do NOT revert
+          // to a dynamic `import('./settingsStore')`: that unawaited import raced
+          // vitest worker teardown (EnvironmentTeardownError loading overlayColors
+          // via settingsStore's static import). See colorSyncSuppression.ts.
+          setSyncSuppressed(false);
           e2eeService.clearKeys();
 
           // Disconnect WebSocket FIRST so the server receives the close frame

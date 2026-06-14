@@ -11,12 +11,10 @@ import { DEFAULT_CLIENT_BEHAVIOR, type ClientBehavior } from '../../shared/clien
 import { deriveOverlayColors } from '../utils/overlayColors';
 import { useUserStore } from './userStore';
 import { useMemberStore } from './memberStore';
-let syncSuppressed = false;
-
-/** Called by draftSettingsStore to suppress color-scheme sync during draft mode. */
-export function setSyncSuppressed(suppressed: boolean): void {
-  syncSuppressed = suppressed;
-}
+// Sync-suppression flag lives in a dependency-free leaf module so that
+// userStore can flip it via a STATIC import without a circular dependency or a
+// teardown-racing dynamic import. See colorSyncSuppression.ts.
+import { isSyncSuppressed } from './colorSyncSuppression';
 
 export interface AppearanceSettings {
   theme: 'dark' | 'light' | 'system';
@@ -412,7 +410,7 @@ useSettingsStore.subscribe(
     }
 
     // Suppress server sync during draft mode — sync happens on Apply
-    if (syncSuppressed) return;
+    if (isSyncSuppressed()) return;
 
     // Debounced sync
     if (colorSyncTimer) clearTimeout(colorSyncTimer);

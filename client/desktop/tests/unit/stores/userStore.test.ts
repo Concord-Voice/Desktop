@@ -1,5 +1,6 @@
 import { useUserStore } from '@/renderer/stores/userStore';
 import { useAuthStore } from '@/renderer/stores/authStore';
+import { setSyncSuppressed } from '@/renderer/stores/colorSyncSuppression';
 import { resetAllStores } from '../../helpers/store-helpers';
 import { mockUser } from '../../mocks/fixtures';
 import { server } from '../../mocks/server';
@@ -21,6 +22,13 @@ vi.mock('@/renderer/services/e2eeService', () => ({
 
 vi.mock('@/renderer/services/preferencesSync', () => ({
   preferencesSyncService: { stopWatching: vi.fn(), pushPreferences: vi.fn() },
+}));
+
+// Spy on the color-sync suppression leaf so the regression test can assert the
+// reset fires SYNCHRONOUSLY during logout() (a dynamic import would defer it).
+vi.mock('@/renderer/stores/colorSyncSuppression', () => ({
+  setSyncSuppressed: vi.fn(),
+  isSyncSuppressed: vi.fn(() => false),
 }));
 
 beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }));
@@ -145,6 +153,22 @@ describe('userStore', () => {
       // State still clears
       expect(useUserStore.getState().user).toBeNull();
       consoleSpy.mockRestore();
+    });
+
+    // Regression: logout() must reset color-sync suppression via a SYNCHRONOUS
+    // static call, not a fire-and-forget `import('./settingsStore')`. The old
+    // dynamic import left settingsStore (and its static overlayColors import)
+    // loading after the test resolved, racing vitest worker teardown and
+    // intermittently failing CI shards with EnvironmentTeardownError. A dynamic
+    // import would defer setSyncSuppressed to a microtask, so it would NOT have
+    // been called at the point we assert below (before any await in this test).
+    it('resets color-sync suppression synchronously during logout (no teardown-racing import)', async () => {
+      useUserStore.getState().setUser(mockUser);
+      const pending = useUserStore.getState().logout();
+      // logout()'s synchronous prologue (everything before its first `await`)
+      // has already run, including the suppression reset.
+      expect(setSyncSuppressed).toHaveBeenCalledWith(false);
+      await pending; // let logout finish so nothing dangles into teardown
     });
   });
 });
