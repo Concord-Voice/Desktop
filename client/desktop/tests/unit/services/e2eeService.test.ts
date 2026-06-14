@@ -3,26 +3,12 @@ import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
   generateRegistrationKeys,
   generateChannelKey,
-  exportChannelKey,
   wrapChannelKey,
-  exportPublicKey,
-  arrayBufferToBase64,
-  encryptMessage,
 } from '@/renderer/utils/crypto';
 import { E2EEKeyUnavailableError } from '@/renderer/services/e2eeErrors';
 import { useE2EEStore } from '@/renderer/stores/e2eeStore';
 
-// We need a fresh E2EEService instance for each test, not the singleton
-// Import the class by re-importing the module
-let E2EEServiceClass: new () => InstanceType<
-  (typeof import('@/renderer/services/e2eeService'))['e2eeService'] extends infer T
-    ? { new (): T }['prototype'] extends never
-      ? never
-      : any
-    : never
->;
-
-// Actually, let's just test the singleton and clear between tests
+// Test the singleton and clear between tests
 import { e2eeService } from '@/renderer/services/e2eeService';
 
 // Mock apiFetch for channel key fetching

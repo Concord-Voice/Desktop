@@ -75,10 +75,8 @@ function calculateStrength(password: string): StrengthResult {
   for (const { pattern, message } of commonPatterns) {
     if (pattern.test(password)) {
       score = Math.max(0, score - 2);
-      if (!hasPenalty) {
-        feedback.push(message);
-        hasPenalty = true;
-      }
+      feedback.push(message);
+      hasPenalty = true;
       break;
     }
   }
