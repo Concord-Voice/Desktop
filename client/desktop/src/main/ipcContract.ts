@@ -73,8 +73,14 @@
  *        bumped — the channels are additive, and an older shell without
  *        them yields a clean renderer-side error (the legacy renderer-
  *        driven apple path no longer exists server-side; Callback 410s).
+ * - v14: Client-driven Google SSO (#975): sso:googleSignIn handler (runs the
+ *        full main-process Google flow — PKCE, loopback, Google /token with an
+ *        embedded non-confidential client_secret, jose verification, /session
+ *        POST) and the sso:googleCancel teardown channel. Server's spaIpcContract
+ *        is NOT bumped — the channels are additive; the legacy renderer-driven
+ *        google path no longer exists server-side (Callback route removed).
  */
-export const IPC_CONTRACT_VERSION = 13;
+export const IPC_CONTRACT_VERSION = 14;
 
 /**
  * Result shape returned by performRefresh() in the main process and

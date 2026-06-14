@@ -4,6 +4,7 @@ import './pinUserDataPath';
 import { registerOpenExternalHandler } from './ipc/openExternal';
 import { registerSSOIPC } from './ipc/sso';
 import { cancelActiveAppleFlow } from './oauth/apple/appleFlow';
+import { cancelActiveGoogleFlow } from './oauth/google/googleFlow';
 import { registerAttestationIpc } from './ipc/attestation';
 import { registerWindowControlsIpc, getCachedClientBehavior } from './ipc/windowControls';
 import { initTray, destroyTray, isTrayActive } from './tray';
@@ -436,10 +437,12 @@ const createWindow = async (): Promise<void> => {
   });
 
   mainWindow.on('closed', () => {
-    // #974: a window-less Apple SSO flow has no UI to deliver its result to —
-    // tear it down so the loopback listener and 5-minute deadline don't
-    // outlive the renderer.
+    // #974/#975: a window-less SSO flow (apple or google) has no UI to deliver
+    // its result to — tear both down so the loopback listener and 5-minute
+    // deadline don't outlive the renderer (teardown trigger (b) in each flow's
+    // documented lifecycle).
     cancelActiveAppleFlow();
+    cancelActiveGoogleFlow();
     mainWindow = null;
   });
 

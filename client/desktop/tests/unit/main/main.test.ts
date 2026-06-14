@@ -34,6 +34,20 @@ const { mockMainWindow, mockWebContents, MockBrowserWindow } = vi.hoisted(() => 
   return { mockMainWindow, mockWebContents, MockBrowserWindow: bw };
 });
 
+// ── SSO flow teardown spies (#975: window-close tears down BOTH flows) ──
+const { mockCancelAppleFlow, mockCancelGoogleFlow } = vi.hoisted(() => ({
+  mockCancelAppleFlow: vi.fn(),
+  mockCancelGoogleFlow: vi.fn(),
+}));
+vi.mock('../../../src/main/oauth/apple/appleFlow', () => ({
+  cancelActiveAppleFlow: mockCancelAppleFlow,
+  runAppleSignIn: vi.fn(),
+}));
+vi.mock('../../../src/main/oauth/google/googleFlow', () => ({
+  cancelActiveGoogleFlow: mockCancelGoogleFlow,
+  runGoogleSignIn: vi.fn(),
+}));
+
 // ── Electron mock ──────────────────────────────────────────────────────
 
 vi.mock('electron', () => ({
@@ -772,10 +786,16 @@ describe('main.ts', () => {
       expect(mockMainWindow.show).toHaveBeenCalled();
     });
 
-    it('closed handler nulls mainWindow', () => {
+    it('closed handler tears down both SSO flows and nulls mainWindow', () => {
       const closedCall = mockMainWindow.on.mock.calls.find((c: unknown[]) => c[0] === 'closed');
       expect(closedCall).toBeDefined();
       closedCall![1](); // invoke — sets mainWindow = null internally
+      // #974/#975: a window-less SSO flow has no UI for its result, so the
+      // 'closed' handler must tear down BOTH provider flows (else the loopback
+      // listener + 5-min deadline outlive the renderer). Regression guard for
+      // the google-parity gap.
+      expect(mockCancelAppleFlow).toHaveBeenCalled();
+      expect(mockCancelGoogleFlow).toHaveBeenCalled();
     });
 
     it('window open handler allows https and denies others', async () => {

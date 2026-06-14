@@ -92,6 +92,27 @@ vi.mock('../../../../src/main/oauth/apple/idTokenVerifier', () => ({
   verifyAppleIDToken: vi.fn(),
 }));
 
+const googleMocks = vi.hoisted(() => ({
+  runGoogleSignIn: vi.fn(async () => ({ kind: 'tokens', accessToken: 'g-at-1' })),
+  cancelActiveGoogleFlow: vi.fn(),
+}));
+
+vi.mock('../../../../src/main/oauth/google/googleFlow', () => ({
+  runGoogleSignIn: googleMocks.runGoogleSignIn,
+  cancelActiveGoogleFlow: googleMocks.cancelActiveGoogleFlow,
+}));
+
+// Google idTokenVerifier also pulls in jose — stub for jsdom.
+vi.mock('../../../../src/main/oauth/google/idTokenVerifier', () => ({
+  verifyGoogleIDToken: vi.fn(),
+}));
+
+// loadGoogleClientSecret reads a bundled resource — stub so the test never
+// touches the filesystem. Returns a test placeholder.
+vi.mock('../../../../src/main/oauth/google/clientSecret', () => ({
+  loadGoogleClientSecret: vi.fn(() => 'test-google-client-secret'),
+}));
+
 vi.mock('../../../../src/main/apiBaseUrl', () => ({
   getApiBaseUrl: vi.fn(() => 'http://localhost:8080'),
 }));
@@ -119,6 +140,8 @@ describe('sso IPC handlers', () => {
   let cancelLoopbackHandler: (event: FakeInvokeEvent, port: number) => void;
   let appleSignInHandler: (event: FakeInvokeEvent) => Promise<unknown>;
   let appleCancelHandler: (event: FakeInvokeEvent) => void;
+  let googleSignInHandler: (event: FakeInvokeEvent) => Promise<unknown>;
+  let googleCancelHandler: (event: FakeInvokeEvent) => void;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -143,6 +166,14 @@ describe('sso IPC handlers', () => {
     }
     appleSignInHandler = appleSignInCall[1];
     appleCancelHandler = appleCancelCall[1];
+
+    const googleSignInCall = mocked.handleSpy.mock.calls.find((c) => c[0] === 'sso:googleSignIn');
+    const googleCancelCall = mocked.onSpy.mock.calls.find((c) => c[0] === 'sso:googleCancel');
+    if (!googleSignInCall || !googleCancelCall) {
+      throw new Error('google IPC handlers not registered');
+    }
+    googleSignInHandler = googleSignInCall[1];
+    googleCancelHandler = googleCancelCall[1];
   });
 
   describe('sender-frame validation', () => {
@@ -282,6 +313,38 @@ describe('sso IPC handlers', () => {
     it('sso:appleCancel silently no-ops for untrusted frames', () => {
       appleCancelHandler({ senderFrame: { url: UNTRUSTED } });
       expect(appleMocks.cancelActiveAppleFlow).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('google sign-in channels (#975)', () => {
+    it('sso:googleSignIn rejects untrusted sender frames without starting a flow', async () => {
+      await expect(googleSignInHandler({ senderFrame: { url: UNTRUSTED } })).rejects.toThrow(
+        /untrusted/i
+      );
+      expect(googleMocks.runGoogleSignIn).not.toHaveBeenCalled();
+    });
+
+    it('sso:googleSignIn dispatches runGoogleSignIn with clientSecret for trusted frames', async () => {
+      const result = await googleSignInHandler({ senderFrame: { url: TRUSTED } });
+      expect(result).toEqual({ kind: 'tokens', accessToken: 'g-at-1' });
+      expect(googleMocks.runGoogleSignIn).toHaveBeenCalledTimes(1);
+      const deps = googleMocks.runGoogleSignIn.mock.calls[0][0];
+      // clientSecret is the non-confidential embedded secret — must be present.
+      expect(deps.clientSecret).toBe('test-google-client-secret');
+      // client_id is NOT passed — googleFlow parses it from the server-built
+      // authorize URL (sourced from the control-plane's GOOGLE_CLIENT_ID config).
+      expect(deps).not.toHaveProperty('clientId');
+      expect(typeof deps.controlPlaneFetch).toBe('function');
+    });
+
+    it('sso:googleCancel tears down the active flow for trusted frames', () => {
+      googleCancelHandler({ senderFrame: { url: TRUSTED } });
+      expect(googleMocks.cancelActiveGoogleFlow).toHaveBeenCalledTimes(1);
+    });
+
+    it('sso:googleCancel silently no-ops for untrusted frames', () => {
+      googleCancelHandler({ senderFrame: { url: UNTRUSTED } });
+      expect(googleMocks.cancelActiveGoogleFlow).not.toHaveBeenCalled();
     });
   });
 });

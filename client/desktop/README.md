@@ -108,6 +108,20 @@ npm run make
 
 This will create platform-specific installers in the `out/` directory.
 
+### Google SSO build constant (`GOOGLE_OAUTH_CLIENT_SECRET_DESKTOP`)
+
+Google Sign-In uses a client-driven PKCE exchange (#975): the desktop main
+process performs Google's `/token` exchange itself, so it embeds Google's
+OAuth `client_secret`. Per Google's [OAuth 2.0 for Native Apps guidance](https://developers.google.com/identity/protocols/oauth2/native-app),
+a "Desktop application" client's `client_secret` is **not confidential** — PKCE
+(`code_challenge_method=S256`) is the actual security control. The value is
+injected at package time by `npm run build:gclientsecret` (from the
+`GOOGLE_OAUTH_CLIENT_SECRET_DESKTOP` env var / CI repo secret) into a
+main-process-only `googleClientSecret.json` resource, read by
+`src/main/oauth/google/clientSecret.ts`. It is deliberately **not** a
+`VITE_`-prefixed variable, so it never enters the renderer bundle. A build
+without the value produces an inert Google SSO (empty secret), not a failure.
+
 ## Features
 
 ### Phase 1A: Authentication & E2EE ✅

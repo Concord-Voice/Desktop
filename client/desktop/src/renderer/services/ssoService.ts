@@ -1,29 +1,28 @@
 /**
- * SSO Service (#270)
+ * SSO Service (#270, #974, #975)
  *
- * Drives the desktop OAuth flow: opens an ephemeral 127.0.0.1 loopback HTTP
- * listener (owned by the main process), starts the provider redirect via the
- * system browser, awaits the OAuth code+state callback, validates state, and
- * exchanges the code with the control plane.
+ * Both providers (apple and google) are fully main-process-driven. The
+ * renderer calls a single IPC invoke — `sso:appleSignIn` (#974) or
+ * `sso:googleSignIn` (#975) — which runs PKCE, loopback, token exchange,
+ * local ID-token verification, and the /session POST entirely in the main
+ * process. No OAuth material (authorization code, client_secret, ID token)
+ * crosses IPC in either direction.
  *
- * Returns a discriminated `SSOResult` union so callers (the `useSSOFlow` hook)
- * can dispatch into the right next-step UI: logged in directly, MFA challenge,
- * first-time SSO registration, or link-an-existing-account flow.
+ * `startSSOFlow` receives the discriminated `SSOSignInResult` / `AppleSignInResult`
+ * from IPC and maps it to the renderer-local `SSOResult` union so callers (the
+ * `useSSOFlow` hook) can dispatch into the right next-step UI: logged in
+ * directly, MFA challenge, first-time SSO registration, or link-an-existing-
+ * account flow.
  *
- * Loopback is always cleaned up in the `finally` block — even on state
- * mismatch or HTTP error — so a failed flow never leaks the listening socket.
- *
- * Privacy: this module never logs the OAuth code, the SSO token, or the
- * mfa_challenge_token. Errors propagate as `Error` with stable string codes
- * (e.g. `oauth_state_mismatch`) so UI can localize without inspecting payload.
- *
- * Post-#974 the apple provider short-circuits to the main-process flow via
- * `sso:appleSignIn`; the loopback-driving path below is google-only until #975.
+ * Privacy: this module never logs the SSO token, MFA token, or access token.
+ * Errors propagate as `Error` with stable string codes (e.g.
+ * `google_id_token_invalid`) so UI can localize without inspecting payload.
  */
 
 import { apiFetch, safeJson } from './apiClient';
 
 import type { AppleSignInResult } from '@/shared/appleSso';
+import type { SSOSignInResult } from '@/shared/sso';
 
 export type SSOProvider = 'google' | 'apple';
 
@@ -65,95 +64,13 @@ export class SSOServiceError extends Error {
   }
 }
 
-interface StartResponse {
-  auth_url: string;
-  state: string;
-}
-
 /**
- * Begin an SSO flow for the given provider.
- *
- * 1. Asks the main process to open a 127.0.0.1 loopback listener.
- * 2. Calls GET /api/v1/auth/sso/{provider}?redirect_uri=... to obtain the
- *    provider authorization URL and the expected `state` value.
- * 3. Opens the URL in the user's default browser.
- * 4. Awaits the loopback callback (code + state).
- * 5. Verifies state matches; throws `oauth_state_mismatch` if not.
- * 6. Exchanges the code via POST /api/v1/auth/sso/{provider}/callback and
- *    interprets the response shape into an `SSOResult`.
- *
- * Always cleans up the loopback listener via `cancelLoopback` in `finally`.
+ * Maps a discriminated SSOSignInResult / AppleSignInResult (both are the same
+ * type after #975 made AppleSignInResult a re-export alias) onto the renderer's
+ * SSOResult union. The `error` kind throws the stable taxonomy code so
+ * useSSOFlow's catch surfaces `{ phase: 'error', message }`.
  */
-export async function startSSOFlow(provider: SSOProvider): Promise<SSOResult> {
-  // Apple (#974): the flow is fully main-process-driven — PKCE, loopback,
-  // broker, Apple /auth/token, local jose verification, and the /session
-  // POST all happen behind one IPC invoke. The renderer receives only the
-  // final discriminated result; no OAuth material crosses IPC. Google keeps
-  // the renderer-driven loopback path below until #975.
-  if (provider === 'apple') {
-    return startAppleSSOFlow();
-  }
-  // Prefer globalThis over window for the preload-bridged Electron API surface
-  // — keeps the service callable from any execution context (worker, ESM eval,
-  // future server-side render of the renderer code) without a window binding.
-  // The preload declares `var electron` on globalThis (see preload.ts), so the
-  // reference resolves identically in renderer-process scripts.
-  const lo = await globalThis.electron.sso.startLoopback();
-  try {
-    const startRes = await apiFetch(
-      `/api/v1/auth/sso/${provider}?redirect_uri=${encodeURIComponent(lo.redirectURI)}`
-    );
-    if (!startRes.ok) {
-      throw new Error(`sso_start_failed_${startRes.status}`);
-    }
-    const { auth_url: authURL, state } = await safeJson<StartResponse>(startRes);
-
-    await globalThis.electron.openExternal(authURL);
-
-    // Apple's response_mode=form_post POST callback can include a `user` form
-    // field (first-auth-only) which the loopback surfaces as `appleUserData`.
-    // Apple subsequent auths and Google's GET path leave appleUserData undefined.
-    const {
-      code,
-      state: returnedState,
-      appleUserData,
-    } = await globalThis.electron.sso.awaitCallback(lo.port);
-    if (returnedState !== state) {
-      throw new TypeError('oauth_state_mismatch');
-    }
-
-    // apple_user_data is conditionally included when the loopback surfaced
-    // it. Apple subsequent auths and Google's GET path leave appleUserData
-    // undefined; we MUST omit the field rather than send null/empty so the
-    // Go backend's `omitempty` contract holds (Google's Provider ignores
-    // an absent field; presence on the wire would be a schema mismatch).
-    const cbBody: Record<string, string> = { code, state };
-    if (appleUserData !== undefined) {
-      cbBody.apple_user_data = appleUserData;
-    }
-    const cbRes = await apiFetch(`/api/v1/auth/sso/${provider}/callback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(cbBody),
-    });
-    if (!cbRes.ok) {
-      throw new Error(`sso_callback_failed_${cbRes.status}`);
-    }
-    const payload = await safeJson<Record<string, unknown>>(cbRes);
-    return interpretCallbackResponse(payload);
-  } finally {
-    globalThis.electron.sso.cancelLoopback(lo.port);
-  }
-}
-
-/**
- * Maps the main process's AppleSignInResult onto the renderer's SSOResult
- * union. The `error` kind throws its stable taxonomy code (spec §Failure
- * taxonomy) so useSSOFlow's catch surfaces `{ phase: 'error', message }`
- * exactly as the google path does.
- */
-async function startAppleSSOFlow(): Promise<SSOResult> {
-  const result: AppleSignInResult = await globalThis.electron.sso.appleSignIn();
+function mapSSOResult(result: SSOSignInResult): SSOResult {
   switch (result.kind) {
     case 'tokens':
       return { kind: 'logged_in', accessToken: result.accessToken };
@@ -184,62 +101,21 @@ async function startAppleSSOFlow(): Promise<SSOResult> {
   }
 }
 
-// Methods array drives the MFAChallengeModal — without it the modal has no
-// way to render TOTP vs WebAuthn vs email/SMS choices. Default to empty
-// array so the modal can still mount (it falls back to method-select when
-// empty); the backend always populates this when MFA is enrolled.
-//
-// Extracted from interpretCallbackResponse so that function stays under
-// SonarQube's S3776 cognitive-complexity threshold; behavior is unchanged.
-function buildMfaRequiredResult(
-  resp: Record<string, unknown>,
-  mfaChallengeToken: string
-): Extract<SSOResult, { kind: 'mfa_required' }> {
-  const methods = Array.isArray(resp.methods) ? (resp.methods as string[]) : [];
-  const recoveryOnlyMethods = Array.isArray(resp.recovery_only_methods)
-    ? (resp.recovery_only_methods as string[])
-    : undefined;
-  return {
-    kind: 'mfa_required',
-    mfaChallengeToken,
-    methods,
-    recoveryOnlyMethods,
-    webauthnOptions: resp.webauthn_options,
-  };
-}
-
-function interpretCallbackResponse(resp: Record<string, unknown>): SSOResult {
-  if (typeof resp.access_token === 'string' && resp.access_token.length > 0) {
-    return { kind: 'logged_in', accessToken: resp.access_token };
+/**
+ * Begin an SSO flow for the given provider.
+ *
+ * Both providers are fully main-process-driven (#974 apple, #975 google).
+ * One IPC invoke runs PKCE, loopback, token exchange, local ID-token
+ * verification, and the /session POST in the main process; the renderer
+ * receives only the final discriminated result mapped onto SSOResult.
+ */
+export async function startSSOFlow(provider: SSOProvider): Promise<SSOResult> {
+  if (provider === 'apple') {
+    const result: AppleSignInResult = await globalThis.electron.sso.appleSignIn();
+    return mapSSOResult(result);
   }
-  if (typeof resp.mfa_challenge_token === 'string' && resp.mfa_challenge_token.length > 0) {
-    return buildMfaRequiredResult(resp, resp.mfa_challenge_token);
-  }
-  if (resp.sso_registration_required === true) {
-    if (typeof resp.sso_token !== 'string' || typeof resp.email !== 'string') {
-      // TypeError, not Error: the field types do not match the documented
-      // contract — this is a structural / shape mismatch, not a runtime fault.
-      throw new TypeError('sso_response_invalid_register_required');
-    }
-    return {
-      kind: 'register_required',
-      ssoToken: resp.sso_token,
-      email: resp.email,
-      name: typeof resp.name === 'string' ? resp.name : undefined,
-    };
-  }
-  if (resp.account_link_available === true) {
-    if (typeof resp.sso_token !== 'string' || typeof resp.masked_email !== 'string') {
-      // TypeError, not Error: shape mismatch on the documented response contract.
-      throw new TypeError('sso_response_invalid_link_available');
-    }
-    return {
-      kind: 'link_available',
-      ssoToken: resp.sso_token,
-      maskedEmail: resp.masked_email,
-    };
-  }
-  throw new Error('sso_response_unrecognized');
+  const result: SSOSignInResult = await globalThis.electron.sso.googleSignIn();
+  return mapSSOResult(result);
 }
 
 /**

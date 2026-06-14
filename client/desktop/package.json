@@ -1,7 +1,7 @@
 {
   "name": "@concordvoice/desktop",
   "productName": "Concord Voice",
-  "version": "0.1.60",
+  "version": "0.1.61",
   "description": "Concord Voice Desktop Client - Privacy-first voice communication",
   "main": "dist/main/main.js",
   "author": "Concord Voice Team",
@@ -16,6 +16,7 @@
     "build:preload": "node scripts/build-preload.mjs",
     "build:main": "tsc -p tsconfig.main.json",
     "build:buildtag": "node scripts/generate-buildtag.mjs",
+    "build:gclientsecret": "node scripts/generate-google-client-secret.mjs",
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",

@@ -2,7 +2,7 @@
  * SSO IPC bridge — wires the loopback HTTP server in `ssoLoopback.ts` to the
  * renderer's OAuth flow.
  *
- * Channel surface (5):
+ * Channel surface (7):
  *   - `sso:startLoopback` (invoke)  — spin up a 127.0.0.1 ephemeral-port server
  *                                     and return `{port, redirectURI}` for the
  *                                     renderer to embed in the provider URL.
@@ -20,6 +20,13 @@
  *                                     discriminated AppleSignInResult; no
  *                                     OAuth material crosses IPC.
  *   - `sso:appleCancel` (send)      — tear down the in-flight Apple flow.
+ *   - `sso:googleSignIn` (invoke)   — run the FULL client-driven Google flow
+ *                                     (#975): PKCE, loopback, Google /token with
+ *                                     the embedded client_secret, local jose
+ *                                     verification, /session POST. Resolves to
+ *                                     SSOSignInResult; no OAuth material crosses
+ *                                     IPC. Simpler than Apple — no broker.
+ *   - `sso:googleCancel` (send)     — tear down the in-flight Google flow.
  *
  * Sender-frame validation (the only layer the renderer cannot bypass) is
  * enforced via `isPermittedFrameUrl` — the same helper `openExternal.ts` uses,
@@ -39,6 +46,10 @@ import { cancelActiveAppleFlow, runAppleSignIn } from '../oauth/apple/appleFlow'
 import { appleTokenCall } from '../oauth/apple/appleTokenCall';
 import { verifyAppleIDToken } from '../oauth/apple/idTokenVerifier';
 import { signClientSecret } from '../oauth/apple/signClientSecret';
+import { loadGoogleClientSecret } from '../oauth/google/clientSecret';
+import { cancelActiveGoogleFlow, runGoogleSignIn } from '../oauth/google/googleFlow';
+import { googleTokenCall } from '../oauth/google/googleTokenCall';
+import { verifyGoogleIDToken } from '../oauth/google/idTokenVerifier';
 import { startLoopback, type LoopbackHandle } from '../ssoLoopback';
 
 import { isPermittedFrameUrl } from './frameValidation';
@@ -60,6 +71,15 @@ function resolveFetchUrl(input: Parameters<typeof fetch>[0]): string {
 }
 
 const active = new Map<number, LoopbackHandle>();
+
+// Google's client_secret is a non-confidential build constant (Google's
+// native-app guidance — PKCE is the control), read once from the
+// main-process-only resource. Never IPC-exposed to the renderer.
+let cachedGoogleClientSecret: string | undefined;
+function googleClientSecret(): string {
+  cachedGoogleClientSecret ??= loadGoogleClientSecret();
+  return cachedGoogleClientSecret;
+}
 
 /** Validates the IPC sender frame matches a permitted SPA origin. */
 function checkFrame(
@@ -156,5 +176,40 @@ export function registerSSOIPC(getSpaBaseUrl: RemoteSpaOriginProvider): void {
   ipcMain.on('sso:appleCancel', (event) => {
     if (!checkFrame(event, getSpaBaseUrl)) return;
     cancelActiveAppleFlow();
+  });
+
+  ipcMain.handle('sso:googleSignIn', async (event) => {
+    if (!checkFrame(event, getSpaBaseUrl)) {
+      throw new Error('sso:googleSignIn rejected: untrusted sender frame');
+    }
+    return runGoogleSignIn({
+      apiBase: getApiBaseUrl(),
+      // Embedded non-confidential client_secret (Google native-app guidance);
+      // client_id is NOT supplied here — googleFlow parses it from the
+      // server-built authorize URL (sourced from the control-plane's
+      // GOOGLE_CLIENT_ID config).
+      clientSecret: googleClientSecret(),
+      // Electron net.fetch + credentials:'include' so /session's refresh-token
+      // cookie lands in the default-session jar the renderer reads (parity with
+      // the Apple handler above).
+      controlPlaneFetch: ((input: Parameters<typeof fetch>[0], init?: RequestInit) =>
+        net.fetch(resolveFetchUrl(input), { ...init, credentials: 'include' })) as typeof fetch,
+      // Google endpoints are cookie-less by design — plain global fetch.
+      googleFetch: fetch,
+      openExternal: async (url: string) => {
+        if (!url.startsWith('https://')) {
+          throw new Error('sso_initiate_failed');
+        }
+        await shell.openExternal(url);
+      },
+      startLoopback,
+      googleTokenCall,
+      verifyIdToken: verifyGoogleIDToken,
+    });
+  });
+
+  ipcMain.on('sso:googleCancel', (event) => {
+    if (!checkFrame(event, getSpaBaseUrl)) return;
+    cancelActiveGoogleFlow();
   });
 }

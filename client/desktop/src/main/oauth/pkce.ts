@@ -1,12 +1,13 @@
 /**
- * PKCE primitives for the client-driven Apple OAuth exchange (#974).
+ * PKCE primitives shared by the client-driven Apple (#974) and Google (#975)
+ * OAuth exchanges. Hoisted to oauth/ from apple/pkce.ts so both flows consume it.
  *
  * RFC 7636: the verifier is 32 CSPRNG bytes base64url-encoded (43 chars —
  * the RFC's recommended entropy); the challenge is
  * BASE64URL(SHA256(ASCII(verifier))) with method S256.
  *
  * node:crypto only (project CSPRNG rule — no custom crypto, no third-party
- * randomness). The verifier is generated inside the appleFlow closure, never
+ * randomness). The verifier is generated inside each flow's closure, never
  * persisted, never IPC'd (spec §Security: PKCE).
  */
 import { createHash, randomBytes } from 'node:crypto';

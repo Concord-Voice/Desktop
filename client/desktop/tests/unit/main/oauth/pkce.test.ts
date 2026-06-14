@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { codeChallengeS256, generateCodeVerifier } from '@/main/oauth/apple/pkce';
+import { codeChallengeS256, generateCodeVerifier } from '@/main/oauth/pkce';
 
 describe('generateCodeVerifier', () => {
   it('produces 43-char base64url output (32 CSPRNG bytes, RFC 7636)', () => {

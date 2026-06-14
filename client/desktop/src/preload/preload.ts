@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 import type { AppleSignInResult } from '../shared/appleSso';
+import type { SSOSignInResult } from '../shared/sso';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -325,6 +326,8 @@ contextBridge.exposeInMainWorld('electron', {
     cancelLoopback: (port: number): void => ipcRenderer.send('sso:cancelLoopback', port),
     appleSignIn: (): Promise<AppleSignInResult> => ipcRenderer.invoke('sso:appleSignIn'),
     appleCancel: (): void => ipcRenderer.send('sso:appleCancel'),
+    googleSignIn: (): Promise<SSOSignInResult> => ipcRenderer.invoke('sso:googleSignIn'),
+    googleCancel: (): void => ipcRenderer.send('sso:googleCancel'),
   },
 
   // Window chrome control surface (#806): renderer pushes Client Behavior
@@ -547,6 +550,8 @@ export interface ElectronAPI {
     cancelLoopback: (port: number) => void;
     appleSignIn: () => Promise<AppleSignInResult>;
     appleCancel: () => void;
+    googleSignIn: () => Promise<SSOSignInResult>;
+    googleCancel: () => void;
   };
 
   // Window chrome control surface (#806)

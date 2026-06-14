@@ -82,13 +82,14 @@ export default [
             // scripts/ — build helpers + their colocated tests
             'scripts/generate-update-manifest.test.ts',
             'scripts/generate-buildtag.test.ts',
+            'scripts/generate-google-client-secret.test.ts',
             'scripts/generate-app-update.test.ts',
             'scripts/verify-update-manifest.test.ts',
             'scripts/classify-playwright-results.test.ts',
             'scripts/generate-tray-icons.test.ts',
             'scripts/csp-prod-strip.ts',
           ],
-          // The 9 on-disk allowDefaultProject files (3 root configs + 5
+          // The 11 on-disk allowDefaultProject files (3 root configs + 7
           // scripts/*.test.ts + csp-prod-strip.ts) exceed typescript-eslint's
           // default cap of 8 default-project files, so a full-tree `npm run lint`
           // (`eslint .`) fails with "Too many files (>8) have matched the default

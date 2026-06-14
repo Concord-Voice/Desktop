@@ -24,16 +24,19 @@
  *     replays exactly what Apple saw at /authorize — RFC 6749 §4.1.3 —
  *     including whatever bridge redirect #973 lands.
  */
-import { timingSafeEqual } from 'node:crypto';
-
 import type { AppleSignInErrorCode, AppleSignInResult } from '../../../shared/appleSso';
 import type { startLoopback as startLoopbackFn, LoopbackHandle } from '../../ssoLoopback';
 
 import type { appleTokenCall as appleTokenCallFn } from './appleTokenCall';
 import { AppleFlowError } from './errors';
 import type { verifyAppleIDToken as verifyAppleIDTokenFn } from './idTokenVerifier';
-import { codeChallengeS256, generateCodeVerifier } from './pkce';
+import { codeChallengeS256, generateCodeVerifier } from '../pkce';
 import type { signClientSecret as signClientSecretFn } from './signClientSecret';
+import {
+  constantTimeEquals,
+  mapSessionResponse as mapSessionResponseShared,
+  toErrorCode as toErrorCodeShared,
+} from '../ssoFlowShared';
 
 /** Overall flow deadline (spec R2). */
 export const APPLE_FLOW_TIMEOUT_MS = 5 * 60 * 1000;
@@ -76,15 +79,6 @@ export function cancelActiveAppleFlow(): void {
   activeFlow = null;
   flow.loopback?.close(); // rejects the loopback promise with oauth_cancelled
   flow.abort.abort(); // aborts any in-flight fetch
-}
-
-function constantTimeEquals(a: string, b: string): boolean {
-  const ab = Buffer.from(a, 'utf8');
-  const bb = Buffer.from(b, 'utf8');
-  // Length is not secret here (both values are CSPRNG-shaped); the compare
-  // over equal-length buffers is what must be constant-time.
-  if (ab.length !== bb.length) return false;
-  return timingSafeEqual(ab, bb);
 }
 
 interface InitiateResponse {
@@ -165,48 +159,10 @@ async function postSession(
 /**
  * Maps the /session response (Callback-shape parity) into the IPC-safe
  * discriminated union. Exported for direct unit coverage.
+ * Delegates to the shared implementation in ssoFlowShared.ts.
  */
 export function mapSessionResponse(body: Record<string, unknown>): AppleSignInResult {
-  if (typeof body.access_token === 'string' && body.access_token.length > 0) {
-    return { kind: 'tokens', accessToken: body.access_token };
-  }
-  if (typeof body.mfa_challenge_token === 'string' && body.mfa_challenge_token.length > 0) {
-    return {
-      kind: 'mfa_challenge',
-      mfaChallengeToken: body.mfa_challenge_token,
-      methods: Array.isArray(body.methods) ? (body.methods as string[]) : [],
-      recoveryOnlyMethods: Array.isArray(body.recovery_only_methods)
-        ? (body.recovery_only_methods as string[])
-        : undefined,
-      webauthnOptions: body.webauthn_options,
-    };
-  }
-  if (
-    body.sso_registration_required === true &&
-    typeof body.sso_token === 'string' &&
-    typeof body.email === 'string'
-  ) {
-    return {
-      kind: 'sso_token',
-      branch: 'new_user',
-      ssoToken: body.sso_token,
-      email: body.email,
-      name: typeof body.name === 'string' && body.name.length > 0 ? body.name : undefined,
-    };
-  }
-  if (
-    body.account_link_available === true &&
-    typeof body.sso_token === 'string' &&
-    typeof body.masked_email === 'string'
-  ) {
-    return {
-      kind: 'sso_token',
-      branch: 'account_link',
-      ssoToken: body.sso_token,
-      maskedEmail: body.masked_email,
-    };
-  }
-  return { kind: 'error', code: 'sso_session_rejected' };
+  return mapSessionResponseShared(body);
 }
 
 /** Retries fn exactly once when it fails with the given retryable code. */
@@ -221,31 +177,12 @@ async function retryOnce<T>(fn: () => Promise<T>, retryableCode: AppleSignInErro
   }
 }
 
-function logFlowFailure(stage: string, code: string): void {
-  // Stage + taxonomy code only — never raw errors (Error.cause may carry
-  // token material; internal-reference).
-  console.error(`[appleFlow] sign-in failed at ${stage}: ${code}`);
-}
-
 function toErrorCode(err: unknown): AppleSignInErrorCode {
-  if (err instanceof AppleFlowError) {
-    logFlowFailure(err.stage, err.code);
-    return err.code;
-  }
-  const message = err instanceof Error ? err.message : 'unknown';
-  if (message === 'oauth_cancelled' || message === 'oauth_timeout') {
-    // Loopback teardown paths (renderer cancel, deadline, window close).
-    logFlowFailure('loopback', 'sso_cancelled');
-    return 'sso_cancelled';
-  }
-  if (message.startsWith('oauth_provider_error:')) {
-    logFlowFailure('loopback', message);
-    return message as AppleSignInErrorCode;
-  }
-  // Unknown failure — fold into the generic flow-setup code. Only the
-  // stable message string is logged, never the error object.
-  logFlowFailure('unknown', 'sso_initiate_failed');
-  return 'sso_initiate_failed';
+  return toErrorCodeShared(
+    err,
+    (e): e is AppleFlowError => e instanceof AppleFlowError,
+    'appleFlow'
+  );
 }
 
 export async function runAppleSignIn(deps: AppleFlowDeps): Promise<AppleSignInResult> {
