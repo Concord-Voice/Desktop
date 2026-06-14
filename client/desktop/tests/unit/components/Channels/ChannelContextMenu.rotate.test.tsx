@@ -1,5 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '../../../test-utils';
-import { mockChannel, mockEncryptedChannel } from '../../../mocks/fixtures';
+import { mockEncryptedChannel } from '../../../mocks/fixtures';
 import { usePermissionStore } from '@/renderer/stores/permissionStore';
 import {
   ADMIN_PERMISSIONS,

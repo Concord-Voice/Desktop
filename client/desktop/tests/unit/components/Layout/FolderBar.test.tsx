@@ -2,7 +2,6 @@ import { render, screen, fireEvent } from '../../../test-utils';
 import { useServerStore } from '@/renderer/stores/serverStore';
 import { useLayoutStore } from '@/renderer/stores/layoutStore';
 import { useUnreadStore } from '@/renderer/stores/unreadStore';
-import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { mockServer, mockServer2 } from '../../../mocks/fixtures';
 import FolderBar from '@/renderer/components/Layout/FolderBar';
 

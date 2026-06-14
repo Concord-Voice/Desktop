@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import {
-  parseProfile,
   codecKey,
   codecKeyMime,
   getCodecInfo,

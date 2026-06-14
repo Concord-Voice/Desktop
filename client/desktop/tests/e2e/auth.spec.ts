@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { registerUser, loginUser, uniqueEmail, uniqueUsername } from './helpers';
+import { registerUser, loginUser } from './helpers';
 
 test.describe('Authentication', () => {
   test('register a new user', async ({ page }) => {
@@ -14,7 +14,7 @@ test.describe('Authentication', () => {
 
   test('login with existing credentials', async ({ page }) => {
     // Register first
-    const { email, username } = await registerUser(page);
+    const { email } = await registerUser(page);
 
     // Log out
     await page.goto('/');

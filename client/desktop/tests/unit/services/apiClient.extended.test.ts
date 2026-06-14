@@ -20,7 +20,6 @@ const {
   getMachineIdSync,
   stopProactiveRefresh,
   _resetRefreshState,
-  API_BASE,
 } = await import('@/renderer/services/apiClient');
 
 describe('apiClient — extended', () => {

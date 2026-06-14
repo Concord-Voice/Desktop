@@ -2,7 +2,6 @@ import { render, screen, fireEvent } from '../../../test-utils';
 import { useInviteStore } from '@/renderer/stores/inviteStore';
 import { usePermissionStore } from '@/renderer/stores/permissionStore';
 import { useMemberStore } from '@/renderer/stores/memberStore';
-import { useServerStore } from '@/renderer/stores/serverStore';
 import { mockServer } from '../../../mocks/fixtures';
 import type { ServerWithRole, Role } from '@/renderer/types/server';
 import {
@@ -11,7 +10,6 @@ import {
   BASE_PERMISSIONS,
   MANAGE_ROLES,
   MANAGE_ROLES_ASSIGN,
-  INVITE,
 } from '@/renderer/utils/permissions';
 
 // Mock apiFetch

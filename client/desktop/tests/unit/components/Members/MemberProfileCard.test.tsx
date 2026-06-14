@@ -1,6 +1,6 @@
 import { render, screen, fireEvent } from '../../../test-utils';
 import MemberProfileCard from '@/renderer/components/Members/MemberProfileCard';
-import { mockMember, mockMember2 } from '../../../mocks/fixtures';
+import { mockMember } from '../../../mocks/fixtures';
 import { useUserStore } from '@/renderer/stores/userStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 

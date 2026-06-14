@@ -267,7 +267,7 @@ describe('App', () => {
     const appDiv = container.querySelector('.app');
     // Fire contextMenu event — the handler should prevent default
     const event = new MouseEvent('contextmenu', { bubbles: true });
-    const prevented = !appDiv!.dispatchEvent(event);
+    appDiv!.dispatchEvent(event);
     // In jsdom, dispatchEvent doesn't call React handlers directly,
     // but we verify the element exists and the handler is wired
     expect(appDiv).toBeInTheDocument();

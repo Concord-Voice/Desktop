@@ -117,7 +117,7 @@ describe('useMessaging', () => {
 
   it('sendMessage enqueues and adds optimistic message for unencrypted channel', () => {
     const { result } = renderHook(() => useMessaging());
-    const addMessageSpy = vi.spyOn(useChatStore.getState(), 'addMessage');
+    vi.spyOn(useChatStore.getState(), 'addMessage');
 
     let clientId: string;
     act(() => {

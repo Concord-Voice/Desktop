@@ -33,12 +33,6 @@ const mockBulletinChannel: Channel = {
   updated_at: '2025-01-01T00:00:00Z',
 };
 
-const mockEncryptedChannel: Channel = {
-  ...mockTextChannel,
-  id: 'enc-1',
-  name: 'secret-chat',
-};
-
 const mockLinkedTextChannel: Channel = {
   id: 'linked-text-1',
   server_id: 'server-1',

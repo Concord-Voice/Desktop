@@ -38,7 +38,6 @@ vi.mock('@/renderer/components/Chat/GifEmbed', () => ({
   default: ({ slug }: { slug: string }) => <div data-testid="gif-embed">{slug}</div>,
 }));
 import { useMemberStore } from '@/renderer/stores/memberStore';
-import { usePermissionStore } from '@/renderer/stores/permissionStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 import { vi } from 'vitest';
 import userEvent from '@testing-library/user-event';

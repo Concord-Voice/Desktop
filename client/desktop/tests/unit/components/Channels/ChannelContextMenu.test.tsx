@@ -1,5 +1,5 @@
 import { render, screen, fireEvent } from '../../../test-utils';
-import { mockChannel, mockEncryptedChannel } from '../../../mocks/fixtures';
+import { mockChannel } from '../../../mocks/fixtures';
 import { usePermissionStore } from '@/renderer/stores/permissionStore';
 import { MANAGE_CHANNELS, BASE_PERMISSIONS, ADMIN_PERMISSIONS } from '@/renderer/utils/permissions';
 import ChannelContextMenu from '@/renderer/components/Channels/ChannelContextMenu';

@@ -1152,11 +1152,6 @@ describe('VideoConfigSection', () => {
     it('calls setDraftVideoSetting for cameraPriority', () => {
       renderComponent();
       const selects = screen.getAllByTestId('custom-select');
-      // Camera QoS select
-      const cameraQosSelect = selects.find((s) => {
-        const opts = s.querySelectorAll('option');
-        return Array.from(opts).some((o) => o.value === 'low' && o.textContent === 'Low (DF)');
-      });
       // There are two QoS selects; pick the first one (camera)
       const qosSelects = selects.filter((s) => {
         const opts = s.querySelectorAll('option');

@@ -26,13 +26,7 @@ vi.mock('@/renderer/services/resetService', () => ({
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
-import {
-  apiFetch,
-  API_BASE,
-  _resetRefreshState,
-  ensureMachineId,
-  getMachineIdSync,
-} from '@/renderer/services/apiClient';
+import { apiFetch, _resetRefreshState, ensureMachineId } from '@/renderer/services/apiClient';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

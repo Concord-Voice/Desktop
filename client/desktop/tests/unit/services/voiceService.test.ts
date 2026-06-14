@@ -1746,7 +1746,7 @@ describe('VoiceService', () => {
     });
 
     it('respects mute state on exit', async () => {
-      const { micProducer } = await joinVoiceChannel();
+      await joinVoiceChannel();
 
       // Enter solo mode
       const joinHandler = socketListeners['user-joined']?.[0];
@@ -2006,7 +2006,6 @@ describe('VoiceService', () => {
 
       // Should have called setParameters on the mic producer's rtpSender
       if (micProducer.rtpSender) {
-        const calls = micProducer.rtpSender.setParameters.mock.calls;
         // May or may not have been called depending on subscription timing
         // The subscription is set up during joinChannel
       }
@@ -2096,7 +2095,7 @@ describe('VoiceService', () => {
 
   describe('closeProducer extended', () => {
     it('closes screen with paired screen-audio', async () => {
-      const { sendTransport } = await joinVoiceChannel();
+      await joinVoiceChannel();
 
       const screenProducer = createMockProducer('prod-screen', 'screen');
       const audioProducer = createMockProducer('prod-screen-audio', 'screen-audio');
@@ -2135,7 +2134,7 @@ describe('VoiceService', () => {
 
   describe('codec floor change', () => {
     it('re-produces when better codec available', async () => {
-      const { sendTransport } = await joinVoiceChannel();
+      await joinVoiceChannel();
 
       const svc = voiceService as any;
       const cameraProducer = createMockProducer('prod-cam', 'camera');
@@ -2518,7 +2517,7 @@ describe('VoiceService', () => {
     });
 
     it('handles server error gracefully', async () => {
-      const { recvTransport } = await joinVoiceChannel();
+      await joinVoiceChannel();
 
       setupEmitResponses({
         consume: { error: 'server error' },

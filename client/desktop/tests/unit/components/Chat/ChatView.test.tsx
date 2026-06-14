@@ -4,13 +4,7 @@ import { useChatStore } from '@/renderer/stores/chatStore';
 import { useUserStore } from '@/renderer/stores/userStore';
 import { useServerStore } from '@/renderer/stores/serverStore';
 import { useUnreadStore } from '@/renderer/stores/unreadStore';
-import {
-  mockUser,
-  mockChannel,
-  mockMessage,
-  mockMessage2,
-  mockEncryptedChannel,
-} from '../../../mocks/fixtures';
+import { mockUser, mockChannel, mockMessage, mockMessage2 } from '../../../mocks/fixtures';
 
 // Mock apiFetch to prevent hanging fetches
 const mockApiFetch = vi.fn().mockResolvedValue({

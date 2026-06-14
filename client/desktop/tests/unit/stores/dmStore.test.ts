@@ -1420,7 +1420,7 @@ describe('dmStore', () => {
         })
       );
 
-      const conv = await useDMStore.getState().createGroupDM(['user-2'], 'Encrypted Group');
+      await useDMStore.getState().createGroupDM(['user-2'], 'Encrypted Group');
       expect(e2eeMock.createChannelKeys).toHaveBeenCalled();
       expect(useDMStore.getState().activeConversationId).toBe('conv-e2ee-group');
     });
@@ -1452,7 +1452,7 @@ describe('dmStore', () => {
         })
       );
 
-      const conv = await useDMStore.getState().openDM('user-2');
+      await useDMStore.getState().openDM('user-2');
       // ensureE2EEKey should have called getChannelKey, then distributed keys
       expect(e2eeMock.getChannelKey).toHaveBeenCalledWith('conv-e2ee-dm');
       expect(e2eeMock.createChannelKeys).toHaveBeenCalled();
@@ -1489,7 +1489,7 @@ describe('dmStore', () => {
         })
       );
 
-      const conv = await useDMStore.getState().openPersonalThread();
+      await useDMStore.getState().openPersonalThread();
       expect(e2eeMock.getChannelKey).toHaveBeenCalledWith('conv-e2ee-personal');
       expect(e2eeMock.createChannelKeys).toHaveBeenCalled();
     });
@@ -1518,7 +1518,7 @@ describe('dmStore', () => {
         })
       );
 
-      const conv = await useDMStore.getState().openPersonalThread();
+      await useDMStore.getState().openPersonalThread();
       // Key already existed — should NOT create new keys
       expect(e2eeMock.createChannelKeys).not.toHaveBeenCalled();
     });

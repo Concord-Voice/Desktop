@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '../../../test-utils';
+import { render } from '../../../test-utils';
 import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { useUserStore } from '@/renderer/stores/userStore';
 import { useAudioSettingsStore } from '@/renderer/stores/audioSettingsStore';
@@ -68,7 +68,6 @@ afterAll(() => {
 import ParticipantGrid, {
   AudioOutput,
   AudioOutputs,
-  UserFrameGrid,
 } from '@/renderer/components/Voice/ParticipantGrid';
 
 function makeMockStream(id = 'stream-1'): MediaStream {

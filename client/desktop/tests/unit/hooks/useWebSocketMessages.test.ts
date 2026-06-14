@@ -5,8 +5,6 @@ import { useChannelStore } from '@/renderer/stores/channelStore';
 import { useAuthStore } from '@/renderer/stores/authStore';
 import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { useUserStore } from '@/renderer/stores/userStore';
-import { useDMStore } from '@/renderer/stores/dmStore';
-import { useFriendStore } from '@/renderer/stores/friendStore';
 import { resetAllStores } from '../../helpers/store-helpers';
 import { mockChannel } from '../../mocks/fixtures';
 

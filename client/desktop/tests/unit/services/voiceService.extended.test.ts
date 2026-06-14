@@ -431,12 +431,6 @@ function triggerSocketEvent(event: string, ...args: unknown[]) {
   for (const handler of handlers) handler(...args);
 }
 
-function triggerSocketOnce(event: string, ...args: unknown[]) {
-  const handlers = socketOnceListeners[event] || [];
-  for (const handler of handlers) handler(...args);
-  delete socketOnceListeners[event];
-}
-
 function triggerIoEvent(event: string, ...args: unknown[]) {
   const handlers = ioListeners[event] || [];
   for (const handler of handlers) handler(...args);
@@ -601,7 +595,7 @@ describe('VoiceService Extended', () => {
 
   describe('liveReplaceCameraTrack', () => {
     it('replaces camera track with new constraints', async () => {
-      const { sendTransport } = await joinVoiceChannel();
+      await joinVoiceChannel();
       const svc = voiceService as any;
       const cameraProducer = createMockProducer('cam-1', 'camera');
       svc.producers.set('camera', cameraProducer);
@@ -623,7 +617,7 @@ describe('VoiceService Extended', () => {
     });
 
     it('falls back on OverconstrainedError', async () => {
-      const { sendTransport } = await joinVoiceChannel();
+      await joinVoiceChannel();
       const svc = voiceService as any;
       const cameraProducer = createMockProducer('cam-1', 'camera');
       svc.producers.set('camera', cameraProducer);
@@ -642,7 +636,7 @@ describe('VoiceService Extended', () => {
     });
 
     it('updates participant store with new stream', async () => {
-      const { sendTransport } = await joinVoiceChannel();
+      await joinVoiceChannel();
       const svc = voiceService as any;
       const cameraProducer = createMockProducer('cam-1', 'camera');
       svc.producers.set('camera', cameraProducer);
@@ -1374,7 +1368,7 @@ describe('VoiceService Extended', () => {
     });
 
     it('throws when no video tracks from capture', async () => {
-      const { sendTransport } = await joinVoiceChannel();
+      await joinVoiceChannel();
       mockCheckOne.mockResolvedValue('granted');
       const stream = createMockMediaStream([{ kind: 'audio' }]);
       stream.getVideoTracks.mockReturnValue([]);
@@ -2251,7 +2245,7 @@ describe('VoiceService Extended', () => {
 
   describe('cleanup', () => {
     it('closes all producers, consumers, and transports', async () => {
-      const { sendTransport, recvTransport, micProducer } = await joinVoiceChannel();
+      const { sendTransport, recvTransport } = await joinVoiceChannel();
       const svc = voiceService as any;
       const consumer = createMockConsumer('c1', 'audio', 'p1');
       svc.consumers.set('c1', consumer);
@@ -2816,7 +2810,7 @@ describe('VoiceService Extended', () => {
       // This is a module-level function, tested implicitly
       // Verify through produceAudio with priority 'off'
       useAudioSettingsStore.getState().setAudioPriority('off');
-      const { sendTransport, micProducer } = await joinVoiceChannel();
+      await joinVoiceChannel();
       // Audio priority 'off' means no priority params in encoding
       expect(useAudioSettingsStore.getState().audioPriority).toBe('off');
     });
@@ -2826,7 +2820,7 @@ describe('VoiceService Extended', () => {
 
   describe('produceVideo error messages', () => {
     it('no camera stream after all fallbacks', async () => {
-      const { sendTransport } = await joinVoiceChannel();
+      await joinVoiceChannel();
       const svc = voiceService as any;
       svc.producers.delete('camera');
       mockGetUserMedia.mockResolvedValue(null);

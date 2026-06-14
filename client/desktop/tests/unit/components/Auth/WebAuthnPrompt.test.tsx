@@ -193,7 +193,7 @@ describe('WebAuthnPrompt', () => {
     const err = new DOMException('Aborted', 'AbortError');
     mockGet.mockRejectedValue(err);
 
-    const { container } = render(
+    render(
       <WebAuthnPrompt
         requestOptions={{
           challenge: new ArrayBuffer(32),

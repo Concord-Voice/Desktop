@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, act, waitFor } from '../../../test-utils';
+import { render, screen, fireEvent, act } from '../../../test-utils';
 import { useClientConfigStore } from '@/renderer/stores/clientConfigStore';
 
 vi.mock('@/renderer/components/ui/ForceUpdateOverlay.css', () => ({}));

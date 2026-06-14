@@ -79,7 +79,7 @@ describe('ServerList', () => {
     useServerStore.getState().addServer(mockServer2);
     useServerStore.getState().setActiveServer(mockServer.id);
     useUnreadStore.getState().markServerUnread(mockServer2.id);
-    const { container } = render(
+    render(
       <ServerList onOpenActionModal={mockOnOpenActionModal} onContextMenu={mockOnContextMenu} />
     );
     const server2Wrapper = screen

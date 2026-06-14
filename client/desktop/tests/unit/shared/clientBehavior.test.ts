@@ -3,7 +3,6 @@ import {
   deriveCloseAction,
   deriveMinimizeAction,
   isOptionDisabled,
-  DEFAULT_CLIENT_BEHAVIOR,
   type ClientBehavior,
 } from '@/shared/clientBehavior';
 

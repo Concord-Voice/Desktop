@@ -220,7 +220,6 @@ describe('updateLogger', () => {
       const logger = createUpdateLogger();
 
       // Make the log directory read-only to trigger write failure
-      const logDir = logger.getLogDir();
       const logFile = logger.getLogPath();
 
       // Create a directory where the log file should be, making appendFileSync fail

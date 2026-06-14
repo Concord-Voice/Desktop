@@ -2,7 +2,6 @@ import { render, screen } from '../../../test-utils';
 import ServerBar from '@/renderer/components/Layout/ServerBar';
 import { useServerStore } from '@/renderer/stores/serverStore';
 import { useUnreadStore } from '@/renderer/stores/unreadStore';
-import { useAuthStore } from '@/renderer/stores/authStore';
 import { useNotificationPrefsStore } from '@/renderer/stores/notificationPrefsStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 import { mockServer, mockServer2 } from '../../../mocks/fixtures';

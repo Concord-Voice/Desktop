@@ -60,7 +60,9 @@ describe('MessageInput', () => {
   it('warm-fetches channel SBAC overrides on mount when serverId + channelId are present', () => {
     const fetchSpy = vi.fn().mockResolvedValue(undefined);
     usePermissionStore.setState({ fetchChannelOverrides: fetchSpy });
-    render(<MessageInput onSendMessage={onSendMessage} serverId="server-1" channelId="channel-1" />);
+    render(
+      <MessageInput onSendMessage={onSendMessage} serverId="server-1" channelId="channel-1" />
+    );
     expect(fetchSpy).toHaveBeenCalledWith('channel-1');
   });
 
@@ -330,7 +332,6 @@ describe('MessageInput', () => {
     await user.type(textarea, '@');
     // The mention-autocomplete element should appear (or the component renders conditionally)
     // Since MentionAutocomplete is a real component here, check for its role
-    const autocomplete = document.querySelector('.mention-autocomplete');
     // May or may not render depending on whether members match empty query
     // At minimum, the state change should have occurred
     expect(textarea).toHaveValue('@');
