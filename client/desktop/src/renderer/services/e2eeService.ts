@@ -271,7 +271,7 @@ class E2EEService {
       const retryAfter = Number.parseInt(res.headers.get('Retry-After') || '30', 10);
       this.rateLimitedUntil = Date.now() + retryAfter * 1000;
     }
-    const body = await safeJson<ErrorResponseShape>(res).catch(() => ({}) as ErrorResponseShape);
+    const body = await safeJson<ErrorResponseShape>(res).catch((): ErrorResponseShape => ({}));
     const code = body.code ?? 'NO_KEY_YET';
     const pending = body.pending ?? false;
 

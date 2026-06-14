@@ -31,7 +31,7 @@ function base64urlToBuffer(base64url: string): ArrayBuffer {
   const pad = base64.length % 4 === 0 ? '' : '='.repeat(4 - (base64.length % 4));
   const binary = atob(base64 + pad);
   const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.codePointAt(i) ?? 0;
   return bytes.buffer;
 }
 

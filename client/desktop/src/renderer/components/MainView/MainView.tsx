@@ -103,6 +103,82 @@ const MainPrimaryContent: React.FC<MainPrimaryContentProps> = ({
   );
 };
 
+/**
+ * Computes the on-screen position for the E2EE tooltip relative to its trigger,
+ * preferring right-edge alignment and clamping to the viewport. Extracted from
+ * MainView so the trigger callback stays a single statement (keeps MainView's
+ * cognitive complexity below the rule threshold).
+ */
+const computeE2eeTooltipPos = (rect: DOMRect): { top: number; left: number } => {
+  const tooltipWidth = 240;
+  const padding = 8;
+  const top = rect.bottom + padding;
+
+  const leftAligned = rect.right - tooltipWidth;
+  if (leftAligned >= padding) {
+    return { top, left: leftAligned };
+  }
+  const maxLeft = globalThis.innerWidth - tooltipWidth - padding;
+  return { top, left: Math.min(rect.left, maxLeft) };
+};
+
+/**
+ * Owns the PiP signaling proxy lifecycle: created when the user is connected to
+ * voice, disposed on disconnect/unmount. Extracted from MainView so the async
+ * import + cleanup branching lives in a dedicated hook rather than inflating
+ * MainView's cognitive complexity.
+ */
+const usePipSignalingProxy = (isInVoice: boolean): void => {
+  useEffect(() => {
+    if (!isInVoice) return;
+    let cancelled = false;
+    let proxy: PipSignalingProxy | null = null;
+    // Capture voiceService ref synchronously for cleanup (avoids async race)
+    let capturedVoiceService:
+      | (typeof import('../../services/voiceService'))['voiceService']
+      | null = null;
+
+    import('../../services/voiceService')
+      .then(({ voiceService }) => {
+        if (cancelled) return;
+        capturedVoiceService = voiceService;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PipSignalingProxy's voiceService parameter expects an internal interface that isn't exported from voiceService's public module; typing it would require re-exporting internal mediasoup handler types
+        proxy = new PipSignalingProxy(voiceService as any);
+
+        // Wire producer lifecycle events so PiP windows learn about new/removed producers
+        voiceService.onProducerAdded = (pid: string, uid: string, src: string) => {
+          proxy?.broadcastProducerAdded(pid, uid, src);
+        };
+        voiceService.onProducerClosed = (pid: string, uid: string) => {
+          proxy?.broadcastProducerClosed(pid, uid);
+        };
+
+        const cleanup = globalThis.electron?.onPipClosed?.((pipId: string) => {
+          proxy?.onPipClosed(pipId);
+        });
+
+        (proxy as PipSignalingProxy & { _ipcCleanup?: () => void })._ipcCleanup = cleanup;
+      })
+      .catch(() => {
+        /* voiceService import failed — nothing to proxy */
+      });
+
+    return () => {
+      cancelled = true;
+      if (proxy) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- `_ipcCleanup` is a private cleanup-callback slot stored on the proxy instance via `(proxy as PipSignalingProxy & { _ipcCleanup? })` at attach time; optional chaining here handles the case where the IPC bridge was never registered
+        (proxy as any)._ipcCleanup?.();
+        proxy.dispose();
+      }
+      // Clear producer lifecycle callbacks synchronously to avoid race
+      if (capturedVoiceService) {
+        capturedVoiceService.onProducerAdded = null;
+        capturedVoiceService.onProducerClosed = null;
+      }
+    };
+  }, [isInVoice]);
+};
+
 const MainView: React.FC = () => {
   // Subscribe to ALL channels in the active server for unread tracking
   useServerChannelSubscriptions();
@@ -145,19 +221,7 @@ const MainView: React.FC = () => {
 
   const showE2eeTooltip = useCallback(() => {
     if (e2eeIndicatorRef.current) {
-      const rect = e2eeIndicatorRef.current.getBoundingClientRect();
-      const tooltipWidth = 240;
-      const padding = 8;
-      const top = rect.bottom + padding;
-
-      const leftAligned = rect.right - tooltipWidth;
-      if (leftAligned >= padding) {
-        setE2eeTooltipPos({ top, left: leftAligned });
-      } else {
-        const rightAligned = rect.left;
-        const maxLeft = globalThis.innerWidth - tooltipWidth - padding;
-        setE2eeTooltipPos({ top, left: Math.min(rightAligned, maxLeft) });
-      }
+      setE2eeTooltipPos(computeE2eeTooltipPos(e2eeIndicatorRef.current.getBoundingClientRect()));
     }
   }, []);
   const hideE2eeTooltip = useCallback(() => setE2eeTooltipPos(null), []);
@@ -269,58 +333,7 @@ const MainView: React.FC = () => {
 
   // PiP signaling proxy: create when connected to voice, dispose when disconnected.
   // Kept at MainView level so it persists across navigation (VoiceView unmounts on nav).
-  //
-  // The import is async; use a cancellation flag so that if isInVoice flips
-  // false (or MainView unmounts) before the promise resolves, we immediately
-  // dispose the proxy rather than leaking IPC listeners / store subscriptions.
-  useEffect(() => {
-    if (!isInVoice) return;
-    let cancelled = false;
-    let proxy: PipSignalingProxy | null = null;
-    // Capture voiceService ref synchronously for cleanup (avoids async race)
-    let capturedVoiceService:
-      | (typeof import('../../services/voiceService'))['voiceService']
-      | null = null;
-
-    import('../../services/voiceService')
-      .then(({ voiceService }) => {
-        if (cancelled) return;
-        capturedVoiceService = voiceService;
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PipSignalingProxy's voiceService parameter expects an internal interface that isn't exported from voiceService's public module; typing it would require re-exporting internal mediasoup handler types
-        proxy = new PipSignalingProxy(voiceService as any);
-
-        // Wire producer lifecycle events so PiP windows learn about new/removed producers
-        voiceService.onProducerAdded = (pid: string, uid: string, src: string) => {
-          proxy?.broadcastProducerAdded(pid, uid, src);
-        };
-        voiceService.onProducerClosed = (pid: string, uid: string) => {
-          proxy?.broadcastProducerClosed(pid, uid);
-        };
-
-        const cleanup = globalThis.electron?.onPipClosed?.((pipId: string) => {
-          proxy?.onPipClosed(pipId);
-        });
-
-        (proxy as PipSignalingProxy & { _ipcCleanup?: () => void })._ipcCleanup = cleanup;
-      })
-      .catch(() => {
-        /* voiceService import failed — nothing to proxy */
-      });
-
-    return () => {
-      cancelled = true;
-      if (proxy) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- `_ipcCleanup` is a private cleanup-callback slot stored on the proxy instance via `(proxy as PipSignalingProxy & { _ipcCleanup? })` at attach time; optional chaining here handles the case where the IPC bridge was never registered
-        (proxy as any)._ipcCleanup?.();
-        proxy.dispose();
-      }
-      // Clear producer lifecycle callbacks synchronously to avoid race
-      if (capturedVoiceService) {
-        capturedVoiceService.onProducerAdded = null;
-        capturedVoiceService.onProducerClosed = null;
-      }
-    };
-  }, [isInVoice]);
+  usePipSignalingProxy(isInVoice);
 
   // Vertical voice text chat panel — rendered as a side column in MainView
   // instead of inside PersistentVoiceBar

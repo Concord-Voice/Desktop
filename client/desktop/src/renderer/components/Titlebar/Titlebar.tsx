@@ -23,12 +23,12 @@ export const Titlebar: React.FC = () => {
   const [appVersion, setAppVersion] = useState<string | null>(null);
   const [spaHash, setSpaHash] = useState<string | null>(null);
   const platform =
-    typeof navigator !== 'undefined'
-      ? ((navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData
+    typeof navigator === 'undefined'
+      ? ''
+      : ((navigator as Navigator & { userAgentData?: { platform?: string } }).userAgentData
           ?.platform ??
         navigator.platform ??
-        '')
-      : '';
+        '');
   const isMac = platform.toLowerCase().includes('mac');
 
   useEffect(() => {

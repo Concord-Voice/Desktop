@@ -128,19 +128,11 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, serve
   const handleCopyCode = async (code: string) => {
     try {
       await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch {
-      // Fallback: use a temporary textarea for clipboard write
-      const ta = document.createElement('textarea');
-      ta.value = code;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      ta.remove();
+      // Clipboard unavailable — user can select the code manually
     }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
   };
 
   const handleSelectCode = () => {

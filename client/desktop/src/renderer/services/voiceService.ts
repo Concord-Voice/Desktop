@@ -3723,7 +3723,15 @@ class VoiceService {
     this.mediaEncryption = null;
     this.terminateE2EEWorker();
     if (lastError instanceof Error) throw lastError;
-    const detail = lastError == null ? '' : ` (${String(lastError)})`;
+    let stringified = String(lastError);
+    if (typeof lastError === 'object' && lastError !== null) {
+      try {
+        stringified = JSON.stringify(lastError);
+      } catch {
+        // circular / unstringifiable object — keep the String() fallback
+      }
+    }
+    const detail = lastError == null ? '' : ` (${stringified})`;
     throw new Error(`E2EE: failed to initialize encryption after retries${detail}`);
   }
 

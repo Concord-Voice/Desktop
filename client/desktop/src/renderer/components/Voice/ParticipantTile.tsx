@@ -21,7 +21,7 @@ interface ParticipantTileProps {
 function bannerGradient(userId: string): string {
   let hash = 0;
   for (let i = 0; i < userId.length; i++) {
-    hash = ((hash << 5) - hash + userId.charCodeAt(i)) | 0;
+    hash = Math.trunc((hash << 5) - hash + (userId.codePointAt(i) ?? 0));
   }
   const hue1 = (hash >>> 0) % 360;
   const hue2 = (hue1 + 60) % 360;

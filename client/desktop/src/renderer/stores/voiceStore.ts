@@ -448,6 +448,9 @@ const initialState = {
       /* ignore */
     }
     return 'horizontal';
+    // S4325 false-positive: the assertion narrows the IIFE's inferred return
+    // type from `string` (widened literal) to the `'horizontal' | 'vertical'`
+    // union required by VoiceState — removing it breaks `tsc --noEmit`.
   })() as 'horizontal' | 'vertical',
   voiceTextChatWidth: (() => {
     try {

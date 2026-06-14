@@ -354,6 +354,52 @@ describe('MainView', () => {
     expect(screen.getByTestId('chat-view')).toBeInTheDocument();
   });
 
+  // E2EE indicator tooltip — exercises computeE2eeTooltipPos (#1516 refactor).
+  // Right-aligned branch: the trigger sits far enough from the left edge that a
+  // 240px tooltip still clears the 8px padding.
+  it('shows the E2EE tooltip on hover, right-aligned to the indicator', () => {
+    const { container } = render(<MainView />);
+    const indicator = container.querySelector('.server-e2ee-indicator') as HTMLElement;
+    expect(indicator).not.toBeNull();
+    indicator.getBoundingClientRect = () =>
+      ({
+        right: 500,
+        left: 260,
+        bottom: 40,
+        top: 20,
+        width: 20,
+        height: 20,
+        x: 260,
+        y: 20,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    fireEvent.mouseEnter(indicator);
+    expect(screen.getByText('E2EE Disabled')).toBeInTheDocument();
+    fireEvent.mouseLeave(indicator);
+    expect(screen.queryByText('E2EE Disabled')).not.toBeInTheDocument();
+  });
+
+  // Clamped branch: the trigger is near the left edge, so the right-aligned
+  // position would underflow the padding and the helper clamps instead.
+  it('shows the E2EE tooltip clamped when the indicator is near the left edge', () => {
+    const { container } = render(<MainView />);
+    const indicator = container.querySelector('.server-e2ee-indicator') as HTMLElement;
+    indicator.getBoundingClientRect = () =>
+      ({
+        right: 100,
+        left: 10,
+        bottom: 40,
+        top: 20,
+        width: 20,
+        height: 20,
+        x: 10,
+        y: 20,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    fireEvent.mouseEnter(indicator);
+    expect(screen.getByText('E2EE Disabled')).toBeInTheDocument();
+  });
+
   it('shows welcome message when no server is active', () => {
     useServerStore.setState({ servers: [], activeServerId: null });
     useChannelStore.setState({ channels: [], activeChannelId: null });

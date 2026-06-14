@@ -253,6 +253,86 @@ function isAuthConfirmDisabled(hasMFA: boolean, mfaCode: string, password: strin
   return hasMFA ? !mfaCode : !password;
 }
 
+/**
+ * Format an ISO timestamp as a short relative string ("Just now", "5m ago",
+ * "Mar 6, 2026"). Pure helper hoisted to module scope so it does not inflate
+ * PrivacySecuritySection's cognitive complexity.
+ */
+function formatRelativeTime(dateStr: string): string {
+  const now = new Date();
+  const date = new Date(dateStr);
+  const diffMs = now.getTime() - date.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  const diffHr = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHr / 24);
+
+  if (diffMin < 1) return 'Just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHr < 24) return `${diffHr}h ago`;
+  if (diffDay < 30) return `${diffDay}d ago`;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/**
+ * Derive a human-readable device label from a User-Agent string. Pure helper
+ * hoisted to module scope so it does not inflate PrivacySecuritySection's
+ * cognitive complexity.
+ */
+function parseUserAgent(ua: string): string {
+  if (!ua) return 'Unknown Device';
+  if (ua.includes('Electron')) return 'Concord Voice Desktop';
+  if (ua.includes('Chrome')) return 'Chrome Browser';
+  if (ua.includes('Firefox')) return 'Firefox Browser';
+  if (ua.includes('Safari')) return 'Safari Browser';
+  return 'Unknown Device';
+}
+
+/** Decode a base64url string into an ArrayBuffer. */
+function base64UrlToBuffer(b64url: string): ArrayBuffer {
+  const b64 = b64url.replaceAll('-', '+').replaceAll('_', '/');
+  const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
+  const bin = atob(b64 + pad);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.codePointAt(i) ?? 0;
+  return bytes.buffer;
+}
+
+/**
+ * Signal the authenticator (best-effort) that a WebAuthn credential was removed,
+ * using the WebAuthn Signal API (signalAllAcceptedCredentialIds, Chrome 132+) so
+ * platform/hardware authenticators can purge the deleted credential. Extracted
+ * from PrivacySecuritySection so its deep nesting does not inflate the
+ * component's cognitive complexity. Swallows failures by design — this is a
+ * hint, not a hard requirement.
+ */
+async function signalRemovedWebAuthnCredential(data: {
+  remaining_credential_ids?: string[];
+  user_id?: string;
+}): Promise<void> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- WebAuthn Signal API (signalAllAcceptedCredentialIds) shipped in Chrome 132 and is not yet in the standard lib.dom.d.ts; runtime-gated by the `typeof PKC.signalAllAcceptedCredentialIds === 'function'` check below
+    const PKC = PublicKeyCredential as any;
+    if (
+      typeof PublicKeyCredential !== 'undefined' &&
+      typeof PKC.signalAllAcceptedCredentialIds === 'function' &&
+      data.remaining_credential_ids &&
+      data.user_id
+    ) {
+      const rpId = new URL(API_BASE).hostname;
+      // WebAuthn user ID is the UUID string as raw bytes
+      const userId = new TextEncoder().encode(data.user_id).buffer;
+      const remaining = data.remaining_credential_ids.map(base64UrlToBuffer);
+      await PKC.signalAllAcceptedCredentialIds({
+        rpId,
+        userId,
+        allAcceptedCredentialIds: remaining,
+      });
+    }
+  } catch {
+    // Signal API is best-effort — don't block on failure
+  }
+}
+
 /** Session card revoke/confirm action buttons. */
 const SessionCardActions: React.FC<{
   sessionId: string;
@@ -864,28 +944,119 @@ const PrivacySecuritySection: React.FC = () => {
     }
   };
 
-  const formatRelativeTime = (dateStr: string): string => {
-    const now = new Date();
-    const date = new Date(dateStr);
-    const diffMs = now.getTime() - date.getTime();
-    const diffMin = Math.floor(diffMs / 60000);
-    const diffHr = Math.floor(diffMin / 60);
-    const diffDay = Math.floor(diffHr / 24);
-
-    if (diffMin < 1) return 'Just now';
-    if (diffMin < 60) return `${diffMin}m ago`;
-    if (diffHr < 24) return `${diffHr}h ago`;
-    if (diffDay < 30) return `${diffDay}d ago`;
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  // ─── MFA action handlers (extracted from JSX props so their branching does
+  // not inflate this component's cognitive complexity) ─────────────────────
+  const handleResetTOTP = async (password: string, code: string): Promise<boolean> => {
+    const res = await apiFetch('/api/v1/mfa/totp/disable', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password, code }),
+    });
+    if (res.ok) {
+      fetchMFAStatus();
+      return true;
+    }
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to disable TOTP');
   };
 
-  const parseUserAgent = (ua: string): string => {
-    if (!ua) return 'Unknown Device';
-    if (ua.includes('Electron')) return 'Concord Voice Desktop';
-    if (ua.includes('Chrome')) return 'Chrome Browser';
-    if (ua.includes('Firefox')) return 'Firefox Browser';
-    if (ua.includes('Safari')) return 'Safari Browser';
-    return 'Unknown Device';
+  const handleRevokeWebAuthnKey = async (
+    credentialId: string,
+    password: string
+  ): Promise<boolean> => {
+    const res = await apiFetch(`/api/v1/mfa/webauthn/credentials/${credentialId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      // Signal the authenticator to clean up the deleted credential (best-effort).
+      await signalRemovedWebAuthnCredential(data);
+      fetchMFAStatus();
+      return true;
+    }
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Failed to revoke credential');
+  };
+
+  const handleDisableEmailSms = async (): Promise<boolean> => {
+    const res = await apiFetch('/api/v1/mfa/email-sms/disable', { method: 'POST' });
+    if (res.ok) {
+      fetchMFAStatus();
+      return true;
+    }
+    const errData = await res.json().catch(() => ({}));
+    throw new Error(errData.error || 'Failed to disable Email/SMS');
+  };
+
+  const handleSetBackupEmail = async (email: string): Promise<boolean> => {
+    const res = await apiFetch('/api/v1/mfa/backup-email', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setMfaBackupEmail(data.backup_email || '');
+      return true;
+    }
+    return false;
+  };
+
+  const handleToggleRecoveryHardened = async (
+    enabled: boolean,
+    password: string,
+    mfaCode?: string
+  ): Promise<boolean> => {
+    try {
+      const res = await apiFetch('/api/v1/mfa/recovery-hardened', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled, password, mfa_code: mfaCode || undefined }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMfaRecoveryHardened(data.recovery_hardened);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  };
+
+  const handleToggleRecoveryOnly = async (
+    method: string,
+    recoveryOnly: boolean,
+    password: string,
+    mfaCode?: string
+  ): Promise<boolean> => {
+    const newList = recoveryOnly
+      ? [...mfaRecoveryOnly, method]
+      : mfaRecoveryOnly.filter((m) => m !== method);
+    try {
+      const res = await apiFetch('/api/v1/mfa/recovery-only', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          methods: newList,
+          password,
+          mfa_code: mfaCode || undefined,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setMfaRecoveryOnly(data.recovery_only_methods || []);
+        if (data.recovery_hardened !== undefined) {
+          setMfaRecoveryHardened(data.recovery_hardened);
+        }
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
+    }
   };
 
   return (
@@ -1002,135 +1173,12 @@ const PrivacySecuritySection: React.FC = () => {
               setMfaSetupMethod('webauthn');
             }}
             onSetupEmailSms={() => setMfaSetupMethod('email-sms')}
-            onResetTOTP={async (password, code) => {
-              const res = await apiFetch('/api/v1/mfa/totp/disable', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password, code }),
-              });
-              if (res.ok) {
-                fetchMFAStatus();
-                return true;
-              }
-              const data = await res.json().catch(() => ({}));
-              throw new Error(data.error || 'Failed to disable TOTP');
-            }}
-            onRevokeWebAuthnKey={async (credentialId, password) => {
-              const res = await apiFetch(`/api/v1/mfa/webauthn/credentials/${credentialId}`, {
-                method: 'DELETE',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ password }),
-              });
-              if (res.ok) {
-                const data = await res.json();
-                // Signal the authenticator to clean up the deleted credential (best-effort).
-                // Uses the WebAuthn Signal API (Chrome 132+) to hint that removed credentials
-                // are no longer accepted, so platform/hardware authenticators can purge them.
-                try {
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- WebAuthn Signal API (signalAllAcceptedCredentialIds) shipped in Chrome 132 and is not yet in the standard lib.dom.d.ts; runtime-gated by the `typeof PKC.signalAllAcceptedCredentialIds === 'function'` check below
-                  const PKC = PublicKeyCredential as any;
-                  if (
-                    typeof PublicKeyCredential !== 'undefined' &&
-                    typeof PKC.signalAllAcceptedCredentialIds === 'function' &&
-                    data.remaining_credential_ids &&
-                    data.user_id
-                  ) {
-                    const rpId = new URL(API_BASE).hostname;
-                    const toBuffer = (b64url: string): ArrayBuffer => {
-                      const b64 = b64url.replaceAll('-', '+').replaceAll('_', '/');
-                      const pad = b64.length % 4 === 0 ? '' : '='.repeat(4 - (b64.length % 4));
-                      const bin = atob(b64 + pad);
-                      const bytes = new Uint8Array(bin.length);
-                      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-                      return bytes.buffer;
-                    };
-                    // WebAuthn user ID is the UUID string as raw bytes
-                    const encoder = new TextEncoder();
-                    const userId = encoder.encode(data.user_id).buffer;
-                    const remaining = (data.remaining_credential_ids as string[]).map(toBuffer);
-                    await PKC.signalAllAcceptedCredentialIds({
-                      rpId,
-                      userId,
-                      allAcceptedCredentialIds: remaining,
-                    });
-                  }
-                } catch {
-                  // Signal API is best-effort — don't block on failure
-                }
-                fetchMFAStatus();
-                return true;
-              }
-              const errData = await res.json().catch(() => ({}));
-              throw new Error(errData.error || 'Failed to revoke credential');
-            }}
-            onDisableEmailSms={async () => {
-              const res = await apiFetch('/api/v1/mfa/email-sms/disable', {
-                method: 'POST',
-              });
-              if (res.ok) {
-                fetchMFAStatus();
-                return true;
-              }
-              const errData = await res.json().catch(() => ({}));
-              throw new Error(errData.error || 'Failed to disable Email/SMS');
-            }}
-            onSetBackupEmail={async (email) => {
-              const res = await apiFetch('/api/v1/mfa/backup-email', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email }),
-              });
-              if (res.ok) {
-                const data = await res.json();
-                setMfaBackupEmail(data.backup_email || '');
-                return true;
-              }
-              return false;
-            }}
-            onToggleRecoveryHardened={async (enabled, password, mfaCode) => {
-              try {
-                const res = await apiFetch('/api/v1/mfa/recovery-hardened', {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ enabled, password, mfa_code: mfaCode || undefined }),
-                });
-                if (res.ok) {
-                  const data = await res.json();
-                  setMfaRecoveryHardened(data.recovery_hardened);
-                  return true;
-                }
-                return false;
-              } catch {
-                return false;
-              }
-            }}
-            onToggleRecoveryOnly={async (method, recoveryOnly, password, mfaCode) => {
-              const newList = recoveryOnly
-                ? [...mfaRecoveryOnly, method]
-                : mfaRecoveryOnly.filter((m) => m !== method);
-              try {
-                const res = await apiFetch('/api/v1/mfa/recovery-only', {
-                  method: 'PUT',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    methods: newList,
-                    password,
-                    mfa_code: mfaCode || undefined,
-                  }),
-                });
-                if (res.ok) {
-                  const data = await res.json();
-                  setMfaRecoveryOnly(data.recovery_only_methods || []);
-                  if (data.recovery_hardened !== undefined) {
-                    setMfaRecoveryHardened(data.recovery_hardened);
-                  }
-                  return true;
-                }
-                return false;
-              } catch {
-                return false;
-              }
-            }}
+            onResetTOTP={handleResetTOTP}
+            onRevokeWebAuthnKey={handleRevokeWebAuthnKey}
+            onDisableEmailSms={handleDisableEmailSms}
+            onSetBackupEmail={handleSetBackupEmail}
+            onToggleRecoveryHardened={handleToggleRecoveryHardened}
+            onToggleRecoveryOnly={handleToggleRecoveryOnly}
           />
         )}
 

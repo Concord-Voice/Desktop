@@ -188,26 +188,18 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
     }
   }, [isGenerating, generateFriendCode, maxUses, expiresIn, autoAccept]);
 
-  // Copy code (with fallback for restricted clipboard access)
+  // Copy code to clipboard
   const handleCopy = useCallback(
     async (code?: string) => {
       const text = code || generatedCode;
       if (!text) return;
       try {
         await navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
       } catch {
-        // Fallback: use a temporary textarea for clipboard write
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand('copy');
-        ta.remove();
+        // Clipboard unavailable — user can select the code manually
       }
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
     },
     [generatedCode]
   );
