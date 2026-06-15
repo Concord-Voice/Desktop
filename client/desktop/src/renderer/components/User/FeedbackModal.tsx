@@ -49,6 +49,9 @@ type SubmitState =
   | { status: 'success'; issueUrl?: string; dev: boolean }
   | { status: 'error'; message: string };
 
+const DEV_TEST_DESCRIPTION =
+  'Placeholder submission from the dev-only debug button on the infra branch. Replace with real form fields in #159 / #160.';
+
 /**
  * Inner component for the success-state issue URL. Extracted so the URL is
  * captured into a local const at the consumer's site (where TS narrowing
@@ -126,6 +129,20 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, initialM
     onClose();
   }, [onClose]);
 
+  /**
+   * Dev-only smoke trigger handler. Extracted from the JSX onClick so the
+   * arrow-with-multiline-object pattern doesn't trip cognitive-complexity
+   * rules on the inline JSX attribute (Sonar). Removed when #159 / #160
+   * wire real submission.
+   */
+  const handleDevTestSubmit = useCallback(() => {
+    void submit({
+      type: mode,
+      title: 'Infrastructure smoke test',
+      description: DEV_TEST_DESCRIPTION,
+    });
+  }, [mode, submit]);
+
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Send Feedback" width="xlarge">
       <div className="feedback-modal">
@@ -168,18 +185,7 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, initialM
               infra branch before the panels arrive. Hidden in production
               builds. Removed once #159 / #160 wire real submission. */}
           {import.meta.env.DEV && submitState.status === 'idle' && (
-            <button
-              type="button"
-              className="feedback-btn-secondary"
-              onClick={() =>
-                void submit({
-                  type: mode,
-                  title: 'Infrastructure smoke test',
-                  description:
-                    'Placeholder submission from the dev-only debug button on the infra branch. Replace with real form fields in #159 / #160.',
-                })
-              }
-            >
+            <button type="button" className="feedback-btn-secondary" onClick={handleDevTestSubmit}>
               Send Test Submission (dev)
             </button>
           )}
