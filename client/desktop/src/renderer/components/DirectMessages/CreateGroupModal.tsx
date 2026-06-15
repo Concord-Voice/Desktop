@@ -39,10 +39,15 @@ const CreateGroupModal: React.FC<CreateGroupModalProps> = ({ isOpen, onClose }) 
   // Reset state when modal closes
   useEffect(() => {
     if (!isOpen) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets groupName when modal closes; not a render loop
       setGroupName('');
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets searchQuery when modal closes; not a render loop
       setSearchQuery('');
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets selectedUsers when modal closes; not a render loop
       setSelectedUsers([]);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears error when modal closes; not a render loop
       setError(null);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets isCreating when modal closes; not a render loop
       setIsCreating(false);
     }
   }, [isOpen]);

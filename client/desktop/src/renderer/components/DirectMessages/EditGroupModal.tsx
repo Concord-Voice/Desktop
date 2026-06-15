@@ -24,8 +24,11 @@ const EditGroupModal: React.FC<EditGroupModalProps> = ({
   // Reset name when modal opens
   useEffect(() => {
     if (isOpen) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets name from currentName prop when modal opens; not a render loop
       setName(currentName || '');
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears error when modal opens; not a render loop
       setError(null);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets isSaving when modal opens; not a render loop
       setIsSaving(false);
     }
   }, [isOpen, currentName]);

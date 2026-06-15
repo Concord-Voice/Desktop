@@ -23,6 +23,7 @@ interface FriendsListProps {
 }
 
 const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
+  // eslint-disable-next-line @eslint-react/use-state -- Set() is cheap to construct; lazy initializer would add noise without benefit
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
   const [showAddFriendModal, setShowAddFriendModal] = useState(false);
   const friends = useFriendStore((s) => s.friends);

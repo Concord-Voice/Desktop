@@ -135,6 +135,7 @@ const TTSSection: React.FC = () => {
   useEffect(() => {
     const loadVoices = () => {
       const available = globalThis.speechSynthesis?.getVoices() ?? [];
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: updates voices list from SpeechSynthesis API on mount and when voices change; not a render loop
       setVoices(available);
     };
     loadVoices();

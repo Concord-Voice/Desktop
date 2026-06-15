@@ -49,9 +49,11 @@ const ProfileInfoForm: React.FC = () => {
   const usernameChangeEligibleAt = user?.username_change_eligible_at
     ? new Date(user.username_change_eligible_at)
     : null;
+  /* eslint-disable @eslint-react/purity -- new Date() reads the current time to check cooldown; this is a pure computation with no observable side effect */
   const isUsernameOnCooldown = usernameChangeEligibleAt
     ? usernameChangeEligibleAt > new Date()
     : false;
+  /* eslint-enable @eslint-react/purity -- end of new Date() cooldown check */
 
   // Extract stable reset functions so the init effect can depend on them
   // without churning on every render (useImageUpload returns a fresh object
@@ -75,11 +77,15 @@ const ProfileInfoForm: React.FC = () => {
   // ServerSettingsPage.tsx:200-225.
   useEffect(() => {
     if (user) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets username from user prop when user identity changes (snapshot-on-switch); not a render loop
       setUsername(user.username);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets displayName from user prop when user identity changes; not a render loop
       setDisplayName(user.display_name || '');
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets bio from user prop when user identity changes; not a render loop
       setBio(user.bio || '');
       avatarReset(user.avatar_url || null);
       headerReset(user.header_image_url || null);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets links from user prop when user identity changes; not a render loop
       setLinks(user.links || []);
     }
     // eslint-disable-next-line @eslint-react/exhaustive-deps -- snapshot-on-switch; see block comment above effect

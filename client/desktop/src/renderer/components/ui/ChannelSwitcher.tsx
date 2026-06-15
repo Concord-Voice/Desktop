@@ -76,13 +76,16 @@ const ChannelSwitcher: React.FC = () => {
 
   // Reset selection on filter change
   useEffect(() => {
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets selectedIndex to 0 when the user changes the search query — NOT on background store churn that merely rebuilds the `filtered` reference; not a render loop
     setSelectedIndex(0);
-  }, [filtered]);
+  }, [query]);
 
   // Focus input when opened
   useEffect(() => {
     if (isOpen) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets query when switcher opens; not a render loop
       setQuery('');
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets selectedIndex when switcher opens; not a render loop
       setSelectedIndex(0);
       requestAnimationFrame(() => inputRef.current?.focus());
     }

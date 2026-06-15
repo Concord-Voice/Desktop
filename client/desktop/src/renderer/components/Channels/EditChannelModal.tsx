@@ -50,9 +50,13 @@ const EditChannelModal: React.FC<EditChannelModalProps> = ({
 
   // Reset form when channel changes
   useEffect(() => {
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets name from channel prop when channel changes; not a render loop
     setName(channel.name);
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets emoji from channel prop when channel changes; not a render loop
     setEmoji(channel.emoji || '');
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets groupId from channel prop when channel changes; not a render loop
     setGroupId(channel.group_id || '');
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets audioQualityTier from channel prop when channel changes; not a render loop
     setAudioQualityTier(channel.audio_quality_tier ?? null);
     resetFormState();
   }, [channel, resetFormState]);

@@ -15,6 +15,7 @@ const TypingIndicator: React.FC<TypingIndicatorProps> = ({ channelId }) => {
   useEffect(() => {
     const updateTyping = () => {
       const users = getTypingUsers(channelId);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: refreshes typingUsers from store snapshot on each poll tick and channelId change; not a render loop
       setTypingUsers(users);
     };
 

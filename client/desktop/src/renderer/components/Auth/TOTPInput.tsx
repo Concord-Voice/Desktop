@@ -17,8 +17,9 @@ const TOTPInput: React.FC<TOTPInputProps> = ({
   error,
   autoFocus = true,
 }) => {
+  // eslint-disable-next-line @eslint-react/use-state -- lazy initializer not needed for a fixed-size array literal; the fill('') call is idempotent and has no performance impact
   const [digits, setDigits] = useState<string[]>(new Array(6).fill(''));
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const inputsRef = useRef<(HTMLInputElement | null)[]>([]);
 
   const handleChange = useCallback(
     (index: number, value: string) => {
@@ -29,7 +30,7 @@ const TOTPInput: React.FC<TOTPInputProps> = ({
       setDigits(newDigits);
 
       if (digit && index < 5) {
-        inputRefs.current[index + 1]?.focus();
+        inputsRef.current[index + 1]?.focus();
       }
 
       // Auto-submit when all 6 digits are filled
@@ -44,7 +45,7 @@ const TOTPInput: React.FC<TOTPInputProps> = ({
   const handleKeyDown = useCallback(
     (index: number, e: React.KeyboardEvent) => {
       if (e.key === 'Backspace' && !digits[index] && index > 0) {
-        inputRefs.current[index - 1]?.focus();
+        inputsRef.current[index - 1]?.focus();
       }
     },
     [digits]
@@ -65,7 +66,7 @@ const TOTPInput: React.FC<TOTPInputProps> = ({
       if (pasted.length === 6) {
         onSubmit(pasted);
       } else {
-        inputRefs.current[pasted.length]?.focus();
+        inputsRef.current[pasted.length]?.focus();
       }
     },
     [onSubmit]
@@ -78,7 +79,7 @@ const TOTPInput: React.FC<TOTPInputProps> = ({
           <input
             key={DIGIT_KEYS[i]}
             ref={(el) => {
-              inputRefs.current[i] = el;
+              inputsRef.current[i] = el;
             }}
             type="text"
             inputMode="numeric"

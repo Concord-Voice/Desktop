@@ -51,6 +51,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
   // gracefully on 404 (getPins returns [] — no console error loop).
   useEffect(() => {
     if (!selectedThreadId) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears pinnedCount when no thread is selected; not a render loop
       setPinnedCount(0);
       return;
     }
@@ -69,6 +70,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
 
   // Close pinned panel when switching threads
   useEffect(() => {
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: closes pinned panel when switching threads; not a render loop
     setShowPinnedPanel(false);
   }, [selectedThreadId]);
 

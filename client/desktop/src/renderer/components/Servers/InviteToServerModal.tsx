@@ -51,10 +51,15 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, serve
   useEffect(() => {
     if (isOpen) {
       fetchInvites(server.id);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets generatedCode when modal opens; not a render loop
       setGeneratedCode(null);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets copied flag when modal opens; not a render loop
       setCopied(false);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears error when modal opens; not a render loop
       setError(null);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets expiresIn to default when modal opens; not a render loop
       setExpiresIn(86400);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets maxUses to default when modal opens; not a render loop
       setMaxUses(0);
     }
   }, [isOpen, server.id, fetchInvites]);
@@ -71,6 +76,7 @@ const InviteToServerModal: React.FC<InviteToServerModalProps> = ({ isOpen, serve
   }, [invites]);
 
   useEffect(() => {
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: refreshes existingInvites when invite list or filter criteria change; not a render loop
     setExistingInvites(filterActive());
   }, [filterActive]);
 

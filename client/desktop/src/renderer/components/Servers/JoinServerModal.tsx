@@ -38,11 +38,17 @@ const JoinServerModal: React.FC<JoinServerModalProps> = ({ isOpen, onClose, onSu
   // Reset form on close
   useEffect(() => {
     if (!isOpen) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets code when modal closes; not a render loop
       setCode('');
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears preview when modal closes; not a render loop
       setPreview(null);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets loading state when modal closes; not a render loop
       setIsLoadingPreview(false);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets joining state when modal closes; not a render loop
       setIsJoining(false);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears error when modal closes; not a render loop
       setError(null);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears success message when modal closes; not a render loop
       setSuccessMessage(null);
     }
   }, [isOpen]);
@@ -54,8 +60,11 @@ const JoinServerModal: React.FC<JoinServerModalProps> = ({ isOpen, onClose, onSu
     }
 
     if (code.length === CODE_LENGTH) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: shows loading state while fetching invite preview; not a render loop
       setIsLoadingPreview(true);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears error when starting preview fetch; not a render loop
       setError(null);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears preview when starting a new fetch; not a render loop
       setPreview(null);
 
       previewTimeoutRef.current = setTimeout(async () => {
@@ -84,7 +93,9 @@ const JoinServerModal: React.FC<JoinServerModalProps> = ({ isOpen, onClose, onSu
         }
       }, 300);
     } else {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears preview when code is incomplete; not a render loop
       setPreview(null);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears error when code is incomplete; not a render loop
       setError(null);
     }
 

@@ -210,15 +210,23 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({ serverId }) => 
   //    `servers.find(s => s.id === serverId)` upstream at :56.
   useEffect(() => {
     if (server) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets name from server prop on server identity change (snapshot-on-switch); not a render loop
       setName(server.name);
       iconReset(server.icon_url || null);
       bannerReset(server.banner_url || null);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears errors on server identity change; not a render loop
       setErrors({});
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets isSubmitting on server identity change; not a render loop
       setIsSubmitting(false);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears successMessage on server identity change; not a render loop
       setSuccessMessage(null);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets inviteCopied on server identity change; not a render loop
       setInviteCopied(false);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets isCreatingInvite on server identity change; not a render loop
       setIsCreatingInvite(false);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets allowEmbeddedContent from server prop on server identity change; not a render loop
       setAllowEmbeddedContent(server.allow_embedded_content ?? false);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets activeSection on server identity change; not a render loop
       setActiveSection('general');
     }
     // eslint-disable-next-line @eslint-react/exhaustive-deps -- snapshot-on-switch; see block comment above effect

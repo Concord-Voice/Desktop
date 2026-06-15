@@ -48,10 +48,12 @@ export function ModalProvider({ children }: Readonly<{ children: React.ReactNode
     [register, unregister, isTopmost]
   );
 
+  // eslint-disable-next-line @eslint-react/no-context-provider -- Context.Provider is the correct API for this provider component; React 19 Context-as-JSX refactor deferred
   return <ModalStackContext.Provider value={value}>{children}</ModalStackContext.Provider>;
 }
 
 export function useModalStack(): ModalStackContextValue {
+  // eslint-disable-next-line @eslint-react/no-use-context -- useContext is the correct API for this guard hook; use() would change conditional-hook semantics
   const context = useContext(ModalStackContext);
   if (!context) {
     throw new Error('useModalStack must be used within a ModalProvider');

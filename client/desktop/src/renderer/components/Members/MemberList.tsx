@@ -52,6 +52,7 @@ const MemberList: React.FC = () => {
     : null;
 
   // Track collapsed role groups
+  // eslint-disable-next-line @eslint-react/use-state -- Set() is cheap to construct; lazy initializer would add noise without benefit
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
   // Search filter

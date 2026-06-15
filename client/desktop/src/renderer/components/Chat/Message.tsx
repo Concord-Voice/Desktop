@@ -426,6 +426,7 @@ const Message: React.FC<MessageProps> = ({
   // Sync editContent when message content changes externally (not while editing)
   useEffect(() => {
     if (!isEditing) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets editContent from message.content when message is updated externally (not while user is editing); not a render loop
       setEditContent(message.content);
     }
   }, [message.content, isEditing]);

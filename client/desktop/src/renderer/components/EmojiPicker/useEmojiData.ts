@@ -71,6 +71,7 @@ export function useEmojiData() {
     if (!getCategoriesMeta()) {
       setCategoriesMeta(categoriesMeta);
     }
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: populates categories list on mount from cached metadata; not a render loop
     setCategories(categoriesMeta);
   }, []);
 

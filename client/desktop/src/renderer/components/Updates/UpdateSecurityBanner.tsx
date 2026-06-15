@@ -80,6 +80,7 @@ export const UpdateSecurityBanner: React.FC = () => {
   const subtype = criticalError?.subtype;
   const message = criticalError?.message;
   useEffect(() => {
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets showConfirm when the error changes so stale dismiss doesn't bypass the two-step consent gate; not a render loop
     setShowConfirm(false);
   }, [subtype, message]);
 

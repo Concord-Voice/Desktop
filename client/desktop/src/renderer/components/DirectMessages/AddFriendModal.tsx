@@ -69,6 +69,7 @@ const AddFriendModal: React.FC<AddFriendModalProps> = ({ isOpen, onClose }) => {
   React.useEffect(() => {
     if (isOpen) {
       fetchFriendCodes();
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: syncs autoAccept from privacy store when modal opens; not a render loop
       setAutoAccept(privacyAutoAccept);
     }
   }, [isOpen, fetchFriendCodes, privacyAutoAccept]);

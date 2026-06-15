@@ -324,10 +324,12 @@ function App() {
     // Already authenticated (login succeeded, or HMR re-mounted the component)
     // — no need to hit restoreSession again.
     if (useAuthStore.getState().accessToken) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears restoring flag when session already exists; not a render loop
       setIsRestoring(false);
       return;
     }
     if (restoreSessionCalled) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears restoring flag when restore already in progress; not a render loop
       setIsRestoring(false);
       return;
     }

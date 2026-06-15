@@ -27,16 +27,16 @@ export function useResizablePanel({
     return defaultWidth;
   });
 
-  const isDragging = useRef(false);
-  const startX = useRef(0);
-  const startWidth = useRef(0);
+  const isDraggingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
-      isDragging.current = true;
-      startX.current = e.clientX;
-      startWidth.current = width;
+      isDraggingRef.current = true;
+      startXRef.current = e.clientX;
+      startWidthRef.current = width;
       document.body.style.cursor = 'col-resize';
       document.body.style.userSelect = 'none';
     },
@@ -45,16 +45,17 @@ export function useResizablePanel({
 
   useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
-      if (!isDragging.current) return;
-      const delta = e.clientX - startX.current;
-      const newWidth = side === 'left' ? startWidth.current + delta : startWidth.current - delta;
+      if (!isDraggingRef.current) return;
+      const delta = e.clientX - startXRef.current;
+      const newWidth =
+        side === 'left' ? startWidthRef.current + delta : startWidthRef.current - delta;
       const clamped = Math.max(minWidth, Math.min(maxWidth, newWidth));
       setWidth(clamped);
     };
 
     const onMouseUp = () => {
-      if (!isDragging.current) return;
-      isDragging.current = false;
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       if (storageKey) {

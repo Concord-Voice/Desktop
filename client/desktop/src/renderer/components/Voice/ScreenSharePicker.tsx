@@ -40,8 +40,11 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({ onSelect, onCance
   // Sync from store until the user makes a local change (handles async rehydration)
   useEffect(() => {
     if (!dirty) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: syncs resolution from store when settings rehydrate and no local change has been made; not a render loop
       setResolution(savedResolution);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: syncs frameRate from store when settings rehydrate and no local change has been made; not a render loop
       setFrameRate(savedFrameRate);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: syncs contentType from store when settings rehydrate and no local change has been made; not a render loop
       setContentType(savedContentType);
     }
   }, [dirty, savedResolution, savedFrameRate, savedContentType]);

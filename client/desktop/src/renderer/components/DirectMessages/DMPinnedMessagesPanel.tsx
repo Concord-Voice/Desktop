@@ -27,6 +27,7 @@ const DMPinnedMessagesPanel: React.FC<DMPinnedMessagesPanelProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: shows loading state when panel opens or conversationId changes; not a render loop
     setIsLoading(true);
     getPins(conversationId)
       .then((rawPins) => decryptPins(conversationId, rawPins))

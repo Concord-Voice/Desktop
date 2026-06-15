@@ -86,11 +86,13 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
   // Fetch extended profile data (links, created_at) from the API
   useEffect(() => {
     if (!isOpen) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears profile when modal closes; not a render loop
       setProfile(null);
       return;
     }
 
     let cancelled = false;
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: shows loading state when fetching profile; not a render loop
     setLoadingProfile(true);
 
     apiFetch(`/api/v1/users/${member.user_id}/profile`)
@@ -245,6 +247,7 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
               <div className="user-profile-modal-links-list">
                 {links.map((link: string, idx: number) => (
                   <a
+                    // eslint-disable-next-line @eslint-react/no-array-index-key -- links are user-supplied strings with no stable unique id; list does not reorder so index is safe
                     key={`${idx}-${link}`}
                     className="user-profile-modal-link"
                     href={link}

@@ -144,6 +144,7 @@ const DMProfileModal: React.FC<DMProfileModalProps> = ({
   // Fetch /profile when modal opens
   useEffect(() => {
     if (!isOpen) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears profile when modal closes; not a render loop
       setProfile(null);
       return;
     }
@@ -293,6 +294,7 @@ const DMProfileModal: React.FC<DMProfileModalProps> = ({
               <div className="dm-profile-modal-links-list">
                 {safeLinks.map((link, idx) => (
                   <a
+                    // eslint-disable-next-line @eslint-react/no-array-index-key -- links are user-supplied strings with no stable unique id; list does not reorder so index is safe
                     key={`${idx}-${link}`}
                     className="dm-profile-modal-link"
                     href={link}

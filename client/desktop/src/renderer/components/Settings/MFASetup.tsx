@@ -586,15 +586,15 @@ const WebAuthnWaitingPrompt: React.FC = () => (
 
 const QRCodeCanvas: React.FC<{ data: string }> = ({ data }) => {
   const [dataUrl, setDataUrl] = useState('');
-  const mounted = useRef(true);
+  const mountedRef = useRef(true);
 
   useEffect(() => {
-    mounted.current = true;
+    mountedRef.current = true;
     QRCode.toDataURL(data, { width: 200, margin: 2 }).then((url) => {
-      if (mounted.current) setDataUrl(url);
+      if (mountedRef.current) setDataUrl(url);
     });
     return () => {
-      mounted.current = false;
+      mountedRef.current = false;
     };
   }, [data]);
 

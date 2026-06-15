@@ -219,6 +219,7 @@ const GenericMenu: React.FC<GenericMenuProps> = ({ target, position, onClose }) 
               if (sel?.toString()) handleCopy(sel.toString());
               else onClose();
             }}
+            // eslint-disable-next-line @eslint-react/purity -- globalThis.getSelection() is a read-only DOM query to reflect current selection state; no observable side effect
             disabled={!globalThis.getSelection()?.toString()}
           />
           <ContextMenu.Item label="Paste" onClick={() => handlePaste(target.element)} />

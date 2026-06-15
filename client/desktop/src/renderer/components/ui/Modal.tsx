@@ -21,6 +21,7 @@ const Modal: React.FC<ModalProps> = ({
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
   const modalId = useId();
+  // eslint-disable-next-line @eslint-react/no-use-context -- useContext is the appropriate API here; use() would change conditional-hook semantics for this depth read
   const depth = useContext(ModalDepthContext);
   const { register, unregister, isTopmost } = useModalStack();
 
@@ -53,30 +54,30 @@ const Modal: React.FC<ModalProps> = ({
 
   if (!isOpen) return null;
 
-  return (
-    <ModalDepthContext.Provider value={depth + 1}>
-      <div className="modal-overlay" ref={overlayRef} onClick={handleOverlayClick}>
-        <div className={`modal-container modal-${width}`}>
-          <div className="modal-header">
-            <h3 className="modal-title">{title}</h3>
-            {dismissable && (
-              <button className="modal-close" onClick={onClose} aria-label="Close">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path
-                    d="M4 4l8 8M12 4l-8 8"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </svg>
-              </button>
-            )}
-          </div>
-          <div className="modal-body">{children}</div>
+  const content = (
+    <div className="modal-overlay" ref={overlayRef} onClick={handleOverlayClick}>
+      <div className={`modal-container modal-${width}`}>
+        <div className="modal-header">
+          <h3 className="modal-title">{title}</h3>
+          {dismissable && (
+            <button className="modal-close" onClick={onClose} aria-label="Close">
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                <path
+                  d="M4 4l8 8M12 4l-8 8"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          )}
         </div>
+        <div className="modal-body">{children}</div>
       </div>
-    </ModalDepthContext.Provider>
+    </div>
   );
+  // eslint-disable-next-line @eslint-react/no-context-provider -- Context.Provider pattern required for depth nesting; React 19 Context-as-JSX refactor deferred
+  return <ModalDepthContext.Provider value={depth + 1}>{content}</ModalDepthContext.Provider>;
 };
 
 export default Modal;

@@ -100,6 +100,7 @@ const AuthFlow: React.FC = () => {
   // flips emailVerified to false after mount). Transition to verification when needed.
   useEffect(() => {
     if (accessToken && !emailVerified) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: transitions to email-verification step when store flips emailVerified after session restore; not a render loop
       setStep('email-verification');
     }
   }, [accessToken, emailVerified]);

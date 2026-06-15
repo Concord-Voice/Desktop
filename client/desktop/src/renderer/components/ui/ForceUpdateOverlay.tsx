@@ -36,7 +36,7 @@ const ForceUpdateOverlay: React.FC = () => {
   const [phase, setPhase] = useState<Phase | null>(null);
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState('');
-  const failureCount = useRef(0);
+  const failureCountRef = useRef(0);
   const [dismissed, setDismissed] = useState(false);
 
   // Get current app version on mount
@@ -80,7 +80,7 @@ const ForceUpdateOverlay: React.FC = () => {
     if (globalThis.electron?.onUpdateNotAvailable) {
       cleanups.push(
         globalThis.electron.onUpdateNotAvailable(() => {
-          failureCount.current++;
+          failureCountRef.current++;
           setPhase('error');
           setErrorMsg(
             'No update is available yet. The release may still be building. Please try again shortly.'
@@ -102,7 +102,7 @@ const ForceUpdateOverlay: React.FC = () => {
     if (globalThis.electron?.onUpdateError) {
       cleanups.push(
         globalThis.electron.onUpdateError((err) => {
-          failureCount.current++;
+          failureCountRef.current++;
           setPhase('error');
           setErrorMsg(err.message || 'An unexpected error occurred.');
         })
@@ -120,7 +120,7 @@ const ForceUpdateOverlay: React.FC = () => {
     try {
       await globalThis.electron?.checkForUpdates();
     } catch {
-      failureCount.current++;
+      failureCountRef.current++;
       setPhase('error');
       setErrorMsg('Failed to check for updates.');
     }
@@ -132,7 +132,7 @@ const ForceUpdateOverlay: React.FC = () => {
 
   if (!updateRequired || dismissed) return null;
 
-  const showEscape = phase === 'error' && failureCount.current >= ESCAPE_AFTER_FAILURES;
+  const showEscape = phase === 'error' && failureCountRef.current >= ESCAPE_AFTER_FAILURES;
 
   return (
     <div className="force-update-overlay">

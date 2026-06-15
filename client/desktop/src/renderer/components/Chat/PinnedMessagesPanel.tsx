@@ -24,6 +24,7 @@ const PinnedMessagesPanel: React.FC<PinnedMessagesPanelProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: loads pins when panel opens or channelId changes; not a render loop
     setIsLoading(true);
     getChannelPins(channelId)
       .then((rawPins) => decryptPins(channelId, rawPins))

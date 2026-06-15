@@ -44,15 +44,23 @@ const RoleEditorPanel: React.FC<RoleEditorPanelProps> = ({
 
   useEffect(() => {
     if (selectedRole) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets editRoleName from selectedRole when the selected role changes; not a render loop
       setEditRoleName(selectedRole.name);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets editRoleColor from selectedRole when the selected role changes; not a render loop
       setEditRoleColor(selectedRole.color || '#99aab5');
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets editRoleEmoji from selectedRole when the selected role changes; not a render loop
       setEditRoleEmoji(selectedRole.emoji || '');
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: closes emoji picker when the selected role changes; not a render loop
       setShowRoleEmojiPicker(false);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets editRoleDisplaySeparately from selectedRole when the selected role changes; not a render loop
       setEditRoleDisplaySeparately(selectedRole.display_separately);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets editRoleMentionable from selectedRole when the selected role changes; not a render loop
       setEditRoleMentionable(selectedRole.mentionable);
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets editRolePermissions from selectedRole when the selected role changes; not a render loop
       setEditRolePermissions(parsePermissions(selectedRole.permissions));
     }
-  }, [selectedRole]);
+    // eslint-disable-next-line @eslint-react/exhaustive-deps -- keyed on selectedRoleId (stable), NOT selectedRole (a fresh roles.find() reference each render); re-running on a `roles` refresh would clobber the user's unsaved in-progress edits
+  }, [selectedRoleId]);
 
   const handlePermChange = useCallback((newValue: bigint) => {
     setEditRolePermissions(newValue);

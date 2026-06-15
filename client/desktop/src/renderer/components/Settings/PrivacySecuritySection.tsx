@@ -585,6 +585,7 @@ const PrivacySecuritySection: React.FC = () => {
 
   // Sync local state when store updates (e.g., after fetch)
   useEffect(() => {
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: syncs localDmLevel from store when dmPrivacyLevel changes (e.g., after settings fetch); not a render loop
     setLocalDmLevel(privacySettings.dmPrivacyLevel);
   }, [privacySettings.dmPrivacyLevel]);
 

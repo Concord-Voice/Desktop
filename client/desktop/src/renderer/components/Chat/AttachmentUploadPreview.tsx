@@ -32,6 +32,7 @@ const AttachmentUploadPreview: React.FC<AttachmentUploadPreviewProps> = ({ files
         const previewUrl = entry.previewUrl;
         return (
           <div
+            // eslint-disable-next-line @eslint-react/no-array-index-key -- FileUploadState has no stable unique id; list only grows/shrinks from the tail, never reorders, so index is safe here
             key={`${entry.file.name}-${index}`}
             className={`attachment-preview-item ${entry.status}`}
           >

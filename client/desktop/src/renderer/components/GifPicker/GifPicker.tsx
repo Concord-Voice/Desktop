@@ -175,9 +175,11 @@ const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose, position }) =>
   // settings.theme can be "system", so resolve via the same media query the
   // settings store does. The picker re-evaluates on theme change because
   // themeMode is in the dep graph above.
+  /* eslint-disable @eslint-react/purity -- globalThis.matchMedia read is intentional to resolve 'system' theme to dark/light; read-only, no observable side effect */
   const resolvedDark =
     themeMode === 'dark' ||
     (themeMode === 'system' && globalThis.matchMedia?.('(prefers-color-scheme: dark)').matches);
+  /* eslint-enable @eslint-react/purity -- end of matchMedia read block */
   const providerLogo = resolvedDark ? gifProvider.logoAssetDark : gifProvider.logoAssetLight;
 
   const [activeTab, setActiveTab] = useState<Tab>('trending');
@@ -201,8 +203,11 @@ const GifPicker: React.FC<GifPickerProps> = ({ onSelect, onClose, position }) =>
   // Fetch content based on active tab + search state
   useEffect(() => {
     let cancelled = false;
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: shows loading state while fetching GIFs based on tab/search changes; not a render loop
     setLoading(true);
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears error when starting a new fetch; not a render loop
     setError(null);
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears items when starting a new fetch to avoid stale content flash; not a render loop
     setItems([]);
 
     const finish = (gifs: GifResolved[]) => {

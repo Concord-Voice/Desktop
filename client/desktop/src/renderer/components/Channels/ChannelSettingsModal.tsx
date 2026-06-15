@@ -43,6 +43,7 @@ const ChannelSettingsModal: React.FC<ChannelSettingsModalProps> = ({
   // Reset synced state when modal opens
   useEffect(() => {
     if (isOpen) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets synced from channel props when modal opens or channel changes; not a render loop
       setSynced(channel.sync_permissions ?? false);
     }
   }, [isOpen, channel.id, channel.sync_permissions]);

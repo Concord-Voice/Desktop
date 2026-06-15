@@ -26,8 +26,11 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({ isOpen, group, on
   const updateChannelGroup = useChannelStore((state) => state.updateChannelGroup);
 
   useEffect(() => {
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets name from group prop when group changes; not a render loop
     setName(group.name);
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears error when group changes; not a render loop
     setError(null);
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears success message when group changes; not a render loop
     setSuccessMessage(null);
   }, [group]);
 

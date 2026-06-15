@@ -74,6 +74,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
 
   // Clear search when channel changes
   useEffect(() => {
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets query when channel changes to avoid stale results; not a render loop
     setQuery('');
     cancel();
   }, [channelId, cancel]);
@@ -82,6 +83,7 @@ const SearchPanel: React.FC<SearchPanelProps> = ({
   useEffect(() => {
     if (!isOpen) {
       cancel();
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clears query when panel closes; not a render loop
       setQuery('');
     }
   }, [isOpen, cancel]);

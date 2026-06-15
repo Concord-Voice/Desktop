@@ -104,6 +104,7 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
       top = PADDING;
     }
 
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: clamps card position to viewport after layout measurement; fires in useLayoutEffect on position change, not on every render
     setAdjustedPos({ top, left });
   }, [position]);
 

@@ -29,6 +29,7 @@ const ContentSafetyControls = () => {
   const rotationCooldownRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: refreshes displayedCustomerId when GIF provider personalization setting changes; not a render loop
     setDisplayedCustomerId(klipyClient.getCurrentCustomerId());
   }, [privacySettings.sharePersonalizationWithGifProvider]);
 

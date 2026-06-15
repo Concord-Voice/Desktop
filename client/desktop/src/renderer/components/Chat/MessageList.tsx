@@ -44,6 +44,7 @@ export interface MessageListHandle {
 const NEAR_BOTTOM_THRESHOLD = 150;
 const SHOW_BUTTON_THRESHOLD = 300;
 
+// eslint-disable-next-line @eslint-react/no-forward-ref -- forwardRef is intentional here; refactoring to prop-based ref would require updating all callers and is deferred
 const MessageList = forwardRef<MessageListHandle, MessageListProps>(
   (
     {
@@ -161,6 +162,7 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
     useEffect(() => {
       if (messages.length === 0) {
         prevLastMessageIdRef.current = null;
+        // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets newMessageCount to 0 when messages list clears; not a render loop
         setNewMessageCount(0);
         return;
       }

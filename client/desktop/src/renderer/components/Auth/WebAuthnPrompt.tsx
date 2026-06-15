@@ -43,7 +43,9 @@ const WebAuthnPrompt: React.FC<WebAuthnPromptProps> = ({
 
   useEffect(() => {
     if (!navigator.credentials) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: sets error status when WebAuthn is unavailable on mount; not a render loop
       setStatus('error');
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: sets error message when WebAuthn is unavailable on mount; not a render loop
       setErrorMsg('WebAuthn is not supported in this browser.');
       onErrorRef.current('WebAuthn not supported');
       return;

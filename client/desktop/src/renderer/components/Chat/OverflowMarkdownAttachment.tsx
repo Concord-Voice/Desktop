@@ -61,6 +61,7 @@ const OverflowMarkdownAttachment: React.FC<OverflowMarkdownAttachmentProps> = ({
 
     // Memoization: re-use already-decrypted content without another network round-trip.
     if (cachedContent !== null) {
+      // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: transitions state from loading→rendered when cached content is available; not a render loop
       setState({ kind: 'rendered', content: cachedContent });
       return;
     }
