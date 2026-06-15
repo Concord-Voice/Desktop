@@ -56,7 +56,7 @@ describe('renderAppUpdateYaml', () => {
     const yaml = renderAppUpdateYaml();
     const parsed = parseYaml(yaml);
     // Decouples electron-updater's cache dir from app.getName()/productName so a
-    // display-name change never churns ~/Library/Caches/<name>. See ADR-0011 D1.
+    // display-name change never churns ~/Library/Caches/<name>. See ADR-0020 D1.
     expect(parsed.updaterCacheDirName).toBe('ConcordVoice');
   });
 

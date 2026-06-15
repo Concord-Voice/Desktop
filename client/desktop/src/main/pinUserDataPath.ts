@@ -9,7 +9,7 @@
 // the FIRST import in main.ts, before any userData-reading module.
 //
 // Generalizes the precedent in updateLogger.ts, which already hardcodes the log
-// dir to "ConcordVoice" independent of app.getName(). See ADR-0011 D2 and
+// dir to "ConcordVoice" independent of app.getName(). See ADR-0020 D2 and
 // internal-reference "Path-identity pinning".
 import { app } from 'electron';
 import path from 'node:path';

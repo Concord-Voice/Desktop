@@ -11,7 +11,7 @@ import { app } from 'electron';
  * "ConcordVoice" (the #385 convention). The v0.1.38 productName revert split
  * users across both trees. This migration consolidates them onto the pinned dir.
  *
- * Best-effort + non-destructive: the RSA keypair is server-escrowed (ADR-0011),
+ * Best-effort + non-destructive: the RSA keypair is server-escrowed (ADR-0020),
  * so a wrong guess costs at most one re-login, never data — we archive, never
  * delete. Must run after pinUserDataPath.ts and before any userData read.
  */
