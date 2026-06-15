@@ -130,17 +130,18 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, initialM
   }, [onClose]);
 
   /**
-   * Dev-only smoke trigger handler. Extracted from the JSX onClick so the
-   * arrow-with-multiline-object pattern doesn't trip cognitive-complexity
-   * rules on the inline JSX attribute (Sonar). Removed when #159 / #160
-   * wire real submission.
+   * Dev-only smoke trigger handler. Removed when #159 / #160 wire real
+   * submission. The payload is constructed as a local const (rather than
+   * inline inside the call) so the function body is a linear two-statement
+   * sequence — keeps the cognitive complexity well under the Sonar threshold.
    */
   const handleDevTestSubmit = useCallback(() => {
-    void submit({
+    const payload: FeedbackSubmission = {
       type: mode,
       title: 'Infrastructure smoke test',
       description: DEV_TEST_DESCRIPTION,
-    });
+    };
+    submit(payload).catch(() => undefined);
   }, [mode, submit]);
 
   return (
