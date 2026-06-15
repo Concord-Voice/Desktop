@@ -153,7 +153,7 @@ describe('useChatController', () => {
     expect(result.current).toHaveProperty('chatContext');
   });
 
-  // ── Send routing ────────────────────────────────────��───────────
+  // ── Send routing ─────────────────────────────────────────────────
 
   describe('sendMessage routing', () => {
     it('routes channel send to messaging.sendMessage', () => {
@@ -373,7 +373,7 @@ describe('useChatController', () => {
     });
   });
 
-  // ── Delete routing ─────────────────────────────────────────���────
+  // ── Delete routing ────────────────────────────────────────────────
 
   describe('deleteMessage routing', () => {
     it('uses channel REST path for channel context', async () => {

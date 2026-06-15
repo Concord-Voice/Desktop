@@ -66,7 +66,7 @@ describe('composeMarkdownOverflow', () => {
     // surrogate would be orphaned — the guard removes it). No U+FFFD.
     expect(previewText.length).toBe(200); // 199 chars + '…'
     expect(previewText).toBe('a'.repeat(199) + '…');
-    expect(previewText).not.toContain('�'); // no U+FFFD replacement char
+    expect(previewText).not.toContain('\uFFFD'); // no U+FFFD replacement char
     // The full content is still preserved in the blob — only the preview is shortened.
   });
 });
