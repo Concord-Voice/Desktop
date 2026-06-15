@@ -129,6 +129,33 @@ describe('apiClient attestation — X-Attestation-Token injection', () => {
     expect(headers.get('X-Attestation-Token')).toBeNull();
   });
 
+  it('does NOT brick the request when getToken rejects — optional header degrades to none (defense-in-depth)', async () => {
+    // Founding incident: a sender-frame regression made attestation:get-token
+    // throw "untrusted sender frame" on every call. The unguarded await cascaded
+    // an OPTIONAL header into total connectivity loss (prefs, friends, ws ticket,
+    // all dead). The token fetch must degrade to "no token", never reject upward.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    (globalThis as Record<string, unknown>).electron = makeElectronBridge({
+      getToken: () =>
+        Promise.reject(new Error('attestation:get-token rejected: untrusted sender frame')),
+    });
+    useAuthStore.getState().setAccessToken('auth-token');
+    mockFetch.mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }));
+
+    const response = await apiFetch('/api/v1/test');
+
+    // The request completes normally despite the rejected token fetch.
+    expect(response.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const headers = mockFetch.mock.calls[0][1].headers as Headers;
+    expect(headers.get('X-Attestation-Token')).toBeNull();
+    // The Authorization header still went out — connectivity is preserved.
+    expect(headers.get('Authorization')).toBe('Bearer auth-token');
+    // The failure is observable, not silently swallowed.
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    warnSpy.mockRestore();
+  });
+
   it('does not set X-Attestation-Token when getToken returns null', async () => {
     (globalThis as Record<string, unknown>).electron = makeElectronBridge({
       getToken: () => Promise.resolve(null),
@@ -578,6 +605,28 @@ describe('apiClient attestation — 403 interception', () => {
     // The retry still proceeds — omitted header is the defensive posture, not an error.
     expect(retryHeaders.get('X-Attestation-Token')).toBe('new-attest');
   });
+
+  it('ATTESTATION_EXPIRED + clearToken AND getToken both reject → no throw, original 403 returned (defense-in-depth #1527)', async () => {
+    // No-rot guard: the re-attest path routes clearToken/getToken through the
+    // *Safe wrappers, so a sender-frame (or any IPC) failure on the recovery
+    // path degrades to "no fresh token → original 403" rather than throwing.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    (globalThis as Record<string, unknown>).electron = makeElectronBridge({
+      getToken: () =>
+        Promise.reject(new Error('attestation:get-token rejected: untrusted sender frame')),
+      clearToken: () =>
+        Promise.reject(new Error('attestation:clear-token rejected: untrusted sender frame')),
+    });
+    useAuthStore.getState().setAccessToken('auth-token');
+
+    mockFetch.mockResolvedValueOnce(makeAttestationFailureResponse('ATTESTATION_EXPIRED'));
+
+    const response = await apiFetch('/api/v1/test');
+
+    expect(response.status).toBe(403); // original 403, unchanged — no throw
+    expect(mockFetch).toHaveBeenCalledTimes(1); // no retry: fresh token degraded to null
+    warnSpy.mockRestore();
+  });
 });
 
 describe('apiClient — 401 recovery header preservation (HIGH #14)', () => {
@@ -683,5 +732,33 @@ describe('apiClient — 401 recovery header preservation (HIGH #14)', () => {
     const retryHeaders = mockFetch.mock.calls[1][1].headers as Headers;
     expect(retryHeaders.get('X-Attestation-Token')).toBeNull();
     expect(retryHeaders.get('X-Session-ID')).toBe('session-uuid-401');
+  });
+
+  it('401 recovery survives a rejecting getToken — retry sent with Authorization, no attestation token (defense-in-depth #1527)', async () => {
+    // No-rot guard: the 401-recovery retry pulls the attestation token via
+    // getAttestationTokenSafe, so an IPC rejection degrades to "no token"
+    // rather than bricking the refreshed-JWT retry.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    (globalThis as Record<string, unknown>).electron = {
+      ...makeElectronBridge({
+        getToken: () =>
+          Promise.reject(new Error('attestation:get-token rejected: untrusted sender frame')),
+      }),
+      refreshToken: vi.fn().mockResolvedValue({ status: 'ok', accessToken: 'refreshed-jwt' }),
+    } as unknown;
+
+    useAuthStore.getState().setAccessToken('expired-jwt');
+    useAuthStore.getState().setSessionId('session-uuid-401');
+
+    mockFetch.mockResolvedValueOnce(new Response('unauthorized', { status: 401 }));
+    mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }));
+
+    const response = await apiFetch('/api/v1/test');
+
+    expect(response.status).toBe(200); // retry succeeded despite the rejecting token fetch
+    const retryHeaders = mockFetch.mock.calls[1][1].headers as Headers;
+    expect(retryHeaders.get('Authorization')).toBe('Bearer refreshed-jwt');
+    expect(retryHeaders.get('X-Attestation-Token')).toBeNull(); // degraded gracefully
+    warnSpy.mockRestore();
   });
 });

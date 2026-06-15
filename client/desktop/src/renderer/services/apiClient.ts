@@ -417,6 +417,48 @@ function buildAttestationRetryHeaders(
 }
 
 /**
+ * Fetch the cached attestation token WITHOUT letting an IPC failure brick the
+ * request. `X-Attestation-Token` is an OPTIONAL header — the server is the gate
+ * that enforces attestation and returns 403 (handled separately) when it is
+ * required. A rejected `attestation:get-token` IPC must therefore degrade to
+ * "no token attached", never propagate up and fail the whole request.
+ *
+ * Defense-in-depth for the bundled-build outage: a sender-frame regression made
+ * this IPC throw on every call, and the unguarded `await` cascaded an optional
+ * header into total connectivity loss. The optional-chain still skips the call
+ * entirely on the web/test path where `globalThis.electron` is undefined.
+ */
+async function getAttestationTokenSafe(): Promise<string | null> {
+  try {
+    return (await globalThis.electron?.attestation?.getToken()) ?? null;
+  } catch (err) {
+    console.warn(
+      'Attestation token fetch failed; proceeding without X-Attestation-Token:',
+      err instanceof Error ? err.message : 'unknown error'
+    );
+    return null;
+  }
+}
+
+/**
+ * Clear the cached attestation token WITHOUT letting an IPC failure propagate.
+ * Same defense-in-depth rationale as getAttestationTokenSafe: clearing is a
+ * best-effort side effect on the 403 re-attest path; if the IPC rejects (e.g. a
+ * sender-frame regression), the caller falls through to "no fresh token" and
+ * returns the original 403 unchanged. Optional-chained for the web/test path.
+ */
+async function clearAttestationTokenSafe(): Promise<void> {
+  try {
+    await globalThis.electron?.attestation?.clearToken();
+  } catch (err) {
+    console.warn(
+      'Attestation token clear failed; continuing without re-attest:',
+      err instanceof Error ? err.message : 'unknown error'
+    );
+  }
+}
+
+/**
  * Re-attest path: clear cached attestation token, fetch a fresh one, and
  * retry the request ONCE with the new token. If the mint returns null/empty
  * (inert mint milestone), return the original 403 unchanged.
@@ -427,8 +469,11 @@ async function handleReattestPath(
   response: Response,
   mid: string | null
 ): Promise<Response> {
-  await globalThis.electron?.attestation?.clearToken();
-  const fresh = await globalThis.electron?.attestation?.getToken();
+  // Both IPC calls route through the *Safe wrappers so a frame-validation or
+  // other IPC failure degrades to "no fresh token → original 403" rather than
+  // throwing out of the recovery path (no-rot consistency with apiFetch, #1527).
+  await clearAttestationTokenSafe();
+  const fresh = await getAttestationTokenSafe();
   if (!fresh) return response;
 
   // Retry ONCE with the fresh attestation token. Raw fetch — no recursion.
@@ -542,9 +587,10 @@ async function handle401Recovery(
   if (sessionId) retryHeaders.set('X-Session-ID', sessionId);
   if (mid) retryHeaders.set('X-Machine-Id', mid);
   // Pull the CURRENT cached attestation token; same source as apiFetch's initial
-  // injection. If the renderer-side bridge is absent (web/test path) or the cache
-  // is empty (mint inert), omit the header — never set it to undefined or ''.
-  const attToken = await globalThis.electron?.attestation?.getToken();
+  // injection. getAttestationTokenSafe never throws (web/test path → null, IPC
+  // failure → null+logged), so the 401-recovery retry can't be bricked by an
+  // optional header — no-rot consistency with apiFetch (#1527).
+  const attToken = await getAttestationTokenSafe();
   if (attToken) retryHeaders.set('X-Attestation-Token', attToken);
   return apiFetchRaw(path, init, retryHeaders);
 }
@@ -569,9 +615,10 @@ export async function apiFetch(path: string, init?: RequestInit): Promise<Respon
     headers.set('X-Machine-Id', mid);
   }
 
-  // Attach attestation token if present. Optional-chained so the web/test
-  // path where globalThis.electron is undefined proceeds without the header.
-  const attToken = await globalThis.electron?.attestation?.getToken();
+  // Attach attestation token if present. getAttestationTokenSafe never throws —
+  // it returns null on the web/test path (no electron bridge) AND on any IPC
+  // failure, so an optional header can never brick the whole request.
+  const attToken = await getAttestationTokenSafe();
   if (attToken) {
     headers.set('X-Attestation-Token', attToken);
   }
