@@ -34,7 +34,7 @@ tests/
 │   │   ├── Auth/                   # AuthFlow, ConnectionSelector, InfoTooltip, LoadingSpinner, Login, PasswordStrength, Register, ServerInput
 │   │   ├── Chat/                   # ChatView, DeleteMessageModal, Message, MessageContextMenu, MessageInput, MessageInputContextMenu, MessageList, TypingIndicator
 │   │   ├── Channels/               # ChannelContextMenu, ChannelList, CreateChannelModal, DeleteChannelModal, EditChannelModal, ServerActionBar
-│   │   ├── Servers/                # CreateServerModal, DeleteServerModal, JoinServerModal, LeaveServerModal, ServerActionModal, ServerContextMenu, ServerList, ServerSettingsModal
+│   │   ├── Servers/                # CreateServerModal, DeleteServerModal, JoinServerModal, LeaveServerModal, ServerActionModal, ServerContextMenu, ServerList
 │   │   ├── Members/                # MemberContextMenu, MemberList, MemberProfileCard
 │   │   ├── Layout/                 # AppLayout, ChannelPanel, FolderBar, MemberFlexSpace, ServerBar
 │   │   ├── User/                   # UserPanel, UserPopover
@@ -96,16 +96,16 @@ npx playwright test
 
 ## Test Tools
 
-| Tool | Purpose |
-| ---- | ------- |
-| **Vitest** | Test runner (Vite-native, jest-compatible API) |
-| **@testing-library/react** | Component rendering and querying |
-| **@testing-library/jest-dom** | Custom DOM matchers (`toBeInTheDocument`, etc.) |
-| **@testing-library/user-event** | Realistic user interaction simulation |
-| **MSW v2** | API mocking for store tests (Mock Service Worker) |
-| **jsdom** | Browser environment simulation |
-| **@vitest/coverage-istanbul** | Istanbul-based code coverage (avoids OOM vs v8 provider) |
-| **Playwright** | E2E browser testing |
+| Tool                            | Purpose                                                  |
+| ------------------------------- | -------------------------------------------------------- |
+| **Vitest**                      | Test runner (Vite-native, jest-compatible API)           |
+| **@testing-library/react**      | Component rendering and querying                         |
+| **@testing-library/jest-dom**   | Custom DOM matchers (`toBeInTheDocument`, etc.)          |
+| **@testing-library/user-event** | Realistic user interaction simulation                    |
+| **MSW v2**                      | API mocking for store tests (Mock Service Worker)        |
+| **jsdom**                       | Browser environment simulation                           |
+| **@vitest/coverage-istanbul**   | Istanbul-based code coverage (avoids OOM vs v8 provider) |
+| **Playwright**                  | E2E browser testing                                      |
 
 ## Testing Patterns
 

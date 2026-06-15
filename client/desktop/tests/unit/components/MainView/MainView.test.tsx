@@ -169,7 +169,6 @@ vi.mock('@/renderer/components/Servers/ServerContextMenu', () => ({
     </div>
   ),
 }));
-vi.mock('@/renderer/components/Servers/ServerSettingsModal', () => ({ default: () => null }));
 vi.mock('@/renderer/components/Servers/DeleteServerModal', () => ({
   default: ({ isOpen }: any) => (isOpen ? <div data-testid="delete-server-modal" /> : null),
 }));
