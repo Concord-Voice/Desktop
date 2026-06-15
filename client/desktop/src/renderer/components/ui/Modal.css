@@ -33,6 +33,9 @@
 .modal-large {
   width: 600px;
 }
+.modal-xlarge {
+  width: 660px;
+}
 
 .modal-header {
   display: flex;

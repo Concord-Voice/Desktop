@@ -11,6 +11,8 @@ import './UserPopover.css';
 interface UserPopoverProps {
   user: UserProfile;
   onClose: () => void;
+  /** Open the feedback modal (#158). The popover closes itself first. */
+  onOpenFeedback?: () => void;
 }
 
 const statusOptions: Array<{
@@ -37,7 +39,7 @@ const statusLabelMap: Record<PresenceStatus, string> = {
   offline: 'Offline',
 };
 
-const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
+const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose, onOpenFeedback }) => {
   const popoverRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const logout = useUserStore((state) => state.logout);
@@ -243,6 +245,31 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose }) => {
         </svg>
         Quit
       </button>
+
+      {/* Feedback — own section below Log Out / Quit per #158 spec */}
+      {onOpenFeedback && (
+        <>
+          <div className="user-popover-separator" />
+          <button
+            className="user-popover-item"
+            onClick={() => {
+              onClose();
+              onOpenFeedback();
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              {/* Speech-bubble glyph — matches the conversational tone of feedback */}
+              <path
+                d="M2 4a2 2 0 012-2h8a2 2 0 012 2v6a2 2 0 01-2 2H6l-3 2v-2H4a2 2 0 01-2-2V4z"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinejoin="round"
+              />
+            </svg>
+            Bug Report / Feature Request
+          </button>
+        </>
+      )}
     </div>
   );
 };
