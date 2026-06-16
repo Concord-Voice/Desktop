@@ -8,6 +8,7 @@ import { renderHook } from '@testing-library/react';
 import { useConnectionStore } from '@/renderer/stores/connectionStore';
 import { useUserStore } from '@/renderer/stores/userStore';
 import { useVoiceStore } from '@/renderer/stores/voiceStore';
+import { useMemberStore } from '@/renderer/stores/memberStore';
 
 // Mock dependencies
 const mockSetAggressiveReconnect = vi.fn();
@@ -356,6 +357,55 @@ describe('useConnectionRecovery — extended', () => {
       result.current('CONNECTED' as never);
 
       expect(useConnectionStore.getState().phase).toBe('stable');
+    });
+  });
+
+  describe('self-presence on disconnect (#803)', () => {
+    it('flips self to offline once the grace period expires while still disconnected', async () => {
+      mockGetState.mockReturnValue('DISCONNECTED');
+      useMemberStore.getState().setSelfStatus('online');
+
+      const { result } = renderHook(() => useConnectionRecovery(mockWsService as never, vi.fn()));
+
+      result.current('RECONNECTING' as never);
+      // During the grace period (the debounce) self stays online — no flicker.
+      expect(useMemberStore.getState().selfStatus).toBe('online');
+
+      // Sustained disconnect (>15s, still DISCONNECTED) → self genuinely offline.
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(useMemberStore.getState().selfStatus).toBe('offline');
+    });
+
+    it('does NOT flip self to offline when reconnected within the grace period', async () => {
+      mockGetState.mockReturnValue('CONNECTED');
+      useMemberStore.getState().setSelfStatus('online');
+
+      const { result } = renderHook(() => useConnectionRecovery(mockWsService as never, vi.fn()));
+
+      result.current('RECONNECTING' as never); // grace period starts
+      result.current('CONNECTED' as never); // reconnect inside the grace window → phase resets to stable
+      expect(useConnectionStore.getState().phase).toBe('stable');
+
+      // The 15s timer still fires, but runPreflightDiagnostics bails on the phase
+      // check (no longer grace_period), so self never flips offline — the grace
+      // period absorbed the blip via the real debounce path, not just an early-return.
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(useMemberStore.getState().selfStatus).toBe('online');
+    });
+
+    it('preserves a deliberate dnd status on sustained disconnect (no clobber to offline)', async () => {
+      mockGetState.mockReturnValue('DISCONNECTED');
+      useMemberStore.getState().setSelfStatus('dnd');
+
+      const { result } = renderHook(() => useConnectionRecovery(mockWsService as never, vi.fn()));
+
+      result.current('RECONNECTING' as never);
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      // Sustained disconnect must only downgrade 'online'. A deliberate dnd/invisible
+      // is preserved — otherwise the legacy online_user_ids reconnect path would
+      // promote the clobbered 'offline' back to 'online', losing the user's choice.
+      expect(useMemberStore.getState().selfStatus).toBe('dnd');
     });
   });
 

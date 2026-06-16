@@ -948,9 +948,23 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
     // Both `users` (enhanced) and `online_user_ids` (legacy back-compat)
     // are schema-optional; the handler prefers `users` when present.
     const unsubPresenceSnapshot = wsService.on('presence_snapshot', (msg) => {
+      // #803: selfStatus is the source of truth MemberList/UserPopover read for
+      // the self-user, but nothing reconciled it with the server — so a stale or
+      // default value left the connected user showing Offline. The server's
+      // snapshot includes self via resolveVisibleStatus, which is self-aware: the
+      // self viewer always gets their REAL status (online/dnd/invisible), never
+      // the broadcast-to-others 'offline'. So it is safe to adopt the self entry
+      // here. The `presence` broadcast handler below intentionally still skips
+      // self (that path carries raw status and is not self-aware).
+      const selfId = useUserStore.getState().user?.id;
       if (msg.data.users) {
         const users = msg.data.users;
         useMemberStore.getState().setPresenceSnapshot(users);
+
+        const selfEntry = selfId ? users.find((u) => u.user_id === selfId) : undefined;
+        if (selfEntry) {
+          useMemberStore.getState().setSelfStatus(selfEntry.status);
+        }
 
         // Also update DM participant and friend presence
         const dmState = useDMStore.getState();
@@ -963,6 +977,19 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         // Backward compatibility: simple list of online user IDs
         const userIds = msg.data.online_user_ids;
         useMemberStore.getState().setOnlineUsers(userIds);
+
+        // #803: legacy snapshots carry no per-user status; presence in the
+        // online list promotes a stale offline self → online (the #803 symptom)
+        // but must NOT downgrade a deliberate dnd/invisible choice (mirrors
+        // setOnlineUsers' preserve-non-offline rule). The current server always
+        // sends users[]; this branch is back-compat only.
+        if (
+          selfId &&
+          userIds.includes(selfId) &&
+          useMemberStore.getState().selfStatus === 'offline'
+        ) {
+          useMemberStore.getState().setSelfStatus('online');
+        }
 
         const dmState2 = useDMStore.getState();
         const friendState2 = useFriendStore.getState();
