@@ -15,7 +15,7 @@ vi.mock('@/renderer/hooks/useUserThemeScope', () => ({
 }));
 
 import ParticipantTile from '@/renderer/components/Voice/ParticipantTile';
-import type { VoiceParticipant } from '@/renderer/stores/voiceStore';
+import { useVoiceStore, type VoiceParticipant } from '@/renderer/stores/voiceStore';
 
 const makeParticipant = (overrides: Partial<VoiceParticipant> = {}): VoiceParticipant => ({
   userId: 'user-1',
@@ -35,6 +35,9 @@ describe('ParticipantTile', () => {
   beforeEach(() => {
     resetAllStores();
     vi.clearAllMocks();
+    // The participant menu (VoiceParticipantContextMenu) only renders when the
+    // active call's server + channel are known — seed them so the menu opens.
+    useVoiceStore.setState({ activeServerId: 'server-1', activeChannelId: 'voice-1' });
   });
 
   it('renders the display name', () => {
@@ -287,7 +290,7 @@ describe('ParticipantTile', () => {
     expect(parentHandler).not.toHaveBeenCalled();
   });
 
-  it('right-click on a remote tile opens the ParticipantContextMenu', () => {
+  it('right-click on a remote tile opens the VoiceParticipantContextMenu', () => {
     const { container } = render(
       <ParticipantTile participant={makeParticipant()} isLocal={false} />
     );
@@ -298,12 +301,72 @@ describe('ParticipantTile', () => {
     expect(screen.getByLabelText('Participant volume')).toBeInTheDocument();
   });
 
-  it('right-click on a local tile does NOT open the ParticipantContextMenu', () => {
+  it('right-click on a local tile does NOT open the VoiceParticipantContextMenu', () => {
     const { container } = render(<ParticipantTile participant={makeParticipant()} isLocal />);
     const tile = container.querySelector('.participant-tile') as HTMLElement;
     fireEvent.contextMenu(tile);
     // No participant-volume control should exist for local user
     expect(screen.queryByLabelText('Participant volume')).not.toBeInTheDocument();
+  });
+
+  it('clicking a remote tile name opens the MemberProfileCard', () => {
+    render(<ParticipantTile participant={makeParticipant()} isLocal={false} />);
+    fireEvent.click(screen.getByText('Test User'));
+    // The profile card renders the @username row, distinct from the tile label.
+    expect(screen.getByText('@testuser')).toBeInTheDocument();
+  });
+
+  it('clicking a local tile name does NOT open the MemberProfileCard', () => {
+    render(<ParticipantTile participant={makeParticipant()} isLocal />);
+    fireEvent.click(screen.getByText(/Test User/));
+    expect(screen.queryByText('@testuser')).not.toBeInTheDocument();
+  });
+
+  // ── Keyboard activation of the interactive name (S6848/S1082) ──
+
+  it('exposes button semantics (role + tabIndex) on a remote tile name', () => {
+    render(<ParticipantTile participant={makeParticipant()} isLocal={false} />);
+    const name = screen.getByText('Test User');
+    expect(name.getAttribute('role')).toBe('button');
+    expect(name.getAttribute('tabindex')).toBe('0');
+  });
+
+  it('does NOT expose button semantics on a local tile name', () => {
+    render(<ParticipantTile participant={makeParticipant()} isLocal />);
+    const name = screen.getByText(/Test User/);
+    expect(name.getAttribute('role')).toBeNull();
+    expect(name.getAttribute('tabindex')).toBeNull();
+  });
+
+  it('opens the MemberProfileCard when Enter is pressed on a remote tile name', () => {
+    render(<ParticipantTile participant={makeParticipant()} isLocal={false} />);
+    fireEvent.keyDown(screen.getByText('Test User'), { key: 'Enter' });
+    expect(screen.getByText('@testuser')).toBeInTheDocument();
+  });
+
+  it('opens the MemberProfileCard when Space is pressed on a remote tile name', () => {
+    render(<ParticipantTile participant={makeParticipant()} isLocal={false} />);
+    fireEvent.keyDown(screen.getByText('Test User'), { key: ' ' });
+    expect(screen.getByText('@testuser')).toBeInTheDocument();
+  });
+
+  it('ignores non-activation keys on a remote tile name', () => {
+    render(<ParticipantTile participant={makeParticipant()} isLocal={false} />);
+    fireEvent.keyDown(screen.getByText('Test User'), { key: 'a' });
+    expect(screen.queryByText('@testuser')).not.toBeInTheDocument();
+  });
+
+  it('opens the MemberProfileCard via keyboard on a video-mode name overlay', () => {
+    const mockStream = { id: 'stream-1', active: true } as unknown as MediaStream;
+    vi.spyOn(HTMLVideoElement.prototype, 'play').mockResolvedValue(undefined);
+    render(
+      <ParticipantTile
+        participant={makeParticipant({ isVideoOn: true, videoStream: mockStream })}
+        isLocal={false}
+      />
+    );
+    fireEvent.keyDown(screen.getByText('Test User'), { key: 'Enter' });
+    expect(screen.getByText('@testuser')).toBeInTheDocument();
   });
 
   // ── Keyboard / menu-trigger button — keyboard-accessible alternative to right-click ──

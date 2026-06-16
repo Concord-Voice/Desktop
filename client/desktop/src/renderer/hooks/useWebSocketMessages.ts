@@ -20,6 +20,7 @@ import {
   handleCallDeclined,
   handleCallTimedOut,
 } from '../services/voiceService/callStateMachine';
+import { voiceService } from '../services/voiceService';
 import type { WebSocketEvent } from '../types/ws-events';
 import { e2eeService } from '../services/e2eeService';
 import { isPendingKeyError } from '../services/e2eeErrors';
@@ -291,6 +292,73 @@ function handleVoiceStateUpdate(
   // Update sidebar voice members for enforcement changes
   if (ENFORCEMENT_ACTIONS.has(action) && userId) {
     handleVoiceEnforcementAction(action, channelId, userId, localUserId, voiceStore);
+  }
+}
+
+/**
+ * Handle a directed `voice_move` signal (#487 Scope B). The server has already
+ * granted any temporary SBAC override on the destination channel BEFORE
+ * sending this signal (grant-before-signal ordering), so the client is clear
+ * to leave its current voice channel and join the target. The cooperative
+ * leave+rejoin (D2) lets the existing AuthorizeJoin / Socket.IO / produce-
+ * consume flow handle the actual media transition.
+ *
+ * `joinChannel` already leaves the active channel internally, but we leave
+ * explicitly first so the sidebar updates promptly and the intent is clear.
+ */
+function handleVoiceMove(msg: Extract<WebSocketEvent, { type: 'voice_move' }>): void {
+  const { to_channel_id: toChannelId } = msg.data;
+
+  // Sequence leave → join. Both are async; we chain so the join authorizes
+  // only after the leave's cleanup settles. Errors are logged, not thrown —
+  // a failed move must not crash the WS dispatch loop.
+  voiceService
+    .leaveChannel()
+    .then(() => voiceService.joinChannel(toChannelId))
+    .catch((err: unknown) => {
+      // Inline the message so the last console.error arg is not a bare
+      // identifier (no-restricted-syntax raw-err guard, observability.md).
+      console.error(
+        '[WebSocket] voice_move handling failed:',
+        err instanceof Error ? err.message : 'voice_move_failed'
+      );
+    });
+}
+
+/**
+ * Handle a directed `channel_access_revoked` signal (#487 P4). A temporary
+ * channel grant the user held was revoked server-side. Converge the client
+ * to the post-revoke state: drop the channel from the sidebar, purge its
+ * cached messages, invalidate the cached E2EE channel key (the server rotates
+ * the CSK so post-visit traffic is undecryptable), and leave voice if the
+ * user is currently connected to that channel.
+ */
+function handleChannelAccessRevoked(
+  msg: Extract<WebSocketEvent, { type: 'channel_access_revoked' }>
+): void {
+  const { channel_id: channelId } = msg.data;
+
+  // Remove the channel from the sidebar (channel_id + server_id + reason are
+  // all schema-required; no defensive presence checks needed).
+  useChannelStore.getState().removeChannel(channelId);
+
+  // Purge cached messages for the now-inaccessible channel.
+  useChatStore.getState().clearMessages(channelId);
+
+  // Drop the cached channel key — the server has rotated the CSK epoch.
+  e2eeService.invalidateChannelKey(channelId);
+
+  // If currently in this channel's voice, leave it (the server also
+  // force-disconnects the live peer via voice.enforce.disconnect; this is the
+  // client-side convergence so local state isn't stranded).
+  if (useVoiceStore.getState().activeChannelId === channelId) {
+    voiceService.leaveChannel().catch((err: unknown) => {
+      // Inline message — see voice_move handler note re no-restricted-syntax.
+      console.error(
+        '[WebSocket] channel_access_revoked leave failed:',
+        err instanceof Error ? err.message : 'leave_on_revoke_failed'
+      );
+    });
   }
 }
 
@@ -1053,6 +1121,17 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       handleVoiceStateUpdate(msg);
     });
 
+    // Voice move handler (#487) — directed signal: leave current VC, join target.
+    const unsubVoiceMove = wsService.on('voice_move', (msg) => {
+      handleVoiceMove(msg);
+    });
+
+    // Channel access revoked handler (#487 P4) — directed signal: purge the
+    // channel from the sidebar + cached messages + cached key, leave voice if in it.
+    const unsubChannelAccessRevoked = wsService.on('channel_access_revoked', (msg) => {
+      handleChannelAccessRevoked(msg);
+    });
+
     // ── DM event handlers ──────────────────────────────────────────────
 
     // DM message handler (mirrors 'message' handler for server channels)
@@ -1590,6 +1669,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       unsubServerOnlineCounts();
       unsubServerVoiceCounts();
       unsubVoiceState();
+      unsubVoiceMove();
+      unsubChannelAccessRevoked();
       unsubDMMessage();
       unsubDMAck();
       unsubDMUpdate();

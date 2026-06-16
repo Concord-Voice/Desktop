@@ -6,11 +6,26 @@ import { useUnreadStore } from '../../stores/unreadStore';
 import { useVoiceStore, type ChannelVoiceMember } from '../../stores/voiceStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useDraftMessageStore } from '../../stores/draftMessageStore';
-import { Permissions, hasPermission } from '../../utils/permissions';
+import { Permissions, hasPermission, MOVE_MEMBERS } from '../../utils/permissions';
 import { apiFetch } from '../../services/apiClient';
+import { moveVoiceParticipant } from '../../services/voiceParticipantApi';
 import { Channel, ChannelGroup } from '../../types/chat';
+import { useUserStore } from '../../stores/userStore';
 import ChannelItem, { type VoiceMemberInfo } from './ChannelItem';
+import VoiceParticipantContextMenu, {
+  type VoiceMenuParticipant,
+} from '../Voice/VoiceParticipantContextMenu';
+import MemberProfileCard, { type ProfileCardMember } from '../Members/MemberProfileCard';
 import './ChannelList.css';
+
+/** MIME type carrying a dragged sidebar voice participant (#487 Scope B DnD). */
+const PARTICIPANT_DND_MIME = 'application/concord-voice-participant';
+
+interface DraggedParticipant {
+  participantUserId: string;
+  sourceChannelId: string;
+  sourceServerId: string;
+}
 
 // ─── Drag-and-drop helper functions (extracted to reduce cognitive complexity) ──
 
@@ -320,6 +335,140 @@ const ChannelList: React.FC<ChannelListProps> = ({
     (s) => (activeServerId ? s.serverPermissions[activeServerId] : undefined) ?? 0n
   );
   const canReorder = hasPermission(activeServerPerms, Permissions.MANAGE_CHANNELS);
+  const currentUserId = useUserStore((s) => s.user?.id);
+
+  // ── Voice-participant interactivity (#487 Scope A/B) ──
+  const [participantMenu, setParticipantMenu] = useState<{
+    participant: VoiceMenuParticipant;
+    channelId: string;
+    position: { x: number; y: number };
+  } | null>(null);
+  const [participantCard, setParticipantCard] = useState<{
+    member: ProfileCardMember;
+    position: { x: number; y: number };
+  } | null>(null);
+  const [draggedParticipant, setDraggedParticipant] = useState<DraggedParticipant | null>(null);
+  const [participantDropTargetId, setParticipantDropTargetId] = useState<string | null>(null);
+
+  const toMenuParticipant = useCallback(
+    (p: VoiceMemberInfo): VoiceMenuParticipant => ({
+      userId: p.userId,
+      username: p.username,
+      displayName: p.displayName,
+      isMuted: p.isMuted,
+      serverMuted: p.serverMuted ?? false,
+      serverDeafened: p.serverDeafened ?? false,
+    }),
+    []
+  );
+
+  const handleParticipantClick = useCallback(
+    (e: React.MouseEvent, _channelId: string, p: VoiceMemberInfo) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setParticipantMenu(null);
+      setParticipantCard({
+        member: {
+          user_id: p.userId,
+          username: p.username,
+          display_name: p.displayName,
+        },
+        position: { x: e.clientX, y: e.clientY },
+      });
+    },
+    []
+  );
+
+  const handleParticipantContextMenu = useCallback(
+    (e: React.MouseEvent, channelId: string, p: VoiceMemberInfo) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setParticipantCard(null);
+      setParticipantMenu({
+        participant: toMenuParticipant(p),
+        channelId,
+        position: { x: e.clientX, y: e.clientY },
+      });
+    },
+    [toMenuParticipant]
+  );
+
+  // Whether the local user may drag-move OTHERS (UX gate only — server is
+  // authoritative). Self-drag is always permitted.
+  const canMoveOthers = hasPermission(activeServerPerms, MOVE_MEMBERS);
+
+  const handleParticipantDragStart = useCallback(
+    (e: React.DragEvent, channelId: string, p: VoiceMemberInfo) => {
+      const isSelf = p.userId === currentUserId;
+      if (!isSelf && !canMoveOthers) {
+        e.preventDefault();
+        return;
+      }
+      if (!activeServerId) {
+        e.preventDefault();
+        return;
+      }
+      const payload: DraggedParticipant = {
+        participantUserId: p.userId,
+        sourceChannelId: channelId,
+        sourceServerId: activeServerId,
+      };
+      e.dataTransfer.setData(PARTICIPANT_DND_MIME, JSON.stringify(payload));
+      e.dataTransfer.effectAllowed = 'move';
+      e.stopPropagation();
+      setDraggedParticipant(payload);
+    },
+    [activeServerId, canMoveOthers, currentUserId]
+  );
+
+  const handleParticipantDragEnd = useCallback(() => {
+    setDraggedParticipant(null);
+    setParticipantDropTargetId(null);
+  }, []);
+
+  /** A drop is valid only onto a different voice channel in the same server. */
+  const isValidParticipantDrop = useCallback(
+    (target: Channel, dragged: DraggedParticipant | null): boolean =>
+      !!dragged &&
+      target.type === 'voice' &&
+      target.server_id === dragged.sourceServerId &&
+      target.server_id === activeServerId &&
+      target.id !== dragged.sourceChannelId,
+    [activeServerId]
+  );
+
+  const handleParticipantDragOver = useCallback(
+    (e: React.DragEvent, channel: Channel) => {
+      if (!isValidParticipantDrop(channel, draggedParticipant)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'move';
+      if (participantDropTargetId !== channel.id) setParticipantDropTargetId(channel.id);
+    },
+    [draggedParticipant, isValidParticipantDrop, participantDropTargetId]
+  );
+
+  const handleParticipantDrop = useCallback(
+    (e: React.DragEvent, channel: Channel) => {
+      e.preventDefault();
+      e.stopPropagation();
+      let dragged: DraggedParticipant | null = null;
+      try {
+        dragged = JSON.parse(e.dataTransfer.getData(PARTICIPANT_DND_MIME)) as DraggedParticipant;
+      } catch {
+        dragged = null;
+      }
+      setDraggedParticipant(null);
+      setParticipantDropTargetId(null);
+      if (!isValidParticipantDrop(channel, dragged) || !dragged) return;
+      void moveVoiceParticipant(dragged.sourceServerId, dragged.participantUserId, channel.id).catch(
+        () => {
+          // Server is authoritative; failures surface via voice_state_update / errors.
+        }
+      );
+    },
+    [isValidParticipantDrop]
+  );
 
   // Fetch channels when active server changes.
   // Guard prevents StrictMode double-mount from firing duplicate HTTP requests.
@@ -813,6 +962,14 @@ const ChannelList: React.FC<ChannelListProps> = ({
           onDragEnd={handleDragEnd}
           onLinkedTextClick={handleLinkedTextClick}
           itemRef={handleItemRef}
+          onParticipantClick={handleParticipantClick}
+          onParticipantContextMenu={handleParticipantContextMenu}
+          onParticipantDragStart={handleParticipantDragStart}
+          onParticipantDragEnd={handleParticipantDragEnd}
+          onParticipantDragOver={handleParticipantDragOver}
+          onParticipantDrop={handleParticipantDrop}
+          isParticipantDropTarget={participantDropTargetId === channel.id}
+          draggingParticipantUserId={draggedParticipant?.participantUserId ?? null}
         />
       );
     },
@@ -835,6 +992,14 @@ const ChannelList: React.FC<ChannelListProps> = ({
       handleDragEnd,
       handleLinkedTextClick,
       handleItemRef,
+      handleParticipantClick,
+      handleParticipantContextMenu,
+      handleParticipantDragStart,
+      handleParticipantDragEnd,
+      handleParticipantDragOver,
+      handleParticipantDrop,
+      participantDropTargetId,
+      draggedParticipant,
     ]
   );
 
@@ -982,6 +1147,37 @@ const ChannelList: React.FC<ChannelListProps> = ({
             />
           )}
         </>
+      )}
+
+      {/* Voice-participant profile card (name click) */}
+      {participantCard && (
+        <MemberProfileCard
+          member={participantCard.member}
+          position={participantCard.position}
+          onClose={() => setParticipantCard(null)}
+        />
+      )}
+
+      {/* Voice-participant context menu (right-click) */}
+      {participantMenu && activeServerId && (
+        <VoiceParticipantContextMenu
+          participant={participantMenu.participant}
+          serverId={activeServerId}
+          channelId={participantMenu.channelId}
+          position={participantMenu.position}
+          onClose={() => setParticipantMenu(null)}
+          onViewProfile={() => {
+            setParticipantCard({
+              member: {
+                user_id: participantMenu.participant.userId,
+                username: participantMenu.participant.username,
+                display_name: participantMenu.participant.displayName,
+              },
+              position: participantMenu.position,
+            });
+            setParticipantMenu(null);
+          }}
+        />
       )}
     </div>
   );

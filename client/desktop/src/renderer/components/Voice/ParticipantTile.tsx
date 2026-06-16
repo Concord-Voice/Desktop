@@ -1,7 +1,8 @@
 import React, { useRef, useEffect, useMemo, useState, useId } from 'react';
 import { MicOff, HeadphoneOff, Lock, Monitor, MoreVertical } from 'lucide-react';
-import { ParticipantContextMenu } from './ParticipantContextMenu';
-import type { VoiceParticipant } from '../../stores/voiceStore';
+import { VoiceParticipantContextMenu } from './VoiceParticipantContextMenu';
+import MemberProfileCard, { type ProfileCardMember } from '../Members/MemberProfileCard';
+import { useVoiceStore, type VoiceParticipant } from '../../stores/voiceStore';
 import { useMemberStore } from '../../stores/memberStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 import { useUserThemeScope } from '../../hooks/useUserThemeScope';
@@ -72,6 +73,141 @@ function ParticipantStatusOverlay({
     );
   }
   return null;
+}
+
+/**
+ * The clickable display-name element shared by the video-overlay and the default
+ * square frame. When non-local it is interactive: clicking (or pressing
+ * Enter/Space) opens the member profile card. We keep a <span> rather than a
+ * native <button> because the tile layout is visually sensitive and the name
+ * sits inside flex/overlay chrome; role/tabIndex/onKeyDown supply the button
+ * semantics a native element would otherwise provide (S6848/S1082).
+ */
+function InteractiveName({
+  displayName,
+  isLocal,
+  className,
+  onActivate,
+}: Readonly<{
+  displayName: string;
+  isLocal: boolean;
+  className: string;
+  onActivate: (e: React.MouseEvent | React.KeyboardEvent) => void;
+}>) {
+  const interactiveClass = isLocal ? '' : ' voice-participant-name--interactive';
+  return (
+    <span
+      className={`${className}${interactiveClass}`}
+      role={isLocal ? undefined : 'button'}
+      tabIndex={isLocal ? undefined : 0}
+      onClick={isLocal ? undefined : onActivate}
+      onKeyDown={
+        isLocal
+          ? undefined
+          : (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onActivate(e);
+              }
+            }
+      }
+    >
+      {displayName}
+      {isLocal && ' (You)'}
+    </span>
+  );
+}
+
+/**
+ * The avatar block of the default (non-video) frame: either the participant's
+ * avatar image or a single-letter fallback tinted with the user's accent color.
+ * Extracted to keep the parent render's cognitive complexity low (S3776).
+ */
+function ParticipantAvatar({
+  avatarUrl,
+  displayName,
+  userColors,
+}: Readonly<{
+  avatarUrl?: string;
+  displayName: string;
+  userColors: ReturnType<typeof resolveUserAccentColors>;
+}>) {
+  return (
+    <div className="participant-tile__avatar">
+      {avatarUrl ? (
+        <img src={avatarUrl} alt={displayName} className="participant-tile__avatar-img" />
+      ) : (
+        <div
+          className="participant-tile__avatar-fallback"
+          style={userColors ? { background: userColors.gradient } : undefined}
+        >
+          {displayName.charAt(0).toUpperCase()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Renders the participant's primary visual content — either the live video frame
+ * with a name overlay, or the default banner+avatar+name square. Pulling the
+ * two-branch frame out of the parent keeps ParticipantTile's cognitive
+ * complexity under the S3776 threshold without changing behavior.
+ */
+function ParticipantTileContent({
+  participant,
+  isLocal,
+  hasVideo,
+  displayName,
+  gradient,
+  userColors,
+  videoRef,
+  onNameActivate,
+}: Readonly<{
+  participant: VoiceParticipant;
+  isLocal: boolean;
+  hasVideo: boolean;
+  displayName: string;
+  gradient: string;
+  userColors: ReturnType<typeof resolveUserAccentColors>;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
+  onNameActivate: (e: React.MouseEvent | React.KeyboardEvent) => void;
+}>) {
+  if (hasVideo) {
+    // Video mode — fills the frame, name overlay at bottom.
+    return (
+      <>
+        <video ref={videoRef} className="participant-tile__video" autoPlay playsInline muted />
+        <div className="participant-tile__video-name">
+          <InteractiveName
+            displayName={displayName}
+            isLocal={isLocal}
+            className="participant-tile__video-name-text"
+            onActivate={onNameActivate}
+          />
+        </div>
+      </>
+    );
+  }
+  // Default square frame — banner + avatar + name.
+  return (
+    <>
+      <div className="participant-tile__banner" style={{ background: gradient }} />
+      <div className="participant-tile__body">
+        <ParticipantAvatar
+          avatarUrl={participant.avatarUrl}
+          displayName={displayName}
+          userColors={userColors}
+        />
+        <InteractiveName
+          displayName={displayName}
+          isLocal={isLocal}
+          className="participant-tile__name"
+          onActivate={onNameActivate}
+        />
+      </div>
+    </>
+  );
 }
 
 const ParticipantTile: React.FC<ParticipantTileProps> = ({
@@ -149,7 +285,33 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
   const scaleStyle =
     magnificationScale === 1 ? undefined : { transform: `scale(${magnificationScale})`, zIndex: 2 };
 
+  // Voice channel/server context for the participant menu's move/disconnect
+  // actions. Both come from the active call (voiceStore), not props.
+  const activeServerId = useVoiceStore((s) => s.activeServerId);
+  const activeChannelId = useVoiceStore((s) => s.activeChannelId);
+
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [profileCard, setProfileCard] = useState<{ x: number; y: number } | null>(null);
+
+  const profileMember: ProfileCardMember = {
+    user_id: participant.userId,
+    username: participant.username,
+    display_name: participant.displayName,
+    avatar_url: participant.avatarUrl,
+  };
+
+  const handleNameClick = (e: React.MouseEvent | React.KeyboardEvent) => {
+    e.stopPropagation();
+    if (isLocal) return;
+    // Mouse activation positions the card at the cursor; keyboard activation
+    // (Enter/Space) has no clientX/Y, so anchor to the activated element.
+    if ('clientX' in e) {
+      setProfileCard({ x: e.clientX, y: e.clientY });
+    } else {
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      setProfileCard({ x: rect.left, y: rect.bottom });
+    }
+  };
 
   const handleContextMenu = (e: React.MouseEvent) => {
     // Always stop the browser default + propagation so right-clicks on a tile
@@ -178,45 +340,16 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
       style={{ ...scopeProps.style, ...scaleStyle }}
       onContextMenu={handleContextMenu}
     >
-      {hasVideo ? (
-        /* Video mode — fills the frame, name overlay at bottom */
-        <>
-          <video ref={videoRef} className="participant-tile__video" autoPlay playsInline muted />
-          <div className="participant-tile__video-name">
-            <span className="participant-tile__video-name-text">
-              {displayName}
-              {isLocal && ' (You)'}
-            </span>
-          </div>
-        </>
-      ) : (
-        /* Default square frame — banner + avatar + name */
-        <>
-          <div className="participant-tile__banner" style={{ background: gradient }} />
-          <div className="participant-tile__body">
-            <div className="participant-tile__avatar">
-              {participant.avatarUrl ? (
-                <img
-                  src={participant.avatarUrl}
-                  alt={displayName}
-                  className="participant-tile__avatar-img"
-                />
-              ) : (
-                <div
-                  className="participant-tile__avatar-fallback"
-                  style={userColors ? { background: userColors.gradient } : undefined}
-                >
-                  {displayName.charAt(0).toUpperCase()}
-                </div>
-              )}
-            </div>
-            <span className="participant-tile__name">
-              {displayName}
-              {isLocal && ' (You)'}
-            </span>
-          </div>
-        </>
-      )}
+      <ParticipantTileContent
+        participant={participant}
+        isLocal={isLocal}
+        hasVideo={hasVideo}
+        displayName={displayName}
+        gradient={gradient}
+        userColors={userColors}
+        videoRef={videoRef}
+        onNameActivate={handleNameClick}
+      />
 
       {/* Status overlays */}
       <div className="participant-tile__overlays">
@@ -238,11 +371,22 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
           <MoreVertical size={14} aria-hidden="true" />
         </button>
       )}
-      {ctxMenu && (
-        <ParticipantContextMenu
+      {ctxMenu && activeServerId && activeChannelId && (
+        <VoiceParticipantContextMenu
           participant={participant}
+          serverId={activeServerId}
+          channelId={activeChannelId}
           position={ctxMenu}
+          showVolumeControl
           onClose={() => setCtxMenu(null)}
+          onViewProfile={() => setProfileCard(ctxMenu)}
+        />
+      )}
+      {profileCard && (
+        <MemberProfileCard
+          member={profileMember}
+          position={profileCard}
+          onClose={() => setProfileCard(null)}
         />
       )}
     </div>

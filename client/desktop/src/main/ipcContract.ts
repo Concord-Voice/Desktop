@@ -80,7 +80,7 @@
  *        is NOT bumped — the channels are additive; the legacy renderer-driven
  *        google path no longer exists server-side (Callback route removed).
  */
-export const IPC_CONTRACT_VERSION = 14;
+export const IPC_CONTRACT_VERSION = 15;
 
 /**
  * Result shape returned by performRefresh() in the main process and
