@@ -100,9 +100,10 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, initialM
       }
       if (!res.ok) {
         const body = await res.text().catch(() => '');
+        const detail = body ? `: ${body.slice(0, 200)}` : '';
         setSubmitState({
           status: 'error',
-          message: `Submission failed (HTTP ${res.status})${body ? `: ${body.slice(0, 200)}` : ''}`,
+          message: `Submission failed (HTTP ${res.status})${detail}`,
         });
         return;
       }

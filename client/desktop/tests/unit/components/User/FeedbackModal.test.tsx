@@ -118,4 +118,55 @@ describe('FeedbackModal', () => {
       });
     });
   });
+
+  // The dev-only "Send Test Submission" smoke trigger is rendered when
+  // `import.meta.env.DEV` is true (vitest defaults to DEV mode). Clicking it
+  // calls the shared `submit` pipe with a hard-coded payload — exercising
+  // the wire end-to-end before #159 / #160 wire real forms. Removed
+  // once the panels arrive.
+  describe('dev-only smoke trigger', () => {
+    it('renders the Send Test Submission button under vitest (DEV mode)', () => {
+      render(<FeedbackModal isOpen={true} onClose={vi.fn()} />);
+      expect(screen.getByText('Send Test Submission (dev)')).toBeInTheDocument();
+    });
+
+    it('clicking the smoke trigger invokes apiFetch with the placeholder payload', async () => {
+      mockApiFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ dev: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+      render(<FeedbackModal isOpen={true} onClose={vi.fn()} />);
+      fireEvent.click(screen.getByText('Send Test Submission (dev)'));
+
+      await waitFor(() => {
+        expect(mockApiFetch).toHaveBeenCalledTimes(1);
+      });
+      const [path, init] = mockApiFetch.mock.calls[0];
+      expect(path).toBe('/api/v1/feedback');
+      expect(init.method).toBe('POST');
+      const body = JSON.parse(init.body as string);
+      expect(body.type).toBe('bug'); // default mode
+      expect(body.title).toBe('Infrastructure smoke test');
+      expect(typeof body.description).toBe('string');
+    });
+
+    it('after a successful smoke submission, the success surface renders', async () => {
+      mockApiFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ dev: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+      render(<FeedbackModal isOpen={true} onClose={vi.fn()} />);
+      fireEvent.click(screen.getByText('Send Test Submission (dev)'));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Thank you for the feedback/)).toBeInTheDocument();
+      });
+      // dev-stub flag surfaces the clarifying note
+      expect(screen.getByText(/Stubbed in dev/)).toBeInTheDocument();
+    });
+  });
 });

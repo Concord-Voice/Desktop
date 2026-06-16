@@ -47,26 +47,50 @@ let original: OriginalConsole | null = null;
 // Order matters: longest/most-specific patterns first, so that (e.g.) a JWT
 // inside a URL gets caught as JWT, not as part of the URL.
 
+// Per-pattern upper bound for unbounded quantifiers (Sonar typescript:S5852,
+// ReDoS-defense). Comfortably above realistic worst-case sizes for each
+// category (a real JWT is ~300 bytes; a real path is ~256 chars). Bounding
+// prevents catastrophic backtracking on adversarial inputs.
+const PATTERN_MAX = 4096;
+
 const PATTERNS: ReadonlyArray<{ re: RegExp; replacement: string }> = [
   // JWT — three base64url segments separated by dots
-  { re: /eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, replacement: '<jwt>' },
+  {
+    re: new RegExp(
+      `eyJ[A-Za-z0-9_-]{10,${PATTERN_MAX}}\\.[A-Za-z0-9_-]{10,${PATTERN_MAX}}\\.[A-Za-z0-9_-]{10,${PATTERN_MAX}}`,
+      'g'
+    ),
+    replacement: '<jwt>',
+  },
   // Bearer tokens
-  { re: /\bBearer\s+[A-Za-z0-9._~+/=-]{10,}/gi, replacement: 'Bearer <token>' },
+  {
+    re: new RegExp(`\\bBearer\\s+[A-Za-z0-9._~+/=-]{10,${PATTERN_MAX}}`, 'gi'),
+    replacement: 'Bearer <token>',
+  },
   // Email
-  { re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, replacement: '<email>' },
+  {
+    re: new RegExp(
+      `[A-Za-z0-9._%+-]{1,${PATTERN_MAX}}@[A-Za-z0-9.-]{1,${PATTERN_MAX}}\\.[A-Za-z]{2,16}`,
+      'g'
+    ),
+    replacement: '<email>',
+  },
   // Filesystem paths containing usernames — POSIX form
-  { re: /\/Users\/[^/\s"']+/g, replacement: '/Users/<user>' },
-  { re: /\/home\/[^/\s"']+/g, replacement: '/home/<user>' },
+  { re: new RegExp(`/Users/[^/\\s"']{1,${PATTERN_MAX}}`, 'g'), replacement: '/Users/<user>' },
+  { re: new RegExp(`/home/[^/\\s"']{1,${PATTERN_MAX}}`, 'g'), replacement: '/home/<user>' },
   // Filesystem paths — Windows form
-  { re: /[A-Z]:\\Users\\[^\\/\s"']+/g, replacement: 'C:\\Users\\<user>' },
+  {
+    re: new RegExp(`[A-Z]:\\\\Users\\\\[^\\\\/\\s"']{1,${PATTERN_MAX}}`, 'g'),
+    replacement: 'C:\\Users\\<user>',
+  },
   // IPv4
   { re: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g, replacement: '<ip>' },
   // IPv6 — match colon-separated hex groups (lenient; covers compressed forms)
   { re: /\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b/g, replacement: '<ip>' },
   // Long hex strings (hashes, raw token bytes) — 32+ hex chars
-  { re: /\b[0-9a-fA-F]{32,}\b/g, replacement: '<hex>' },
+  { re: new RegExp(`\\b[0-9a-fA-F]{32,${PATTERN_MAX}}\\b`, 'g'), replacement: '<hex>' },
   // Long base64 strings (keys, encrypted blobs) — 40+ url-safe-base64 chars
-  { re: /\b[A-Za-z0-9+/=_-]{40,}\b/g, replacement: '<base64>' },
+  { re: new RegExp(`\\b[A-Za-z0-9+/=_-]{40,${PATTERN_MAX}}\\b`, 'g'), replacement: '<base64>' },
 ];
 
 /**
@@ -91,8 +115,8 @@ export function sanitize(input: string): string {
 function stringifyArg(value: unknown): string {
   if (typeof value === 'string') return value;
   if (value instanceof Error) {
-    const stack = value.stack ?? '';
-    return `${value.name}: ${value.message}${stack ? `\n${stack}` : ''}`;
+    const stack = value.stack ? `\n${value.stack}` : '';
+    return `${value.name}: ${value.message}${stack}`;
   }
   try {
     return JSON.stringify(value);
