@@ -28,7 +28,7 @@
 
 import Ajv2020 from 'ajv/dist/2020.js';
 import addFormats from 'ajv-formats';
-import { readFileSync, writeFileSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, statSync, existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, basename, resolve as pathResolve } from 'node:path';
@@ -41,6 +41,9 @@ export interface ManifestEntry {
   url: string;
   sha512: string;
   size: number;
+  // #1292: byte size of the sibling <url>.blockmap (macOS differential-update
+  // block manifest). Present only for entries that have a .blockmap on disk.
+  blockMapSize?: number;
 }
 
 export interface Manifest {
@@ -82,11 +85,22 @@ export function buildManifest(opts: {
   const releaseDate = opts.releaseDate ?? new Date().toISOString();
   const manifest: Manifest = {
     version: opts.version,
-    files: opts.files.map((f) => ({
-      url: basename(f),
-      sha512: sha512Base64(f),
-      size: statSync(f).size,
-    })),
+    files: opts.files.map((f) => {
+      const entry: ManifestEntry = {
+        url: basename(f),
+        sha512: sha512Base64(f),
+        size: statSync(f).size,
+      };
+      // #1292: the release-job app-builder step writes <file>.blockmap next to
+      // each macOS .zip. Advertise its byte size as blockMapSize so
+      // electron-updater can perform differential downloads. Platforms without
+      // a blockmap (Windows/Linux) leave the field absent.
+      const blockMapPath = `${f}.blockmap`;
+      if (existsSync(blockMapPath)) {
+        entry.blockMapSize = statSync(blockMapPath).size;
+      }
+      return entry;
+    }),
     releaseDate,
   };
   validateManifest(manifest);

@@ -39,6 +39,18 @@ describe('verifyManifest', () => {
     expect(result.errors).toEqual([]);
   });
 
+  it('returns ok: true for a manifest entry carrying blockMapSize (#1292)', () => {
+    const contents = Buffer.from('macos zip bytes');
+    writeFileSync(path.join(dir, 'ConcordVoice-0.1.59-macos-arm64.zip'), contents);
+    const manifest = `version: 0.1.59\nfiles:\n  - url: ConcordVoice-0.1.59-macos-arm64.zip\n    sha512: ${sha512Base64(contents)}\n    size: ${contents.length}\n    blockMapSize: 1234\nreleaseDate: '2026-06-15T00:00:00.000Z'\n`;
+    const manifestPath = path.join(dir, 'latest-mac.yml');
+    writeFileSync(manifestPath, manifest);
+
+    const result = verifyManifest(manifestPath);
+    expect(result.ok).toBe(true);
+    expect(result.errors).toEqual([]);
+  });
+
   it('returns ok: false when an artifact hash mismatches', () => {
     const contents = Buffer.from('fake installer bytes');
     writeFileSync(path.join(dir, 'Concord-Setup.exe'), contents);

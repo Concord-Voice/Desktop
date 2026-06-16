@@ -93,6 +93,30 @@ describe('validateManifest — schema enforcement (Draft 2020-12)', () => {
     expect(() => validateManifest(m)).toThrow(ManifestSchemaError);
   });
 
+  it('accepts a files entry with a valid integer blockMapSize (#1292)', () => {
+    const m = valid();
+    m.files[0].blockMapSize = 140_000;
+    expect(() => validateManifest(m)).not.toThrow();
+  });
+
+  it('rejects blockMapSize of zero (minimum: 1)', () => {
+    const m = valid();
+    m.files[0].blockMapSize = 0;
+    expect(() => validateManifest(m)).toThrow(ManifestSchemaError);
+  });
+
+  it('rejects non-integer blockMapSize', () => {
+    const m = valid();
+    m.files[0].blockMapSize = 1.5;
+    expect(() => validateManifest(m)).toThrow(ManifestSchemaError);
+  });
+
+  it('still rejects an unknown extra property when blockMapSize is allowed (additionalProperties intact)', () => {
+    const m = valid();
+    (m.files[0] as unknown as Record<string, unknown>).bogus = 'oops';
+    expect(() => validateManifest(m)).toThrow(ManifestSchemaError);
+  });
+
   it('rejects zero or negative size', () => {
     const m = valid();
     m.files[0].size = 0;
@@ -199,6 +223,52 @@ describe('buildManifest — end-to-end manifest assembly', () => {
     const file = makeFile(dir, 'X.zip', Buffer.from('x'));
     expect(() =>
       buildManifest({ version: 'not-semver', files: [file], releaseDate: FROZEN_DATE })
+    ).toThrow(ManifestSchemaError);
+  });
+
+  it('adds blockMapSize when a sibling .blockmap exists (macOS path) (#1292)', () => {
+    const zip = makeFile(
+      dir,
+      'ConcordVoice-0.1.59-macos-arm64.zip',
+      Buffer.from('macos zip bytes')
+    );
+    const blockMap = Buffer.from('gzipped-blockmap-stub-bytes');
+    makeFile(dir, 'ConcordVoice-0.1.59-macos-arm64.zip.blockmap', blockMap);
+    const m = buildManifest({ version: '0.1.59', files: [zip], releaseDate: FROZEN_DATE });
+    expect(m.files[0].blockMapSize).toBe(blockMap.length);
+  });
+
+  it('omits blockMapSize when no sibling .blockmap exists (Windows/Linux path) (#1292)', () => {
+    const file = makeFile(
+      dir,
+      'ConcordVoice-0.1.59-windows-x64-Setup.exe',
+      Buffer.from('exe bytes')
+    );
+    const m = buildManifest({ version: '0.1.59', files: [file], releaseDate: FROZEN_DATE });
+    expect(m.files[0].blockMapSize).toBeUndefined();
+  });
+
+  it('renders blockMapSize into the YAML and round-trips (#1292)', () => {
+    const zip = makeFile(dir, 'ConcordVoice-0.1.59-macos-arm64.zip', Buffer.from('z'));
+    makeFile(dir, 'ConcordVoice-0.1.59-macos-arm64.zip.blockmap', Buffer.from('bm'));
+    const m = buildManifest({ version: '0.1.59', files: [zip], releaseDate: FROZEN_DATE });
+    const parsed = parseYaml(renderManifestYaml(m)) as Manifest;
+    expect(parsed.files[0].blockMapSize).toBe(2);
+  });
+
+  it('throws ManifestSchemaError when a sibling .blockmap is empty (0 bytes — spec §8 fail-loud) (#1292)', () => {
+    // Exercises the generator's STAT-DERIVED path (existsSync → statSync → assign →
+    // validate), distinct from the object-injection schema-reject tests above: a
+    // truncated/empty sidecar yields blockMapSize: 0, which the schema (minimum: 1)
+    // rejects — fail-loud rather than shipping a malformed manifest.
+    const zip = makeFile(
+      dir,
+      'ConcordVoice-0.1.59-macos-arm64.zip',
+      Buffer.from('macos zip bytes')
+    );
+    makeFile(dir, 'ConcordVoice-0.1.59-macos-arm64.zip.blockmap', Buffer.alloc(0));
+    expect(() =>
+      buildManifest({ version: '0.1.59', files: [zip], releaseDate: FROZEN_DATE })
     ).toThrow(ManifestSchemaError);
   });
 });

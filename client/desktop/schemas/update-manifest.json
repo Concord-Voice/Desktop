@@ -35,6 +35,11 @@
             "type": "integer",
             "description": "Artifact size in bytes (matches the on-disk size of the file at files[*].url).",
             "minimum": 1
+          },
+          "blockMapSize": {
+            "type": "integer",
+            "description": "Byte size of the sibling <url>.blockmap file (electron-builder differential-download block manifest). Present only for macOS .zip entries; omitted for platforms without a blockmap.",
+            "minimum": 1
           }
         }
       }

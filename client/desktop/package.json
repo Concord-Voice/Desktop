@@ -83,6 +83,7 @@
     "@vitest/coverage-v8": "^4.1.0",
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
+    "app-builder-bin": "^4.2.0",
     "concurrently": "^10.0.3",
     "electron": "^42.4.0",
     "esbuild": "^0.28.1",
