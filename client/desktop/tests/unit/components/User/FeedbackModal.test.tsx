@@ -216,6 +216,43 @@ describe('FeedbackModal', () => {
     });
   });
 
+  describe('bug submission integration (real BugReportPanel → submit → apiFetch)', () => {
+    // End-to-end wiring test: fills the REAL BugReportPanel form inside the
+    // modal and submits, asserting the assembled payload reaches apiFetch.
+    // Locks the BugReportPanel → modal.submit → apiFetch seam that the
+    // per-component unit tests each only cover one side of. No logs box
+    // checked, so systemInfoService.collect() is never invoked (no extra
+    // mocks needed).
+    it('routes a bug report from the real form to POST /api/v1/feedback', async () => {
+      mockApiFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ dev: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+      render(<FeedbackModal isOpen={true} onClose={vi.fn()} />);
+      // Default bug mode renders the real BugReportPanel.
+      fireEvent.change(screen.getByLabelText(/Title/), { target: { value: 'Crash on send' } });
+      fireEvent.change(screen.getByLabelText(/Description/), {
+        target: { value: 'It crashed when I clicked send.' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Submit Bug Report' }));
+
+      await waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(1));
+      const [path, init] = mockApiFetch.mock.calls[0];
+      expect(path).toBe('/api/v1/feedback');
+      expect(init.method).toBe('POST');
+      const body = JSON.parse(init.body as string);
+      expect(body.type).toBe('bug');
+      expect(body.title).toBe('Crash on send');
+      expect(body.description).toBe('It crashed when I clicked send.');
+      expect(body.diagnostics).toBeUndefined(); // logs box left unchecked
+
+      // Success surface renders through the whole stack.
+      expect(await screen.findByText(/Thank you for the feedback/)).toBeInTheDocument();
+    });
+  });
+
   describe('Modal width', () => {
     it('mounts inside the xlarge modal container (#158 wide layout)', () => {
       render(<FeedbackModal isOpen={true} onClose={vi.fn()} />);

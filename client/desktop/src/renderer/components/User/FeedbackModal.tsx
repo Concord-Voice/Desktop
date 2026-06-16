@@ -15,11 +15,6 @@ import './FeedbackModal.css';
  * only owns its form fields and hands an assembled payload to `submit`.
  */
 
-// Re-export the shared contracts so existing imports of these names from this
-// module keep working — they were defined inline here before #159 extracted
-// them into feedbackTypes.ts (shared with BugReportPanel / the #160 panel).
-export type { FeedbackMode, FeedbackSubmission } from './feedbackTypes';
-
 interface FeedbackModalProps {
   isOpen: boolean;
   onClose: () => void;
