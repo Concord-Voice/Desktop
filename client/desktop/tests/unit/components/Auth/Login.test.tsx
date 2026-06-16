@@ -1,4 +1,4 @@
-import { render, screen, userEvent } from '../../../test-utils';
+import { render, screen, userEvent, within } from '../../../test-utils';
 import Login from '@/renderer/components/Auth/Login';
 import { vi } from 'vitest';
 import { useAuthStore } from '@/renderer/stores/authStore';
@@ -485,10 +485,49 @@ describe('Login', () => {
 
   // ── E2EE Key Regeneration Fallback ─────────────────────────────────────
 
-  it('regenerates E2EE keys when unwrapLoginKeys fails', async () => {
+  it('shows the recovery prompt (no silent PUT) when unwrapLoginKeys fails', async () => {
     mockUnwrapLoginKeys.mockRejectedValueOnce(new Error('corrupt key'));
+    const { apiFetch } = await import('@/renderer/services/apiClient');
+    (apiFetch as ReturnType<typeof vi.fn>).mockClear();
 
-    // Need storeRefreshToken and apiFetch for the recovery path
+    // checkPermission: 'granted' is load-bearing — a prior test
+    // (`shows safeStorage error when checkPermission throws`) leaves a
+    // rejecting checkPermission on globalThis.electron, and clearAllMocks does
+    // not reset mock implementations. Without healing it here, login
+    // short-circuits before fetch, leaving this test's queued fetch/unwrap
+    // mocks unconsumed and desyncing the ...Once queues for every later test.
+    Object.defineProperty(globalThis, 'electron', {
+      value: {
+        ...globalThis.electron,
+        storeRefreshToken: vi.fn().mockResolvedValue(undefined),
+        storeE2EEKeys: vi.fn().mockResolvedValue(undefined),
+        checkPermission: vi.fn().mockResolvedValue('granted'),
+      },
+      writable: true,
+    });
+
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => makeLoginResponse() });
+
+    const user = userEvent.setup();
+    render(<Login {...defaultProps} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'Password123!');
+    await user.click(screen.getByText('Sign In'));
+
+    await vi.waitFor(() => {
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    });
+    // Critical: no silent key-replacement PUT happened before the user decided.
+    expect(apiFetch).not.toHaveBeenCalledWith('/api/v1/users/me/keys', expect.anything());
+    expect(mockGenerateRegistrationKeys).not.toHaveBeenCalled();
+
+    // Dismiss the prompt so the suspended login flow (the catch awaits this
+    // decision) resolves and no dialog leaks into later tests.
+    await user.click(screen.getByRole('button', { name: /cancel/i }));
+  });
+
+  it('resets keys with public_key + acknowledge_data_loss when the user confirms', async () => {
+    mockUnwrapLoginKeys.mockRejectedValueOnce(new Error('corrupt key'));
     const { apiFetch } = await import('@/renderer/services/apiClient');
     (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       ok: true,
@@ -505,10 +544,7 @@ describe('Login', () => {
       writable: true,
     });
 
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => makeLoginResponse(),
-    });
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => makeLoginResponse() });
 
     const user = userEvent.setup();
     render(<Login {...defaultProps} />);
@@ -516,9 +552,147 @@ describe('Login', () => {
     await user.type(screen.getByPlaceholderText('Enter your password'), 'Password123!');
     await user.click(screen.getByText('Sign In'));
 
+    await vi.waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+    // Scope to the dialog: the login form's "Remember me" checkbox coexists
+    // with the prompt's acknowledge checkbox while the overlay is mounted.
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(within(dialog).getByRole('button', { name: /reset and continue/i }));
+
     await vi.waitFor(() => {
-      expect(mockGenerateRegistrationKeys).toHaveBeenCalledWith('Password123!');
+      expect(apiFetch).toHaveBeenCalledWith(
+        '/api/v1/users/me/keys',
+        expect.objectContaining({
+          method: 'PUT',
+          body: expect.stringContaining('"acknowledge_data_loss":true'),
+        })
+      );
     });
+    const putCall = (apiFetch as ReturnType<typeof vi.fn>).mock.calls.find(
+      (c) => c[0] === '/api/v1/users/me/keys'
+    );
+    expect(putCall?.[1]?.body).toContain('"public_key"');
+    // Step-up auth: the destructive reset must carry the current password.
+    expect(putCall?.[1]?.body).toContain('"current_password":"Password123!"');
+  });
+
+  it('prompts for an MFA code when the reset requires it, then resets with the code', async () => {
+    mockUnwrapLoginKeys.mockRejectedValueOnce(new Error('corrupt key'));
+    const { apiFetch } = await import('@/renderer/services/apiClient');
+    // First reset attempt (no code) → 403 mfa_required; retry (with code) → ok.
+    (apiFetch as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: 'mfa_required' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({}) });
+
+    Object.defineProperty(globalThis, 'electron', {
+      value: {
+        ...globalThis.electron,
+        storeRefreshToken: vi.fn().mockResolvedValue(undefined),
+        storeE2EEKeys: vi.fn().mockResolvedValue(undefined),
+        checkPermission: vi.fn().mockResolvedValue('granted'),
+      },
+      writable: true,
+    });
+
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => makeLoginResponse() });
+
+    const user = userEvent.setup();
+    render(<Login {...defaultProps} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'Password123!');
+    await user.click(screen.getByText('Sign In'));
+
+    // Consent step.
+    await vi.waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+    let dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(within(dialog).getByRole('button', { name: /reset and continue/i }));
+
+    // Server demanded MFA → prompt re-opens in MFA-entry mode.
+    await vi.waitFor(() =>
+      expect(screen.getByRole('button', { name: /verify and reset/i })).toBeInTheDocument()
+    );
+    dialog = screen.getByRole('dialog');
+    await user.type(within(dialog).getByRole('textbox'), '654321');
+    await user.click(within(dialog).getByRole('button', { name: /verify and reset/i }));
+
+    // The retry PUT carries the MFA code.
+    await vi.waitFor(() => {
+      const keyCalls = (apiFetch as ReturnType<typeof vi.fn>).mock.calls.filter(
+        (c) => c[0] === '/api/v1/users/me/keys'
+      );
+      expect(keyCalls.length).toBe(2);
+      expect(keyCalls[1]?.[1]?.body).toContain('"mfa_code":"654321"');
+    });
+  });
+
+  it('does not reset keys when the user cancels recovery', async () => {
+    mockUnwrapLoginKeys.mockRejectedValueOnce(new Error('corrupt key'));
+    const { apiFetch } = await import('@/renderer/services/apiClient');
+    (apiFetch as ReturnType<typeof vi.fn>).mockClear();
+
+    // Heal the rejecting checkPermission a prior test leaves behind (see the
+    // note in 'shows the recovery prompt') so login reaches the unwrap path.
+    Object.defineProperty(globalThis, 'electron', {
+      value: {
+        ...globalThis.electron,
+        checkPermission: vi.fn().mockResolvedValue('granted'),
+      },
+      writable: true,
+    });
+
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => makeLoginResponse() });
+
+    const user = userEvent.setup();
+    render(<Login {...defaultProps} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'Password123!');
+    await user.click(screen.getByText('Sign In'));
+
+    await vi.waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: /cancel/i }));
+
+    // Apostrophe-free substring (the error string uses a curly ’; match on a
+    // segment without it so the regex can't silently miss).
+    await vi.waitFor(() => {
+      expect(screen.getByText(/recover your account on a device/i)).toBeInTheDocument();
+    });
+    expect(apiFetch).not.toHaveBeenCalledWith('/api/v1/users/me/keys', expect.anything());
+  });
+
+  it('clears the access token when the reset PUT fails (no half-authenticated state)', async () => {
+    mockUnwrapLoginKeys.mockRejectedValueOnce(new Error('corrupt key'));
+    const { apiFetch } = await import('@/renderer/services/apiClient');
+    // The reset PUT fails — the early-set token must NOT survive.
+    (apiFetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ ok: false, json: async () => ({}) });
+
+    Object.defineProperty(globalThis, 'electron', {
+      value: {
+        ...globalThis.electron,
+        checkPermission: vi.fn().mockResolvedValue('granted'),
+      },
+      writable: true,
+    });
+
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => makeLoginResponse() });
+
+    const user = userEvent.setup();
+    render(<Login {...defaultProps} />);
+    await user.type(screen.getByPlaceholderText('you@example.com'), 'test@example.com');
+    await user.type(screen.getByPlaceholderText('Enter your password'), 'Password123!');
+    await user.click(screen.getByText('Sign In'));
+
+    await vi.waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+    const dialog = screen.getByRole('dialog');
+    await user.click(within(dialog).getByRole('checkbox'));
+    await user.click(within(dialog).getByRole('button', { name: /reset and continue/i }));
+
+    // A failed reset must leave NO half-authenticated state: token cleared,
+    // login not completed.
+    await vi.waitFor(() => {
+      expect(useAuthStore.getState().accessToken).toBeNull();
+    });
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 
   // ── MFA Challenge Flow ─────────────────────────────────────────────────

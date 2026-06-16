@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { unwrapLoginKeys, generateRegistrationKeys } from '../../utils/crypto';
+import React, { useState, useMemo, useEffect } from 'react';
+import { unwrapLoginKeys, generateRegistrationKeys, exportPublicKey } from '../../utils/crypto';
 import { e2eeService } from '../../services/e2eeService';
 import { errorMessage } from '../../utils/redactError';
 import { preferencesSyncService } from '../../services/preferencesSync';
@@ -21,6 +21,7 @@ import MFAMethodPicker, {
 import LoadingSpinner from './LoadingSpinner';
 import { SSOButton } from './SSOButton';
 import { useSSOFlow } from '../../hooks/useSSOFlow';
+import KeyRecoveryPrompt from './KeyRecoveryPrompt';
 import './Login.css';
 import './TOTPInput.css';
 
@@ -121,6 +122,42 @@ const Login: React.FC<LoginProps> = ({
   const [webauthnOptions, setWebauthnOptions] = useState<PublicKeyCredentialRequestOptions | null>(
     null
   );
+
+  // Promise-deferred key-recovery prompt: the login catch awaits the user's
+  // decision before resetting keys (consented data loss) or aborting (#1293).
+  // The decision carries an optional MFA code for the step-up re-auth retry.
+  const [keyRecoveryResolver, setKeyRecoveryResolver] = useState<
+    ((decision: { action: 'reset' | 'cancel'; mfaCode?: string }) => void) | null
+  >(null);
+  // When the server demands MFA for the destructive reset, the prompt re-opens
+  // in MFA-entry mode.
+  const [keyRecoveryMfaRequired, setKeyRecoveryMfaRequired] = useState(false);
+
+  // The double-arrow is load-bearing: setKeyRecoveryResolver(() => resolve)
+  // STORES `resolve` in state. Without it React would CALL `resolve` as a
+  // state-updater. Do NOT "simplify" to setKeyRecoveryResolver(resolve).
+  const promptKeyRecovery = (): Promise<{ action: 'reset' | 'cancel'; mfaCode?: string }> =>
+    new Promise((resolve) => setKeyRecoveryResolver(() => resolve));
+
+  // Non-destructive abort: clear the early-set token so there is no
+  // half-authenticated state, and surface guidance on the login screen (#1293).
+  const abortKeyRecovery = () => {
+    useAuthStore.getState().clearAccessToken();
+    setErrors({
+      general:
+        'Your encryption keys couldn’t be recovered on this device. You can try again, or recover your account on a device that still has your keys.',
+    });
+    setIsSubmitting(false);
+  };
+
+  // If Login unmounts while the prompt is open, settle the pending promise to
+  // 'cancel' so the suspended login flow doesn't leak a never-collected closure
+  // holding the password + tokens (code-review hardening, #1293).
+  useEffect(() => {
+    return () => {
+      keyRecoveryResolver?.({ action: 'cancel' });
+    };
+  }, [keyRecoveryResolver]);
 
   const validateForm = (): boolean => {
     const newErrors: FormErrors = {};
@@ -267,6 +304,81 @@ const Login: React.FC<LoginProps> = ({
     setIsSubmitting(false);
   };
 
+  // Drives the consented key-recovery flow when the login unwrap fails: prompts
+  // for consent, performs the step-up-authenticated reset (current password +
+  // MFA retry), and returns true if the keys were reset (continue login) or
+  // false if the user aborted. Throws on reset failure (the caller surfaces the
+  // error; the token is cleared here first). Extracted from
+  // completeLoginFromResponse to keep that function under the cognitive-
+  // complexity threshold (#1293).
+  const handleKeyRecovery = async (): Promise<boolean> => {
+    const decision = await promptKeyRecovery();
+    setKeyRecoveryResolver(null);
+
+    if (decision.action === 'cancel') {
+      abortKeyRecovery();
+      return false;
+    }
+
+    // The access token set at login authenticates the reset PUT. The reset is a
+    // destructive, step-up-authenticated operation, so it sends the current
+    // password (already in hand from the login form) and, when the server
+    // demands it, an MFA code. On ANY failure, clear the early-set token then
+    // rethrow so a failed reset cannot strand the user in a half-authenticated
+    // state (the cancel branch's invariant — spec §3.3.4).
+    try {
+      const newKeys = await generateRegistrationKeys(formData.password);
+      const publicKeyB64 = await exportPublicKey(newKeys.publicKey);
+      const sendReset = (mfaCode?: string) =>
+        apiFetch('/api/v1/users/me/keys', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            wrapped_private_key: newKeys.wrappedPrivateKey,
+            key_derivation_salt: newKeys.keyDerivationSalt,
+            key_derivation_alg: newKeys.keyDerivationAlg,
+            public_key: publicKeyB64,
+            current_password: formData.password,
+            mfa_code: mfaCode,
+            acknowledge_data_loss: true,
+          }),
+        });
+
+      let replaceRes = await sendReset(decision.mfaCode);
+
+      // Step-up MFA: if the server requires an MFA code, re-open the prompt in
+      // MFA-entry mode and retry once with the supplied code.
+      if (replaceRes.status === 403) {
+        const body = await replaceRes.json().catch(() => ({}));
+        if (body?.error === 'mfa_required') {
+          setKeyRecoveryMfaRequired(true);
+          const mfaDecision = await promptKeyRecovery();
+          setKeyRecoveryResolver(null);
+          setKeyRecoveryMfaRequired(false);
+          if (mfaDecision.action === 'cancel') {
+            abortKeyRecovery();
+            return false;
+          }
+          replaceRes = await sendReset(mfaDecision.mfaCode);
+        }
+      }
+
+      if (!replaceRes.ok) throw new Error('Failed to reset encryption keys. Please try again.');
+
+      await e2eeService.initialize(
+        formData.password,
+        newKeys.wrappedPrivateKey,
+        newKeys.keyDerivationSalt,
+        newKeys.keyDerivationAlg
+      );
+      console.debug('E2EE keys reset and service initialized!');
+      return true;
+    } catch (resetError) {
+      useAuthStore.getState().clearAccessToken();
+      throw resetError;
+    }
+  };
+
   // Complete login after receiving tokens (shared between direct login and MFA verify)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- server login payload shape varies across direct-login and MFA-verify endpoints (different e2ee_keys wrapping, optional session_id); field-by-field narrowing inside the function is clearer than a 30-line union type
   const completeLoginFromResponse = async (data: any) => {
@@ -293,38 +405,12 @@ const Login: React.FC<LoginProps> = ({
       );
       console.debug('Private key unwrapped and E2EE service initialized!');
     } catch (unwrapError) {
-      console.warn('Key unwrap failed, regenerating E2EE keys...', errorMessage(unwrapError));
-      const newKeys = await generateRegistrationKeys(formData.password);
-
-      if (globalThis.electron?.storeRefreshToken) {
-        await globalThis.electron.storeRefreshToken({
-          refreshToken: data.refresh_token,
-          rememberMe: formData.rememberMe,
-          apiBase: API_BASE,
-          accessToken: data.access_token,
-        });
-      }
-      useAuthStore.getState().setAccessToken(data.access_token);
-      if (data.session_id) useAuthStore.getState().setSessionId(data.session_id);
-
-      const replaceRes = await apiFetch('/api/v1/users/me/keys', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          wrapped_private_key: newKeys.wrappedPrivateKey,
-          key_derivation_salt: newKeys.keyDerivationSalt,
-          key_derivation_alg: newKeys.keyDerivationAlg,
-        }),
-      });
-      if (!replaceRes.ok) throw new Error('Failed to recover encryption keys. Please try again.');
-
-      await e2eeService.initialize(
-        formData.password,
-        newKeys.wrappedPrivateKey,
-        newKeys.keyDerivationSalt,
-        newKeys.keyDerivationAlg
+      console.warn(
+        'Key unwrap failed; prompting for consented key reset',
+        errorMessage(unwrapError)
       );
-      console.debug('E2EE keys regenerated and service initialized!');
+      const recovered = await handleKeyRecovery();
+      if (!recovered) return;
     }
 
     if (globalThis.electron?.storeRefreshToken) {
@@ -656,6 +742,13 @@ const Login: React.FC<LoginProps> = ({
 
   return (
     <div className="login-container">
+      {keyRecoveryResolver && (
+        <KeyRecoveryPrompt
+          mfaRequired={keyRecoveryMfaRequired}
+          onReset={(mfaCode) => keyRecoveryResolver({ action: 'reset', mfaCode })}
+          onCancel={() => keyRecoveryResolver({ action: 'cancel' })}
+        />
+      )}
       <div className="login-content">
         <div className="login-header">
           <img
