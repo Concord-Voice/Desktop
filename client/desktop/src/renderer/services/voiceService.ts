@@ -47,6 +47,7 @@ import type {
 } from '../workers/e2eeProtocol';
 import { notificationSoundService } from './notificationSoundService';
 import { selectCodecFromCascade, type CodecLookup } from './voiceCodecSelection';
+import { ConsumerPauseCoordinator } from './consumerPauseCoordinator';
 import {
   applyLegacyDecryptPipeline,
   type DecryptRecoveryCallbacks,
@@ -1373,8 +1374,36 @@ class VoiceService {
   /** Count of consecutive green cycles observed since the last non-green cycle or recovery. */
   private consecutiveGreenIntervals = 0;
 
-  /** IDs of consumers paused by IGNIS overload — tracked so the recovery arm can resume them. */
-  private readonly ignisPausedConsumers = new Set<string>();
+  /**
+   * Single owner of per-consumer pause state across visibility / IGNIS / PiP reasons.
+   * Effects are bound to mediasoup-client pause/resume + the SFU pause/resume emits.
+   * See internal-reference and the #1541 spec.
+   */
+  private readonly pauseCoordinator = new ConsumerPauseCoordinator({
+    pauseLocalDecode: (id) => {
+      this.consumers.get(id)?.pause();
+    },
+    resumeLocalDecode: (id) => {
+      this.consumers.get(id)?.resume();
+    },
+    pauseServerForwarding: (id) => {
+      this.socket?.emit('pause-consumer', { consumerId: id });
+    },
+    resumeServerForwarding: (id) => {
+      this.socket?.emit('resume-consumer', { consumerId: id });
+    },
+  });
+
+  /**
+   * Per-user, per-tile visibility (`userId → tileId → isVisible`). A participant can render
+   * in several tiles at once (grid + bar + PiP); a consumer is hidden only when EVERY known
+   * tile is hidden. Survives consumer create/teardown.
+   */
+  private readonly tileVisibilityByUser = new Map<string, Map<string, boolean>>();
+  /** Whether the whole window is currently hidden (document.hidden). */
+  private documentHidden = false;
+  /** Bound visibilitychange handler, retained for removeEventListener. */
+  private boundDocVisibility: (() => void) | null = null;
 
   // ─── Join / Leave ──────────────────────────────────────────────────
 
@@ -1648,6 +1677,7 @@ class VoiceService {
 
       await this.waitForConnect();
       this.setupSocketListeners();
+      this.registerDocumentVisibilityListener();
 
       // Step 3: Join room on media plane
       const roomJoined = await this.emitAsync<RoomJoinedResponse>('join-room', {
@@ -1853,7 +1883,8 @@ class VoiceService {
       clearInterval(this.decoderProfilingTimer);
       this.decoderProfilingTimer = null;
     }
-    this.ignisPausedConsumers.clear();
+    this.unregisterDocumentVisibilityListener();
+    this.pauseCoordinator.reset();
     this.consecutiveGreenIntervals = 0;
     this.terminateE2EEWorker();
     if (this.rotationTimer) {
@@ -2617,7 +2648,7 @@ class VoiceService {
         consumer.close();
         this.consumers.delete(consumerId);
         this.consumerMeta.delete(consumerId);
-        this.ignisPausedConsumers.delete(consumerId);
+        this.pauseCoordinator.clearConsumer(consumerId);
       }
     }
 
@@ -2656,7 +2687,7 @@ class VoiceService {
           consumer.close();
           this.consumers.delete(cid);
           this.consumerMeta.delete(cid);
-          this.ignisPausedConsumers.delete(cid);
+          this.pauseCoordinator.clearConsumer(cid);
           this.socket?.emit('close-consumer', { consumerId: cid });
         }
         store.updateParticipant(userId, { screenAudioStream: undefined });
@@ -2675,22 +2706,111 @@ class VoiceService {
     return undefined;
   }
 
-  /** Pause a consumer locally and signal the server to stop forwarding RTP */
+  /** Pause a consumer (egress + local) for an explicit external reason (e.g. PiP ownership). */
   pauseConsumer(consumerId: string): void {
-    const consumer = this.consumers.get(consumerId);
-    if (consumer && !consumer.paused) {
-      consumer.pause();
-      this.socket?.emit('pause-consumer', { consumerId });
+    this.pauseCoordinator.addReason(consumerId, 'manual');
+  }
+
+  /** Release an explicit external pause; the consumer resumes unless another reason holds. */
+  resumeConsumer(consumerId: string): void {
+    this.pauseCoordinator.removeReason(consumerId, 'manual');
+  }
+
+  // ─── Visibility-pause (#1541) ──────────────────────────────────────
+
+  /** Remote camera consumer ids for a given producing user. */
+  private cameraConsumerIdsForUser(userId: string): string[] {
+    const ids: string[] = [];
+    for (const [id, meta] of this.consumerMeta) {
+      if (meta.source === 'camera' && meta.producerUserId === userId) ids.push(id);
+    }
+    return ids;
+  }
+
+  /**
+   * A user's camera tiles are "hidden" only when at least one tile is known AND none is
+   * visible. No tiles known yet → NOT hidden (default visible) — never pause a consumer
+   * before any tile has reported, which would cause a pause→resume + keyframe churn on
+   * every join.
+   */
+  private tileHidden(userId: string): boolean {
+    const tiles = this.tileVisibilityByUser.get(userId);
+    if (!tiles || tiles.size === 0) return false;
+    for (const visible of tiles.values()) {
+      if (visible) return false;
+    }
+    return true;
+  }
+
+  /** Set/clear the visibility reason for one consumer = (all tiles hidden) OR (window hidden). */
+  private updateVisibilityReason(consumerId: string, userId: string): void {
+    const hidden = this.tileHidden(userId) || this.documentHidden;
+    if (hidden) this.pauseCoordinator.addReason(consumerId, 'visibility');
+    else this.pauseCoordinator.removeReason(consumerId, 'visibility');
+  }
+
+  /**
+   * Renderer reports whether ONE camera tile (a stable per-instance `tileId`) is visible.
+   * The same participant can render in several tiles at once (grid + bar + PiP); the consumer
+   * is paused only when EVERY known tile is hidden, so an off-screen bar entry never freezes
+   * video that's visible in the grid (#1541 Gitar review).
+   */
+  setRemoteVideoVisibility(userId: string, visible: boolean, tileId: string): void {
+    const tiles = this.tileVisibilityByUser.get(userId) ?? new Map<string, boolean>();
+    tiles.set(tileId, visible);
+    this.tileVisibilityByUser.set(userId, tiles);
+    for (const id of this.cameraConsumerIdsForUser(userId)) {
+      this.updateVisibilityReason(id, userId);
     }
   }
 
-  /** Resume a consumer locally and signal the server to resume forwarding RTP */
-  resumeConsumer(consumerId: string): void {
-    const consumer = this.consumers.get(consumerId);
-    if (consumer?.paused) {
-      consumer.resume();
-      this.socket?.emit('resume-consumer', { consumerId });
+  /**
+   * Deregister a camera tile on unmount — NOT a "report hidden", so a closing PiP frame
+   * doesn't freeze a still-visible grid tile. Prunes the user entry when empty so the map
+   * never accumulates departed users (#1541 Gitar review).
+   */
+  removeRemoteVideoTile(userId: string, tileId: string): void {
+    const tiles = this.tileVisibilityByUser.get(userId);
+    if (!tiles) return;
+    tiles.delete(tileId);
+    if (tiles.size === 0) this.tileVisibilityByUser.delete(userId);
+    for (const id of this.cameraConsumerIdsForUser(userId)) {
+      this.updateVisibilityReason(id, userId);
     }
+  }
+
+  /** Apply the current visibility intent to a freshly-routed camera consumer. */
+  private applyInitialVisibilityReason(consumerId: string, userId: string): void {
+    this.updateVisibilityReason(consumerId, userId);
+  }
+
+  /** Window hidden/shown → fan the visibility reason across all remote video consumers. */
+  private handleDocumentVisibilityChange(hidden: boolean): void {
+    this.documentHidden = hidden;
+    for (const [id, meta] of this.consumerMeta) {
+      if (meta.source === 'camera') {
+        this.updateVisibilityReason(id, meta.producerUserId);
+      } else if (meta.source === 'screen') {
+        // Tuned-in screen tiles have no per-tile observer; window-hidden alone drives them.
+        if (this.documentHidden) this.pauseCoordinator.addReason(id, 'visibility');
+        else this.pauseCoordinator.removeReason(id, 'visibility');
+      }
+    }
+  }
+
+  private registerDocumentVisibilityListener(): void {
+    if (this.boundDocVisibility) return;
+    this.boundDocVisibility = () => this.handleDocumentVisibilityChange(document.hidden);
+    document.addEventListener('visibilitychange', this.boundDocVisibility);
+  }
+
+  private unregisterDocumentVisibilityListener(): void {
+    if (this.boundDocVisibility) {
+      document.removeEventListener('visibilitychange', this.boundDocVisibility);
+      this.boundDocVisibility = null;
+    }
+    this.documentHidden = false;
+    this.tileVisibilityByUser.clear();
   }
 
   /** Get consumer IDs filtered by source (e.g. 'audio', 'camera', 'screen'). No filter returns all. */
@@ -3170,12 +3290,20 @@ class VoiceService {
         console.debug('[consume] transport closed for consumer', consumer.id);
         this.consumers.delete(consumer.id);
         this.consumerMeta.delete(consumer.id);
-        this.ignisPausedConsumers.delete(consumer.id);
+        this.pauseCoordinator.clearConsumer(consumer.id);
       });
 
       // Resume the consumer (was created paused on server)
       await this.emitAsync('resume-consumer', { consumerId: consumer.id });
       console.debug('[consume] consumer resumed', { consumerId: consumer.id });
+
+      // #1541: apply pending visibility intent AFTER the resume emit above. An
+      // initially-hidden tile's pause-consumer must run after the unconditional
+      // resume that starts the server-paused consumer — otherwise the resume
+      // clobbers the pause and the off-screen tile keeps forwarding (Gitar review).
+      if (result.source === 'camera') {
+        this.applyInitialVisibilityReason(consumer.id, result.producerUserId);
+      }
     } catch (err) {
       console.error('[consume] Failed to consume producer:', producerId, errorMessage(err));
     }
@@ -3272,7 +3400,7 @@ class VoiceService {
           consumer.close();
           this.consumers.delete(consumerId);
           this.consumerMeta.delete(consumerId);
-          this.ignisPausedConsumers.delete(consumerId);
+          this.pauseCoordinator.clearConsumer(consumerId);
           break;
         }
       }
@@ -3398,7 +3526,7 @@ class VoiceService {
         consumer.close();
         this.consumers.delete(consumerId);
         this.consumerMeta.delete(consumerId);
-        this.ignisPausedConsumers.delete(consumerId);
+        this.pauseCoordinator.clearConsumer(consumerId);
       }
     });
 
@@ -3570,23 +3698,21 @@ class VoiceService {
     this.pauseLowestPriorityConsumer(consumer);
   }
 
-  /** Pause a consumer, preferring to pause camera over screen share */
+  /** Pause a consumer for decoder relief, preferring to pause camera over screen share */
   private pauseLowestPriorityConsumer(consumer: mediasoupTypes.Consumer): void {
     const tunedIn = useVoiceStore.getState().tunedInScreenShares;
     const isScreenShare = Object.values(tunedIn).includes(consumer.id);
 
     if (!isScreenShare) {
-      consumer.pause();
-      this.ignisPausedConsumers.add(consumer.id);
+      this.pauseCoordinator.addReason(consumer.id, 'ignis');
       console.warn(`IGNIS RED: pausing camera consumer ${consumer.id} — no layers to reduce`);
       return;
     }
 
-    // Try to find a camera consumer to pause instead
+    // Try to find a still-decoding camera consumer to pause instead of the screen share
     for (const [, c] of this.consumers) {
       if (c.kind === 'video' && !c.paused && !Object.values(tunedIn).includes(c.id)) {
-        c.pause();
-        this.ignisPausedConsumers.add(c.id);
+        this.pauseCoordinator.addReason(c.id, 'ignis');
         console.warn(
           `IGNIS RED: pausing camera consumer ${c.id} instead of screen share ${consumer.id}`
         );
@@ -3594,8 +3720,7 @@ class VoiceService {
       }
     }
 
-    consumer.pause();
-    this.ignisPausedConsumers.add(consumer.id);
+    this.pauseCoordinator.addReason(consumer.id, 'ignis');
     console.warn(`IGNIS RED: pausing screen share consumer ${consumer.id} — no camera to demote`);
   }
 
@@ -3705,17 +3830,15 @@ class VoiceService {
    * Resumes one consumer per green window to avoid re-saturating the decoder.
    */
   private recoverFromDecoderThrottle(): void {
-    for (const id of this.ignisPausedConsumers) {
+    for (const id of this.pauseCoordinator.consumersWithReason('ignis')) {
       const consumer = this.consumers.get(id);
-
-      // Self-prune: consumer gone or already running
-      if (!consumer?.paused) {
-        this.ignisPausedConsumers.delete(id);
+      if (!consumer) {
+        this.pauseCoordinator.clearConsumer(id); // gone — prune
         continue;
       }
-
-      consumer.resume();
-      this.ignisPausedConsumers.delete(id);
+      // Release IGNIS's hold. The consumer resumes locally unless another reason
+      // (visibility / manual) still holds — that is the #1541 anti-clobber fix.
+      this.pauseCoordinator.removeReason(id, 'ignis');
       console.warn(`IGNIS GREEN recovery: resuming consumer ${id}`);
       return; // one per green window — gradual step-up
     }
@@ -4149,7 +4272,8 @@ class VoiceService {
     // Reset IGNIS recovery state on channel leave — consumers are gone, so stale
     // ids must not linger and the green-cycle counter must not carry across
     // channels (#1540; mirrors the emergency cleanupTimersAndE2EE path).
-    this.ignisPausedConsumers.clear();
+    this.unregisterDocumentVisibilityListener();
+    this.pauseCoordinator.reset();
     this.consecutiveGreenIntervals = 0;
 
     // Close transports

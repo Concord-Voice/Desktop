@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useMemo, useState } from 'react';
+import React, { useRef, useEffect, useMemo, useState, useId } from 'react';
 import { MicOff, HeadphoneOff, Lock, Monitor, MoreVertical } from 'lucide-react';
 import { ParticipantContextMenu } from './ParticipantContextMenu';
 import type { VoiceParticipant } from '../../stores/voiceStore';
@@ -81,6 +81,7 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
   magnificationScale = 1,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const tileRef = useRef<HTMLDivElement>(null);
 
   // Attach video stream to video element
   useEffect(() => {
@@ -101,6 +102,39 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
   const displayName = participant.displayName || participant.username;
   // Auto-pause only applies to screen shares (VoiceStage/StreamBar), not camera video
   const hasVideo = participant.isVideoOn && !!participant.videoStream;
+  // Stable per-instance key: the same participant can render in several tiles at once
+  // (grid + bar + PiP), so the voice service tracks visibility per tile, not per user.
+  const tileId = useId();
+
+  // #1541 visibility-pause: report this remote camera tile's on-screen state to the
+  // voice service, which pauses the SFU consumer (egress cut) when off-screen.
+  // Declared after `hasVideo` so the deps array does not hit its temporal dead zone.
+  useEffect(() => {
+    if (isLocal || !hasVideo) return;
+    const el = tileRef.current;
+    if (!el) return;
+    let disposed = false;
+    let svc: {
+      setRemoteVideoVisibility(userId: string, visible: boolean, tileId: string): void;
+      removeRemoteVideoTile(userId: string, tileId: string): void;
+    } | null = null;
+    const observer = new IntersectionObserver(
+      ([entry]) => svc?.setRemoteVideoVisibility(participant.userId, entry.isIntersecting, tileId),
+      { threshold: 0 }
+    );
+    void import('../../services/voiceService').then((m) => {
+      if (disposed) return;
+      svc = m.voiceService;
+      observer.observe(el);
+    });
+    return () => {
+      disposed = true;
+      observer.disconnect();
+      // Deregister this tile (NOT "report hidden") so a closing tile doesn't freeze
+      // video still visible in another surface (grid / bar / PiP).
+      svc?.removeRemoteVideoTile(participant.userId, tileId);
+    };
+  }, [isLocal, hasVideo, participant.userId, tileId]);
   const memberColorScheme = useMemberStore((state) => {
     const member = state.members.find((m) => m.user_id === participant.userId);
     return member?.color_scheme;
@@ -138,6 +172,7 @@ const ParticipantTile: React.FC<ParticipantTileProps> = ({
 
   return (
     <div
+      ref={tileRef}
       className={`participant-tile${hasVideo ? ' participant-tile--video' : ''}${compact ? ' participant-tile--compact' : ''}`}
       {...scopeProps}
       style={{ ...scopeProps.style, ...scaleStyle }}

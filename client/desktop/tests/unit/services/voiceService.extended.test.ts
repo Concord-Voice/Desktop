@@ -1720,13 +1720,20 @@ describe('VoiceService Extended', () => {
       expect(mockSocket.emit).toHaveBeenCalledWith('resume-consumer', { consumerId: 'c1' });
     });
 
-    it('skips already paused consumer', async () => {
+    it('is idempotent — a second pauseConsumer does not re-pause (#1541 coordinator)', async () => {
       await joinVoiceChannel();
       const svc = voiceService as any;
       const consumer = createMockConsumer('c1', 'audio', 'p1');
-      consumer.paused = true;
       svc.consumers.set('c1', consumer);
+      svc.pauseCoordinator.clearConsumer('c1'); // clean slate regardless of prior tests
 
+      voiceService.pauseConsumer('c1');
+      expect(consumer.pause).toHaveBeenCalledTimes(1);
+      consumer.pause.mockClear();
+
+      // The 'manual' reason already holds — the coordinator emits no second pause.
+      // (The old `!consumer.paused` guard is gone; idempotency now lives in the
+      // coordinator's applied-state tracking, not in reading consumer.paused.)
       voiceService.pauseConsumer('c1');
       expect(consumer.pause).not.toHaveBeenCalled();
     });
