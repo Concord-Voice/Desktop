@@ -80,6 +80,15 @@
 
 /* ─── Submit state surfaces ─────────────────────────────────────────────── */
 
+/* Polite live region (#159). Kept in the DOM even when empty so an
+   aria-live announcement fires the moment submit progress / success content
+   is inserted — a region mounted only on demand is announced less reliably. */
+.feedback-submit-region {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .feedback-submit-status {
   color: var(--text-muted);
   font-size: calc(13px * var(--font-scale, 1));
