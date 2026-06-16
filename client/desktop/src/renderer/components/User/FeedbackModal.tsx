@@ -1,40 +1,19 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import Modal from '../ui/Modal';
 import { apiFetch, safeJson } from '../../services/apiClient';
-import { type SystemInfo } from '../../services/systemInfoService';
+import BugReportPanel from './BugReportPanel';
+import { type FeedbackMode, type FeedbackSubmission } from './feedbackTypes';
 import './FeedbackModal.css';
 
 /**
  * Feedback modal entry point (#158).
  *
  * Hosts the mode switcher (Bug Report / Feature Request) and the shared
- * submit pipe to `POST /api/v1/feedback`. The bug-mode and feature-mode
- * panel bodies are intentionally placeholder content on this branch — they
- * are filled in by the follow-up branches that close #159 and #160. The
- * shell, switching, submit wiring, log buffer integration, and system-info
- * collection all live here on the infra branch so the panels only need to
- * own their form fields.
+ * submit pipe to `POST /api/v1/feedback`. Bug mode renders `BugReportPanel`
+ * (#159); feature mode is still a placeholder until #160. The shell,
+ * switching, submit wiring, and submit-state surface live here so each panel
+ * only owns its form fields and hands an assembled payload to `submit`.
  */
-
-export type FeedbackMode = 'bug' | 'feature';
-
-export interface FeedbackSubmission {
-  type: FeedbackMode;
-  title: string;
-  description: string;
-  /** Feature-only; one of 'feature' | 'improvement' | 'ux' | 'performance' | 'other'. */
-  category?: string;
-  /** Bug-only; populated when the user checks "Include diagnostic logs". */
-  diagnostics?: {
-    appVersion: string;
-    platform: string;
-    machineIdPrefix: string;
-    gpu?: SystemInfo['gpu'];
-    display?: SystemInfo['display'];
-    connectionPhase: string;
-    logs: string;
-  };
-}
 
 interface FeedbackModalProps {
   isOpen: boolean;
@@ -51,6 +30,22 @@ type SubmitState =
 
 const DEV_TEST_DESCRIPTION =
   'Placeholder submission from the dev-only debug button on the infra branch. Replace with real form fields in #159 / #160.';
+
+// ─── Tab pattern (WAI-ARIA tabs) ────────────────────────────────────────────
+const TABS: ReadonlyArray<{ id: FeedbackMode; label: string }> = [
+  { id: 'bug', label: 'Bug Report' },
+  { id: 'feature', label: 'Feature Request' },
+];
+const PANEL_ID = 'feedback-tabpanel';
+const tabIdFor = (mode: FeedbackMode): string => `feedback-tab-${mode}`;
+// Arrow-key → index-delta map for roving-tabindex navigation. Collapses the
+// four directional keys into one branch to keep handleTabKeyDown flat.
+const ARROW_DELTA: Readonly<Record<string, number>> = {
+  ArrowRight: 1,
+  ArrowDown: 1,
+  ArrowLeft: -1,
+  ArrowUp: -1,
+};
 
 /**
  * Inner component for the success-state issue URL. Extracted so the URL is
@@ -76,6 +71,7 @@ const SubmitSuccessLink: React.FC<{ url: string }> = ({ url }) => (
 const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, initialMode = 'bug' }) => {
   const [mode, setMode] = useState<FeedbackMode>(initialMode);
   const [submitState, setSubmitState] = useState<SubmitState>({ status: 'idle' });
+  const tabsRef = useRef<Partial<Record<FeedbackMode, HTMLButtonElement | null>>>({});
 
   /**
    * Shared submit handler. The panels (in #159 / #160) call this with their
@@ -131,6 +127,43 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, initialM
   }, [onClose]);
 
   /**
+   * Switch mode. Resets the submit-state surface so the destination tab shows
+   * a fresh form — otherwise a post-success (or post-error) surface would keep
+   * both panel bodies hidden and the tabs would read as a dead no-op. An
+   * in-flight submit is preserved (the pipe resolves and overwrites it).
+   */
+  const handleModeChange = useCallback((next: FeedbackMode) => {
+    setMode(next);
+    setSubmitState((s) => (s.status === 'submitting' ? s : { status: 'idle' }));
+  }, []);
+
+  /**
+   * Roving-tabindex keyboard navigation for the tablist (WAI-ARIA tabs).
+   * Left/Up and Right/Down move between tabs (wrapping); Home/End jump to the
+   * ends. Selection follows focus (automatic activation) since the panels are
+   * cheap to render.
+   */
+  const handleTabKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLButtonElement>) => {
+      const idx = TABS.findIndex((t) => t.id === mode);
+      let nextIdx: number | null = null;
+      if (e.key in ARROW_DELTA) {
+        nextIdx = (idx + ARROW_DELTA[e.key] + TABS.length) % TABS.length;
+      } else if (e.key === 'Home') {
+        nextIdx = 0;
+      } else if (e.key === 'End') {
+        nextIdx = TABS.length - 1;
+      }
+      if (nextIdx === null) return;
+      e.preventDefault();
+      const next = TABS[nextIdx].id;
+      handleModeChange(next);
+      tabsRef.current[next]?.focus();
+    },
+    [mode, handleModeChange]
+  );
+
+  /**
    * Dev-only smoke trigger handler. Removed when #159 / #160 wire real
    * submission. The payload is constructed as a local const (rather than
    * inline inside the call) so the function body is a linear two-statement
@@ -148,63 +181,78 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, initialM
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Send Feedback" width="xlarge">
       <div className="feedback-modal">
-        {/* Mode switcher */}
+        {/* Mode switcher — WAI-ARIA tabs with roving tabindex */}
         <div className="feedback-mode-switch" role="tablist" aria-label="Feedback type">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === 'bug'}
-            className={`feedback-mode-tab ${mode === 'bug' ? 'active' : ''}`}
-            onClick={() => setMode('bug')}
-          >
-            Bug Report
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={mode === 'feature'}
-            className={`feedback-mode-tab ${mode === 'feature' ? 'active' : ''}`}
-            onClick={() => setMode('feature')}
-          >
-            Feature Request
-          </button>
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              ref={(el) => {
+                tabsRef.current[t.id] = el;
+              }}
+              id={tabIdFor(t.id)}
+              type="button"
+              role="tab"
+              aria-selected={mode === t.id}
+              aria-controls={PANEL_ID}
+              tabIndex={mode === t.id ? 0 : -1}
+              className={`feedback-mode-tab ${mode === t.id ? 'active' : ''}`}
+              onClick={() => handleModeChange(t.id)}
+              onKeyDown={handleTabKeyDown}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
-        {/* Panel body — placeholder until #159 / #160 land */}
-        <div className="feedback-panel-body" role="tabpanel">
-          {mode === 'bug' && (
-            <p className="feedback-panel-placeholder">
-              Bug report form coming soon. Track progress in <code>#159</code>.
-            </p>
+        {/* Panel body */}
+        <div
+          className="feedback-panel-body"
+          role="tabpanel"
+          id={PANEL_ID}
+          aria-labelledby={tabIdFor(mode)}
+        >
+          {/* Bug mode — real form (#159). Hidden on success so the "thank
+              you" surface reads cleanly; on error the form stays mounted so
+              the user can retry without re-typing. */}
+          {mode === 'bug' && submitState.status !== 'success' && (
+            <BugReportPanel onSubmit={submit} isSubmitting={submitState.status === 'submitting'} />
           )}
-          {mode === 'feature' && (
+
+          {/* Feature mode — placeholder until #160. */}
+          {mode === 'feature' && submitState.status !== 'success' && (
             <p className="feedback-panel-placeholder">
               Feature request form coming soon. Track progress in <code>#160</code>.
             </p>
           )}
 
-          {/* Dev-only smoke trigger so the submit pipe is exercised on this
-              infra branch before the panels arrive. Hidden in production
-              builds. Removed once #159 / #160 wire real submission. */}
-          {import.meta.env.DEV && submitState.status === 'idle' && (
+          {/* Dev-only smoke trigger — feature mode only now that bug mode has
+              a real form (#159). Removed entirely when #160 wires the feature
+              form. Hidden in production builds. */}
+          {import.meta.env.DEV && mode === 'feature' && submitState.status === 'idle' && (
             <button type="button" className="feedback-btn-secondary" onClick={handleDevTestSubmit}>
               Send Test Submission (dev)
             </button>
           )}
 
-          {/* Submit-state surface — visible across both panels */}
-          {submitState.status === 'submitting' && (
-            <p className="feedback-submit-status">Submitting…</p>
-          )}
-          {submitState.status === 'success' && (
-            <div className="feedback-submit-success">
-              <p>
-                Thank you for the feedback!
-                {submitState.dev && ' (Stubbed in dev — no GitHub issue created.)'}
-              </p>
-              {submitState.issueUrl && <SubmitSuccessLink url={submitState.issueUrl} />}
-            </div>
-          )}
+          {/* Submit-state surface. Progress + success live in a polite
+              region (always-present stable container so the announcement
+              fires when content appears); errors use a separate assertive
+              alert so they interrupt. Splitting them avoids nesting live
+              regions. */}
+          <div className="feedback-submit-region" aria-live="polite">
+            {submitState.status === 'submitting' && (
+              <p className="feedback-submit-status">Submitting…</p>
+            )}
+            {submitState.status === 'success' && (
+              <div className="feedback-submit-success">
+                <p>
+                  Thank you for the feedback!
+                  {submitState.dev && ' (Stubbed in dev — no GitHub issue created.)'}
+                </p>
+                {submitState.issueUrl && <SubmitSuccessLink url={submitState.issueUrl} />}
+              </div>
+            )}
+          </div>
           {submitState.status === 'error' && (
             <p className="feedback-submit-error" role="alert">
               {submitState.message}
