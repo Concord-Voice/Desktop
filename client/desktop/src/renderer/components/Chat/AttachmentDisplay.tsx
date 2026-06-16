@@ -6,6 +6,7 @@ import { decryptFile, formatFileSize } from '../../utils/attachmentCrypto';
 import type { AttachmentSummary } from '../../types/chat';
 import { useSettingsStore } from '../../stores/settingsStore';
 import OverflowMarkdownAttachment from './OverflowMarkdownAttachment';
+import ThemedMediaPlayer from './ThemedMediaPlayer';
 import './AttachmentDisplay.css';
 
 interface AttachmentDisplayProps {
@@ -260,14 +261,10 @@ function MediaAttachment({ attachment, channelId }: AttachmentItemProps) {
   return (
     <div className="attachment-media-container" ref={containerRef}>
       {url && attachment.file_type === 'video' && (
-        <video src={url} controls className="attachment-video" preload="metadata">
-          <track kind="captions" />
-        </video>
+        <ThemedMediaPlayer src={url} variant="video" className="attachment-video" />
       )}
       {url && attachment.file_type === 'audio' && (
-        <audio src={url} controls className="attachment-audio" preload="metadata">
-          <track kind="captions" />
-        </audio>
+        <ThemedMediaPlayer src={url} variant="audio" className="attachment-audio" />
       )}
       {!url && (
         <button

@@ -11,6 +11,7 @@ import { e2eeService } from '../services/e2eeService';
 import { useConnectionStore } from '../stores/connectionStore';
 import { useUserStore } from '../stores/userStore';
 import { useVoiceStore } from '../stores/voiceStore';
+import { useMemberStore } from '../stores/memberStore';
 
 /** Run preflight diagnostics after grace period expires and route to the appropriate recovery path. */
 async function runPreflightDiagnostics(wsService: ReturnType<typeof getWebSocketService>) {
@@ -21,6 +22,18 @@ async function runPreflightDiagnostics(wsService: ReturnType<typeof getWebSocket
   if (store.phase !== 'grace_period') return;
 
   store.enterPreflight();
+
+  // #803: the grace period expired with the socket still down — a genuine sustained
+  // disconnect, not a transient blip. Reflect the self-user as Offline, but ONLY
+  // downgrade from 'online' — never overwrite a deliberate dnd/invisible choice.
+  // (If we clobbered dnd→offline here, the legacy online_user_ids reconnect path,
+  // which promotes 'offline'→'online', would then launder it into 'online' and lose
+  // the user's choice.) The 15s grace period IS the debounce against flicker;
+  // reconnection restores the real status via the presence_snapshot handler.
+  if (useMemberStore.getState().selfStatus === 'online') {
+    useMemberStore.getState().setSelfStatus('offline');
+  }
+
   const { runPreflight } = await import('../services/recoveryService');
   const diag = await runPreflight();
   store.setDiagnostics(diag);

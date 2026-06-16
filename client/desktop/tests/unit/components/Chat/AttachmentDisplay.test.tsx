@@ -202,6 +202,30 @@ describe('AttachmentDisplay', () => {
     });
   });
 
+  it('renders loaded video without native controls (themed bar instead)', async () => {
+    mockFetchSuccess(new ArrayBuffer(100), 'video/mp4');
+    const user = userEvent.setup();
+    const videoAttachment: AttachmentSummary = {
+      id: 'vid-themed',
+      file_type: 'video',
+      mime_type: 'video/mp4',
+      file_size: 5000000,
+    };
+    const { container } = render(
+      <AttachmentDisplay attachments={[videoAttachment]} channelId="ch-1" />
+    );
+
+    await user.click(screen.getByText('Load video'));
+
+    await waitFor(() => {
+      const video = container.querySelector('video');
+      expect(video).toBeInTheDocument();
+      // Approach B: native controls are replaced by the themed React bar.
+      expect(video?.hasAttribute('controls')).toBe(false);
+    });
+    expect(screen.getByRole('button', { name: 'Play' })).toBeInTheDocument();
+  });
+
   it('auto-loads video when scrolled into view (IntersectionObserver)', async () => {
     mockFetchSuccess(new ArrayBuffer(100), 'video/mp4');
     installImmediateIO();
