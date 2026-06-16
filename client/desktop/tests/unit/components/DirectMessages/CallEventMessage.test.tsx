@@ -113,6 +113,47 @@ describe('CallEventMessage', () => {
     });
   });
 
+  describe('group format (#1219)', () => {
+    it('renders group format with the duration for a completed group call', () => {
+      render(
+        <CallEventMessage
+          isGroup
+          payload={basePayload({
+            status: 'completed',
+            duration_seconds: 323,
+            participant_user_ids: ['a', 'b', 'c'],
+          })}
+        />
+      );
+      expect(screen.getByText(/Group voice call — 5:23/)).toBeInTheDocument();
+    });
+
+    it('exposes a joiner tooltip from participant_user_ids', () => {
+      const { container } = render(
+        <CallEventMessage
+          isGroup
+          payload={basePayload({
+            status: 'completed',
+            duration_seconds: 60,
+            participant_user_ids: ['a', 'b', 'c'],
+          })}
+        />
+      );
+      const text = container.querySelector('.call-event-message__text') as HTMLElement;
+      expect(text).not.toBeNull();
+      // Tooltip is sourced from participant_user_ids, NOT caller_user_id (spec C2).
+      expect(text.getAttribute('title')).toBe('a, b, c');
+    });
+
+    it('keeps 1:1 wording when isGroup is false', () => {
+      render(
+        <CallEventMessage payload={basePayload({ status: 'completed', duration_seconds: 90 })} />
+      );
+      expect(screen.getByText(/Voice call — 1:30/)).toBeInTheDocument();
+      expect(screen.queryByText(/Group voice call/)).not.toBeInTheDocument();
+    });
+  });
+
   describe('accessibility', () => {
     it('exposes role="listitem" on the root', () => {
       render(<CallEventMessage payload={basePayload()} />);

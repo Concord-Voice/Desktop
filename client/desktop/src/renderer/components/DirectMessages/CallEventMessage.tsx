@@ -3,31 +3,28 @@
 // dm_messages.call_event_payload JSONB column populated by the
 // insertCallEvent helper in services/control-plane/internal/dm/call_events.go.
 //
-// Component is currently UNUSED — wiring up the dispatch in MessageList
-// requires extending the Message interface + the backend message-fetch
-// serializer to include the `type` and `call_event_payload` columns.
-// Tracked as a follow-up to #1209 (see deferral marker in
-// components/Chat/MessageList.tsx + the F6 deferral note in the spec).
+// Wired into MessageList by #1219 (R7): the backend message-fetch serializer
+// now returns the `type` + `call_event_payload` columns and the Message
+// interface (types/chat.ts) carries them. MessageList dispatches call_event
+// rows here; useMessageFetch skips the E2EE decrypt pass for these rows.
+// Group calls (#1219) render "Group voice call — M:SS" with a joiner tooltip.
 //
 // Per spec §6.4 (post-pivot 2026-05-28): payload is stored as plaintext
 // JSONB. No client-side decryption needed.
 
 import './CallEventMessage.css';
+import type { CallEventPayload } from '../../types/chat';
 
-export type CallEventStatus = 'completed' | 'missed' | 'declined' | 'canceled';
-
-export interface CallEventPayload {
-  ring_id?: string;
-  caller_user_id?: string;
-  participant_user_ids?: string[];
-  started_at: string;
-  ended_at?: string;
-  status: CallEventStatus;
-  duration_seconds: number;
-}
+// Re-export the centralized types (#1219) via `export...from` so existing
+// importers (e.g. CallEventMessage.test.tsx) keep working off this module path
+// without an import-then-re-export round-trip (sonar typescript:S7763).
+export type { CallEventPayload, CallEventStatus } from '../../types/chat';
 
 interface CallEventMessageProps {
   payload: CallEventPayload;
+  /** Render group-call wording ("Group voice call — M:SS") + joiner tooltip
+   *  for completed calls. Defaults to the 1:1 wording. (#1219) */
+  isGroup?: boolean;
 }
 
 function formatDuration(seconds: number): string {
@@ -47,13 +44,15 @@ function formatTime(iso: string): string {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-export function CallEventMessage({ payload }: Readonly<CallEventMessageProps>) {
-  const { status, duration_seconds, started_at } = payload;
+export function CallEventMessage({ payload, isGroup }: Readonly<CallEventMessageProps>) {
+  const { status, duration_seconds, started_at, participant_user_ids } = payload;
 
   let text: string;
   switch (status) {
     case 'completed':
-      text = `Voice call — ${formatDuration(duration_seconds)}`;
+      text = isGroup
+        ? `Group voice call — ${formatDuration(duration_seconds)}`
+        : `Voice call — ${formatDuration(duration_seconds)}`;
       break;
     case 'missed':
       text = 'Missed voice call';
@@ -65,6 +64,13 @@ export function CallEventMessage({ payload }: Readonly<CallEventMessageProps>) {
       text = 'Voice call canceled';
       break;
   }
+
+  // Group joiner tooltip is sourced from participant_user_ids (a first-joiner
+  // approximation per spec C2), NOT caller_user_id. Undefined for 1:1 / empty.
+  const joinerTooltip =
+    isGroup && participant_user_ids && participant_user_ids.length > 0
+      ? participant_user_ids.join(', ')
+      : undefined;
 
   const iconColor = status === 'completed' ? 'var(--success, #22c55e)' : 'var(--text-muted, #aab)';
 
@@ -87,7 +93,9 @@ export function CallEventMessage({ payload }: Readonly<CallEventMessageProps>) {
           transform="translate(0.5, 0)"
         />
       </svg>
-      <span className="call-event-message__text">{text}</span>
+      <span className="call-event-message__text" title={joinerTooltip}>
+        {text}
+      </span>
       <span className="call-event-message__time">{formatTime(started_at)}</span>
     </li>
   );

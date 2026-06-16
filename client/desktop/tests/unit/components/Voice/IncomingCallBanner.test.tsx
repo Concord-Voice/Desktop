@@ -8,6 +8,8 @@
 import React from 'react';
 import { render, screen, fireEvent } from '../../../test-utils';
 import { useVoiceStore } from '@/renderer/stores/voiceStore';
+import { useDMStore } from '@/renderer/stores/dmStore';
+import type { DMConversation } from '@/renderer/stores/dmStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
 vi.mock('@/renderer/components/Voice/IncomingCallBanner.css', () => ({}));
@@ -27,7 +29,10 @@ import { IncomingCallBanner } from '@/renderer/components/Voice/IncomingCallBann
 const CONVERSATION_ID = '11111111-1111-1111-1111-111111111111';
 const RING_ID = '22222222-2222-2222-2222-222222222222';
 
-function setIncomingRingingState(callerOverrides: Record<string, unknown> = {}): void {
+function setIncomingRingingState(
+  callerOverrides: Record<string, unknown> = {},
+  isGroup = false
+): void {
   useVoiceStore.getState().setCallState({
     kind: 'incoming-ringing',
     conversationId: CONVERSATION_ID,
@@ -38,6 +43,27 @@ function setIncomingRingingState(callerOverrides: Record<string, unknown> = {}):
       ...callerOverrides,
     },
     expiresAt: Date.now() + 30000,
+    isGroup,
+  });
+}
+
+function seedGroupConversation(name: string | null = 'Squad'): void {
+  useDMStore.setState({
+    conversations: [
+      {
+        id: CONVERSATION_ID,
+        isGroup: true,
+        isPersonal: false,
+        name,
+        participants: [
+          { userId: 'b', username: 'Bob' },
+          { userId: 'c', username: 'Charlie' },
+        ],
+        lastMessage: null,
+        unreadCount: 0,
+        createdAt: '2026-05-28T13:00:00.000Z',
+      } as DMConversation,
+    ],
   });
 }
 
@@ -113,6 +139,30 @@ describe('IncomingCallBanner', () => {
       setIncomingRingingState({ username: 'bob' });
       render(<IncomingCallBanner />);
       expect(screen.getByText('bob')).toBeInTheDocument();
+    });
+  });
+
+  describe('group context (#1219 R10)', () => {
+    it('shows the group name in the subtitle for a group incoming call', () => {
+      seedGroupConversation('Squad');
+      setIncomingRingingState({ displayName: 'Caller Name' }, true);
+      render(<IncomingCallBanner />);
+      expect(screen.getByText(/Squad/)).toBeInTheDocument();
+      // The 1:1 subtitle wording must NOT appear for a group call.
+      expect(screen.queryByText('Incoming voice call…')).not.toBeInTheDocument();
+    });
+
+    it('falls back to a generic group label when the group has no name', () => {
+      seedGroupConversation(null);
+      setIncomingRingingState({ displayName: 'Caller Name' }, true);
+      render(<IncomingCallBanner />);
+      expect(screen.getByText(/Group voice call/)).toBeInTheDocument();
+    });
+
+    it('keeps the 1:1 subtitle wording for a non-group incoming call', () => {
+      setIncomingRingingState({ displayName: 'Caller Name' }, false);
+      render(<IncomingCallBanner />);
+      expect(screen.getByText('Incoming voice call…')).toBeInTheDocument();
     });
   });
 

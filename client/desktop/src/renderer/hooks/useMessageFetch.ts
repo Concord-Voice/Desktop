@@ -57,6 +57,10 @@ async function decryptMessages(
   // leaking ciphertext. Mark as pendingKeys so the UI shows the correct placeholder.
   if (!e2eeService.isInitialized) {
     return rawMsgs.map((m) => {
+      // Call-event rows have no ciphertext; never mark them pendingKeys (#1219).
+      if (m.type === 'call_event') {
+        return m;
+      }
       const rt = m.replied_to;
       const blankedRt = rt ? { ...rt, content: '' } : rt;
       return { ...m, content: '', pendingKeys: true, replied_to: blankedRt };
@@ -97,6 +101,15 @@ async function decryptMessages(
 
   return Promise.all(
     rawMsgs.map(async (m) => {
+      // Call-event rows carry plaintext server metadata in call_event_payload
+      // and empty content; bypass the E2EE decrypt pass (#1219) — decryptContent
+      // on '' would set decryptFailed. Return the row untouched. This covers
+      // both the initial and pagination fetch sites, which both go through
+      // decryptMessages.
+      if (m.type === 'call_event') {
+        return m;
+      }
+
       // Decrypt replied_to content if the original replied-to message was encrypted
       let decryptedRt = m.replied_to;
       const rt = m.replied_to;

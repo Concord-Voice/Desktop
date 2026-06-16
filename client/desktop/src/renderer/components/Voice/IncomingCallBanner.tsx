@@ -7,6 +7,7 @@
 // view the user is currently looking at.
 
 import { useVoiceStore } from '../../stores/voiceStore';
+import { useDMStore } from '../../stores/dmStore';
 import {
   acceptIncomingCall,
   declineIncomingCall,
@@ -15,6 +16,9 @@ import './IncomingCallBanner.css';
 
 export function IncomingCallBanner() {
   const callState = useVoiceStore((s) => s.callState);
+  // Subscribe to the conversation list so the group name resolves reactively
+  // once dmStore hydrates (the invited event can arrive before the conv loads).
+  const conversations = useDMStore((s) => s.conversations);
 
   if (callState.kind !== 'incoming-ringing') {
     return null;
@@ -23,6 +27,16 @@ export function IncomingCallBanner() {
   const { caller } = callState;
   const displayName = caller.displayName ?? caller.username;
   const initials = displayName.slice(0, 2).toUpperCase();
+
+  // Group context (#1219 R10): for a group ring, surface the group name (from
+  // dmStore by conversation_id, fallback "Group voice call") so the callee can
+  // distinguish a group ring from a 1:1 ring. 1:1 wording is unchanged.
+  const conversation = callState.isGroup
+    ? conversations.find((c) => c.id === callState.conversationId)
+    : undefined;
+  const subtitle = callState.isGroup
+    ? `${conversation?.name ?? 'Group voice call'} — incoming call…`
+    : 'Incoming voice call…';
 
   return (
     <div className="incoming-call-banner" role="alert" aria-live="polite">
@@ -37,7 +51,7 @@ export function IncomingCallBanner() {
       </div>
       <div className="incoming-call-banner__text">
         <div className="incoming-call-banner__name">{displayName}</div>
-        <div className="incoming-call-banner__subtitle">Incoming voice call…</div>
+        <div className="incoming-call-banner__subtitle">{subtitle}</div>
       </div>
       <div className="incoming-call-banner__actions">
         <button

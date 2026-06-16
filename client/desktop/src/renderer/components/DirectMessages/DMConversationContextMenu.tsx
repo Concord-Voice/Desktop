@@ -166,10 +166,11 @@ const DMConversationContextMenu: React.FC<DMConversationContextMenuProps> = ({
         onAction={onClose}
       />
 
-      {/* Voice Call — #1209. 1:1 DMs only for now; group calls deferred
-          to follow-up #1219 (will flip the isOneOnOne gate to show for
-          group conversations too). */}
-      {isOneOnOne && (
+      {/* Voice Call — #1209 (1:1) + #1219 (group). Shown for any non-personal
+          DM: 1:1 and group conversations. Hidden for personal (self-notes) —
+          you can't call yourself. The group ring is presence-filtered
+          server-side (#1219 B2). */}
+      {!conversation.isPersonal && (
         <ContextMenu.Item
           icon={
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">

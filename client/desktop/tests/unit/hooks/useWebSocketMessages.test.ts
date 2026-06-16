@@ -431,6 +431,58 @@ describe('useWebSocketMessages', () => {
           expect(mockPlay).not.toHaveBeenCalled();
         }
       });
+
+      // ─── #1219 R9: don't re-ring on subsequent group joins ──────────────
+
+      it('does not restart the ringtone on a second group join', () => {
+        const ws = createMockWsService();
+        useUserStore.setState({ user: { id: 'user-1', username: 'me' } as never });
+        // The call is already active (user-3 is in it). Because
+        // handleDMCallSounds runs BEFORE applyDMVoiceState, the gate reads
+        // this PRE-update roster: ≥1 participant means a join, not the ring.
+        useVoiceStore.setState({
+          activeDMCalls: { 'dm-conv-1': { participantIds: ['user-3'], total: 3 } },
+        });
+        renderHook(() => useWebSocketMessages(ws as never));
+
+        const handler = ws.handlers.get('dm_voice_state_update');
+        if (handler) {
+          act(() => {
+            handler({
+              type: 'dm_voice_state_update',
+              data: {
+                conversation_id: 'dm-conv-1',
+                action: 'joined',
+                user_id: 'user-2',
+              },
+            });
+          });
+          expect(mockPlayLoop).not.toHaveBeenCalledWith('call-ringing');
+        }
+      });
+
+      it('still rings on the initial group join (empty roster)', () => {
+        const ws = createMockWsService();
+        useUserStore.setState({ user: { id: 'user-1', username: 'me' } as never });
+        // No prior roster → this is the initial ring.
+        useVoiceStore.setState({ activeDMCalls: {} });
+        renderHook(() => useWebSocketMessages(ws as never));
+
+        const handler = ws.handlers.get('dm_voice_state_update');
+        if (handler) {
+          act(() => {
+            handler({
+              type: 'dm_voice_state_update',
+              data: {
+                conversation_id: 'dm-conv-1',
+                action: 'joined',
+                user_id: 'user-2',
+              },
+            });
+          });
+          expect(mockPlayLoop).toHaveBeenCalledWith('call-ringing');
+        }
+      });
     });
   });
 });

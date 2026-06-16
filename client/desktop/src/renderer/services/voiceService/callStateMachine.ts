@@ -74,6 +74,15 @@ export type CallState =
       ringId: string;
       calleeUserIds: string[];
       startedAt: number;
+      /**
+       * Group decline tally (#1219 R2): user IDs of callees who have
+       * declined this ring. Renderer-internal — CallState is not a wire
+       * type, so this never appears in a WS payload. For DM 1:1 it stays
+       * empty (a single decline transitions straight to idle). For groups
+       * the caller stays in outgoing-ringing while this accumulates;
+       * terminal idle is driven by handleCallCanceled('all_declined').
+       */
+      declinedUserIds: string[];
     }
   | {
       kind: 'incoming-ringing';
@@ -81,6 +90,15 @@ export type CallState =
       ringId: string;
       caller: CallerInfo;
       expiresAt: number;
+      /**
+       * Group context (#1219 R10): whether this incoming ring is for a group
+       * DM. Threaded from the now-emitted `is_group` boolean on the
+       * dm_voice_call_invited event (B3). The IncomingCallBanner uses this to
+       * show group context (the group name from dmStore) so a callee can
+       * distinguish a group ring from a 1:1 ring. Renderer-internal — CallState
+       * is not a wire type.
+       */
+      isGroup: boolean;
     }
   | { kind: 'in-call' }
   | { kind: 'ending' };
@@ -114,6 +132,7 @@ export async function initiateDMCall(conversationId: string): Promise<void> {
     ringId: '',
     calleeUserIds: [],
     startedAt: Date.now(),
+    declinedUserIds: [],
   });
 
   // Start ringback audio
@@ -151,6 +170,7 @@ export async function initiateDMCall(conversationId: string): Promise<void> {
     ringId: data.ring_id,
     calleeUserIds: data.ringing_user_ids,
     startedAt: Date.parse(data.ring_started_at),
+    declinedUserIds: [],
   });
 }
 
@@ -280,6 +300,7 @@ export function handleCallInvited(payload: DMVoiceCallInvitedPayload): void {
       avatarUrl: payload.caller.avatar_url,
     },
     expiresAt: Date.parse(payload.ring_started_at) + payload.ring_timeout_seconds * 1000,
+    isGroup: payload.is_group,
   });
   notificationSoundService.playLoop('call-ringing');
 }
@@ -335,13 +356,18 @@ export function handleCallCanceled(payload: DMVoiceCallCanceledPayload): void {
 
 /**
  * handleCallDeclined handles dm_voice_call_declined per spec §7.3 step 6.
- * For DM 1:1: a single decline ends the call → caller transitions to
- * idle. For groups (#1219): the caller stays in outgoing-ringing while
- * the per-decliner tally updates (the dm_voice_call_decline_progress
- * event drives that — deferred to follow-up #1219).
  *
- * #1209 behavior: since DM 1:1 has exactly one callee, any decline is
- * the terminal decline → transition to idle.
+ * For DM 1:1 (and any conversation absent from dmStore — defensive
+ * fallback): a single decline is the terminal decline → stop ringback +
+ * transition to idle (unchanged #1209 behavior).
+ *
+ * For groups (#1219 R2): the caller STAYS in outgoing-ringing while the
+ * per-decliner tally (declinedUserIds) accumulates. This handler never
+ * transitions to idle for a group — terminal idle is driven solely by
+ * handleCallCanceled('all_declined') when the last callee declines (the
+ * server emits dm_voice_call_canceled with canceled_by='all_declined').
+ * The group `isGroup` flag is read from the NORMALIZED camelCase
+ * conversation in dmStore (matching DMConversationContextMenu.tsx).
  */
 export function handleCallDeclined(payload: DMVoiceCallDeclinedPayload): void {
   const store = useVoiceStore.getState();
@@ -352,11 +378,23 @@ export function handleCallDeclined(payload: DMVoiceCallDeclinedPayload): void {
   if (state.conversationId !== payload.conversation_id) {
     return;
   }
+
+  const conv = useDMStore.getState().conversations.find((c) => c.id === state.conversationId);
+  const isGroup = conv?.isGroup === true; // absent conversation → treat as 1:1
+
+  if (isGroup) {
+    const declinedUserIds = state.declinedUserIds.includes(payload.decliner_user_id)
+      ? state.declinedUserIds
+      : [...state.declinedUserIds, payload.decliner_user_id];
+    // Stay outgoing-ringing; only the tally changes. Audio keeps playing
+    // because remaining callees may still accept. Terminal idle arrives via
+    // handleCallCanceled('all_declined') if everyone declines.
+    store.setCallState({ ...state, declinedUserIds });
+    return;
+  }
+
   notificationSoundService.stopLoop('call-outgoing');
   store.setCallState({ kind: 'idle' });
-  // Follow-up #1219: for group calls, keep state as outgoing-ringing and
-  // update a per-decliner tally rather than transitioning to idle on first
-  // decline. Tracked as a separate work item, not deferred work for #1209.
 }
 
 /**

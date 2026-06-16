@@ -44,6 +44,8 @@ import { notificationSoundService } from '@/renderer/services/notificationSoundS
 import { voiceService } from '@/renderer/services/voiceService';
 import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { useDMStore } from '@/renderer/stores/dmStore';
+import type { DMConversation } from '@/renderer/stores/dmStore';
+import type { CallState } from '@/renderer/services/voiceService/callStateMachine';
 
 import {
   initiateDMCall,
@@ -216,6 +218,7 @@ describe('cancelOutgoingCall', () => {
       ringId: RING_ID,
       calleeUserIds: ['callee-id'],
       startedAt: 1000,
+      declinedUserIds: [],
     });
     mockApiFetch.mockResolvedValueOnce({ ok: true } as Response);
 
@@ -242,6 +245,7 @@ describe('cancelOutgoingCall', () => {
       ringId: RING_ID,
       calleeUserIds: ['callee-id'],
       startedAt: 1000,
+      declinedUserIds: [],
     });
     mockApiFetch.mockRejectedValueOnce(new Error('network'));
 
@@ -344,6 +348,7 @@ describe('declineIncomingCall', () => {
 describe('handleCallInvited', () => {
   const baseInvitedPayload = {
     conversation_id: CONVERSATION_ID,
+    is_group: false,
     ring_id: RING_ID,
     caller: {
       user_id: 'caller-id',
@@ -391,6 +396,28 @@ describe('handleCallInvited', () => {
       expect(final.caller.avatarUrl).toBeUndefined();
     }
   });
+
+  // ── Group context (#1219 R10) ────────────────────────────────────────────
+
+  it('threads is_group=true into the incoming-ringing state', () => {
+    handleCallInvited({ ...baseInvitedPayload, is_group: true } as never);
+    const final = useVoiceStore.getState().callState as Extract<
+      CallState,
+      { kind: 'incoming-ringing' }
+    >;
+    expect(final.kind).toBe('incoming-ringing');
+    expect(final.isGroup).toBe(true);
+  });
+
+  it('threads is_group=false into the incoming-ringing state (1:1)', () => {
+    handleCallInvited({ ...baseInvitedPayload, is_group: false } as never);
+    const final = useVoiceStore.getState().callState as Extract<
+      CallState,
+      { kind: 'incoming-ringing' }
+    >;
+    expect(final.kind).toBe('incoming-ringing');
+    expect(final.isGroup).toBe(false);
+  });
 });
 
 // ── handleCallCanceled ────────────────────────────────────────────────────
@@ -418,6 +445,7 @@ describe('handleCallCanceled', () => {
       ringId: RING_ID,
       calleeUserIds: ['callee-id'],
       startedAt: 1000,
+      declinedUserIds: [],
     });
     handleCallCanceled(canceledPayload('caller', OTHER_CONVERSATION_ID));
     expect(useVoiceStore.getState().callState.kind).toBe('outgoing-ringing');
@@ -431,6 +459,7 @@ describe('handleCallCanceled', () => {
       ringId: RING_ID,
       calleeUserIds: ['callee-id'],
       startedAt: 1000,
+      declinedUserIds: [],
     });
     let resolveJoin: () => void = () => {};
     mockJoinChannel.mockReturnValueOnce(
@@ -456,6 +485,7 @@ describe('handleCallCanceled', () => {
       ringId: RING_ID,
       calleeUserIds: ['callee-id'],
       startedAt: 1000,
+      declinedUserIds: [],
     });
     mockJoinChannel.mockRejectedValueOnce(new Error('media plane down'));
 
@@ -477,6 +507,7 @@ describe('handleCallCanceled', () => {
       ringId: RING_ID,
       calleeUserIds: ['callee-id'],
       startedAt: 1000,
+      declinedUserIds: [],
     });
     handleCallCanceled(canceledPayload('caller'));
     expect(mockStopLoop).toHaveBeenCalledWith('call-outgoing');
@@ -519,6 +550,7 @@ describe('handleCallDeclined', () => {
       ringId: RING_ID,
       calleeUserIds: ['callee-id'],
       startedAt: 1000,
+      declinedUserIds: [],
     });
     handleCallDeclined(declinedPayload(OTHER_CONVERSATION_ID));
     expect(useVoiceStore.getState().callState.kind).toBe('outgoing-ringing');
@@ -532,6 +564,97 @@ describe('handleCallDeclined', () => {
       ringId: RING_ID,
       calleeUserIds: ['callee-id'],
       startedAt: 1000,
+      declinedUserIds: [],
+    });
+    handleCallDeclined(declinedPayload());
+    expect(mockStopLoop).toHaveBeenCalledWith('call-outgoing');
+    expect(useVoiceStore.getState().callState).toEqual({ kind: 'idle' });
+  });
+
+  // ── Group decline tally (#1219 R2) ──────────────────────────────────────
+
+  // Seed a NORMALIZED camelCase group conversation directly (NOT via the
+  // snake-case seedConversation() helper, whose `is_group` cast `as never`
+  // leaves `conv.isGroup` undefined — which would silently run the 1:1 path).
+  function seedGroupConversation(): void {
+    useDMStore.setState({
+      conversations: [
+        {
+          id: CONVERSATION_ID,
+          isGroup: true,
+          isPersonal: false,
+          name: 'Squad',
+          participants: [
+            { userId: 'b', username: 'Bob' },
+            { userId: 'c', username: 'Charlie' },
+          ],
+          lastMessage: null,
+          unreadCount: 0,
+          createdAt: '2026-05-28T13:00:00.000Z',
+        } as DMConversation,
+      ],
+    });
+  }
+
+  it('group: first decline keeps outgoing-ringing and records declinedUserIds', () => {
+    seedGroupConversation();
+    useVoiceStore.getState().setCallState({
+      kind: 'outgoing-ringing',
+      conversationId: CONVERSATION_ID,
+      ringId: RING_ID,
+      calleeUserIds: ['b', 'c'],
+      startedAt: 1000,
+      declinedUserIds: [],
+    });
+    handleCallDeclined({
+      conversation_id: CONVERSATION_ID,
+      ring_id: RING_ID,
+      decliner_user_id: 'b',
+    } as never);
+    const s = useVoiceStore.getState().callState as Extract<
+      CallState,
+      { kind: 'outgoing-ringing' }
+    >;
+    expect(s.kind).toBe('outgoing-ringing');
+    expect(s.declinedUserIds).toEqual(['b']);
+    // Group decline does NOT stop ringback (terminal idle is driven by
+    // handleCallCanceled('all_declined'), not this handler).
+    expect(mockStopLoop).not.toHaveBeenCalled();
+  });
+
+  it('group: duplicate decline does not double-record the same decliner', () => {
+    seedGroupConversation();
+    useVoiceStore.getState().setCallState({
+      kind: 'outgoing-ringing',
+      conversationId: CONVERSATION_ID,
+      ringId: RING_ID,
+      calleeUserIds: ['b', 'c'],
+      startedAt: 1000,
+      declinedUserIds: ['b'],
+    });
+    handleCallDeclined({
+      conversation_id: CONVERSATION_ID,
+      ring_id: RING_ID,
+      decliner_user_id: 'b',
+    } as never);
+    const s = useVoiceStore.getState().callState as Extract<
+      CallState,
+      { kind: 'outgoing-ringing' }
+    >;
+    expect(s.kind).toBe('outgoing-ringing');
+    expect(s.declinedUserIds).toEqual(['b']);
+  });
+
+  it('1:1 / absent conversation: decline → idle (fallback when conv not in dmStore)', () => {
+    // resetAllStores() cleared dmStore, so the conversation is absent →
+    // treated as 1:1 → idle.
+    useVoiceStore.getState().setCallState({
+      kind: 'outgoing-ringing',
+      conversationId: CONVERSATION_ID,
+      ringId: RING_ID,
+      calleeUserIds: ['callee-id'],
+      startedAt: 1000,
+      declinedUserIds: [],
     });
     handleCallDeclined(declinedPayload());
     expect(mockStopLoop).toHaveBeenCalledWith('call-outgoing');
@@ -558,6 +681,7 @@ describe('handleCallTimedOut', () => {
       ringId: RING_ID,
       calleeUserIds: ['callee-id'],
       startedAt: 1000,
+      declinedUserIds: [],
     });
     handleCallTimedOut(timedOutPayload(OTHER_CONVERSATION_ID));
     expect(useVoiceStore.getState().callState.kind).toBe('outgoing-ringing');
@@ -570,6 +694,7 @@ describe('handleCallTimedOut', () => {
       ringId: RING_ID,
       calleeUserIds: ['callee-id'],
       startedAt: 1000,
+      declinedUserIds: [],
     });
     handleCallTimedOut(timedOutPayload());
     expect(mockStopLoop).toHaveBeenCalledWith('call-outgoing');

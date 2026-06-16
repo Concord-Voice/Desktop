@@ -83,10 +83,16 @@ const ConversationList: React.FC<ConversationListProps> = ({
   // In-call indicator (#1209 plan task F5): returns the convId IF the
   // local user is currently in a DM voice call, else null. The selector
   // returns a string|null so the comparison `inCallForThisConv === conv.id`
-  // re-renders only the matching list item when state transitions.
+  // re-renders only the matching list item when state transitions. Used for
+  // the 1:1 🔊 badge.
   const inCallForThisConv = useVoiceStore((s) =>
     s.callState.kind === 'in-call' && s.isDMCall ? s.dmConversationId : null
   );
+  // Multi-participant in-call rosters (#1219 R6). Unlike `inCallForThisConv`
+  // (which only fires when the LOCAL user is in the call), this surfaces the
+  // "N of M in call" indicator for any group call — including ones the user
+  // has not joined — so the list advertises joinable calls.
+  const activeDMCalls = useVoiceStore((s) => s.activeDMCalls);
   const drafts = useDraftMessageStore((s) => s.drafts);
 
   // Cache of decrypted last message previews (conversationId → {plaintext, ciphertext})
@@ -263,18 +269,36 @@ const ConversationList: React.FC<ConversationListProps> = ({
                 <div className="conversation-bottom-row">
                   <span className="conversation-preview">{preview}</span>
                   <div className="conversation-badges">
-                    {/* In-call indicator (#1209 plan task F5). Shows when
-                        this user is in a DM voice call for this conversation.
-                        Group multi-participant variant ("3 of 5 in call")
-                        is deferred to follow-up #1219. */}
-                    {inCallForThisConv === conv.id && (
+                    {/* In-call indicator. Group conversations with an active
+                        voice call show a multi-participant "N of M in call"
+                        tally (#1219 R6) — surfaced even for calls the local
+                        user has NOT joined, so the list advertises joinable
+                        calls. 1:1 conversations keep the 🔊 badge (#1209 F5),
+                        shown only when the local user IS in the call.
+                        M = the live `conv.participants.length` (this conv is
+                        loaded — we're rendering it), NOT the stored roster
+                        `total`, which can be 0 if the dm_voice_state_update
+                        delta arrived before the conversation was in dmStore
+                        (#1568 Gitar "N of 0 in call" edge-case fix). */}
+                    {conv.isGroup && activeDMCalls[conv.id] ? (
                       <span
-                        className="conversation-in-call-badge"
-                        title="In voice call"
-                        aria-label="In voice call"
+                        className="conversation-in-call-badge group"
+                        title={`${activeDMCalls[conv.id].participantIds.length} of ${conv.participants.length} in call`}
+                        aria-label={`${activeDMCalls[conv.id].participantIds.length} of ${conv.participants.length} in call`}
                       >
-                        🔊
+                        {activeDMCalls[conv.id].participantIds.length} of {conv.participants.length}{' '}
+                        in call
                       </span>
+                    ) : (
+                      inCallForThisConv === conv.id && (
+                        <span
+                          className="conversation-in-call-badge"
+                          title="In voice call"
+                          aria-label="In voice call"
+                        >
+                          🔊
+                        </span>
+                      )
                     )}
                     {drafts[conv.id] && (
                       <span className="conversation-draft-indicator" title="Draft message">

@@ -394,8 +394,16 @@ function handleDMCallSounds(
       notificationSoundService.stopAllLoops();
       notificationSoundService.play('call-connected');
     } else {
-      // Someone started a call in a DM we're not in — incoming ring
-      notificationSoundService.playLoop('call-ringing');
+      // Someone joined a call in a DM we're not in. Only ring for the INITIAL
+      // join — a group call rings once, not on every subsequent member's join
+      // (#1219 R9). The roster is read PRE-update (this handler runs before
+      // applyDMVoiceState mutates activeDMCalls), so a non-empty roster means
+      // the call is already active and this is a join, not the first ring.
+      const alreadyActive =
+        (voiceState.activeDMCalls[conversationId]?.participantIds.length ?? 0) > 0;
+      if (!alreadyActive) {
+        notificationSoundService.playLoop('call-ringing');
+      }
     }
   } else if (action === 'left') {
     if (notificationSoundService.isLooping('call-ringing')) {
@@ -1469,8 +1477,19 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
         }
       }
 
-      // DM call sound notifications
+      // DM call sound notifications. MUST run BEFORE applyDMVoiceState below:
+      // the R9 ringtone-suppression gate reads the PRE-update activeDMCalls
+      // roster to distinguish the initial ring (empty roster) from a
+      // subsequent group join (#1219 R9).
       handleDMCallSounds(conversationId, action, userId);
+
+      // Active DM-call roster reducer (#1219 R4). Feeds the "Join voice call"
+      // header affordance (R5) and the "N of M in call" list indicator (R6).
+      // `total` is the conversation's member count (the "M" denominator).
+      const conv = useDMStore.getState().conversations.find((c) => c.id === conversationId);
+      useVoiceStore
+        .getState()
+        .applyDMVoiceState(conversationId, action, userId, conv?.participants.length ?? 0);
     });
 
     // Subscribed confirmation handler

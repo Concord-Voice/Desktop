@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
-import { MessageSquare, Users } from 'lucide-react';
+import { MessageSquare, Users, Phone } from 'lucide-react';
 import MessageList, { type MessageListHandle } from '../Chat/MessageList';
 import DMPinnedMessagesPanel from './DMPinnedMessagesPanel';
 import { getPins } from '../../services/pinService';
@@ -11,7 +11,9 @@ import { useDMSubscription } from '../../hooks/useDMSubscription';
 import { errorMessage } from '../../utils/redactError';
 import { useMessageFetch } from '../../hooks/useMessageFetch';
 import { useChatController } from '../../hooks/useChatController';
-import { apiFetch } from '../../services/apiClient';
+import { apiFetch, safeJson } from '../../services/apiClient';
+import { useVoiceStore } from '../../stores/voiceStore';
+import { voiceService } from '../../services/voiceService';
 import { usePrivacyStore } from '../../stores/privacyStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 import GroupInfoPanel from './GroupInfoPanel';
@@ -83,12 +85,61 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
   const user = useUserStore((s) => s.user);
   const dmPrivacyLevel = usePrivacyStore((s) => s.settings.dmPrivacyLevel);
 
+  // Active-DM-call roster for the open conversation (#1219 R5). Drives the
+  // "Join voice call" header affordance. Subscribed selectively so the header
+  // re-renders only when this conversation's call roster changes.
+  const activeCall = useVoiceStore((s) =>
+    selectedThreadId ? s.activeDMCalls[selectedThreadId] : undefined
+  );
+  // True when the local user is already in THIS DM call — suppress the Join
+  // affordance (you don't join a call you're in). Backed by the store's DM
+  // call fields set on join.
+  const isInThisCall = useVoiceStore((s) => s.isDMCall && s.dmConversationId === selectedThreadId);
+
   // Subscribe to active DM conversation for real-time messages
   useDMSubscription(selectedThreadId);
 
   const activeConv = conversations.find((c) => c.id === selectedThreadId);
   const currentUserId = user?.id || '';
   const threadName = getThreadName(activeConv, currentUserId);
+
+  // Hydrate the active-DM-call roster on conversation open (#1219 R4 / G4).
+  // Live `dm_voice_state_update` deltas only populate the roster for events
+  // that arrive while the conversation is open; a member who was offline at
+  // ring (or reconnecting) would otherwise see no "N of M in call" / "Join
+  // voice call" affordance. Best-effort: live deltas remain authoritative.
+  const activeConvId = activeConv?.id;
+  const activeConvMemberCount = activeConv?.participants.length ?? 0;
+  useEffect(() => {
+    if (!activeConvId) return;
+    let cancelled = false;
+    (async () => {
+      // Snapshot the roster entry BEFORE the probe. applyDMVoiceState installs a
+      // NEW entry object on every live delta, so a referential change after the
+      // await means a join raced in while the probe was in flight (#1568 Gitar
+      // race fix) — never wipe a live roster on a racing empty probe response.
+      const before = useVoiceStore.getState().activeDMCalls[activeConvId];
+      try {
+        const res = await apiFetch(`/api/v1/dm/conversations/${activeConvId}/voice/participants`);
+        if (!res.ok || cancelled) return;
+        const body = await safeJson<{ participants?: { user_id: string }[] }>(res);
+        const ids = (body.participants ?? []).map((p) => p.user_id);
+        if (cancelled) return;
+        if (ids.length > 0) {
+          useVoiceStore.getState().seedActiveDMCall(activeConvId, ids, activeConvMemberCount);
+        } else if (useVoiceStore.getState().activeDMCalls[activeConvId] === before) {
+          // No live delta replaced the roster during the probe → safe to clear a
+          // genuinely-ended call. If a join raced in, leave the live roster intact.
+          useVoiceStore.getState().clearActiveDMCall(activeConvId);
+        }
+      } catch {
+        // best-effort; live deltas still populate the roster
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeConvId, activeConvMemberCount]);
 
   // Chat controller — unified send/edit/delete/reply/pin/typing
   const ctx: ChatContext = useMemo(
@@ -221,6 +272,33 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId }) => {
               })()}
             </div>
           </div>
+          {/* Join voice call (#1219 R5). Shown when this is a group DM with an
+              active voice call the local user is NOT already in — a member who
+              was offline/declined at ring, or who closed and reopened the
+              conversation, can jump in. Routes through voiceService.joinChannel
+              with the 'dm' join type, mirroring acceptIncomingCall. */}
+          {activeConv?.isGroup && activeCall && !isInThisCall && (
+            <button
+              type="button"
+              className="dm-chat-header-join-call-btn"
+              onClick={() => {
+                if (!activeConv) return;
+                void voiceService.joinChannel(activeConv.id, 'dm').catch((err: unknown) => {
+                  // .catch prevents an unhandled rejection at the click
+                  // boundary; joinChannel surfaces its own user-facing error.
+                  console.error(
+                    'Join voice call:',
+                    err instanceof Error ? err.message : 'non-Error thrown'
+                  );
+                });
+              }}
+              aria-label="Join voice call"
+              title="Join voice call"
+            >
+              <Phone size={16} />
+              <span>Join voice call</span>
+            </button>
+          )}
           <button
             type="button"
             className="chat-header-pin-button"

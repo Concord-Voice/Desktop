@@ -14,6 +14,25 @@ export interface ChatContext {
   serverId?: string;
 }
 
+// --- Call-event Types (for #1209 / #1219) ---
+
+/** Status of a DM voice call as recorded in the dm_messages.call_event_payload
+ *  JSONB column (plaintext server metadata; no client-side decryption). */
+export type CallEventStatus = 'completed' | 'missed' | 'declined' | 'canceled';
+
+/** Shape of dm_messages.call_event_payload for rows where type === 'call_event'.
+ *  Centralized here (#1219) so the Message type, the CallEventMessage component,
+ *  and the message-fetch path share one definition. */
+export interface CallEventPayload {
+  ring_id?: string;
+  caller_user_id?: string;
+  participant_user_ids?: string[];
+  started_at: string;
+  ended_at?: string;
+  status: CallEventStatus;
+  duration_seconds: number;
+}
+
 // --- Attachment Types (for #178) ---
 
 export interface AttachmentSummary {
@@ -40,6 +59,9 @@ export interface Message {
   pinned_at?: string;
   pinned_by?: string;
   attachments?: AttachmentSummary[];
+  /** Present only for system rows where type === 'call_event' (#1219). */
+  type?: string;
+  call_event_payload?: CallEventPayload;
   created_at: string;
   updated_at: string;
 }

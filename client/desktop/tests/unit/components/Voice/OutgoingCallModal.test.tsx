@@ -56,6 +56,7 @@ function seedOutgoing(): void {
     ringId: RING_ID,
     calleeUserIds: [PEER_USER_ID],
     startedAt: 1000,
+    declinedUserIds: [],
   });
 }
 
@@ -101,6 +102,7 @@ describe('OutgoingCallModal', () => {
         ringId: RING_ID,
         calleeUserIds: [PEER_USER_ID],
         startedAt: 1000,
+        declinedUserIds: [],
       });
       const { container } = render(<OutgoingCallModal />);
       expect(container.firstChild).toBeNull();
@@ -142,6 +144,7 @@ describe('OutgoingCallModal', () => {
         ringId: RING_ID,
         calleeUserIds: [PEER_USER_ID],
         startedAt: 1000,
+        declinedUserIds: [],
       });
 
       render(<OutgoingCallModal />);
@@ -162,6 +165,83 @@ describe('OutgoingCallModal', () => {
       render(<OutgoingCallModal />);
       fireEvent.click(screen.getByRole('button', { name: /cancel call/i }));
       expect(mockCancel).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ── Group tally (#1219 R3) ──────────────────────────────────────────────
+
+  const B_USER_ID = 'b-user-id';
+  const C_USER_ID = 'c-user-id';
+  const D_USER_ID = 'd-user-id';
+
+  function seedGroupOutgoing(declinedUserIds: string[]): void {
+    useUserStore.setState({
+      user: { id: MY_USER_ID, username: 'me', email: 'me@example.com' } as never,
+    });
+    useDMStore.setState({
+      conversations: [
+        {
+          id: CONVERSATION_ID,
+          isGroup: true,
+          isPersonal: false,
+          name: 'Squad',
+          participants: [
+            { userId: MY_USER_ID, username: 'me' },
+            { userId: B_USER_ID, username: 'bob', displayName: 'Bob' },
+            { userId: C_USER_ID, username: 'charlie', displayName: 'Charlie' },
+            { userId: D_USER_ID, username: 'diana', displayName: 'Diana' },
+          ],
+          lastMessage: null,
+          unreadCount: 0,
+          createdAt: '2026-05-28T13:00:00.000Z',
+        } as never,
+      ],
+    });
+    useVoiceStore.getState().setCallState({
+      kind: 'outgoing-ringing',
+      conversationId: CONVERSATION_ID,
+      ringId: RING_ID,
+      calleeUserIds: [B_USER_ID, C_USER_ID, D_USER_ID],
+      startedAt: 1000,
+      declinedUserIds,
+    });
+  }
+
+  describe('group tally', () => {
+    it('renders the group name as the title (fallback "Group voice call" when unnamed)', () => {
+      seedGroupOutgoing([]);
+      render(<OutgoingCallModal />);
+      expect(screen.getByText('Squad')).toBeInTheDocument();
+      // 1:1 "Calling …" copy must NOT appear for a group.
+      expect(screen.queryByText(/Calling /)).not.toBeInTheDocument();
+    });
+
+    it('falls back to "Group voice call" when the group has no name', () => {
+      seedGroupOutgoing([]);
+      useDMStore.setState((s) => ({
+        conversations: s.conversations.map((c) => ({ ...c, name: null }) as never),
+      }));
+      render(<OutgoingCallModal />);
+      expect(screen.getByText('Group voice call')).toBeInTheDocument();
+    });
+
+    it('lists ringing callees by display name and marks decliners', () => {
+      seedGroupOutgoing([B_USER_ID]);
+      render(<OutgoingCallModal />);
+      // Charlie + Diana still ringing; Bob declined.
+      expect(screen.getByText(/Charlie/)).toBeInTheDocument();
+      expect(screen.getByText(/Diana/)).toBeInTheDocument();
+      // Bob is rendered in a declined element (separate node).
+      const declined = screen.getByText('Bob');
+      expect(declined).toHaveClass('outgoing-call-modal__declinee');
+    });
+
+    it('resolves names locally from dmStore participants (no PII in WS payload)', () => {
+      seedGroupOutgoing([]);
+      render(<OutgoingCallModal />);
+      // Names come from dmStore, not user IDs.
+      expect(screen.queryByText(new RegExp(B_USER_ID))).not.toBeInTheDocument();
+      expect(screen.getByText(/Bob/)).toBeInTheDocument();
     });
   });
 });

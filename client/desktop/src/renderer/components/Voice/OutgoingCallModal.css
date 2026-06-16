@@ -58,6 +58,18 @@
 .outgoing-call-modal__subtitle {
   font-size: 13px;
   color: var(--text-secondary, #aab);
+  text-align: center;
+}
+
+/* Group tally (#1219 R3): ringing callees in the normal subtitle color;
+   decliners struck-through + dimmed so the caller sees who dropped out. */
+.outgoing-call-modal__ringing {
+  color: var(--text-secondary, #aab);
+}
+
+.outgoing-call-modal__declinee {
+  color: var(--text-muted, #777);
+  text-decoration: line-through;
 }
 
 .outgoing-call-modal__cancel {

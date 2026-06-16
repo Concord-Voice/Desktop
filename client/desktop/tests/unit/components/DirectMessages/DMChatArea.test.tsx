@@ -3,6 +3,7 @@ import { resetAllStores } from '../../../helpers/store-helpers';
 import { useDMStore, type DMConversation } from '@/renderer/stores/dmStore';
 import { useChatStore } from '@/renderer/stores/chatStore';
 import { useUserStore } from '@/renderer/stores/userStore';
+import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { usePrivacyStore } from '@/renderer/stores/privacyStore';
 import { mockUser } from '../../../mocks/fixtures';
 import { vi } from 'vitest';
@@ -152,6 +153,15 @@ vi.mock('@/renderer/services/e2eeService', () => ({
     decryptForChannel: vi.fn(),
     encryptForChannel: vi.fn(),
     getChannelKey: vi.fn(),
+  },
+}));
+
+// Mock voiceService — the "Join voice call" affordance (#1219 R5) calls
+// voiceService.joinChannel on click.
+const mockJoinChannel = vi.fn().mockResolvedValue(undefined);
+vi.mock('@/renderer/services/voiceService', () => ({
+  voiceService: {
+    joinChannel: (...args: unknown[]) => mockJoinChannel(...args),
   },
 }));
 
@@ -531,10 +541,16 @@ describe('DMChatArea', () => {
 
   it('logs redacted error when mark-as-read fetch rejects', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    // First call fetches messages (success), second call (POST /read) rejects
-    mockApiFetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [] }) })
-      .mockRejectedValueOnce(new Error('boom'));
+    // The POST /read call rejects; all other calls (messages fetch, the
+    // /voice/participants hydration probe added in #1219 R4) succeed. Route by
+    // URL so the rejection isn't coupled to call ordering (the hydration probe
+    // fires alongside the messages fetch and would otherwise shift the slots).
+    mockApiFetch.mockImplementation((url: string, opts?: { method?: string }) => {
+      if (url.endsWith('/read') && opts?.method === 'POST') {
+        return Promise.reject(new Error('boom'));
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ messages: [] }) });
+    });
     useDMStore.setState({
       conversations: [makeConversation()],
       clearUnread: vi.fn(),
@@ -805,13 +821,15 @@ describe('DMChatArea', () => {
   });
 
   it('handles edit failure gracefully', async () => {
-    mockApiFetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ messages: [] }) }) // initial fetch
-      .mockResolvedValueOnce({ ok: true, json: async () => ({}) }) // read mark
-      .mockResolvedValueOnce({
-        ok: false,
-        json: async () => ({ error: 'Edit not allowed' }),
-      }); // edit call
+    // The PATCH edit call fails; all other calls (messages fetch, read mark,
+    // the /voice/participants hydration probe added in #1219 R4) succeed.
+    // Route by method so the failure isn't coupled to call ordering.
+    mockApiFetch.mockImplementation((_url: string, opts?: { method?: string }) => {
+      if (opts?.method === 'PATCH') {
+        return Promise.resolve({ ok: false, json: async () => ({ error: 'Edit not allowed' }) });
+      }
+      return Promise.resolve({ ok: true, json: async () => ({ messages: [] }) });
+    });
 
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     useDMStore.setState({ conversations: [makeConversation()] });
@@ -1127,5 +1145,57 @@ describe('DMChatArea', () => {
     fireEvent.click(pinBtn);
     fireEvent.click(pinBtn);
     expect(pinBtn).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  // --- Join voice call header affordance (#1219 R5) ---
+
+  const makeGroupConversation = (overrides: Partial<DMConversation> = {}): DMConversation =>
+    makeConversation({
+      id: 'grp-1',
+      isGroup: true,
+      name: 'Squad',
+      participants: [
+        { userId: 'user-1', username: 'me', displayName: 'Me', status: 'online' },
+        { userId: 'user-2', username: 'alice', displayName: 'Alice', status: 'online' },
+        { userId: 'user-3', username: 'bob', displayName: 'Bob', status: 'online' },
+      ],
+      ...overrides,
+    });
+
+  it('shows Join voice call when a group call is active and user is not in it', () => {
+    useDMStore.setState({ conversations: [makeGroupConversation()] });
+    useVoiceStore.getState().seedActiveDMCall('grp-1', ['user-3'], 3);
+    render(<DMChatArea selectedThreadId="grp-1" />);
+    expect(screen.getByRole('button', { name: /join voice call/i })).toBeInTheDocument();
+  });
+
+  it('clicking Join voice call joins the DM channel', () => {
+    useDMStore.setState({ conversations: [makeGroupConversation()] });
+    useVoiceStore.getState().seedActiveDMCall('grp-1', ['user-3'], 3);
+    render(<DMChatArea selectedThreadId="grp-1" />);
+    fireEvent.click(screen.getByRole('button', { name: /join voice call/i }));
+    expect(mockJoinChannel).toHaveBeenCalledWith('grp-1', 'dm');
+  });
+
+  it('hides Join voice call when no group call is active', () => {
+    useDMStore.setState({ conversations: [makeGroupConversation()] });
+    render(<DMChatArea selectedThreadId="grp-1" />);
+    expect(screen.queryByRole('button', { name: /join voice call/i })).not.toBeInTheDocument();
+  });
+
+  it('hides Join voice call when the local user is already in that call', () => {
+    useDMStore.setState({ conversations: [makeGroupConversation()] });
+    useVoiceStore.getState().seedActiveDMCall('grp-1', ['user-1', 'user-3'], 3);
+    useVoiceStore.getState().setDMCall(true, 'grp-1');
+    useVoiceStore.getState().setCallState({ kind: 'in-call' });
+    render(<DMChatArea selectedThreadId="grp-1" />);
+    expect(screen.queryByRole('button', { name: /join voice call/i })).not.toBeInTheDocument();
+  });
+
+  it('does not show Join voice call for a 1:1 conversation', () => {
+    useDMStore.setState({ conversations: [makeConversation()] });
+    useVoiceStore.getState().seedActiveDMCall('conv-1', ['user-2'], 2);
+    render(<DMChatArea selectedThreadId="conv-1" />);
+    expect(screen.queryByRole('button', { name: /join voice call/i })).not.toBeInTheDocument();
   });
 });

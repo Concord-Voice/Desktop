@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '../../../test-utils';
 import { useDMStore, type DMConversation } from '@/renderer/stores/dmStore';
 import { useUserStore } from '@/renderer/stores/userStore';
+import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { vi } from 'vitest';
 
 // Mock e2eeService
@@ -45,6 +46,7 @@ describe('ConversationList', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    useVoiceStore.getState().reset();
     useUserStore.setState({
       user: {
         id: 'user-1',
@@ -411,6 +413,69 @@ describe('ConversationList', () => {
       expect(consoleSpy).toHaveBeenCalledWith('Failed to open personal thread:', 'boom');
     });
     consoleSpy.mockRestore();
+  });
+
+  // ─── #1219 R6: multi-participant "N of M in call" list indicator ──────
+
+  describe('in-call indicator (#1219 R6)', () => {
+    const groupConv = makeConversation({
+      id: 'grp-1',
+      isGroup: true,
+      name: 'Squad',
+      participants: [
+        { userId: 'user-1', username: 'me', displayName: 'Me' },
+        { userId: 'user-2', username: 'alice', displayName: 'Alice' },
+        { userId: 'user-3', username: 'bob', displayName: 'Bob' },
+        { userId: 'user-4', username: 'carol', displayName: 'Carol' },
+        { userId: 'user-5', username: 'dan', displayName: 'Dan' },
+      ],
+    });
+
+    it('shows "N of M in call" for a group with an active call I am not in', () => {
+      useDMStore.setState({
+        conversations: [groupConv],
+        fetchConversations: vi.fn().mockResolvedValue(undefined),
+      });
+      useVoiceStore.getState().seedActiveDMCall('grp-1', ['user-2', 'user-3', 'user-4'], 5);
+      render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
+      expect(screen.getByText('3 of 5 in call')).toBeInTheDocument();
+    });
+
+    it('does not show the group indicator when no call is active', () => {
+      useDMStore.setState({
+        conversations: [groupConv],
+        fetchConversations: vi.fn().mockResolvedValue(undefined),
+      });
+      render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
+      expect(screen.queryByText(/in call/)).not.toBeInTheDocument();
+    });
+
+    it('keeps the 1:1 🔊 badge when locally in a 1:1 call', () => {
+      useDMStore.setState({
+        conversations: [makeConversation()],
+        fetchConversations: vi.fn().mockResolvedValue(undefined),
+      });
+      useVoiceStore.getState().setDMCall(true, 'conv-1');
+      useVoiceStore.getState().setCallState({ kind: 'in-call' });
+      const { container } = render(
+        <ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />
+      );
+      const badge = container.querySelector('.conversation-in-call-badge');
+      expect(badge).toBeInTheDocument();
+      expect(badge?.textContent).toBe('🔊');
+    });
+
+    it('shows "N of M in call" even on a group call I AM in (group always shows roster)', () => {
+      useDMStore.setState({
+        conversations: [groupConv],
+        fetchConversations: vi.fn().mockResolvedValue(undefined),
+      });
+      useVoiceStore.getState().seedActiveDMCall('grp-1', ['user-1', 'user-2'], 5);
+      useVoiceStore.getState().setDMCall(true, 'grp-1');
+      useVoiceStore.getState().setCallState({ kind: 'in-call' });
+      render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
+      expect(screen.getByText('2 of 5 in call')).toBeInTheDocument();
+    });
   });
 
   // ─── #984 expansion: Block / Unfriend modal flow coverage ─────────────

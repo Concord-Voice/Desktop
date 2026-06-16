@@ -690,4 +690,62 @@ describe('voiceStore', () => {
       expect(useVoiceStore.getState().effectivePermissions).toBe(0x40000n);
     });
   });
+
+  // ===== Active DM calls roster (#1219 R4) =====
+
+  describe('activeDMCalls roster', () => {
+    it('applyDMVoiceState reduces joined/left/room_empty', () => {
+      const s = useVoiceStore.getState();
+      s.applyDMVoiceState('CONV', 'joined', 'u1', 5);
+      s.applyDMVoiceState('CONV', 'joined', 'u2', 5);
+      expect(useVoiceStore.getState().activeDMCalls['CONV']).toEqual({
+        participantIds: ['u1', 'u2'],
+        total: 5,
+      });
+      s.applyDMVoiceState('CONV', 'left', 'u1', 5);
+      expect(useVoiceStore.getState().activeDMCalls['CONV']?.participantIds).toEqual(['u2']);
+      s.applyDMVoiceState('CONV', 'room_empty', undefined, 5);
+      expect(useVoiceStore.getState().activeDMCalls['CONV']).toBeUndefined();
+    });
+
+    it('applyDMVoiceState does not duplicate a re-joining user', () => {
+      const s = useVoiceStore.getState();
+      s.applyDMVoiceState('CONV', 'joined', 'u1', 3);
+      s.applyDMVoiceState('CONV', 'joined', 'u1', 3);
+      expect(useVoiceStore.getState().activeDMCalls['CONV']?.participantIds).toEqual(['u1']);
+    });
+
+    it('applyDMVoiceState deletes the entry when the last participant leaves', () => {
+      const s = useVoiceStore.getState();
+      s.applyDMVoiceState('CONV', 'joined', 'u1', 3);
+      s.applyDMVoiceState('CONV', 'left', 'u1', 3);
+      expect(useVoiceStore.getState().activeDMCalls['CONV']).toBeUndefined();
+    });
+
+    it('applyDMVoiceState ignores joined/left with no userId', () => {
+      const s = useVoiceStore.getState();
+      s.applyDMVoiceState('CONV', 'joined', undefined, 3);
+      expect(useVoiceStore.getState().activeDMCalls['CONV']).toBeUndefined();
+    });
+
+    it('seedActiveDMCall hydrates the roster', () => {
+      useVoiceStore.getState().seedActiveDMCall('CONV', ['u1', 'u2'], 5);
+      expect(useVoiceStore.getState().activeDMCalls['CONV']).toEqual({
+        participantIds: ['u1', 'u2'],
+        total: 5,
+      });
+    });
+
+    it('clearActiveDMCall removes the roster entry', () => {
+      useVoiceStore.getState().seedActiveDMCall('CONV', ['u1'], 5);
+      useVoiceStore.getState().clearActiveDMCall('CONV');
+      expect(useVoiceStore.getState().activeDMCalls['CONV']).toBeUndefined();
+    });
+
+    it('reset clears activeDMCalls', () => {
+      useVoiceStore.getState().seedActiveDMCall('CONV', ['u1'], 5);
+      useVoiceStore.getState().reset();
+      expect(useVoiceStore.getState().activeDMCalls).toEqual({});
+    });
+  });
 });

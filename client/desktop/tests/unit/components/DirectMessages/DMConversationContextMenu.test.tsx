@@ -357,6 +357,23 @@ describe('DMConversationContextMenu', () => {
     });
   });
 
+  describe('Voice Call menu item (#1219)', () => {
+    it('shows Voice Call for 1:1 DMs', () => {
+      renderMenu(makeConversation());
+      expect(screen.getByText('Voice Call')).toBeInTheDocument();
+    });
+
+    it('shows Voice Call for group DMs (#1219 flips the 1:1 gate)', () => {
+      renderMenu(makeConversation({ isGroup: true, name: 'Test Group' }));
+      expect(screen.getByText('Voice Call')).toBeInTheDocument();
+    });
+
+    it('hides Voice Call for personal DMs (self-notes)', () => {
+      renderMenu(makeConversation({ isPersonal: true }));
+      expect(screen.queryByText('Voice Call')).not.toBeInTheDocument();
+    });
+  });
+
   describe('View Profile menu item (#1208)', () => {
     it('shows "View Profile" for 1:1 DMs when onViewProfile is provided', () => {
       const onViewProfile = vi.fn();

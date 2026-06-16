@@ -78,6 +78,37 @@ describe('useMessageFetch', () => {
     expect(stored![1].id).toBe('msg-2');
   });
 
+  it('does not route call_event rows through e2ee decryption', async () => {
+    // call_event rows carry plaintext server metadata in call_event_payload
+    // and empty content; they must bypass the E2EE decrypt pass (#1219) so
+    // decryptContent on '' doesn't set decryptFailed. getChannelKey is left
+    // unconfigured (resolves undefined) so the default path WOULD route to
+    // decryptForChannel if the guard were absent.
+    const callEventRow = {
+      ...mockMessage,
+      id: 'ce1',
+      content: '',
+      type: 'call_event',
+      call_event_payload: {
+        status: 'completed' as const,
+        started_at: '2026-06-15T00:00:00Z',
+        duration_seconds: 42,
+      },
+    } as unknown as MessageWithStatus;
+    mockFetchResponse([callEventRow]);
+
+    renderHook(() => useMessageFetch('conv-1', { type: 'dm' }));
+
+    await waitFor(() => {
+      const stored = useChatStore.getState().messagesByChannel.get('conv-1');
+      expect(stored).toBeDefined();
+      expect(stored![0].id).toBe('ce1');
+    });
+
+    expect(mockDecryptForChannel).not.toHaveBeenCalled();
+    expect(mockDecryptWithKey).not.toHaveBeenCalled();
+  });
+
   it('uses the correct endpoint for DM type', async () => {
     mockFetchResponse([]);
 

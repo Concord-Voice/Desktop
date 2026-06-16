@@ -9,7 +9,9 @@ import React, {
 } from 'react';
 import { MessageWithStatus, type ChatContextType } from '../../types/chat';
 import Message from './Message';
+import { CallEventMessage } from '../DirectMessages/CallEventMessage';
 import { useChannelScrollStore } from '../../stores/channelScrollStore';
+import { useDMStore } from '../../stores/dmStore';
 import './MessageList.css';
 
 export interface MessageListProps {
@@ -79,6 +81,16 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
     onUnseenOnLeaveRef.current = onUnseenOnLeave;
     const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
     const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Real group flag for DM call-event rendering (#1568): when this list is a
+    // DM thread, look up the conversation by persistenceKey (its id) and read
+    // its authoritative `isGroup`. Undefined for channels or unloaded DMs, in
+    // which case the call-event block falls back to a participant-count heuristic.
+    const dmIsGroup = useDMStore((s) =>
+      chatContext === 'dm' && persistenceKey
+        ? s.conversations.find((c) => c.id === persistenceKey)?.isGroup
+        : undefined
+    );
 
     // Clear highlight timeout on unmount to prevent setState-on-unmounted
     useEffect(() => {
@@ -332,15 +344,24 @@ const MessageList = forwardRef<MessageListHandle, MessageListProps>(
 
             {messages.map((message, index) => {
               const dateDividerLabel = shouldShowDateDivider(index);
-              // Follow-up (#1209 F6 dispatch): when a message has type='call_event',
-              // render <CallEventMessage payload={message.call_event_payload} />
-              // instead of <Message>. Requires extending the Message interface
-              // (chat.ts) + backend message-fetch serializer (control-plane
-              // /api/v1/dm/.../messages handler) to include the `type` and
-              // `call_event_payload` columns. The CallEventMessage component
-              // is ready at components/DirectMessages/CallEventMessage.tsx
-              // and the call_event rows ARE being written to the DB
-              // (verified in dm/handlers_test.go). Tracked in #1209 follow-up.
+              // Call-event system rows (#1219 R7): render the dedicated
+              // CallEventMessage instead of <Message>. The backend serializer
+              // returns `type` + `call_event_payload`; useMessageFetch skips
+              // the E2EE decrypt pass for these rows. group-vs-1:1 uses the real
+              // conversation `isGroup` (dmIsGroup, resolved from persistenceKey),
+              // falling back to a participant-count heuristic only when the DM
+              // conversation isn't loaded (#1568 Gitar accuracy fix).
+              if (message.type === 'call_event' && message.call_event_payload) {
+                const isGroupConversation =
+                  dmIsGroup ?? (message.call_event_payload.participant_user_ids?.length ?? 0) > 2;
+                return (
+                  <CallEventMessage
+                    key={message.id}
+                    payload={message.call_event_payload}
+                    isGroup={isGroupConversation}
+                  />
+                );
+              }
               return (
                 <React.Fragment key={message.id}>
                   {dateDividerLabel && (

@@ -288,6 +288,16 @@ interface VoiceState {
   // state transitions via selective Zustand subscriptions. See spec §7.4.
   callState: CallState;
 
+  // Active DM-call rosters keyed by conversation ID (#1219 R4). Tracks who
+  // is currently in a DM voice call (for calls the local user may NOT be in)
+  // so the "Join voice call" header affordance (R5), the "N of M in call"
+  // list indicator (R6), and the ringtone-suppression gate (R9) can render
+  // multi-participant state. Fed by live `dm_voice_state_update` deltas and
+  // hydrated on conversation-open via GET /voice/participants. `total` is the
+  // group's member count (denominator for "N of M"); `participantIds` is the
+  // live roster (numerator).
+  activeDMCalls: Record<string, { participantIds: string[]; total: number }>;
+
   // Solo bandwidth saving (applies to both DM calls and server voice)
   isSoloBandwidthSaving: boolean;
   soloBandwidthNotification: boolean;
@@ -389,6 +399,16 @@ interface VoiceState {
 
   // DM voice call ring state machine setter (#1209)
   setCallState: (state: CallState) => void;
+
+  // Active DM-call roster actions (#1219 R4)
+  applyDMVoiceState: (
+    conversationId: string,
+    action: string,
+    userId: string | undefined,
+    total: number
+  ) => void;
+  seedActiveDMCall: (conversationId: string, participantIds: string[], total: number) => void;
+  clearActiveDMCall: (conversationId: string) => void;
 
   // Solo bandwidth saving
   setSoloBandwidthSaving: (saving: boolean) => void;
@@ -492,6 +512,7 @@ const initialState = {
   callerDMRole: null as DMCallerRole,
   effectivePermissions: 0n,
   callState: { kind: 'idle' } as CallState,
+  activeDMCalls: {} as Record<string, { participantIds: string[]; total: number }>,
   isSoloBandwidthSaving: false,
   soloBandwidthNotification: false,
   codecFloor: null as string[] | null,
@@ -778,6 +799,48 @@ export const useVoiceStore = createStore<VoiceState>()((set) => ({
   setEffectivePermissions: (effectivePermissions) => set({ effectivePermissions }),
 
   setCallState: (callState) => set({ callState }),
+
+  // Active DM-call roster reducer (#1219 R4). Reduces live
+  // `dm_voice_state_update` deltas into the per-conversation roster.
+  applyDMVoiceState: (conversationId, action, userId, total) =>
+    set((state) => {
+      const next = { ...state.activeDMCalls };
+      if (action === 'room_empty') {
+        delete next[conversationId];
+        return { activeDMCalls: next };
+      }
+      // joined/left both require a userId — guard the optional field before
+      // mutating (the schema marks user_id optional for some voice actions).
+      if (!userId) return {};
+      const cur = next[conversationId]?.participantIds ?? [];
+      if (action === 'joined') {
+        next[conversationId] = {
+          participantIds: cur.includes(userId) ? cur : [...cur, userId],
+          total,
+        };
+      } else if (action === 'left') {
+        const remaining = cur.filter((id) => id !== userId);
+        if (remaining.length === 0) delete next[conversationId];
+        else next[conversationId] = { participantIds: remaining, total };
+      } else {
+        // Non-roster actions (mute/video/etc.) — no roster change.
+        return {};
+      }
+      return { activeDMCalls: next };
+    }),
+  seedActiveDMCall: (conversationId, participantIds, total) =>
+    set((state) => ({
+      activeDMCalls: {
+        ...state.activeDMCalls,
+        [conversationId]: { participantIds, total },
+      },
+    })),
+  clearActiveDMCall: (conversationId) =>
+    set((state) => {
+      const next = { ...state.activeDMCalls };
+      delete next[conversationId];
+      return { activeDMCalls: next };
+    }),
 
   setSoloBandwidthSaving: (isSoloBandwidthSaving) => set({ isSoloBandwidthSaving }),
   setSoloBandwidthNotification: (soloBandwidthNotification) => set({ soloBandwidthNotification }),
