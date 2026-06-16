@@ -1364,8 +1364,17 @@ class VoiceService {
     }
   }
 
-  // Decoder budget profiling
+  // Decoder budget profiling (IGNIS)
   private decoderProfilingTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** Number of consecutive green profileDecoders() cycles required before recovering a paused consumer. */
+  private static readonly IGNIS_RECOVERY_GREEN_INTERVALS = 3;
+
+  /** Count of consecutive green cycles observed since the last non-green cycle or recovery. */
+  private consecutiveGreenIntervals = 0;
+
+  /** IDs of consumers paused by IGNIS overload — tracked so the recovery arm can resume them. */
+  private readonly ignisPausedConsumers = new Set<string>();
 
   // ─── Join / Leave ──────────────────────────────────────────────────
 
@@ -1844,6 +1853,8 @@ class VoiceService {
       clearInterval(this.decoderProfilingTimer);
       this.decoderProfilingTimer = null;
     }
+    this.ignisPausedConsumers.clear();
+    this.consecutiveGreenIntervals = 0;
     this.terminateE2EEWorker();
     if (this.rotationTimer) {
       clearTimeout(this.rotationTimer);
@@ -2606,6 +2617,7 @@ class VoiceService {
         consumer.close();
         this.consumers.delete(consumerId);
         this.consumerMeta.delete(consumerId);
+        this.ignisPausedConsumers.delete(consumerId);
       }
     }
 
@@ -2644,6 +2656,7 @@ class VoiceService {
           consumer.close();
           this.consumers.delete(cid);
           this.consumerMeta.delete(cid);
+          this.ignisPausedConsumers.delete(cid);
           this.socket?.emit('close-consumer', { consumerId: cid });
         }
         store.updateParticipant(userId, { screenAudioStream: undefined });
@@ -3157,6 +3170,7 @@ class VoiceService {
         console.debug('[consume] transport closed for consumer', consumer.id);
         this.consumers.delete(consumer.id);
         this.consumerMeta.delete(consumer.id);
+        this.ignisPausedConsumers.delete(consumer.id);
       });
 
       // Resume the consumer (was created paused on server)
@@ -3258,6 +3272,7 @@ class VoiceService {
           consumer.close();
           this.consumers.delete(consumerId);
           this.consumerMeta.delete(consumerId);
+          this.ignisPausedConsumers.delete(consumerId);
           break;
         }
       }
@@ -3383,6 +3398,7 @@ class VoiceService {
         consumer.close();
         this.consumers.delete(consumerId);
         this.consumerMeta.delete(consumerId);
+        this.ignisPausedConsumers.delete(consumerId);
       }
     });
 
@@ -3561,6 +3577,7 @@ class VoiceService {
 
     if (!isScreenShare) {
       consumer.pause();
+      this.ignisPausedConsumers.add(consumer.id);
       console.warn(`IGNIS RED: pausing camera consumer ${consumer.id} — no layers to reduce`);
       return;
     }
@@ -3569,6 +3586,7 @@ class VoiceService {
     for (const [, c] of this.consumers) {
       if (c.kind === 'video' && !c.paused && !Object.values(tunedIn).includes(c.id)) {
         c.pause();
+        this.ignisPausedConsumers.add(c.id);
         console.warn(
           `IGNIS RED: pausing camera consumer ${c.id} instead of screen share ${consumer.id}`
         );
@@ -3577,6 +3595,7 @@ class VoiceService {
     }
 
     consumer.pause();
+    this.ignisPausedConsumers.add(consumer.id);
     console.warn(`IGNIS RED: pausing screen share consumer ${consumer.id} — no camera to demote`);
   }
 
@@ -3659,6 +3678,47 @@ class VoiceService {
     }
 
     useVoiceStore.getState().setDecoderHealth(worstZone);
+
+    this.updateDecoderRecoveryState(worstZone);
+  }
+
+  /**
+   * Track consecutive green cycles and trigger gradual recovery once the
+   * hysteresis threshold is met. Extracted from profileDecoders to keep that
+   * method's cognitive complexity within bounds.
+   */
+  private updateDecoderRecoveryState(worstZone: DecoderHealthZone): void {
+    if (worstZone !== 'green') {
+      this.consecutiveGreenIntervals = 0;
+      return;
+    }
+    this.consecutiveGreenIntervals++;
+    if (this.consecutiveGreenIntervals >= VoiceService.IGNIS_RECOVERY_GREEN_INTERVALS) {
+      this.recoverFromDecoderThrottle();
+      this.consecutiveGreenIntervals = 0;
+    }
+  }
+
+  /**
+   * Resume ONE previously-IGNIS-paused consumer (gradual step-up).
+   * Called only after IGNIS_RECOVERY_GREEN_INTERVALS consecutive green cycles.
+   * Resumes one consumer per green window to avoid re-saturating the decoder.
+   */
+  private recoverFromDecoderThrottle(): void {
+    for (const id of this.ignisPausedConsumers) {
+      const consumer = this.consumers.get(id);
+
+      // Self-prune: consumer gone or already running
+      if (!consumer?.paused) {
+        this.ignisPausedConsumers.delete(id);
+        continue;
+      }
+
+      consumer.resume();
+      this.ignisPausedConsumers.delete(id);
+      console.warn(`IGNIS GREEN recovery: resuming consumer ${id}`);
+      return; // one per green window — gradual step-up
+    }
   }
 
   // ─── E2EE ─────────────────────────────────────────────────────
@@ -4086,6 +4146,11 @@ class VoiceService {
     this.consumers.clear();
     this.consumerMeta.clear();
     this.pendingScreenAudioProducers.clear();
+    // Reset IGNIS recovery state on channel leave — consumers are gone, so stale
+    // ids must not linger and the green-cycle counter must not carry across
+    // channels (#1540; mirrors the emergency cleanupTimersAndE2EE path).
+    this.ignisPausedConsumers.clear();
+    this.consecutiveGreenIntervals = 0;
 
     // Close transports
     this.sendTransport?.close();
