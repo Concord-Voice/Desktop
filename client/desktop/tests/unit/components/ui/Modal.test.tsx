@@ -72,6 +72,19 @@ describe('Modal', () => {
     expect(container?.classList.contains('modal-small')).toBe(true);
   });
 
+  // #158 — the feedback modal uses the new 660px xlarge variant. Lock the
+  // class name as a contract test so a future rename of the size token can't
+  // silently change the visual width.
+  it('applies xlarge width class for the feedback modal size', () => {
+    render(
+      <Modal isOpen={true} onClose={onClose} title="Feedback" width="xlarge">
+        <p>Feedback modal</p>
+      </Modal>
+    );
+    const container = document.querySelector('.modal-container');
+    expect(container?.classList.contains('modal-xlarge')).toBe(true);
+  });
+
   describe('dismissable prop', () => {
     it('dismissable={false} suppresses the close button', () => {
       render(

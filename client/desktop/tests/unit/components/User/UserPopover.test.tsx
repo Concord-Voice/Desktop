@@ -113,4 +113,38 @@ describe('UserPopover', () => {
     expect(useSettingsOverlayStore.getState().open).toBe('app');
     expect(mockOnClose).toHaveBeenCalled();
   });
+
+  // ── #158 — Feedback button ──────────────────────────────────────────────
+
+  describe('feedback button (#158)', () => {
+    it('does NOT render the button when onOpenFeedback is not provided', () => {
+      render(<UserPopover {...defaultProps} />);
+      // The button is gated on the callback being passed — the popover is
+      // usable without it (e.g., legacy mount points).
+      expect(screen.queryByText(/Bug Report \/ Feature Request/)).not.toBeInTheDocument();
+    });
+
+    it('renders the button when onOpenFeedback IS provided', () => {
+      const onOpenFeedback = vi.fn();
+      render(<UserPopover {...defaultProps} onOpenFeedback={onOpenFeedback} />);
+      expect(screen.getByText('Bug Report / Feature Request')).toBeInTheDocument();
+    });
+
+    it('clicking the button calls onClose then onOpenFeedback (order matters)', () => {
+      const onOpenFeedback = vi.fn();
+      // Use a custom onClose that records the order with respect to
+      // onOpenFeedback so we can lock the contract — the popover must close
+      // BEFORE the feedback modal opens so they don't visually overlap.
+      const calls: string[] = [];
+      const onClose = vi.fn(() => calls.push('close'));
+      onOpenFeedback.mockImplementation(() => calls.push('feedback'));
+
+      render(<UserPopover {...defaultProps} onClose={onClose} onOpenFeedback={onOpenFeedback} />);
+      fireEvent.click(screen.getByText('Bug Report / Feature Request'));
+
+      expect(onClose).toHaveBeenCalled();
+      expect(onOpenFeedback).toHaveBeenCalled();
+      expect(calls).toEqual(['close', 'feedback']);
+    });
+  });
 });

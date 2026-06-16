@@ -4,7 +4,13 @@ import { HashRouter } from 'react-router-dom';
 import App from './App';
 import { installSelfHealHandlers } from './spaSelfHealClient';
 import { ModalProvider } from './components/ui/ModalContext';
+import { install as installLogBuffer } from './services/logBufferService';
 import './styles/index.css';
+
+// Install the ring-buffer log capture as early as possible so bug reports
+// (#158) include the maximal recent-log context. The buffer shadow-wraps
+// console.{log,warn,error}; originals still fire, so DevTools is unaffected.
+installLogBuffer();
 
 // Apply persisted theme before React renders to prevent flash
 try {

@@ -5,6 +5,7 @@ import { useSettingsOverlayStore } from '../../stores/settingsOverlayStore';
 import { useUserStore } from '../../stores/userStore';
 import { useMemberStore, PresenceStatus } from '../../stores/memberStore';
 import UserPopover from './UserPopover';
+import FeedbackModal from './FeedbackModal';
 import './UserPanel.css';
 
 const statusClassMap: Record<PresenceStatus, string> = {
@@ -28,6 +29,7 @@ interface UserPanelProps {
 
 const UserPanel: React.FC<UserPanelProps> = ({ compact = false }) => {
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
   const accessToken = useAuthStore((state) => state.accessToken);
   const user = useUserStore((state) => state.user);
   const isLoading = useUserStore((state) => state.isLoading);
@@ -95,9 +97,18 @@ const UserPanel: React.FC<UserPanelProps> = ({ compact = false }) => {
             </button>
           )}
 
-          {isPopoverOpen && <UserPopover user={user} onClose={() => setIsPopoverOpen(false)} />}
+          {isPopoverOpen && (
+            <UserPopover
+              user={user}
+              onClose={() => setIsPopoverOpen(false)}
+              onOpenFeedback={() => setIsFeedbackOpen(true)}
+            />
+          )}
         </div>
       )}
+      {/* Feedback modal (#158) — mounted at UserPanel scope so it survives
+          popover close. */}
+      <FeedbackModal isOpen={isFeedbackOpen} onClose={() => setIsFeedbackOpen(false)} />
     </div>
   );
 };
