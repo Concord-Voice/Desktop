@@ -58,7 +58,7 @@
   justify-content: center;
   font-size: calc(16px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'Droidiga', sans-serif;
+  font-family: var(--font-display-stack);
   color: var(--text-primary);
 }
 

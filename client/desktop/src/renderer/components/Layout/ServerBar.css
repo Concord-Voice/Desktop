@@ -70,7 +70,7 @@
 .server-bar-active-icon .server-bar-icon-initial {
   font-size: calc(16px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'Droidiga', sans-serif;
+  font-family: var(--font-display-stack);
   color: var(--text-primary);
 }
 
@@ -209,7 +209,7 @@
 .server-bar-icon .server-bar-icon-initial {
   font-size: calc(14px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'Droidiga', sans-serif;
+  font-family: var(--font-display-stack);
   color: var(--text-primary);
 }
 
@@ -283,6 +283,7 @@
   font-size: calc(13px * var(--font-scale, 1));
   font-weight: 600;
   color: var(--text-primary);
+  font-family: var(--font-display-stack); /* server name (#1034) */
   margin-bottom: 2px;
 }
 

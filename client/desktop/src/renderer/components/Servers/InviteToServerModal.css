@@ -38,7 +38,7 @@
 .invite-modal-server-icon span {
   font-size: calc(18px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'Droidiga', sans-serif;
+  font-family: var(--font-display-stack);
   color: var(--text-primary);
 }
 
@@ -175,7 +175,7 @@
   color: var(--bg-primary);
   font-size: calc(14px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'Droidiga', sans-serif;
+  font-family: var(--font-display-stack);
   letter-spacing: 0.5px;
   cursor: pointer;
   transition:

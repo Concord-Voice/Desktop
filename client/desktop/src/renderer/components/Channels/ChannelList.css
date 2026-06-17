@@ -58,6 +58,7 @@
   font-size: calc(11px * var(--font-scale, 1));
   font-weight: 600;
   color: var(--text-secondary);
+  font-family: var(--font-display-stack); /* category header (#1034) */
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }

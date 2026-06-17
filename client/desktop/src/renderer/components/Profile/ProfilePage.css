@@ -39,7 +39,7 @@
 
 /* Page title */
 .profile-page-title {
-  font-family: 'Droidiga', sans-serif;
+  font-family: var(--font-display-stack);
   font-size: calc(28px * var(--font-scale, 1));
   margin-bottom: 32px;
   color: var(--text-primary);
@@ -55,7 +55,7 @@
 }
 
 .profile-section-title {
-  font-family: 'Droidiga', sans-serif;
+  font-family: var(--font-display-stack);
   font-size: calc(18px * var(--font-scale, 1));
   color: var(--text-primary);
   margin-bottom: 20px;
@@ -105,7 +105,7 @@
   justify-content: center;
   font-size: calc(28px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'Droidiga', sans-serif;
+  font-family: var(--font-display-stack);
   color: var(--text-primary);
 }
 
@@ -299,7 +299,7 @@
   color: var(--bg-primary);
   font-size: calc(14px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'Droidiga', sans-serif;
+  font-family: var(--font-display-stack);
   letter-spacing: 0.5px;
   cursor: pointer;
   transition: all 0.2s ease;

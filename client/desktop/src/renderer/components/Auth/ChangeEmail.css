@@ -10,6 +10,7 @@
 .change-email-form h2 {
   color: var(--text-primary);
   font-size: 22px;
+  font-family: var(--font-display-stack); /* auth heading (#1034) */
   margin: 0;
 }
 

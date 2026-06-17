@@ -19,7 +19,7 @@
 .sso-eager-unlock__title {
   font-size: calc(28px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'Droidiga', sans-serif;
+  font-family: var(--font-display-stack);
   color: var(--text-primary);
   letter-spacing: 0.3px;
   text-align: center;

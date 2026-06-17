@@ -27,7 +27,7 @@
 }
 
 .titlebar-title {
-  font-family: 'Droidiga', sans-serif;
+  font-family: var(--font-display-stack);
   font-size: 13px;
   letter-spacing: 0.08em;
   app-region: drag;

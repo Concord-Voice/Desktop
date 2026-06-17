@@ -119,7 +119,7 @@
   border-radius: 6px;
   color: var(--bg-primary);
   font-weight: 700;
-  font-family: 'Droidiga', sans-serif;
+  font-family: var(--font-display-stack);
   font-size: calc(12px * var(--font-scale, 1));
   cursor: pointer;
   letter-spacing: 0.5px;
@@ -136,7 +136,7 @@
 }
 
 .section-header {
-  font-family: 'Droidiga', sans-serif;
+  font-family: var(--font-display-stack);
   font-size: calc(12px * var(--font-scale, 1));
   letter-spacing: 1px;
   color: var(--text-muted);

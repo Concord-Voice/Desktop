@@ -37,7 +37,7 @@
 }
 
 .auth-placeholder h2 {
-  font-family: 'Droidiga', sans-serif;
+  font-family: var(--font-display-stack);
   color: var(--text-primary);
 }
 

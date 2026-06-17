@@ -82,7 +82,7 @@
   color: var(--on-accent);
   font-size: calc(14px * var(--font-scale, 1));
   font-weight: 700;
-  font-family: 'Droidiga', sans-serif;
+  font-family: var(--font-display-stack);
   letter-spacing: 0.5px;
   cursor: pointer;
   transition: all 0.2s ease;
