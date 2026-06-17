@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import { createPortal } from 'react-dom';
 import { MicOff, HeadphoneOff, Lock } from 'lucide-react';
 import { useMemberStore, type ServerMember } from '../../stores/memberStore';
@@ -217,8 +218,8 @@ const MemberListPanel: React.FC<MemberListPanelProps> = ({
                     setContextMenu({ member, position: { x: rect.left, y: rect.bottom } });
                   }}
                 />
-                {member.avatar_url ? (
-                  <img src={member.avatar_url} alt="" className="member-avatar" />
+                {resolveMediaUrl(member.avatar_url) ? (
+                  <img src={resolveMediaUrl(member.avatar_url)} alt="" className="member-avatar" />
                 ) : (
                   <div
                     className="member-avatar member-avatar--initial"

@@ -1,5 +1,6 @@
 import { render, screen, fireEvent } from '../../../test-utils';
 import MessageAvatar from '@/renderer/components/Chat/MessageAvatar';
+import { API_BASE } from '@/renderer/config';
 import { mockMessage } from '../../../mocks/fixtures';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
@@ -25,6 +26,21 @@ describe('MessageAvatar', () => {
     const img = document.querySelector('.avatar-image') as HTMLImageElement;
     expect(img).toBeInTheDocument();
     expect(img.src).toBe('https://example.com/avatar.png');
+  });
+
+  it('absolutizes a relative /api/v1/media avatar_url against API_BASE (#1586)', () => {
+    const messageRelative = { ...mockMessage, avatar_url: '/api/v1/media/avatars/abc' };
+    render(
+      <MessageAvatar
+        message={messageRelative}
+        showAvatar={true}
+        senderColors={null}
+        onOpenProfile={vi.fn()}
+      />
+    );
+    const img = document.querySelector('.avatar-image') as HTMLImageElement;
+    expect(img).toBeInTheDocument();
+    expect(img.getAttribute('src')).toBe(`${API_BASE}/api/v1/media/avatars/abc`);
   });
 
   it('renders initials circle when no avatar_url', () => {

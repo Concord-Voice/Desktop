@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import { createPortal } from 'react-dom';
 import { ChevronDown, FolderPlus, Pencil, Trash2 } from 'lucide-react';
 import { useServerStore } from '../../stores/serverStore';
@@ -509,8 +510,8 @@ const FolderBar: React.FC = () => {
                         onClick={() => handleServerClick(server.id)}
                       >
                         <div className="folder-dropdown-item-icon">
-                          {server.icon_url ? (
-                            <img src={server.icon_url} alt={server.name} draggable={false} />
+                          {resolveMediaUrl(server.icon_url) ? (
+                            <img src={resolveMediaUrl(server.icon_url)} alt={server.name} draggable={false} />
                           ) : (
                             <span className="folder-dropdown-item-initial">
                               {server.name.charAt(0).toUpperCase()}

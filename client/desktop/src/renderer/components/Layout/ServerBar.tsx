@@ -1,4 +1,5 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import { createPortal } from 'react-dom';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { MessageSquare, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -505,8 +506,8 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
             aria-label="Toggle channel panel"
             style={{ width: stickyIconSize, height: stickyIconSize }}
           >
-            {activeServer.icon_url ? (
-              <img src={activeServer.icon_url} alt={activeServer.name} />
+            {resolveMediaUrl(activeServer.icon_url) ? (
+              <img src={resolveMediaUrl(activeServer.icon_url)} alt={activeServer.name} />
             ) : (
               <span className="server-bar-icon-initial">
                 {activeServer.name.charAt(0).toUpperCase()}
@@ -639,8 +640,8 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
                     onContextMenu={(e) => handleContextMenu(e, server)}
                     aria-label={`${server.name} server${isMuted ? ' (muted)' : ''}`}
                   >
-                    {server.icon_url ? (
-                      <img src={server.icon_url} alt={server.name} draggable={false} />
+                    {resolveMediaUrl(server.icon_url) ? (
+                      <img src={resolveMediaUrl(server.icon_url)} alt={server.name} draggable={false} />
                     ) : (
                       <span className="server-bar-icon-initial">
                         {server.name.charAt(0).toUpperCase()}

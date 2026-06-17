@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import { Settings } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useSettingsOverlayStore } from '../../stores/settingsOverlayStore';
@@ -68,8 +69,8 @@ const UserPanel: React.FC<UserPanelProps> = ({ compact = false }) => {
             title={user.username}
             aria-label={`User menu for ${user.username}`}
           >
-            {user.avatar_url ? (
-              <img src={user.avatar_url} alt={user.username} className="user-avatar-img" />
+            {resolveMediaUrl(user.avatar_url) ? (
+              <img src={resolveMediaUrl(user.avatar_url)} alt={user.username} className="user-avatar-img" />
             ) : (
               <span className="user-avatar-initial">{user.username.charAt(0).toUpperCase()}</span>
             )}

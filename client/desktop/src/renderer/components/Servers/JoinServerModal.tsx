@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import Modal from '../ui/Modal';
 import LoadingSpinner from '../Auth/LoadingSpinner';
 import { useInviteStore } from '../../stores/inviteStore';
@@ -183,8 +184,8 @@ const JoinServerModal: React.FC<JoinServerModalProps> = ({ isOpen, onClose, onSu
         {preview?.valid && (
           <div className="join-server-preview">
             <div className="join-preview-icon">
-              {preview.server_icon ? (
-                <img src={preview.server_icon} alt={preview.server_name} />
+              {resolveMediaUrl(preview.server_icon) ? (
+                <img src={resolveMediaUrl(preview.server_icon)} alt={preview.server_name} />
               ) : (
                 <span className="join-preview-initial">
                   {preview.server_name.charAt(0).toUpperCase()}

@@ -1,4 +1,5 @@
 import React from 'react';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import type { ServerMember, PresenceStatus } from '../../stores/memberStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 
@@ -27,8 +28,8 @@ const MemberItem: React.FC<MemberItemProps> = ({ member, status, onClick, onCont
       title={member.display_name || member.username}
     >
       <div className="member-avatar">
-        {member.avatar_url ? (
-          <img src={member.avatar_url} alt={member.username} className="member-avatar-img" />
+        {resolveMediaUrl(member.avatar_url) ? (
+          <img src={resolveMediaUrl(member.avatar_url)} alt={member.username} className="member-avatar-img" />
         ) : (
           <span
             className="member-avatar-initial"

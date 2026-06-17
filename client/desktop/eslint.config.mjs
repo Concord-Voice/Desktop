@@ -189,10 +189,7 @@ export default [
       // readers and auditors (SonarQube AI-Code Assurance, code review) can
       // evaluate each suppression on its merits. "intentional" alone is
       // insufficient — rationales must cite the specific invariant.
-      '@eslint-community/eslint-comments/require-description': [
-        'error',
-        { ignore: [] },
-      ],
+      '@eslint-community/eslint-comments/require-description': ['error', { ignore: [] }],
     },
   },
 
@@ -309,6 +306,28 @@ export default [
           message:
             'Do not pass raw err/Error objects to console.error/warn — err.cause (ES2022) may propagate secrets (auth tickets, refresh tokens, response-body fragments). Use `(err as Error).message` or `error instanceof Error ? error.message : "unknown"` instead. See internal-reference "Console error logging". If the raw argument is an audit-safe structured value (server-sent WS payload for diagnostics, etc.), add `eslint-disable-next-line no-restricted-syntax -- <rationale>`.',
         },
+        // #1586: server-origin media <img/video/audio src> must go through
+        // resolveMediaUrl(), else a relative /api/v1/media/* path resolves
+        // against the SPA origin (spa.concordvoice.chat) on the remote SPA
+        // instead of the API host. The `JSXExpressionContainer > X` DIRECT-child
+        // form matches only the UNWRAPPED shape — `src={resolveMediaUrl(...)}`
+        // nests the field inside a CallExpression and is correctly NOT flagged.
+        // Member-access shape: <img src={obj.avatar_url}>
+        {
+          selector:
+            'JSXOpeningElement[name.name=/^(img|video|audio)$/]' +
+            ':has(JSXAttribute[name.name="src"] > JSXExpressionContainer > MemberExpression[property.name=/^(avatar_url|avatarUrl|header_image_url|icon_url|banner_url|server_icon)$/])',
+          message:
+            'Server-origin media src must be wrapped: src={resolveMediaUrl(x)} (from utils/resolveMediaUrl). A raw relative /api/v1/media/* path resolves against the SPA origin on the remote SPA, not the API host. See internal-reference "API URLs ... MUST be absolute" (#1586). For a local objectURL/blob/data preview, add `eslint-disable-next-line no-restricted-syntax -- <rationale>`.',
+        },
+        // Bare-identifier shape: <img src={avatarUrl}>
+        {
+          selector:
+            'JSXOpeningElement[name.name=/^(img|video|audio)$/]' +
+            ':has(JSXAttribute[name.name="src"] > JSXExpressionContainer > Identifier[name=/^(avatarUrl|avatar_url)$/])',
+          message:
+            'Server-origin media src must be wrapped: src={resolveMediaUrl(avatarUrl)} (from utils/resolveMediaUrl). See internal-reference "API URLs ... MUST be absolute" (#1586).',
+        },
       ],
     },
   },
@@ -327,13 +346,7 @@ export default [
   //     disables in src/ still require rationales
   // See spec: internal-reference
   {
-    files: [
-      'tests/**',
-      '**/*.test.ts',
-      '**/*.test.tsx',
-      '**/*.spec.ts',
-      '**/*.spec.tsx',
-    ],
+    files: ['tests/**', '**/*.test.ts', '**/*.test.tsx', '**/*.spec.ts', '**/*.spec.tsx'],
     rules: {
       '@typescript-eslint/no-explicit-any': 'off',
       '@typescript-eslint/no-non-null-assertion': 'off',

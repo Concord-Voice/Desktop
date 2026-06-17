@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import type { DMParticipant, DMConversation } from '../../stores/dmStore';
 import { useFriendStore } from '../../stores/friendStore';
 import type { PresenceStatus } from '../../stores/memberStore';
@@ -193,8 +194,8 @@ const DMProfileModal: React.FC<DMProfileModalProps> = ({
               : undefined
           }
         >
-          {profile?.header_image_url && (
-            <img src={profile.header_image_url} alt="" className="dm-profile-modal-banner-img" />
+          {resolveMediaUrl(profile?.header_image_url) && (
+            <img src={resolveMediaUrl(profile?.header_image_url)} alt="" className="dm-profile-modal-banner-img" />
           )}
           <button
             className="dm-profile-modal-close"
@@ -216,9 +217,9 @@ const DMProfileModal: React.FC<DMProfileModalProps> = ({
         <div className="dm-profile-modal-body">
           <div className="dm-profile-modal-header">
             <div className="dm-profile-modal-avatar">
-              {peer.avatarUrl ? (
+              {resolveMediaUrl(peer.avatarUrl) ? (
                 <img
-                  src={peer.avatarUrl}
+                  src={resolveMediaUrl(peer.avatarUrl)}
                   alt={peer.username}
                   className="dm-profile-modal-avatar-img"
                 />

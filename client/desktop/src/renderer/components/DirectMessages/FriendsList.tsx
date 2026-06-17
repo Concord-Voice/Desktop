@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import {
   ChevronDown,
   ChevronRight,
@@ -319,9 +320,9 @@ const FriendsList: React.FC<FriendsListProps> = ({ onFriendClick }) => {
                       onContextMenu={(e) => handleFriendContextMenu(e, friend)}
                     >
                       <div className="member-avatar">
-                        {friend.avatarUrl ? (
+                        {resolveMediaUrl(friend.avatarUrl) ? (
                           <img
-                            src={friend.avatarUrl}
+                            src={resolveMediaUrl(friend.avatarUrl)}
                             alt={friend.username}
                             className="member-avatar-img"
                           />

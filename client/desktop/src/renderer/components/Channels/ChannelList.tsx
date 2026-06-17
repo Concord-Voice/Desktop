@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useMemo, useState, useCallback } from 'react';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useChannelStore } from '../../stores/channelStore';
 import { useServerStore } from '../../stores/serverStore';
@@ -266,8 +267,8 @@ const CollapsedVoiceAvatars: React.FC<{ voiceUsers: ChannelVoiceMember[] }> = Re
           className="channel-group-header__avatar"
           title={user.displayName || user.username}
         >
-          {user.avatarUrl ? (
-            <img src={user.avatarUrl} alt="" />
+          {resolveMediaUrl(user.avatarUrl) ? (
+            <img src={resolveMediaUrl(user.avatarUrl)} alt="" />
           ) : (
             <span>{(user.displayName || user.username).charAt(0).toUpperCase()}</span>
           )}

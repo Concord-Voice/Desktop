@@ -1,5 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
 import { useImageUpload } from '@/renderer/hooks/useImageUpload';
+import { API_BASE } from '@/renderer/config';
 import { vi } from 'vitest';
 
 describe('useImageUpload', () => {
@@ -26,8 +27,18 @@ describe('useImageUpload', () => {
     const { result } = renderHook(() =>
       useImageUpload({ ...defaultOptions, initialUrl: '/api/v1/media/avatars/123' })
     );
-    expect(result.current.preview).toBe('/api/v1/media/avatars/123');
+    // #1586: preview is absolutized for display; imageUrl stays the raw wire value.
+    expect(result.current.preview).toBe(`${API_BASE}/api/v1/media/avatars/123`);
     expect(result.current.imageUrl).toBe('/api/v1/media/avatars/123');
+  });
+
+  it('passes through a data: initialUrl unchanged for preview and wire value (#1586)', () => {
+    const dataUrl = 'data:image/png;base64,AAAA';
+    const { result } = renderHook(() =>
+      useImageUpload({ ...defaultOptions, initialUrl: dataUrl })
+    );
+    expect(result.current.preview).toBe(dataUrl);
+    expect(result.current.imageUrl).toBe(dataUrl);
   });
 
   describe('handleChange', () => {
@@ -95,7 +106,7 @@ describe('useImageUpload', () => {
 
       act(() => result.current.handleCropConfirm('/api/v1/media/avatars/456'));
 
-      expect(result.current.preview).toBe('/api/v1/media/avatars/456');
+      expect(result.current.preview).toBe(`${API_BASE}/api/v1/media/avatars/456`);
       expect(result.current.imageUrl).toBe('/api/v1/media/avatars/456');
       expect(result.current.removed).toBe(false);
       expect(result.current.pendingFile).toBeNull();
@@ -123,7 +134,7 @@ describe('useImageUpload', () => {
 
       expect(result.current.showCrop).toBe(false);
       expect(result.current.pendingFile).toBeNull();
-      expect(result.current.preview).toBe('/existing.png');
+      expect(result.current.preview).toBe(`${API_BASE}/existing.png`);
     });
   });
 
@@ -152,7 +163,7 @@ describe('useImageUpload', () => {
       // Reset
       act(() => result.current.reset('/new-initial.png'));
 
-      expect(result.current.preview).toBe('/new-initial.png');
+      expect(result.current.preview).toBe(`${API_BASE}/new-initial.png`);
       expect(result.current.imageUrl).toBe('/new-initial.png');
       expect(result.current.removed).toBe(false);
       expect(result.current.pendingFile).toBeNull();

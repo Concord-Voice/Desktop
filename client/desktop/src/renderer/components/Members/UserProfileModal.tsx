@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import { ServerMember, PresenceStatus } from '../../stores/memberStore';
 import { apiFetch } from '../../services/apiClient';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
@@ -149,8 +150,8 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
               : undefined
           }
         >
-          {profile?.header_image_url && (
-            <img src={profile.header_image_url} alt="" className="user-profile-modal-banner-img" />
+          {resolveMediaUrl(profile?.header_image_url) && (
+            <img src={resolveMediaUrl(profile?.header_image_url)} alt="" className="user-profile-modal-banner-img" />
           )}
           <button className="user-profile-modal-close" onClick={onClose} aria-label="Close">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -169,9 +170,9 @@ const UserProfileModal: React.FC<UserProfileModalProps> = ({
           {/* Avatar */}
           <div className="user-profile-modal-header">
             <div className="user-profile-modal-avatar">
-              {member.avatar_url ? (
+              {resolveMediaUrl(member.avatar_url) ? (
                 <img
-                  src={member.avatar_url}
+                  src={resolveMediaUrl(member.avatar_url)}
                   alt={member.username}
                   className="user-profile-modal-avatar-img"
                 />

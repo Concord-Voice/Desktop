@@ -7,6 +7,7 @@
 // view the user is currently looking at.
 
 import { useVoiceStore } from '../../stores/voiceStore';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import { useDMStore } from '../../stores/dmStore';
 import {
   acceptIncomingCall,
@@ -41,8 +42,8 @@ export function IncomingCallBanner() {
   return (
     <div className="incoming-call-banner" role="alert" aria-live="polite">
       <div className="incoming-call-banner__avatar">
-        {caller.avatarUrl ? (
-          <img src={caller.avatarUrl} alt={displayName} />
+        {resolveMediaUrl(caller.avatarUrl) ? (
+          <img src={resolveMediaUrl(caller.avatarUrl)} alt={displayName} />
         ) : (
           <span className="incoming-call-banner__initials" aria-hidden="true">
             {initials}

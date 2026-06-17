@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import type { PresenceStatus } from '../../stores/memberStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 import { useUserThemeScope } from '../../hooks/useUserThemeScope';
@@ -167,16 +168,16 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
             : undefined
         }
       >
-        {member.header_image_url && (
-          <img src={member.header_image_url} alt="" className="member-profile-banner-img" />
+        {resolveMediaUrl(member.header_image_url) && (
+          <img src={resolveMediaUrl(member.header_image_url)} alt="" className="member-profile-banner-img" />
         )}
       </div>
 
       <div className="member-profile-header">
         <div className="member-profile-avatar">
-          {member.avatar_url ? (
+          {resolveMediaUrl(member.avatar_url) ? (
             <img
-              src={member.avatar_url}
+              src={resolveMediaUrl(member.avatar_url)}
               alt={member.username}
               className="member-profile-avatar-img"
             />

@@ -7,6 +7,7 @@ import React, {
   useImperativeHandle,
   forwardRef,
 } from 'react';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import { AtSign, Users, Shield } from 'lucide-react';
 import { useMemberStore } from '../../stores/memberStore';
 import { useDMStore } from '../../stores/dmStore';
@@ -356,8 +357,14 @@ const MentionAutocomplete = forwardRef<MentionAutocompleteHandle, MentionAutocom
                   return (
                     <Shield size={16} style={option.color ? { color: option.color } : undefined} />
                   );
-                if (option.avatarUrl)
-                  return <img src={option.avatarUrl} alt="" className="mention-option-avatar" />;
+                if (resolveMediaUrl(option.avatarUrl))
+                  return (
+                    <img
+                      src={resolveMediaUrl(option.avatarUrl)}
+                      alt=""
+                      className="mention-option-avatar"
+                    />
+                  );
                 return <AtSign size={16} />;
               })()}
             </span>

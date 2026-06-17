@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useMemo, useState, useId } from 'react';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import { MicOff, HeadphoneOff, Lock, Monitor, MoreVertical } from 'lucide-react';
 import { VoiceParticipantContextMenu } from './VoiceParticipantContextMenu';
 import MemberProfileCard, { type ProfileCardMember } from '../Members/MemberProfileCard';
@@ -134,8 +135,8 @@ function ParticipantAvatar({
 }>) {
   return (
     <div className="participant-tile__avatar">
-      {avatarUrl ? (
-        <img src={avatarUrl} alt={displayName} className="participant-tile__avatar-img" />
+      {resolveMediaUrl(avatarUrl) ? (
+        <img src={resolveMediaUrl(avatarUrl)} alt={displayName} className="participant-tile__avatar-img" />
       ) : (
         <div
           className="participant-tile__avatar-fallback"

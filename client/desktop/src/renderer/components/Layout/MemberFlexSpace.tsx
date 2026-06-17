@@ -1,4 +1,5 @@
 import React from 'react';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import { PanelRightClose, PanelRightOpen, Users } from 'lucide-react';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { useResizablePanel } from '../../hooks/useResizablePanel';
@@ -78,8 +79,8 @@ const MemberFlexSpace: React.FC = () => {
           const status = getMemberStatus(member.user_id);
           return (
             <div key={member.user_id} className="member-avatar-strip-item">
-              {member.avatar_url ? (
-                <img src={member.avatar_url} alt={member.username} />
+              {resolveMediaUrl(member.avatar_url) ? (
+                <img src={resolveMediaUrl(member.avatar_url)} alt={member.username} />
               ) : (
                 <div className="member-avatar-strip-initial">
                   {member.username.charAt(0).toUpperCase()}

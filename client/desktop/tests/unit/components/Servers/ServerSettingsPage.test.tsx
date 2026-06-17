@@ -201,7 +201,10 @@ describe('ServerSettingsPage', () => {
     render(<ServerSettingsPage serverId="server-1" />);
     const iconImg = document.querySelector('img.icon-preview') as HTMLImageElement | null;
     expect(iconImg).not.toBeNull();
-    expect(iconImg!.getAttribute('src')).toBe('/api/v1/media/server-icons/server-1');
+    // #1586: preview is absolutized via resolveMediaUrl (mocked API_BASE).
+    expect(iconImg!.getAttribute('src')).toBe(
+      'http://localhost:8080/api/v1/media/server-icons/server-1'
+    );
     // Plain <img> src does not invoke our mocked fetch, so no Authorization header is set
     const imageFetchCalls = fetchSpy.mock.calls.filter((c) =>
       String(c[0]).includes('/api/v1/media/server-icons/')
@@ -222,7 +225,10 @@ describe('ServerSettingsPage', () => {
     render(<ServerSettingsPage serverId="server-1" />);
     const bannerImg = document.querySelector('img.banner-preview') as HTMLImageElement | null;
     expect(bannerImg).not.toBeNull();
-    expect(bannerImg!.getAttribute('src')).toBe('/api/v1/media/server-banners/server-1');
+    // #1586: preview is absolutized via resolveMediaUrl (mocked API_BASE).
+    expect(bannerImg!.getAttribute('src')).toBe(
+      'http://localhost:8080/api/v1/media/server-banners/server-1'
+    );
   });
 
   it('renders Server Info section with server name input', () => {

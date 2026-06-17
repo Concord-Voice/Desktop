@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
+import { resolveMediaUrl } from '../utils/resolveMediaUrl';
 
 export interface UseImageUploadOptions {
   maxSize: number;
@@ -29,7 +30,10 @@ export function useImageUpload({
   onError,
   initialUrl,
 }: UseImageUploadOptions): UseImageUploadReturn {
-  const [preview, setPreview] = useState<string | null>(initialUrl ?? null);
+  // preview is display-only and MUST be absolutized (resolves against the SPA
+  // origin otherwise — #1586). imageUrl is the WIRE value sent back to the
+  // server and dirty-checked against the relative user.*_url; it MUST stay raw.
+  const [preview, setPreview] = useState<string | null>(() => resolveMediaUrl(initialUrl) ?? null);
   const [imageUrl, setImageUrl] = useState<string | null>(initialUrl ?? null);
   const [removed, setRemoved] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -81,7 +85,7 @@ export function useImageUpload({
 
   const handleCropConfirm = useCallback(
     (url: string) => {
-      setPreview(url);
+      setPreview(resolveMediaUrl(url) ?? url);
       setImageUrl(url);
       setRemoved(false);
       setPendingFile(null);
@@ -105,7 +109,7 @@ export function useImageUpload({
   }, [clearFileInput]);
 
   const reset = useCallback((newInitialUrl: string | null = null) => {
-    setPreview(newInitialUrl);
+    setPreview(resolveMediaUrl(newInitialUrl) ?? null);
     setImageUrl(newInitialUrl);
     setRemoved(false);
     setPendingFile(null);

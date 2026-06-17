@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useMemo } from 'react';
+import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import { useNavigate } from 'react-router-dom';
 import { useSettingsOverlayStore } from '../../stores/settingsOverlayStore';
 import { UserProfile, useUserStore } from '../../stores/userStore';
@@ -121,8 +122,8 @@ const UserPopover: React.FC<UserPopoverProps> = ({ user, onClose, onOpenFeedback
       {/* User info header */}
       <div className="user-popover-header">
         <div className="user-popover-avatar">
-          {user.avatar_url ? (
-            <img src={user.avatar_url} alt={user.username} className="user-popover-avatar-img" />
+          {resolveMediaUrl(user.avatar_url) ? (
+            <img src={resolveMediaUrl(user.avatar_url)} alt={user.username} className="user-popover-avatar-img" />
           ) : (
             <span className="user-popover-avatar-initial">
               {user.username.charAt(0).toUpperCase()}
