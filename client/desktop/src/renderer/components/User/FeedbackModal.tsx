@@ -2,6 +2,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import Modal from '../ui/Modal';
 import { apiFetch, safeJson } from '../../services/apiClient';
 import BugReportPanel from './BugReportPanel';
+import FeatureRequestPanel from './FeatureRequestPanel';
 import { type FeedbackMode, type FeedbackSubmission } from './feedbackTypes';
 import './FeedbackModal.css';
 
@@ -10,7 +11,7 @@ import './FeedbackModal.css';
  *
  * Hosts the mode switcher (Bug Report / Feature Request) and the shared
  * submit pipe to `POST /api/v1/feedback`. Bug mode renders `BugReportPanel`
- * (#159); feature mode is still a placeholder until #160. The shell,
+ * (#159); feature mode renders `FeatureRequestPanel` (#160). The shell,
  * switching, submit wiring, and submit-state surface live here so each panel
  * only owns its form fields and hands an assembled payload to `submit`.
  */
@@ -27,9 +28,6 @@ type SubmitState =
   | { status: 'submitting' }
   | { status: 'success'; issueUrl?: string; dev: boolean }
   | { status: 'error'; message: string };
-
-const DEV_TEST_DESCRIPTION =
-  'Placeholder submission from the dev-only debug button on the infra branch. Replace with real form fields in #159 / #160.';
 
 // ─── Tab pattern (WAI-ARIA tabs) ────────────────────────────────────────────
 const TABS: ReadonlyArray<{ id: FeedbackMode; label: string }> = [
@@ -163,21 +161,6 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, initialM
     [mode, handleModeChange]
   );
 
-  /**
-   * Dev-only smoke trigger handler. Removed when #159 / #160 wire real
-   * submission. The payload is constructed as a local const (rather than
-   * inline inside the call) so the function body is a linear two-statement
-   * sequence — keeps the cognitive complexity well under the Sonar threshold.
-   */
-  const handleDevTestSubmit = useCallback(() => {
-    const payload: FeedbackSubmission = {
-      type: mode,
-      title: 'Infrastructure smoke test',
-      description: DEV_TEST_DESCRIPTION,
-    };
-    submit(payload).catch(() => undefined);
-  }, [mode, submit]);
-
   return (
     <Modal isOpen={isOpen} onClose={handleClose} title="Send Feedback" width="xlarge">
       <div className="feedback-modal">
@@ -218,20 +201,13 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, initialM
             <BugReportPanel onSubmit={submit} isSubmitting={submitState.status === 'submitting'} />
           )}
 
-          {/* Feature mode — placeholder until #160. */}
+          {/* Feature mode — real form (#160). Same success/error visibility
+              rules as bug mode: hidden on success, kept mounted on error. */}
           {mode === 'feature' && submitState.status !== 'success' && (
-            <p className="feedback-panel-placeholder">
-              Feature request form coming soon. Track progress in <code>#160</code>.
-            </p>
-          )}
-
-          {/* Dev-only smoke trigger — feature mode only now that bug mode has
-              a real form (#159). Removed entirely when #160 wires the feature
-              form. Hidden in production builds. */}
-          {import.meta.env.DEV && mode === 'feature' && submitState.status === 'idle' && (
-            <button type="button" className="feedback-btn-secondary" onClick={handleDevTestSubmit}>
-              Send Test Submission (dev)
-            </button>
+            <FeatureRequestPanel
+              onSubmit={submit}
+              isSubmitting={submitState.status === 'submitting'}
+            />
           )}
 
           {/* Submit-state surface. Progress + success live in a polite

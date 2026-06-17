@@ -35,7 +35,12 @@ export interface FeedbackSubmission {
   type: FeedbackMode;
   title: string;
   description: string;
-  /** Feature-only; one of 'feature' | 'improvement' | 'ux' | 'performance' | 'other'. */
+  /**
+   * Feature-only; the human-readable category label the user selected
+   * (e.g. 'New Feature', 'Improvement to Existing Feature', 'UI/UX Change',
+   * 'Performance', 'Other'). Omitted when no category is chosen. The
+   * control-plane renders it verbatim as `**Category:** <value>`.
+   */
   category?: string;
   /** Bug-only; populated when the user checks "Include diagnostic logs". */
   diagnostics?: FeedbackDiagnostics;
