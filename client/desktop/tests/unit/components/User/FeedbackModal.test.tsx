@@ -59,16 +59,17 @@ describe('FeedbackModal', () => {
       expect(featureTab).toHaveAttribute('aria-selected', 'true');
     });
 
-    it('shows the real bug form in bug mode and the feature placeholder in feature mode', () => {
+    it('shows the bug form in bug mode and the feature form in feature mode', () => {
       render(<FeedbackModal isOpen={true} onClose={vi.fn()} />);
-      // Bug mode now renders BugReportPanel (#159) — the real form, not a
-      // placeholder. The submit button is the stable marker.
+      // Bug mode renders BugReportPanel (#159); its submit button is the marker.
       expect(screen.getByRole('button', { name: 'Submit Bug Report' })).toBeInTheDocument();
-      expect(screen.queryByText(/#159/)).not.toBeInTheDocument();
+      expect(
+        screen.queryByRole('button', { name: 'Submit Feature Request' })
+      ).not.toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('tab', { name: 'Feature Request' }));
-      // Feature mode is still a placeholder until #160.
-      expect(screen.getByText(/#160/)).toBeInTheDocument();
+      // Feature mode renders FeatureRequestPanel (#160).
+      expect(screen.getByRole('button', { name: 'Submit Feature Request' })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: 'Submit Bug Report' })).not.toBeInTheDocument();
     });
   });
@@ -169,17 +170,18 @@ describe('FeedbackModal', () => {
         })
       );
       render(<FeedbackModal isOpen={true} onClose={vi.fn()} />);
-      // Drive a success via the feature-mode dev trigger.
-      fireEvent.click(screen.getByRole('tab', { name: 'Feature Request' }));
-      fireEvent.click(screen.getByText('Send Test Submission (dev)'));
+      // Submit a bug report (default mode) to reach the success surface.
+      fireEvent.change(screen.getByLabelText(/Title/), { target: { value: 'A bug' } });
+      fireEvent.change(screen.getByLabelText(/Description/), { target: { value: 'It broke.' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Submit Bug Report' }));
       await waitFor(() =>
         expect(screen.getByText(/Thank you for the feedback/)).toBeInTheDocument()
       );
 
-      // Switching to bug mode must clear the success surface and show the form.
-      fireEvent.click(screen.getByRole('tab', { name: 'Bug Report' }));
+      // Switching to feature mode must clear the success surface and show the form.
+      fireEvent.click(screen.getByRole('tab', { name: 'Feature Request' }));
       expect(screen.queryByText(/Thank you for the feedback/)).not.toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Submit Bug Report' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Submit Feature Request' })).toBeInTheDocument();
     });
 
     it('preserves an in-flight submitting state when switching tabs mid-submit', async () => {
@@ -192,15 +194,19 @@ describe('FeedbackModal', () => {
         })
       );
       render(<FeedbackModal isOpen={true} onClose={vi.fn()} />);
-      fireEvent.click(screen.getByRole('tab', { name: 'Feature Request' }));
-      fireEvent.click(screen.getByText('Send Test Submission (dev)'));
-      await waitFor(() => expect(screen.getByText('Submitting…')).toBeInTheDocument());
+      // Start a bug submit and leave the fetch pending.
+      fireEvent.change(screen.getByLabelText(/Title/), { target: { value: 'A bug' } });
+      fireEvent.change(screen.getByLabelText(/Description/), { target: { value: 'It broke.' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Submit Bug Report' }));
+      // "Submitting…" shows in both the modal status region and on the bug
+      // panel's button, so match with getAllByText.
+      await waitFor(() => expect(screen.getAllByText('Submitting…').length).toBeGreaterThan(0));
 
       // Switch tabs mid-submit — submitting state must survive the mode change.
-      // (In bug mode + submitting, "Submitting…" appears both in the modal's
-      // status region and on the BugReportPanel submit button — either proves
-      // the state was preserved, not reset to idle.)
-      fireEvent.click(screen.getByRole('tab', { name: 'Bug Report' }));
+      // (In feature mode + submitting, "Submitting…" appears both in the modal's
+      // status region and on the FeatureRequestPanel submit button — either
+      // proves the state was preserved, not reset to idle.)
+      fireEvent.click(screen.getByRole('tab', { name: 'Feature Request' }));
       expect(screen.getAllByText('Submitting…').length).toBeGreaterThan(0);
 
       // Release the request so the component can settle (avoids act() warnings).
@@ -253,6 +259,41 @@ describe('FeedbackModal', () => {
     });
   });
 
+  describe('feature submission integration (real FeatureRequestPanel → submit → apiFetch)', () => {
+    // Mirror of the bug integration test for the feature seam: fills the REAL
+    // FeatureRequestPanel form (incl. the optional category) and submits,
+    // asserting the assembled feature payload reaches apiFetch. Feature
+    // requests never collect diagnostics, so no system-info mocks are needed.
+    it('routes a feature request (with category) from the real form to POST /api/v1/feedback', async () => {
+      mockApiFetch.mockResolvedValueOnce(
+        new Response(JSON.stringify({ dev: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      );
+      render(<FeedbackModal isOpen={true} onClose={vi.fn()} initialMode="feature" />);
+      fireEvent.change(screen.getByLabelText(/Title/), { target: { value: 'Dark mode toggle' } });
+      fireEvent.change(screen.getByLabelText(/What would you like/), {
+        target: { value: 'Please add a dark mode.' },
+      });
+      fireEvent.change(screen.getByLabelText(/Category/), { target: { value: 'New Feature' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Submit Feature Request' }));
+
+      await waitFor(() => expect(mockApiFetch).toHaveBeenCalledTimes(1));
+      const [path, init] = mockApiFetch.mock.calls[0];
+      expect(path).toBe('/api/v1/feedback');
+      expect(init.method).toBe('POST');
+      const body = JSON.parse(init.body as string);
+      expect(body.type).toBe('feature');
+      expect(body.title).toBe('Dark mode toggle');
+      expect(body.description).toBe('Please add a dark mode.');
+      expect(body.category).toBe('New Feature');
+      expect(body.diagnostics).toBeUndefined(); // feature requests carry none
+
+      expect(await screen.findByText(/Thank you for the feedback/)).toBeInTheDocument();
+    });
+  });
+
   describe('Modal width', () => {
     it('mounts inside the xlarge modal container (#158 wide layout)', () => {
       render(<FeedbackModal isOpen={true} onClose={vi.fn()} />);
@@ -260,95 +301,6 @@ describe('FeedbackModal', () => {
       // 660px variant added on this branch. Asserting the class catches a
       // regression that changed the size prop without changing the spec.
       expect(document.querySelector('.modal-xlarge')).toBeInTheDocument();
-    });
-  });
-
-  describe('integration with API client', () => {
-    // The submit pipe is wired through the modal but the form fields that
-    // call it live in #159 / #160. We assert here that the apiFetch import
-    // is reachable and not torn out by a refactor — the test mounts the
-    // modal without triggering submit, but the mock above ensures the
-    // import path is exercised through TypeScript and bundler resolution.
-    it('imports apiFetch without error', () => {
-      render(<FeedbackModal isOpen={true} onClose={vi.fn()} />);
-      expect(mockApiFetch).not.toHaveBeenCalled(); // not yet — submit comes in #159/#160
-    });
-  });
-
-  describe('mock submit pipe (for #159 / #160)', () => {
-    // The submit pipe is wired through the modal but the form fields that
-    // call it live in #159 / #160. This test just confirms the apiFetch
-    // mock is configurable; #159 / #160 inherit it and exercise real flows.
-    it('apiFetch mock is configurable for the panel branches to override', async () => {
-      mockApiFetch.mockResolvedValueOnce(
-        new Response(JSON.stringify({ dev: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      );
-      expect(typeof mockApiFetch).toBe('function');
-      await waitFor(() => {
-        expect(mockApiFetch).not.toHaveBeenCalled();
-      });
-    });
-  });
-
-  // The dev-only "Send Test Submission" smoke trigger is rendered when
-  // `import.meta.env.DEV` is true (vitest defaults to DEV mode). Post-#159 it
-  // lives in FEATURE mode only — bug mode now has the real BugReportPanel
-  // form, so the dev trigger no longer appears there. The whole trigger is
-  // removed once #160 wires the real feature form.
-  describe('dev-only smoke trigger (feature mode only, post-#159)', () => {
-    it('is NOT rendered in bug mode (real form replaced it)', () => {
-      render(<FeedbackModal isOpen={true} onClose={vi.fn()} />);
-      expect(screen.queryByText('Send Test Submission (dev)')).not.toBeInTheDocument();
-    });
-
-    it('renders the Send Test Submission button in feature mode under vitest (DEV)', () => {
-      render(<FeedbackModal isOpen={true} onClose={vi.fn()} />);
-      fireEvent.click(screen.getByRole('tab', { name: 'Feature Request' }));
-      expect(screen.getByText('Send Test Submission (dev)')).toBeInTheDocument();
-    });
-
-    it('clicking the smoke trigger invokes apiFetch with a feature-type payload', async () => {
-      mockApiFetch.mockResolvedValueOnce(
-        new Response(JSON.stringify({ dev: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      );
-      render(<FeedbackModal isOpen={true} onClose={vi.fn()} />);
-      fireEvent.click(screen.getByRole('tab', { name: 'Feature Request' }));
-      fireEvent.click(screen.getByText('Send Test Submission (dev)'));
-
-      await waitFor(() => {
-        expect(mockApiFetch).toHaveBeenCalledTimes(1);
-      });
-      const [path, init] = mockApiFetch.mock.calls[0];
-      expect(path).toBe('/api/v1/feedback');
-      expect(init.method).toBe('POST');
-      const body = JSON.parse(init.body as string);
-      expect(body.type).toBe('feature'); // dev trigger now lives in feature mode
-      expect(body.title).toBe('Infrastructure smoke test');
-      expect(typeof body.description).toBe('string');
-    });
-
-    it('after a successful smoke submission, the success surface renders', async () => {
-      mockApiFetch.mockResolvedValueOnce(
-        new Response(JSON.stringify({ dev: true }), {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        })
-      );
-      render(<FeedbackModal isOpen={true} onClose={vi.fn()} />);
-      fireEvent.click(screen.getByRole('tab', { name: 'Feature Request' }));
-      fireEvent.click(screen.getByText('Send Test Submission (dev)'));
-
-      await waitFor(() => {
-        expect(screen.getByText(/Thank you for the feedback/)).toBeInTheDocument();
-      });
-      // dev-stub flag surfaces the clarifying note
-      expect(screen.getByText(/Stubbed in dev/)).toBeInTheDocument();
     });
   });
 });
