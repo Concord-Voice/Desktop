@@ -163,7 +163,26 @@ vi.mock('@/renderer/stores/clientConfigStore', () => ({
   useClientConfigStore: vi.fn((s) => s({})),
 }));
 
-import PrivacySecuritySection from '@/renderer/components/Settings/PrivacySecuritySection';
+import PrivacySecuritySection, {
+  resolveSSOToggleError,
+} from '@/renderer/components/Settings/PrivacySecuritySection';
+
+describe('resolveSSOToggleError', () => {
+  it('maps invalid_credentials to a passphrase error', () => {
+    expect(resolveSSOToggleError('invalid_credentials')).toBe('Incorrect passphrase.');
+  });
+
+  it('maps would_lock_out to the lock-out warning', () => {
+    expect(resolveSSOToggleError('would_lock_out')).toBe(
+      'That change would lock you out. Link an SSO provider first.'
+    );
+  });
+
+  it('falls back to a generic message for unknown or missing codes', () => {
+    expect(resolveSSOToggleError('something_else')).toBe('Failed to update security setting.');
+    expect(resolveSSOToggleError(undefined)).toBe('Failed to update security setting.');
+  });
+});
 
 describe('PrivacySecuritySection', () => {
   beforeEach(() => {

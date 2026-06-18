@@ -183,6 +183,14 @@ function revocationModeDescription(mode: 'simple' | 'secure'): string {
     : 'Authenticate once to freely manage sessions for a short period.';
 }
 
+/** Resolve a human-readable message from an SSO security-toggle error_code. */
+export function resolveSSOToggleError(errorCode: string | undefined): string {
+  if (errorCode === 'invalid_credentials') return 'Incorrect passphrase.';
+  if (errorCode === 'would_lock_out')
+    return 'That change would lock you out. Link an SSO provider first.';
+  return 'Failed to update security setting.';
+}
+
 /** Renders either an MFA verify prompt or a password input, depending on whether MFA is active. */
 const AuthVerifyField: React.FC<{
   hasMFA: boolean;
@@ -1006,21 +1014,13 @@ const PrivacySecuritySection: React.FC = () => {
       });
       if (!res.ok) {
         const errBody = (await res.json().catch(() => ({}))) as { error_code?: string };
-        if (errBody.error_code === 'invalid_credentials') {
-          setSsoConfirmError('Incorrect passphrase.');
-        } else if (errBody.error_code === 'would_lock_out') {
-          setSsoConfirmError('That change would lock you out. Link an SSO provider first.');
-        } else {
-          setSsoConfirmError('Failed to update security setting.');
-        }
+        setSsoConfirmError(resolveSSOToggleError(errBody.error_code));
         return;
       }
       // Success — update local mirror and close confirm.
-      if (ssoConfirmField === 'trust_sso_security') {
-        setTrustSSOSecurity(ssoConfirmDesiredValue);
-      } else {
-        setPasswordLoginDisabled(ssoConfirmDesiredValue);
-      }
+      const applyToggle =
+        ssoConfirmField === 'trust_sso_security' ? setTrustSSOSecurity : setPasswordLoginDisabled;
+      applyToggle(ssoConfirmDesiredValue);
       setSsoConfirmField(null);
       setSsoConfirmPassphrase('');
     } catch {

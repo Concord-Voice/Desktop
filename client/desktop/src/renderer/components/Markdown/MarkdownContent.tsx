@@ -13,7 +13,7 @@ import Spoiler from './Spoiler';
 import MentionChip from './MentionChip';
 import { loadHighlightTheme } from './highlightTheme';
 import { useSettingsStore } from '@/renderer/stores/settingsStore';
-import type { MentionLookup } from '../Chat/messageUtils';
+import type { MentionLookup } from './mentionTypes';
 import './MarkdownContent.css';
 
 /**

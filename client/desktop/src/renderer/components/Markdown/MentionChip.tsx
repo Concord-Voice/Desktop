@@ -1,5 +1,5 @@
 import React from 'react';
-import { resolveMentionDisplay, type MentionLookup } from '../Chat/messageUtils';
+import { resolveMentionDisplay, type MentionLookup } from './mentionTypes';
 
 interface MentionChipProps {
   token: string;

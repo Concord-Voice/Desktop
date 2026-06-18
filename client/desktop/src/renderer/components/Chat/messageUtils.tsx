@@ -1,5 +1,12 @@
 import React from 'react';
 import MarkdownContent from '../Markdown/MarkdownContent';
+import type { MentionLookup } from '../Markdown/mentionTypes';
+
+// Mention resolution moved to the Markdown/mentionTypes leaf module to break an
+// import cycle. Re-exported here so existing Chat consumers keep importing these
+// symbols from messageUtils; MentionLookup is also used internally below.
+export { resolveMentionDisplay } from '../Markdown/mentionTypes';
+export type { MentionLookup } from '../Markdown/mentionTypes';
 
 /**
  * Matches a single "emoji atom": either a presentation emoji or a text-default
@@ -24,17 +31,6 @@ export const EMOJI_REGEX = new RegExp(
     String.raw`|${EMOJI_ATOM.source}(?:\u{200D}${EMOJI_ATOM.source}|\p{Emoji_Modifier}|\uFE0F?\u{20E3})*)`,
   'gu'
 );
-
-// Token pattern matchers for resolving UUIDs to display names
-// (MENTION_REGEX removed — mention parsing now lives in remarkMentionTokens.)
-const USER_TOKEN_RE = /^<@([\w-]+)>$/;
-const ROLE_TOKEN_RE = /^<@&([\w-]+)>$/;
-
-/** Precomputed lookup maps for O(1) mention token resolution. */
-export interface MentionLookup {
-  users: Map<string, string>; // userId → display name
-  roles: Map<string, string>; // roleId → role name
-}
 
 /**
  * Detect emoji-only messages and return the count.
@@ -61,24 +57,6 @@ export function getEmojiSizeClass(count: number): string {
   if (count === 4) return 'emoji-jumbo-4';
   if (count === 5) return 'emoji-jumbo-5';
   return '';
-}
-
-/** Resolve a mention token to a display string using precomputed lookup maps. */
-export function resolveMentionDisplay(token: string, lookup: MentionLookup): string {
-  // User token: <@userId> → @displayName
-  const userMatch = USER_TOKEN_RE.exec(token);
-  if (userMatch) {
-    const display = lookup.users.get(userMatch[1]);
-    return display ? `@${display}` : token;
-  }
-  // Role token: <@&roleId> → @roleName
-  const roleMatch = ROLE_TOKEN_RE.exec(token);
-  if (roleMatch) {
-    const name = lookup.roles.get(roleMatch[1]);
-    return name ? `@${name}` : token;
-  }
-  // Plain format (@username, @all, @here) — return as-is
-  return token;
 }
 
 /** Render emoji spans within a text segment (no mention handling). */
