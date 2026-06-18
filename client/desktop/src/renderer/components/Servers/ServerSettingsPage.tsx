@@ -262,8 +262,12 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({ serverId }) => 
     const root = contentRef.current?.closest('.settings-page-content') as HTMLElement | null;
     if (!root) return;
 
+    // Held in this effect-scoped variable so the cleanup disconnects it
+    // directly (no DOM expando — #483).
+    let observer: IntersectionObserver | null = null;
+
     const timer = setTimeout(() => {
-      const observer = new IntersectionObserver(
+      observer = new IntersectionObserver(
         (entries) => {
           for (const entry of entries) {
             const id = entry.target.id;
@@ -288,15 +292,11 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({ serverId }) => 
 
       const sections = root.querySelectorAll('[id^="section-"]');
       for (const el of sections) observer.observe(el);
-      (root as HTMLElement & { __settingsObserver?: IntersectionObserver }).__settingsObserver =
-        observer;
     }, 50);
 
     return () => {
       clearTimeout(timer);
-      const obs = (root as (HTMLElement & { __settingsObserver?: IntersectionObserver }) | null)
-        ?.__settingsObserver;
-      obs?.disconnect();
+      observer?.disconnect();
     };
   }, [activeSection]);
 

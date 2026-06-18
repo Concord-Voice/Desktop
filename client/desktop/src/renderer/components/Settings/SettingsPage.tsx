@@ -210,9 +210,13 @@ const SettingsPage: React.FC = () => {
     const root = contentRef.current?.closest('.settings-page-content') as HTMLElement | null;
     if (!root) return;
 
+    // Created inside the post-render delay below; held in this effect-scoped
+    // variable so the cleanup disconnects it directly (no DOM expando — #484).
+    let observer: IntersectionObserver | null = null;
+
     // Small delay to let sections render after tab switch
     const timer = setTimeout(() => {
-      const observer = new IntersectionObserver(
+      observer = new IntersectionObserver(
         (entries) => {
           for (const entry of entries) {
             const id = entry.target.id;
@@ -239,19 +243,11 @@ const SettingsPage: React.FC = () => {
 
       const sections = root.querySelectorAll('[id^="section-"]');
       for (const el of sections) observer.observe(el);
-
-      // Store observer ref for cleanup.
-      // Custom expando property on the DOM element; narrow via a local
-      // structural type rather than casting through `any`.
-      (root as HTMLElement & { __settingsObserver?: IntersectionObserver }).__settingsObserver =
-        observer;
     }, 50);
 
     return () => {
       clearTimeout(timer);
-      const obs = (root as (HTMLElement & { __settingsObserver?: IntersectionObserver }) | null)
-        ?.__settingsObserver;
-      obs?.disconnect();
+      observer?.disconnect();
     };
   }, [activeSection]);
 
