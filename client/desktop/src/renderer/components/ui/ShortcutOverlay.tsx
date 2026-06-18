@@ -71,6 +71,7 @@ const ShortcutOverlay: React.FC = () => {
 
   // Reset filter each time the overlay opens
   useEffect(() => {
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: resets the search filter when the overlay opens; the dep array is [overlayOpen] only, so this setter cannot re-trigger the effect (no render loop)
     if (overlayOpen) setFilter('');
   }, [overlayOpen]);
 

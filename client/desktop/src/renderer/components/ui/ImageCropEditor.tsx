@@ -104,12 +104,18 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
   useEffect(() => {
     if (!isOpen || !imageFile) return;
 
+    // Synchronous clean-slate reset before the async image load below computes
+    // and applies the real geometry in img.onload. None of these setters are in
+    // this effect's dependency array, so they cannot re-trigger the effect (no
+    // render loop) — this is a prop-driven external-data reset, not a smell.
+    /* eslint-disable @eslint-react/set-state-in-effect -- intentional: see comment above */
     setIsLoading(true);
     setIsUploading(false);
     setUploadError(null);
     setZoom(1);
     setOffset({ x: 0, y: 0 });
     setIsSmallImage(false);
+    /* eslint-enable @eslint-react/set-state-in-effect -- re-enable after the clean-slate reset block above */
 
     const url = URL.createObjectURL(imageFile);
 

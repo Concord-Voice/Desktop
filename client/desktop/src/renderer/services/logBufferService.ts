@@ -57,40 +57,49 @@ const PATTERNS: ReadonlyArray<{ re: RegExp; replacement: string }> = [
   // JWT — three base64url segments separated by dots
   {
     re: new RegExp(
-      `eyJ[A-Za-z0-9_-]{10,${PATTERN_MAX}}\\.[A-Za-z0-9_-]{10,${PATTERN_MAX}}\\.[A-Za-z0-9_-]{10,${PATTERN_MAX}}`,
+      String.raw`eyJ[A-Za-z0-9_-]{10,${PATTERN_MAX}}\.[A-Za-z0-9_-]{10,${PATTERN_MAX}}\.[A-Za-z0-9_-]{10,${PATTERN_MAX}}`,
       'g'
     ),
     replacement: '<jwt>',
   },
   // Bearer tokens
   {
-    re: new RegExp(`\\bBearer\\s+[A-Za-z0-9._~+/=-]{10,${PATTERN_MAX}}`, 'gi'),
+    re: new RegExp(String.raw`\bBearer\s+[A-Za-z0-9._~+/=-]{10,${PATTERN_MAX}}`, 'gi'),
     replacement: 'Bearer <token>',
   },
   // Email
   {
     re: new RegExp(
-      `[A-Za-z0-9._%+-]{1,${PATTERN_MAX}}@[A-Za-z0-9.-]{1,${PATTERN_MAX}}\\.[A-Za-z]{2,16}`,
+      String.raw`[A-Za-z0-9._%+-]{1,${PATTERN_MAX}}@[A-Za-z0-9.-]{1,${PATTERN_MAX}}\.[A-Za-z]{2,16}`,
       'g'
     ),
     replacement: '<email>',
   },
   // Filesystem paths containing usernames — POSIX form
-  { re: new RegExp(`/Users/[^/\\s"']{1,${PATTERN_MAX}}`, 'g'), replacement: '/Users/<user>' },
-  { re: new RegExp(`/home/[^/\\s"']{1,${PATTERN_MAX}}`, 'g'), replacement: '/home/<user>' },
+  {
+    re: new RegExp(String.raw`/Users/[^/\s"']{1,${PATTERN_MAX}}`, 'g'),
+    replacement: '/Users/<user>',
+  },
+  {
+    re: new RegExp(String.raw`/home/[^/\s"']{1,${PATTERN_MAX}}`, 'g'),
+    replacement: '/home/<user>',
+  },
   // Filesystem paths — Windows form
   {
-    re: new RegExp(`[A-Z]:\\\\Users\\\\[^\\\\/\\s"']{1,${PATTERN_MAX}}`, 'g'),
-    replacement: 'C:\\Users\\<user>',
+    re: new RegExp(String.raw`[A-Z]:\\Users\\[^\\/\s"']{1,${PATTERN_MAX}}`, 'g'),
+    replacement: String.raw`C:\Users\<user>`,
   },
   // IPv4
   { re: /\b(?:\d{1,3}\.){3}\d{1,3}\b/g, replacement: '<ip>' },
   // IPv6 — match colon-separated hex groups (lenient; covers compressed forms)
   { re: /\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{1,4}\b/g, replacement: '<ip>' },
   // Long hex strings (hashes, raw token bytes) — 32+ hex chars
-  { re: new RegExp(`\\b[0-9a-fA-F]{32,${PATTERN_MAX}}\\b`, 'g'), replacement: '<hex>' },
+  { re: new RegExp(String.raw`\b[0-9a-fA-F]{32,${PATTERN_MAX}}\b`, 'g'), replacement: '<hex>' },
   // Long base64 strings (keys, encrypted blobs) — 40+ url-safe-base64 chars
-  { re: new RegExp(`\\b[A-Za-z0-9+/=_-]{40,${PATTERN_MAX}}\\b`, 'g'), replacement: '<base64>' },
+  {
+    re: new RegExp(String.raw`\b[A-Za-z0-9+/=_-]{40,${PATTERN_MAX}}\b`, 'g'),
+    replacement: '<base64>',
+  },
 ];
 
 /**

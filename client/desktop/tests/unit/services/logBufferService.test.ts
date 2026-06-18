@@ -86,7 +86,7 @@ describe('logBufferService', () => {
     });
 
     it('redacts JWTs', () => {
-      const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyMSJ9.abcdefghij1234567890XYZ';
+      const jwt = 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyMSJ9.abcdefghij1234567890XYZ'; // pragma: allowlist secret -- fake JWT test fixture, not a real token
       expect(sanitize(`Authorization: ${jwt}`)).toContain('<jwt>');
       expect(sanitize(`Authorization: ${jwt}`)).not.toContain(jwt);
     });
@@ -122,7 +122,7 @@ describe('logBufferService', () => {
     });
 
     it('redacts long hex strings', () => {
-      const hex = 'abcdef0123456789abcdef0123456789';
+      const hex = 'abcdef0123456789abcdef0123456789'; // pragma: allowlist secret -- fake hex test fixture, not a real secret
       expect(sanitize(`hash=${hex}`)).toContain('<hex>');
     });
 
@@ -140,6 +140,24 @@ describe('logBufferService', () => {
 
     it('does NOT redact short version strings like v1.2.3', () => {
       expect(sanitize('Running v1.2.3')).toBe('Running v1.2.3');
+    });
+  });
+
+  // SC-3: the PII patterns were converted to String.raw (removing one backslash
+  // escape layer). These lock that the escape-bearing patterns still behave
+  // identically — a botched conversion (e.g. \. → . or \\Users\\ → \Users\)
+  // would change matching and fail here.
+  describe('String.raw pattern equivalence (SC-3)', () => {
+    // JWT redaction itself is covered above; here we lock only the escape-
+    // sensitive patterns a botched String.raw conversion would break.
+    it('redacts only the username segment of a Windows path (backslashes intact)', () => {
+      expect(sanitize('open C:\\Users\\bob\\AppData\\x')).toContain('C:\\Users\\<user>');
+    });
+
+    it('redacts emails carrying multiple literal dots', () => {
+      const out = sanitize('mail a.b.c@mail.example.co.uk now');
+      expect(out).toContain('<email>');
+      expect(out).not.toContain('a.b.c@mail.example.co.uk');
     });
   });
 

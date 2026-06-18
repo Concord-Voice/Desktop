@@ -1,5 +1,4 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { createPortal } from 'react-dom';
 import { useSettingsOverlayStore } from '../../stores/settingsOverlayStore';
 import { AudioOutputs } from '../Voice/ParticipantGrid';
 import { PipSignalingProxy } from '../../services/pipSignalingProxy';
@@ -8,13 +7,13 @@ import ChannelList from '../Channels/ChannelList';
 import ServerActionBar from '../Channels/ServerActionBar';
 import MainViewModals from './MainViewModals';
 import MainViewContextMenus from './MainViewContextMenus';
+import ServerE2eeIndicator from './ServerE2eeIndicator';
 import ConnectionStatus from '../ConnectionStatus/ConnectionStatus';
 import { ChatView } from '../Chat';
 import VoiceView from '../Voice/VoiceView';
 import PersistentVoiceBar from '../Voice/PersistentVoiceBar';
 import VoiceTextChat from '../Voice/VoiceTextChat';
 import UserPanel from '../User/UserPanel';
-import { Lock, LockOpen } from 'lucide-react';
 import { useVoiceStore } from '../../stores/voiceStore';
 import { useLayoutStore } from '../../stores/layoutStore';
 
@@ -101,25 +100,6 @@ const MainPrimaryContent: React.FC<MainPrimaryContentProps> = ({
       <p>Privacy-first, self-hostable voice communication.</p>
     </div>
   );
-};
-
-/**
- * Computes the on-screen position for the E2EE tooltip relative to its trigger,
- * preferring right-edge alignment and clamping to the viewport. Extracted from
- * MainView so the trigger callback stays a single statement (keeps MainView's
- * cognitive complexity below the rule threshold).
- */
-const computeE2eeTooltipPos = (rect: DOMRect): { top: number; left: number } => {
-  const tooltipWidth = 240;
-  const padding = 8;
-  const top = rect.bottom + padding;
-
-  const leftAligned = rect.right - tooltipWidth;
-  if (leftAligned >= padding) {
-    return { top, left: leftAligned };
-  }
-  const maxLeft = globalThis.innerWidth - tooltipWidth - padding;
-  return { top, left: Math.min(rect.left, maxLeft) };
 };
 
 /**
@@ -216,15 +196,6 @@ const MainView: React.FC = () => {
   const [invitingServer, setInvitingServer] = useState<ServerWithRole | null>(null);
   const [channelPermissions, setChannelPermissions] = useState<Channel | null>(null);
   const [categoryPermissions, setCategoryPermissions] = useState<ChannelGroup | null>(null);
-  const [e2eeTooltipPos, setE2eeTooltipPos] = useState<{ top: number; left: number } | null>(null);
-  const e2eeIndicatorRef = useRef<HTMLSpanElement>(null);
-
-  const showE2eeTooltip = useCallback(() => {
-    if (e2eeIndicatorRef.current) {
-      setE2eeTooltipPos(computeE2eeTooltipPos(e2eeIndicatorRef.current.getBoundingClientRect()));
-    }
-  }, []);
-  const hideE2eeTooltip = useCallback(() => setE2eeTooltipPos(null), []);
 
   const servers = useServerStore((state) => state.servers);
   const activeServerId = useServerStore((state) => state.activeServerId);
@@ -306,16 +277,7 @@ const MainView: React.FC = () => {
     <div className="channel-header-info">
       <div className="channel-header-name-row">
         <h3>{activeServer ? activeServer.name : 'Channels'}</h3>
-        {activeServer && (
-          <span
-            ref={e2eeIndicatorRef}
-            className={`server-e2ee-indicator ${activeServer.e2ee_default ? 'encrypted' : 'unencrypted'}`}
-            onMouseEnter={showE2eeTooltip}
-            onMouseLeave={hideE2eeTooltip}
-          >
-            {activeServer.e2ee_default ? <Lock size={12} /> : <LockOpen size={12} />}
-          </span>
-        )}
+        {activeServer && <ServerE2eeIndicator server={activeServer} />}
       </div>
       <ConnectionStatus />
     </div>
@@ -582,30 +544,6 @@ const MainView: React.FC = () => {
 
       <ShortcutOverlay />
       <ChannelSwitcher />
-
-      {/* E2EE tooltip — portaled to body to escape transform-based containing blocks */}
-      {e2eeTooltipPos &&
-        activeServer &&
-        createPortal(
-          <div
-            className={`e2ee-tooltip visible ${activeServer.e2ee_default ? 'encrypted' : 'unencrypted'}`}
-            style={{ top: e2eeTooltipPos.top, left: e2eeTooltipPos.left }}
-          >
-            <span className="e2ee-tooltip-header">
-              {activeServer.e2ee_default ? <Lock size={11} /> : <LockOpen size={11} />}
-              {activeServer.e2ee_default ? 'E2EE Enabled' : 'E2EE Disabled'}
-            </span>
-            <span className="e2ee-tooltip-body">
-              {activeServer.e2ee_default
-                ? 'End-to-End Encryption is enabled by default in this server. New channels are created with E2EE on.'
-                : 'End-to-End Encryption is not enabled by default in this server. Channels may still enable E2EE individually.'}
-            </span>
-            <span className="e2ee-tooltip-hint">
-              Always check the channel encryption status near the message box to verify E2EE.
-            </span>
-          </div>,
-          document.body
-        )}
     </div>
   );
 };
