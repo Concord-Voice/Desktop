@@ -52,7 +52,7 @@ vi.mock('@/renderer/components/Auth/Login', () => ({
         onClick={() =>
           onSuccess({
             accessToken: 'login-token',
-            user: { id: 'u1', username: 'existing', e2ee_preference: false },
+            user: { id: 'u1', username: 'existing' },
             rememberMe: false,
           })
         }
@@ -66,7 +66,6 @@ vi.mock('@/renderer/components/Auth/Login', () => ({
             user: {
               id: 'u2',
               username: 'unverified',
-              e2ee_preference: false,
               email_verified: false,
             },
             rememberMe: false,

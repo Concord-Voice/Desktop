@@ -452,7 +452,6 @@ describe('useWebSocket', () => {
       useUserStore.getState().setUser({
         id: 'user-1',
         username: 'me',
-        e2ee_preference: false,
       });
       useServerStore.getState().addServer({
         id: 'server-1',
@@ -482,7 +481,6 @@ describe('useWebSocket', () => {
       useUserStore.getState().setUser({
         id: 'user-1',
         username: 'me',
-        e2ee_preference: false,
       });
       useServerStore.getState().setActiveServer('server-1');
       useMemberStore.getState().addMember({
@@ -584,7 +582,6 @@ describe('useWebSocket', () => {
       useUserStore.getState().setUser({
         id: 'self-user',
         username: 'me',
-        e2ee_preference: false,
       });
       renderHook(() => useWebSocket());
 
@@ -604,7 +601,6 @@ describe('useWebSocket', () => {
       useUserStore.getState().setUser({
         id: 'self-user',
         username: 'me',
-        e2ee_preference: false,
       });
       renderHook(() => useWebSocket());
 
@@ -625,7 +621,6 @@ describe('useWebSocket', () => {
       useUserStore.getState().setUser({
         id: 'self-user',
         username: 'me',
-        e2ee_preference: false,
       });
       renderHook(() => useWebSocket());
 

@@ -17,7 +17,6 @@ export interface RegisterRequest {
   age_confirmation: boolean;
   wrapped_private_key: string;
   key_derivation_salt: string;
-  e2ee_preference: boolean;
 }
 
 export interface LoginRequest {

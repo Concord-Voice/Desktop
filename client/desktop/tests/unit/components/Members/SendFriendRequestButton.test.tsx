@@ -23,7 +23,6 @@ function setSelf() {
       username: 'me',
       email: 'me@test.com',
       email_verified: true,
-      e2ee_preference: false,
     },
   });
 }

@@ -499,7 +499,7 @@ describe('MentionAutocomplete', () => {
       // Viewer = user-1 carrying the Moderator role; outer beforeEach already granted
       // all three mention perms via serverPermissions['server-1'].
       useUserStore.setState({
-        user: { id: VIEWER_ID, username: 'testuser', e2ee_preference: false },
+        user: { id: VIEWER_ID, username: 'testuser' },
       });
       useMemberStore.setState({
         members: [

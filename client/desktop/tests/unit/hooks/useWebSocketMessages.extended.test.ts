@@ -83,7 +83,6 @@ beforeEach(() => {
   useUserStore.getState().setUser({
     id: 'user-1',
     username: 'testuser',
-    e2ee_preference: false,
   });
   vi.clearAllMocks();
   // Default: decryptForChannel resolves with the input content (pass-through)

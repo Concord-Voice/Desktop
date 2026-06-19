@@ -142,7 +142,6 @@ describe('MemberProfileCard', () => {
         username: mockMember.username,
         email: 'me@test.com',
         email_verified: true,
-        e2ee_preference: false,
       },
     });
     render(<MemberProfileCard {...defaultProps} />);
@@ -157,7 +156,6 @@ describe('MemberProfileCard', () => {
         username: mockMember.username,
         email: 'me@test.com',
         email_verified: true,
-        e2ee_preference: false,
       },
     });
     render(<MemberProfileCard {...defaultProps} onViewFullProfile={vi.fn()} />);

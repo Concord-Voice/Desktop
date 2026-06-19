@@ -26,7 +26,6 @@ interface FormData {
   password: string;
   confirmPassword: string;
   ageConfirmed: boolean;
-  e2eeEnabled: boolean;
 }
 
 interface FormErrors {
@@ -45,7 +44,6 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
     password: '',
     confirmPassword: '',
     ageConfirmed: false,
-    e2eeEnabled: true, // Always true - E2EE is mandatory
   });
 
   const [errors, setErrors] = useState<FormErrors>({});
@@ -156,7 +154,6 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
           username: formData.username,
           password: formData.password,
           age_confirmation: formData.ageConfirmed,
-          e2ee_preference: formData.e2eeEnabled,
           public_key: publicKeyBase64,
           wrapped_private_key: keys.wrappedPrivateKey,
           key_derivation_salt: keys.keyDerivationSalt,
@@ -384,12 +381,8 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
                             protection guaranteed
                           </li>
                           <li>
-                            <strong>E2EE Servers:</strong> Always fully encrypted - complete privacy
-                            protection
-                          </li>
-                          <li>
-                            <strong>Non-E2EE Servers:</strong> Messages downgrade to plaintext with
-                            big warning banner
+                            <strong>Servers:</strong> Always fully encrypted - complete privacy
+                            protection on every server
                           </li>
                           <li>
                             <strong>Your Keys:</strong> Protected by your password - keep it safe!

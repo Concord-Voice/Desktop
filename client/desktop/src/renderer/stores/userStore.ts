@@ -32,7 +32,6 @@ export interface UserProfile {
   avatar_url?: string;
   header_image_url?: string;
   links?: string[];
-  e2ee_preference: boolean;
   created_at?: string;
   username_changed_at?: string;
   username_change_eligible_at?: string;

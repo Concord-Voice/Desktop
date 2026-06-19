@@ -120,7 +120,6 @@ beforeEach(() => {
   useUserStore.getState().setUser({
     id: 'user-1',
     username: 'testuser',
-    e2ee_preference: false,
   });
 });
 

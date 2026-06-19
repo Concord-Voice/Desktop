@@ -38,7 +38,6 @@ export const handlers = [
           username: 'mockuser',
           email: 'test@example.com',
           email_verified: true,
-          e2ee_preference: true,
         },
       },
       { status: 200 }

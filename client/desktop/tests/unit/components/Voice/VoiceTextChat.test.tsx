@@ -198,7 +198,6 @@ describe('VoiceTextChat', () => {
         links: [],
         email_verified: false,
         age_verified: true,
-        e2ee_preference: false,
         created_at: '',
         updated_at: '',
       },
