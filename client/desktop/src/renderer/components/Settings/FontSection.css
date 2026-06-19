@@ -81,3 +81,31 @@
   border-radius: 6px;
   vertical-align: middle;
 }
+
+/* Dyslexic hard-lock (#1644): when Enable Dyslexic Support is on, the picker is
+   aria-disabled (options stay native <button> + tabbable + announced, per WCAG
+   1.3.1/3.3.2; activation is JS-guarded). Greyed but discoverable. */
+.font-option--locked {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.font-option--locked:hover {
+  border-color: var(--border-color); /* suppress the interactive hover cue */
+}
+.font-option-lock-note {
+  margin: 10px 0 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.font-option-lock-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--link-color, var(--accent-primary));
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.font-option-lock-link:hover {
+  color: var(--link-color-hover, var(--accent-hover));
+}

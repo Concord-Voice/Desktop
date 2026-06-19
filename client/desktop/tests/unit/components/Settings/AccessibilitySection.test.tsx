@@ -28,6 +28,7 @@ vi.mock('@/renderer/hooks/useDraftSettings', () => ({
     reduceAnimations: false,
     uiScale: 1,
     highContrast: false,
+    dyslexicSupport: false,
     customColors: null,
   })),
   setDraftAppearanceSetting: (...args: unknown[]) => mockSetDraftAppearanceSetting(...args),
@@ -114,6 +115,21 @@ describe('AccessibilitySection', () => {
   it('renders Text-to-Speech section title', () => {
     render(<AccessibilitySection />);
     expect(screen.getByText('Text-to-Speech')).toBeInTheDocument();
+  });
+
+  it('renders the Enable Dyslexic Support toggle', () => {
+    render(<AccessibilitySection />);
+    expect(screen.getByText('Enable Dyslexic Support')).toBeInTheDocument();
+  });
+
+  it('toggling Dyslexic Support writes ONLY dyslexicSupport (never appFont — Q2-restore)', () => {
+    render(<AccessibilitySection />);
+    const row = screen.getByText('Enable Dyslexic Support').closest('.settings-row');
+    const checkbox = row?.querySelector('input[type="checkbox"]');
+    fireEvent.click(checkbox!);
+    expect(mockSetDraftAppearanceSetting).toHaveBeenCalledWith('dyslexicSupport', true);
+    // Q2 invariant: the toggle must never touch appFont (would corrupt the prior pick).
+    expect(mockSetDraftAppearanceSetting).not.toHaveBeenCalledWith('appFont', expect.anything());
   });
 
   it('renders TTS section description', () => {

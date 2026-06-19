@@ -119,6 +119,25 @@ const DisplaySection: React.FC = () => {
           onChange={(v) => setDraftAppearanceSetting('reduceAnimations', v)}
         />
       </div>
+
+      <div className="settings-row">
+        <div className="settings-row-info">
+          <span className="settings-row-label" id="label-dyslexic-support">
+            Enable Dyslexic Support
+          </span>
+          <span className="settings-row-hint">
+            {appearance.dyslexicSupport
+              ? 'Enabled. OpenDyslexic overrides all font choices (including theme fonts) across the app, and the Appearance font picker is locked.'
+              : 'Disabled. Use the Appearance ▸ Fonts picker to choose a font.'}
+          </span>
+        </div>
+        <ToggleSwitch
+          id="toggle-dyslexic-support"
+          ariaLabelledBy="label-dyslexic-support"
+          checked={appearance.dyslexicSupport}
+          onChange={(v) => setDraftAppearanceSetting('dyslexicSupport', v)}
+        />
+      </div>
     </CollapsibleSection>
   );
 };

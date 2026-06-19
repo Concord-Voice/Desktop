@@ -6,6 +6,7 @@ interface ToggleSwitchProps {
   disabled?: boolean;
   label?: string;
   ariaLabelledBy?: string;
+  id?: string;
 }
 
 const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
@@ -14,6 +15,7 @@ const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
   disabled,
   label,
   ariaLabelledBy,
+  id,
 }) => (
   <label
     className="settings-toggle"
@@ -23,6 +25,7 @@ const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
   >
     <input
       type="checkbox"
+      id={id}
       checked={checked}
       onChange={(e) => onChange(e.target.checked)}
       disabled={disabled}

@@ -46,4 +46,12 @@ describe('ToggleSwitch', () => {
     render(<ToggleSwitch checked={false} onChange={mockOnChange} disabled={true} />);
     expect(screen.getByRole('checkbox')).toBeDisabled();
   });
+
+  it('forwards the id prop to the native checkbox (focus target for back-links)', () => {
+    const { container } = render(
+      <ToggleSwitch id="toggle-dyslexic-support" checked={false} onChange={mockOnChange} />
+    );
+    const input = container.querySelector('input[type="checkbox"]');
+    expect(input).toHaveAttribute('id', 'toggle-dyslexic-support');
+  });
 });

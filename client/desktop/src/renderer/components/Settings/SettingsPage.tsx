@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useTransition, useCallback } from 'react';
 import { useDraftSettingsLifecycle, useDraftActions } from '../../hooks/useDraftSettings';
 import { useSettingsOverlayStore } from '../../stores/settingsOverlayStore';
+import { useSettingsNavStore, type SettingsSection } from '../../stores/settingsNavStore';
 import AppearanceSection from './AppearanceSection';
 import PrivacySecuritySection from './PrivacySecuritySection';
 import VoiceAudioSection from './VoiceAudioSection';
@@ -9,15 +10,6 @@ import NotificationSection from './NotificationSection';
 import AboutUpdateSection from './AboutUpdateSection';
 import ExpandCollapseAllButton from './ExpandCollapseAllButton';
 import './SettingsPage.css';
-
-type SettingsSection =
-  | 'appearance'
-  | 'privacy'
-  | 'account'
-  | 'notifications'
-  | 'voice'
-  | 'accessibility'
-  | 'about';
 
 // ─── Nav Items ──────────────────────────────────────────────────────────────
 
@@ -259,6 +251,43 @@ const SettingsPage: React.FC = () => {
       el.open = true;
     }
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  // Cross-section focus (#1644): the locked Appearance font picker's back-link
+  // requests focus on the Accessibility dyslexic toggle. Switch to the target
+  // pane, then focus the control once it mounts (deferred past the React commit,
+  // matching the 50ms the IntersectionObserver effect uses for the same reason).
+  const focusRequest = useSettingsNavStore((s) => s.focusRequest);
+  const clearFocusRequest = useSettingsNavStore((s) => s.clearFocusRequest);
+
+  useEffect(() => {
+    if (!focusRequest) return;
+    if (focusRequest.section !== activeSection) {
+      startTransition(() => setActiveSection(focusRequest.section));
+      return; // re-runs on activeSection change once the pane mounts
+    }
+    const timer = setTimeout(() => {
+      const el = document.getElementById(focusRequest.controlId);
+      if (el) {
+        const details = el.closest('details');
+        if (details instanceof HTMLDetailsElement && !details.open) details.open = true;
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        (el as HTMLElement).focus();
+      }
+      clearFocusRequest();
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [focusRequest, activeSection, clearFocusRequest]);
+
+  // Drop ANY pending cross-section focus request when Settings unmounts (closes) —
+  // unconditionally, regardless of which branch the focus effect above was in
+  // (the pane-switch phase, OR the deferred-timer phase). The nav store outlives
+  // this component, so a request still outstanding at unmount is stale and would
+  // otherwise re-fire as a spurious pane-jump on the next open. (#1644 review, 2nd pass.)
+  useEffect(() => {
+    return () => {
+      useSettingsNavStore.getState().clearFocusRequest();
+    };
   }, []);
 
   const renderSection = () => {

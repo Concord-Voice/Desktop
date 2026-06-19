@@ -19,6 +19,22 @@ describe('resolveEffectiveFont', () => {
     }
   });
 
+  it('dyslexic outranks a theme-bundled font AND a user pick (#1644)', () => {
+    const r = resolveEffectiveFont(
+      { dyslexicSupport: true, appFont: 'inter', themeBundledFont: 'atkinson' },
+      RESOLVER_CONFIG
+    );
+    expect(r).toEqual({ effective: 'opendyslexic', pickerLocked: true, lockReason: 'dyslexic' });
+  });
+
+  it('turning dyslexic off falls through to the prior pick (Q2-restore is structural)', () => {
+    const r = resolveEffectiveFont(
+      { dyslexicSupport: false, appFont: 'inter', themeBundledFont: 'atkinson' },
+      RESOLVER_CONFIG
+    );
+    expect(r.effective).toBe('inter'); // appFont preserved; resolver never mutated it
+  });
+
   it('user-wins: explicit pick overrides theme font', () => {
     const r = resolveEffectiveFont(
       { dyslexicSupport: false, appFont: 'inter', themeBundledFont: 'atkinson' },

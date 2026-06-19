@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, userEvent } from '../../../test-utils';
 import { vi } from 'vitest';
+import { useSettingsNavStore } from '@/renderer/stores/settingsNavStore';
 
 // Mirrors AccessibilitySection.test.tsx — mock the draft hook so the section renders
 // in isolation. Variable is `mock`-prefixed so Vitest's hoisted factory may reference it.
@@ -31,6 +32,7 @@ beforeEach(() => {
   mockColorScheme = 'concord';
   mockDyslexicSupport = false;
   mockSetDraftAppearanceSetting.mockClear();
+  useSettingsNavStore.getState().clearFocusRequest();
 });
 
 describe('FontSection (Appearance ▸ Fonts)', () => {
@@ -98,21 +100,31 @@ describe('FontSection (Appearance ▸ Fonts)', () => {
     expect(mockSetDraftAppearanceSetting).toHaveBeenCalledWith('appFont', 'lexend');
   });
 
-  it('does NOT render a dyslexic lock — that is #1644 (boundary check)', () => {
-    // dyslexicSupport overrides the theme in the resolver (lockReason='dyslexic'),
-    // so #1643's soft theme-lock does NOT make the theme font the active option:
-    // activeId tracks appFont ('default'). The reveal badge still shows the scheme's
-    // bundled font, but the dyslexic HARD lock UI is #1644's deliverable, not #1643's.
-    mockColorScheme = 'agency';
+  it('renders the dyslexic HARD lock when dyslexicSupport is on (#1644)', () => {
     mockDyslexicSupport = true;
     render(<FontSection />);
-    const atkinson = screen.getByRole('button', { name: /Atkinson Hyperlegible Next/i });
-    expect(atkinson).toHaveTextContent(/Provided by the active theme/i); // reveal persists
-    expect(atkinson).toHaveAttribute('aria-pressed', 'false'); // NOT theme-locked under dyslexic
-    expect(screen.getByRole('button', { name: /Concord Voice Default/i })).toHaveAttribute(
-      'aria-pressed',
-      'true'
-    ); // activeId = appFont ('default')
-    expect(atkinson).toBeEnabled(); // no #1643 dyslexic disable/grey-out
+    const inter = screen.getByRole('button', { name: /Inter/i });
+    // options are aria-disabled (still native <button>, keeps S6819 + discoverability)
+    expect(inter).toHaveAttribute('aria-disabled', 'true');
+    // the visible lock note + back-link are present
+    expect(screen.getByText(/managed by/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Accessibility ▸ Display/i })).toBeInTheDocument();
+  });
+
+  it('a locked option does NOT write appFont (activation guard holds Q2-restore)', () => {
+    mockDyslexicSupport = true;
+    render(<FontSection />);
+    fireEvent.click(screen.getByRole('button', { name: /Inter/i }));
+    expect(mockSetDraftAppearanceSetting).not.toHaveBeenCalledWith('appFont', 'inter');
+  });
+
+  it('the back-link requests focus on the dyslexic toggle', () => {
+    mockDyslexicSupport = true;
+    render(<FontSection />);
+    fireEvent.click(screen.getByRole('button', { name: /Accessibility ▸ Display/i }));
+    expect(useSettingsNavStore.getState().focusRequest).toEqual({
+      section: 'accessibility',
+      controlId: 'toggle-dyslexic-support',
+    });
   });
 });

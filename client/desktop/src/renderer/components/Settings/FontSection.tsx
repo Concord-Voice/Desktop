@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 import type { AppearanceSettings } from '../../stores/settingsStore';
 import { useDraftAppearance, setDraftAppearanceSetting } from '../../hooks/useDraftSettings';
 import {
@@ -6,6 +6,7 @@ import {
   themeBundledFontFor,
   RESOLVER_CONFIG,
 } from '../../utils/effectiveFont';
+import { useSettingsNavStore } from '../../stores/settingsNavStore';
 import CollapsibleSection from './CollapsibleSection';
 import './FontSection.css';
 
@@ -47,6 +48,14 @@ const FontSection: React.FC = () => {
   // stay interactive so a pick overrides (soft lock — spec §3 D4).
   const activeId = lockReason === 'theme' ? effective : appFont;
 
+  // #1644 dyslexic HARD lock: when Enable Dyslexic Support is on the resolver returns
+  // lockReason==='dyslexic'. The picker greys out (aria-disabled, NOT native disabled
+  // — keeps each option a tabbable, announced native <button> per WCAG 1.3.1/3.3.2);
+  // a JS activation guard (below) is the real lock that preserves Q2-restore.
+  const dyslexicLocked = lockReason === 'dyslexic';
+  const lockNoteId = useId();
+  const requestFocus = useSettingsNavStore((s) => s.requestFocus);
+
   return (
     <CollapsibleSection id="section-fonts" title="Application Font">
       <p className="settings-section-description">
@@ -63,9 +72,16 @@ const FontSection: React.FC = () => {
           <button
             key={f.id}
             type="button"
-            className={`font-option ${activeId === f.id ? 'selected' : ''}`}
+            className={`font-option ${activeId === f.id ? 'selected' : ''} ${
+              dyslexicLocked ? 'font-option--locked' : ''
+            }`}
             aria-pressed={activeId === f.id}
-            onClick={() => setDraftAppearanceSetting('appFont', f.id)}
+            aria-disabled={dyslexicLocked || undefined}
+            aria-describedby={dyslexicLocked ? lockNoteId : undefined}
+            onClick={() => {
+              if (dyslexicLocked) return; // activation guard — never write appFont while locked
+              setDraftAppearanceSetting('appFont', f.id);
+            }}
           >
             <span className="font-option-label">
               {f.label}
@@ -83,6 +99,19 @@ const FontSection: React.FC = () => {
           </button>
         ))}
       </fieldset>
+      {dyslexicLocked && (
+        <p id={lockNoteId} className="font-option-lock-note">
+          Font selection is managed by <strong>Enable Dyslexic Support</strong> (Accessibility ▸
+          Display).{' '}
+          <button
+            type="button"
+            className="font-option-lock-link"
+            onClick={() => requestFocus('accessibility', 'toggle-dyslexic-support')}
+          >
+            Go to Accessibility ▸ Display
+          </button>
+        </p>
+      )}
     </CollapsibleSection>
   );
 };
