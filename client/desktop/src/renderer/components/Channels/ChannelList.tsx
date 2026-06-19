@@ -462,11 +462,13 @@ const ChannelList: React.FC<ChannelListProps> = ({
       setDraggedParticipant(null);
       setParticipantDropTargetId(null);
       if (!isValidParticipantDrop(channel, dragged) || !dragged) return;
-      void moveVoiceParticipant(dragged.sourceServerId, dragged.participantUserId, channel.id).catch(
-        () => {
-          // Server is authoritative; failures surface via voice_state_update / errors.
-        }
-      );
+      void moveVoiceParticipant(
+        dragged.sourceServerId,
+        dragged.participantUserId,
+        channel.id
+      ).catch(() => {
+        // Server is authoritative; failures surface via voice_state_update / errors.
+      });
     },
     [isValidParticipantDrop]
   );
@@ -522,6 +524,10 @@ const ChannelList: React.FC<ChannelListProps> = ({
             displayName: p.display_name,
             avatarUrl: p.avatar_url,
             isMuted: p.is_muted || false,
+            // Self-deafen (#685) is SFU-broadcast (room-scoped), not carried by the
+            // control-plane participant fetch — so it defaults false here and the
+            // live value flows through `participants` for the active channel.
+            isDeafened: false,
             serverMuted: p.server_muted || false,
             serverDeafened: p.server_deafened || false,
           })
@@ -917,7 +923,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
         isSpeaking: false,
         serverMuted: m.serverMuted || false,
         serverDeafened: m.serverDeafened || false,
-        isDeafened: false,
+        isDeafened: m.isDeafened,
       }));
     },
     [voiceChannelId, voiceConnectionState, voiceParticipants, channelVoiceMembers]

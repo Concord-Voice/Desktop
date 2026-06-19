@@ -175,6 +175,11 @@ export interface ChannelVoiceMember {
   displayName?: string;
   avatarUrl?: string;
   isMuted: boolean;
+  /** Self-deafen (#685). For non-active channels this stays false (the SFU
+   *  broadcast is room-scoped), so it is meaningful for the active channel /
+   *  local optimistic update; the sidebar's active-channel path reads deafen
+   *  from `participants` (VoiceParticipant) which carries the live value. */
+  isDeafened: boolean;
   serverMuted: boolean;
   serverDeafened: boolean;
 }

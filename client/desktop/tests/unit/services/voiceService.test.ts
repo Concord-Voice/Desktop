@@ -859,6 +859,50 @@ describe('VoiceService', () => {
       voiceService.toggleDeafen();
       expect(useVoiceStore.getState().isDeafened).toBe(false);
     });
+
+    it('emits a set-deafen socket event with the new state (#685)', async () => {
+      await joinVoiceChannel();
+      voiceService.toggleDeafen();
+      expect(mockSocket.emit).toHaveBeenCalledWith('set-deafen', { isDeafened: true });
+      voiceService.toggleDeafen();
+      expect(mockSocket.emit).toHaveBeenCalledWith('set-deafen', { isDeafened: false });
+    });
+
+    it('optimistically reflects self-deafen on the local sidebar member (#685)', async () => {
+      await joinVoiceChannel();
+      useVoiceStore.getState().setChannelVoiceMembers('channel-1', [
+        {
+          userId: 'user-1',
+          username: 'me',
+          isMuted: false,
+          isDeafened: false,
+          serverMuted: false,
+          serverDeafened: false,
+        },
+      ]);
+      voiceService.toggleDeafen();
+      const member = useVoiceStore
+        .getState()
+        .channelVoiceMembers['channel-1'].find((m) => m.userId === 'user-1');
+      expect(member?.isDeafened).toBe(true);
+    });
+
+    it('updates a remote participant on participant-deafen-changed (#685)', async () => {
+      await joinVoiceChannel();
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'other',
+        isMuted: false,
+        isDeafened: false,
+        isSpeaking: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+      });
+      const handler = socketListeners['participant-deafen-changed']?.[0];
+      expect(handler).toBeDefined();
+      handler?.({ userId: 'user-2', isDeafened: true });
+      expect(useVoiceStore.getState().participants['user-2']?.isDeafened).toBe(true);
+    });
   });
 
   // ===== toggleVideo =====

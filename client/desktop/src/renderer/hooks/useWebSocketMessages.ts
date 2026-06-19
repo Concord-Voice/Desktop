@@ -183,6 +183,7 @@ function handleVoiceMembershipChange(ctx: VoiceMembershipContext): void {
       username: ctx.username,
       displayName: ctx.displayName,
       isMuted: false,
+      isDeafened: false,
       serverMuted: false,
       serverDeafened: false,
     });
@@ -392,6 +393,8 @@ function scheduleVoiceRefetch(
             displayName: p.display_name,
             avatarUrl: p.avatar_url,
             isMuted: p.is_muted || false,
+            // Self-deafen (#685) is SFU-broadcast, not in the control-plane refetch.
+            isDeafened: false,
             serverMuted: p.server_muted || false,
             serverDeafened: p.server_deafened || false,
           })
