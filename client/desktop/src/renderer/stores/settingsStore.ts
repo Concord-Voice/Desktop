@@ -15,6 +15,12 @@ import { useMemberStore } from './memberStore';
 // userStore can flip it via a STATIC import without a circular dependency or a
 // teardown-racing dynamic import. See colorSyncSuppression.ts.
 import { isSyncSuppressed } from './colorSyncSuppression';
+import {
+  type AppFontId,
+  resolveEffectiveFont,
+  themeBundledFontFor,
+  RESOLVER_CONFIG,
+} from '../utils/effectiveFont';
 
 export interface AppearanceSettings {
   theme: 'dark' | 'light' | 'system';
@@ -52,6 +58,10 @@ export interface AppearanceSettings {
    */
   highContrast: boolean;
   customColors: CustomColors | null;
+  /** User-selected application font. 'default' === no explicit pick (brand default). */
+  appFont: AppFontId;
+  /** Authoritative dyslexia-support overlay (the toggle UI lands in #1644). */
+  dyslexicSupport: boolean;
 }
 
 /** Lower + upper bound for uiScale; defaults match the slider range.
@@ -86,6 +96,8 @@ interface SettingsState {
   setUiScale: (value: number) => void;
   setHighContrast: (enabled: boolean) => void;
   setCustomColors: (colors: CustomColors) => void;
+  setAppFont: (id: AppFontId) => void;
+  setDyslexicSupport: (on: boolean) => void;
   setClientBehavior: (value: ClientBehavior) => void;
 }
 
@@ -98,6 +110,8 @@ const defaultAppearance: AppearanceSettings = {
   uiScale: UI_SCALE_DEFAULT,
   highContrast: false,
   customColors: null,
+  appFont: 'default',
+  dyslexicSupport: false,
 };
 
 function resolveTheme(theme: AppearanceSettings['theme']): 'dark' | 'light' {
@@ -144,6 +158,14 @@ function applyUiScale(value: number) {
 
 function applyHighContrast(enabled: boolean) {
   document.documentElement.dataset.highContrast = enabled ? 'true' : 'false';
+}
+
+// Single DOM sink for the resolved application font (see utils/effectiveFont.ts).
+// The resolver decides which font wins; this just writes the one attribute CSS
+// keys on (`[data-appfont='…']`). Do NOT add a second sink for dyslexic/theme —
+// they feed the resolver, not the DOM.
+function applyEffectiveFont(id: AppFontId) {
+  document.documentElement.dataset.appfont = id;
 }
 
 // v0 → v1 (#1099): the #1383 interim default {toTray:'none', toToolbar:'minimize'}
@@ -210,6 +232,15 @@ export const useSettingsStore = wrapStore(
           set((state) => ({
             appearance: { ...state.appearance, customColors, colorScheme: 'custom' as const },
           })),
+
+        // LOAD-BEARING setter names: the draft layer write-throughs via
+        // callSetter → set<Key> (draftSettingsStore.ts) and Revert restores by
+        // iterating appearance keys → set<Key>. Renaming breaks live-preview/revert
+        // (the regression documented at draftSettingsStore.ts restoreAppearanceFromSnapshot).
+        setAppFont: (appFont) => set((state) => ({ appearance: { ...state.appearance, appFont } })),
+
+        setDyslexicSupport: (dyslexicSupport) =>
+          set((state) => ({ appearance: { ...state.appearance, dyslexicSupport } })),
 
         setClientBehavior: (value: ClientBehavior) => {
           set({ clientBehavior: value });
@@ -325,6 +356,33 @@ useSettingsStore.subscribe(
   (state) => state.appearance.highContrast,
   (highContrast) => applyHighContrast(highContrast),
   { fireImmediately: true }
+);
+
+// Subscribe to the effective-font inputs (appFont, dyslexicSupport, colorScheme)
+// and apply the resolved font as the single `data-appfont` attribute. This is the
+// ONLY DOM write for fonts — the resolver (utils/effectiveFont.ts) owns precedence
+// (Dyslexic > user pick > theme-bundled > default). In C1 `themeBundledFontFor`
+// returns null; #1643 fills it. `lockReason`/`pickerLocked` are read by the picker.
+useSettingsStore.subscribe(
+  (state) => ({
+    appFont: state.appearance.appFont,
+    dyslexicSupport: state.appearance.dyslexicSupport,
+    colorScheme: state.appearance.colorScheme,
+  }),
+  ({ appFont, dyslexicSupport, colorScheme }) => {
+    const { effective } = resolveEffectiveFont(
+      { dyslexicSupport, appFont, themeBundledFont: themeBundledFontFor(colorScheme) },
+      RESOLVER_CONFIG
+    );
+    applyEffectiveFont(effective);
+  },
+  {
+    equalityFn: (a, b) =>
+      a.appFont === b.appFont &&
+      a.dyslexicSupport === b.dyslexicSupport &&
+      a.colorScheme === b.colorScheme,
+    fireImmediately: true,
+  }
 );
 
 // Subscribe to custom colors + theme changes — derive and apply inline CSS variables

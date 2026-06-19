@@ -302,6 +302,12 @@ class PreferencesSyncService {
           uiScale: settings.uiScale,
           highContrast: settings.highContrast,
           customColors: settings.customColors,
+          // appFont/dyslexicSupport ride in the encrypted blob (the type requires the
+          // full AppearanceSettings) but are NOT yet applied cross-device on pull —
+          // matching the existing applyRemoteAppearance omission of uiScale/highContrast/
+          // reduceAnimations. Active cross-device font sync is a follow-up (#1642 deferred).
+          appFont: settings.appFont,
+          dyslexicSupport: settings.dyslexicSupport,
         },
         layout: {
           channelPanelPinned: layout.channelPanelPinned,

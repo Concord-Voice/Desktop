@@ -60,6 +60,37 @@
   font-display: swap;
 }
 
+/* User-selectable application fonts (Settings ▸ Appearance ▸ Fonts) — SIL OFL 1.1.
+   Self-hosted; see fonts/LICENSES.md. Applied via [data-appfont='…'] at end of file. */
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('/branding/Concord-Voice/fonts/OpenDyslexic-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'OpenDyslexic';
+  src: url('/branding/Concord-Voice/fonts/OpenDyslexic-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/branding/Concord-Voice/fonts/Inter-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Lexend';
+  src: url('/branding/Concord-Voice/fonts/Lexend-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   /* Font Scale & Spacing Scale
    *
@@ -2048,4 +2079,40 @@ a[target='_blank']:not(.update-security-banner__cta):hover {
 [data-high-contrast='true'] *:focus-visible {
   outline: 3px solid var(--accent-primary);
   outline-offset: 2px;
+}
+
+/* Application-font override (Settings ▸ Appearance ▸ Fonts).
+   The body font is hardcoded (not token-driven — `--font-body-stack` is currently
+   an unconsumed token owned by the theme-font work in #1643), so override the body
+   font-family directly. `[data-appfont='…'] body` outranks the bare `body` rule by
+   specificity. Body/UI text only — brand/heading surfaces keep var(--font-display-stack).
+   `data-appfont` reflects the RESOLVED font (utils/effectiveFont.ts); 'default' has no
+   rule, so the base body stack stands. Self-hosted faces only (no CDN). See
+   internal-reference §3.5. */
+[data-appfont='system'] body {
+  font-family:
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    'Segoe UI',
+    'Roboto',
+    'Helvetica Neue',
+    'Arial',
+    'Noto Sans',
+    sans-serif;
+}
+[data-appfont='opendyslexic'] body {
+  font-family: 'OpenDyslexic', 'SourceSans', sans-serif;
+}
+[data-appfont='inter'] body {
+  font-family: 'Inter', 'SourceSans', sans-serif;
+}
+[data-appfont='lexend'] body {
+  font-family: 'Lexend', 'SourceSans', sans-serif;
+}
+[data-appfont='lato'] body {
+  font-family: 'Lato', 'SourceSans', sans-serif;
+}
+[data-appfont='atkinson'] body {
+  font-family: 'Atkinson Hyperlegible Next', 'SourceSans', sans-serif;
 }

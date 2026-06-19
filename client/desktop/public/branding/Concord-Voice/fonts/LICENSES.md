@@ -15,6 +15,10 @@ This directory ships font binaries used by Concord Voice's `client/desktop` Elec
 | `Lato-Bold.ttf` | Lato | © 2010-2014 tyPoland Łukasz Dziedzic | https://fonts.google.com/specimen/Lato |
 | `Lato-Italic.ttf` | Lato | © 2010-2014 tyPoland Łukasz Dziedzic | https://fonts.google.com/specimen/Lato |
 | `Lato-BoldItalic.ttf` | Lato | © 2010-2014 tyPoland Łukasz Dziedzic | https://fonts.google.com/specimen/Lato |
+| `OpenDyslexic-Regular.woff2` | OpenDyslexic | © 2019 Abbie Gonzalez — RFN "OpenDyslexic" | https://github.com/antijingoist/opendyslexic |
+| `OpenDyslexic-Bold.woff2` | OpenDyslexic | © 2019 Abbie Gonzalez — RFN "OpenDyslexic" | https://github.com/antijingoist/opendyslexic |
+| `Inter-Variable.woff2` | Inter | © 2016 The Inter Project Authors | https://github.com/rsms/inter |
+| `Lexend-Variable.woff2` | Lexend | © 2019 The Lexend Project Authors | https://github.com/googlefonts/lexend |
 
 ---
 
@@ -61,6 +65,36 @@ Copyright © 2010-2014 by tyPoland Łukasz Dziedzic (team@latofonts.com) — Res
 This Font Software is licensed under the **SIL Open Font License, Version 1.1**. See the full text below.
 
 Source: <https://fonts.google.com/specimen/Lato>
+
+---
+
+## OpenDyslexic
+
+Copyright © 2019 Abbie Gonzalez (<https://abbiecod.es>) — Reserved Font Name **"OpenDyslexic"**.
+
+OpenDyslexic is an open dyslexia-friendly typeface; weighted letter bottoms and distinct letterforms reduce the letter confusions (b/d/p/q, etc.) common for readers with dyslexia. Concord offers it in Settings ▸ Appearance ▸ Fonts (and it is the face applied by the forthcoming Accessibility ▸ Display "Enable Dyslexic Support" toggle, #1644). The current build is licensed under the **SIL Open Font License, Version 1.1** — earlier pre-0.3 builds used a Bitstream-Vera/CC-BY scheme and are NOT shipped here. See the full text below.
+
+Source: <https://github.com/antijingoist/opendyslexic>
+
+---
+
+## Inter
+
+Copyright © 2016 The Inter Project Authors (<https://github.com/rsms/inter>).
+
+Inter is a highly legible UI typeface, offered in Settings ▸ Appearance ▸ Fonts. Shipped as a variable font (weight axis). Licensed under the **SIL Open Font License, Version 1.1**; the OFL declares no Reserved Font Name (the name "Inter" is a trademark of Rasmus Andersson, which restricts derivative naming independently of the OFL). See the full text below.
+
+Source: <https://github.com/rsms/inter>
+
+---
+
+## Lexend
+
+Copyright © 2019 The Lexend Project Authors (<https://github.com/googlefonts/lexend>).
+
+Lexend is a typeface designed to improve reading proficiency, offered in Settings ▸ Appearance ▸ Fonts as an accessibility-friendly companion to OpenDyslexic. Shipped as a variable font (weight axis). Licensed under the **SIL Open Font License, Version 1.1**. See the full text below.
+
+Source: <https://github.com/googlefonts/lexend>
 
 ---
 

@@ -5,6 +5,7 @@ import { isValidHex } from '../../utils/colorUtils';
 import CollapsibleSection from './CollapsibleSection';
 import { ClientBehaviorSection } from './ClientBehaviorSection';
 import SettingsPreviewPanel from './SettingsPreviewPanel';
+import FontSection from './FontSection';
 
 // Module-scope constants — declared outside the component so they're not
 // re-allocated on every render. SCHEME_TUPLES is the flat tuple form produced
@@ -219,6 +220,8 @@ const AppearanceSection: React.FC = () => {
           ))}
         </div>
       </CollapsibleSection>
+
+      <FontSection />
 
       {/* Display settings (font size, compact mode, reduce animations) +
           UI scale + high contrast moved to Accessibility per #489. They
