@@ -72,7 +72,12 @@ import { resolveAppProtocolPath } from './appProtocol';
 import { resolveSpaSource, isUnexpectedBundled, captureSpaHash } from './spaLoader';
 import { handleDidFailLoad, handleSpaRequestSelfHeal } from './spaSelfHealMainFrame';
 import { buildRemotePipUrl, isValidPipOpenSender } from './pipUrl';
-import { getRemoteSpaBaseUrl, getRemoteSpaUrl, setRemoteSpaState } from './spaState';
+import {
+  getRemoteSpaBaseDir,
+  getRemoteSpaBaseUrl,
+  getRemoteSpaUrl,
+  setRemoteSpaState,
+} from './spaState';
 import { IPC_CONTRACT_VERSION } from './ipcContract';
 import { registerIpcHandlers as registerPermissionHandlers } from './permissionManager';
 import { migrateUserData } from './userDataMigration';
@@ -1036,6 +1041,7 @@ ipcMain.handle('spa:requestSelfHeal', async (event, payload: unknown) => {
     senderFrameUrl: event.senderFrame?.url ?? '',
     payload,
     remoteSpaBaseUrl: getRemoteSpaBaseUrl(),
+    remoteSpaBaseDir: getRemoteSpaBaseDir(),
   });
 });
 
@@ -1123,6 +1129,7 @@ app.on('web-contents-created', (_, contents) => {
         validatedURL,
         isMainFrame,
         remoteSpaBaseUrl: getRemoteSpaBaseUrl(),
+        remoteSpaBaseDir: getRemoteSpaBaseDir(),
       });
     }
   );

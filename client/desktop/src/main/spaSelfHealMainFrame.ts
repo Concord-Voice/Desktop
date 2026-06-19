@@ -12,7 +12,6 @@
  */
 
 import { isRendererSelfHealRequest } from '../shared/spaIpcTypes';
-import { SPA_CHUNK_URL_PATTERN, SPA_URL_PATTERN } from '../shared/spaUrlPattern';
 import { attemptSelfHeal, type SelfHealOutcome } from './spaSelfHeal';
 
 export interface DidFailLoadFilterArgs {
@@ -20,6 +19,12 @@ export interface DidFailLoadFilterArgs {
   validatedURL: string;
   isMainFrame: boolean;
   remoteSpaBaseUrl: string | null;
+  /**
+   * SPA base directory from `spaState.getRemoteSpaBaseDir()` — `'/'` for the
+   * flat Pages host (post-#976) or `'/spa/<sha>/'` for the legacy host. The
+   * path-prefix that marks an SPA frame/asset.
+   */
+  remoteSpaBaseDir: string | null;
 }
 
 export function shouldTriggerSelfHealForFailedLoad(args: DidFailLoadFilterArgs): boolean {
@@ -27,76 +32,64 @@ export function shouldTriggerSelfHealForFailedLoad(args: DidFailLoadFilterArgs):
   // Excluding this prevents denial-of-self-heal-budget via deliberate nav storms.
   if (args.errorCode === -3) return false;
 
-  // No active SPA URL — we're already in bundled mode, nothing to recover to.
-  if (!args.remoteSpaBaseUrl) return false;
+  // No active SPA — we're already in bundled mode, nothing to recover to.
+  if (!args.remoteSpaBaseUrl || !args.remoteSpaBaseDir) return false;
 
-  if (args.isMainFrame) {
-    // Main-frame failure: the very index.html is unreachable. We want to
-    // trigger ONLY when the failed URL is an SPA-shaped URL on the active
-    // SPA origin — origin-equality alone would also match same-origin
-    // non-SPA pages (apex pathname, bare hash routes, redirect targets).
-    // Those should not consume the self-heal retry budget. Originally this
-    // also defended against PiP windows loading `<origin>#/pip/...` (apex
-    // pathname); post-#802 PiP loads from the full SPA URL via
-    // `remoteSpaUrl`, but the filter still correctly rejects any
-    // apex-pathname same-origin frame did-fail-load might surface.
-    if (!SPA_URL_PATTERN.test(args.validatedURL)) return false;
-    let validatedOrigin: string;
-    try {
-      validatedOrigin = new URL(args.validatedURL).origin;
-    } catch {
-      return false;
-    }
-    return validatedOrigin === args.remoteSpaBaseUrl;
-  }
-
-  // Sub-resource failure: trigger only on chunk-shaped URLs from the
-  // active SPA origin. SPA_CHUNK_URL_PATTERN is host-agnostic, so without
-  // the origin check a failed cross-origin load like
-  // `https://evil.example.com/spa/abc1234/assets/x.js` would falsely
-  // consume self-heal budget. Mirrors the origin check in the main-frame
-  // branch above.
-  if (!SPA_CHUNK_URL_PATTERN.test(args.validatedURL)) return false;
-  let subResourceOrigin: string;
+  let url: URL;
   try {
-    subResourceOrigin = new URL(args.validatedURL).origin;
+    url = new URL(args.validatedURL);
   } catch {
     return false;
   }
-  return subResourceOrigin === args.remoteSpaBaseUrl;
+
+  // Origin equality against the dynamically-validated SPA origin is the trust
+  // boundary; the SPA-base-dir prefix then distinguishes SPA frames/assets from
+  // non-SPA same-origin paths (the co-hosted API, the apex, bare hash routes)
+  // that must not consume the self-heal retry budget. On the flat dedicated
+  // Pages host the base dir is '/' (the whole origin is the SPA); on the legacy
+  // shared host it is '/spa/<sha>/'. Deriving the prefix from the runtime SPA
+  // URL means a host/path migration can't silently re-break this (#976).
+  if (url.origin !== args.remoteSpaBaseUrl) return false;
+
+  if (args.isMainFrame) {
+    // Main-frame failure: the SPA index itself is unreachable.
+    return url.pathname.startsWith(args.remoteSpaBaseDir);
+  }
+  // Sub-resource failure: only the SPA's own chunk assets (`<baseDir>assets/`).
+  return url.pathname.startsWith(args.remoteSpaBaseDir + 'assets/');
 }
 
 export interface SenderFrameValidationArgs {
   senderFrameUrl: string;
   remoteSpaBaseUrl: string | null;
+  /** SPA base directory from `spaState.getRemoteSpaBaseDir()` — see above. */
+  remoteSpaBaseDir: string | null;
 }
 
 export function validateSelfHealSenderFrame(args: SenderFrameValidationArgs): boolean {
-  if (!args.senderFrameUrl || !args.remoteSpaBaseUrl) return false;
+  if (!args.senderFrameUrl || !args.remoteSpaBaseUrl || !args.remoteSpaBaseDir) return false;
 
-  // Sender frame URL must be SPA-shaped. Origin-only matching would accept
-  // any non-SPA same-origin page (apex pathname, bare hash routes,
-  // origin-root) as a legitimate self-heal trigger source. The trust
-  // boundary is "SPA bundle code requesting recovery", not "any code on
-  // the SPA's origin", so we tighten the validator to require the sender's
-  // pathname to match the SPA shape `/spa/<sha7>/...`. Originally this
-  // also defended against PiP windows loading `<origin>#/pip/...` (apex
-  // pathname); post-#802 PiP loads from the full SPA URL via
-  // `remoteSpaUrl`, but the filter still rejects any apex-pathname
-  // same-origin sender on principle.
-  if (!SPA_URL_PATTERN.test(args.senderFrameUrl)) return false;
-
-  // `remoteSpaBaseUrl` is already an origin string (set via
-  // `new URL(decision.url).origin` when the SPA loads). We parse
-  // `senderFrameUrl`, take its origin, and compare directly.
-  let senderOrigin: string;
+  let url: URL;
   try {
-    senderOrigin = new URL(args.senderFrameUrl).origin;
+    url = new URL(args.senderFrameUrl);
   } catch {
     return false;
   }
 
-  return senderOrigin === args.remoteSpaBaseUrl;
+  // Trust boundary: the sender frame must be on the validated SPA origin AND
+  // under the SPA's own base directory. The base dir is derived from the
+  // runtime SPA URL ('/' for the flat dedicated Pages host post-#976 — any
+  // same-origin frame on that dedicated host qualifies; '/spa/<sha>/' for the
+  // legacy shared host — so the apex, bare hash routes, and the co-hosted API
+  // stay rejected as before). Origin-only matching would accept any non-SPA
+  // same-origin page; the base-dir prefix is the "SPA bundle code, not just
+  // anything on the origin" tightening — now host-agnostic, so a host/path
+  // migration cannot silently re-break self-heal the way the hardcoded
+  // SPA_URL_PATTERN did (#976). NOTE: on the flat host remoteSpaBaseDir is '/',
+  // so this prefix is vacuously true and the check collapses to origin-only —
+  // safe only under the dedicated-SPA-origin invariant documented on
+  // spaState.getRemoteSpaBaseDir().
+  return url.origin === args.remoteSpaBaseUrl && url.pathname.startsWith(args.remoteSpaBaseDir);
 }
 
 /**
@@ -112,11 +105,13 @@ export async function handleSpaRequestSelfHeal(args: {
   senderFrameUrl: string;
   payload: unknown;
   remoteSpaBaseUrl: string | null;
+  remoteSpaBaseDir: string | null;
 }): Promise<SelfHealOutcome | null> {
   if (
     !validateSelfHealSenderFrame({
       senderFrameUrl: args.senderFrameUrl,
       remoteSpaBaseUrl: args.remoteSpaBaseUrl,
+      remoteSpaBaseDir: args.remoteSpaBaseDir,
     })
   ) {
     console.warn('[main] spa:requestSelfHeal rejected — sender frame not from active SPA origin');
@@ -145,6 +140,7 @@ export async function handleDidFailLoad(args: {
   validatedURL: string;
   isMainFrame: boolean;
   remoteSpaBaseUrl: string | null;
+  remoteSpaBaseDir: string | null;
 }): Promise<SelfHealOutcome | null> {
   const trigger = shouldTriggerSelfHealForFailedLoad(args);
   if (!trigger) return null;

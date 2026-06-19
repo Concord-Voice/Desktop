@@ -7,6 +7,7 @@ import {
   type CheckResult,
 } from '../../stores/connectionStore';
 // recoveryService & resetService loaded on-demand via dynamic import() to allow code splitting
+import { runRecoveryModule } from '../../utils/runRecoveryModule';
 import './ConnectionLostOverlay.css';
 
 /** Display text per CheckResult value. Extracted from the inline ternary
@@ -127,8 +128,15 @@ function PhaseContent({
   }, []);
 
   const handleRestart = useCallback(async () => {
-    const { softRestart } = await import('../../services/resetService');
-    softRestart();
+    // Guard the lazy import: a stale chunk after a Pages redeploy must not make
+    // the fatal-state Restart button silently no-op (it previously did — the
+    // sibling handleRetry was guarded, this was not). runRecoveryModule degrades
+    // to self-heal on failure.
+    await runRecoveryModule(
+      () => import('../../services/resetService'),
+      (m) => m.softRestart(),
+      'softRestart'
+    );
   }, []);
 
   const handleExit = useCallback(() => {

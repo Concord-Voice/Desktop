@@ -17,6 +17,28 @@ const CHUNK_LOAD_ERROR_PATTERN =
 
 let installed = false;
 
+/**
+ * Fire an SPA self-heal request for a chunk-load failure. The main process
+ * validates the request and drives a bounded recovery (config refetch / reload /
+ * bundled app://concord fallback). Missing-bridge (no `electron` in a plain
+ * browser context) and the async-rejection path are both swallowed here, so
+ * callers never need to guard either.
+ *
+ * Exported so recovery-path catch handlers that intentionally swallow a
+ * dynamic-import rejection — and therefore stop it from reaching the
+ * `unhandledrejection` listener below — can still trigger self-heal. See
+ * `runRecoveryModule` and `internal-reference` (SPA self-heal).
+ */
+export function triggerChunkSelfHeal(
+  reason: 'chunk-load' | 'chunk-import-rejected',
+  url?: string
+): void {
+  const payload = url ? { reason, url } : { reason };
+  globalThis.electron?.spa?.requestSelfHeal(payload)?.catch(() => {
+    /* swallow — main-process logs its own diagnostics */
+  });
+}
+
 export function installSelfHealHandlers(): void {
   if (installed) return;
   installed = true;
@@ -41,14 +63,10 @@ export function installSelfHealHandlers(): void {
         return;
       }
 
-      // Optional chaining handles missing bridge synchronously; trailing
-      // ?.catch swallows the async rejection path. The bridge is exposed
-      // via preload's contextBridge so it's normally present, but we guard
-      // both shapes (missing object + rejected promise) to survive bundled-
-      // fallback mode where the renderer may load before main is ready.
-      globalThis.electron?.spa?.requestSelfHeal({ reason: 'chunk-load', url })?.catch(() => {
-        /* swallow — main-process logs its own diagnostics */
-      });
+      // Bridge-presence + async-rejection guards live in triggerChunkSelfHeal,
+      // which also survives bundled-fallback mode where the renderer may load
+      // before main is ready.
+      triggerChunkSelfHeal('chunk-load', url);
     },
     /* useCapture */ true
   );
@@ -59,8 +77,6 @@ export function installSelfHealHandlers(): void {
 
     if (!CHUNK_LOAD_ERROR_PATTERN.test(message)) return;
 
-    globalThis.electron?.spa?.requestSelfHeal({ reason: 'chunk-import-rejected' })?.catch(() => {
-      /* swallow — see error-listener comment above */
-    });
+    triggerChunkSelfHeal('chunk-import-rejected');
   });
 }

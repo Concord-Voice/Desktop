@@ -126,6 +126,10 @@ export class WebSocketService {
   private pingInterval: NodeJS.Timeout | null = null;
   private aggressiveReconnect = false;
   private connectAbort: AbortController | null = null;
+  // 'online' event listener armed while a connect is deferred because the
+  // client is known-offline (navigator.onLine === false). Cleared on the
+  // open/disconnect paths and when it fires.
+  private onlineListener: (() => void) | null = null;
 
   // Message handlers
   private readonly messageHandlers = new Map<string, Set<MessageHandler>>();
@@ -166,6 +170,7 @@ export class WebSocketService {
     this.connectAbort = null;
     this.clearReconnectTimer();
     this.clearPingInterval();
+    this.clearOnlineRetry();
     this.reconnectAttempts = 0;
 
     // Reject any in-flight whenConnectionReady() waiters with a clear reason.
@@ -603,6 +608,41 @@ export class WebSocketService {
     }
   }
 
+  /**
+   * Obtain a single-use WebSocket ticket: reuse a cached ticket within TTL,
+   * otherwise POST to the ws-ticket endpoint with the Bearer token. Throws on a
+   * non-OK response. Extracted from createConnection to keep that method's
+   * cognitive complexity under the S3776 ceiling (the offline-gate branch tipped
+   * it over). Caller must guarantee this.token is non-null before invoking.
+   */
+  private async acquireTicket(wsBaseUrl: URL, signal?: AbortSignal): Promise<string> {
+    const cached = this.consumeCachedTicket();
+    if (cached) return cached;
+
+    // Derive the ticket endpoint from the validated URL via URL-object mutations
+    // rather than string `replace()` — protocol/pathname swaps through the WHATWG
+    // URL API can't slip through a malformed-substring bug if `this.url` ever
+    // shifts shape.
+    const ticketUrl = new URL(wsBaseUrl.href);
+    ticketUrl.protocol = wsBaseUrl.protocol === 'wss:' ? 'https:' : 'http:';
+    ticketUrl.pathname = ticketUrl.pathname.replace(/\/ws$/, '/auth/ws-ticket');
+
+    const ticketHeaders: Record<string, string> = { Authorization: `Bearer ${this.token}` };
+    const sessionId = useAuthStore.getState().sessionId;
+    if (sessionId) ticketHeaders['X-Session-ID'] = sessionId;
+
+    const ticketRes = await fetch(ticketUrl.href, {
+      method: 'POST',
+      headers: ticketHeaders,
+      signal,
+    });
+    if (!ticketRes.ok) {
+      this.logTicketFetchFailure(ticketRes.status);
+      throw new Error(`WebSocket ticket request failed: ${ticketRes.status}`);
+    }
+    return (await ticketRes.json()).ticket as string;
+  }
+
   private async createConnection(signal?: AbortSignal): Promise<void> {
     if (!this.token) {
       console.error('Cannot connect: No JWT token provided');
@@ -626,33 +666,21 @@ export class WebSocketService {
       return;
     }
 
+    // Known-offline short-circuit: skip the ws-ticket POST that is guaranteed to
+    // fail (it would just emit a TypeError and burn a backoff cycle) and wait
+    // for the browser 'online' event instead. navigator.onLine === false is a
+    // reliable "definitely offline" signal; navigator.onLine === true is NOT
+    // reliable (it only means a route exists), which is why this deliberately
+    // does nothing for the origin-502 case — there the client IS online.
+    if (this.isKnownOffline()) {
+      console.debug('[WebSocket] offline — deferring connect until the online event');
+      this.setState(ConnectionState.RECONNECTING);
+      this.armOnlineRetry();
+      return;
+    }
+
     try {
-      // Prefer cached unused ticket (from a prior aborted connection within TTL)
-      let ticket = this.consumeCachedTicket();
-      if (!ticket) {
-        // Derive the ticket endpoint from the validated URL via URL-object
-        // mutations rather than string `replace()` — protocol/pathname swaps
-        // through the WHATWG URL API can't slip through a malformed-substring
-        // bug if `this.url` ever shifts shape.
-        const ticketUrl = new URL(wsBaseUrl.href);
-        ticketUrl.protocol = wsBaseUrl.protocol === 'wss:' ? 'https:' : 'http:';
-        ticketUrl.pathname = ticketUrl.pathname.replace(/\/ws$/, '/auth/ws-ticket');
-
-        const ticketHeaders: Record<string, string> = { Authorization: `Bearer ${this.token}` };
-        const sessionId = useAuthStore.getState().sessionId;
-        if (sessionId) ticketHeaders['X-Session-ID'] = sessionId;
-
-        const ticketRes = await fetch(ticketUrl.href, {
-          method: 'POST',
-          headers: ticketHeaders,
-          signal,
-        });
-        if (!ticketRes.ok) {
-          this.logTicketFetchFailure(ticketRes.status);
-          throw new Error(`WebSocket ticket request failed: ${ticketRes.status}`);
-        }
-        ticket = (await ticketRes.json()).ticket as string;
-      }
+      const ticket = await this.acquireTicket(wsBaseUrl, signal);
 
       // If disconnect() was called while we awaited the ticket, cache it for reuse
       if (signal?.aborted) {
@@ -699,6 +727,7 @@ export class WebSocketService {
 
   private handleOpen(): void {
     console.debug('[WebSocket] connection opened');
+    this.clearOnlineRetry();
     // Don't set CONNECTED yet — wait for the server's "connected" message
     // which includes client_id and user_id. This prevents subscribers from
     // trying to send before the handshake is complete.
@@ -868,15 +897,23 @@ export class WebSocketService {
       const base = Math.min(500 * Math.pow(2, Math.min(this.reconnectAttempts, 2)), 2000);
       delay = fullJitter(base);
     } else {
-      // Normal: exponential backoff for first 10 attempts, then fixed 30s intervals
-      // (keeps retrying indefinitely — the UI layer handles the timeout UX)
-      delay =
+      // Normal: exponential backoff for the first maxReconnectAttempts, then a
+      // fixed 30s ceiling (keeps retrying indefinitely — the give-up UX lives in
+      // useConnectionRecovery's preflight/recovery_a/fatal phases, not here).
+      // Full jitter is applied to the computed base — the SAME desync the
+      // aggressive branch uses above — so a fleet-wide origin outage doesn't
+      // resolve into a synchronized thundering herd reconnecting in lockstep at
+      // the 1s/2s/.../30s boundaries against a just-recovered origin
+      // (#769 / origin-502-storm). Without it, every client that dropped at the
+      // same instant retries at the same instant.
+      const base =
         this.reconnectAttempts < this.maxReconnectAttempts
           ? Math.min(
               this.reconnectDelay * Math.pow(2, this.reconnectAttempts),
               this.maxReconnectDelay
             )
-          : 30_000;
+          : this.maxReconnectDelay;
+      delay = fullJitter(base);
     }
 
     console.debug(
@@ -895,6 +932,40 @@ export class WebSocketService {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
+    }
+  }
+
+  /** Reliable "definitely offline" check — false when navigator is unavailable. */
+  private isKnownOffline(): boolean {
+    return typeof navigator !== 'undefined' && navigator.onLine === false;
+  }
+
+  /**
+   * Arm a one-shot 'online' listener that retries the connection (with a fresh
+   * backoff curve) as soon as connectivity returns. Idempotent. Falls back to
+   * the normal backoff loop in a non-browser environment with no event target.
+   */
+  private armOnlineRetry(): void {
+    if (this.onlineListener) return;
+    if (typeof globalThis.addEventListener !== 'function') {
+      this.scheduleReconnect();
+      return;
+    }
+    const listener = () => {
+      this.clearOnlineRetry();
+      this.resetReconnectState();
+      this.connectAbort?.abort();
+      this.connectAbort = new AbortController();
+      this.createConnection(this.connectAbort.signal);
+    };
+    this.onlineListener = listener;
+    globalThis.addEventListener('online', listener);
+  }
+
+  private clearOnlineRetry(): void {
+    if (this.onlineListener) {
+      globalThis.removeEventListener('online', this.onlineListener);
+      this.onlineListener = null;
     }
   }
 

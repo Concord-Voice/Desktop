@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 import {
+  getRemoteSpaBaseDir,
   getRemoteSpaBaseUrl,
   getRemoteSpaUrl,
   onSpaStateChange,
@@ -44,6 +45,38 @@ describe('spaState — atomic lockstep invariant', () => {
     setRemoteSpaState('https://api.concordvoice.chat/spa/def5678/index.html');
     expect(getRemoteSpaBaseUrl()).toBe('https://api.concordvoice.chat');
     expect(getRemoteSpaUrl()).toBe('https://api.concordvoice.chat/spa/def5678/index.html');
+  });
+});
+
+describe('getRemoteSpaBaseDir — runtime SPA base directory (#976 self-heal)', () => {
+  beforeEach(() => {
+    setRemoteSpaState(null);
+  });
+
+  it('returns null when no SPA is active', () => {
+    expect(getRemoteSpaBaseDir()).toBeNull();
+  });
+
+  it("derives '/spa/<sha>/' for the legacy per-SHA host", () => {
+    setRemoteSpaState('https://api.concordvoice.chat/spa/abc1234/index.html');
+    expect(getRemoteSpaBaseDir()).toBe('/spa/abc1234/');
+  });
+
+  it("derives '/' for the flat Cloudflare Pages host served at index.html", () => {
+    setRemoteSpaState('https://spa.concordvoice.chat/index.html');
+    expect(getRemoteSpaBaseDir()).toBe('/');
+  });
+
+  it("derives '/' for the flat host served at the apex", () => {
+    setRemoteSpaState('https://spa.concordvoice.chat/');
+    expect(getRemoteSpaBaseDir()).toBe('/');
+  });
+
+  it('clears to null on malformed input (fail-closed, lockstep with origin/url)', () => {
+    setRemoteSpaState('https://spa.concordvoice.chat/index.html');
+    setRemoteSpaState('not a url');
+    expect(getRemoteSpaBaseDir()).toBeNull();
+    expect(getRemoteSpaBaseUrl()).toBeNull();
   });
 });
 

@@ -120,6 +120,16 @@ function applyRemoteLayout(remote: PreferencesBlob['layout'], deps: PreferencesS
 }
 
 class PreferencesSyncService {
+  // Bounded retry for a startup 401. A transient auth-bootstrap race can 401 the
+  // very first preferences fetch even though the token is valid (proven by the
+  // WS connecting moments later on the same token). fetchAndApply has no other
+  // re-trigger for a single-device user — the only one is a cross-device
+  // 'preferences_updated' WS push — so without this a transient 401 silently
+  // skips the remote-preference PULL for the whole session. The precipitating
+  // 401's exact server-side cause is unpinned; the bounded retry is the net.
+  private static readonly MAX_AUTH_RETRIES = 2;
+  private static readonly AUTH_RETRY_DELAY_MS = 1500;
+  private authRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private unsubscribers: (() => void)[] = [];
   private isApplyingRemote = false;
@@ -144,14 +154,37 @@ class PreferencesSyncService {
    * Fetch preferences from server, decrypt, and apply to local stores.
    * If the server has no preferences yet, pushes current local state as initial sync.
    */
-  async fetchAndApply(): Promise<void> {
+  async fetchAndApply(attempt = 0): Promise<void> {
     if (!e2eeService.isInitialized) return;
+
+    // A fresh fetch supersedes any pending bounded auth-retry — clear it so a
+    // stale retry can't fire after a newer trigger (e.g. a cross-device
+    // 'preferences_updated' WS push) and re-apply older remote state. Only the
+    // in-flight retry chain should own the timer; on the retry path the timer is
+    // already null (cleared in scheduleAuthRetry's callback), so this is a no-op.
+    if (this.authRetryTimer) {
+      clearTimeout(this.authRetryTimer);
+      this.authRetryTimer = null;
+    }
 
     const deps = this.requireDeps();
 
     try {
       const res = await apiFetch('/api/v1/users/me/preferences');
       if (!res.ok) {
+        if (res.status === 401 && attempt < PreferencesSyncService.MAX_AUTH_RETRIES) {
+          // Transient startup auth race — retry a bounded number of times after
+          // a short delay rather than abandoning the session's remote-pref sync.
+          // Constant format string (CWE-134); dynamic parts are separate args.
+          console.warn(
+            '[PrefsSync] preferences fetch 401 (auth not settled?); retrying',
+            attempt + 1,
+            'of',
+            PreferencesSyncService.MAX_AUTH_RETRIES
+          );
+          this.scheduleAuthRetry(attempt + 1);
+          return;
+        }
         console.warn('[PrefsSync] Failed to fetch preferences:', res.status);
         return;
       }
@@ -202,6 +235,18 @@ class PreferencesSyncService {
     } catch (err) {
       console.warn('[PrefsSync] Failed to fetch/apply preferences:', errorMessage(err));
     }
+  }
+
+  /**
+   * Schedule a single bounded retry of fetchAndApply after AUTH_RETRY_DELAY_MS.
+   * Replaces any pending retry so retries never stack; cleared by stopWatching.
+   */
+  private scheduleAuthRetry(nextAttempt: number): void {
+    if (this.authRetryTimer) clearTimeout(this.authRetryTimer);
+    this.authRetryTimer = setTimeout(() => {
+      this.authRetryTimer = null;
+      void this.fetchAndApply(nextAttempt);
+    }, PreferencesSyncService.AUTH_RETRY_DELAY_MS);
   }
 
   /**
@@ -276,6 +321,10 @@ class PreferencesSyncService {
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
+    }
+    if (this.authRetryTimer) {
+      clearTimeout(this.authRetryTimer);
+      this.authRetryTimer = null;
     }
   }
 

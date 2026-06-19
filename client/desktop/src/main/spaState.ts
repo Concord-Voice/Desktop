@@ -19,6 +19,7 @@
 
 let remoteSpaBaseUrl: string | null = null;
 let remoteSpaUrl: string | null = null;
+let remoteSpaBaseDir: string | null = null;
 
 type SpaStateListener = (url: string | null) => void;
 const listeners = new Set<SpaStateListener>();
@@ -29,6 +30,29 @@ export function getRemoteSpaBaseUrl(): string | null {
 
 export function getRemoteSpaUrl(): string | null {
   return remoteSpaUrl;
+}
+
+/**
+ * The directory the SPA is served from — the pathname of `remoteSpaUrl` up to
+ * and including the final '/'. `'/'` for the flat Cloudflare Pages host
+ * (post-#976, SPA at the origin root), `'/spa/<sha>/'` for the legacy per-SHA
+ * host. The self-heal sender-frame / did-fail-load validators use it as the
+ * SPA-frame path-prefix, derived at runtime so a host/path migration cannot
+ * silently re-break self-heal (the #976 bug). `null` when no SPA is active.
+ *
+ * LOAD-BEARING INVARIANT: when this returns `'/'` (the flat Pages host), the
+ * validators' `pathname.startsWith('/')` prefix is vacuously true, so the
+ * self-heal sender-frame trust check collapses to pure origin-equality. That is
+ * safe ONLY because `spa.concordvoice.chat` is a DEDICATED, SPA-only origin —
+ * "same origin" ⟺ "the SPA", so there is no non-SPA same-origin frame to spoof
+ * and the worst case is a bounded reload. If that origin ever co-hosts non-SPA
+ * or embeddable content (a second app, marketing pages, a third-party widget),
+ * the path-shape defense-in-depth silently disappears and any same-origin frame
+ * could trigger main-process self-heal. Keep the remote SPA on a dedicated
+ * origin, or restore a non-trivial base-dir / explicit allow-flag before then.
+ */
+export function getRemoteSpaBaseDir(): string | null {
+  return remoteSpaBaseDir;
 }
 
 /**
@@ -89,13 +113,19 @@ export function setRemoteSpaState(decisionUrl: string | null): void {
   if (decisionUrl === null) {
     remoteSpaBaseUrl = null;
     remoteSpaUrl = null;
+    remoteSpaBaseDir = null;
   } else {
     try {
-      remoteSpaBaseUrl = new URL(decisionUrl).origin;
+      const parsed = new URL(decisionUrl);
+      remoteSpaBaseUrl = parsed.origin;
       remoteSpaUrl = decisionUrl;
+      // pathname up to and including the final '/': '/' for the flat Pages host,
+      // '/spa/<sha>/' for the legacy host. See getRemoteSpaBaseDir().
+      remoteSpaBaseDir = parsed.pathname.slice(0, parsed.pathname.lastIndexOf('/') + 1) || '/';
     } catch {
       remoteSpaBaseUrl = null;
       remoteSpaUrl = null;
+      remoteSpaBaseDir = null;
     }
   }
   listeners.forEach((l) => l(remoteSpaUrl));

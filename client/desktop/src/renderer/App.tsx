@@ -23,6 +23,7 @@ import { useAuthStore } from './stores/authStore';
 import { useE2EEStore } from './stores/e2eeStore';
 import { useUserStore } from './stores/userStore';
 import { errorMessage } from './utils/redactError';
+import { runRecoveryModule } from './utils/runRecoveryModule';
 import { useVideoSettingsStore } from './stores/videoSettingsStore';
 import { useOsPermissionStore, type OsPermissionType } from './stores/osPermissionStore';
 import { useWebSocket } from './hooks/useWebSocket';
@@ -373,8 +374,11 @@ function App() {
         // network issue). Preserving disk tokens allows the next launch to retry.
         // If the user logs in fresh, new tokens overwrite the old files anyway.
         console.warn('[App] Session restore failed:', result.status);
-        const { gracefulReset } = await import('./services/resetService');
-        gracefulReset();
+        await runRecoveryModule(
+          () => import('./services/resetService'),
+          (m) => m.gracefulReset(),
+          'gracefulReset'
+        );
       }
       setIsRestoring(false);
     };

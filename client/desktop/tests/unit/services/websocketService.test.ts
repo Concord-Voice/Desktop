@@ -505,6 +505,131 @@ describe('scheduleReconnect attempt cap', () => {
   });
 });
 
+describe('standard-mode backoff jitter', () => {
+  // Math.random is pinned so fullJitter(base) === floor(rand * base) is a
+  // deterministic expectation (per tests.md "no random data"). The assertion
+  // is that the STANDARD (non-aggressive) branch now jitters the delay the
+  // same way the aggressive branch always has — desyncing a fleet-wide
+  // thundering herd against a recovering origin (#769 / origin-502-storm).
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('applies full jitter to the standard (non-aggressive) backoff delay', () => {
+    vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+
+    const svc = new WebSocketService('ws://localhost:8080');
+    const s = svc as unknown as {
+      aggressiveReconnect: boolean;
+      reconnectAttempts: number;
+      scheduleReconnect: () => void;
+    };
+    s.aggressiveReconnect = false;
+    s.reconnectAttempts = 0; // base = min(1000 * 2^0, 30000) = 1000
+
+    s.scheduleReconnect();
+
+    // Deterministic code armed 1000ms; full jitter at random=0.5 → floor(0.5*1000)=500.
+    expect(setTimeoutSpy.mock.calls.at(-1)?.[1]).toBe(500);
+
+    svc.disconnect();
+  });
+
+  it('jitters the capped 30s delay to strictly below the ceiling', () => {
+    vi.useFakeTimers();
+    const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    vi.spyOn(Math, 'random').mockReturnValue(0.999);
+
+    const svc = new WebSocketService('ws://localhost:8080');
+    const s = svc as unknown as {
+      aggressiveReconnect: boolean;
+      reconnectAttempts: number;
+      scheduleReconnect: () => void;
+    };
+    s.aggressiveReconnect = false;
+    s.reconnectAttempts = 20; // >= maxReconnectAttempts → base capped at 30000
+
+    s.scheduleReconnect();
+
+    expect(setTimeoutSpy.mock.calls.at(-1)?.[1]).toBe(Math.floor(0.999 * 30000));
+    expect(setTimeoutSpy.mock.calls.at(-1)?.[1] as number).toBeLessThan(30000);
+
+    svc.disconnect();
+  });
+});
+
+describe('offline short-circuit (navigator.onLine gate)', () => {
+  // navigator.onLine === false is a reliable "definitely offline" signal; the
+  // gate skips the guaranteed-to-fail ws-ticket POST and waits for the browser
+  // 'online' event instead of hammering the network on the backoff timer. (It
+  // does NOT help the origin-502 case — there the client is online.)
+  const setOnLine = (value: boolean) =>
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => value });
+
+  afterEach(() => {
+    setOnLine(true); // restore jsdom default so sibling suites see "online"
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    globalThis.fetch = originalFetch;
+  });
+
+  it('defers the ws-ticket fetch while offline and reconnects when online fires', async () => {
+    vi.useFakeTimers();
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ ticket: 'mock-ticket' }),
+    });
+    globalThis.fetch = mockFetch;
+    setOnLine(false);
+
+    const svc = new WebSocketService('ws://localhost:8080');
+    svc.connect('jwt-token');
+    await vi.advanceTimersByTimeAsync(0);
+
+    // Offline → no guaranteed-to-fail ticket POST, but armed for recovery.
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(svc.getState()).toBe(ConnectionState.RECONNECTING);
+
+    // Connectivity returns → retry fires the ticket fetch.
+    setOnLine(true);
+    globalThis.dispatchEvent(new Event('online'));
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.stringContaining('/auth/ws-ticket'),
+      expect.anything()
+    );
+
+    svc.disconnect();
+  });
+
+  it('removes the online listener on disconnect (no zombie reconnect)', async () => {
+    vi.useFakeTimers();
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ ticket: 'mock-ticket' }),
+    });
+    globalThis.fetch = mockFetch;
+    setOnLine(false);
+
+    const svc = new WebSocketService('ws://localhost:8080');
+    svc.connect('jwt-token');
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockFetch).not.toHaveBeenCalled();
+
+    svc.disconnect();
+
+    // 'online' fires AFTER disconnect — the listener must have been removed.
+    setOnLine(true);
+    globalThis.dispatchEvent(new Event('online'));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
 describe('ticket cache', () => {
   it('consumes cached ticket within TTL', () => {
     const svc = new WebSocketService('ws://localhost:8080');

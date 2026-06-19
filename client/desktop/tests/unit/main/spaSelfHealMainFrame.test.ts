@@ -16,224 +16,352 @@ import {
 
 const mockAttempt = attemptSelfHeal as unknown as ReturnType<typeof vi.fn>;
 
+// Legacy per-SHA host (pre-#976): SPA served under /spa/<sha>/, SHARING the
+// origin with the API. Base dir = '/spa/abc1234/' — so non-SPA same-origin
+// paths (apex, hash routes, /api/*) are correctly rejected.
+const LEGACY_ORIGIN = 'https://api.concordvoice.chat';
+const LEGACY_DIR = '/spa/abc1234/';
+// Flat Cloudflare Pages host (post-#976, ADR-0015): SPA served at the origin
+// root on a DEDICATED host. Base dir = '/' — so any same-origin frame is the
+// SPA. This is the host the #976 regression silently broke self-heal on.
+const FLAT_ORIGIN = 'https://spa.concordvoice.chat';
+const FLAT_DIR = '/';
+
 describe('shouldTriggerSelfHealForFailedLoad — did-fail-load filter', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('triggers on isMainFrame=true when validatedURL origin matches remoteSpaBaseUrl', () => {
-    // remoteSpaBaseUrl in main.ts:117 stores the ORIGIN only (set via
-    // new URL(decision.url).origin at line 162). Filter compares origins.
-    const result = shouldTriggerSelfHealForFailedLoad({
-      errorCode: -105,
-      validatedURL: 'https://api.concordvoice.chat/spa/abc1234/index.html',
-      isMainFrame: true,
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(result).toBe(true);
+  // ─── Legacy per-SHA host ────────────────────────────────────────────────
+  it('triggers on isMainFrame=true when validatedURL is under the SPA base dir (legacy)', () => {
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: -105,
+        validatedURL: 'https://api.concordvoice.chat/spa/abc1234/index.html',
+        isMainFrame: true,
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(true);
   });
 
-  it('triggers on isMainFrame=false when validatedURL matches SPA chunk pattern', () => {
-    const result = shouldTriggerSelfHealForFailedLoad({
-      errorCode: 404,
-      validatedURL: 'https://api.concordvoice.chat/spa/abc1234/assets/Settings-Xyz.js',
-      isMainFrame: false,
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(result).toBe(true);
+  it('triggers on isMainFrame=false for a chunk under the SPA assets dir (legacy)', () => {
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: 404,
+        validatedURL: 'https://api.concordvoice.chat/spa/abc1234/assets/Settings-Xyz.js',
+        isMainFrame: false,
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(true);
   });
 
   it('does NOT trigger on errorCode=-3 (ABORTED) — user-cancelled nav', () => {
-    const result = shouldTriggerSelfHealForFailedLoad({
-      errorCode: -3,
-      validatedURL: 'https://api.concordvoice.chat/spa/abc1234/index.html',
-      isMainFrame: true,
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(result).toBe(false);
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: -3,
+        validatedURL: 'https://api.concordvoice.chat/spa/abc1234/index.html',
+        isMainFrame: true,
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(false);
   });
 
   it('does NOT trigger when remoteSpaBaseUrl is null (bundled mode)', () => {
-    const result = shouldTriggerSelfHealForFailedLoad({
-      errorCode: -105,
-      validatedURL: 'https://api.concordvoice.chat/spa/abc1234/index.html',
-      isMainFrame: true,
-      remoteSpaBaseUrl: null,
-    });
-    expect(result).toBe(false);
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: -105,
+        validatedURL: 'https://api.concordvoice.chat/spa/abc1234/index.html',
+        isMainFrame: true,
+        remoteSpaBaseUrl: null,
+        remoteSpaBaseDir: null,
+      })
+    ).toBe(false);
   });
 
   it('does NOT trigger on isMainFrame=true with cross-origin validatedURL', () => {
-    const result = shouldTriggerSelfHealForFailedLoad({
-      errorCode: -105,
-      validatedURL: 'https://evil.example.com/spa/abc1234/index.html',
-      isMainFrame: true,
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(result).toBe(false);
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: -105,
+        validatedURL: 'https://evil.example.com/spa/abc1234/index.html',
+        isMainFrame: true,
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(false);
   });
 
   it('does NOT trigger on isMainFrame=false with cross-origin chunk URL (Copilot review on PR #773)', () => {
-    // SPA_CHUNK_URL_PATTERN is host-agnostic (it matches `/spa/<sha>/...`
-    // regardless of host), so without the origin check a failed
-    // cross-origin load like
-    // `https://evil.example.com/spa/abc1234/assets/x.js` would falsely
-    // consume self-heal budget. This mirrors the main-frame origin check
-    // — both branches must reject cross-origin URLs even when the path
-    // shape matches the SPA pattern.
-    const result = shouldTriggerSelfHealForFailedLoad({
-      errorCode: 404,
-      validatedURL: 'https://evil.example.com/spa/abc1234/assets/Settings-Xyz.js',
-      isMainFrame: false,
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(result).toBe(false);
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: 404,
+        validatedURL: 'https://evil.example.com/spa/abc1234/assets/Settings-Xyz.js',
+        isMainFrame: false,
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(false);
   });
 
-  it('does NOT trigger on non-SPA sub-resource URL', () => {
-    const result = shouldTriggerSelfHealForFailedLoad({
-      errorCode: 404,
-      validatedURL: 'https://api.concordvoice.chat/api/v1/messages',
-      isMainFrame: false,
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(result).toBe(false);
+  it('does NOT trigger on non-SPA sub-resource (same origin, not under assets/)', () => {
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: 404,
+        validatedURL: 'https://api.concordvoice.chat/api/v1/messages',
+        isMainFrame: false,
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(false);
   });
 
   it('does NOT trigger when validatedURL is malformed', () => {
-    const result = shouldTriggerSelfHealForFailedLoad({
-      errorCode: -105,
-      validatedURL: 'not-a-url',
-      isMainFrame: true,
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(result).toBe(false);
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: -105,
+        validatedURL: 'not-a-url',
+        isMainFrame: true,
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(false);
   });
 
-  it('does NOT trigger on isMainFrame=true with same-origin but non-SPA pathname', () => {
-    // Same-origin frames whose pathname is not SPA-shaped (e.g., the apex
-    // `/`) must not consume the self-heal retry budget. Origin-only matching
-    // would incorrectly accept these; the SPA path-shape filter rejects.
-    // Originally this defended against PiP windows loading
-    // `${remoteSpaBaseUrl}#/pip/...` (apex pathname). Post-#802 PiP loads
-    // from the full SPA URL via remoteSpaUrl, but the filter still correctly
-    // rejects any apex-pathname same-origin frame did-fail-load surfaces.
-    // (Copilot review on PR #773.)
-    const result = shouldTriggerSelfHealForFailedLoad({
-      errorCode: -105,
-      validatedURL: 'https://api.concordvoice.chat/',
-      isMainFrame: true,
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(result).toBe(false);
+  it('does NOT trigger on legacy host with same-origin apex pathname', () => {
+    // The legacy SHARED origin also hosts the API; the apex `/` is not the SPA.
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: -105,
+        validatedURL: 'https://api.concordvoice.chat/',
+        isMainFrame: true,
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(false);
   });
 
-  it('does NOT trigger on isMainFrame=true with same-origin hash-route URL', () => {
-    // Hash routes are same-origin but not SPA-pathname-shaped. Origin-only
-    // matching would have accepted these.
-    const result = shouldTriggerSelfHealForFailedLoad({
-      errorCode: -105,
-      validatedURL: 'https://api.concordvoice.chat/#/pip/abc',
-      isMainFrame: true,
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(result).toBe(false);
+  it('does NOT trigger on legacy host with same-origin hash-route URL', () => {
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: -105,
+        validatedURL: 'https://api.concordvoice.chat/#/pip/abc',
+        isMainFrame: true,
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(false);
   });
 
-  it('does NOT trigger on isMainFrame=true with same-origin /api/* path', () => {
-    // /api/v1/* is same-origin (the API and SPA share api.concordvoice.chat)
-    // but is not SPA-shaped. A hypothetical did-fail-load on an /api URL
-    // should not trigger self-heal.
-    const result = shouldTriggerSelfHealForFailedLoad({
-      errorCode: 404,
-      validatedURL: 'https://api.concordvoice.chat/api/v1/something',
-      isMainFrame: true,
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(result).toBe(false);
+  it('does NOT trigger on legacy host with same-origin /api/* path', () => {
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: 404,
+        validatedURL: 'https://api.concordvoice.chat/api/v1/something',
+        isMainFrame: true,
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(false);
+  });
+
+  // ─── Flat Cloudflare Pages host (post-#976) — the regression fix ─────────
+  it('triggers on flat-host main-frame apex (the dedicated host IS the SPA)', () => {
+    // Pre-fix the hardcoded SPA_URL_PATTERN rejected `https://spa.concordvoice.chat/`
+    // (no /spa/<sha>/), silently disabling self-heal on the production host.
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: -105,
+        validatedURL: 'https://spa.concordvoice.chat/',
+        isMainFrame: true,
+        remoteSpaBaseUrl: FLAT_ORIGIN,
+        remoteSpaBaseDir: FLAT_DIR,
+      })
+    ).toBe(true);
+  });
+
+  it('triggers on flat-host main-frame index.html', () => {
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: -105,
+        validatedURL: 'https://spa.concordvoice.chat/index.html',
+        isMainFrame: true,
+        remoteSpaBaseUrl: FLAT_ORIGIN,
+        remoteSpaBaseDir: FLAT_DIR,
+      })
+    ).toBe(true);
+  });
+
+  it('triggers on flat-host chunk asset (sub-resource)', () => {
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: 404,
+        validatedURL: 'https://spa.concordvoice.chat/assets/recoveryService-40XchBlv.js',
+        isMainFrame: false,
+        remoteSpaBaseUrl: FLAT_ORIGIN,
+        remoteSpaBaseDir: FLAT_DIR,
+      })
+    ).toBe(true);
+  });
+
+  it('does NOT trigger on flat-host non-asset sub-resource', () => {
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: 404,
+        validatedURL: 'https://spa.concordvoice.chat/api/v1/x',
+        isMainFrame: false,
+        remoteSpaBaseUrl: FLAT_ORIGIN,
+        remoteSpaBaseDir: FLAT_DIR,
+      })
+    ).toBe(false);
+  });
+
+  it('does NOT trigger on flat host with cross-origin URL', () => {
+    expect(
+      shouldTriggerSelfHealForFailedLoad({
+        errorCode: -105,
+        validatedURL: 'https://evil.example.com/',
+        isMainFrame: true,
+        remoteSpaBaseUrl: FLAT_ORIGIN,
+        remoteSpaBaseDir: FLAT_DIR,
+      })
+    ).toBe(false);
   });
 });
 
 describe('validateSelfHealSenderFrame — IPC origin guard', () => {
-  // remoteSpaBaseUrl in main.ts:117 is set to new URL(decision.url).origin —
-  // it's the ORIGIN string, not the full URL. The validator parses senderFrameUrl
-  // and compares its origin against the (already-origin) remoteSpaBaseUrl directly.
-  it('accepts sender from the current SPA origin (full URL → origin)', () => {
-    const ok = validateSelfHealSenderFrame({
-      senderFrameUrl: 'https://api.concordvoice.chat/spa/abc1234/index.html',
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(ok).toBe(true);
+  // ─── Legacy per-SHA host ────────────────────────────────────────────────
+  it('accepts a sender under the SPA base dir (legacy)', () => {
+    expect(
+      validateSelfHealSenderFrame({
+        senderFrameUrl: 'https://api.concordvoice.chat/spa/abc1234/index.html',
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(true);
   });
 
-  it('accepts sender from the same origin with a chunk-asset path', () => {
-    const ok = validateSelfHealSenderFrame({
-      senderFrameUrl: 'https://api.concordvoice.chat/spa/abc1234/assets/Settings.js',
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(ok).toBe(true);
+  it('accepts a sender with a chunk-asset path under the SPA base dir (legacy)', () => {
+    expect(
+      validateSelfHealSenderFrame({
+        senderFrameUrl: 'https://api.concordvoice.chat/spa/abc1234/assets/Settings.js',
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(true);
   });
 
-  it('rejects sender from a different origin', () => {
-    const ok = validateSelfHealSenderFrame({
-      senderFrameUrl: 'https://evil.example.com/abc',
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(ok).toBe(false);
+  it('rejects a sender from a different origin', () => {
+    expect(
+      validateSelfHealSenderFrame({
+        senderFrameUrl: 'https://evil.example.com/abc',
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(false);
   });
 
   it('rejects when remoteSpaBaseUrl is null (no SPA mode active)', () => {
-    const ok = validateSelfHealSenderFrame({
-      senderFrameUrl: 'https://api.concordvoice.chat/spa/abc1234/index.html',
-      remoteSpaBaseUrl: null,
-    });
-    expect(ok).toBe(false);
+    expect(
+      validateSelfHealSenderFrame({
+        senderFrameUrl: 'https://api.concordvoice.chat/spa/abc1234/index.html',
+        remoteSpaBaseUrl: null,
+        remoteSpaBaseDir: null,
+      })
+    ).toBe(false);
   });
 
   it('rejects when senderFrameUrl is empty', () => {
-    const ok = validateSelfHealSenderFrame({
-      senderFrameUrl: '',
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(ok).toBe(false);
+    expect(
+      validateSelfHealSenderFrame({
+        senderFrameUrl: '',
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(false);
   });
 
   it('rejects when senderFrameUrl is malformed', () => {
-    const ok = validateSelfHealSenderFrame({
-      senderFrameUrl: 'not-a-url',
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(ok).toBe(false);
+    expect(
+      validateSelfHealSenderFrame({
+        senderFrameUrl: 'not-a-url',
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(false);
   });
 
-  it('rejects sender on same origin but non-SPA pathname', () => {
-    // Same-origin senders whose pathname is not SPA-shaped (e.g., the apex
-    // `/`) must not be accepted as legitimate self-heal IPC triggers. The
-    // SPA path-shape filter prevents any non-SPA same-origin code from
-    // spoofing. Originally this defended against PiP windows loading
-    // `${remoteSpaBaseUrl}#/pip/...` (apex pathname). Post-#802 PiP loads
-    // from the full SPA URL via remoteSpaUrl, but the filter still correctly
-    // rejects any apex-pathname same-origin frame.
-    // (Copilot review on PR #773.)
-    const ok = validateSelfHealSenderFrame({
-      senderFrameUrl: 'https://api.concordvoice.chat/',
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(ok).toBe(false);
+  it('rejects a legacy-host sender on same origin but non-SPA apex pathname', () => {
+    expect(
+      validateSelfHealSenderFrame({
+        senderFrameUrl: 'https://api.concordvoice.chat/',
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(false);
   });
 
-  it('rejects sender on same origin hash-route URL', () => {
-    const ok = validateSelfHealSenderFrame({
-      senderFrameUrl: 'https://api.concordvoice.chat/#/pip/xyz',
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(ok).toBe(false);
+  it('rejects a legacy-host sender on same-origin hash-route URL', () => {
+    expect(
+      validateSelfHealSenderFrame({
+        senderFrameUrl: 'https://api.concordvoice.chat/#/pip/xyz',
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(false);
   });
 
-  it('rejects sender on same origin /api/* path', () => {
-    const ok = validateSelfHealSenderFrame({
-      senderFrameUrl: 'https://api.concordvoice.chat/api/v1/messages',
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
-    });
-    expect(ok).toBe(false);
+  it('rejects a legacy-host sender on same-origin /api/* path', () => {
+    expect(
+      validateSelfHealSenderFrame({
+        senderFrameUrl: 'https://api.concordvoice.chat/api/v1/messages',
+        remoteSpaBaseUrl: LEGACY_ORIGIN,
+        remoteSpaBaseDir: LEGACY_DIR,
+      })
+    ).toBe(false);
+  });
+
+  // ─── Flat Cloudflare Pages host (post-#976) — the regression fix ─────────
+  it('accepts a flat-host sender at the apex (the dedicated host IS the SPA)', () => {
+    expect(
+      validateSelfHealSenderFrame({
+        senderFrameUrl: 'https://spa.concordvoice.chat/',
+        remoteSpaBaseUrl: FLAT_ORIGIN,
+        remoteSpaBaseDir: FLAT_DIR,
+      })
+    ).toBe(true);
+  });
+
+  it('accepts a flat-host sender at index.html', () => {
+    expect(
+      validateSelfHealSenderFrame({
+        senderFrameUrl: 'https://spa.concordvoice.chat/index.html',
+        remoteSpaBaseUrl: FLAT_ORIGIN,
+        remoteSpaBaseDir: FLAT_DIR,
+      })
+    ).toBe(true);
+  });
+
+  it('accepts a flat-host sender on a hash route (the real reconnect-window frame)', () => {
+    // The origin-502 logs showed the frame at `/#/app`; Pages canonicalises
+    // /index.html→/, so the live sender frame is root + hash. This must pass —
+    // it is exactly the frame whose self-heal IPC the stale pattern rejected.
+    expect(
+      validateSelfHealSenderFrame({
+        senderFrameUrl: 'https://spa.concordvoice.chat/#/app',
+        remoteSpaBaseUrl: FLAT_ORIGIN,
+        remoteSpaBaseDir: FLAT_DIR,
+      })
+    ).toBe(true);
+  });
+
+  it('rejects a flat-host sender from a different origin', () => {
+    expect(
+      validateSelfHealSenderFrame({
+        senderFrameUrl: 'https://evil.example.com/',
+        remoteSpaBaseUrl: FLAT_ORIGIN,
+        remoteSpaBaseDir: FLAT_DIR,
+      })
+    ).toBe(false);
   });
 });
 
@@ -244,18 +372,19 @@ describe('handleSpaRequestSelfHeal — extracted IPC handler body', () => {
     const result = await handleSpaRequestSelfHeal({
       senderFrameUrl: 'https://evil.example.com/spa/abc1234/index.html',
       payload: { reason: 'chunk-load' },
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
+      remoteSpaBaseUrl: LEGACY_ORIGIN,
+      remoteSpaBaseDir: LEGACY_DIR,
     });
     expect(result).toBeNull();
     expect(mockAttempt).not.toHaveBeenCalled();
   });
 
-  it('rejects when payload is not a valid renderer request, does not call attemptSelfHeal', async () => {
-    // Sender frame OK, but payload has a main-process-only reason (trust-boundary breach attempt).
+  it('rejects when payload is not a valid renderer request (main-process-only reason)', async () => {
     const result = await handleSpaRequestSelfHeal({
       senderFrameUrl: 'https://api.concordvoice.chat/spa/abc1234/index.html',
       payload: { reason: 'main-frame-load' },
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
+      remoteSpaBaseUrl: LEGACY_ORIGIN,
+      remoteSpaBaseDir: LEGACY_DIR,
     });
     expect(result).toBeNull();
     expect(mockAttempt).not.toHaveBeenCalled();
@@ -265,7 +394,8 @@ describe('handleSpaRequestSelfHeal — extracted IPC handler body', () => {
     const result = await handleSpaRequestSelfHeal({
       senderFrameUrl: 'https://api.concordvoice.chat/spa/abc1234/index.html',
       payload: 'not-an-object',
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
+      remoteSpaBaseUrl: LEGACY_ORIGIN,
+      remoteSpaBaseDir: LEGACY_DIR,
     });
     expect(result).toBeNull();
     expect(mockAttempt).not.toHaveBeenCalled();
@@ -278,7 +408,8 @@ describe('handleSpaRequestSelfHeal — extracted IPC handler body', () => {
         reason: 'chunk-load',
         url: 'https://api.concordvoice.chat/spa/abc1234/assets/x.js',
       },
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
+      remoteSpaBaseUrl: LEGACY_ORIGIN,
+      remoteSpaBaseDir: LEGACY_DIR,
     });
 
     expect(mockAttempt).toHaveBeenCalledOnce();
@@ -293,9 +424,22 @@ describe('handleSpaRequestSelfHeal — extracted IPC handler body', () => {
     await handleSpaRequestSelfHeal({
       senderFrameUrl: 'https://api.concordvoice.chat/spa/abc1234/index.html',
       payload: { reason: 'chunk-import-rejected' },
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
+      remoteSpaBaseUrl: LEGACY_ORIGIN,
+      remoteSpaBaseDir: LEGACY_DIR,
     });
 
+    expect(mockAttempt).toHaveBeenCalledWith({ reason: 'chunk-import-rejected', url: undefined });
+  });
+
+  it('dispatches on a flat-host hash-route sender (post-#976 end-to-end)', async () => {
+    // The exact failure from the origin-502 logs: a chunk-import-rejected from
+    // the flat-host `/#/app` frame. Pre-fix this was rejected at the sender gate.
+    await handleSpaRequestSelfHeal({
+      senderFrameUrl: 'https://spa.concordvoice.chat/#/app',
+      payload: { reason: 'chunk-import-rejected' },
+      remoteSpaBaseUrl: FLAT_ORIGIN,
+      remoteSpaBaseDir: FLAT_DIR,
+    });
     expect(mockAttempt).toHaveBeenCalledWith({ reason: 'chunk-import-rejected', url: undefined });
   });
 });
@@ -308,7 +452,8 @@ describe('handleDidFailLoad — extracted listener body', () => {
       errorCode: -3,
       validatedURL: 'https://api.concordvoice.chat/spa/abc1234/index.html',
       isMainFrame: true,
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
+      remoteSpaBaseUrl: LEGACY_ORIGIN,
+      remoteSpaBaseDir: LEGACY_DIR,
     });
     expect(result).toBeNull();
     expect(mockAttempt).not.toHaveBeenCalled();
@@ -320,6 +465,7 @@ describe('handleDidFailLoad — extracted listener body', () => {
       validatedURL: 'https://api.concordvoice.chat/spa/abc1234/index.html',
       isMainFrame: true,
       remoteSpaBaseUrl: null,
+      remoteSpaBaseDir: null,
     });
     expect(result).toBeNull();
     expect(mockAttempt).not.toHaveBeenCalled();
@@ -330,7 +476,8 @@ describe('handleDidFailLoad — extracted listener body', () => {
       errorCode: -105,
       validatedURL: 'https://api.concordvoice.chat/spa/abc1234/index.html',
       isMainFrame: true,
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
+      remoteSpaBaseUrl: LEGACY_ORIGIN,
+      remoteSpaBaseDir: LEGACY_DIR,
     });
 
     expect(mockAttempt).toHaveBeenCalledOnce();
@@ -346,7 +493,8 @@ describe('handleDidFailLoad — extracted listener body', () => {
       errorCode: 404,
       validatedURL: 'https://api.concordvoice.chat/spa/abc1234/assets/Settings-x.js',
       isMainFrame: false,
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
+      remoteSpaBaseUrl: LEGACY_ORIGIN,
+      remoteSpaBaseDir: LEGACY_DIR,
     });
 
     expect(mockAttempt).toHaveBeenCalledWith({
@@ -361,7 +509,8 @@ describe('handleDidFailLoad — extracted listener body', () => {
       errorCode: -105,
       validatedURL: 'https://api.concordvoice.chat/spa/abc1234/index.html',
       isMainFrame: true,
-      remoteSpaBaseUrl: 'https://api.concordvoice.chat',
+      remoteSpaBaseUrl: LEGACY_ORIGIN,
+      remoteSpaBaseDir: LEGACY_DIR,
     });
     expect(result).toEqual({ mode: 'recovered', retryCount: 1 });
   });

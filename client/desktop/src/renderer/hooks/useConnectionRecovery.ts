@@ -12,6 +12,7 @@ import { useConnectionStore } from '../stores/connectionStore';
 import { useUserStore } from '../stores/userStore';
 import { useVoiceStore } from '../stores/voiceStore';
 import { useMemberStore } from '../stores/memberStore';
+import { runRecoveryModule } from '../utils/runRecoveryModule';
 
 /** Run preflight diagnostics after grace period expires and route to the appropriate recovery path. */
 async function runPreflightDiagnostics(wsService: ReturnType<typeof getWebSocketService>) {
@@ -34,35 +35,54 @@ async function runPreflightDiagnostics(wsService: ReturnType<typeof getWebSocket
     useMemberStore.getState().setSelfStatus('offline');
   }
 
-  const { runPreflight } = await import('../services/recoveryService');
-  const diag = await runPreflight();
-  store.setDiagnostics(diag);
+  // Guard the lazy import: a stale SPA chunk here previously rejected and was
+  // swallowed by the caller's `.catch(console.debug)`, leaving the store stuck
+  // in 'preflight' with no diagnostics and no recovery. runRecoveryModule
+  // triggers self-heal on failure instead. runPreflight() is throw-safe (it
+  // returns a DiagnosticResults object, never throws — see recoveryService.ts),
+  // so the only failure the outer guard catches is the chunk-load rejection —
+  // exactly what self-heal is for. The nested resetService import is guarded
+  // the same way.
+  await runRecoveryModule(
+    () => import('../services/recoveryService'),
+    async ({ runPreflight }) => {
+      const diag = await runPreflight();
+      store.setDiagnostics(diag);
 
-  if (diag.sessionRevoked) {
-    store.enterFatal();
-    return;
-  }
+      if (diag.sessionRevoked) {
+        store.enterFatal();
+        return;
+      }
 
-  if (diag.internet !== 'ok' || diag.serverReachable !== 'ok') {
-    store.enterRecoveryA();
-    return;
-  }
+      if (diag.internet !== 'ok' || diag.serverReachable !== 'ok') {
+        store.enterRecoveryA();
+        return;
+      }
 
-  if (diag.tokenValid === 'ok' && diag.rendererStable !== 'ok') {
-    store.enterRecoveryB();
-    const { softRestart } = await import('../services/resetService');
-    softRestart();
-    return;
-  }
+      if (diag.tokenValid === 'ok' && diag.rendererStable !== 'ok') {
+        store.enterRecoveryB();
+        await runRecoveryModule(
+          () => import('../services/resetService'),
+          (m) => m.softRestart(),
+          'softRestart'
+        );
+        return;
+      }
 
-  if (diag.tokenValid === 'ok') {
-    store.enterRecoveryA();
-    return;
-  }
+      if (diag.tokenValid === 'ok') {
+        store.enterRecoveryA();
+        return;
+      }
 
-  store.enterRecoveryB();
-  const { softRestart } = await import('../services/resetService');
-  softRestart();
+      store.enterRecoveryB();
+      await runRecoveryModule(
+        () => import('../services/resetService'),
+        (m) => m.softRestart(),
+        'softRestart'
+      );
+    },
+    'runPreflight'
+  );
 }
 
 /** Handle recovery when connection drops (RECONNECTING state). */
@@ -102,10 +122,21 @@ function handleReconnected(
   wsService.setAggressiveReconnect(false);
 
   if (phase === 'recovery_a' || phase === 'preflight') {
-    import('../services/resetService').then((m) => m.gracefulReset());
+    // Floated intentionally — runRecoveryModule never rejects (it swallows a
+    // stale-chunk import failure and triggers self-heal), so this cannot
+    // surface as the Uncaught (in promise) seen in the origin-502-storm logs.
+    runRecoveryModule(
+      () => import('../services/resetService'),
+      (m) => m.gracefulReset(),
+      'gracefulReset'
+    );
     useConnectionStore.getState().reset();
     useUserStore.getState().fetchUser();
-    import('../services/recoveryService').then((m) => m.clearCrashFlag());
+    runRecoveryModule(
+      () => import('../services/recoveryService'),
+      (m) => m.clearCrashFlag(),
+      'clearCrashFlag'
+    );
     if (e2eeService.isInitialized) validateEpochsOnReconnect().catch(() => {});
     return;
   }
