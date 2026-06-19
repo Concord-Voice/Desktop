@@ -217,6 +217,9 @@ interface RoomJoinedResponse {
     username: string;
     displayName?: string;
     avatarUrl?: string;
+    /** Self-deafen state from the SFU room snapshot (#685) — optional for
+     *  resilience against an older media-plane that omits it. */
+    isDeafened?: boolean;
   }>;
   channelName: string;
   e2eeEpoch?: number;
@@ -1444,7 +1447,7 @@ class VoiceService {
         displayName: p.displayName,
         avatarUrl: p.avatarUrl,
         isMuted: false,
-        isDeafened: false,
+        isDeafened: p.isDeafened ?? false,
         serverMuted: false,
         serverDeafened: false,
         isVideoOn: producerState?.isVideoOn ?? false,
@@ -2383,21 +2386,45 @@ class VoiceService {
 
   // ─── Producer Controls ─────────────────────────────────────────────
 
+  /**
+   * Optimistically apply a partial state change to the local user in BOTH the
+   * participant map and the active-channel sidebar member list, so the UI updates
+   * immediately without waiting for the SFU echo. Single source of the update
+   * plumbing shared by the mute and deafen helpers (#685).
+   */
+  private applyOptimisticLocalState(
+    store: ReturnType<typeof useVoiceStore.getState>,
+    update: { isMuted?: boolean; isDeafened?: boolean },
+    label: string
+  ): void {
+    const localUserId = useUserStore.getState().user?.id;
+    if (!localUserId) {
+      console.warn(`[VoiceService] ${label}: no local user ID — sidebar state may be stale`);
+      return;
+    }
+    store.updateParticipant(localUserId, update);
+    if (store.activeChannelId) {
+      store.updateChannelVoiceMember(store.activeChannelId, localUserId, update);
+    }
+  }
+
   private applyOptimisticMute(
     store: ReturnType<typeof useVoiceStore.getState>,
     muted: boolean
   ): void {
-    const localUserId = useUserStore.getState().user?.id;
-    if (!localUserId) {
-      console.warn(
-        '[VoiceService] applyOptimisticMute: no local user ID — sidebar state may be stale'
-      );
-      return;
-    }
-    store.updateParticipant(localUserId, { isMuted: muted });
-    if (store.activeChannelId) {
-      store.updateChannelVoiceMember(store.activeChannelId, localUserId, { isMuted: muted });
-    }
+    this.applyOptimisticLocalState(store, { isMuted: muted }, 'applyOptimisticMute');
+  }
+
+  /**
+   * Optimistically reflect the local user's self-deafen in both the participant
+   * map and the channel-sidebar member list (#685) — symmetric with
+   * applyOptimisticMute, so the sidebar updates immediately without the SFU echo.
+   */
+  private applyOptimisticDeafen(
+    store: ReturnType<typeof useVoiceStore.getState>,
+    deafened: boolean
+  ): void {
+    this.applyOptimisticLocalState(store, { isDeafened: deafened }, 'applyOptimisticDeafen');
   }
 
   /** Toggle mute (pause/resume mic producer) */
@@ -2462,10 +2489,10 @@ class VoiceService {
 
     const newDeafened = !store.isDeafened;
     store.setDeafened(newDeafened);
-    const deafLocalUserId = useUserStore.getState().user?.id;
-    if (deafLocalUserId) {
-      store.updateParticipant(deafLocalUserId, { isDeafened: newDeafened });
-    }
+    this.applyOptimisticDeafen(store, newDeafened);
+    // Broadcast self-deafen to the room so other participants' sidebars update in
+    // real time (#685) — mirrors self-mute's pause-producer → producer-paused path.
+    this.socket?.emit('set-deafen', { isDeafened: newDeafened });
     notificationSoundService.play(newDeafened ? 'deafen' : 'undeafen');
 
     // Mute/unmute all audio consumers
@@ -3392,6 +3419,15 @@ class VoiceService {
     this.socket.on('producer-resumed', ({ producerId: _producerId, userId }) => {
       useVoiceStore.getState().updateParticipant(userId, { isMuted: false });
     });
+
+    // Self-deafen broadcast from another participant (#685) — mirrors the
+    // producer-paused/resumed mute handlers above.
+    this.socket.on(
+      'participant-deafen-changed',
+      ({ userId, isDeafened }: { userId: string; isDeafened: boolean }) => {
+        useVoiceStore.getState().updateParticipant(userId, { isDeafened });
+      }
+    );
 
     this.socket.on('producer-closed', ({ producerId, userId, source }) => {
       // Find and close the corresponding consumer

@@ -4,7 +4,11 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useChannelStore } from '../../stores/channelStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useUnreadStore } from '../../stores/unreadStore';
-import { useVoiceStore, type ChannelVoiceMember } from '../../stores/voiceStore';
+import {
+  useVoiceStore,
+  type ChannelVoiceMember,
+  channelVoiceMemberFromApi,
+} from '../../stores/voiceStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useDraftMessageStore } from '../../stores/draftMessageStore';
 import { Permissions, hasPermission, MOVE_MEMBERS } from '../../utils/permissions';
@@ -462,11 +466,13 @@ const ChannelList: React.FC<ChannelListProps> = ({
       setDraggedParticipant(null);
       setParticipantDropTargetId(null);
       if (!isValidParticipantDrop(channel, dragged) || !dragged) return;
-      void moveVoiceParticipant(dragged.sourceServerId, dragged.participantUserId, channel.id).catch(
-        () => {
-          // Server is authoritative; failures surface via voice_state_update / errors.
-        }
-      );
+      void moveVoiceParticipant(
+        dragged.sourceServerId,
+        dragged.participantUserId,
+        channel.id
+      ).catch(() => {
+        // Server is authoritative; failures surface via voice_state_update / errors.
+      });
     },
     [isValidParticipantDrop]
   );
@@ -508,23 +514,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
         if (!res.ok) return;
         const data = await res.json();
         const members: ChannelVoiceMember[] = (data.participants || []).map(
-          (p: {
-            user_id: string;
-            username: string;
-            display_name?: string;
-            avatar_url?: string;
-            is_muted?: boolean;
-            server_muted?: boolean;
-            server_deafened?: boolean;
-          }) => ({
-            userId: p.user_id,
-            username: p.username,
-            displayName: p.display_name,
-            avatarUrl: p.avatar_url,
-            isMuted: p.is_muted || false,
-            serverMuted: p.server_muted || false,
-            serverDeafened: p.server_deafened || false,
-          })
+          channelVoiceMemberFromApi
         );
         if (members.length > 0) {
           setChannelVoiceMembers(channel.id, members);
@@ -917,7 +907,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
         isSpeaking: false,
         serverMuted: m.serverMuted || false,
         serverDeafened: m.serverDeafened || false,
-        isDeafened: false,
+        isDeafened: m.isDeafened,
       }));
     },
     [voiceChannelId, voiceConnectionState, voiceParticipants, channelVoiceMembers]

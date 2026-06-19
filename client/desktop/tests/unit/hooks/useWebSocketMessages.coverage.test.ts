@@ -1843,6 +1843,7 @@ describe('useWebSocketMessages — coverage boost', () => {
         username: 'alice',
         displayName: 'Alice',
         isMuted: false,
+        isDeafened: false,
         serverMuted: false,
         serverDeafened: false,
       });

@@ -175,8 +175,47 @@ export interface ChannelVoiceMember {
   displayName?: string;
   avatarUrl?: string;
   isMuted: boolean;
+  /** Self-deafen (#685). For non-active channels this stays false (the SFU
+   *  broadcast is room-scoped), so it is meaningful for the active channel /
+   *  local optimistic update; the sidebar's active-channel path reads deafen
+   *  from `participants` (VoiceParticipant) which carries the live value. */
+  isDeafened: boolean;
   serverMuted: boolean;
   serverDeafened: boolean;
+}
+
+/**
+ * Wire shape of a voice participant returned by the control-plane REST endpoints
+ * (initial fetch + the WS-triggered refetch). snake_case per the API contract.
+ */
+export interface ApiVoiceParticipant {
+  user_id: string;
+  username: string;
+  display_name?: string;
+  avatar_url?: string;
+  is_muted?: boolean;
+  server_muted?: boolean;
+  server_deafened?: boolean;
+}
+
+/**
+ * Map a REST API participant to a sidebar {@link ChannelVoiceMember}. Shared by
+ * the channel-list fetch and the WS refetch so the mapping lives in one place
+ * (#685). Self-deafen is SFU-broadcast (room-scoped), NOT carried by these REST
+ * endpoints, so it defaults false here; the live value flows through
+ * `participants` for the active channel.
+ */
+export function channelVoiceMemberFromApi(p: ApiVoiceParticipant): ChannelVoiceMember {
+  return {
+    userId: p.user_id,
+    username: p.username,
+    displayName: p.display_name,
+    avatarUrl: p.avatar_url,
+    isMuted: p.is_muted || false,
+    isDeafened: false,
+    serverMuted: p.server_muted || false,
+    serverDeafened: p.server_deafened || false,
+  };
 }
 
 // ---------------------------------------------------------------------------

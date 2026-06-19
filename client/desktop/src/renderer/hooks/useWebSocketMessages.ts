@@ -27,7 +27,7 @@ import { isPendingKeyError } from '../services/e2eeErrors';
 import { preferencesSyncService } from '../services/preferencesSync';
 import { savedGifsSyncService } from '../services/savedGifsSync';
 import { apiFetch } from '../services/apiClient';
-import { useVoiceStore } from '../stores/voiceStore';
+import { useVoiceStore, channelVoiceMemberFromApi } from '../stores/voiceStore';
 import { useConnectionStore } from '../stores/connectionStore';
 import { useDMStore } from '../stores/dmStore';
 import { useFriendStore } from '../stores/friendStore';
@@ -183,6 +183,7 @@ function handleVoiceMembershipChange(ctx: VoiceMembershipContext): void {
       username: ctx.username,
       displayName: ctx.displayName,
       isMuted: false,
+      isDeafened: false,
       serverMuted: false,
       serverDeafened: false,
     });
@@ -377,25 +378,7 @@ function scheduleVoiceRefetch(
         const res = await apiFetch(`/api/v1/channels/${channelId}/voice/participants`);
         if (!res.ok) return;
         const json = await res.json();
-        const members = (json.participants || []).map(
-          (p: {
-            user_id: string;
-            username: string;
-            display_name?: string;
-            avatar_url?: string;
-            is_muted?: boolean;
-            server_muted?: boolean;
-            server_deafened?: boolean;
-          }) => ({
-            userId: p.user_id,
-            username: p.username,
-            displayName: p.display_name,
-            avatarUrl: p.avatar_url,
-            isMuted: p.is_muted || false,
-            serverMuted: p.server_muted || false,
-            serverDeafened: p.server_deafened || false,
-          })
-        );
+        const members = (json.participants || []).map(channelVoiceMemberFromApi);
         voiceStore.setChannelVoiceMembers(channelId, members);
       } catch {
         /* non-critical */
