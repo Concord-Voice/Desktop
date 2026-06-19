@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const ALL_19_TOKENS = [
+const ALL_23_TOKENS = [
   // State (3)
   '--state-selected',
   '--state-focused',
@@ -12,6 +12,11 @@ const ALL_19_TOKENS = [
   '--font-body-stack',
   '--font-display-tracking',
   '--font-display-tracking-tight',
+  // Display (4) — 4-step display type scale (#1035)
+  '--text-display-xl',
+  '--text-display-lg',
+  '--text-display-md',
+  '--text-display-sm',
   // Scale (3)
   '--radius-base',
   '--radius-elevated',
@@ -153,10 +158,10 @@ describe('design-token schema symmetry', () => {
       expect(blockBody).not.toBeNull();
     });
 
-    it.each(ALL_19_TOKENS)('declares %s', (token) => {
+    it.each(ALL_23_TOKENS)('declares %s', (token) => {
       // Use plain string search to avoid dynamic RegExp construction (Semgrep
       // CWE-1333).  CSS custom property declarations use `token:` or `token :`
-      // — check both forms.  `token` comes from ALL_19_TOKENS (as const), so
+      // — check both forms.  `token` comes from ALL_23_TOKENS (as const), so
       // it is a compile-time constant, but the static analyser treats any
       // function-parameter RegExp as a taint sink.
       const body = blockBody ?? '';

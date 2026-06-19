@@ -1,5 +1,6 @@
 /**
- * Playwright runtime resolution test for the 19 CSS design tokens added in #1033.
+ * Playwright runtime resolution test for the 23 CSS design tokens (#1033, extended
+ * by the 4-step display type scale in #1035).
  *
  * Why Playwright (not Vitest+jsdom): jsdom returns empty string for
  * getComputedStyle().getPropertyValue('--token-name') regardless of declarations —
@@ -36,7 +37,7 @@ const STRATIFIED_SAMPLE = [
   { scheme: 'defacto', theme: 'light', label: 'defacto-light' },
 ] as const;
 
-const ALL_19_TOKENS = [
+const ALL_23_TOKENS = [
   // State (3)
   '--state-selected',
   '--state-focused',
@@ -46,6 +47,11 @@ const ALL_19_TOKENS = [
   '--font-body-stack',
   '--font-display-tracking',
   '--font-display-tracking-tight',
+  // Display (4) — 4-step display type scale (#1035)
+  '--text-display-xl',
+  '--text-display-lg',
+  '--text-display-md',
+  '--text-display-sm',
   // Scale (3)
   '--radius-base',
   '--radius-elevated',
@@ -66,7 +72,7 @@ const ALL_19_TOKENS = [
 
 for (const combo of STRATIFIED_SAMPLE) {
   test(
-    `all 19 design tokens resolve in ${combo.label}`,
+    `all 23 design tokens resolve in ${combo.label}`,
     { tag: '@renderer-only' },
     async ({ page }) => {
       // Navigate to the login page — no auth required; styles/index.css is loaded
@@ -90,7 +96,7 @@ for (const combo of STRATIFIED_SAMPLE) {
 
       // Resolve every token and assert non-empty. An empty string indicates the
       // token is undeclared in the active cascade block — a schema-symmetry failure.
-      for (const token of ALL_19_TOKENS) {
+      for (const token of ALL_23_TOKENS) {
         const value = await page.evaluate(
           (tok) => getComputedStyle(document.documentElement).getPropertyValue(tok).trim(),
           token
@@ -173,5 +179,43 @@ test(
     );
 
     expect(value).toBe('#faa61a');
+  }
+);
+
+// ---------------------------------------------------------------------------
+// Display type-scale × Font Size composition (#1035)
+// ---------------------------------------------------------------------------
+
+/**
+ * The 4-step display scale is sized `Npx * var(--font-scale)`, so the Font Size
+ * control must compose with it. jsdom can't resolve the cascade (the Vitest
+ * file-parse test only locks the source formula); only real Chromium computes the
+ * px. A probe element reads the resolved font-size: at data-fontsize='large'
+ * (--font-scale-discrete 1.175, --ui-scale pinned to 1) xl → 32×1.175 = 37.6px,
+ * lg → 24×1.175 = 28.2px.
+ */
+test(
+  'display scale composes with Font Size — large × xl = 37.6px',
+  { tag: '@renderer-only' },
+  async ({ page }) => {
+    await page.goto('/');
+
+    const sizes = await page.evaluate(() => {
+      document.documentElement.setAttribute('data-fontsize', 'large');
+      // Pin --ui-scale so the assertion isolates Font Size from the UI-scale slider.
+      document.documentElement.style.setProperty('--ui-scale', '1');
+      const probe = document.createElement('div');
+      document.body.appendChild(probe);
+      const read = (token: string): string => {
+        probe.style.fontSize = `var(${token})`;
+        return getComputedStyle(probe).fontSize;
+      };
+      const out = { xl: read('--text-display-xl'), lg: read('--text-display-lg') };
+      probe.remove();
+      return out;
+    });
+
+    expect(parseFloat(sizes.xl), `xl resolved to ${sizes.xl}`).toBeCloseTo(37.6, 1); // 32 × 1.175
+    expect(parseFloat(sizes.lg), `lg resolved to ${sizes.lg}`).toBeCloseTo(28.2, 1); // 24 × 1.175
   }
 );

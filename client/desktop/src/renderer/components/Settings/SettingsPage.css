@@ -153,8 +153,9 @@
 
 .settings-section-title {
   font-family: var(--font-display-stack);
-  font-size: calc(18px * var(--font-scale, 1));
+  font-size: var(--text-display-md); /* 20px section header (#1035) */
   color: var(--text-primary);
+  letter-spacing: var(--font-display-tracking);
   margin-bottom: 20px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--border-color);

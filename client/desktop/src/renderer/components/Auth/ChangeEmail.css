@@ -9,8 +9,9 @@
 
 .change-email-form h2 {
   color: var(--text-primary);
-  font-size: 22px;
+  font-size: var(--text-display-xl); /* 32px auth hero (#1035) */
   font-family: var(--font-display-stack); /* auth heading (#1034) */
+  letter-spacing: var(--font-display-tracking-tight);
   margin: 0;
 }
 
