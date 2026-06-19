@@ -4,7 +4,11 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useChannelStore } from '../../stores/channelStore';
 import { useServerStore } from '../../stores/serverStore';
 import { useUnreadStore } from '../../stores/unreadStore';
-import { useVoiceStore, type ChannelVoiceMember } from '../../stores/voiceStore';
+import {
+  useVoiceStore,
+  type ChannelVoiceMember,
+  channelVoiceMemberFromApi,
+} from '../../stores/voiceStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { useDraftMessageStore } from '../../stores/draftMessageStore';
 import { Permissions, hasPermission, MOVE_MEMBERS } from '../../utils/permissions';
@@ -510,27 +514,7 @@ const ChannelList: React.FC<ChannelListProps> = ({
         if (!res.ok) return;
         const data = await res.json();
         const members: ChannelVoiceMember[] = (data.participants || []).map(
-          (p: {
-            user_id: string;
-            username: string;
-            display_name?: string;
-            avatar_url?: string;
-            is_muted?: boolean;
-            server_muted?: boolean;
-            server_deafened?: boolean;
-          }) => ({
-            userId: p.user_id,
-            username: p.username,
-            displayName: p.display_name,
-            avatarUrl: p.avatar_url,
-            isMuted: p.is_muted || false,
-            // Self-deafen (#685) is SFU-broadcast (room-scoped), not carried by the
-            // control-plane participant fetch — so it defaults false here and the
-            // live value flows through `participants` for the active channel.
-            isDeafened: false,
-            serverMuted: p.server_muted || false,
-            serverDeafened: p.server_deafened || false,
-          })
+          channelVoiceMemberFromApi
         );
         if (members.length > 0) {
           setChannelVoiceMembers(channel.id, members);
