@@ -21,6 +21,7 @@ describe('ChannelPanel', () => {
     useLayoutStore.setState({
       channelPanelPinned: true,
       channelPanelHoverVisible: false,
+      interfaceLocked: false,
     });
   });
 
@@ -58,7 +59,7 @@ describe('ChannelPanel', () => {
         <div>Content</div>
       </ChannelPanel>
     );
-    expect(screen.getByLabelText('Unpin channel panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('Unpin panel')).toBeInTheDocument();
   });
 
   it('hides unpin button when forcePin is true', () => {
@@ -67,7 +68,7 @@ describe('ChannelPanel', () => {
         <div>Content</div>
       </ChannelPanel>
     );
-    expect(screen.queryByLabelText('Unpin channel panel')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Unpin panel')).not.toBeInTheDocument();
   });
 
   it('renders overlay in unpinned mode when hover visible', () => {
@@ -93,7 +94,7 @@ describe('ChannelPanel', () => {
         <div>Content</div>
       </ChannelPanel>
     );
-    expect(screen.getByLabelText('Pin channel panel')).toBeInTheDocument();
+    expect(screen.getByLabelText('Pin panel open')).toBeInTheDocument();
   });
 
   it('toggles channel pin when unpin button clicked', () => {
@@ -103,7 +104,7 @@ describe('ChannelPanel', () => {
         <div>Content</div>
       </ChannelPanel>
     );
-    fireEvent.click(screen.getByLabelText('Unpin channel panel'));
+    fireEvent.click(screen.getByLabelText('Unpin panel'));
     expect(useLayoutStore.getState().channelPanelPinned).toBe(false);
   });
 
@@ -114,7 +115,7 @@ describe('ChannelPanel', () => {
         <div>Content</div>
       </ChannelPanel>
     );
-    fireEvent.click(screen.getByLabelText('Pin channel panel'));
+    fireEvent.click(screen.getByLabelText('Pin panel open'));
     expect(useLayoutStore.getState().channelPanelPinned).toBe(true);
   });
 
@@ -170,5 +171,144 @@ describe('ChannelPanel', () => {
     const handle = screen.getByLabelText('Resize channel panel');
     expect(handle).toBeInTheDocument();
     expect(handle).toHaveAttribute('tabindex', '0');
+  });
+
+  // ── Edge lip handle (#188) ──────────────────────────────────────────────
+
+  describe('edge lip handle (#188)', () => {
+    it('renders the edge lip when unpinned and the panel is hidden', () => {
+      useLayoutStore.setState({ channelPanelPinned: false, channelPanelHoverVisible: false });
+      const { container } = render(
+        <ChannelPanel header={<div>Header</div>}>
+          <div>Content</div>
+        </ChannelPanel>
+      );
+      const lip = screen.getByLabelText('Reveal channel panel');
+      expect(lip).toBeInTheDocument();
+      // Contains the right-pointing chevron cue.
+      expect(container.querySelector('.channel-panel-lip svg')).toBeInTheDocument();
+    });
+
+    it('hides the edge lip once the overlay is revealed', () => {
+      useLayoutStore.setState({ channelPanelPinned: false, channelPanelHoverVisible: true });
+      render(
+        <ChannelPanel header={<div>Header</div>}>
+          <div>Content</div>
+        </ChannelPanel>
+      );
+      expect(screen.queryByLabelText('Reveal channel panel')).not.toBeInTheDocument();
+    });
+
+    it('reveals the panel on lip hover (reuses the hover machinery)', () => {
+      useLayoutStore.setState({ channelPanelPinned: false, channelPanelHoverVisible: false });
+      render(
+        <ChannelPanel header={<div>Header</div>}>
+          <div>Content</div>
+        </ChannelPanel>
+      );
+      fireEvent.mouseEnter(screen.getByLabelText('Reveal channel panel'));
+      expect(useLayoutStore.getState().channelPanelHoverVisible).toBe(true);
+    });
+
+    it('re-pins the panel when the lip is clicked', () => {
+      useLayoutStore.setState({ channelPanelPinned: false, channelPanelHoverVisible: false });
+      render(
+        <ChannelPanel header={<div>Header</div>}>
+          <div>Content</div>
+        </ChannelPanel>
+      );
+      fireEvent.click(screen.getByLabelText('Reveal channel panel'));
+      expect(useLayoutStore.getState().channelPanelPinned).toBe(true);
+    });
+  });
+
+  // ── Pin button state clarity (#188) ─────────────────────────────────────
+
+  describe('pin button state clarity (#188)', () => {
+    it('marks the pin button pressed and pinned-styled when pinned', () => {
+      useLayoutStore.setState({ channelPanelPinned: true });
+      render(
+        <ChannelPanel header={<div>Header</div>}>
+          <div>Content</div>
+        </ChannelPanel>
+      );
+      const pin = screen.getByLabelText('Unpin panel');
+      expect(pin).toHaveAttribute('aria-pressed', 'true');
+      expect(pin).toHaveClass('pinned');
+    });
+
+    it('marks the pin button unpressed and not pinned-styled when unpinned', () => {
+      useLayoutStore.setState({ channelPanelPinned: false, channelPanelHoverVisible: true });
+      render(
+        <ChannelPanel header={<div>Header</div>}>
+          <div>Content</div>
+        </ChannelPanel>
+      );
+      const pin = screen.getByLabelText('Pin panel open');
+      expect(pin).toHaveAttribute('aria-pressed', 'false');
+      expect(pin).not.toHaveClass('pinned');
+    });
+  });
+
+  // ── Interface lock (#188) ───────────────────────────────────────────────
+
+  describe('interface lock (#188)', () => {
+    it('hides the pin button and resize handle in pinned mode when locked', () => {
+      useLayoutStore.setState({ channelPanelPinned: true, interfaceLocked: true });
+      render(
+        <ChannelPanel header={<div>Header</div>}>
+          <div>Content</div>
+        </ChannelPanel>
+      );
+      expect(screen.queryByLabelText('Unpin panel')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Resize channel panel')).not.toBeInTheDocument();
+    });
+
+    it('keeps the edge lip visible in unpinned mode when locked (peek access)', () => {
+      useLayoutStore.setState({
+        channelPanelPinned: false,
+        channelPanelHoverVisible: false,
+        interfaceLocked: true,
+      });
+      render(
+        <ChannelPanel header={<div>Header</div>}>
+          <div>Content</div>
+        </ChannelPanel>
+      );
+      // A closed panel still needs a peek affordance even when locked.
+      expect(screen.getByLabelText('Reveal channel panel')).toBeInTheDocument();
+    });
+
+    it('lip click only peeks (does not re-pin) when locked', () => {
+      useLayoutStore.setState({
+        channelPanelPinned: false,
+        channelPanelHoverVisible: false,
+        interfaceLocked: true,
+      });
+      render(
+        <ChannelPanel header={<div>Header</div>}>
+          <div>Content</div>
+        </ChannelPanel>
+      );
+      fireEvent.click(screen.getByLabelText('Reveal channel panel'));
+      // Reveals (peeks) the panel...
+      expect(useLayoutStore.getState().channelPanelHoverVisible).toBe(true);
+      // ...but the pin state stays frozen while locked.
+      expect(useLayoutStore.getState().channelPanelPinned).toBe(false);
+    });
+
+    it('hides the pin button in the revealed overlay when locked', () => {
+      useLayoutStore.setState({
+        channelPanelPinned: false,
+        channelPanelHoverVisible: true,
+        interfaceLocked: true,
+      });
+      render(
+        <ChannelPanel header={<div>Header</div>}>
+          <div>Content</div>
+        </ChannelPanel>
+      );
+      expect(screen.queryByLabelText('Pin panel open')).not.toBeInTheDocument();
+    });
   });
 });

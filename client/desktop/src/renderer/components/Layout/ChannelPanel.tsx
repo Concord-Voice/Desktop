@@ -1,5 +1,5 @@
 import React, { useRef, useCallback, useEffect, useState } from 'react';
-import { Pin, PinOff } from 'lucide-react';
+import { Pin, ChevronRight } from 'lucide-react';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useResizablePanel } from '../../hooks/useResizablePanel';
@@ -16,7 +16,9 @@ const ChannelPanel: React.FC<ChannelPanelProps> = ({ header, children, forcePin 
   const channelPanelPinned = useLayoutStore((s) => s.channelPanelPinned);
   const channelPanelHoverVisible = useLayoutStore((s) => s.channelPanelHoverVisible);
   const toggleChannelPin = useLayoutStore((s) => s.toggleChannelPin);
+  const showChannelPanelHover = useLayoutStore((s) => s.showChannelPanelHover);
   const hideChannelPanelHover = useLayoutStore((s) => s.hideChannelPanelHover);
+  const interfaceLocked = useLayoutStore((s) => s.interfaceLocked);
   const reduceAnimations = useSettingsStore((s) => s.appearance.reduceAnimations);
 
   const panel = useResizablePanel({
@@ -59,12 +61,37 @@ const ChannelPanel: React.FC<ChannelPanelProps> = ({ header, children, forcePin 
     }
   }, [channelPanelPinned, startHideTimeout]);
 
+  // Lip handle hover — reveal the panel by reusing the existing hover machinery.
+  const handleLipMouseEnter = useCallback(() => {
+    clearHideTimeout();
+    setIsHovered(true);
+    showChannelPanelHover();
+  }, [clearHideTimeout, showChannelPanelHover]);
+
   // Cleanup timeout on unmount
   useEffect(() => {
     return () => clearHideTimeout();
   }, [clearHideTimeout]);
 
   const effectivelyPinned = channelPanelPinned || forcePin;
+
+  // Pin/unpin toggle (#188). Hidden when the panel is force-pinned or the
+  // interface is locked (the pin state is frozen then). The `.pinned` class
+  // drives the accent-colour + 45° rotation that makes the lock-open state
+  // unmistakable — all styling lives in CSS now (was inline).
+  const pinButton =
+    forcePin || interfaceLocked ? null : (
+      <button
+        type="button"
+        className={`channel-panel-pin-btn ${effectivelyPinned ? 'pinned' : ''}`}
+        onClick={toggleChannelPin}
+        title={effectivelyPinned ? 'Unpin panel' : 'Pin panel open'}
+        aria-label={effectivelyPinned ? 'Unpin panel' : 'Pin panel open'}
+        aria-pressed={effectivelyPinned}
+      >
+        <Pin size={14} />
+      </button>
+    );
 
   // Pinned mode — standard sidebar
   if (effectivelyPinned) {
@@ -76,79 +103,65 @@ const ChannelPanel: React.FC<ChannelPanelProps> = ({ header, children, forcePin 
         >
           <div className="channels-sidebar-header">
             {header}
-            {!forcePin && (
-              <button
-                className="channel-panel-pin-btn"
-                onClick={toggleChannelPin}
-                title="Unpin channel panel"
-                aria-label="Unpin channel panel"
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  color: 'var(--text-muted)',
-                  padding: '4px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  transition: 'color 0.15s ease',
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-primary)')}
-                onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
-              >
-                <PinOff size={14} />
-              </button>
-            )}
+            {pinButton}
           </div>
           {children}
           <UserPanel />
         </div>
-        <button
-          type="button"
-          className="layout-resize-handle"
-          onMouseDown={panel.onMouseDown}
-          onKeyDown={panel.onKeyDown}
-          tabIndex={0}
-          aria-label="Resize channel panel"
-        />
+        {/* Resize handle — removed when the interface is locked (#188), freezing
+            the current width. */}
+        {!interfaceLocked && (
+          <button
+            type="button"
+            className="layout-resize-handle"
+            onMouseDown={panel.onMouseDown}
+            onKeyDown={panel.onKeyDown}
+            tabIndex={0}
+            aria-label="Resize channel panel"
+          />
+        )}
       </>
     );
   }
 
-  // Unpinned mode — overlay dropdown
+  // Unpinned mode — overlay dropdown + discoverable edge lip
   const showOverlay = channelPanelHoverVisible || isHovered;
 
   return (
-    <div
-      className={`channel-panel-overlay ${showOverlay ? 'slide-in' : 'slide-out'}`}
-      style={{ width: panel.width }}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-    >
-      <div className="channels-sidebar-header">
-        {header}
+    <>
+      {/* Edge "lip" handle (#188) — a visible affordance at the app edge where
+          the panel collapsed to, replacing the previously invisible ServerBar
+          hover zone as the discovery cue. Hover reveals (peeks) the panel.
+          Click re-pins it — UNLESS the interface is locked, in which case the
+          lip STAYS visible (a closed panel still needs a way to be peeked) but
+          a click only reveals/peeks rather than re-pinning, since the pin state
+          is frozen while locked. Hidden only while the panel is already
+          showing. */}
+      {!showOverlay && (
         <button
-          className="channel-panel-pin-btn"
-          onClick={toggleChannelPin}
-          title="Pin channel panel"
-          aria-label="Pin channel panel"
-          style={{
-            background: 'none',
-            border: 'none',
-            cursor: 'pointer',
-            color: 'var(--text-muted)',
-            padding: '4px',
-            display: 'flex',
-            alignItems: 'center',
-            transition: 'color 0.15s ease',
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--text-primary)')}
-          onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-muted)')}
+          type="button"
+          className="channel-panel-lip"
+          onMouseEnter={handleLipMouseEnter}
+          onClick={interfaceLocked ? handleLipMouseEnter : toggleChannelPin}
+          title="Reveal channel panel"
+          aria-label="Reveal channel panel"
         >
-          <Pin size={14} />
+          <ChevronRight size={14} />
         </button>
+      )}
+      <div
+        className={`channel-panel-overlay ${showOverlay ? 'slide-in' : 'slide-out'}`}
+        style={{ width: panel.width }}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
+        <div className="channels-sidebar-header">
+          {header}
+          {pinButton}
+        </div>
+        {children}
       </div>
-      {children}
-    </div>
+    </>
   );
 };
 

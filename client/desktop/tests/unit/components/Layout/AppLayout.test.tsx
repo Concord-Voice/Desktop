@@ -17,6 +17,7 @@ describe('AppLayout', () => {
       memberPanelMode: 'side',
       serverBarHeight: 56,
       folderBarHeight: 200,
+      interfaceLocked: false,
     });
   });
 
@@ -206,5 +207,25 @@ describe('AppLayout', () => {
     const { container } = render(<AppLayout {...defaultProps} />);
     const handle = container.querySelector('.layout-folder-bar-resize');
     expect(handle).toHaveAttribute('aria-label', 'Resize folder bar');
+  });
+
+  // ── Interface lock (#188) ───────────────────────────────────────────────
+  // When locked, the server-bar and folder-bar resize handles are removed so
+  // the current heights can't be dragged. Unlocked behaviour is covered by the
+  // resize-handle tests above.
+  describe('interface lock (#188)', () => {
+    it('removes the server-bar and folder-bar resize handles when locked', () => {
+      useLayoutStore.setState({ interfaceLocked: true });
+      const { container } = render(<AppLayout {...defaultProps} />);
+      expect(container.querySelector('.layout-server-bar-resize')).not.toBeInTheDocument();
+      expect(container.querySelector('.layout-folder-bar-resize')).not.toBeInTheDocument();
+      expect(container.querySelectorAll('.layout-resize-handle-h').length).toBe(0);
+    });
+
+    it('keeps both resize handles when unlocked', () => {
+      useLayoutStore.setState({ interfaceLocked: false });
+      const { container } = render(<AppLayout {...defaultProps} />);
+      expect(container.querySelectorAll('.layout-resize-handle-h').length).toBe(2);
+    });
   });
 });

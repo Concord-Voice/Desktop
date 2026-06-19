@@ -60,7 +60,6 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
   const serverOrder = useLayoutStore((s) => s.serverOrder);
   const reorderServers = useLayoutStore((s) => s.reorderServers);
   const removeServerFromFolder = useLayoutStore((s) => s.removeServerFromFolder);
-  const toggleChannelPin = useLayoutStore((s) => s.toggleChannelPin);
   const channelPanelPinned = useLayoutStore((s) => s.channelPanelPinned);
   const showChannelPanelHover = useLayoutStore((s) => s.showChannelPanelHover);
   const hideChannelPanelHover = useLayoutStore((s) => s.hideChannelPanelHover);
@@ -172,10 +171,11 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
       navigate('/app');
       return;
     }
-    if (channelPanelPinned) {
-      toggleChannelPin();
-    } else {
-      // Unpinned — instant show (cancel any pending hover timers)
+    // Already on the server view. When pinned, do nothing — clicking the active
+    // server must NOT unpin the panel (#188 feedback: surprising re-collapse,
+    // and it would also bypass the interface lock). When unpinned, instant-show
+    // the peek overlay (cancel any pending hover timers).
+    if (!channelPanelPinned) {
       if (hoverShowRef.current) {
         clearTimeout(hoverShowRef.current);
         hoverShowRef.current = null;
@@ -194,9 +194,9 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
       navigate('/app/dms');
       return;
     }
-    if (channelPanelPinned) {
-      toggleChannelPin();
-    } else {
+    // Same rule as the active-server icon (#188): when pinned, do NOT unpin on
+    // click. When unpinned, instant-show the peek overlay.
+    if (!channelPanelPinned) {
       if (hoverShowRef.current) {
         clearTimeout(hoverShowRef.current);
         hoverShowRef.current = null;
@@ -641,7 +641,11 @@ const ServerBar: React.FC<ServerBarProps> = ({ onOpenActionModal, onContextMenu 
                     aria-label={`${server.name} server${isMuted ? ' (muted)' : ''}`}
                   >
                     {resolveMediaUrl(server.icon_url) ? (
-                      <img src={resolveMediaUrl(server.icon_url)} alt={server.name} draggable={false} />
+                      <img
+                        src={resolveMediaUrl(server.icon_url)}
+                        alt={server.name}
+                        draggable={false}
+                      />
                     ) : (
                       <span className="server-bar-icon-initial">
                         {server.name.charAt(0).toUpperCase()}
