@@ -2386,44 +2386,45 @@ class VoiceService {
 
   // ─── Producer Controls ─────────────────────────────────────────────
 
+  /**
+   * Optimistically apply a partial state change to the local user in BOTH the
+   * participant map and the active-channel sidebar member list, so the UI updates
+   * immediately without waiting for the SFU echo. Single source of the update
+   * plumbing shared by the mute and deafen helpers (#685).
+   */
+  private applyOptimisticLocalState(
+    store: ReturnType<typeof useVoiceStore.getState>,
+    update: { isMuted?: boolean; isDeafened?: boolean },
+    label: string
+  ): void {
+    const localUserId = useUserStore.getState().user?.id;
+    if (!localUserId) {
+      console.warn(`[VoiceService] ${label}: no local user ID — sidebar state may be stale`);
+      return;
+    }
+    store.updateParticipant(localUserId, update);
+    if (store.activeChannelId) {
+      store.updateChannelVoiceMember(store.activeChannelId, localUserId, update);
+    }
+  }
+
   private applyOptimisticMute(
     store: ReturnType<typeof useVoiceStore.getState>,
     muted: boolean
   ): void {
-    const localUserId = useUserStore.getState().user?.id;
-    if (!localUserId) {
-      console.warn(
-        '[VoiceService] applyOptimisticMute: no local user ID — sidebar state may be stale'
-      );
-      return;
-    }
-    store.updateParticipant(localUserId, { isMuted: muted });
-    if (store.activeChannelId) {
-      store.updateChannelVoiceMember(store.activeChannelId, localUserId, { isMuted: muted });
-    }
+    this.applyOptimisticLocalState(store, { isMuted: muted }, 'applyOptimisticMute');
   }
 
   /**
    * Optimistically reflect the local user's self-deafen in both the participant
    * map and the channel-sidebar member list (#685) — symmetric with
-   * applyOptimisticMute, so the sidebar updates immediately without waiting for
-   * the SFU echo.
+   * applyOptimisticMute, so the sidebar updates immediately without the SFU echo.
    */
   private applyOptimisticDeafen(
     store: ReturnType<typeof useVoiceStore.getState>,
     deafened: boolean
   ): void {
-    const localUserId = useUserStore.getState().user?.id;
-    if (!localUserId) {
-      console.warn(
-        '[VoiceService] applyOptimisticDeafen: no local user ID — sidebar state may be stale'
-      );
-      return;
-    }
-    store.updateParticipant(localUserId, { isDeafened: deafened });
-    if (store.activeChannelId) {
-      store.updateChannelVoiceMember(store.activeChannelId, localUserId, { isDeafened: deafened });
-    }
+    this.applyOptimisticLocalState(store, { isDeafened: deafened }, 'applyOptimisticDeafen');
   }
 
   /** Toggle mute (pause/resume mic producer) */
