@@ -149,15 +149,16 @@
   --text-error-strong: #f87171; /* Red-400, high-contrast on dark backgrounds */
 
   /*
-   * Design-token taxonomy (#1033) — 19 tokens across 6 families:
+   * Design-token taxonomy (#1033, extended #1035) — 23 tokens across 7 families:
    *   - State (3):       --state-selected, --state-focused, --state-hover
    *   - Typography (4):  --font-display-stack, --font-body-stack, --font-display-tracking, --font-display-tracking-tight
+   *   - Display (4):     --text-display-{xl,lg,md,sm} (4-step display type scale, #1035)
    *   - Scale (3):       --radius-base, --radius-elevated, --radius-modal
    *   - Motion (5):      --motion-duration-{fast,base,slow}, --motion-curve-{base,decel}
    *   - Link (3):        --link-color, --link-color-hover, --link-color-visited
    *   - Encryption (1):  --state-encryption-pending
    *
-   * All tokens are mirrored across all 28 blocks (root, generic light, 13 schemes × 2 modes)
+   * All tokens are mirrored across all 30 blocks (root, generic light, 14 schemes × 2 modes)
    * with uniform initial values. Individual themes opt into per-token divergence in
    * follow-up sibling issues — initial schema symmetry is the load-bearing invariant.
    */
@@ -169,6 +170,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -246,6 +251,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -296,6 +305,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -346,6 +359,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -396,6 +413,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -446,6 +467,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -496,6 +521,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -546,6 +575,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -596,6 +629,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -653,6 +690,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -707,6 +748,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -757,6 +802,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -807,6 +856,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -857,6 +910,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -907,6 +964,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -957,6 +1018,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -1007,6 +1072,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -1057,6 +1126,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -1107,6 +1180,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -1157,6 +1234,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -1207,6 +1288,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -1257,6 +1342,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -1307,6 +1396,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -1357,6 +1450,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -1407,6 +1504,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -1457,6 +1558,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -1512,6 +1617,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -1568,6 +1677,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -1620,6 +1733,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;
@@ -1670,6 +1787,10 @@
   --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
   --radius-base: 4px;
   --radius-elevated: 8px;
   --radius-modal: 12px;

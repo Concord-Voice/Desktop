@@ -45,11 +45,11 @@
 }
 
 .modal-title {
-  font-size: calc(20px * var(--font-scale, 1));
+  font-size: var(--text-display-lg); /* 24px display scale (#1035) */
   font-weight: 700;
   font-family: var(--font-display-stack);
   color: var(--text-primary);
-  letter-spacing: 0.3px;
+  letter-spacing: var(--font-display-tracking-tight);
   margin: 0;
 }
 

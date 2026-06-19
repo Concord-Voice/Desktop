@@ -169,9 +169,10 @@
 }
 
 .voice-view__join-title {
-  font-size: calc(20px * var(--font-scale, 1));
+  font-size: var(--text-display-lg); /* pre-join hero (#1035) */
   font-weight: 600;
   color: var(--text-primary);
+  letter-spacing: var(--font-display-tracking-tight);
   margin: 0;
 }
 
