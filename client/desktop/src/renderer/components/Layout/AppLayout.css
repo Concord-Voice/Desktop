@@ -122,6 +122,96 @@
   pointer-events: none;
 }
 
+/* ─── Channel Panel Pin Button (#188) ───────────────────────────────────── */
+
+.channel-panel-pin-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  transition:
+    color 0.15s ease,
+    background-color 0.15s ease,
+    transform 0.15s ease;
+}
+
+.channel-panel-pin-btn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-hover);
+}
+
+.channel-panel-pin-btn:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+/* Pinned (locked-open) state — accent colour + 45° rotation so the pinned
+   vs. unpinned state is unmistakable at a glance (#188). */
+.channel-panel-pin-btn.pinned {
+  color: var(--accent-primary);
+  transform: rotate(45deg);
+}
+
+.channel-panel-pin-btn.pinned:hover {
+  color: var(--accent-hover);
+}
+
+/* ─── Channel Panel Edge Lip (#188) ─────────────────────────────────────── */
+
+/* Discoverable handle at the left edge of the channel-panel area, offset DOWN
+   to sit just below the channel-name header band so it doesn't blend into that
+   same-coloured heading (#188 feedback). The offset approximates the header
+   height (~chat-header: 12px×2 padding + name line + border) and tracks the
+   spacing (--sp) and font (--font-scale) multipliers that size it, plus a small
+   fixed gap for breathing room, so the lip stays clearly below the header under
+   Compact Mode and UI Scale. Replaces the
+   previously invisible ServerBar hover zone as the reveal cue. At rest it's a
+   thin 8px tab; hovering widens it and reveals the panel, clicking re-pins.
+   z-index sits just below the overlay (50) so the revealed panel covers it. */
+.channel-panel-lip {
+  position: absolute;
+  left: 0;
+  top: calc(24px * var(--sp, 1) + 24px * var(--font-scale, 1) + 12px);
+  z-index: 49;
+  width: 8px;
+  height: 56px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  color: var(--text-muted);
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    width 0.15s ease,
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.channel-panel-lip:hover {
+  width: 16px;
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.channel-panel-lip:focus-visible {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: 2px;
+}
+
+.channel-panel-lip svg {
+  flex-shrink: 0;
+}
+
 /* ─── Member Panel Transitions ──────────────────────────────────────────── */
 
 /* Collapsed avatar strip */

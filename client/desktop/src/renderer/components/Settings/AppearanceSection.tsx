@@ -1,9 +1,11 @@
 import React from 'react';
 import type { AppearanceSettings, CustomColors } from '../../stores/settingsStore';
 import { useDraftAppearance, setDraftAppearanceSetting } from '../../hooks/useDraftSettings';
+import { useLayoutStore } from '../../stores/layoutStore';
 import { isValidHex } from '../../utils/colorUtils';
 import CollapsibleSection from './CollapsibleSection';
 import { ClientBehaviorSection } from './ClientBehaviorSection';
+import ToggleSwitch from './ToggleSwitch';
 import SettingsPreviewPanel from './SettingsPreviewPanel';
 
 // Module-scope constants — declared outside the component so they're not
@@ -85,6 +87,33 @@ const themes: { value: AppearanceSettings['theme']; label: string; icon: React.R
     ),
   },
 ];
+
+// ─── Layout Section ─────────────────────────────────────────────────────────
+// Lock Interface (#188, per markdrogersjr's spec comment). Wired directly to
+// layoutStore (immediate-apply, per-device local persist via Zustand `persist`)
+// — the same immediate pattern as ClientBehaviorSection below, NOT the
+// draft/Save cycle used by Color Scheme / Theme. Placement (Appearance) and copy
+// follow the issue comment verbatim. Exported (like ClientBehaviorSection) so it
+// can be unit-tested in isolation against the real layoutStore.
+export const LayoutSection: React.FC = () => {
+  const interfaceLocked = useLayoutStore((s) => s.interfaceLocked);
+  const setInterfaceLocked = useLayoutStore((s) => s.setInterfaceLocked);
+
+  return (
+    <CollapsibleSection id="section-layout" title="Layout">
+      <div className="settings-row">
+        <div className="settings-row-info">
+          <span className="settings-row-label">Lock Interface</span>
+          <span className="settings-row-hint">
+            Prevent accidental resizing and panel toggling. This setting applies to this device
+            only.
+          </span>
+        </div>
+        <ToggleSwitch checked={interfaceLocked} onChange={setInterfaceLocked} />
+      </div>
+    </CollapsibleSection>
+  );
+};
 
 const AppearanceSection: React.FC = () => {
   const appearance = useDraftAppearance();
@@ -224,6 +253,7 @@ const AppearanceSection: React.FC = () => {
           UI scale + high contrast moved to Accessibility per #489. They
           live in `<DisplaySection>` inside AccessibilitySection. */}
 
+      <LayoutSection />
       <ClientBehaviorSection />
     </>
   );

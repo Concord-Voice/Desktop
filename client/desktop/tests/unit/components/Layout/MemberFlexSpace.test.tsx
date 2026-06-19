@@ -41,7 +41,7 @@ describe('MemberFlexSpace', () => {
       userStatuses: new Map([['user-1', 'online']]),
       selfStatus: 'online',
     });
-    useLayoutStore.setState({ memberPanelMode: 'expanded' });
+    useLayoutStore.setState({ memberPanelMode: 'expanded', interfaceLocked: false });
   });
 
   it('renders nothing when no active server', () => {
@@ -81,5 +81,13 @@ describe('MemberFlexSpace', () => {
     const handle = screen.getByLabelText('Resize member panel');
     expect(handle).toBeInTheDocument();
     expect(handle).toHaveAttribute('tabindex', '0');
+  });
+
+  // Interface lock (#188) — the member-panel resize handle is removed when
+  // locked, freezing the current width.
+  it('removes the resize handle when the interface is locked', () => {
+    useLayoutStore.setState({ memberPanelMode: 'expanded', interfaceLocked: true });
+    render(<MemberFlexSpace />);
+    expect(screen.queryByLabelText('Resize member panel')).not.toBeInTheDocument();
   });
 });

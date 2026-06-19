@@ -30,6 +30,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({
   const setFolderBarHeight = useLayoutStore((s) => s.setFolderBarHeight);
   const serverBarHeight = useLayoutStore((s) => s.serverBarHeight);
   const folderBarHeight = useLayoutStore((s) => s.folderBarHeight);
+  const interfaceLocked = useLayoutStore((s) => s.interfaceLocked);
 
   const startYRef = useRef(0);
   const startHeightRef = useRef(0);
@@ -98,25 +99,32 @@ const AppLayout: React.FC<AppLayoutProps> = ({
       >
         {serverBar}
       </div>
-      <button
-        type="button"
-        className="layout-server-bar-resize layout-resize-handle-h"
-        onMouseDown={makeResizeHandler(setServerBarHeight)}
-        onKeyDown={handleServerBarResizeKeyDown}
-        tabIndex={0}
-        aria-label="Resize server bar"
-      />
+      {/* Resize handles are removed when the interface is locked (#188),
+          freezing the current bar heights. The `serverbar-h` grid row is `auto`,
+          so it collapses to 0 when the handle is absent. */}
+      {!interfaceLocked && (
+        <button
+          type="button"
+          className="layout-server-bar-resize layout-resize-handle-h"
+          onMouseDown={makeResizeHandler(setServerBarHeight)}
+          onKeyDown={handleServerBarResizeKeyDown}
+          tabIndex={0}
+          aria-label="Resize server bar"
+        />
+      )}
       <div className="layout-folder-bar" style={{ height: folderBarHeight }}>
         {folderBar}
       </div>
-      <button
-        type="button"
-        className="layout-folder-bar-resize layout-resize-handle-h"
-        onMouseDown={makeResizeHandler(setFolderBarHeight)}
-        onKeyDown={handleFolderBarResizeKeyDown}
-        tabIndex={0}
-        aria-label="Resize folder bar"
-      />
+      {!interfaceLocked && (
+        <button
+          type="button"
+          className="layout-folder-bar-resize layout-resize-handle-h"
+          onMouseDown={makeResizeHandler(setFolderBarHeight)}
+          onKeyDown={handleFolderBarResizeKeyDown}
+          tabIndex={0}
+          aria-label="Resize folder bar"
+        />
+      )}
       <div className="layout-channel-panel" data-context-area="channels">
         {channelPanel}
       </div>

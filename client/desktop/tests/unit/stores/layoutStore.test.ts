@@ -14,6 +14,7 @@ describe('layoutStore', () => {
       folderBarHeight: 32,
       serverFolders: [],
       serverOrder: [],
+      interfaceLocked: false,
       channelPanelHoverVisible: false,
     });
   });
@@ -184,6 +185,19 @@ describe('layoutStore', () => {
     });
   });
 
+  describe('interface lock (#188)', () => {
+    it('defaults to unlocked', () => {
+      expect(useLayoutStore.getState().interfaceLocked).toBe(false);
+    });
+
+    it('setInterfaceLocked sets the flag in both directions', () => {
+      useLayoutStore.getState().setInterfaceLocked(true);
+      expect(useLayoutStore.getState().interfaceLocked).toBe(true);
+      useLayoutStore.getState().setInterfaceLocked(false);
+      expect(useLayoutStore.getState().interfaceLocked).toBe(false);
+    });
+  });
+
   describe('persistence', () => {
     it('persists layout settings to localStorage', () => {
       useLayoutStore.getState().setChannelPanelWidth(350);
@@ -195,6 +209,12 @@ describe('layoutStore', () => {
       useLayoutStore.getState().showChannelPanelHover();
       const stored = JSON.parse(localStorage.getItem('concord-layout') || '{}');
       expect(stored.state?.channelPanelHoverVisible).toBeUndefined();
+    });
+
+    it('persists interfaceLocked to localStorage (#188)', () => {
+      useLayoutStore.getState().setInterfaceLocked(true);
+      const stored = JSON.parse(localStorage.getItem('concord-layout') || '{}');
+      expect(stored.state?.interfaceLocked).toBe(true);
     });
   });
 });

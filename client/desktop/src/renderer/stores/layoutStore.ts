@@ -27,6 +27,12 @@ interface LayoutState {
   serverFolders: ServerFolder[];
   serverOrder: string[]; // IDs of non-foldered servers in display order
 
+  // Interface lock (#188) — local, per-device. When true the layout is
+  // read-only: pin toggle hidden, resize handles disabled, current widths +
+  // pin state frozen. Persisted locally (NOT synced to the server) so a user
+  // can lock one device while leaving another free.
+  interfaceLocked: boolean;
+
   // Transient (not persisted)
   channelPanelHoverVisible: boolean;
 
@@ -35,6 +41,9 @@ interface LayoutState {
   setChannelPanelWidth: (width: number) => void;
   showChannelPanelHover: () => void;
   hideChannelPanelHover: () => void;
+
+  // Actions — interface lock
+  setInterfaceLocked: (locked: boolean) => void;
 
   // Actions — member panel
   setMemberPanelMode: (mode: MemberPanelMode) => void;
@@ -58,129 +67,138 @@ interface LayoutState {
   reorderFolderServers: (folderId: string, serverIds: string[]) => void;
 }
 
-export const useLayoutStore = wrapStore(create<LayoutState>()(
-  devtools(
-    subscribeWithSelector(
-      persist(
-        (set) => ({
-          channelPanelPinned: true,
-          channelPanelWidth: 240,
-          memberPanelMode: 'expanded' as MemberPanelMode,
-          memberPanelWidth: 260,
-          serverBarHeight: 48,
-          folderBarHeight: 32,
-          serverFolders: [],
-          serverOrder: [],
-          channelPanelHoverVisible: false,
+export const useLayoutStore = wrapStore(
+  create<LayoutState>()(
+    devtools(
+      subscribeWithSelector(
+        persist(
+          (set) => ({
+            channelPanelPinned: true,
+            channelPanelWidth: 240,
+            memberPanelMode: 'expanded' as MemberPanelMode,
+            memberPanelWidth: 260,
+            serverBarHeight: 48,
+            folderBarHeight: 32,
+            serverFolders: [],
+            serverOrder: [],
+            interfaceLocked: false,
+            channelPanelHoverVisible: false,
 
-          toggleChannelPin: () =>
-            set((state) => ({
-              channelPanelPinned: !state.channelPanelPinned,
-              channelPanelHoverVisible: false,
-            })),
+            setInterfaceLocked: (locked: boolean) => set({ interfaceLocked: locked }),
 
-          setChannelPanelWidth: (width: number) =>
-            set({ channelPanelWidth: Math.max(180, Math.min(400, width)) }),
+            toggleChannelPin: () =>
+              set((state) => ({
+                channelPanelPinned: !state.channelPanelPinned,
+                channelPanelHoverVisible: false,
+              })),
 
-          showChannelPanelHover: () => set({ channelPanelHoverVisible: true }),
-          hideChannelPanelHover: () => set({ channelPanelHoverVisible: false }),
+            setChannelPanelWidth: (width: number) =>
+              set({ channelPanelWidth: Math.max(180, Math.min(400, width)) }),
 
-          setMemberPanelMode: (mode: MemberPanelMode) => set({ memberPanelMode: mode }),
+            showChannelPanelHover: () => set({ channelPanelHoverVisible: true }),
+            hideChannelPanelHover: () => set({ channelPanelHoverVisible: false }),
 
-          cycleMemberPanelMode: () =>
-            set((state) => {
-              const cycle: MemberPanelMode[] = ['expanded', 'collapsed', 'hidden'];
-              const idx = cycle.indexOf(state.memberPanelMode);
-              return { memberPanelMode: cycle[(idx + 1) % cycle.length] };
-            }),
+            setMemberPanelMode: (mode: MemberPanelMode) => set({ memberPanelMode: mode }),
 
-          setMemberPanelWidth: (width: number) =>
-            set({ memberPanelWidth: Math.max(160, Math.min(340, width)) }),
+            cycleMemberPanelMode: () =>
+              set((state) => {
+                const cycle: MemberPanelMode[] = ['expanded', 'collapsed', 'hidden'];
+                const idx = cycle.indexOf(state.memberPanelMode);
+                return { memberPanelMode: cycle[(idx + 1) % cycle.length] };
+              }),
 
-          setServerBarHeight: (height: number) =>
-            set({ serverBarHeight: Math.max(36, Math.min(64, height)) }),
+            setMemberPanelWidth: (width: number) =>
+              set({ memberPanelWidth: Math.max(160, Math.min(340, width)) }),
 
-          setFolderBarHeight: (height: number) =>
-            set({ folderBarHeight: Math.max(24, Math.min(48, height)) }),
+            setServerBarHeight: (height: number) =>
+              set({ serverBarHeight: Math.max(36, Math.min(64, height)) }),
 
-          clearUserContent: () => set({ serverFolders: [], serverOrder: [] }),
+            setFolderBarHeight: (height: number) =>
+              set({ folderBarHeight: Math.max(24, Math.min(48, height)) }),
 
-          reorderServers: (serverIds: string[]) => set({ serverOrder: serverIds }),
+            clearUserContent: () => set({ serverFolders: [], serverOrder: [] }),
 
-          createFolder: (name: string, serverIds: string[] = []) =>
-            set((state) => ({
-              serverFolders: [...state.serverFolders, { id: crypto.randomUUID(), name, serverIds }],
-              // Remove foldered servers from the top-level order
-              serverOrder: state.serverOrder.filter((id) => !serverIds.includes(id)),
-            })),
+            reorderServers: (serverIds: string[]) => set({ serverOrder: serverIds }),
 
-          renameFolder: (folderId: string, name: string) =>
-            set((state) => ({
-              serverFolders: state.serverFolders.map((f) =>
-                f.id === folderId ? { ...f, name } : f
-              ),
-            })),
+            createFolder: (name: string, serverIds: string[] = []) =>
+              set((state) => ({
+                serverFolders: [
+                  ...state.serverFolders,
+                  { id: crypto.randomUUID(), name, serverIds },
+                ],
+                // Remove foldered servers from the top-level order
+                serverOrder: state.serverOrder.filter((id) => !serverIds.includes(id)),
+              })),
 
-          deleteFolder: (folderId: string) =>
-            set((state) => {
-              const folder = state.serverFolders.find((f) => f.id === folderId);
-              return {
-                serverFolders: state.serverFolders.filter((f) => f.id !== folderId),
-                // Return servers to the top-level order
-                serverOrder: [...state.serverOrder, ...(folder?.serverIds || [])],
+            renameFolder: (folderId: string, name: string) =>
+              set((state) => ({
+                serverFolders: state.serverFolders.map((f) =>
+                  f.id === folderId ? { ...f, name } : f
+                ),
+              })),
+
+            deleteFolder: (folderId: string) =>
+              set((state) => {
+                const folder = state.serverFolders.find((f) => f.id === folderId);
+                return {
+                  serverFolders: state.serverFolders.filter((f) => f.id !== folderId),
+                  // Return servers to the top-level order
+                  serverOrder: [...state.serverOrder, ...(folder?.serverIds || [])],
+                };
+              }),
+
+            moveServerToFolder: (serverId: string, folderId: string, insertIndex?: number) => {
+              const updateFolder = (f: ServerFolder) => {
+                const filtered = f.serverIds.filter((id) => id !== serverId);
+                if (f.id !== folderId) return { ...f, serverIds: filtered };
+                if (insertIndex !== undefined && insertIndex >= 0) {
+                  const newIds = [...filtered];
+                  newIds.splice(insertIndex, 0, serverId);
+                  return { ...f, serverIds: newIds };
+                }
+                return { ...f, serverIds: [...filtered, serverId] };
               };
-            }),
+              set((state) => ({
+                serverFolders: state.serverFolders.map(updateFolder),
+                serverOrder: state.serverOrder.filter((id) => id !== serverId),
+              }));
+            },
 
-          moveServerToFolder: (serverId: string, folderId: string, insertIndex?: number) => {
-            const updateFolder = (f: ServerFolder) => {
-              const filtered = f.serverIds.filter((id) => id !== serverId);
-              if (f.id !== folderId) return { ...f, serverIds: filtered };
-              if (insertIndex !== undefined && insertIndex >= 0) {
-                const newIds = [...filtered];
-                newIds.splice(insertIndex, 0, serverId);
-                return { ...f, serverIds: newIds };
-              }
-              return { ...f, serverIds: [...filtered, serverId] };
-            };
-            set((state) => ({
-              serverFolders: state.serverFolders.map(updateFolder),
-              serverOrder: state.serverOrder.filter((id) => id !== serverId),
-            }));
-          },
+            removeServerFromFolder: (serverId: string) => {
+              const removeFromIds = (f: ServerFolder) => ({
+                ...f,
+                serverIds: f.serverIds.filter((id) => id !== serverId),
+              });
+              set((state) => ({
+                serverFolders: state.serverFolders.map(removeFromIds),
+                serverOrder: [...state.serverOrder, serverId],
+              }));
+            },
 
-          removeServerFromFolder: (serverId: string) => {
-            const removeFromIds = (f: ServerFolder) => ({
-              ...f,
-              serverIds: f.serverIds.filter((id) => id !== serverId),
-            });
-            set((state) => ({
-              serverFolders: state.serverFolders.map(removeFromIds),
-              serverOrder: [...state.serverOrder, serverId],
-            }));
-          },
-
-          reorderFolderServers: (folderId: string, serverIds: string[]) =>
-            set((state) => ({
-              serverFolders: state.serverFolders.map((f) =>
-                f.id === folderId ? { ...f, serverIds } : f
-              ),
-            })),
-        }),
-        {
-          name: 'concord-layout',
-          partialize: (state) => ({
-            channelPanelPinned: state.channelPanelPinned,
-            channelPanelWidth: state.channelPanelWidth,
-            memberPanelMode: state.memberPanelMode,
-            memberPanelWidth: state.memberPanelWidth,
-            serverBarHeight: state.serverBarHeight,
-            folderBarHeight: state.folderBarHeight,
-            serverFolders: state.serverFolders,
-            serverOrder: state.serverOrder,
+            reorderFolderServers: (folderId: string, serverIds: string[]) =>
+              set((state) => ({
+                serverFolders: state.serverFolders.map((f) =>
+                  f.id === folderId ? { ...f, serverIds } : f
+                ),
+              })),
           }),
-        }
-      )
-    ),
-    { name: 'LayoutStore' }
+          {
+            name: 'concord-layout',
+            partialize: (state) => ({
+              channelPanelPinned: state.channelPanelPinned,
+              channelPanelWidth: state.channelPanelWidth,
+              memberPanelMode: state.memberPanelMode,
+              memberPanelWidth: state.memberPanelWidth,
+              serverBarHeight: state.serverBarHeight,
+              folderBarHeight: state.folderBarHeight,
+              serverFolders: state.serverFolders,
+              serverOrder: state.serverOrder,
+              interfaceLocked: state.interfaceLocked,
+            }),
+          }
+        )
+      ),
+      { name: 'LayoutStore' }
+    )
   )
-));
+);

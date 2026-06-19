@@ -12,6 +12,7 @@ const MemberFlexSpace: React.FC = () => {
   const memberPanelMode = useLayoutStore((s) => s.memberPanelMode);
   const cycleMemberPanelMode = useLayoutStore((s) => s.cycleMemberPanelMode);
   const setMemberPanelMode = useLayoutStore((s) => s.setMemberPanelMode);
+  const interfaceLocked = useLayoutStore((s) => s.interfaceLocked);
   const activeServerId = useServerStore((s) => s.activeServerId);
 
   const members = useMemberStore((s) => s.members);
@@ -95,17 +96,21 @@ const MemberFlexSpace: React.FC = () => {
     );
   }
 
-  // Expanded mode — full member list with resize
+  // Expanded mode — full member list with resize.
+  // The resize handle is removed when the interface is locked (#188), freezing
+  // the current member-panel width.
   return (
     <>
-      <button
-        type="button"
-        className="layout-resize-handle"
-        onMouseDown={panel.onMouseDown}
-        onKeyDown={panel.onKeyDown}
-        tabIndex={0}
-        aria-label="Resize member panel"
-      />
+      {!interfaceLocked && (
+        <button
+          type="button"
+          className="layout-resize-handle"
+          onMouseDown={panel.onMouseDown}
+          onKeyDown={panel.onKeyDown}
+          tabIndex={0}
+          aria-label="Resize member panel"
+        />
+      )}
       <div
         className="member-list-container"
         style={{
