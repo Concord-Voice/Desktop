@@ -47,7 +47,6 @@ vi.mock('@/renderer/components/Layout/ServerBar', () => ({
               name: 'Test Server',
               role: 'owner',
               owner_id: 'user-1',
-              e2ee_default: false,
               created_at: '',
               updated_at: '',
               member_count: 2,
@@ -186,7 +185,6 @@ vi.mock('@/renderer/components/Servers/CreateServerModal', () => ({
             name: 'New Server',
             role: 'owner',
             owner_id: 'user-1',
-            e2ee_default: false,
             created_at: '',
             updated_at: '',
             member_count: 1,
@@ -216,7 +214,6 @@ vi.mock('@/renderer/components/Servers/JoinServerModal', () => ({
             name: 'Joined Server',
             role: 'member',
             owner_id: 'user-2',
-            e2ee_default: false,
             created_at: '',
             updated_at: '',
             member_count: 5,
@@ -373,9 +370,9 @@ describe('MainView', () => {
         toJSON: () => ({}),
       }) as DOMRect;
     fireEvent.mouseEnter(indicator);
-    expect(screen.getByText('E2EE Disabled')).toBeInTheDocument();
+    expect(screen.getByText('E2EE Enabled')).toBeInTheDocument();
     fireEvent.mouseLeave(indicator);
-    expect(screen.queryByText('E2EE Disabled')).not.toBeInTheDocument();
+    expect(screen.queryByText('E2EE Enabled')).not.toBeInTheDocument();
   });
 
   // Clamped branch: the trigger is near the left edge, so the right-aligned
@@ -396,7 +393,7 @@ describe('MainView', () => {
         toJSON: () => ({}),
       }) as DOMRect;
     fireEvent.mouseEnter(indicator);
-    expect(screen.getByText('E2EE Disabled')).toBeInTheDocument();
+    expect(screen.getByText('E2EE Enabled')).toBeInTheDocument();
   });
 
   it('shows welcome message when no server is active', () => {

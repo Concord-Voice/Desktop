@@ -52,7 +52,6 @@ describe('MainViewModals', () => {
       id: 'server-1',
       name: 'Test Server',
       owner_id: 'user-1',
-      e2ee_default: false,
       allow_embedded_content: false,
       created_at: '2024-01-01T00:00:00Z',
       updated_at: '2024-01-01T00:00:00Z',

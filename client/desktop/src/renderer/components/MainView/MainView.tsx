@@ -277,7 +277,7 @@ const MainView: React.FC = () => {
     <div className="channel-header-info">
       <div className="channel-header-name-row">
         <h3>{activeServer ? activeServer.name : 'Channels'}</h3>
-        {activeServer && <ServerE2eeIndicator server={activeServer} />}
+        {activeServer && <ServerE2eeIndicator />}
       </div>
       <ConnectionStatus />
     </div>

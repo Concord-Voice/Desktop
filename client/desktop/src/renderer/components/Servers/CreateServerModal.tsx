@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useFormState } from '../../hooks/useFormState';
 import { useImageUpload } from '../../hooks/useImageUpload';
-import { Lock } from 'lucide-react';
 import Modal from '../ui/Modal';
 import ImageCropEditor from '../ui/ImageCropEditor';
 import IconUploadArea from './IconUploadArea';
@@ -28,7 +27,6 @@ interface CreateServerModalProps {
 
 const CreateServerModal: React.FC<CreateServerModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const [name, setName] = useState('');
-  const [e2eeDefault, setE2eeDefault] = useState(true);
   const {
     errors,
     setErrors,
@@ -53,7 +51,6 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({ isOpen, onClose, 
 
   const resetForm = () => {
     setName('');
-    setE2eeDefault(true);
     icon.reset();
     banner.reset();
     resetFormState();
@@ -92,11 +89,9 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({ isOpen, onClose, 
     setIsSubmitting(true);
 
     try {
-      const body: { name: string; icon_url?: string; banner_url?: string; e2ee_default: boolean } =
-        {
-          name: name.trim(),
-          e2ee_default: e2eeDefault,
-        };
+      const body: { name: string; icon_url?: string; banner_url?: string } = {
+        name: name.trim(),
+      };
       if (icon.imageUrl) body.icon_url = icon.imageUrl;
       if (banner.imageUrl) body.banner_url = banner.imageUrl;
 
@@ -181,34 +176,6 @@ const CreateServerModal: React.FC<CreateServerModalProps> = ({ isOpen, onClose, 
           <span className="form-hint">
             {name.trim().length}/{NAME_MAX} characters
           </span>
-        </div>
-
-        {/* E2EE Default Toggle */}
-        <div className="form-group">
-          <span className="form-label">End-to-End Encryption</span>
-          <button
-            type="button"
-            className={`server-e2ee-toggle ${e2eeDefault ? 'enabled' : 'disabled'}`}
-            onClick={() => setE2eeDefault(!e2eeDefault)}
-            disabled={isSubmitting}
-          >
-            <span className="server-e2ee-toggle-icon">
-              <Lock size={18} />
-            </span>
-            <div className="server-e2ee-toggle-info">
-              <span className="server-e2ee-toggle-name">
-                {e2eeDefault ? 'E2EE Enabled by Default' : 'E2EE Disabled by Default'}
-              </span>
-              <span className="server-e2ee-toggle-desc">
-                {e2eeDefault
-                  ? 'New channels will be encrypted end-to-end'
-                  : 'New channels will not be encrypted by default'}
-              </span>
-            </div>
-            <div className={`server-e2ee-switch ${e2eeDefault ? 'on' : 'off'}`}>
-              <div className="server-e2ee-knob" />
-            </div>
-          </button>
         </div>
 
         {/* General Error */}

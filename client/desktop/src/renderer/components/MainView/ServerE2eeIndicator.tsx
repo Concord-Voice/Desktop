@@ -1,7 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Lock, LockOpen } from 'lucide-react';
-import { ServerWithRole } from '../../types/server';
+import { Lock } from 'lucide-react';
 
 /**
  * Computes the on-screen position for the E2EE tooltip relative to its trigger,
@@ -22,19 +21,19 @@ const computeE2eeTooltipPos = (rect: DOMRect): { top: number; left: number } => 
   return { top, left: Math.min(rect.left, maxLeft) };
 };
 
-interface ServerE2eeIndicatorProps {
-  server: ServerWithRole;
-}
-
 /**
  * The server-level E2EE lock shown in the channel-panel header, plus its hover
  * tooltip (portaled to <body> to escape transform-based containing blocks).
  * Extracted from MainView (SC-1) so the E2EE state / ref / callbacks / portal no
- * longer inflate MainView's cognitive complexity. Behavior is unchanged: the
- * tooltip still portals to document.body, so co-locating it with its trigger
- * does not move it in the DOM.
+ * longer inflate MainView's cognitive complexity. The tooltip portals to
+ * document.body, so co-locating it with its trigger does not move it in the DOM.
+ *
+ * Renders one unconditional always-encrypted state: under the E2EE-everywhere
+ * structural invariant (#201) every channel is encrypted by construction, so
+ * the badge has no per-server data dependency (the misleading per-server
+ * e2ee_default opt-out was removed in #1647).
  */
-const ServerE2eeIndicator: React.FC<ServerE2eeIndicatorProps> = ({ server }) => {
+const ServerE2eeIndicator: React.FC = () => {
   const [tooltipPos, setTooltipPos] = useState<{ top: number; left: number } | null>(null);
   const indicatorRef = useRef<HTMLButtonElement>(null);
 
@@ -50,33 +49,27 @@ const ServerE2eeIndicator: React.FC<ServerE2eeIndicatorProps> = ({ server }) => 
       <button
         type="button"
         ref={indicatorRef}
-        className={`server-e2ee-indicator ${server.e2ee_default ? 'encrypted' : 'unencrypted'}`}
-        aria-label={
-          server.e2ee_default
-            ? 'Server end-to-end encryption: enabled by default'
-            : 'Server end-to-end encryption: not enabled by default'
-        }
+        className="server-e2ee-indicator encrypted"
+        aria-label="Server end-to-end encryption: enabled"
         onMouseEnter={showTooltip}
         onMouseLeave={hideTooltip}
         onFocus={showTooltip}
         onBlur={hideTooltip}
       >
-        {server.e2ee_default ? <Lock size={12} /> : <LockOpen size={12} />}
+        <Lock size={12} />
       </button>
       {tooltipPos &&
         createPortal(
           <div
-            className={`e2ee-tooltip visible ${server.e2ee_default ? 'encrypted' : 'unencrypted'}`}
+            className="e2ee-tooltip visible encrypted"
             style={{ top: tooltipPos.top, left: tooltipPos.left }}
           >
             <span className="e2ee-tooltip-header">
-              {server.e2ee_default ? <Lock size={11} /> : <LockOpen size={11} />}
-              {server.e2ee_default ? 'E2EE Enabled' : 'E2EE Disabled'}
+              <Lock size={11} />
+              E2EE Enabled
             </span>
             <span className="e2ee-tooltip-body">
-              {server.e2ee_default
-                ? 'End-to-End Encryption is enabled by default in this server. New channels are created with E2EE on.'
-                : 'End-to-End Encryption is not enabled by default in this server. Channels may still enable E2EE individually.'}
+              End-to-end encryption is always on in this server. All channels are encrypted.
             </span>
             <span className="e2ee-tooltip-hint">
               Always check the channel encryption status near the message box to verify E2EE.

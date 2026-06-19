@@ -60,7 +60,6 @@ describe('CreateServerModal', () => {
           id: 'new-server',
           name: 'My Server',
           owner_id: 'user-1',
-          e2ee_default: true,
           created_at: '2025-01-01T00:00:00Z',
           updated_at: '2025-01-01T00:00:00Z',
         },
@@ -85,6 +84,12 @@ describe('CreateServerModal', () => {
 
     expect(screen.getByText('Server created successfully!')).toBeInTheDocument();
     expect(useServerStore.getState().servers).toHaveLength(1);
+
+    // #1647: the POST body must not carry the removed e2ee_default field.
+    const [, requestInit] = mockedApiFetch.mock.calls[0];
+    const sentBody = JSON.parse((requestInit?.body as string) ?? '{}');
+    expect(sentBody).toEqual({ name: 'My Server' });
+    expect(sentBody).not.toHaveProperty('e2ee_default');
 
     // The onSuccess is called after 800ms timeout
     await act(async () => {
@@ -114,13 +119,6 @@ describe('CreateServerModal', () => {
     await waitFor(() => {
       expect(screen.getByText('Name taken')).toBeInTheDocument();
     });
-  });
-
-  it('toggles E2EE default setting', () => {
-    render(<CreateServerModal isOpen={true} onClose={mockOnClose} onSuccess={mockOnSuccess} />);
-    expect(screen.getByText('E2EE Enabled by Default')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('E2EE Enabled by Default'));
-    expect(screen.getByText('E2EE Disabled by Default')).toBeInTheDocument();
   });
 
   it('calls onClose when Cancel is clicked', () => {

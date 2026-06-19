@@ -4,7 +4,6 @@ export interface Server {
   icon_url?: string;
   banner_url?: string;
   owner_id: string;
-  e2ee_default: boolean;
   allow_embedded_content: boolean;
   created_at: string;
   updated_at: string;
@@ -45,7 +44,6 @@ export interface MemberRoleInfo {
 export interface CreateServerRequest {
   name: string;
   icon_url?: string;
-  e2ee_default?: boolean;
 }
 
 export interface CreateServerResponse {
