@@ -1,6 +1,11 @@
 import React from 'react';
 import type { AppearanceSettings } from '../../stores/settingsStore';
 import { useDraftAppearance, setDraftAppearanceSetting } from '../../hooks/useDraftSettings';
+import {
+  resolveEffectiveFont,
+  themeBundledFontFor,
+  RESOLVER_CONFIG,
+} from '../../utils/effectiveFont';
 import CollapsibleSection from './CollapsibleSection';
 import './FontSection.css';
 
@@ -26,6 +31,21 @@ const FONT_OPTIONS: { id: AppearanceSettings['appFont']; label: string; family: 
 
 const FontSection: React.FC = () => {
   const appearance = useDraftAppearance();
+  const { appFont, dyslexicSupport, colorScheme } = appearance;
+
+  // Consume the pure resolver over DRAFT appearance (live preview) — the same call
+  // the settingsStore subscriber makes over committed state. #1643 renders the SOFT
+  // theme-lock (lockReason==='theme'); #1644 extends `activeId` for the dyslexic
+  // HARD lock (lockReason==='dyslexic'). See spec §4.2.
+  const themeBundledFont = themeBundledFontFor(colorScheme);
+  const { effective, lockReason } = resolveEffectiveFont(
+    { dyslexicSupport, appFont, themeBundledFont },
+    RESOLVER_CONFIG
+  );
+  // Under user-wins the theme only "locks" when the user hasn't picked; the active
+  // option is then the theme font. Otherwise it tracks the user's appFont. Options
+  // stay interactive so a pick overrides (soft lock — spec §3 D4).
+  const activeId = lockReason === 'theme' ? effective : appFont;
 
   return (
     <CollapsibleSection id="section-fonts" title="Application Font">
@@ -43,11 +63,16 @@ const FontSection: React.FC = () => {
           <button
             key={f.id}
             type="button"
-            className={`font-option ${appearance.appFont === f.id ? 'selected' : ''}`}
-            aria-pressed={appearance.appFont === f.id}
+            className={`font-option ${activeId === f.id ? 'selected' : ''}`}
+            aria-pressed={activeId === f.id}
             onClick={() => setDraftAppearanceSetting('appFont', f.id)}
           >
-            <span className="font-option-label">{f.label}</span>
+            <span className="font-option-label">
+              {f.label}
+              {themeBundledFont === f.id && (
+                <span className="font-option-theme-badge">Provided by the active theme</span>
+              )}
+            </span>
             <span
               className="font-option-sample"
               style={{ fontFamily: f.family }}

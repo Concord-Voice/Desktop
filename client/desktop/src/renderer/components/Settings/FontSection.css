@@ -67,3 +67,17 @@
   line-height: 1.3;
   color: var(--text-secondary);
 }
+
+/* Theme-reveal badge (#1643): marks the font a font-bundling scheme (e.g. Agency)
+   provides. Informational — the option stays interactive (soft theme-lock). */
+.font-option-theme-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--on-accent);
+  background: var(--accent-primary);
+  border-radius: 6px;
+  vertical-align: middle;
+}

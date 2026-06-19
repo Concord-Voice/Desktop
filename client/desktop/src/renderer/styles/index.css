@@ -1506,7 +1506,10 @@
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
   --font-display-stack: 'Atkinson Hyperlegible Next', 'Lato', system-ui, sans-serif;
-  --font-body-stack: 'Lato', 'Atkinson Hyperlegible Next', system-ui, sans-serif;
+  /* #1643: body font is applied via the data-appfont sink (SCHEME_FONTS → atkinson),
+     not this token. Kept at the canonical default for design-token schema symmetry
+     (design-tokens.test.ts); --font-body-stack remains globally unconsumed. */
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
   --radius-base: 4px;
@@ -1559,7 +1562,10 @@
   --state-focused: var(--accent-secondary);
   --state-hover: var(--bg-hover);
   --font-display-stack: 'Atkinson Hyperlegible Next', 'Lato', system-ui, sans-serif;
-  --font-body-stack: 'Lato', 'Atkinson Hyperlegible Next', system-ui, sans-serif;
+  /* #1643: body font is applied via the data-appfont sink (SCHEME_FONTS → atkinson),
+     not this token. Kept at the canonical default for design-token schema symmetry
+     (design-tokens.test.ts); --font-body-stack remains globally unconsumed. */
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
   --font-display-tracking: 0;
   --font-display-tracking-tight: -0.02em;
   --radius-base: 4px;

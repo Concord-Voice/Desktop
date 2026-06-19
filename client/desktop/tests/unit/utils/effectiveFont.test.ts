@@ -63,8 +63,38 @@ describe('resolveEffectiveFont', () => {
     expect(RESOLVER_CONFIG.themeVsUser).toBe('user-wins');
   });
 
-  it('themeBundledFontFor is a null stub in C1 (seam for #1643)', () => {
-    expect(themeBundledFontFor('agency')).toBeNull();
+  it('themeBundledFontFor: Agency maps to atkinson; other schemes are null (#1643)', () => {
+    expect(themeBundledFontFor('agency')).toBe('atkinson');
     expect(themeBundledFontFor('concord')).toBeNull();
+    expect(themeBundledFontFor('hacker')).toBeNull();
+    expect(themeBundledFontFor('custom')).toBeNull();
+  });
+
+  it('Agency theme-layer matrix under the shipped user-wins config (#1643)', () => {
+    const themeBundledFont = themeBundledFontFor('agency'); // 'atkinson'
+
+    // No explicit pick → theme provides its font, soft-locked.
+    expect(
+      resolveEffectiveFont(
+        { dyslexicSupport: false, appFont: 'default', themeBundledFont },
+        RESOLVER_CONFIG
+      )
+    ).toEqual({ effective: 'atkinson', pickerLocked: true, lockReason: 'theme' });
+
+    // Explicit non-default pick → user wins, unlocked.
+    expect(
+      resolveEffectiveFont(
+        { dyslexicSupport: false, appFont: 'inter', themeBundledFont },
+        RESOLVER_CONFIG
+      )
+    ).toEqual({ effective: 'inter', pickerLocked: false, lockReason: null });
+
+    // Dyslexic support still overrides the theme.
+    expect(
+      resolveEffectiveFont(
+        { dyslexicSupport: true, appFont: 'default', themeBundledFont },
+        RESOLVER_CONFIG
+      )
+    ).toEqual({ effective: 'opendyslexic', pickerLocked: true, lockReason: 'dyslexic' });
   });
 });

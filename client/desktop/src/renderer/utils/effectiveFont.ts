@@ -1,6 +1,10 @@
 // Pure effective-font resolver — the single source of truth for "which font applies".
-// No DOM, no store imports: unit-testable in isolation. See
+// No DOM and no *runtime* store imports — unit-testable in isolation. See
 // internal-reference §3.1.
+
+// Type-only import: erased by esbuild → zero runtime coupling, no circular dependency
+// (the runtime import edge stays one-way settingsStore → effectiveFont).
+import type { AppearanceSettings } from '../stores/settingsStore';
 
 export type AppFontId =
   | 'default' // Concord Voice Default (brand) — ALSO the "no explicit pick" sentinel
@@ -23,7 +27,7 @@ export interface FontResolverConfig {
 export interface FontResolverInput {
   dyslexicSupport: boolean;
   appFont: AppFontId; // 'default' means "no explicit pick"
-  themeBundledFont: AppFontId | null; // C1: always null; #1643 fills it via SCHEME_FONTS
+  themeBundledFont: AppFontId | null; // #1643 fills it via SCHEME_FONTS (Agency → 'atkinson')
 }
 
 export interface FontResolution {
@@ -62,13 +66,23 @@ export function resolveEffectiveFont(
 }
 
 /**
- * #1643 seam. Returns the active scheme's bundled font id, or null.
- * C1 ships the null stub; #1643 replaces the body with the SCHEME_FONTS lookup
- * (Agency → 'lato'). Kept a real function (not an inlined null) so #1643's diff is
- * one function body, not a subscriber rewire.
+ * Per-scheme bundled body font. Only schemes that bundle a font appear here;
+ * every other scheme inherits the base body stack (returns null). #1643: Agency
+ * bundles Atkinson Hyperlegible Next (its already-Atkinson display face + a
+ * low-vision-legible body). The `Partial<Record<…>>` annotation validates the
+ * keys are real scheme ids AND the values are real AppFontIds, and (unlike
+ * `satisfies`, which keeps the narrow `{ agency }` type) lets us index by any
+ * scheme id → `AppFontId | undefined`.
  */
-export function themeBundledFontFor(_colorScheme: string): AppFontId | null {
-  return null;
+const SCHEME_FONTS: Partial<Record<AppearanceSettings['colorScheme'], AppFontId>> = {
+  agency: 'atkinson',
+};
+
+/** Returns the active scheme's bundled font id, or null. The #1643 seam. */
+export function themeBundledFontFor(
+  colorScheme: AppearanceSettings['colorScheme']
+): AppFontId | null {
+  return SCHEME_FONTS[colorScheme] ?? null;
 }
 
 /** The shipped C1 configuration: an explicit user pick wins over a theme font (Q1). */

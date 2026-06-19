@@ -6,19 +6,19 @@ This directory ships font binaries used by Concord Voice's `client/desktop` Elec
 
 ## Files shipped
 
-| File | Family | Copyright | Source |
-|---|---|---|---|
-| `Droidiga.otf` | Droidiga | © 2013 Frank Hemmekam | https://www.fontspace.com/droidiga-font-f29933 |
-| `SourceSans.otf` | Source Sans Pro | © 2010, 2012 Adobe Systems Inc. (Paul D. Hunt) — RFN "Source" | https://github.com/adobe-fonts/source-sans-pro |
-| `AtkinsonHyperlegibleNextVF-Variable.woff2` | Atkinson Hyperlegible Next | © 2024 Braille Institute of America, Inc. | https://www.brailleinstitute.org/freefont/ |
-| `Lato-Regular.ttf` | Lato | © 2010-2014 tyPoland Łukasz Dziedzic | https://fonts.google.com/specimen/Lato |
-| `Lato-Bold.ttf` | Lato | © 2010-2014 tyPoland Łukasz Dziedzic | https://fonts.google.com/specimen/Lato |
-| `Lato-Italic.ttf` | Lato | © 2010-2014 tyPoland Łukasz Dziedzic | https://fonts.google.com/specimen/Lato |
-| `Lato-BoldItalic.ttf` | Lato | © 2010-2014 tyPoland Łukasz Dziedzic | https://fonts.google.com/specimen/Lato |
-| `OpenDyslexic-Regular.woff2` | OpenDyslexic | © 2019 Abbie Gonzalez — RFN "OpenDyslexic" | https://github.com/antijingoist/opendyslexic |
-| `OpenDyslexic-Bold.woff2` | OpenDyslexic | © 2019 Abbie Gonzalez — RFN "OpenDyslexic" | https://github.com/antijingoist/opendyslexic |
-| `Inter-Variable.woff2` | Inter | © 2016 The Inter Project Authors | https://github.com/rsms/inter |
-| `Lexend-Variable.woff2` | Lexend | © 2019 The Lexend Project Authors | https://github.com/googlefonts/lexend |
+| File                                        | Family                     | Copyright                                                     | Source                                                    |
+| ------------------------------------------- | -------------------------- | ------------------------------------------------------------- | --------------------------------------------------------- |
+| `Droidiga.otf`                              | Droidiga                   | © 2013 Frank Hemmekam                                         | https://www.fontspace.com/droidiga-font-f29933            |
+| `SourceSans.otf`                            | Source Sans Pro            | © 2010, 2012 Adobe Systems Inc. (Paul D. Hunt) — RFN "Source" | https://github.com/adobe-fonts/source-sans-pro            |
+| `AtkinsonHyperlegibleNextVF-Variable.woff2` | Atkinson Hyperlegible Next | © 2020–2024 The Atkinson Hyperlegible Next Project Authors    | https://github.com/googlefonts/atkinson-hyperlegible-next |
+| `Lato-Regular.ttf`                          | Lato                       | © 2010-2014 tyPoland Łukasz Dziedzic                          | https://fonts.google.com/specimen/Lato                    |
+| `Lato-Bold.ttf`                             | Lato                       | © 2010-2014 tyPoland Łukasz Dziedzic                          | https://fonts.google.com/specimen/Lato                    |
+| `Lato-Italic.ttf`                           | Lato                       | © 2010-2014 tyPoland Łukasz Dziedzic                          | https://fonts.google.com/specimen/Lato                    |
+| `Lato-BoldItalic.ttf`                       | Lato                       | © 2010-2014 tyPoland Łukasz Dziedzic                          | https://fonts.google.com/specimen/Lato                    |
+| `OpenDyslexic-Regular.woff2`                | OpenDyslexic               | © 2019 Abbie Gonzalez — RFN "OpenDyslexic"                    | https://github.com/antijingoist/opendyslexic              |
+| `OpenDyslexic-Bold.woff2`                   | OpenDyslexic               | © 2019 Abbie Gonzalez — RFN "OpenDyslexic"                    | https://github.com/antijingoist/opendyslexic              |
+| `Inter-Variable.woff2`                      | Inter                      | © 2016 The Inter Project Authors                              | https://github.com/rsms/inter                             |
+| `Lexend-Variable.woff2`                     | Lexend                     | © 2019 The Lexend Project Authors                             | https://github.com/googlefonts/lexend                     |
 
 ---
 
@@ -28,7 +28,7 @@ Copyright © 2013 Frank Hemmekam. "Droidiga" is a trademark of Frank Hemmekam.
 
 Droidiga is the display / brand face for Concord Voice — the wordmark, headings, and primary action buttons. Its designer distributes it as **freeware, licensed for commercial use**, including embedding and redistribution within application software (which is how Concord ships it).
 
-It replaced the previously-bundled **Baron Neue** (also by Hemmekam), which is free for *personal* use only and requires a paid license for commercial use. Concord did not hold that license, so Baron Neue was removed in favor of its freely-commercial sibling. (Droidiga's decorative glyphs sit in the lowercase slots where Baron Neue's were uppercase — which is why Concord's display surfaces render Title Case rather than ALL-CAPS.)
+It replaced the previously-bundled **Baron Neue** (also by Hemmekam), which is free for _personal_ use only and requires a paid license for commercial use. Concord did not hold that license, so Baron Neue was removed in favor of its freely-commercial sibling. (Droidiga's decorative glyphs sit in the lowercase slots where Baron Neue's were uppercase — which is why Concord's display surfaces render Title Case rather than ALL-CAPS.)
 
 Droidiga is **not** under the SIL Open Font License; the freeware grant is the designer's own. Re-verify the current terms at the source before redistribution.
 
@@ -48,7 +48,9 @@ Source: <https://github.com/adobe-fonts/source-sans-pro>
 
 ## Atkinson Hyperlegible Next
 
-Copyright © 2024 Braille Institute of America, Inc. — Reserved Font Name **"Atkinson Hyperlegible Next"**.
+Copyright © 2020–2024 The Atkinson Hyperlegible Next Project Authors (<https://github.com/googlefonts/atkinson-hyperlegible-next>) — Reserved Font Name **"Atkinson Hyperlegible Next"**.
+
+> **Agency theme audit (#1643):** the Agency color scheme bundles Atkinson Hyperlegible Next (display + body) and Lato (display fallback). Both are SIL OFL 1.1 — commercial use, embedding, and self-hosting are permitted. **Cleared to keep bundling.** The "Next" variable release is a Google Fonts project (Project Authors), distinct from the original Atkinson Hyperlegible, which is © Braille Institute of America; the typeface was originated by the Braille Institute in both cases.
 
 Atkinson Hyperlegible Next is the 2024 successor to the original Atkinson Hyperlegible, both designed by Braille Institute specifically to increase character recognition for low-vision readers. The "Next" version expands weight coverage (ExtraLight through ExtraBold, plus italics) and extends Latin language support.
 
