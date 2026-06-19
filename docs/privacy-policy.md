@@ -266,8 +266,7 @@ The information we collect includes:
 Like many businesses, we also collect information through cookies and
 similar technologies. You can find out more about this in our Cookie
 Notice at
-[https://www.concordvoice.com/cookie-policy](https://www.concordvoice.com/cookie-policy)
-_[Cookie Notice publication is pending — see drafting notes]_.
+[https://www.concordvoice.com/cookie-policy](https://www.concordvoice.com/cookie-policy).
 
 ### Google API
 
@@ -621,8 +620,7 @@ and mobile applications do not contain advertising trackers.
 
 Specific information about how we use such technologies and how you
 can refuse certain cookies is set out in our Cookie Notice at
-[https://www.concordvoice.com/cookie-policy](https://www.concordvoice.com/cookie-policy)
-_[Cookie Notice publication is pending — see drafting notes]_.
+[https://www.concordvoice.com/cookie-policy](https://www.concordvoice.com/cookie-policy).
 
 ---
 
@@ -1234,8 +1232,7 @@ the number and type of legal-process requests received, complied with,
 and challenged. This report does not include information that would
 identify individual users or compromise ongoing legal proceedings. The
 transparency report is published at
-[www.concordvoice.com/transparency](https://www.concordvoice.com/transparency)
-_[publication URL pending — see drafting notes]_.
+[www.concordvoice.com/transparency](https://www.concordvoice.com/transparency).
 
 This commitment mirrors **Section 18.6 of our [Terms of Service](legal/terms-of-service.md)**.
 
@@ -1378,123 +1375,3 @@ please:
 
 - Fill out and submit a [data subject access request](https://app.termly.io/dsar/6c18ae61-d3db-46b7-957f-73e31995238e), or
 - Email us at [privacy+policy@concordvoice.com](mailto:privacy+policy@concordvoice.com).
-
----
-
-## historical editorial note omitted (historical editorial note omitted)
-
-1. **Effective date.** Set on publication day.
-
-2. **Cookie Notice publication.** This Privacy Notice references
-   [https://www.concordvoice.com/cookie-policy](https://www.concordvoice.com/cookie-policy)
-   in Sections 1, 6, and 12. Verify the Cookie Notice is published before
-   this Privacy Notice goes live; otherwise readers will hit a 404. If
-   the Cookie Notice will not be ready by the same publication date,
-   either publish a placeholder ("Cookie Notice — Coming Soon") or
-   remove the references and replace with "Cookies and similar
-   technologies are used minimally; details available on request."
-
-3. **EU-US Data Privacy Framework (DPF) certification — Resolved 2026-05-30.**
-   Concord Voice LLC confirmed NOT certified under DPF. Section 9.2
-   now explicitly disclaims DPF participation. If DPF certification is
-   later pursued, file with US Department of Commerce, then update
-   Section 9.2 accordingly.
-
-4. **Standard Contractual Clauses (SCCs) — Resolved 2026-05-30.**
-   Concord Voice LLC confirmed has NOT yet executed SCCs with
-   processors. Section 9.3 now honestly discloses this and identifies
-   Article 49(1)(a) consent as the interim legal basis. Once SCCs are
-   executed with each processor (Stripe, KLIPY, Google, Apple, Resend,
-   NVIDIA), update Section 9.3 to identify SCCs as the primary legal
-   basis. SCC templates are available from the European Commission at
-   eur-lex.europa.eu (Decision 2021/914); execution requires signature
-   from both Concord Voice LLC and each processor.
-
-5. **Service-provider list (Section 5.1).** The list includes Stripe,
-   KLIPY, NVIDIA Broadcast, Google, Apple, and Resend. Verify each is
-   actually a current data-processor relationship. Adjust as
-   appropriate. If KLIPY is the privacy-proxy provider (not a direct
-   data recipient), the description should be clarified to reflect that
-   queries are proxied so KLIPY does not see end-user IP addresses.
-
-6. **NVIDIA Broadcast specifics (Section 7).** Verify that NVIDIA
-   Broadcast actually runs entirely locally as stated. Some
-   NVIDIA-SDK features transmit telemetry; if so, disclose accurately.
-
-7. **Mobile app references.** Per internal-reference, the current platform is
-   Electron-desktop only; the mobile app is Phase 3 (#204). The
-   "if and when released" hedging in the introduction is intentional —
-   keep it so the Privacy Notice does not need a major revision when
-   the mobile app launches.
-
-8. **Single Sign-On providers (Section 8).** Currently lists Google and
-   Apple. Verify against the actual `GOOGLE_SSO_ENABLED` and
-   `APPLE_SSO_ENABLED` deployment flags (see
-   `internal-reference`). If only one is currently enabled,
-   adjust the list.
-
-9. **Resend as email processor.** Per internal-reference `RESEND_API_KEY` maps
-   to `SMTP_PASSWORD` — confirm Resend is the actual email-sending
-   processor. If you use a different transactional-email vendor, swap.
-
-10. **DSAR portal.** All sections reference the Termly-hosted DSAR
-    portal at
-    [https://app.termly.io/dsar/6c18ae61-d3db-46b7-957f-73e31995238e](https://app.termly.io/dsar/6c18ae61-d3db-46b7-957f-73e31995238e).
-    If you move off Termly, swap for your own portal URL.
-
-11. **Cross-reference paths.** Section 18 references the LICENSE,
-    commercial-license, and terms-of-service files using relative paths
-    that work from the repo's `docs/` directory. If this file moves
-    (e.g., to `docs/legal/privacy-policy.md` for symmetry with the ToS
-    location), update the relative paths accordingly.
-
-12. **Age requirement (Section 15).** Set to 16+ globally to match the
-    ToS Section 1. If you want to allow 13-15 with parental consent
-    (separate from the EEA/UK 16+ floor), this section needs adjustment
-    and the ToS Section 1 needs to match.
-
-13. **Transparency report URL (Section 16).** Currently
-    `concordvoice.com/transparency`. Verify the actual URL or set up
-    the redirect before publication.
-
-14. **EU representative (GDPR Article 27) — Resolved 2026-05-30.**
-    Concord Voice LLC confirmed has NOT yet appointed an Article 27
-    representative. Section 9.4 now honestly discloses this and
-    explicitly does not assert the Article 27(2) exemption. To complete
-    appointment, engage a specialized EU representative firm (Prighter,
-    EDPO, DataRep, or similar — typical cost €1-3k/year fixed fee).
-    Once appointed, replace the interim "Data Protection Officer at
-    Concord Voice LLC" contact block in Section 9.4 with the
-    representative's contact details.
-
-15. **UK representative (UK GDPR Article 27) — Resolved 2026-05-30.**
-    Same as #14 above. Most EU representative firms (Prighter, etc.)
-    offer combined EU + UK representation as a single package.
-
-16. **CCPA/CPRA service-provider designations.** Each of the third
-    parties in Section 5.1 should be designated as either a "service
-    provider" or "third party" under CCPA/CPRA. Verify the underlying
-    contracts include the required service-provider language; if so,
-    Section 5.1 is accurate.
-
-17. **Children under 13 (Section 15).** The COPPA reference is correct
-    but interacts with the global 16+ minimum. The current drafting
-    is: "must be 16+ globally; if we learn that someone under 13 (the
-    COPPA threshold) has provided data, we delete it." Verify this is
-    the intended posture; otherwise tighten.
-
-18. **HIPAA / Regulated Industries.** Not addressed here in the
-    Privacy Notice; covered in ToS Sections 19-20. Consider adding a
-    brief cross-reference here if any user expects to find HIPAA
-    handling in the Privacy Notice rather than the ToS.
-
-19. **Sentry / telemetry.** This Privacy Notice does NOT mention
-    Sentry. Per project memory, Sentry was being removed from
-    Concord. If Sentry has been fully removed and there is no
-    error-reporting telemetry, this Privacy Notice's "low-telemetry
-    architecture by design" statement (Section 1) is accurate. If
-    Sentry or an equivalent crash-reporter is restored, that section
-    will need updating.
-
-20. **DMCA / IP infringement.** Not addressed here; covered in ToS
-    Section 17 (DMCA Notice and Policy). Cross-reference if desired.
