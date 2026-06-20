@@ -21,6 +21,8 @@ import {
 import MarkdownContent from '../Markdown/MarkdownContent';
 import AttachmentDisplay from './AttachmentDisplay';
 import GifEmbed from './GifEmbed';
+import { InviteEmbed } from './InviteEmbed';
+import { messageInviteCodes } from '@/renderer/utils/inviteUrl';
 import { useMessageProfileCard } from '../../hooks/useMessageProfileCard';
 import MessageProfileCardHost from './MessageProfileCardHost';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -486,6 +488,16 @@ const Message: React.FC<MessageProps> = ({
   const { openProfileAt } = profileCardState;
 
   const showReplyPreview = Boolean(message.replied_to || message.reply_to_id);
+
+  const inviteCodes = useMemo(
+    () =>
+      messageInviteCodes(message.content, {
+        pendingKeys: message.pendingKeys,
+        decryptFailed: message.decryptFailed,
+      }),
+    [message.content, message.pendingKeys, message.decryptFailed]
+  );
+
   const messageClassName = [
     'message',
     isOwnMessage && 'own-message',
@@ -541,6 +553,10 @@ const Message: React.FC<MessageProps> = ({
             loadAutomatically={loadGifsAutomatically}
           />
         )}
+
+        {inviteCodes.map((code) => (
+          <InviteEmbed key={code} code={code} />
+        ))}
 
         {message.attachments && message.attachments.length > 0 && (
           <AttachmentDisplay

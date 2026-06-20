@@ -1,11 +1,12 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { Smile, ImagePlay, Paperclip, Lock } from 'lucide-react';
+import { Smile, ImagePlay, Paperclip, Lock, UserPlus } from 'lucide-react';
 import MessageInputContextMenu from './MessageInputContextMenu';
 import MentionAutocomplete, { type MentionAutocompleteHandle } from './MentionAutocomplete';
 import EmojiPicker from '../EmojiPicker/LazyEmojiPicker';
 import LazyGifPicker from '../GifPicker/LazyGifPicker';
 import UserPanel from '../User/UserPanel';
 import SyntaxHelpModal from '../Markdown/SyntaxHelpModal';
+import { InviteServerPicker } from './InviteServerPicker';
 import { useClientConfigStore } from '../../stores/clientConfigStore';
 import { useLayoutStore } from '../../stores/layoutStore';
 import { buildAddendum, encodeMentionMeta, type ParsedMention } from '../../utils/mentions';
@@ -14,6 +15,8 @@ import { useFileUpload } from '../../hooks/useFileUpload';
 import { useDraftMessage } from '../../hooks/useDraftMessage';
 import { useChatStore } from '../../stores/chatStore';
 import { usePermissionStore } from '../../stores/permissionStore';
+import { useInviteStore } from '../../stores/inviteStore';
+import { buildInviteUrl } from '../../utils/inviteUrl';
 import AttachmentUploadPreview from './AttachmentUploadPreview';
 import ReplyPreviewBar from './ReplyPreviewBar';
 import { composeMarkdownOverflow } from '../../utils/overflowToMarkdown';
@@ -175,6 +178,8 @@ const MessageInput: React.FC<MessageInputProps> = ({
     { x: 0, y: 0, anchorCenterX: 0 }
   );
   const gifsEnabled = useClientConfigStore((s) => s.featureFlags.gifsEnabled ?? false);
+  const [invitePickerOpen, setInvitePickerOpen] = useState(false);
+  const createInvite = useInviteStore((s) => s.createInvite);
   const fetchChannelOverrides = usePermissionStore((s) => s.fetchChannelOverrides);
   const [showMentions, setShowMentions] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -361,6 +366,17 @@ const MessageInput: React.FC<MessageInputProps> = ({
       onCancelReply?.();
     },
     [onSendMessage, replyingTo, onCancelReply]
+  );
+
+  const handlePickInviteServer = useCallback(
+    async (serverId: string) => {
+      setInvitePickerOpen(false);
+      const invite = await createInvite(serverId);
+      if (!invite) return; // createInvite records its own error in the store
+      const url = buildInviteUrl(invite.code);
+      setContent((prev) => (prev.trim() ? `${prev.trimEnd()} ${url}` : url));
+    },
+    [createInvite]
   );
 
   const adjustTextareaHeight = useCallback(() => {
@@ -800,6 +816,25 @@ const MessageInput: React.FC<MessageInputProps> = ({
               style={{ display: 'none' }}
               onChange={handleFileSelect}
             />
+            {conversationId && (
+              <div className="message-input__invite" style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  className="media-btn"
+                  onClick={() => setInvitePickerOpen((o) => !o)}
+                  aria-label="Invite to a server"
+                  title="Invite to a server"
+                >
+                  <UserPlus size={18} />
+                </button>
+                {invitePickerOpen && (
+                  <InviteServerPicker
+                    onPick={handlePickInviteServer}
+                    onClose={() => setInvitePickerOpen(false)}
+                  />
+                )}
+              </div>
+            )}
           </div>
         </div>
       </section>
