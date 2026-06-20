@@ -3,9 +3,6 @@ import { createStore } from '../utils/createStore';
 // Mirrors the backend ClientConfigResponse from services/control-plane/internal/clientconfig/handlers.go
 
 interface FeatureFlags {
-  voice: boolean;
-  video: boolean;
-  e2ee: boolean;
   // Server-side flag: true when the control-plane has a KLIPY app key configured
   // and the GIF proxy routes are mounted. The key itself is NEVER sent to the
   // client — all KLIPY traffic goes through /api/v1/klipy/* on the control-plane.
@@ -33,7 +30,7 @@ interface ClientConfigState {
 
 export const useClientConfigStore = createStore<ClientConfigState>()((set) => ({
   minVersion: '',
-  featureFlags: { voice: true, video: true, e2ee: true },
+  featureFlags: {},
   mediaPlaneUrl: '',
   turn: { host: '', realm: '' },
   spaUrl: '',

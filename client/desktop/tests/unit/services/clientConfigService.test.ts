@@ -18,7 +18,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   useClientConfigStore.setState({
     minVersion: '',
-    featureFlags: { voice: true, video: true, e2ee: true },
+    featureFlags: {},
     mediaPlaneUrl: '',
     turn: { host: '', realm: '' },
     spaUrl: '',
@@ -59,7 +59,7 @@ describe('clientConfigService', () => {
 
     const baseResponse = {
       minVersion: '0.2.0',
-      featureFlags: { voice: true, video: true, e2ee: true },
+      featureFlags: { gifsEnabled: true },
       mediaPlaneUrl: 'https://media.test/',
       turn: { host: 'turn.test', realm: 'r' },
       spaUrl: '',
@@ -120,7 +120,7 @@ describe('clientConfigService', () => {
         json: () =>
           Promise.resolve({
             ...baseResponse,
-            featureFlags: { ...baseResponse.featureFlags, video: false }, // changed
+            featureFlags: { ...baseResponse.featureFlags, gifsEnabled: false }, // changed
           }),
       } as Response);
       await clientConfigService.fetch(); // changed — should log
@@ -230,7 +230,7 @@ describe('clientConfigService', () => {
         json: () =>
           Promise.resolve({
             minVersion: '0.3.0',
-            featureFlags: { voice: true, video: true, e2ee: true },
+            featureFlags: { gifsEnabled: true },
             mediaPlaneUrl: 'https://media.test/',
             turn: { host: 'turn.test', realm: 'r' },
             spaUrl: 'https://new.app.test/secret-subdomain/',

@@ -5,7 +5,7 @@ beforeEach(() => {
   resetAllStores();
   useClientConfigStore.setState({
     minVersion: '',
-    featureFlags: { voice: true, video: true, e2ee: true },
+    featureFlags: {},
     mediaPlaneUrl: '',
     turn: { host: '', realm: '' },
     spaUrl: '',
@@ -18,7 +18,7 @@ describe('clientConfigStore', () => {
   it('has correct default values', () => {
     const state = useClientConfigStore.getState();
     expect(state.minVersion).toBe('');
-    expect(state.featureFlags).toEqual({ voice: true, video: true, e2ee: true });
+    expect(state.featureFlags).toEqual({});
     expect(state.mediaPlaneUrl).toBe('');
     expect(state.turn).toEqual({ host: '', realm: '' });
     expect(state.spaUrl).toBe('');
@@ -30,7 +30,7 @@ describe('clientConfigStore', () => {
     const before = Date.now();
     useClientConfigStore.getState().setConfig({
       minVersion: '0.2.0',
-      featureFlags: { voice: true, video: false, e2ee: true },
+      featureFlags: { gifsEnabled: true },
       mediaPlaneUrl: 'https://media.concordvoice.chat',
       turn: { host: 'turn.concordvoice.chat', realm: 'concord' },
       spaUrl: 'https://app.concordvoice.chat',
@@ -39,7 +39,7 @@ describe('clientConfigStore', () => {
 
     const state = useClientConfigStore.getState();
     expect(state.minVersion).toBe('0.2.0');
-    expect(state.featureFlags.video).toBe(false);
+    expect(state.featureFlags.gifsEnabled).toBe(true);
     expect(state.mediaPlaneUrl).toBe('https://media.concordvoice.chat');
     expect(state.turn.host).toBe('turn.concordvoice.chat');
     expect(state.spaUrl).toBe('https://app.concordvoice.chat');
@@ -52,7 +52,7 @@ describe('clientConfigStore', () => {
 
     useClientConfigStore.getState().setConfig({
       minVersion: '0.1.0',
-      featureFlags: { voice: true, video: true, e2ee: true },
+      featureFlags: { gifsEnabled: true },
       mediaPlaneUrl: '',
       turn: { host: '', realm: '' },
       spaUrl: '',
