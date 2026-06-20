@@ -19,6 +19,7 @@ import {
   encryptBlob,
   decryptBlob,
   unwrapPrivateKey,
+  unwrapSigningKey,
   unwrapChannelKey,
   wrapChannelKey,
   encryptMessage,
@@ -231,6 +232,47 @@ class E2EEService {
     }
     const wrappedKeyBuffer = base64ToArrayBuffer(this.wrappedPrivateKey);
     return unwrapPrivateKey(wrappedKeyBuffer, this.wrappingKey);
+  }
+
+  /**
+   * Derive the device key as a non-extractable RSA-PSS *signing* handle (#1624).
+   *
+   * Re-unwraps the SAME wrapped device key as derivePrivateKey, but tagged for
+   * RSA-PSS / ['sign'] instead of RSA-OAEP / ['decrypt']. `signAgeClaim` (below) is
+   * the production entry point ageClaimService uses; this lower-level handle accessor
+   * is exposed mainly for handle-level testing (asserting non-extractability / sign
+   * usage) and symmetry with derivePrivateKey. Mirrors derivePrivateKey's shape.
+   *
+   * Modulus-reuse caveat: this signature shares the E2EE key's modulus, so it is
+   * exactly as trustworthy as device-key custody — NOT an independent second
+   * factor. Downstream consumers must not market it as one. See
+   * docs/age-claim-canonical-form.md and internal-reference
+   */
+  async deriveSigningKey(): Promise<CryptoKey> {
+    if (!this.wrappingKey || !this.wrappedPrivateKey) {
+      throw new Error('E2EE service not initialized');
+    }
+    const wrappedKeyBuffer = base64ToArrayBuffer(this.wrappedPrivateKey);
+    return unwrapSigningKey(wrappedKeyBuffer, this.wrappingKey);
+  }
+
+  /**
+   * Sign age-claim canonical bytes with the device key; returns base64 (#1624).
+   *
+   * Derives the non-extractable RSA-PSS sign handle and signs under
+   * RSA-PSS / SHA-256 / saltLength 32 — the salt the server's verifier requires
+   * (PSSSaltLengthAuto is rejected). Keeping crypto.subtle.sign here (a designated
+   * crypto module per the concord-crypto-outside-module rule) lets ageClaimService
+   * orchestrate without ever touching crypto.subtle or a CryptoKey.
+   */
+  async signAgeClaim(canonicalBytes: Uint8Array): Promise<string> {
+    const signKey = await this.deriveSigningKey();
+    const signature = await crypto.subtle.sign(
+      { name: 'RSA-PSS', saltLength: 32 },
+      signKey,
+      canonicalBytes as BufferSource
+    );
+    return arrayBufferToBase64(signature);
   }
 
   /**

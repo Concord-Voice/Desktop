@@ -270,6 +270,47 @@ export async function unwrapPrivateKey(
 }
 
 /**
+ * Unwrap the device private key as a non-extractable RSA-PSS *signing* handle (#1624).
+ *
+ * Identical to unwrapPrivateKey except the unwrapped key is tagged RSA-PSS / ['sign']
+ * instead of RSA-OAEP / ['decrypt']. The wrapped PKCS8 is algorithm-agnostic RSA key
+ * material — WebCrypto fixes the unwrapped key's algorithm + usages from these params,
+ * so the SAME wrapped device key yields an OAEP-decrypt key OR a PSS-sign key. Raw
+ * PKCS8 is never exposed; the result is non-extractable. Used to sign age-claim
+ * canonical bytes (RSA-PSS / SHA-256 / saltLength 32) for the #272 age system.
+ *
+ * @param wrappedKey - Wrapped private key (12-byte IV prepended); same blob as unwrapPrivateKey
+ * @param unwrappingKey - AES-GCM key derived from password
+ * @returns Promise<CryptoKey> - Non-extractable RSA-PSS private key, usage ['sign']
+ */
+export async function unwrapSigningKey(
+  wrappedKey: ArrayBuffer,
+  unwrappingKey: CryptoKey
+): Promise<CryptoKey> {
+  // Extract IV from the beginning of wrapped key
+  const data = new Uint8Array(wrappedKey);
+  const iv = data.slice(0, 12);
+  const actualWrappedKey = data.slice(12);
+
+  // Unwrap the SAME wrapped PKCS8 as an RSA-PSS sign key (not OAEP decrypt)
+  return crypto.subtle.unwrapKey(
+    'pkcs8',
+    actualWrappedKey,
+    unwrappingKey,
+    {
+      name: 'AES-GCM',
+      iv: iv,
+    },
+    {
+      name: 'RSA-PSS',
+      hash: 'SHA-256',
+    },
+    false, // non-extractable: prevent key export via XSS
+    ['sign']
+  );
+}
+
+/**
  * Export a public key to base64 format (for storage/transmission)
  *
  * @param publicKey - RSA public key
