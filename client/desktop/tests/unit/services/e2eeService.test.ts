@@ -250,7 +250,6 @@ describe('e2eeService', () => {
       ['NOT_MEMBER', false, 404],
       ['NO_KEY_YET', true, 404],
       ['REVOKED_EPOCH', false, 404],
-      ['NOT_ENCRYPTED', false, 400],
       ['INVALID_REQUEST', false, 400],
     ] as const)(
       'throws E2EEKeyUnavailableError with code=%s on %i',
@@ -328,7 +327,6 @@ describe('e2eeService', () => {
       ['NOT_MEMBER', false, 404],
       ['NO_KEY_YET', true, 404],
       ['REVOKED_EPOCH', false, 404],
-      ['NOT_ENCRYPTED', false, 400],
       ['INVALID_REQUEST', false, 400],
     ] as const)(
       'throws E2EEKeyUnavailableError with code=%s on %i',

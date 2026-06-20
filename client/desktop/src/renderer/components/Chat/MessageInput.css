@@ -20,11 +20,6 @@
   background-color: rgba(76, 175, 80, 0.08);
 }
 
-.e2ee-status-bar.unencrypted {
-  color: var(--text-muted);
-  background-color: rgba(128, 128, 128, 0.06);
-}
-
 .message-input-wrapper {
   max-width: 100%;
 }

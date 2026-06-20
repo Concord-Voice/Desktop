@@ -2,7 +2,7 @@
  * Typed error for E2EE key-fetch failures.
  *
  * Mirrored from services/control-plane/pkg/e2eekeys/response.go.
- * When adding or renaming codes, update both files together.
+ * When adding, renaming, or removing codes, update both files together.
  *
  * MALFORMED_PAYLOAD is a client-only synthetic code — the server never emits
  * it. It's raised when a wrapped-key payload received from the server fails
@@ -13,7 +13,6 @@ export type E2EEKeyErrorCode =
   | 'NOT_MEMBER'
   | 'NO_KEY_YET'
   | 'REVOKED_EPOCH'
-  | 'NOT_ENCRYPTED'
   | 'INVALID_REQUEST'
   | 'INTERNAL_ERROR'
   | 'MALFORMED_PAYLOAD';
@@ -63,7 +62,7 @@ export interface ErrorClassification {
  *
  * - NO_KEY_YET (pending) → retryable (backoff)
  * - REVOKED_EPOCH → terminal + trigger rekey
- * - NOT_MEMBER / NOT_ENCRYPTED / MALFORMED_PAYLOAD / INVALID_REQUEST → terminal
+ * - NOT_MEMBER / MALFORMED_PAYLOAD / INVALID_REQUEST → terminal
  * - INTERNAL_ERROR → retryable (transient server-side 500; markAsFailed's
  *   3-strike cap bounds the retry loop)
  * - Any non-E2EEKeyUnavailableError → retryable (preserves existing
@@ -101,12 +100,6 @@ export function classifyError(err: unknown): ErrorClassification {
         retryable: false,
         triggerRekey: false,
         uxMessage: "You don't have access to this channel",
-      };
-    case 'NOT_ENCRYPTED':
-      return {
-        retryable: false,
-        triggerRekey: false,
-        uxMessage: "This channel isn't encrypted",
       };
     case 'MALFORMED_PAYLOAD':
       return {

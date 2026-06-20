@@ -151,7 +151,7 @@ export class MessageQueue {
    * Mark a message as terminally failed — skips the retry loop entirely.
    *
    * Used for errors classified as non-retryable (NOT_MEMBER, REVOKED_EPOCH,
-   * NOT_ENCRYPTED, MALFORMED_PAYLOAD, INVALID_REQUEST). Fires the
+   * MALFORMED_PAYLOAD, INVALID_REQUEST). Fires the
    * onMessageFailed callback immediately instead of cycling through
    * retryCount attempts. See spec §6.5.
    */
@@ -290,7 +290,7 @@ export class MessageQueue {
           // defer to the existing 3-retry backoff loop.
           this.markAsFailed(message.id, classification.uxMessage);
         } else {
-          // Terminal E2EE codes (NOT_MEMBER, NOT_ENCRYPTED, MALFORMED_PAYLOAD,
+          // Terminal E2EE codes (NOT_MEMBER, MALFORMED_PAYLOAD,
           // INVALID_REQUEST) and the classifyError `default:` fallback for
           // unknown future codes. Non-typed errors (network failures,
           // WebSocket disconnects, encryption-output validation) take the
