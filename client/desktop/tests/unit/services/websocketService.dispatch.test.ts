@@ -95,6 +95,19 @@ describe('WebSocketService.handleMessage — dispatch validation', () => {
     expect(allLogged).toContain('[WS] wire violation');
   });
 
+  it('entitlements_changed schema rejection (missing required field) → counter += 1, handler not invoked', () => {
+    const handler = vi.fn();
+    svc.on('entitlements_changed', handler);
+
+    // `tier` present but the schema-required capability fields are absent.
+    // Verifies the generic dispatch boundary rejects the #1297 event like any
+    // other discriminant and increments the wire-violation counter (spec §6).
+    fire({ type: 'entitlements_changed', data: { tier: 'free' } });
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(useConnectionStore.getState().wireViolationCount).toBe(1);
+  });
+
   it('unknown event type → log + counter += 1 + distinct "unknown event type" message', () => {
     const handler = vi.fn();
     svc.on('dm_message', handler);

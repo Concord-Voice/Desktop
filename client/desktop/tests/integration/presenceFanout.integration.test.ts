@@ -58,6 +58,7 @@ function createMockWsService() {
       handlers.set(type, handler);
       return () => handlers.delete(type);
     }),
+    onConnectionChange: vi.fn(() => () => {}),
   };
 }
 

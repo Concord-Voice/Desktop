@@ -5,6 +5,8 @@ import { useChannelStore } from '@/renderer/stores/channelStore';
 import { useAuthStore } from '@/renderer/stores/authStore';
 import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { useUserStore } from '@/renderer/stores/userStore';
+import { useSubscriptionStore, FREE_ENTITLEMENT } from '@/renderer/stores/subscriptionStore';
+import { ConnectionState } from '@/renderer/services/websocketService';
 import { resetAllStores } from '../../helpers/store-helpers';
 import { mockChannel } from '../../mocks/fixtures';
 
@@ -55,12 +57,21 @@ type AnyHandler = (...args: any[]) => void;
 
 function createMockWsService() {
   const handlers = new Map<string, AnyHandler>();
+  let connectionListener: ((state: unknown) => void) | undefined;
   return {
     handlers,
     on: vi.fn((type: string, handler: AnyHandler) => {
       handlers.set(type, handler);
       return () => handlers.delete(type);
     }),
+    onConnectionChange: vi.fn((cb: (state: unknown) => void) => {
+      connectionListener = cb;
+      return () => {
+        connectionListener = undefined;
+      };
+    }),
+    // Test helper: drive the captured connection listener.
+    emitConnectionChange: (state: unknown) => connectionListener?.(state),
   };
 }
 
@@ -82,6 +93,20 @@ describe('useWebSocketMessages', () => {
     renderHook(() => useWebSocketMessages(ws as never));
     expect(ws.on).toHaveBeenCalled();
     expect(ws.handlers.size).toBeGreaterThan(0);
+  });
+
+  it('re-hydrates entitlements on WS (re)connect (#1297 reconnect convergence)', () => {
+    const ws = createMockWsService();
+    const hydrate = vi
+      .spyOn(useSubscriptionStore.getState(), 'hydrate')
+      .mockResolvedValue(undefined);
+    renderHook(() => useWebSocketMessages(ws as never));
+    expect(ws.onConnectionChange).toHaveBeenCalled();
+
+    act(() => {
+      ws.emitConnectionChange(ConnectionState.CONNECTED);
+    });
+    expect(hydrate).toHaveBeenCalledTimes(1);
   });
 
   it('handles incoming message', () => {
@@ -483,6 +508,25 @@ describe('useWebSocketMessages', () => {
           expect(mockPlayLoop).toHaveBeenCalledWith('call-ringing');
         }
       });
+    });
+  });
+
+  describe('entitlements', () => {
+    it('entitlements_changed updates the subscription store', () => {
+      useSubscriptionStore.setState({ entitlement: FREE_ENTITLEMENT, degraded: false });
+      const ws = createMockWsService();
+      renderHook(() => useWebSocketMessages(ws as never));
+
+      const handler = ws.handlers.get('entitlements_changed');
+      expect(handler).toBeDefined();
+      act(() => {
+        handler?.({
+          type: 'entitlements_changed',
+          data: { ...FREE_ENTITLEMENT, tier: 'premium', allowMusicMode: true },
+        });
+      });
+      expect(useSubscriptionStore.getState().entitlement.tier).toBe('premium');
+      expect(useSubscriptionStore.getState().entitlement.allowMusicMode).toBe(true);
     });
   });
 });

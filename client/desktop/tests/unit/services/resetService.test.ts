@@ -15,6 +15,7 @@ import { useFriendStore } from '@/renderer/stores/friendStore';
 import { useChatStore } from '@/renderer/stores/chatStore';
 import { useUserStore } from '@/renderer/stores/userStore';
 import { useRichPresenceStore } from '@/renderer/stores/richPresenceStore';
+import { useSubscriptionStore, FREE_ENTITLEMENT } from '@/renderer/stores/subscriptionStore';
 import { mockServer } from '../../mocks/fixtures';
 import { resetAllStores } from '../../helpers/store-helpers';
 
@@ -49,6 +50,18 @@ describe('resetService', () => {
       expect(Object.keys(useRichPresenceStore.getState().customTextByUser)).toHaveLength(0);
       expect(useRichPresenceStore.getState().self.tier).toBe(0);
       expect(useRichPresenceStore.getState().self.customText).toBeUndefined();
+    });
+
+    it('clears the entitlement set to the free floor (#1297 cross-account leak fix)', () => {
+      useSubscriptionStore
+        .getState()
+        .setEntitlement({ ...FREE_ENTITLEMENT, tier: 'premium', allowMusicMode: true });
+
+      gracefulReset();
+
+      expect(useSubscriptionStore.getState().entitlement).toEqual(FREE_ENTITLEMENT);
+      expect(useSubscriptionStore.getState().entitlement.tier).toBe('free');
+      expect(useSubscriptionStore.getState().degraded).toBe(false);
     });
 
     it('preserves auth tokens', () => {

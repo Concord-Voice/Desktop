@@ -28,11 +28,7 @@ import { useVideoSettingsStore } from './stores/videoSettingsStore';
 import { useOsPermissionStore, type OsPermissionType } from './stores/osPermissionStore';
 import { useWebSocket } from './hooks/useWebSocket';
 import { e2eeService } from './services/e2eeService';
-import { preferencesSyncService, type PreferencesSyncDeps } from './services/preferencesSync';
-import { useSettingsStore } from './stores/settingsStore';
-import { useLayoutStore } from './stores/layoutStore';
-import { savedGifsSyncService } from './services/savedGifsSync';
-import { tryHydrateNotificationPrefs } from './services/notificationPrefsService';
+import { hydratePostLogin } from './services/postLoginHydration';
 import { usePrivacyStore } from './stores/privacyStore';
 import { klipyClient } from './services/gifProvider/klipyClient';
 import { clientConfigService } from './services/clientConfigService';
@@ -271,29 +267,6 @@ function AuthenticatedLayout() {
 // can trigger two sequential token rotations.
 let restoreSessionCalled = false;
 
-/** Build the dependency bag for preferencesSyncService — extracted to reduce nesting depth. */
-function buildPreferencesSyncDeps(): PreferencesSyncDeps {
-  return {
-    getAppearance: () => useSettingsStore.getState().appearance,
-    setAppearance: (patch) =>
-      useSettingsStore.setState((s) => ({ appearance: { ...s.appearance, ...patch } })),
-    getLayout: () => {
-      const s = useLayoutStore.getState();
-      return {
-        channelPanelPinned: s.channelPanelPinned,
-        channelPanelWidth: s.channelPanelWidth,
-        memberPanelMode: s.memberPanelMode,
-        memberPanelWidth: s.memberPanelWidth,
-        serverBarHeight: s.serverBarHeight,
-        folderBarHeight: s.folderBarHeight,
-        serverFolders: s.serverFolders,
-        serverOrder: s.serverOrder,
-      };
-    },
-    setLayout: (patch) => useLayoutStore.setState(patch),
-  };
-}
-
 function App() {
   // PiP windows don't need auth — they communicate via BroadcastChannel.
   // Skip session restore entirely to avoid unnecessary token rotations.
@@ -351,15 +324,11 @@ function App() {
         if (result.e2eeKeys) {
           try {
             await e2eeService.initializeFromStoredKeys(result.e2eeKeys);
-            preferencesSyncService.init(buildPreferencesSyncDeps());
-            preferencesSyncService.startWatching();
-            await preferencesSyncService.fetchAndApply();
-            savedGifsSyncService.startWatching();
-            await savedGifsSyncService.fetchAndApply();
-            // Notification mute prefs hydration mirrors the fresh-login path
-            // in Login.tsx. The helper wraps its own try/catch so a network
-            // blip during restore doesn't block the session-restore flow.
-            await tryHydrateNotificationPrefs();
+            // Hydrate post-login user state via the shared helper (#1297) so the
+            // session-restore path mirrors the fresh-login and SSO paths exactly.
+            // Each hydration step swallows its own network blips, so a transient
+            // failure here doesn't block the session-restore flow.
+            await hydratePostLogin();
             console.debug('E2EE service restored from stored session keys');
           } catch (err) {
             console.warn(

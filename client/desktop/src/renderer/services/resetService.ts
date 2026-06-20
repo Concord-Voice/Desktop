@@ -29,6 +29,7 @@ import { useDraftMessageStore } from '../stores/draftMessageStore';
 import { useSSOStore } from '../stores/ssoStore';
 import { useE2EEStore } from '../stores/e2eeStore';
 import { useRichPresenceStore } from '../stores/richPresenceStore';
+import { useSubscriptionStore } from '../stores/subscriptionStore';
 
 /**
  * Clears content stores while preserving device settings.
@@ -53,6 +54,12 @@ export function gracefulReset(): void {
   // so signing into a different account never surfaces the prior user's
   // statuses (#1233/Gitar; risk: privacy cross-account leak).
   useRichPresenceStore.getState().reset();
+  // Reset the entitlement capability set to the least-privilege free floor so a
+  // prior (e.g. premium) user's in-memory caps never leak into the next session
+  // (#1297; risk: authorization cross-account leak — same class as rich-presence
+  // above). subscriptionStore has no persist, but logout without app restart
+  // would otherwise keep the stale set in memory.
+  useSubscriptionStore.getState().reset();
   useUserStore.getState().clearUser();
 
   // Clear user-specific layout content (serverFolders, serverOrder)

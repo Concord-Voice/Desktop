@@ -50,7 +50,9 @@ vi.mock('@/renderer/services/savedGifsSync', () => ({
   savedGifsSyncService: { fetchAndApply: vi.fn() },
 }));
 vi.mock('@/renderer/services/apiClient', () => ({
-  apiFetch: vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ participants: [] }) }),
+  apiFetch: vi
+    .fn()
+    .mockResolvedValue({ ok: true, json: () => Promise.resolve({ participants: [] }) }),
 }));
 vi.mock('@/renderer/services/notificationSoundService', () => ({
   notificationSoundService: {
@@ -76,6 +78,7 @@ function createMockWsService() {
       handlers.set(type, handler);
       return () => handlers.delete(type);
     }),
+    onConnectionChange: vi.fn(() => () => {}),
   };
 }
 
@@ -208,9 +211,7 @@ describe('useWebSocketMessages — channel_access_revoked handler (#487 P4)', ()
       created_at: '2025-01-01T12:00:00Z',
       updated_at: '2025-01-01T12:00:00Z',
     });
-    expect(
-      useChannelStore.getState().channels.some((c) => c.id === REVOKE_CHANNEL)
-    ).toBe(true);
+    expect(useChannelStore.getState().channels.some((c) => c.id === REVOKE_CHANNEL)).toBe(true);
     expect(useChatStore.getState().messagesByChannel.get(REVOKE_CHANNEL)).toBeDefined();
 
     act(() => {
@@ -220,9 +221,7 @@ describe('useWebSocketMessages — channel_access_revoked handler (#487 P4)', ()
       });
     });
 
-    expect(
-      useChannelStore.getState().channels.some((c) => c.id === REVOKE_CHANNEL)
-    ).toBe(false);
+    expect(useChannelStore.getState().channels.some((c) => c.id === REVOKE_CHANNEL)).toBe(false);
     expect(useChatStore.getState().messagesByChannel.get(REVOKE_CHANNEL)).toBeUndefined();
     expect(mockInvalidateChannelKey).toHaveBeenCalledWith(REVOKE_CHANNEL);
   });

@@ -14,7 +14,13 @@ import { resetAllStores } from '../../helpers/store-helpers';
 // Capture registered handlers so we can invoke them in tests
 type HandlerFn = (...args: unknown[]) => void;
 const registeredHandlers = new Map<string, HandlerFn>();
-let connectionChangeHandler: HandlerFn | null = null;
+let connectionChangeHandlers: HandlerFn[] = [];
+// useWebSocket (UI-state mapping) AND useWebSocketMessages (entitlement
+// re-hydrate on reconnect, #1297) both subscribe to onConnectionChange — fire
+// ALL captured handlers so a test-driven state change reaches every subscriber.
+function fireConnectionChange(state: string) {
+  connectionChangeHandlers.forEach((h) => h(state));
+}
 
 const mockWsService = {
   connect: vi.fn(),
@@ -28,10 +34,10 @@ const mockWsService = {
     };
   }),
   onConnectionChange: vi.fn((handler: HandlerFn) => {
-    connectionChangeHandler = handler;
+    connectionChangeHandlers.push(handler);
     handler('disconnected');
     return () => {
-      connectionChangeHandler = null;
+      connectionChangeHandlers = connectionChangeHandlers.filter((h) => h !== handler);
     };
   }),
   getConnectionInfo: vi.fn(() => null),
@@ -95,7 +101,7 @@ import { useWebSocket } from '@/renderer/hooks/useWebSocket';
 beforeEach(() => {
   resetAllStores();
   registeredHandlers.clear();
-  connectionChangeHandler = null;
+  connectionChangeHandlers = [];
   vi.clearAllMocks();
   // vi.clearAllMocks() clears call history but does NOT reset mockReturnValue
   // overrides — tests that mutate getState.mockReturnValue would leak that
@@ -118,7 +124,7 @@ describe('useWebSocket — extended', () => {
       renderHook(() => useWebSocket());
 
       act(() => {
-        connectionChangeHandler?.('connected');
+        fireConnectionChange('connected');
       });
 
       expect(useChatStore.getState().connectionState).toBe('connected');
@@ -129,7 +135,7 @@ describe('useWebSocket — extended', () => {
       renderHook(() => useWebSocket());
 
       act(() => {
-        connectionChangeHandler?.('connecting');
+        fireConnectionChange('connecting');
       });
 
       expect(useChatStore.getState().connectionState).toBe('connecting');
@@ -140,7 +146,7 @@ describe('useWebSocket — extended', () => {
       renderHook(() => useWebSocket());
 
       act(() => {
-        connectionChangeHandler?.('reconnecting');
+        fireConnectionChange('reconnecting');
       });
 
       expect(useChatStore.getState().connectionState).toBe('connecting');
@@ -151,7 +157,7 @@ describe('useWebSocket — extended', () => {
       renderHook(() => useWebSocket());
 
       act(() => {
-        connectionChangeHandler?.('error');
+        fireConnectionChange('error');
       });
 
       expect(useChatStore.getState().connectionState).toBe('disconnected');

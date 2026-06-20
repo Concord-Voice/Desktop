@@ -13,7 +13,7 @@ import { useServerStore } from '../stores/serverStore';
 import { useMemberStore } from '../stores/memberStore';
 import { useUserStore } from '../stores/userStore';
 import { useUnreadStore } from '../stores/unreadStore';
-import { getWebSocketService } from '../services/websocketService';
+import { getWebSocketService, ConnectionState } from '../services/websocketService';
 import {
   handleCallInvited,
   handleCallCanceled,
@@ -31,6 +31,7 @@ import { useVoiceStore, channelVoiceMemberFromApi } from '../stores/voiceStore';
 import { useConnectionStore } from '../stores/connectionStore';
 import { useDMStore } from '../stores/dmStore';
 import { useFriendStore } from '../stores/friendStore';
+import { useSubscriptionStore } from '../stores/subscriptionStore';
 import { useRichPresenceStore } from '../stores/richPresenceStore';
 import { speak as ttsSpeak } from '../services/ttsService';
 import { notificationSoundService } from '../services/notificationSoundService';
@@ -1004,6 +1005,32 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       savedGifsSyncService.fetchAndApply();
     });
 
+    // Entitlements changed (#1297) — server pushes the full capability set on
+    // any tier change. The wire payload is validated at the dispatch boundary,
+    // so update the store directly — no re-fetch round-trip.
+    const unsubEntitlements = wsService.on('entitlements_changed', (msg) => {
+      useSubscriptionStore.getState().setEntitlement(msg.data);
+    });
+
+    // Re-hydrate the entitlement set on every WS (re)connect so the capability
+    // set converges after a reconnect — independent of whether a live
+    // entitlements_changed push was delivered before the socket dropped (e.g. a
+    // downgrade push racing the server's DisconnectUser). hydrate() fails closed
+    // to the free floor, so a failed/raced re-hydrate never escalates. (#1297 /
+    // Gitar review: hydratePostLogin only covers fresh login/SSO/restore.)
+    const unsubEntitlementsResync = wsService.onConnectionChange((state) => {
+      if (state === ConnectionState.CONNECTED) {
+        useSubscriptionStore
+          .getState()
+          .hydrate()
+          .catch((err) => {
+            // hydrate() is internally fail-closed and never rejects; this handler
+            // only satisfies no-floating-promises without the `void` operator (S3735).
+            console.debug('entitlement re-hydrate on reconnect failed:', err);
+          });
+      }
+    });
+
     // Presence snapshot — msg.data narrowed to PresenceSnapshotPayload.
     // Both `users` (enhanced) and `online_user_ids` (legacy back-compat)
     // are schema-optional; the handler prefers `users` when present.
@@ -1659,6 +1686,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       unsubKeyDelivered();
       unsubPreferencesUpdated();
       unsubSavedGifsUpdated();
+      unsubEntitlements();
+      unsubEntitlementsResync();
       unsubPresenceSnapshot();
       unsubPresence();
       unsubServerOnlineCounts();
