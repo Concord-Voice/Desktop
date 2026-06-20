@@ -39,7 +39,7 @@ describe('UpdateSecurityBanner (#658)', () => {
     const link = screen.getByRole('link', { name: /download the latest/i });
     expect(link).toHaveAttribute(
       'href',
-      'https://github.com/markdrogersjr/Concord/releases/latest'
+      'https://github.com/Concord-Voice/Concord-Voice/releases/latest'
     );
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
@@ -100,7 +100,7 @@ describe('UpdateSecurityBanner (#658)', () => {
     fireEvent.click(link);
 
     expect(openExternal).toHaveBeenCalledWith(
-      'https://github.com/markdrogersjr/Concord/releases/latest'
+      'https://github.com/Concord-Voice/Concord-Voice/releases/latest'
     );
   });
 
@@ -130,7 +130,7 @@ describe('UpdateSecurityBanner (#658)', () => {
     // still carries the correct href.
     expect(link).toHaveAttribute(
       'href',
-      'https://github.com/markdrogersjr/Concord/releases/latest'
+      'https://github.com/Concord-Voice/Concord-Voice/releases/latest'
     );
     fireEvent.click(link);
     // No throw; the component's handleCtaClick returned early.
