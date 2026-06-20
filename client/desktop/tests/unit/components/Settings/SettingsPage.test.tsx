@@ -328,9 +328,9 @@ describe('SettingsPage', () => {
     render(<SettingsPage />);
     const customCircle = document.querySelector('.color-scheme-circle.custom-add');
     expect(customCircle).toBeInTheDocument();
-    // 14 built-in + 1 custom = 15 total circles
+    // 15 built-in (incl. Pride) + 1 custom = 16 total circles
     const allCircles = document.querySelectorAll('.color-scheme-circle');
-    expect(allCircles.length).toBe(15);
+    expect(allCircles.length).toBe(16);
   });
 
   it('clicking custom circle when no customColors opens picker with defaults', () => {
