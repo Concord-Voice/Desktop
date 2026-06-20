@@ -15,6 +15,35 @@ import { describe, expect, it } from 'vitest';
  * stray per-scheme override → that scheme's buttons diverge from accent-primary).
  */
 
+/**
+ * Verified text-free --accent-fill surfaces: slider thumbs, toggle tracks, progress
+ * fills, the drag-insertion ghost, active pills/ticks, the custom radio dot. They
+ * carry NO foreground text, so the rainbow needs no legibility halo. The coverage
+ * test below requires EVERY --accent-fill rule to be either haloed (text-bearing) or
+ * listed here (text-free) — so a new surface can't drift past the scanner. When you
+ * add a text-free fill, list it here; when you add a TEXT-bearing fill, add it to a
+ * pride-flourishes.css halo group instead.
+ */
+const KNOWN_TEXT_FREE_FILLS = new Set([
+  '.about-update-progress-fill',
+  '.add-friend-toggle input:checked + .add-friend-toggle-track',
+  '.channel-drag-ghost',
+  '.force-update-progress-fill',
+  '.image-crop-zoom-slider::-webkit-slider-thumb',
+  '.media-controls-range::-webkit-slider-thumb',
+  '.participant-volume-row-slider::-webkit-slider-thumb',
+  '.permission-toggle.active',
+  '.radio-inner',
+  '.server-active-pill',
+  '.settings-slider::-webkit-slider-thumb',
+  '.settings-tier-slider::-webkit-slider-thumb',
+  '.settings-tier-tick.active',
+  '.settings-toggle input:checked + .settings-toggle-track',
+  '.settings-volume-slider::-webkit-slider-thumb',
+  '.sync-toggle.active',
+  '.update-banner__progress',
+]);
+
 // Recursively collect every .css file under `dir`.
 function walkCssFiles(dir: string): string[] {
   const out: string[] = [];
@@ -57,6 +86,15 @@ function* cssRules(css: string): Generator<{ selector: string; body: string }> {
   }
 }
 
+// Canonicalize a combinator-free compound selector so authored token order is
+// irrelevant (`.a.b` === `.b.a`, `:hover:focus` === `:focus:hover`). Tokenizes into
+// simple selectors (`.class`, `#id`, `:pseudo`, `::pseudo`, `:pseudo(...)`, `[attr]`)
+// and sorts them. Literal regex — no dynamic RegExp / ReDoS.
+function canonicalizeSelector(selector: string): string {
+  const tokens = selector.match(/::?[\w-]+(?:\([^)]*\))?|\.[\w-]+|#[\w-]+|\[[^\]]*\]/g);
+  return tokens ? [...tokens].sort().join('') : selector;
+}
+
 describe('--accent-fill button/highlight indirection', () => {
   const stylesDir = resolve(__dirname, '../../../src/renderer/styles');
   const indexCss = readFileSync(resolve(stylesDir, 'index.css'), 'utf-8');
@@ -83,54 +121,79 @@ describe('--accent-fill button/highlight indirection', () => {
     expect(mainTsx).toContain('pride-flourishes.css');
   });
 
-  it('every text-bearing --accent-fill surface is haloed under Pride, in the matching color group', () => {
-    // Derived coverage guard (not a hardcoded list): scan the component CSS for rules
-    // that paint static text on a rainbow --accent-fill background, and assert each
-    // selector has a Pride legibility halo (WCAG 1.4.3) in the group matching its
-    // foreground color — white text (--on-accent) → dark halo, dark text
-    // (--bg-primary) → light halo. A future surface that adopts var(--accent-fill)
-    // with text but no halo fails HERE, so the "regression-locked" claim is real and
-    // stays in sync automatically.
+  it('every --accent-fill surface is accounted for: text-bearing → matching halo, text-free → allowlisted', () => {
+    // Derived inventory guard (no hardcoded expectation list): scan the component CSS
+    // for EVERY rule whose background is the rainbow var(--accent-fill), and require
+    // each to be classified —
+    //   • white text (--on-accent)  → present in the dark-halo group
+    //   • dark text  (--bg-primary) → present in the light-halo group
+    //   • no co-located text color  → in KNOWN_TEXT_FREE_FILLS (verified text-free) OR
+    //                                  a halo group (a split-rule text surface)
+    // Membership is exact + order-canonicalized (not a substring match), so neither a
+    // superstring (`.foo` vs `.foo-bar`) nor authored token order (`.a.b` vs `.b.a`)
+    // can yield a false pass/fail. Any unclassified or un-haloed surface fails HERE —
+    // closing both the separate-rule-color blind spot and the substring-match gap.
     const rendererDir = resolve(stylesDir, '..');
     const componentCss = walkCssFiles(rendererDir).filter(
       (p) => !p.endsWith('index.css') && !p.endsWith('pride-flourishes.css')
     );
 
-    const whiteText: string[] = [];
-    const darkText: string[] = [];
+    // Build the two halo membership sets (canonicalized) from pride-flourishes.css.
+    const haloSet = (shadowColor: string): Set<string> => {
+      const rule = [...cssRules(stripCssComments(prideCss))].find(
+        (r) => r.body.includes('text-shadow') && r.body.includes(shadowColor)
+      );
+      return new Set(
+        (rule?.selector ?? '')
+          .split(',')
+          .map((s) => s.trim().replace(/^\[data-scheme='pride'\]\s+/, ''))
+          .filter(Boolean)
+          .map(canonicalizeSelector)
+      );
+    };
+    const darkHalo = haloSet('rgba(0, 0, 0');
+    const lightHalo = haloSet('rgba(255, 255, 255');
+
+    let accentFillSurfaces = 0;
+    const missingHalo: string[] = [];
+    const unclassified: string[] = [];
+
     for (const file of componentCss) {
       for (const { selector, body } of cssRules(stripCssComments(readFileSync(file, 'utf-8')))) {
         if (!body.includes('var(--accent-fill)')) continue;
-        const selectors = selector
+        const white = body.includes('color: var(--on-accent)');
+        const dark = body.includes('color: var(--bg-primary)');
+        for (const sel of selector
           .split(',')
           .map((s) => s.trim())
-          .filter(Boolean);
-        if (body.includes('color: var(--on-accent)')) whiteText.push(...selectors);
-        else if (body.includes('color: var(--bg-primary)')) darkText.push(...selectors);
+          .filter(Boolean)) {
+          accentFillSurfaces++;
+          const canon = canonicalizeSelector(sel);
+          if (white) {
+            if (!darkHalo.has(canon)) missingHalo.push(`${sel} (white text → needs a dark halo)`);
+          } else if (dark) {
+            if (!lightHalo.has(canon)) missingHalo.push(`${sel} (dark text → needs a light halo)`);
+          } else if (
+            !KNOWN_TEXT_FREE_FILLS.has(sel) &&
+            !darkHalo.has(canon) &&
+            !lightHalo.has(canon)
+          ) {
+            unclassified.push(sel);
+          }
+        }
       }
     }
 
     // Guard against a vacuous pass if the scanner ever silently finds nothing.
-    expect(whiteText.length + darkText.length).toBeGreaterThanOrEqual(30);
-
-    // Each Pride halo rule's selector list, keyed by its shadow color.
-    const haloRules = [...cssRules(stripCssComments(prideCss))].filter((r) =>
-      r.body.includes('text-shadow')
-    );
-    const darkHalo = haloRules.find((r) => r.body.includes('rgba(0, 0, 0'))?.selector ?? '';
-    const lightHalo = haloRules.find((r) => r.body.includes('rgba(255, 255, 255'))?.selector ?? '';
-
-    for (const sel of whiteText) {
-      expect(
-        darkHalo,
-        `white-text --accent-fill surface "${sel}" is missing a Pride dark halo`
-      ).toContain(sel);
-    }
-    for (const sel of darkText) {
-      expect(
-        lightHalo,
-        `dark-text --accent-fill surface "${sel}" is missing a Pride light halo`
-      ).toContain(sel);
-    }
+    expect(accentFillSurfaces).toBeGreaterThanOrEqual(45);
+    expect(
+      missingHalo,
+      `text-bearing --accent-fill surface(s) without a matching Pride legibility halo:\n  ${missingHalo.join('\n  ')}`
+    ).toEqual([]);
+    expect(
+      unclassified,
+      'un-haloed --accent-fill surface(s) with no co-located text color — add each to a ' +
+        `pride-flourishes halo group (if it paints text) or KNOWN_TEXT_FREE_FILLS (if text-free):\n  ${unclassified.join('\n  ')}`
+    ).toEqual([]);
   });
 });
