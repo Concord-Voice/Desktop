@@ -38,6 +38,14 @@ describe('schemeColors', () => {
       expect(result!.accentPrimary).toBe('#00ff41');
     });
 
+    it('returns preset colors for pride scheme', () => {
+      const result = resolveUserAccentColors(JSON.stringify({ scheme: 'pride' }));
+      expect(result).not.toBeNull();
+      expect(result!.accentPrimary).toBe('#ff4d9e');
+      expect(result!.accentSecondary).toBe('#3b9eff');
+      expect(result!.gradient).toContain('linear-gradient');
+    });
+
     it('returns null for unknown scheme name', () => {
       const result = resolveUserAccentColors(JSON.stringify({ scheme: 'unknown' }));
       expect(result).toBeNull();

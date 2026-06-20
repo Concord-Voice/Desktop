@@ -115,7 +115,7 @@
 }
 
 .bug-report-submit {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   border: 1px solid var(--accent-primary);
   color: var(--on-accent);
   font-family: 'SourceSans', sans-serif;

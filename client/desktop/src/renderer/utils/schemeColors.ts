@@ -37,6 +37,7 @@ const SCHEME_ACCENTS: Record<string, [primary: string, secondary: string]> = {
   midnightsky: ['#6d8cff', '#a78bfa'],
   agency: ['#e0004e', '#017fa4'],
   defacto: ['#58a6ff', '#79c0ff'],
+  pride: ['#ff4d9e', '#3b9eff'],
 };
 
 function buildGradient(primary: string, secondary: string): string {

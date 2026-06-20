@@ -58,7 +58,7 @@
 
 .update-banner__btn.primary {
   padding: 4px 12px;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--on-accent); /* HCM: see SettingsPage.css .settings-pending-blob-apply */
 }
 
@@ -84,7 +84,7 @@
   bottom: 0;
   left: 0;
   height: 2px;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   transition: width 0.3s ease;
 }
 

@@ -34,6 +34,9 @@ const SCHEME_TUPLES: ReadonlyArray<
   ['bardic', 'Bardic', '#120a1e', '#c471ed', '#f64f8e'],
   ['cottoncandy', 'Cotton Candy', '#0a0810', '#ff6ea8', '#40c8ff'],
   ['agency', 'Agency', '#0d294a', '#e0004e', '#017fa4'],
+  // Swatch uses rainbow stops (red → green → violet) to read as Pride; the
+  // functional accents live in index.css (hot pink + azure).
+  ['pride', 'Pride', '#e40303', '#009e44', '#7a1fa2'],
 ];
 
 const colorSchemes: {

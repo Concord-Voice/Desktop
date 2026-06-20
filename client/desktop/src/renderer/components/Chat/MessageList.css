@@ -169,7 +169,7 @@
   position: absolute;
   top: -8px;
   right: -4px;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--on-accent);
   font-size: calc(11px * var(--font-scale, 1));
   font-weight: 700;

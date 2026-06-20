@@ -695,7 +695,7 @@
 }
 
 .settings-toggle input:checked + .settings-toggle-track {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   border-color: var(--accent-primary);
 }
 
@@ -775,7 +775,7 @@
   font-size: calc(10px * var(--font-scale, 1));
   padding: 2px 8px;
   border-radius: 4px;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--bg-primary);
   font-weight: 700;
   text-transform: uppercase;
@@ -923,7 +923,7 @@
 }
 
 .revocation-mode-btn.active {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   /* See .settings-pending-blob-apply for the HCM rationale on --on-accent. */
   color: var(--on-accent);
   cursor: default;
@@ -1289,7 +1289,7 @@
 }
 
 .settings-tier-tick.active {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
 }
 
 .settings-tier-slider {
@@ -1311,7 +1311,7 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   cursor: pointer;
   border: 3px solid var(--bg-primary);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
@@ -1396,7 +1396,7 @@
 }
 
 .settings-rotate-id-btn:hover:not(:disabled) {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--bg-primary);
 }
 
@@ -1508,7 +1508,7 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   cursor: pointer;
   border: 2px solid var(--bg-primary);
 }
@@ -1530,7 +1530,7 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   cursor: pointer;
   border: 2px solid var(--bg-primary);
 }
@@ -2109,7 +2109,7 @@
 .settings-pending-blob-apply {
   flex: 1;
   padding: 7px 14px;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   border: none;
   border-radius: 6px;
   /* Use the theme's on-accent token instead of hardcoded white so the
@@ -2244,7 +2244,7 @@
 }
 
 .settings-notification-permission-btn {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   /* See .settings-pending-blob-apply for the HCM rationale on --on-accent. */
   color: var(--on-accent);
   border: none;

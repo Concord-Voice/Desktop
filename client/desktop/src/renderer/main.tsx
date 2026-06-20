@@ -6,6 +6,9 @@ import { installSelfHealHandlers } from './spaSelfHealClient';
 import { ModalProvider } from './components/ui/ModalContext';
 import { install as installLogBuffer } from './services/logBufferService';
 import './styles/index.css';
+// Pride scheme rainbow flourishes — scoped to [data-scheme='pride'], imported
+// after index.css so its overrides win source-order ties (experiment/theme).
+import './styles/pride-flourishes.css';
 
 // Install the ring-buffer log capture as early as possible so bug reports
 // (#158) include the maximal recent-log context. The buffer shadow-wraps

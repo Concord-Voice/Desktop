@@ -39,6 +39,7 @@ export interface AppearanceSettings {
     | 'midnightsky'
     | 'agency'
     | 'defacto'
+    | 'pride'
     | 'custom';
   fontSize: 'small' | 'default' | 'large';
   compactMode: boolean;

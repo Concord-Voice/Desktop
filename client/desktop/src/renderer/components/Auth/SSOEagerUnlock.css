@@ -89,7 +89,7 @@
   padding: 12px 16px;
   font-size: calc(14px * var(--font-scale, 1));
   font-weight: 600;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--on-accent);
   border: none;
   border-radius: 8px;

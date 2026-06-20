@@ -98,7 +98,7 @@
 
 .force-update-progress-fill {
   height: 100%;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   border-radius: 3px;
   transition: width 0.3s ease;
 }
@@ -131,7 +131,7 @@
 }
 
 .force-update-btn.primary {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--on-accent); /* HCM: see SettingsPage.css .settings-pending-blob-apply */
 }
 

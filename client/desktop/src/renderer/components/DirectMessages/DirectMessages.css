@@ -203,7 +203,7 @@
   height: 18px;
   padding: 0 5px;
   border-radius: 9px;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--bg-primary);
   font-size: calc(11px * var(--font-scale, 1));
   font-weight: 700;
@@ -480,7 +480,7 @@
 }
 
 .friends-add-btn:hover {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--bg-primary);
 }
 
@@ -495,7 +495,7 @@
 .personal-thread-avatar {
   width: 28px !important;
   height: 28px !important;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--bg-primary);
 }
 
@@ -613,7 +613,7 @@
   align-items: center;
   gap: calc(4px * var(--sp, 1));
   padding: calc(6px * var(--sp, 1)) calc(12px * var(--sp, 1));
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--bg-primary);
   border: none;
   border-radius: 4px;
@@ -697,7 +697,7 @@
 }
 
 .add-friend-toggle input:checked + .add-friend-toggle-track {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   border-color: var(--accent-primary);
 }
 
@@ -953,7 +953,7 @@
 }
 
 .create-group-btn:hover {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--bg-primary);
 }
 
@@ -1211,7 +1211,7 @@
 }
 
 .create-group-add-btn:hover:not(:disabled) {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--bg-primary);
 }
 
@@ -1238,7 +1238,7 @@
 
 .create-group-create-btn {
   padding: calc(8px * var(--sp, 1)) calc(16px * var(--sp, 1));
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--bg-primary);
   border: none;
   border-radius: 4px;
@@ -1538,7 +1538,7 @@
   align-items: center;
   gap: 3px;
   padding: 2px 6px;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--bg-primary);
   border-radius: 8px;
   font-size: calc(10px * var(--font-scale, 1));

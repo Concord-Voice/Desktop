@@ -46,7 +46,7 @@
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   cursor: pointer;
   border: 2px solid var(--bg-secondary);
   transition: transform 0.1s ease;

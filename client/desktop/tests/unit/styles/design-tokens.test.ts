@@ -35,7 +35,7 @@ const ALL_23_TOKENS = [
   '--state-encryption-pending',
 ] as const;
 
-const ALL_30_BLOCKS = [
+const ALL_32_BLOCKS = [
   ':root',
   "[data-theme='light']",
   "[data-scheme='concord']",
@@ -66,6 +66,8 @@ const ALL_30_BLOCKS = [
   "[data-scheme='agency'][data-theme='light']",
   "[data-scheme='defacto']",
   "[data-scheme='defacto'][data-theme='light']",
+  "[data-scheme='pride']",
+  "[data-scheme='pride'][data-theme='light']",
 ] as const;
 
 /**
@@ -73,7 +75,7 @@ const ALL_30_BLOCKS = [
  *
  * Uses plain string search (indexOf) rather than a dynamic RegExp so that
  * Semgrep's ReDoS taint-sink rule (CWE-1333) is not triggered. The selector
- * strings in ALL_30_BLOCKS are compile-time constants, but the static analyser
+ * strings in ALL_32_BLOCKS are compile-time constants, but the static analyser
  * cannot prove that without data-flow analysis across array indexing.
  *
  * Algorithm:
@@ -138,20 +140,20 @@ describe('design-token schema symmetry', () => {
   const cssPath = resolve(__dirname, '../../../src/renderer/styles/index.css');
   const css = readFileSync(cssPath, 'utf-8');
 
-  it('CSS file selector count matches ALL_30_BLOCKS array length (drift guard)', () => {
+  it('CSS file selector count matches ALL_32_BLOCKS array length (drift guard)', () => {
     // Counts top-level theme-block selectors. Without this check, adding a
-    // 31st block to index.css (e.g., a new color scheme) without updating
-    // ALL_30_BLOCKS would let the per-block tests pass (existing 30 still
+    // 33rd block to index.css (e.g., a new color scheme) without updating
+    // ALL_32_BLOCKS would let the per-block tests pass (existing 32 still
     // declared) while leaving the new block unchecked. This assertion makes
     // that drift loud.
     //
     // Literal regex (not constructed from variables) — Semgrep CWE-1333
     // ReDoS taint applies only to dynamic RegExp construction.
     const matches = css.match(/^(?::root|\[data-(?:scheme|theme)=)/gm);
-    expect(matches?.length).toBe(ALL_30_BLOCKS.length);
+    expect(matches?.length).toBe(ALL_32_BLOCKS.length);
   });
 
-  describe.each(ALL_30_BLOCKS)('block %s', (block) => {
+  describe.each(ALL_32_BLOCKS)('block %s', (block) => {
     const blockBody = extractBlockBody(css, block);
 
     it('block exists in styles/index.css', () => {
