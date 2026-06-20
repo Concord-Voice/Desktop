@@ -66,7 +66,7 @@ describe('submitSignedAgeClaim', () => {
 
   it('submits a well-formed claim and returns ok on 200', async () => {
     const result = await submitSignedAgeClaim({ signal: adultSignal });
-    expect(result).toEqual({ ok: true });
+    expect(result).toEqual({ ok: true, validAge: true, nsfwAuth: true });
 
     const body = putCallBody();
     // 8 signed-core fields (minus user_id) + signature.

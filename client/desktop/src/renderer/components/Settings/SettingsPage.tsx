@@ -6,6 +6,7 @@ import AppearanceSection from './AppearanceSection';
 import PrivacySecuritySection from './PrivacySecuritySection';
 import VoiceAudioSection from './VoiceAudioSection';
 import AccessibilitySection from './AccessibilitySection';
+import AccountSection from './AccountSection';
 import NotificationSection from './NotificationSection';
 import AboutUpdateSection from './AboutUpdateSection';
 import ExpandCollapseAllButton from './ExpandCollapseAllButton';
@@ -56,7 +57,7 @@ const navItems: NavItem[] = [
   {
     id: 'account',
     label: 'Account',
-    enabled: false,
+    enabled: true,
     icon: (
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none">
         <circle cx="9" cy="6" r="3" stroke="currentColor" strokeWidth="1.5" />
@@ -156,6 +157,7 @@ const NAV_SUBSECTIONS: Record<string, { id: string; label: string }[]> = {
     { id: 'active-sessions', label: 'Active Sessions' },
     { id: 'past-sessions', label: 'Past Sessions' },
   ],
+  account: [{ id: 'nsfw-content', label: 'NSFW Content Access' }],
   notifications: [
     { id: 'desktop-notifications', label: 'Desktop Notifications' },
     { id: 'notification-sounds', label: 'Sounds' },
@@ -297,6 +299,8 @@ const SettingsPage: React.FC = () => {
         return <AppearanceSection />;
       case 'privacy':
         return <PrivacySecuritySection />;
+      case 'account':
+        return <AccountSection />;
       case 'notifications':
         return <NotificationSection />;
       case 'voice':

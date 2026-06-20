@@ -62,11 +62,17 @@ describe('SettingsPage', () => {
     expect(screen.getByText('Accessibility')).toBeInTheDocument();
   });
 
-  it('shows "Soon" badge for disabled sections', () => {
+  it('no longer shows a "Soon" badge now that Account is enabled', () => {
     render(<SettingsPage />);
-    const soonBadges = screen.getAllByText('Soon');
-    // Only Account is disabled (Notifications was enabled in #175)
-    expect(soonBadges.length).toBe(1);
+    expect(screen.queryAllByText('Soon')).toHaveLength(0);
+  });
+
+  it('opens the Account section and shows the NSFW Content Access gate', () => {
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByText('Account'));
+    // "NSFW Content Access" appears in the nav tree AND as the section heading.
+    expect(screen.getAllByText('NSFW Content Access').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole('button', { name: /verify age/i })).toBeInTheDocument();
   });
 
   it('defaults to appearance section', () => {
@@ -301,13 +307,11 @@ describe('SettingsPage', () => {
     expect(screen.getByText('Concord Voice Desktop')).toBeInTheDocument();
   });
 
-  it('does not switch to disabled nav items', () => {
+  it('has no disabled nav items (Account enabled in #1625)', () => {
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Account'));
-    // Should still show appearance section since Account is disabled
-    // "Color Scheme" appears in nav tree + content section title
-    const els = screen.getAllByText('Color Scheme');
-    expect(els.length).toBeGreaterThanOrEqual(1);
+    const navButtons = document.querySelectorAll('.settings-nav-item');
+    const disabled = Array.from(navButtons).filter((b) => (b as HTMLButtonElement).disabled);
+    expect(disabled).toHaveLength(0);
   });
 
   it('switches between appearance and privacy sections', () => {
@@ -493,10 +497,10 @@ describe('SettingsPage', () => {
 
   // ─── Disabled items ──────────────────────────────────────────────────
 
-  it('Account nav item is disabled', () => {
+  it('Account nav item is enabled (#1625)', () => {
     render(<SettingsPage />);
     const accountBtn = screen.getByText('Account').closest('button');
-    expect(accountBtn).toBeDisabled();
+    expect(accountBtn).toBeEnabled();
   });
 
   it('Notifications nav item is enabled', () => {

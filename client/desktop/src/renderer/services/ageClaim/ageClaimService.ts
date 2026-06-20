@@ -32,7 +32,9 @@ import { useUserStore } from '../../stores/userStore';
  * `stale_key_version` (that would mask genuine tampering/corruption — the server's
  * single non-oracle failure code); the distinction must reach the caller intact.
  */
-export type AgeClaimResult = { ok: true } | { ok: false; code: string };
+export type AgeClaimResult =
+  | { ok: true; validAge: boolean; nsfwAuth: boolean }
+  | { ok: false; code: string };
 
 export interface SubmitAgeClaimInput {
   /** Birthdate or coarse age-band. Consumed only by evaluateAge; never persisted. */
@@ -172,7 +174,11 @@ export async function submitSignedAgeClaim(input: SubmitAgeClaimInput): Promise<
   }
 
   if (res.ok) {
-    return { ok: true };
+    // Return the verdict the client SIGNED + submitted so the caller renders exactly that,
+    // never a second client recomputation that could disagree with the signed claim at a
+    // birthday boundary across the round-trip (#1625). The server enforces the disable on
+    // this signed valid_age; it does not echo a verdict back (the 200 body is unused).
+    return { ok: true, validAge, nsfwAuth };
   }
   return { ok: false, code: await extractErrorCode(res) };
 }
