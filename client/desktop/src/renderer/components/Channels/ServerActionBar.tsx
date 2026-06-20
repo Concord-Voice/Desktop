@@ -4,6 +4,7 @@ import { useInviteStore } from '../../stores/inviteStore';
 import { usePermissionStore } from '../../stores/permissionStore';
 import { Permissions, hasPermission } from '../../utils/permissions';
 import type { ServerWithRole, ServerInviteWithCreator } from '../../types/server';
+import { SendToFriendModal } from './SendToFriendModal';
 import './ServerActionBar.css';
 
 const EMPTY_INVITES: ServerInviteWithCreator[] = [];
@@ -23,6 +24,7 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({
 }) => {
   const [showPopup, setShowPopup] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
+  const [showSendToFriend, setShowSendToFriend] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const popupRef = useRef<HTMLDivElement>(null);
@@ -208,11 +210,16 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({
 
           <div className="invite-popup-section">
             <div className="invite-popup-header">Direct Invite</div>
-            <button className="invite-popup-action-btn secondary" disabled>
+            <button
+              className="invite-popup-action-btn secondary"
+              onClick={() => {
+                setShowPopup(false);
+                setShowSendToFriend(true);
+              }}
+            >
               <UserPlus size={14} />
               Send to a Friend
             </button>
-            <span className="invite-popup-hint">Coming soon — requires DM system</span>
           </div>
         </div>
       )}
@@ -227,6 +234,13 @@ const ServerActionBar: React.FC<ServerActionBarProps> = ({
           <span>Settings</span>
         </button>
       )}
+
+      <SendToFriendModal
+        serverId={server.id}
+        serverName={server.name}
+        open={showSendToFriend}
+        onClose={() => setShowSendToFriend(false)}
+      />
     </div>
   );
 };

@@ -6,6 +6,12 @@ import { mockServer } from '../../../mocks/fixtures';
 import type { ServerWithRole } from '@/renderer/types/server';
 import { MANAGE_SERVER, BASE_PERMISSIONS, ADMIN_PERMISSIONS } from '@/renderer/utils/permissions';
 
+// Isolate ServerActionBar from the modal's internals (friendStore/router/hook).
+vi.mock('@/renderer/components/Channels/SendToFriendModal', () => ({
+  SendToFriendModal: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="send-to-friend-modal">modal</div> : null,
+}));
+
 // Permission presets matching backend role presets
 const OWNER_PERMS = ADMIN_PERMISSIONS | MANAGE_SERVER;
 
@@ -151,7 +157,7 @@ describe('ServerActionBar', () => {
     expect(screen.queryByText('Invite Code')).not.toBeInTheDocument();
   });
 
-  it('shows Direct Invite section (disabled)', () => {
+  it('enables the Send to a Friend button and opens the modal on click', () => {
     render(
       <ServerActionBar
         server={ownerServer}
@@ -162,7 +168,9 @@ describe('ServerActionBar', () => {
     fireEvent.click(screen.getByText('Invite'));
     expect(screen.getByText('Direct Invite')).toBeInTheDocument();
     const sendBtn = screen.getByText('Send to a Friend');
-    expect(sendBtn.closest('button')).toBeDisabled();
+    expect(sendBtn.closest('button')).not.toBeDisabled();
+    fireEvent.click(sendBtn);
+    expect(screen.getByTestId('send-to-friend-modal')).toBeInTheDocument();
   });
 
   it('copies invite code to clipboard on Copy Code click', async () => {
@@ -266,18 +274,6 @@ describe('ServerActionBar', () => {
     );
     fireEvent.click(screen.getByText('Invite'));
     expect(screen.getByText('Generate Code')).toBeInTheDocument();
-  });
-
-  it('shows "Coming soon" hint in Direct Invite section', () => {
-    render(
-      <ServerActionBar
-        server={ownerServer}
-        onOpenCreateModal={mockOnOpenCreateModal}
-        onOpenCreateCategoryModal={mockOnOpenCreateCategoryModal}
-      />
-    );
-    fireEvent.click(screen.getByText('Invite'));
-    expect(screen.getByText(/Coming soon/)).toBeInTheDocument();
   });
 
   it('renders single class when only one action available', () => {
