@@ -68,7 +68,7 @@
   height: 16px;
   padding: 0 4px;
   border-radius: 8px;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--bg-primary);
   font-size: calc(10px * var(--font-scale, 1));
   font-weight: 700;
@@ -254,7 +254,7 @@
   height: 18px;
   padding: 0 5px;
   border-radius: 9px;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--bg-primary);
   font-size: calc(11px * var(--font-scale, 1));
   font-weight: 700;
@@ -653,7 +653,7 @@
 .channel-drag-ghost {
   height: 2px;
   margin: 0;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   border-radius: 1px;
   pointer-events: none;
 }

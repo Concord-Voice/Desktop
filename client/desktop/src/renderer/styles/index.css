@@ -92,6 +92,12 @@
 }
 
 :root {
+  /* Button / highlight FILL token. Defaults to --accent-primary so every theme
+     renders identically; a gradient-capable theme (e.g. Pride) overrides it to a
+     gradient, which works because consuming sites use the `background` shorthand.
+     Lazy var() resolution means this tracks each scheme's --accent-primary. */
+  --accent-fill: var(--accent-primary);
+
   /* Font Scale & Spacing Scale
    *
    * Two-layer model (#489): font-size discrete buckets and the continuous
@@ -158,7 +164,7 @@
    *   - Link (3):        --link-color, --link-color-hover, --link-color-visited
    *   - Encryption (1):  --state-encryption-pending
    *
-   * All tokens are mirrored across all 30 blocks (root, generic light, 14 schemes × 2 modes)
+   * All tokens are mirrored across all 32 blocks (root, generic light, 15 schemes × 2 modes)
    * with uniform initial values. Individual themes opt into per-token divergence in
    * follow-up sibling issues — initial schema symmetry is the load-bearing invariant.
    */
@@ -1801,6 +1807,130 @@
   --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
   --link-color: #0969da;
   --link-color-hover: #0860ca;
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
+}
+
+/* Pride Dark — deep base, hot-pink + azure accents, rainbow brand gradient */
+[data-scheme='pride'] {
+  --bg-primary: #1a1622;
+  --bg-secondary: #231d2e;
+  --bg-tertiary: #2d2539;
+  --text-primary: #f6eef7;
+  --text-secondary: #c7b6d1;
+  --text-muted: #8d7d99;
+  --accent-primary: #ff4d9e;
+  --accent-secondary: #3b9eff;
+  --accent-hover: #ff78b6;
+  --gradient-brand: linear-gradient(
+    90deg,
+    #e40303 0%,
+    #ff8c00 20%,
+    #ffed00 40%,
+    #008026 60%,
+    #004dff 80%,
+    #750787 100%
+  );
+  --success: #2fbf71;
+  --danger: #ff5c5c;
+  --border-color: #352b44;
+  --accent-color: var(--accent-primary);
+  --error-color: var(--danger);
+  --success-color: var(--success);
+  --text-tertiary: #6c5d79;
+  --bg-hover: #2b2336;
+  --bg-active: #342a42;
+  --on-accent: #ffffff;
+  --danger-hover: #e04848;
+  --status-connected: #1aaa55;
+  --status-connecting: #e6b432;
+  --status-disconnected: #fa6464;
+  --text-warning-strong: #f59e0b;
+  --text-error-strong: #f87171;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: var(--accent-primary);
+  --link-color-hover: var(--accent-hover);
+  --link-color-visited: var(--accent-secondary);
+  --state-encryption-pending: #faa61a;
+}
+
+/* Pride Light */
+[data-scheme='pride'][data-theme='light'] {
+  --bg-primary: #fdf6fb;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #f6ecf3;
+  --text-primary: #20172a;
+  --text-secondary: #59496a;
+  --text-muted: #897a96;
+  --accent-primary: #d61f7a;
+  --accent-secondary: #1d6fd6;
+  --accent-hover: #e84d97;
+  --gradient-brand: linear-gradient(
+    90deg,
+    #e40303 0%,
+    #ff8c00 20%,
+    #ffd000 40%,
+    #008026 60%,
+    #004dff 80%,
+    #750787 100%
+  );
+  --success: #2e8b4a;
+  --danger: #d33d3d;
+  --border-color: #ead9e4;
+  --accent-color: var(--accent-primary);
+  --error-color: var(--danger);
+  --success-color: var(--success);
+  --text-tertiary: #6c5d79;
+  --bg-hover: #f3e7ef;
+  --bg-active: #ebdce7;
+  --on-accent: #ffffff;
+  --danger-hover: #b32f2f;
+  --status-connected: #1a9a4a;
+  --status-connecting: #c89a20;
+  --status-disconnected: #e05050;
+  --text-warning-strong: #92400e;
+  --text-error-strong: #991b1b;
+  /* Design-token taxonomy extension (#1033) */
+  --state-selected: var(--accent-primary);
+  --state-focused: var(--accent-secondary);
+  --state-hover: var(--bg-hover);
+  --font-display-stack: 'Droidiga', system-ui, sans-serif;
+  --font-body-stack: 'SourceSans', system-ui, sans-serif;
+  --font-display-tracking: 0;
+  --font-display-tracking-tight: -0.02em;
+  --text-display-xl: calc(32px * var(--font-scale, 1));
+  --text-display-lg: calc(24px * var(--font-scale, 1));
+  --text-display-md: calc(20px * var(--font-scale, 1));
+  --text-display-sm: calc(16px * var(--font-scale, 1));
+  --radius-base: 4px;
+  --radius-elevated: 8px;
+  --radius-modal: 12px;
+  --motion-duration-fast: 150ms;
+  --motion-duration-base: 250ms;
+  --motion-duration-slow: 400ms;
+  --motion-curve-base: cubic-bezier(0.4, 0, 0.2, 1);
+  --motion-curve-decel: cubic-bezier(0, 0, 0.2, 1);
+  --link-color: #d61f7a;
+  --link-color-hover: #b01563;
   --link-color-visited: var(--accent-secondary);
   --state-encryption-pending: #faa61a;
 }

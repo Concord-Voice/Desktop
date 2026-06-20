@@ -119,7 +119,7 @@
 }
 
 .sso-link-confirm__submit {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--on-accent);
 }
 

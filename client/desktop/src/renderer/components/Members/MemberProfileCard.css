@@ -181,7 +181,7 @@
 }
 
 .member-profile-role-badge.role-owner {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--on-accent);
 }
 
@@ -246,7 +246,7 @@
   cursor: pointer;
   transition: all 0.15s ease;
   border: 1px solid var(--accent-primary);
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--on-accent);
 }
 

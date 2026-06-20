@@ -115,7 +115,7 @@
 .radio-inner {
   width: 10px;
   height: 10px;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   border-radius: 50%;
   animation: radioAppear 0.2s ease;
 }

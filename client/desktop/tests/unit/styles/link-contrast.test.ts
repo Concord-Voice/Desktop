@@ -77,7 +77,7 @@ function isExempt(block: string, token: '--link-color' | '--link-color-hover'): 
   return KNOWN_NONCOMPLIANT_BLOCKS.some((e) => e.block === block && e.token === token);
 }
 
-const ALL_30_BLOCKS = [
+const ALL_32_BLOCKS = [
   ':root',
   "[data-theme='light']",
   "[data-scheme='concord']",
@@ -108,6 +108,8 @@ const ALL_30_BLOCKS = [
   "[data-scheme='agency'][data-theme='light']",
   "[data-scheme='defacto']",
   "[data-scheme='defacto'][data-theme='light']",
+  "[data-scheme='pride']",
+  "[data-scheme='pride'][data-theme='light']",
 ] as const;
 
 /**
@@ -115,7 +117,7 @@ const ALL_30_BLOCKS = [
  *
  * Uses plain string search (indexOf) rather than a dynamic RegExp so that
  * Semgrep's ReDoS taint-sink rule (CWE-1333) is not triggered. The selector
- * strings in ALL_30_BLOCKS are compile-time constants, but the static analyser
+ * strings in ALL_32_BLOCKS are compile-time constants, but the static analyser
  * cannot prove that without data-flow analysis across array indexing.
  *
  * Algorithm:
@@ -447,7 +449,7 @@ describe('WCAG-AA link contrast across all theme blocks', () => {
   const css = readFileSync(cssPath, 'utf-8');
   const rootBody = extractBlockBody(css, ':root') ?? '';
 
-  describe.each(ALL_30_BLOCKS)('block %s', (block) => {
+  describe.each(ALL_32_BLOCKS)('block %s', (block) => {
     const blockBody = extractBlockBody(css, block);
 
     it('block exists', () => {
@@ -631,12 +633,12 @@ describe('exemption discipline', () => {
     }
   });
 
-  it('every exempted block exists in ALL_30_BLOCKS', () => {
-    const validBlocks = new Set<string>(ALL_30_BLOCKS);
+  it('every exempted block exists in ALL_32_BLOCKS', () => {
+    const validBlocks = new Set<string>(ALL_32_BLOCKS);
     for (const e of KNOWN_NONCOMPLIANT_BLOCKS) {
       expect(
         validBlocks.has(e.block),
-        `Exempted block '${e.block}' is not in ALL_30_BLOCKS — typo or stale entry`
+        `Exempted block '${e.block}' is not in ALL_32_BLOCKS — typo or stale entry`
       ).toBe(true);
     }
   });

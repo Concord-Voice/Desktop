@@ -196,7 +196,7 @@
 }
 
 .user-profile-modal-role-badge.role-owner {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   color: var(--on-accent);
 }
 

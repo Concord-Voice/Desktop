@@ -21,7 +21,7 @@
   left: -12px;
   width: 4px;
   height: 36px;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   border-radius: 0 4px 4px 0;
   transition: height 0.2s ease;
 }

@@ -79,7 +79,7 @@
   width: 12px;
   height: 12px;
   border-radius: 50%;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   border: 2px solid var(--bg-secondary);
   cursor: pointer;
 }

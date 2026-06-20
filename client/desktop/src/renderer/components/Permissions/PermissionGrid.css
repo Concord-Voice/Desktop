@@ -79,7 +79,7 @@
 }
 
 .permission-toggle.active {
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   border-color: var(--accent-primary);
 }
 

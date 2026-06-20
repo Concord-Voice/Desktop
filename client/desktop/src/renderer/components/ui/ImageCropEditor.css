@@ -59,7 +59,7 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: var(--accent-primary);
+  background: var(--accent-fill);
   cursor: pointer;
   border: 2px solid var(--bg-secondary);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
