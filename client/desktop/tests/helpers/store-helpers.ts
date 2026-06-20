@@ -20,6 +20,7 @@ import { useE2EEStore } from '../../src/renderer/stores/e2eeStore';
 import { usePendingRegistrationStore } from '../../src/renderer/stores/pendingRegistrationStore';
 import { useNotificationPrefsStore } from '../../src/renderer/stores/notificationPrefsStore';
 import { useAttestationFailureStore } from '../../src/renderer/stores/attestationFailureStore';
+import { useRichPresenceStore } from '../../src/renderer/stores/richPresenceStore';
 
 /**
  * Resets all Zustand stores to their initial state.
@@ -51,6 +52,7 @@ export function resetAllStores(): void {
   usePendingRegistrationStore.getState().clearPending();
   useNotificationPrefsStore.getState().clearAll();
   useAttestationFailureStore.getState().dismiss();
+  useRichPresenceStore.getState().reset();
 
   // Clear persisted state from localStorage AND sessionStorage
   // (pendingRegistrationStore persists to sessionStorage)

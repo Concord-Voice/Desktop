@@ -14,6 +14,7 @@ import { useDMStore } from '@/renderer/stores/dmStore';
 import { useFriendStore } from '@/renderer/stores/friendStore';
 import { useChatStore } from '@/renderer/stores/chatStore';
 import { useUserStore } from '@/renderer/stores/userStore';
+import { useRichPresenceStore } from '@/renderer/stores/richPresenceStore';
 import { mockServer } from '../../mocks/fixtures';
 import { resetAllStores } from '../../helpers/store-helpers';
 
@@ -37,6 +38,17 @@ describe('resetService', () => {
       expect(useDMStore.getState().conversations).toHaveLength(0);
       expect(useFriendStore.getState().friends).toHaveLength(0);
       expect(useChatStore.getState().messagesByChannel.size).toBe(0);
+    });
+
+    it('clears the rich-presence custom-text cache (#1233 cross-account leak fix)', () => {
+      useRichPresenceStore.getState().setCustomText('other-user', { text: 'busy', emoji: '🔴' });
+      useRichPresenceStore.getState().setSelfPresence({ tier: 2, customText: 'mine' });
+
+      gracefulReset();
+
+      expect(Object.keys(useRichPresenceStore.getState().customTextByUser)).toHaveLength(0);
+      expect(useRichPresenceStore.getState().self.tier).toBe(0);
+      expect(useRichPresenceStore.getState().self.customText).toBeUndefined();
     });
 
     it('preserves auth tokens', () => {

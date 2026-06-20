@@ -28,6 +28,7 @@ import { useUserStore } from '../stores/userStore';
 import { useDraftMessageStore } from '../stores/draftMessageStore';
 import { useSSOStore } from '../stores/ssoStore';
 import { useE2EEStore } from '../stores/e2eeStore';
+import { useRichPresenceStore } from '../stores/richPresenceStore';
 
 /**
  * Clears content stores while preserving device settings.
@@ -48,6 +49,10 @@ export function gracefulReset(): void {
   useUnreadStore.getState().clearAll();
   useVoiceStore.getState().reset();
   useChatStore.getState().reset();
+  // Clear rich-presence (custom-text) cache — other users' statuses + self —
+  // so signing into a different account never surfaces the prior user's
+  // statuses (#1233/Gitar; risk: privacy cross-account leak).
+  useRichPresenceStore.getState().reset();
   useUserStore.getState().clearUser();
 
   // Clear user-specific layout content (serverFolders, serverOrder)

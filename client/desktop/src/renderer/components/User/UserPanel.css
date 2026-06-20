@@ -130,6 +130,46 @@
   line-height: 1.3;
 }
 
+/* Status line is a button so it opens the custom-status popover (#1233 B5). */
+.user-panel-status-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  min-width: 0;
+  border-radius: 4px;
+}
+
+.user-panel-status-btn:hover {
+  background: var(--bg-hover);
+}
+
+.user-panel-custom-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.user-panel-custom-status-emoji {
+  flex-shrink: 0;
+  font-size: calc(12px * var(--font-scale, 1));
+  line-height: 1.3;
+}
+
+.user-panel-custom-status-text {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--text-secondary, var(--text-muted));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
 .user-panel-status {
   font-size: calc(11px * var(--font-scale, 1));
   font-weight: 500;

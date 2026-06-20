@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useLayoutEffect } from 'react';
 import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import type { PresenceStatus } from '../../stores/memberStore';
+import { useRichPresenceStore } from '../../stores/richPresenceStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 import { useUserThemeScope } from '../../hooks/useUserThemeScope';
 import SendFriendRequestButton from './SendFriendRequestButton';
@@ -38,6 +39,8 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
   onViewFullProfile,
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
+  // Selective subscription: this member's custom-text status (undefined if none).
+  const customText = useRichPresenceStore((s) => s.customTextByUser[member.user_id]);
   // Drives whether the friend-request row renders at all (hidden for self).
   const { visible: friendActionVisible } = useFriendRequestState(member.user_id);
   const showActions = friendActionVisible || !!onViewFullProfile;
@@ -169,7 +172,11 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
         }
       >
         {resolveMediaUrl(member.header_image_url) && (
-          <img src={resolveMediaUrl(member.header_image_url)} alt="" className="member-profile-banner-img" />
+          <img
+            src={resolveMediaUrl(member.header_image_url)}
+            alt=""
+            className="member-profile-banner-img"
+          />
         )}
       </div>
 
@@ -213,6 +220,18 @@ const MemberProfileCard: React.FC<MemberProfileCardProps> = ({
               {getStatusText()}
             </span>
           </div>
+
+          {customText && (
+            <div className="member-profile-detail-row">
+              <span className="member-profile-detail-label">Custom Status</span>
+              <span className="member-profile-detail-value member-profile-custom-status">
+                {customText.emoji && (
+                  <span className="member-profile-custom-status-emoji">{customText.emoji}</span>
+                )}
+                <span className="member-profile-custom-status-text">{customText.text}</span>
+              </span>
+            </div>
+          )}
 
           {member.joined_at && (
             <div className="member-profile-detail-row">

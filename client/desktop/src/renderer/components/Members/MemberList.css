@@ -227,7 +227,14 @@
   background-color: var(--text-muted);
 }
 
-/* ─── Username ──────────────────────────────────────────────────────────── */
+/* ─── Username + Custom Status (#1233) ──────────────────────────────────── */
+
+.member-item-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
 
 .member-username {
   font-size: calc(13px * var(--font-scale, 1));
@@ -236,6 +243,28 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.member-custom-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.member-custom-status-emoji {
+  flex-shrink: 0;
+  font-size: calc(11px * var(--font-scale, 1));
+  line-height: 1.2;
+}
+
+.member-custom-status-text {
+  font-size: calc(11px * var(--font-scale, 1));
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.2;
 }
 
 /* ─── Loading Skeletons ─────────────────────────────────────────────────── */

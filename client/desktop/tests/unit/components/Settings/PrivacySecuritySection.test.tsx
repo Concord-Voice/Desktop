@@ -26,6 +26,17 @@ const mockSecurityGetFetch = vi.fn(async () => ({
   json: async () => ({ password_login_disabled: false, trust_sso_security: false }),
   text: async () => JSON.stringify({ password_login_disabled: false, trust_sso_security: false }),
 }));
+// Mount-time hydration GET for the custom-status visibility tier (#1233 B6,
+// PresenceSettingsSection). Short-circuited like the SSO/identities GETs above
+// so its mount fetch doesn't consume FIFO `mockResolvedValueOnce` entries or
+// inflate `mockApiFetch` call-count assertions in the pre-existing tests.
+const mockPresenceGetFetch = vi.fn(async () => ({
+  ok: true,
+  status: 200,
+  headers: new Headers({ 'Content-Type': 'application/json' }),
+  json: async () => ({ custom_text_tier: 0, custom_text: '', custom_text_emoji: '' }),
+  text: async () => JSON.stringify({ custom_text_tier: 0, custom_text: '', custom_text_emoji: '' }),
+}));
 vi.mock('@/renderer/services/apiClient', () => ({
   apiFetch: (...args: unknown[]) => {
     // Short-circuit LinkedAccountsList's GET and the hydration GET so they
@@ -42,6 +53,9 @@ vi.mock('@/renderer/services/apiClient', () => ({
     }
     if (path === '/api/v1/users/me/security' && method === 'GET') {
       return mockSecurityGetFetch();
+    }
+    if (path === '/api/v1/users/me/presence-settings' && method === 'GET') {
+      return mockPresenceGetFetch();
     }
     return mockApiFetch(...args);
   },
@@ -220,9 +234,15 @@ describe('PrivacySecuritySection', () => {
   it('renders DM privacy labels', async () => {
     render(<PrivacySecuritySection />);
     await vi.waitFor(() => expect(screen.getByText('Who Can DM You')).toBeInTheDocument());
-    expect(screen.getByText('No One')).toBeInTheDocument();
-    expect(screen.getByText('Friends')).toBeInTheDocument();
-    expect(screen.getByText('Everyone')).toBeInTheDocument();
+    // Scope the label lookups to the DM tier control. "Friends" is now also a
+    // presence-tier option (#1233 PresenceSettingsSection composed alongside),
+    // so a bare getByText('Friends') is ambiguous — query the DM tier labels.
+    const dmTierLabels = Array.from(
+      document.querySelectorAll<HTMLButtonElement>('.settings-tier-label')
+    ).map((el) => el.textContent);
+    expect(dmTierLabels).toContain('No One');
+    expect(dmTierLabels).toContain('Friends');
+    expect(dmTierLabels).toContain('Everyone');
   });
   it('renders friends-of-friends toggle', async () => {
     render(<PrivacySecuritySection />);

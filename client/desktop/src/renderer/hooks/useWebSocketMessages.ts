@@ -31,6 +31,7 @@ import { useVoiceStore, channelVoiceMemberFromApi } from '../stores/voiceStore';
 import { useConnectionStore } from '../stores/connectionStore';
 import { useDMStore } from '../stores/dmStore';
 import { useFriendStore } from '../stores/friendStore';
+import { useRichPresenceStore } from '../stores/richPresenceStore';
 import { speak as ttsSpeak } from '../services/ttsService';
 import { notificationSoundService } from '../services/notificationSoundService';
 import { isChannelMuted, isDMMuted } from '../stores/notificationPrefsStore';
@@ -1618,6 +1619,17 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       handleCallTimedOut(msg.data);
     });
 
+    // ── Rich presence — custom text status (#1233) ──────────────────────
+    // Payloads are schema-validated upstream at the dispatch boundary, so
+    // msg.data is already narrowed (no casts). The store keys other users'
+    // custom text by user_id; the self slice is owned by the settings flow.
+    const unsubRichPresenceUpdate = wsService.on('rich_presence_update', (msg) => {
+      useRichPresenceStore.getState().setCustomText(msg.data.user_id, msg.data.payload);
+    });
+    const unsubRichPresenceClear = wsService.on('rich_presence_clear', (msg) => {
+      useRichPresenceStore.getState().clearCustomText(msg.data.user_id);
+    });
+
     // Cleanup handlers
     return () => {
       unsubMessage();
@@ -1675,6 +1687,8 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       unsubDMVoiceCallCanceled();
       unsubDMVoiceCallDeclined();
       unsubDMVoiceCallTimedOut();
+      unsubRichPresenceUpdate();
+      unsubRichPresenceClear();
       unsubSubscribed();
       unsubError();
       unsubSessionRevoked();

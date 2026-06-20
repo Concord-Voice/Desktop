@@ -14,4 +14,13 @@ describe('DMPrivacyControls', () => {
     );
     expect(getByText(/who can dm you/i)).toBeInTheDocument();
   });
+
+  it('renders the custom-status cross-reference note next to friends-of-friends (#1233)', () => {
+    const { getByText } = render(
+      <DMPrivacyControls localDmLevel={1} setDmPrivacyLevel={vi.fn()} />
+    );
+    expect(
+      getByText(/also expands who can see your custom status at the friends tier/i)
+    ).toBeInTheDocument();
+  });
 });

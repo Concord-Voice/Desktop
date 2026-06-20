@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from '../../../test-utils';
 import MemberProfileCard from '@/renderer/components/Members/MemberProfileCard';
 import { mockMember } from '../../../mocks/fixtures';
 import { useUserStore } from '@/renderer/stores/userStore';
+import { useRichPresenceStore } from '@/renderer/stores/richPresenceStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
 describe('MemberProfileCard', () => {
@@ -123,6 +124,23 @@ describe('MemberProfileCard', () => {
   it('renders member username with @ prefix', () => {
     render(<MemberProfileCard {...defaultProps} />);
     expect(screen.getByText('@testuser')).toBeInTheDocument();
+  });
+
+  // ── Custom Status detail row (#1233) ──
+
+  it('renders a Custom Status row with emoji + text when present in the store', () => {
+    useRichPresenceStore
+      .getState()
+      .setCustomText(mockMember.user_id, { emoji: '🎧', text: 'Listening to music' });
+    render(<MemberProfileCard {...defaultProps} />);
+    expect(screen.getByText('Custom Status')).toBeInTheDocument();
+    expect(screen.getByText('Listening to music')).toBeInTheDocument();
+    expect(screen.getByText('🎧')).toBeInTheDocument();
+  });
+
+  it('does not render a Custom Status row when the store has no entry', () => {
+    render(<MemberProfileCard {...defaultProps} />);
+    expect(screen.queryByText('Custom Status')).not.toBeInTheDocument();
   });
 
   // ── Send Friend Request action (#226) ──

@@ -21,6 +21,7 @@ import DMPrivacyControls from './DMPrivacyControls';
 import ContentSafetyControls from './ContentSafetyControls';
 import SearchVisibilityControls from './SearchVisibilityControls';
 import LinkedAccountsList from './LinkedAccountsList';
+import PresenceSettingsSection from './PresenceSettingsSection';
 import './MFA.css';
 
 interface Session {
@@ -1156,6 +1157,8 @@ const PrivacySecuritySection: React.FC = () => {
         <ContentSafetyControls />
         <SearchVisibilityControls />
       </CollapsibleSection>
+
+      <PresenceSettingsSection />
 
       <SystemPermissionsSection />
 

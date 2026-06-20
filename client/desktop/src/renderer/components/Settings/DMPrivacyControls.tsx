@@ -88,6 +88,9 @@ const DMPrivacyControls = ({ localDmLevel, setDmPrivacyLevel }: DMPrivacyControl
             {DM_FOF_HINTS[localDmLevel] ??
               'Also allow DMs from people who share a mutual friend with you'}
           </span>
+          <span className="settings-row-hint">
+            This also expands who can see your custom status at the Friends tier.
+          </span>
         </div>
         <ToggleSwitch
           checked={computeFofChecked(localDmLevel, privacySettings.dmFriendsOfFriends)}

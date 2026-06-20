@@ -170,6 +170,26 @@
   color: var(--text-muted);
 }
 
+/* Custom Status detail row (#1233) — emoji + text, right-aligned, clamped. */
+.member-profile-custom-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 60%;
+  justify-content: flex-end;
+}
+
+.member-profile-custom-status-emoji {
+  flex-shrink: 0;
+}
+
+.member-profile-custom-status-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ─── Role Badge ────────────────────────────────────────────────────────── */
 
 .member-profile-role-badge {

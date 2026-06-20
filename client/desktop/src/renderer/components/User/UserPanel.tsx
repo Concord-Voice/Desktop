@@ -5,8 +5,10 @@ import { useAuthStore } from '../../stores/authStore';
 import { useSettingsOverlayStore } from '../../stores/settingsOverlayStore';
 import { useUserStore } from '../../stores/userStore';
 import { useMemberStore, PresenceStatus } from '../../stores/memberStore';
+import { useRichPresenceStore } from '../../stores/richPresenceStore';
 import UserPopover from './UserPopover';
 import FeedbackModal from './FeedbackModal';
+import CustomStatusPopover from './CustomStatusPopover';
 import './UserPanel.css';
 
 const statusClassMap: Record<PresenceStatus, string> = {
@@ -31,11 +33,14 @@ interface UserPanelProps {
 const UserPanel: React.FC<UserPanelProps> = ({ compact = false }) => {
   const [isPopoverOpen, setIsPopoverOpen] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [isCustomStatusOpen, setIsCustomStatusOpen] = useState(false);
   const accessToken = useAuthStore((state) => state.accessToken);
   const user = useUserStore((state) => state.user);
   const isLoading = useUserStore((state) => state.isLoading);
   const fetchUser = useUserStore((state) => state.fetchUser);
   const selfStatus = useMemberStore((state) => state.selfStatus);
+  const selfCustomText = useRichPresenceStore((state) => state.self.customText);
+  const selfCustomTextEmoji = useRichPresenceStore((state) => state.self.customTextEmoji);
 
   // Fetch user data if not already loaded (e.g., on page refresh)
   useEffect(() => {
@@ -70,21 +75,46 @@ const UserPanel: React.FC<UserPanelProps> = ({ compact = false }) => {
             aria-label={`User menu for ${user.username}`}
           >
             {resolveMediaUrl(user.avatar_url) ? (
-              <img src={resolveMediaUrl(user.avatar_url)} alt={user.username} className="user-avatar-img" />
+              <img
+                src={resolveMediaUrl(user.avatar_url)}
+                alt={user.username}
+                className="user-avatar-img"
+              />
             ) : (
               <span className="user-avatar-initial">{user.username.charAt(0).toUpperCase()}</span>
             )}
             <div className={`user-status-dot ${statusClassMap[selfStatus]}`} />
           </button>
 
-          {/* Full mode: show username, status, and settings */}
+          {/* Full mode: show username, status (clickable to set custom text), and settings */}
           {!compact && (
             <div className="user-panel-info">
               <span className="user-panel-username">{user.username}</span>
-              <span className={`user-panel-status ${statusClassMap[selfStatus]}`}>
-                {statusLabelMap[selfStatus]}
-              </span>
+              <button
+                type="button"
+                className="user-panel-status-btn"
+                onClick={() => setIsCustomStatusOpen((prev) => !prev)}
+                title="Set a custom status"
+                aria-label="Set a custom status"
+              >
+                {selfCustomText ? (
+                  <span className="user-panel-custom-status">
+                    {selfCustomTextEmoji && (
+                      <span className="user-panel-custom-status-emoji">{selfCustomTextEmoji}</span>
+                    )}
+                    <span className="user-panel-custom-status-text">{selfCustomText}</span>
+                  </span>
+                ) : (
+                  <span className={`user-panel-status ${statusClassMap[selfStatus]}`}>
+                    {statusLabelMap[selfStatus]}
+                  </span>
+                )}
+              </button>
             </div>
+          )}
+
+          {!compact && isCustomStatusOpen && (
+            <CustomStatusPopover onClose={() => setIsCustomStatusOpen(false)} />
           )}
 
           {!compact && (

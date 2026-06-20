@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from '../../../test-utils';
 import MemberItem from '@/renderer/components/Members/MemberItem';
 import { vi } from 'vitest';
 import type { ServerMember, PresenceStatus } from '@/renderer/stores/memberStore';
+import { useRichPresenceStore } from '@/renderer/stores/richPresenceStore';
 
 vi.mock('@/renderer/utils/schemeColors', () => ({
   resolveUserAccentColors: vi.fn(() => null),
@@ -28,6 +29,7 @@ const defaultProps = {
 describe('MemberItem', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useRichPresenceStore.getState().reset();
   });
 
   it('renders as a button element', () => {
@@ -126,5 +128,28 @@ describe('MemberItem', () => {
     render(<MemberItem {...defaultProps} onContextMenu={onContextMenu} />);
     fireEvent.contextMenu(screen.getByRole('button'));
     expect(onContextMenu).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders custom-text status (emoji + text) when present in the store (#1233)', () => {
+    useRichPresenceStore.getState().setCustomText('u1', { emoji: '🎮', text: 'Gaming' });
+    render(<MemberItem {...defaultProps} member={makeMember({ user_id: 'u1' })} />);
+    expect(screen.getByText('Gaming')).toBeInTheDocument();
+    expect(screen.getByText('🎮')).toBeInTheDocument();
+  });
+
+  it('renders custom-text status without an emoji when none is set (#1233)', () => {
+    useRichPresenceStore.getState().setCustomText('u1', { text: 'Focusing' });
+    const { container } = render(
+      <MemberItem {...defaultProps} member={makeMember({ user_id: 'u1' })} />
+    );
+    expect(screen.getByText('Focusing')).toBeInTheDocument();
+    expect(container.querySelector('.member-custom-status-emoji')).not.toBeInTheDocument();
+  });
+
+  it('renders nothing for custom status when the store has no entry (#1233)', () => {
+    const { container } = render(
+      <MemberItem {...defaultProps} member={makeMember({ user_id: 'u1' })} />
+    );
+    expect(container.querySelector('.member-custom-status')).not.toBeInTheDocument();
   });
 });
