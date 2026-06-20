@@ -39,4 +39,13 @@ describe('--accent-fill button/highlight indirection', () => {
     const mainTsx = readFileSync(resolve(stylesDir, '../main.tsx'), 'utf-8');
     expect(mainTsx).toContain('pride-flourishes.css');
   });
+
+  it('Pride adds a legibility text-shadow halo over rainbow fills (both fg-color groups)', () => {
+    // The rainbow --accent-fill cannot keep static button/badge text legible across
+    // all six flag stops; a contrasting text-shadow halo restores it (WCAG 1.4.3).
+    // Lock both groups: white text (--on-accent) → dark halo, dark text
+    // (--bg-primary) → light halo. Literal regexes — no dynamic RegExp / ReDoS.
+    expect(prideCss, 'dark halo for white text').toMatch(/text-shadow:[^;{}]*rgba\(0, 0, 0/);
+    expect(prideCss, 'light halo for dark text').toMatch(/text-shadow:[^;{}]*rgba\(255, 255, 255/);
+  });
 });

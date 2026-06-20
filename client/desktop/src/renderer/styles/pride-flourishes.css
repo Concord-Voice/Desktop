@@ -81,3 +81,60 @@
 [data-scheme='pride'] ::-webkit-scrollbar-thumb {
   background: var(--gradient-brand-vertical) !important;
 }
+
+/* ─── Legibility halo over the rainbow fills (WCAG 1.4.3 mitigation) ───────────
+ * The rainbow --accent-fill backs text-bearing buttons/badges whose foreground is
+ * a single static color, which cannot stay legible across all six flag stops
+ * (white washes out over yellow/green; near-black washes out over blue/violet).
+ * A contrasting text-shadow halo restores readability over any stop. Two groups
+ * by foreground color: white text (--on-accent) gets a dark halo; dark text
+ * (--bg-primary) gets a light halo. Pride-scoped, so the other 14 schemes (solid
+ * --accent-primary fills) are untouched.
+ *
+ * MAINTENANCE: when a surface adopts `background: var(--accent-fill)` AND paints
+ * text on it, add its selector to the group below matching its foreground color.
+ * Regression-locked by tests/unit/styles/accent-fill.test.ts. */
+
+/* White text (color: var(--on-accent)) → dark halo */
+[data-scheme='pride'] .sso-link-confirm__submit,
+[data-scheme='pride'] .sso-eager-unlock__submit,
+[data-scheme='pride'] .sso-passphrase-setup__submit,
+[data-scheme='pride'] .new-message-badge,
+[data-scheme='pride'] .member-profile-role-badge.role-owner,
+[data-scheme='pride'] .send-friend-request-btn,
+[data-scheme='pride'] .user-profile-modal-role-badge.role-owner,
+[data-scheme='pride'] .about-info-copy-btn:hover,
+[data-scheme='pride'] .about-update-btn,
+[data-scheme='pride'] .about-update-action-btn:hover,
+[data-scheme='pride'] .about-update-action-btn--primary,
+[data-scheme='pride'] .font-option-theme-badge,
+[data-scheme='pride'] .revocation-mode-btn.active,
+[data-scheme='pride'] .settings-pending-blob-apply,
+[data-scheme='pride'] .settings-notification-permission-btn,
+[data-scheme='pride'] .bug-report-submit,
+[data-scheme='pride'] .feature-request-submit,
+[data-scheme='pride'] .connection-lost-btn.primary,
+[data-scheme='pride'] .force-update-btn.primary,
+[data-scheme='pride'] .update-banner__btn.primary {
+  text-shadow:
+    0 0 2px rgba(0, 0, 0, 0.85),
+    0 0 4px rgba(0, 0, 0, 0.5);
+}
+
+/* Dark text (color: var(--bg-primary)) → light halo */
+[data-scheme='pride'] .channel-group-header__count,
+[data-scheme='pride'] .channel-unread-badge,
+[data-scheme='pride'] .conversation-unread-badge,
+[data-scheme='pride'] .friends-add-btn:hover,
+[data-scheme='pride'] .personal-thread-avatar,
+[data-scheme='pride'] .add-friend-action-btn,
+[data-scheme='pride'] .create-group-btn:hover,
+[data-scheme='pride'] .create-group-add-btn:hover:not(:disabled),
+[data-scheme='pride'] .create-group-create-btn,
+[data-scheme='pride'] .group-member-role-badge,
+[data-scheme='pride'] .session-card-badge,
+[data-scheme='pride'] .settings-rotate-id-btn:hover:not(:disabled) {
+  text-shadow:
+    0 0 2px rgba(255, 255, 255, 0.9),
+    0 0 4px rgba(255, 255, 255, 0.55);
+}
