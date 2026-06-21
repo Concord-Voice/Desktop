@@ -26,11 +26,13 @@ import { e2eeService } from '../services/e2eeService';
 import { isPendingKeyError } from '../services/e2eeErrors';
 import { preferencesSyncService } from '../services/preferencesSync';
 import { savedGifsSyncService } from '../services/savedGifsSync';
+import { friendOrgSyncService } from '../services/friendOrgSync';
 import { apiFetch } from '../services/apiClient';
 import { useVoiceStore, channelVoiceMemberFromApi } from '../stores/voiceStore';
 import { useConnectionStore } from '../stores/connectionStore';
 import { useDMStore } from '../stores/dmStore';
 import { useFriendStore } from '../stores/friendStore';
+import { useFriendOrgStore } from '../stores/friendOrgStore';
 import { useSubscriptionStore } from '../stores/subscriptionStore';
 import { useRichPresenceStore } from '../stores/richPresenceStore';
 import { speak as ttsSpeak } from '../services/ttsService';
@@ -1005,6 +1007,11 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       savedGifsSyncService.fetchAndApply();
     });
 
+    // Friend organization updated — another device changed categories (#324)
+    const unsubFriendOrgUpdated = wsService.on('friend_organization_updated', () => {
+      friendOrgSyncService.fetchAndApply();
+    });
+
     // Entitlements changed (#1297) — server pushes the full capability set on
     // any tier change. The wire payload is validated at the dispatch boundary,
     // so update the store directly — no re-fetch round-trip.
@@ -1486,6 +1493,11 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
     // msg.data narrowed to FriendRemovedPayload — user_id is schema-required.
     const unsubFriendRemoved = wsService.on('friend_removed', (msg) => {
       useFriendStore.getState().removeFriendByUserId(msg.data.user_id);
+      // Prune the now-removed friend from any friend-org category (#324) — otherwise the
+      // stale userId persists in the encrypted blob forever (Gitar review on #1704). The
+      // store mutation re-pushes the blob via the friendOrgSync watcher.
+      const validFriendIds = useFriendStore.getState().friends.map((f) => f.userId);
+      useFriendOrgStore.getState().pruneFriends(validFriendIds);
     });
 
     // msg.data narrowed to FriendCodeClaimedPayload.
@@ -1686,6 +1698,7 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
       unsubKeyDelivered();
       unsubPreferencesUpdated();
       unsubSavedGifsUpdated();
+      unsubFriendOrgUpdated();
       unsubEntitlements();
       unsubEntitlementsResync();
       unsubPresenceSnapshot();

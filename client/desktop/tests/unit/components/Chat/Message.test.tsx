@@ -38,6 +38,7 @@ vi.mock('@/renderer/components/Chat/GifEmbed', () => ({
   default: ({ slug }: { slug: string }) => <div data-testid="gif-embed">{slug}</div>,
 }));
 import { useMemberStore } from '@/renderer/stores/memberStore';
+import { useFriendOrgStore } from '@/renderer/stores/friendOrgStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 import { vi } from 'vitest';
 import userEvent from '@testing-library/user-event';
@@ -45,6 +46,9 @@ import userEvent from '@testing-library/user-event';
 describe('Message', () => {
   beforeEach(() => {
     resetAllStores();
+    // friendOrgStore is not covered by resetAllStores; reset it here so the
+    // DM author-tint tests start from a clean (empty) categories list.
+    useFriendOrgStore.getState()._hydrate({ v: 1, categories: [], sectionOrder: [] });
     useMemberStore.getState().addMember(mockMember);
   });
 
@@ -767,6 +771,36 @@ describe('Message', () => {
     expect(roleEmoji?.textContent).toBe('⚔️');
     const username = document.querySelector('.message-username') as HTMLElement;
     expect(username.style.color).toBe('rgb(0, 255, 0)');
+  });
+
+  // ── DM author friend-category color tint (#324, via the #543 chatContext seam) ──
+
+  it('tints the DM author username with the friend-category color when chatContext is dm', () => {
+    // friendOrgStore: a category coloured '#fa709a' that contains the message author (user-1).
+    const catId = useFriendOrgStore.getState().createCategory('Close Friends', '💜', '#fa709a');
+    useFriendOrgStore.getState().assignFriend('user-1', catId);
+    render(
+      <Message message={mockMessage} currentUserId="user-2" chatContext="dm" showAvatar={true} />
+    );
+    const username = document.querySelector('.message-username') as HTMLElement;
+    // '#fa709a' → rgb(250, 112, 154)
+    expect(username.style.color).toBe('rgb(250, 112, 154)');
+  });
+
+  it('does NOT tint outside chatContext=dm (server-role boundary preserved, #543)', () => {
+    // Same category/membership, but a non-DM (channel) context: no friend-category tint.
+    const catId = useFriendOrgStore.getState().createCategory('Close Friends', '💜', '#fa709a');
+    useFriendOrgStore.getState().assignFriend('user-1', catId);
+    render(
+      <Message
+        message={mockMessage}
+        currentUserId="user-2"
+        chatContext="channel"
+        showAvatar={true}
+      />
+    );
+    const username = document.querySelector('.message-username') as HTMLElement;
+    expect(username.style.color).toBe('');
   });
 
   // ── Options menu outside click ──

@@ -10,6 +10,7 @@
 
 import { preferencesSyncService, type PreferencesSyncDeps } from './preferencesSync';
 import { savedGifsSyncService } from './savedGifsSync';
+import { friendOrgSyncService } from './friendOrgSync';
 import { tryHydrateNotificationPrefs } from './notificationPrefsService';
 import { useSubscriptionStore } from '../stores/subscriptionStore';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -51,6 +52,8 @@ export async function hydratePostLogin(): Promise<void> {
   await preferencesSyncService.fetchAndApply();
   savedGifsSyncService.startWatching();
   await savedGifsSyncService.fetchAndApply();
+  friendOrgSyncService.startWatching();
+  await friendOrgSyncService.fetchAndApply();
   await tryHydrateNotificationPrefs();
   await useSubscriptionStore.getState().hydrate();
 }

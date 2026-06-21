@@ -29,6 +29,10 @@ const KNOWN_TEXT_FREE_FILLS = new Set([
   '.add-friend-toggle input:checked + .add-friend-toggle-track',
   '.channel-drag-ghost',
   '.force-update-progress-fill',
+  // Friend-category DnD state indicators (#324): accent used as the drag-handle icon
+  // color and the grabbed-section outline — decorative/text-free, no text on an accent fill.
+  ".friend-category-drag-handle[aria-pressed='true']",
+  '.friend-category-grabbed',
   '.image-crop-zoom-slider::-webkit-slider-thumb',
   '.media-controls-range::-webkit-slider-thumb',
   '.participant-volume-row-slider::-webkit-slider-thumb',

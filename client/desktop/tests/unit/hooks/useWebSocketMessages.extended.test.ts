@@ -12,6 +12,8 @@ import { useUserStore } from '@/renderer/stores/userStore';
 import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { useConnectionStore } from '@/renderer/stores/connectionStore';
 import { useAuthStore } from '@/renderer/stores/authStore';
+import { useFriendStore } from '@/renderer/stores/friendStore';
+import { useFriendOrgStore } from '@/renderer/stores/friendOrgStore';
 import { resetAllStores } from '../../helpers/store-helpers';
 import { mockChannel } from '../../mocks/fixtures';
 
@@ -823,6 +825,28 @@ describe('useWebSocketMessages — extended handlers', () => {
       });
 
       expect(handler).toBeDefined();
+    });
+
+    it('friend_removed prunes the removed friend from friend-org categories (#324, Gitar #1704)', () => {
+      // Two categorized friends; remove one — its memberId must not linger in the blob.
+      useFriendStore.setState({
+        friends: [
+          { id: 'f-2', userId: 'user-2', username: 'bob', status: 'online' },
+          { id: 'f-3', userId: 'user-3', username: 'carol', status: 'online' },
+        ] as never,
+      });
+      const catId = useFriendOrgStore.getState().createCategory('Close', '', null);
+      useFriendOrgStore.getState().assignFriend('user-2', catId);
+      useFriendOrgStore.getState().assignFriend('user-3', catId);
+
+      const ws = createMockWsService();
+      renderHook(() => useWebSocketMessages(ws as never));
+      act(() => {
+        ws.handlers.get('friend_removed')!({ type: 'friend_removed', data: { user_id: 'user-2' } });
+      });
+
+      const cat = useFriendOrgStore.getState().categories.find((c) => c.id === catId)!;
+      expect(cat.memberIds).toEqual(['user-3']); // user-2 pruned, user-3 retained
     });
 
     it('handles friend_code_claimed with accepted status', () => {

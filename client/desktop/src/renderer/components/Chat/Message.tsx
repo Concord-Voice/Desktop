@@ -3,6 +3,7 @@ import { Lock } from 'lucide-react';
 import { MessageWithStatus, type ChatContextType } from '../../types/chat';
 import { useMemberStore } from '../../stores/memberStore';
 import { usePermissionStore } from '../../stores/permissionStore';
+import { useFriendOrgStore } from '../../stores/friendOrgStore';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 import MessageAvatar from './MessageAvatar';
 import MessageActions from './MessageActions';
@@ -453,6 +454,16 @@ const Message: React.FC<MessageProps> = ({
   const senderRoleEmoji = topDisplayRole?.role_emoji ?? null;
   const senderRoleColor = topDisplayRole?.role_color ?? null;
 
+  // DM author color tint (#324): in a DM, resolve the author's friend-category
+  // color from friendOrgStore by the author's userId. Display-only — never
+  // touches ciphertext or keys. Server roles are already suppressed in DM via
+  // the #543 chatContext seam, so this tint only applies when isDM and does not
+  // disturb the server-role boundary for channel/voice contexts.
+  const friendCatColor = useFriendOrgStore((s) =>
+    isDM ? (s.categories.find((c) => c.memberIds.includes(message.user_id))?.color ?? null) : null
+  );
+  const usernameColor = senderRoleColor ?? friendCatColor;
+
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -524,7 +535,7 @@ const Message: React.FC<MessageProps> = ({
           <MessageHeader
             message={message}
             senderRoleEmoji={senderRoleEmoji}
-            senderRoleColor={senderRoleColor}
+            senderRoleColor={usernameColor}
             onOpenProfile={openProfileAt}
           />
         )}

@@ -1,6 +1,7 @@
-import { render, screen, fireEvent, waitFor } from '../../../test-utils';
+import { render, screen, fireEvent, waitFor, within } from '../../../test-utils';
 import { resetAllStores } from '../../../helpers/store-helpers';
 import { useFriendStore, type Friend, type FriendRequest } from '@/renderer/stores/friendStore';
+import { useFriendOrgStore } from '@/renderer/stores/friendOrgStore';
 import { vi } from 'vitest';
 
 // Mock child components that are heavy or have their own dependencies
@@ -32,6 +33,14 @@ vi.mock('@/renderer/utils/schemeColors', () => ({
   resolveUserAccentColors: vi.fn().mockReturnValue(null),
 }));
 
+vi.mock('@/renderer/components/DirectMessages/CategoryManagerPanel', () => ({
+  default: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="category-manager-panel">
+      <button onClick={onClose}>Close Manager</button>
+    </div>
+  ),
+}));
+
 import FriendsList from '@/renderer/components/DirectMessages/FriendsList';
 
 // --- Test fixtures ---
@@ -46,6 +55,21 @@ const makeFriend = (overrides: Partial<Friend> = {}): Friend => ({
   status: 'online',
   ...overrides,
 });
+
+// Minimal stateful DataTransfer stand-in for fireEvent drag tests (jsdom lacks one).
+const makeDataTransfer = () => {
+  const store: Record<string, string> = {};
+  return {
+    setData: (type: string, val: string) => {
+      store[type] = val;
+    },
+    getData: (type: string) => store[type] ?? '',
+    types: [] as string[],
+    setDragImage: () => {},
+    effectAllowed: 'move',
+    dropEffect: 'move',
+  };
+};
 
 const makeRequest = (overrides: Partial<FriendRequest> = {}): FriendRequest => ({
   id: 'req-1',
@@ -67,6 +91,9 @@ describe('FriendsList', () => {
 
   beforeEach(() => {
     resetAllStores();
+    // friendOrgStore is not registered in resetAllStores; clear it explicitly so
+    // category/sectionOrder state does not leak across tests.
+    useFriendOrgStore.getState()._hydrate({ v: 1, categories: [], sectionOrder: [] });
     vi.clearAllMocks();
     useFriendStore.setState({
       friends: [],
@@ -77,6 +104,12 @@ describe('FriendsList', () => {
       declineRequest: vi.fn().mockResolvedValue(undefined),
       removeFriend: vi.fn().mockResolvedValue(undefined),
     });
+  });
+
+  afterEach(() => {
+    // Restore any vi.spyOn on store actions so spies don't leak across tests
+    // (clearAllMocks only clears call history; it leaves the spy installed).
+    vi.restoreAllMocks();
   });
 
   // --- Basic Rendering ---
@@ -670,5 +703,346 @@ describe('FriendsList', () => {
     expect(screen.getByText('Bob')).toBeInTheDocument();
     expect(screen.getByText('Charlie')).toBeInTheDocument();
     expect(screen.getByText('Dave')).toBeInTheDocument();
+  });
+
+  // --- Friend categories: render contract (#324, Task 7) ---
+
+  it('renders a categorized friend under its category header in ALL presence states, incl offline', () => {
+    useFriendStore.setState({
+      friends: [
+        makeFriend({
+          id: 'f-1',
+          userId: 'u-1',
+          username: 'alice',
+          displayName: 'Alice',
+          status: 'offline',
+        }),
+      ],
+    });
+    const id = useFriendOrgStore.getState().createCategory('Close', '', null);
+    useFriendOrgStore.getState().assignFriend('u-1', id);
+
+    render(<FriendsList onFriendClick={mockOnFriendClick} />);
+
+    // The "Close" section header renders, and Alice appears under it.
+    expect(screen.getByText('Close')).toBeInTheDocument();
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+
+    // Alice is NOT duplicated into Online/Offline — only one row.
+    expect(screen.getAllByText('Alice')).toHaveLength(1);
+    // The built-in Offline section should have a 0 count (Alice is categorized, not uncategorized).
+    const offlineHeader = screen.getByText('Offline').closest('button');
+    expect(offlineHeader?.querySelector('.friend-category-count')?.textContent).toBe('0');
+  });
+
+  it('renders an empty category header (droppable) with a 0 count', () => {
+    useFriendStore.setState({
+      friends: [makeFriend({ id: 'f-1', userId: 'u-1', status: 'online' })],
+    });
+    useFriendOrgStore.getState().createCategory('Gaming', '', null);
+
+    render(<FriendsList onFriendClick={mockOnFriendClick} />);
+
+    const gamingHeader = screen.getByText('Gaming').closest('button');
+    expect(gamingHeader).toBeInTheDocument();
+    expect(gamingHeader?.querySelector('.friend-category-count')?.textContent).toBe('0');
+  });
+
+  it('uncategorized friends still fall to Online/Offline by presence', () => {
+    useFriendStore.setState({
+      friends: [
+        makeFriend({
+          id: 'f-1',
+          userId: 'u-1',
+          username: 'uncat',
+          displayName: 'Uncat',
+          status: 'online',
+        }),
+      ],
+    });
+    // A category exists but does NOT contain u-1.
+    useFriendOrgStore.getState().createCategory('Other', '', null);
+
+    render(<FriendsList onFriendClick={mockOnFriendClick} />);
+
+    const onlineHeader = screen.getByText('Online').closest('button');
+    expect(onlineHeader?.querySelector('.friend-category-count')?.textContent).toBe('1');
+    expect(screen.getByText('Uncat')).toBeInTheDocument();
+  });
+
+  it('renders a category present in the blob but absent from sectionOrder (members never vanish)', () => {
+    // Gitar review on #1704: a malformed/partial blob can hold a category whose id is not in
+    // sectionOrder. catByMember still pulls its members out of Online/Offline, so without
+    // appending orphaned categories to the render order those friends would disappear entirely.
+    useFriendStore.setState({
+      friends: [
+        makeFriend({
+          id: 'f-1',
+          userId: 'u-1',
+          username: 'alice',
+          displayName: 'Alice',
+          status: 'online',
+        }),
+      ],
+    });
+    useFriendOrgStore.getState()._hydrate({
+      v: 1,
+      categories: [{ id: 'cat_x', name: 'Close', emoji: '', color: null, memberIds: ['u-1'] }],
+      sectionOrder: [], // 'cat_x' deliberately absent
+    });
+
+    render(<FriendsList onFriendClick={mockOnFriendClick} />);
+
+    // The category is appended to the render order and Alice appears under it — not vanished.
+    expect(screen.getByText('Close')).toBeInTheDocument();
+    expect(screen.getByText('Alice')).toBeInTheDocument();
+    expect(screen.getAllByText('Alice')).toHaveLength(1);
+    // Alice is categorized, so the built-in Online section excludes her (count 0).
+    const onlineHeaderX = screen.getByText('Online').closest('button');
+    expect(onlineHeaderX?.querySelector('.friend-category-count')?.textContent).toBe('0');
+  });
+
+  it('tints a categorized friend name with the category color', () => {
+    useFriendStore.setState({
+      friends: [
+        makeFriend({
+          id: 'f-1',
+          userId: 'u-1',
+          username: 'alice',
+          displayName: 'Alice',
+          status: 'online',
+        }),
+      ],
+    });
+    const id = useFriendOrgStore.getState().createCategory('Close', '', '#fa709a');
+    useFriendOrgStore.getState().assignFriend('u-1', id);
+
+    render(<FriendsList onFriendClick={mockOnFriendClick} />);
+
+    const nameEl = screen.getByText('Alice');
+    expect(nameEl).toHaveStyle({ color: '#fa709a' });
+  });
+
+  // --- Friend categories: Manage-categories trigger (#324, Task 7) ---
+
+  it('opens the CategoryManagerPanel from the Manage categories button', () => {
+    render(<FriendsList onFriendClick={mockOnFriendClick} />);
+    expect(screen.queryByTestId('category-manager-panel')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /manage categories/i }));
+    expect(screen.getByTestId('category-manager-panel')).toBeInTheDocument();
+  });
+
+  it('closes the CategoryManagerPanel via its onClose', () => {
+    render(<FriendsList onFriendClick={mockOnFriendClick} />);
+    fireEvent.click(screen.getByRole('button', { name: /manage categories/i }));
+    expect(screen.getByTestId('category-manager-panel')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Close Manager'));
+    expect(screen.queryByTestId('category-manager-panel')).not.toBeInTheDocument();
+  });
+
+  // --- Friend categories: drag-and-drop + keyboard reorder (#324, Task 8) ---
+  // These assert on the resulting friendOrgStore state (behavior) rather than spying on
+  // Zustand actions — spying on a Zustand action ref does not survive the store's set().
+
+  const orgState = () => useFriendOrgStore.getState();
+  const categoryOf = (userId: string) =>
+    orgState().categories.find((c) => c.memberIds.includes(userId));
+
+  it('reorders sections when a section header is dropped (concord-section dataTransfer)', () => {
+    useFriendStore.setState({ friends: [makeFriend({ userId: 'u-1', status: 'online' })] });
+    // Two categories so we have cat-* section handles to drag between.
+    const a = orgState().createCategory('A', '', null);
+    const b = orgState().createCategory('B', '', null);
+    // Seeded order is [a, b, ...builtins].
+    expect(orgState().sectionOrder.indexOf(a)).toBeLessThan(orgState().sectionOrder.indexOf(b));
+
+    render(<FriendsList onFriendClick={mockOnFriendClick} />);
+
+    const handleA = screen.getByRole('button', { name: /reorder a/i });
+    const handleB = screen.getByRole('button', { name: /reorder b/i });
+    const dt = makeDataTransfer();
+
+    fireEvent.dragStart(handleA, { dataTransfer: dt });
+    fireEvent.dragOver(handleB, { dataTransfer: dt, clientY: 9999 });
+    fireEvent.drop(handleB, { dataTransfer: dt, clientY: 9999 });
+
+    // 'A' now sits after 'B' (dropped past B's midpoint → 'after').
+    const order = orgState().sectionOrder;
+    expect(order).toContain(a);
+    expect(order).toContain(b);
+    expect(order.indexOf(a)).toBeGreaterThan(order.indexOf(b));
+  });
+
+  it('assigns a friend when a friend row is dropped on a category header (concord-friend)', () => {
+    useFriendStore.setState({
+      friends: [makeFriend({ id: 'f-1', userId: 'u-1', displayName: 'Alice', status: 'online' })],
+    });
+    const cat = orgState().createCategory('Gaming', '', null);
+
+    render(<FriendsList onFriendClick={mockOnFriendClick} />);
+
+    const friendRow = screen.getByText('Alice').closest('.friend-item') as HTMLElement;
+    const catHeader = screen.getByText('Gaming').closest('button') as HTMLElement;
+    const dt = makeDataTransfer();
+
+    fireEvent.dragStart(friendRow, { dataTransfer: dt });
+    fireEvent.dragOver(catHeader, { dataTransfer: dt });
+    fireEvent.drop(catHeader, { dataTransfer: dt });
+
+    expect(categoryOf('u-1')?.id).toBe(cat);
+  });
+
+  it('unassigns when a friend is dropped on a built-in Online/Offline header', () => {
+    useFriendStore.setState({
+      friends: [makeFriend({ id: 'f-1', userId: 'u-1', displayName: 'Alice', status: 'online' })],
+    });
+    const cat = orgState().createCategory('Gaming', '', null);
+    orgState().assignFriend('u-1', cat);
+    expect(categoryOf('u-1')?.id).toBe(cat);
+
+    render(<FriendsList onFriendClick={mockOnFriendClick} />);
+
+    const friendRow = screen.getByText('Alice').closest('.friend-item') as HTMLElement;
+    const offlineHeader = screen.getByText('Offline').closest('button') as HTMLElement;
+    const dt = makeDataTransfer();
+
+    fireEvent.dragStart(friendRow, { dataTransfer: dt });
+    fireEvent.dragOver(offlineHeader, { dataTransfer: dt });
+    fireEvent.drop(offlineHeader, { dataTransfer: dt });
+
+    expect(categoryOf('u-1')).toBeUndefined(); // → Uncategorized
+  });
+
+  it('is a no-op when a friend is dropped on its own current category', () => {
+    useFriendStore.setState({
+      friends: [makeFriend({ id: 'f-1', userId: 'u-1', displayName: 'Alice', status: 'online' })],
+    });
+    const cat = orgState().createCategory('Gaming', '', null);
+    orgState().assignFriend('u-1', cat);
+    const categoriesBefore = orgState().categories;
+
+    render(<FriendsList onFriendClick={mockOnFriendClick} />);
+
+    const friendRow = screen.getByText('Alice').closest('.friend-item') as HTMLElement;
+    const catHeader = screen.getByText('Gaming').closest('button') as HTMLElement;
+    const dt = makeDataTransfer();
+
+    fireEvent.dragStart(friendRow, { dataTransfer: dt });
+    fireEvent.dragOver(catHeader, { dataTransfer: dt });
+    fireEvent.drop(catHeader, { dataTransfer: dt });
+
+    // Still in the same category, and the state object was not replaced (no-op short-circuit).
+    expect(categoryOf('u-1')?.id).toBe(cat);
+    expect(orgState().categories).toBe(categoriesBefore);
+  });
+
+  it('keyboard: grab a section handle, ArrowDown moves the section in sectionOrder and announces it', () => {
+    useFriendStore.setState({ friends: [makeFriend({ userId: 'u-1', status: 'online' })] });
+    const a = orgState().createCategory('A', '', null);
+    orgState().createCategory('B', '', null);
+    expect(orgState().sectionOrder.indexOf(a)).toBe(0);
+
+    render(<FriendsList onFriendClick={mockOnFriendClick} />);
+
+    const handleA = screen.getByRole('button', { name: /reorder a/i });
+    handleA.focus();
+    fireEvent.keyDown(handleA, { key: ' ' }); // grab
+    fireEvent.keyDown(handleA, { key: 'ArrowDown' }); // move down
+
+    // 'A' moved one slot later in the order.
+    expect(orgState().sectionOrder.indexOf(a)).toBe(1);
+
+    // The aria-live region announces the move.
+    const live = document.querySelector('[aria-live="polite"]');
+    expect(live).toBeInTheDocument();
+    expect(live?.textContent).toMatch(/moved to position/i);
+  });
+
+  // --- Friend categories: context-menu "Move to category" submenu (#324, Task 9) ---
+
+  // Open the friend context menu and its "Move to category" submenu; return the menu element
+  // so queries can be scoped to it (category names also render as sidebar section headers).
+  const openMoveSubmenu = (container: HTMLElement) => {
+    const friendItem = container.querySelector('.friend-item:not(.friend-request-item)');
+    fireEvent.contextMenu(friendItem!, { clientX: 100, clientY: 200 });
+    const menu = document.querySelector('.ctx-menu') as HTMLElement;
+    fireEvent.click(within(menu).getByText('Move to category'));
+    return menu;
+  };
+
+  it('renders a "Move to category" submenu with the category radio + Uncategorized + New category…', () => {
+    useFriendStore.setState({ friends: [makeFriend({ userId: 'u-1', displayName: 'Alice' })] });
+    orgState().createCategory('Gaming', '', null);
+    orgState().createCategory('Work', '', null);
+
+    const { container } = render(<FriendsList onFriendClick={mockOnFriendClick} />);
+    const menu = openMoveSubmenu(container);
+    const submenu = within(menu);
+
+    expect(submenu.getByText('Gaming')).toBeInTheDocument();
+    expect(submenu.getByText('Work')).toBeInTheDocument();
+    expect(submenu.getByText('Uncategorized')).toBeInTheDocument();
+    expect(submenu.getByText('New category…')).toBeInTheDocument();
+  });
+
+  it('selecting a category assigns the friend to it', () => {
+    useFriendStore.setState({
+      friends: [makeFriend({ id: 'f-1', userId: 'u-1', displayName: 'Alice' })],
+    });
+    const gaming = orgState().createCategory('Gaming', '', null);
+
+    const { container } = render(<FriendsList onFriendClick={mockOnFriendClick} />);
+    const menu = openMoveSubmenu(container);
+    fireEvent.click(within(menu).getByText('Gaming'));
+
+    expect(categoryOf('u-1')?.id).toBe(gaming);
+  });
+
+  it('selecting Uncategorized unassigns the friend', () => {
+    useFriendStore.setState({
+      friends: [makeFriend({ id: 'f-1', userId: 'u-1', displayName: 'Alice' })],
+    });
+    const gaming = orgState().createCategory('Gaming', '', null);
+    orgState().assignFriend('u-1', gaming);
+    expect(categoryOf('u-1')?.id).toBe(gaming);
+
+    const { container } = render(<FriendsList onFriendClick={mockOnFriendClick} />);
+    const menu = openMoveSubmenu(container);
+    fireEvent.click(within(menu).getByText('Uncategorized'));
+
+    expect(categoryOf('u-1')).toBeUndefined();
+  });
+
+  it('marks the friend’s current category with a check', () => {
+    useFriendStore.setState({
+      friends: [makeFriend({ id: 'f-1', userId: 'u-1', displayName: 'Alice' })],
+    });
+    const gaming = orgState().createCategory('Gaming', '', null);
+    orgState().createCategory('Work', '', null);
+    orgState().assignFriend('u-1', gaming);
+
+    const { container } = render(<FriendsList onFriendClick={mockOnFriendClick} />);
+    const menu = openMoveSubmenu(container);
+
+    // The current category item carries an icon; the other does not.
+    const gamingItem = within(menu).getByText('Gaming').closest('.ctx-menu-item');
+    const workItem = within(menu).getByText('Work').closest('.ctx-menu-item');
+    expect(gamingItem?.querySelector('.ctx-menu-item-icon')).toBeInTheDocument();
+    expect(workItem?.querySelector('.ctx-menu-item-icon')).not.toBeInTheDocument();
+  });
+
+  it('"New category…" opens the CategoryManagerPanel', () => {
+    useFriendStore.setState({ friends: [makeFriend({ userId: 'u-1', displayName: 'Alice' })] });
+    orgState().createCategory('Gaming', '', null);
+
+    const { container } = render(<FriendsList onFriendClick={mockOnFriendClick} />);
+    expect(screen.queryByTestId('category-manager-panel')).not.toBeInTheDocument();
+
+    const menu = openMoveSubmenu(container);
+    fireEvent.click(within(menu).getByText('New category…'));
+
+    expect(screen.getByTestId('category-manager-panel')).toBeInTheDocument();
   });
 });
