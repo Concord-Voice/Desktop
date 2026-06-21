@@ -33,7 +33,12 @@ import {
   type ScreenShareOptions,
 } from '../stores/videoSettingsStore';
 import { apiFetch } from './apiClient';
-import { MediaEncryption, deriveFrameKey, ratchetKey } from './mediaEncryption';
+import {
+  MediaEncryption,
+  deriveFrameKey,
+  ratchetKey,
+  setMediaDiagEnabled,
+} from './mediaEncryption';
 import { e2eeService } from './e2eeService';
 import { isPendingKeyError } from './e2eeErrors';
 import {
@@ -104,6 +109,19 @@ if (E2EE_VERBOSE) {
 // ---------------------------------------------------------------------------
 // Helpers to reduce cognitive complexity (extracted from class methods)
 // ---------------------------------------------------------------------------
+
+/**
+ * #1742 DIAGNOSTIC opt-in (temporary — remove with the instrumentation).
+ * The E2EE audio diagnostics are OFF unless a tester explicitly sets
+ * localStorage 'concord.e2eeDiag' = '1'. Read on the renderer main thread.
+ */
+function e2eeDiagEnabled(): boolean {
+  try {
+    return globalThis.localStorage?.getItem('concord.e2eeDiag') === '1';
+  } catch {
+    return false;
+  }
+}
 
 /** Resolve effective Opus codec settings from advanced settings + tier config. */
 function resolveOpusSettings(
@@ -3813,7 +3831,44 @@ class VoiceService {
     return worstZone;
   }
 
+  /**
+   * #1742 DIAGNOSTIC (temporary — remove after root cause): sample receive-side
+   * AUDIO concealment / loss / jitter from getStats(). The reported garble is
+   * receiver-side (plays with no active-speaker icon), so NetEQ concealment
+   * metrics localize PLC / decode artifacts vs. transmitted audio. Metrics only
+   * — no media content / PII. Piggybacks on the decoder-profiling tick.
+   */
+  private async diagSampleAudioStats(): Promise<void> {
+    if (!e2eeDiagEnabled()) return; // #1742 DIAG (temporary) — opt-in only
+    for (const [cid, consumer] of this.consumers) {
+      if (consumer.kind !== 'audio') continue;
+      try {
+        const stats = await consumer.getStats();
+        for (const report of stats.values()) {
+          if (report.type !== 'inbound-rtp' || report.kind !== 'audio') continue;
+          const r = report as Record<string, unknown>;
+          console.warn('E2EE-DIAG: audio inbound-rtp (#1742)', {
+            consumerId: cid,
+            packetsReceived: r.packetsReceived,
+            packetsLost: r.packetsLost,
+            jitter: r.jitter,
+            concealedSamples: r.concealedSamples,
+            concealmentEvents: r.concealmentEvents,
+            insertedSamplesForDeceleration: r.insertedSamplesForDeceleration,
+            removedSamplesForAcceleration: r.removedSamplesForAcceleration,
+            totalSamplesReceived: r.totalSamplesReceived,
+            fecPacketsReceived: r.fecPacketsReceived,
+            fecPacketsDiscarded: r.fecPacketsDiscarded,
+          });
+        }
+      } catch {
+        // best-effort diagnostic — ignore stats errors
+      }
+    }
+  }
+
   private async profileDecoders(): Promise<void> {
+    await this.diagSampleAudioStats(); // #1742 DIAG (temporary)
     let worstZone: DecoderHealthZone = 'green';
 
     for (const [, consumer] of this.consumers) {
@@ -3891,6 +3946,10 @@ class VoiceService {
 
     const encryptKey = await deriveFrameKey(channelCSK, userId);
 
+    // #1742 DIAG (temporary): enable the media-frame diagnostics for this session
+    // only if the tester opted in via localStorage. Off by default.
+    setMediaDiagEnabled(e2eeDiagEnabled());
+
     if (USE_SCRIPT_TRANSFORM) {
       this.initE2EEWorker();
       if (!this.e2eeWorker) throw new Error('E2EE Worker failed to initialize');
@@ -3898,6 +3957,14 @@ class VoiceService {
         type: 'init',
         encryptKey,
         currentKeyId: 0,
+      } satisfies E2EEWorkerMessage);
+      // #1742 DIAG (temporary): the worker owns the MediaEncryption instance that
+      // actually processes frames on the script-transform path; forward the opt-in
+      // flag so its passthrough counters / summary are not silently inert. The
+      // worker cannot read localStorage, so the boolean must come from here.
+      this.e2eeWorker.postMessage({
+        type: 'setDiag',
+        enabled: e2eeDiagEnabled(),
       } satisfies E2EEWorkerMessage);
       this.mediaEncryption = new MediaEncryption();
       this.mediaEncryption.initFromKey(encryptKey, 0);
@@ -3911,6 +3978,7 @@ class VoiceService {
       userId,
       attempt: attempt + 1,
       useScriptTransform: USE_SCRIPT_TRANSFORM,
+      diagEnabled: e2eeDiagEnabled(), // #1742 DIAG (temporary)
     });
   }
 

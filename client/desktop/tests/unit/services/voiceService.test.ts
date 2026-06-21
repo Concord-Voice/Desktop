@@ -97,6 +97,7 @@ vi.mock('@/renderer/services/mediaEncryption', () => ({
   },
   deriveFrameKey: vi.fn().mockResolvedValue({} as CryptoKey),
   ratchetKey: vi.fn().mockResolvedValue({} as CryptoKey),
+  setMediaDiagEnabled: vi.fn(), // #1742 DIAG (temporary)
 }));
 
 // --- osPermissionStore ---
@@ -2902,5 +2903,83 @@ describe('VoiceService', () => {
 
       expect(consumer.pause).not.toHaveBeenCalled();
     });
+  });
+});
+
+// #1742 DIAGNOSTIC instrumentation (temporary — remove with the instrumentation)
+describe('VoiceService #1742 getStats audio diagnostics (opt-in)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('logs receive-side audio concealment/loss metrics when the flag is enabled', async () => {
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn((k: string) => (k === 'concord.e2eeDiag' ? '1' : null)),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const svc = voiceService as unknown as {
+      consumers: Map<string, unknown>;
+      diagSampleAudioStats: () => Promise<void>;
+    };
+    const consumer = createMockConsumer('cons-diag', 'audio', 'prod-diag');
+    consumer.getStats = vi.fn().mockResolvedValue(
+      new Map<string, unknown>([
+        // non-inbound-rtp report → exercises the report-skip branch
+        ['cp', { type: 'candidate-pair', kind: 'audio' }],
+        [
+          'ir',
+          {
+            type: 'inbound-rtp',
+            kind: 'audio',
+            packetsReceived: 100,
+            packetsLost: 2,
+            jitter: 0.01,
+            concealedSamples: 480,
+            concealmentEvents: 3,
+          },
+        ],
+      ])
+    );
+    svc.consumers.set('cons-diag', consumer);
+    // a video consumer → exercises the non-audio consumer-skip branch
+    const videoConsumer = createMockConsumer('cons-vid', 'video', 'prod-vid');
+    videoConsumer.getStats = vi.fn();
+    svc.consumers.set('cons-vid', videoConsumer);
+
+    await svc.diagSampleAudioStats();
+
+    expect(videoConsumer.getStats).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      'E2EE-DIAG: audio inbound-rtp (#1742)',
+      expect.objectContaining({ consumerId: 'cons-diag', concealedSamples: 480, packetsLost: 2 })
+    );
+    svc.consumers.delete('cons-diag');
+    svc.consumers.delete('cons-vid');
+  });
+
+  it('is inert (no getStats sampling) when the flag is disabled', async () => {
+    vi.stubGlobal('localStorage', {
+      getItem: vi.fn(() => null),
+      setItem: vi.fn(),
+      removeItem: vi.fn(),
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const svc = voiceService as unknown as {
+      consumers: Map<string, unknown>;
+      diagSampleAudioStats: () => Promise<void>;
+    };
+    const consumer = createMockConsumer('cons-off', 'audio', 'prod-off');
+    consumer.getStats = vi.fn();
+    svc.consumers.set('cons-off', consumer);
+
+    await svc.diagSampleAudioStats();
+
+    expect(consumer.getStats).not.toHaveBeenCalled();
+    const diagCalls = warn.mock.calls.filter((c) => String(c[0]).includes('E2EE-DIAG'));
+    expect(diagCalls).toHaveLength(0);
+    svc.consumers.delete('cons-off');
   });
 });

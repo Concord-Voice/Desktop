@@ -81,6 +81,7 @@ vi.mock('@/renderer/services/mediaEncryption', () => ({
   },
   deriveFrameKey: vi.fn().mockResolvedValue({} as CryptoKey),
   ratchetKey: vi.fn().mockResolvedValue({} as CryptoKey),
+  setMediaDiagEnabled: vi.fn(), // #1742 DIAG (temporary)
 }));
 
 // --- osPermissionStore ---

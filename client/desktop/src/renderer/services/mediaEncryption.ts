@@ -50,6 +50,16 @@ const MAGIC_1 = 0xad;
 // Total trailer size: 1-byte headerBytes + 1-byte keyId + 12-byte IV + 2-byte magic = 16
 const TRAILER_SIZE = 16;
 
+// #1742 DIAGNOSTIC opt-in flag (temporary — remove with the instrumentation).
+// OFF by default: the diagnostic counters/logs are completely inert unless a
+// tester explicitly enables them (localStorage 'concord.e2eeDiag' = '1', wired
+// by voiceService). This keeps the instrumentation noise-free for normal users
+// when it rides on main. No crypto behavior depends on this flag.
+let mediaDiagEnabled = false;
+export function setMediaDiagEnabled(enabled: boolean): void {
+  mediaDiagEnabled = enabled;
+}
+
 // Reference: ideal unencrypted header bytes per codec (not used directly —
 // getUnencryptedBytes() uses static 1/2 for sender/receiver agreement safety).
 // VP8 keyframe ideally needs 10 bytes, delta 3 bytes (RFC 6386 §9.1),
@@ -134,6 +144,56 @@ export class MediaEncryption {
   private encryptKey: CryptoKey | null = null;
   private readonly decryptKeys: Map<string, { key: CryptoKey; expires: number }> = new Map();
   private frameCounter = 0;
+
+  // ─── #1742 DIAGNOSTIC INSTRUMENTATION (temporary — remove after root cause) ──
+  // Surfaces the SILENT decrypt branches that pass a frame to the decoder WITHOUT
+  // decryption (the suspected "garble during silence" path), plus the incoming
+  // encoded-frame size distribution (DTX produces tiny/empty frames). Logs ONLY
+  // sizes/counts — never frame bytes, plaintext, ciphertext, IVs, or keys (per
+  // observability.md: no PII / no key material). Rate-limited + 5 s summary.
+  private readonly diag = {
+    decTotal: 0,
+    decOk: 0,
+    ptTooSmall: 0, // data.length < 33 → enqueued UNDECIPHERED
+    ptNoMagic: 0, // magic trailer absent → enqueued undeciphered
+    ptBadHeader: 0, // headerBytes out of range → enqueued undeciphered
+    ptSmallCipher: 0, // ciphertext < 16 → enqueued undeciphered
+    encTotal: 0,
+    encTiny: 0, // incoming encoded frame ≤ 4 bytes (DTX/SID candidates)
+    encMinSize: Number.POSITIVE_INFINITY,
+    encMaxSize: 0,
+    lastSummary: 0,
+  };
+
+  private diagPassthrough(
+    branch: 'too-small' | 'no-magic' | 'bad-header' | 'small-cipher',
+    size: number
+  ): void {
+    if (!mediaDiagEnabled) return;
+    const d = this.diag;
+    if (branch === 'too-small') d.ptTooSmall++;
+    else if (branch === 'no-magic') d.ptNoMagic++;
+    else if (branch === 'bad-header') d.ptBadHeader++;
+    else d.ptSmallCipher++;
+    const n = d.ptTooSmall + d.ptNoMagic + d.ptBadHeader + d.ptSmallCipher;
+    if (n === 1 || n % 250 === 0) {
+      console.warn('E2EE-DIAG: decrypt passthrough — frame ENQUEUED WITHOUT decryption', {
+        branch,
+        size,
+        totalPassthrough: n,
+        decTotal: d.decTotal,
+      });
+    }
+    this.diagMaybeSummary();
+  }
+
+  private diagMaybeSummary(): void {
+    if (!mediaDiagEnabled) return;
+    const now = Date.now();
+    if (now - this.diag.lastSummary < 5000) return;
+    this.diag.lastSummary = now;
+    console.warn('E2EE-DIAG: summary (#1742)', { ...this.diag });
+  }
 
   // Debounced key rotation — collapses rapid join/leave bursts into a single
   // rotation to avoid O(N²) HKDF cost when many users join simultaneously.
@@ -298,6 +358,19 @@ export class MediaEncryption {
     if (!this.encryptKey) throw new Error('E2EE: no encrypt key');
 
     const data = new Uint8Array(frame.data);
+    // #1742 DIAG: track incoming encoded-frame sizes (DTX → tiny/empty frames).
+    if (mediaDiagEnabled) {
+      this.diag.encTotal++;
+      if (data.length <= 4) this.diag.encTiny++;
+      if (data.length < this.diag.encMinSize) this.diag.encMinSize = data.length;
+      if (data.length > this.diag.encMaxSize) this.diag.encMaxSize = data.length;
+      if (data.length <= 4 && this.diag.encTiny <= 5) {
+        console.warn('E2EE-DIAG: tiny encoded frame at encrypt (DTX/SID?)', {
+          size: data.length,
+          encTiny: this.diag.encTiny,
+        });
+      }
+    }
     // Determine unencrypted header bytes based on frame type.
     // VP8 keyframes need 10 bytes, delta frames need 3, audio needs 1.
     // Per RFC 6386 §9.1 and the official WebRTC Insertable Streams sample.
@@ -391,12 +464,17 @@ export class MediaEncryption {
     senderUserId: string
   ): Promise<void> {
     const data = new Uint8Array(frame.data);
+    if (mediaDiagEnabled) this.diag.decTotal++; // #1742 DIAG
 
     // Minimum: 1 header + 16 GCM tag + 16 trailer = 33 bytes
-    if (data.length < TRAILER_SIZE + 17) return; // Too small to be encrypted
+    if (data.length < TRAILER_SIZE + 17) {
+      this.diagPassthrough('too-small', data.length); // #1742 DIAG
+      return; // Too small to be encrypted
+    }
 
     // Check magic trailer — if absent, frame is not encrypted (pass through)
     if (data.at(-1) !== MAGIC_1 || data.at(-2) !== MAGIC_0) {
+      this.diagPassthrough('no-magic', data.length); // #1742 DIAG
       return; // Unencrypted frame — leave as-is for the decoder
     }
 
@@ -421,6 +499,7 @@ export class MediaEncryption {
 
     // Sanity check: headerBytes should be 1-10
     if (headerBytes < 1 || headerBytes > 10 || headerBytes >= data.length - TRAILER_SIZE) {
+      this.diagPassthrough('bad-header', data.length); // #1742 DIAG
       return; // Malformed trailer or not our frame — pass through
     }
 
@@ -429,6 +508,7 @@ export class MediaEncryption {
 
     // AES-GCM ciphertext must be at least 16 bytes (the auth tag alone)
     if (ciphertext.byteLength < 16) {
+      this.diagPassthrough('small-cipher', data.length); // #1742 DIAG
       return; // Too small to be valid AES-GCM — false positive magic trailer
     }
 
@@ -457,6 +537,8 @@ export class MediaEncryption {
     result.set(header);
     result.set(new Uint8Array(plaintext), header.length);
     frame.data = result.buffer;
+    if (mediaDiagEnabled) this.diag.decOk++; // #1742 DIAG
+    this.diagMaybeSummary();
   }
 
   /** Clean up */
