@@ -29,7 +29,12 @@ import { net } from 'electron';
 import { getPersistedApiBase } from '@/main/tokenManager';
 import { getBuildSha7 } from '@/main/buildInfo';
 import { getSpaHash, getSpaVersion, setSpaHash, setSpaVersion } from '@/main/spaState';
-import { resolveSpaSource, isUnexpectedBundled, captureSpaHash } from '@/main/spaLoader';
+import {
+  resolveSpaSource,
+  isUnexpectedBundled,
+  captureSpaHash,
+  hashEntryHtml,
+} from '@/main/spaLoader';
 
 const mockNet = net as unknown as { fetch: ReturnType<typeof vi.fn> };
 const mockGetApiBase = getPersistedApiBase as unknown as ReturnType<typeof vi.fn>;
@@ -251,5 +256,25 @@ describe('captureSpaHash — best-effort (never throws)', () => {
     await captureSpaHash('remote', 'https://x/spa/zzz/index.html');
     // Singletons must retain their pre-failure values.
     expect(getSpaHash()).toBe(priorHash);
+  });
+});
+
+// ─── hashEntryHtml (powers the spa:checkForUpdate available-bytes diff) ───────
+describe('hashEntryHtml', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns sha256:<hex> of the fetched entry HTML bytes', async () => {
+    const bytes = Buffer.from('<html>latest ui</html>');
+    const expected = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+    mockNet.fetch.mockResolvedValue(mockFetchResponse(bytes));
+    await expect(hashEntryHtml('https://spa.concordvoice.chat/index.html')).resolves.toBe(expected);
+    expect(mockNet.fetch).toHaveBeenCalledWith('https://spa.concordvoice.chat/index.html');
+  });
+
+  it('returns null (fail-open, never throws) when net.fetch rejects', async () => {
+    mockNet.fetch.mockRejectedValue(new Error('net::ERR_CONNECTION_REFUSED'));
+    await expect(hashEntryHtml('https://spa.concordvoice.chat/index.html')).resolves.toBeNull();
   });
 });
