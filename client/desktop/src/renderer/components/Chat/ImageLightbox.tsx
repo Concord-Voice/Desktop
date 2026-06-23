@@ -27,14 +27,15 @@ const clampScale = (s: number): number => Math.min(MAX_SCALE, Math.max(MIN_SCALE
 /**
  * Full-screen image viewer for message attachments (#1729). Click an inline
  * image to open; scroll / the toolbar buttons / double-click zoom; drag to pan
- * when zoomed. Escape, the close button, or a backdrop click dismiss it.
+ * when zoomed. Escape, the toolbar ✕, or a backdrop click dismiss it.
  *
- * Portaled to document.body so the fixed overlay always covers the viewport,
- * even if an ancestor in the message list establishes a transformed containing
- * block. Standalone (not wired into the Modal stack): message images live in
- * the message list and the pinned PANELS — never inside a Modal — so there is no
- * topmost-coordination case to handle. If a future surface renders an image
- * inside a Modal, migrate this to `useModalStack` like `Modal.tsx`.
+ * Accessibility: rendered as a native `<dialog open>` (semantic dialog, no
+ * `role`). Interactive affordances live on real interactive elements — the
+ * backdrop dismiss is a `<button>`, the toolbar holds `<button>`s, and the
+ * `<dialog>` itself carries no click/keyboard JSX handlers (wheel-zoom + the
+ * Tab focus-trap + Escape are imperative ref/document listeners). Portaled to
+ * document.body so the fixed overlay always covers the viewport. `open` (not
+ * `showModal()`) keeps it jsdom-testable; modality is enforced by the focus trap.
  */
 const ImageLightbox: React.FC<ImageLightboxProps> = ({ src, alt, onClose, onSave }) => {
   const overlayRef = useRef<HTMLDialogElement>(null);
@@ -57,8 +58,8 @@ const ImageLightbox: React.FC<ImageLightboxProps> = ({ src, alt, onClose, onSave
     });
   }, []);
 
-  // Escape closes. Document-level so it fires regardless of which control has
-  // focus. stopImmediatePropagation keeps an unrelated global Esc handler from
+  // Escape closes (document-level so it fires regardless of which control has
+  // focus). stopImmediatePropagation keeps an unrelated global Esc handler from
   // also firing on the same keypress.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -71,37 +72,46 @@ const ImageLightbox: React.FC<ImageLightboxProps> = ({ src, alt, onClose, onSave
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Focus trap — keep Tab within the overlay. A document listener (rather than a
+  // JSX handler on the non-interactive <dialog>) so the trap composes with the
+  // native dialog semantics. The tabindex=-1 backdrop is excluded from the ring.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab') return;
+      const focusables = overlayRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]):not([tabindex="-1"])'
+      );
+      if (!focusables || focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  // Wheel-zoom as a ref listener (not a JSX onWheel on the <dialog>) so the
+  // dialog stays free of interaction handlers. Passive: zoom only mutates state.
+  useEffect(() => {
+    const el = overlayRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => zoomBy(e.deltaY < 0 ? SCALE_STEP : -SCALE_STEP);
+    el.addEventListener('wheel', onWheel, { passive: true });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [zoomBy]);
+
   // Focus the close button on open; restore focus to the trigger on close (a11y).
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
     closeBtnRef.current?.focus();
     return () => previouslyFocused?.focus?.();
   }, []);
-
-  // Focus trap — keep Tab within the overlay.
-  const onKeyDownTrap = (e: React.KeyboardEvent) => {
-    if (e.key !== 'Tab') return;
-    const focusables = overlayRef.current?.querySelectorAll<HTMLElement>('button:not([disabled])');
-    if (!focusables || focusables.length === 0) return;
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  };
-
-  const handleOverlayClick = (e: React.MouseEvent) => {
-    // Only a click on the backdrop itself (not the image or toolbar) dismisses.
-    if (e.target === overlayRef.current) onClose();
-  };
-
-  const onWheel = (e: React.WheelEvent) => {
-    zoomBy(e.deltaY < 0 ? SCALE_STEP : -SCALE_STEP);
-  };
 
   const onDoubleClick = () => {
     if (scale > MIN_SCALE) reset();
@@ -124,21 +134,18 @@ const ImageLightbox: React.FC<ImageLightboxProps> = ({ src, alt, onClose, onSave
   };
 
   return createPortal(
-    // Rendered as a non-modal `<dialog open>` (not `showModal()`): the element
-    // gives us native dialog semantics (no `role="dialog"` needed) and is an
-    // interactive element, so the backdrop/keyboard/wheel handlers are valid on
-    // it. Modality is enforced behaviorally by the focus trap + Escape below;
-    // jsdom has no `showModal`, so `open` keeps the component unit-testable.
-    <dialog
-      ref={overlayRef}
-      open
-      className="image-lightbox-overlay"
-      aria-modal="true"
-      aria-label="Image viewer"
-      onClick={handleOverlayClick}
-      onKeyDown={onKeyDownTrap}
-      onWheel={onWheel}
-    >
+    <dialog ref={overlayRef} open className="image-lightbox-overlay" aria-label="Image viewer">
+      {/* Full-bleed backdrop dismiss — a real <button> (interactive element), so
+          "click outside to close" carries no a11y smell; Escape is the keyboard
+          equivalent. tabindex=-1 keeps it out of the Tab ring (the toolbar ✕ is
+          the focusable close); it sits behind the toolbar/image via z-index. */}
+      <button
+        type="button"
+        className="image-lightbox-backdrop"
+        aria-label="Close image viewer"
+        tabIndex={-1}
+        onClick={onClose}
+      />
       <div className="image-lightbox-toolbar">
         <button
           type="button"

@@ -169,10 +169,11 @@ describe('AttachmentDisplay', () => {
     expect(screen.queryByRole('dialog', { name: 'Image viewer' })).not.toBeInTheDocument();
   });
 
-  it('opens the lightbox via keyboard (Enter) on the image (#1729 a11y)', async () => {
-    const { img } = await renderLoadedImage('img-key');
-    fireEvent.keyDown(img, { key: 'Enter' });
-    expect(screen.getByRole('dialog', { name: 'Image viewer' })).toBeInTheDocument();
+  it('exposes the image open trigger as a real <button> (keyboard-accessible) (#1729 a11y)', async () => {
+    await renderLoadedImage('img-key');
+    // A native <button> wraps the image, so Enter/Space activation is built in
+    // (no role/keydown shim on the non-interactive <img>).
+    expect(screen.getByRole('button', { name: 'Open image in viewer' })).toBeInTheDocument();
   });
 
   it('right-click opens a menu with Open + Save image (#1729)', async () => {

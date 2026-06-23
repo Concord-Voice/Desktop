@@ -39,7 +39,7 @@ describe('ImageLightbox', () => {
     render(<ImageLightbox {...baseProps} onClose={onClose} />);
     fireEvent.click(screen.getByAltText('pic'));
     expect(onClose).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('dialog'));
+    fireEvent.click(screen.getByLabelText('Close image viewer')); // the backdrop <button>
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

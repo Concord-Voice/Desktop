@@ -225,33 +225,30 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
       )}
       {error && <div className="attachment-error">Failed to load image</div>}
       {showLiveImage && (
-        <img
-          src={url}
-          alt={`Attachment ${attachment.id}`}
-          className="attachment-image"
-          loading="lazy"
-          role="button"
-          tabIndex={0}
+        <button
+          type="button"
+          className="attachment-image-btn"
           aria-label="Open image in viewer"
           onClick={() => setLightboxOpen(true)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              setLightboxOpen(true);
-            }
-          }}
           onContextMenu={(e) => {
             e.preventDefault();
             setMenuPos({ x: e.clientX, y: e.clientY });
           }}
-          onLoad={(e) => {
-            if (clamped) return;
-            const img = e.currentTarget;
-            if (img.naturalWidth && img.naturalHeight) {
-              setNaturalRatio(img.naturalWidth / img.naturalHeight);
-            }
-          }}
-        />
+        >
+          <img
+            src={url}
+            alt={`Attachment ${attachment.id}`}
+            className="attachment-image"
+            loading="lazy"
+            onLoad={(e) => {
+              if (clamped) return;
+              const img = e.currentTarget;
+              if (img.naturalWidth && img.naturalHeight) {
+                setNaturalRatio(img.naturalWidth / img.naturalHeight);
+              }
+            }}
+          />
+        </button>
       )}
       {gatedByHover && !hovering && !loading && !error && (
         <div className="attachment-reduced-motion-hint" aria-hidden="true">
