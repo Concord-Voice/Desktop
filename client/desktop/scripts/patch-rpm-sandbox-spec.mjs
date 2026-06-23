@@ -1,14 +1,12 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-export const RPM_SPEC_TEMPLATE = path.join(
-  'node_modules',
-  'electron-installer-redhat',
-  'resources',
-  'spec.ejs'
-);
+const moduleRequire = createRequire(import.meta.url);
+
+export const RPM_SPEC_TEMPLATE_MODULE = 'electron-installer-redhat/resources/spec.ejs';
 
 export const RPM_APP_DIR_LINE = '/usr/lib/<%= name %>/';
 export const RPM_SANDBOX_ATTR_LINE =
@@ -41,8 +39,8 @@ export function patchRpmSpecTemplateFile(specPath) {
   return result;
 }
 
-export function resolveRpmSpecTemplatePath(rootDir = process.cwd()) {
-  return path.join(rootDir, RPM_SPEC_TEMPLATE);
+export function resolveRpmSpecTemplatePath() {
+  return moduleRequire.resolve(RPM_SPEC_TEMPLATE_MODULE);
 }
 
 function isCliInvocation() {
