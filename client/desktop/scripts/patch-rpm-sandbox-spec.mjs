@@ -6,7 +6,8 @@ import { pathToFileURL } from 'node:url';
 
 const moduleRequire = createRequire(import.meta.url);
 
-export const RPM_SPEC_TEMPLATE_MODULE = 'electron-installer-redhat/resources/spec.ejs';
+export const RPM_SPEC_TEMPLATE_PACKAGE = 'electron-installer-redhat';
+export const RPM_SPEC_TEMPLATE_SUBPATH = path.join('resources', 'spec.ejs');
 
 export const RPM_APP_DIR_LINE = '/usr/lib/<%= name %>/';
 export const RPM_SANDBOX_ATTR_LINE =
@@ -39,8 +40,26 @@ export function patchRpmSpecTemplateFile(specPath) {
   return result;
 }
 
+function resolvePackageRoot(moduleName) {
+  const entryPath = moduleRequire.resolve(moduleName);
+  let currentDir = path.dirname(entryPath);
+
+  while (true) {
+    if (fs.existsSync(path.join(currentDir, 'package.json'))) {
+      return currentDir;
+    }
+
+    const parentDir = path.dirname(currentDir);
+    if (parentDir === currentDir) {
+      throw new Error(`Unable to locate package root for ${moduleName} from ${entryPath}`);
+    }
+
+    currentDir = parentDir;
+  }
+}
+
 export function resolveRpmSpecTemplatePath() {
-  return moduleRequire.resolve(RPM_SPEC_TEMPLATE_MODULE);
+  return path.join(resolvePackageRoot(RPM_SPEC_TEMPLATE_PACKAGE), RPM_SPEC_TEMPLATE_SUBPATH);
 }
 
 function isCliInvocation() {

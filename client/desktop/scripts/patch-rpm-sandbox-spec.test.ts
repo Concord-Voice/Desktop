@@ -1,10 +1,14 @@
 // @vitest-environment node
 
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   RPM_APP_DIR_LINE,
   RPM_SANDBOX_ATTR_LINE,
+  RPM_SPEC_TEMPLATE_SUBPATH,
   patchRpmSpecTemplateSource,
+  resolveRpmSpecTemplatePath,
 } from './patch-rpm-sandbox-spec.mjs';
 
 describe('patchRpmSpecTemplateSource', () => {
@@ -30,5 +34,15 @@ describe('patchRpmSpecTemplateSource', () => {
     expect(() => patchRpmSpecTemplateSource('%files\n/usr/bin/<%= name %>\n')).toThrow(
       RPM_APP_DIR_LINE
     );
+  });
+});
+
+describe('resolveRpmSpecTemplatePath', () => {
+  it('resolves the installed upstream spec template', () => {
+    const specPath = resolveRpmSpecTemplatePath();
+
+    expect(specPath.endsWith(RPM_SPEC_TEMPLATE_SUBPATH)).toBe(true);
+    expect(fs.existsSync(specPath)).toBe(true);
+    expect(path.basename(specPath)).toBe('spec.ejs');
   });
 });
