@@ -858,8 +858,8 @@ class VoiceService {
   }
 
   /**
-   * Pick the best codec for screen sharing. Single-layer encoding only (E2EE
-   * requires byte-for-byte SFU forwarding — SVC/simulcast break AES-GCM #291).
+   * Pick the best codec for screen sharing. Screen currently publishes one
+   * encoding; camera layering is negotiated separately by the media-plane gate.
    *
    * Cascade: user pref → AV1 → HEVC → H264 High → VP9:2 (HDR) → H264 → VP9 → VP8
    * Two-pass: HW-accelerated first, then SW fallback.
@@ -2206,7 +2206,7 @@ class VoiceService {
     return 'Could not start camera. Try a different camera or video preset in Settings.';
   }
 
-  /** Produce camera video — VP9 SVC (L3T3) preferred, H264 simulcast fallback */
+  /** Produce camera video — single-layer until the media-plane gate enables AV1/VP9 SVC or H264/VP8 simulcast. */
   async produceVideo(deviceId?: string): Promise<void> {
     if (!this.sendTransport || !this.device) return;
 
@@ -2254,6 +2254,10 @@ class VoiceService {
       this.applyDegradationPreference(producer);
       this.producers.set('camera', producer);
 
+      if (this.mediaEncryption) {
+        this.applyEncryptTransform(producer);
+      }
+
       useVoiceStore.getState().setActiveCameraCodec(codec?.mimeType?.toLowerCase() ?? null);
 
       const store = useVoiceStore.getState();
@@ -2264,10 +2268,6 @@ class VoiceService {
           videoStream: this.localCameraStream,
           isVideoOn: true,
         });
-      }
-
-      if (this.mediaEncryption) {
-        this.applyEncryptTransform(producer);
       }
 
       producer.on('transportclose', () => {
@@ -2400,7 +2400,7 @@ class VoiceService {
     }
   }
 
-  /** Produce screen share — AV1 SVC preferred (best compression for static content), VP9 fallback */
+  /** Produce screen share — single-layer, codec-floor compatible publishing for opt-in viewing. */
   async produceScreen(sourceId?: string, options?: ScreenShareOptions): Promise<void> {
     if (!this.sendTransport || !this.device) {
       console.warn('produceScreen: no sendTransport or device — cannot share screen');
@@ -2447,13 +2447,14 @@ class VoiceService {
 
       this.applyDegradationPreference(producer);
       this.producers.set('screen', producer);
-      useVoiceStore.getState().setActiveScreenCodec(codec?.mimeType?.toLowerCase() ?? null);
-
-      updateStoreForScreenShare(producer.id, this.localScreenStream);
 
       if (this.mediaEncryption) {
         this.applyEncryptTransform(producer);
       }
+
+      useVoiceStore.getState().setActiveScreenCodec(codec?.mimeType?.toLowerCase() ?? null);
+
+      updateStoreForScreenShare(producer.id, this.localScreenStream);
 
       await this.produceScreenAudioFromStream(stream);
 
@@ -4806,8 +4807,7 @@ class VoiceService {
   private applyEncryptTransform(producer: mediasoupTypes.Producer): void {
     const sender = producer.rtpSender;
     if (!sender) {
-      console.warn('E2EE: no rtpSender on producer — frames will not be encrypted');
-      return;
+      this.failClosedEncryptTransform(producer, 'no rtpSender on producer');
     }
 
     // Modern path: RTCRtpScriptTransform (Chromium 129+)
@@ -4818,12 +4818,15 @@ class VoiceService {
         console.debug('E2EE: encrypt transform applied (RTCRtpScriptTransform)');
       } catch (err) {
         console.error('E2EE: RTCRtpScriptTransform failed on sender:', errorMessage(err));
+        this.failClosedEncryptTransform(producer, 'RTCRtpScriptTransform failed');
       }
       return;
     }
 
     // Legacy path: createEncodedStreams (Chromium 86-130)
-    if (!this.mediaEncryption) return;
+    if (!this.mediaEncryption) {
+      this.failClosedEncryptTransform(producer, 'media encryption is not initialized');
+    }
     const encryption = this.mediaEncryption;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- createEncodedStreams is a non-standard Chromium 86-130 API not in RTCRtpSender's typed surface; runtime check below gates usage
     const senderAny = sender as any;
@@ -4869,10 +4872,21 @@ class VoiceService {
         console.debug('E2EE: encrypt transform applied (createEncodedStreams)');
       } catch (err) {
         console.error('E2EE: createEncodedStreams failed on sender:', errorMessage(err));
+        this.failClosedEncryptTransform(producer, 'createEncodedStreams failed');
       }
     } else {
       console.warn('E2EE: no Insertable Streams API available — frames will not be encrypted');
+      this.failClosedEncryptTransform(producer, 'Insertable Streams API unavailable');
     }
+  }
+
+  private failClosedEncryptTransform(producer: mediasoupTypes.Producer, reason: string): never {
+    const source =
+      typeof producer.appData?.source === 'string' ? producer.appData.source : undefined;
+    producer.close();
+    if (source) this.producers.delete(source);
+    this.socket?.emit('close-producer', { producerId: producer.id });
+    throw new Error(`E2EE: failed to attach encrypt transform (${reason})`);
   }
 
   /**
@@ -4886,6 +4900,11 @@ class VoiceService {
       getActiveChannelId: () => useVoiceStore.getState().activeChannelId,
       addDecryptKeyForUser: (channelId, userId) => this.addDecryptKeyForUser(channelId, userId),
       invalidateChannelKey: (channelId) => e2eeService.invalidateChannelKey(channelId),
+      requestKeyframe: (senderUserId) => {
+        if (useVoiceStore.getState().activeChannelId) {
+          this.socket?.emit('request-keyframe', { senderUserId });
+        }
+      },
     };
   }
 

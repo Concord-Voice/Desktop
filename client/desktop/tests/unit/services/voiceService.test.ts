@@ -189,7 +189,7 @@ Object.defineProperty(globalThis, 'MediaStream', {
   configurable: true,
 });
 
-// Mock RTCRtpSender (no createEncodedStreams for non-E2EE path)
+// Mock RTCRtpSender constructor; producer doubles below model createEncodedStreams.
 function MockRTCRtpSender() {}
 Object.defineProperty(globalThis, 'RTCRtpSender', {
   value: MockRTCRtpSender,
@@ -318,6 +318,14 @@ function createMockProducer(id = 'prod-1', source = 'mic') {
         codecs: [{ mimeType: 'audio/opus' }],
       }),
       setParameters: vi.fn().mockResolvedValue(undefined),
+      createEncodedStreams: vi.fn().mockImplementation(() => ({
+        readable: new ReadableStream({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        writable: new WritableStream(),
+      })),
       transform: null,
     },
     appData: { source },

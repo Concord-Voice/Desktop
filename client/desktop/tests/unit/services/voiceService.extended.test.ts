@@ -217,7 +217,7 @@ Object.defineProperty(globalThis, 'MediaStream', {
   configurable: true,
 });
 
-// Mock RTCRtpSender (no createEncodedStreams)
+// Mock RTCRtpSender constructor; producer doubles below model createEncodedStreams.
 function MockRTCRtpSender() {}
 Object.defineProperty(globalThis, 'RTCRtpSender', {
   value: MockRTCRtpSender,
@@ -346,6 +346,14 @@ function createMockProducer(id = 'prod-1', source = 'mic') {
         codecs: [{ mimeType: 'audio/opus' }],
       }),
       setParameters: vi.fn().mockResolvedValue(undefined),
+      createEncodedStreams: vi.fn().mockImplementation(() => ({
+        readable: new ReadableStream({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        writable: new WritableStream(),
+      })),
       transform: null,
     },
     appData: { source },
@@ -1927,6 +1935,16 @@ describe('VoiceService Extended', () => {
       expect(mockSocket.emit).toHaveBeenCalledWith('request-keyframe', { senderUserId: 'user-2' });
     });
 
+    it('forwards legacy decrypt recovery keyframe requests to the media-plane socket', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      useVoiceStore.getState().setActiveChannel('ch1', 'General', 'srv1');
+
+      svc.decryptRecoveryCallbacks().requestKeyframe('user-2');
+
+      expect(mockSocket.emit).toHaveBeenCalledWith('request-keyframe', { senderUserId: 'user-2' });
+    });
+
     it('handles log message', async () => {
       await joinVoiceChannel();
       const svc = voiceService as any;
@@ -1934,6 +1952,28 @@ describe('VoiceService Extended', () => {
       svc.handleWorkerMessage({ type: 'log', level: 'debug', message: 'test log' });
       expect(spy).toHaveBeenCalledWith('test log', '');
       spy.mockRestore();
+    });
+  });
+
+  // ===== applyEncryptTransform =====
+
+  describe('applyEncryptTransform', () => {
+    it('fails closed when an encrypted producer has no sender transform API', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      const producer = createMockProducer('cam-no-transform', 'camera');
+      delete (producer.rtpSender as Record<string, unknown>).createEncodedStreams;
+      svc.producers.set('camera', producer);
+
+      expect(() => svc.applyEncryptTransform(producer)).toThrow(
+        'E2EE: failed to attach encrypt transform'
+      );
+
+      expect(producer.close).toHaveBeenCalled();
+      expect(svc.producers.has('camera')).toBe(false);
+      expect(mockSocket.emit).toHaveBeenCalledWith('close-producer', {
+        producerId: 'cam-no-transform',
+      });
     });
   });
 

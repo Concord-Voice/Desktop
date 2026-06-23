@@ -217,6 +217,14 @@ function createMockProducer(id = 'prod-1', source = 'mic') {
         codecs: [{ mimeType: 'audio/opus' }],
       }),
       setParameters: vi.fn().mockResolvedValue(undefined),
+      createEncodedStreams: vi.fn().mockImplementation(() => ({
+        readable: new ReadableStream({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        writable: new WritableStream(),
+      })),
       transform: null,
     },
     appData: { source },

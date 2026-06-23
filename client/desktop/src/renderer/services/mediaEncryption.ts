@@ -134,6 +134,7 @@ export class MediaEncryption {
   private encryptKey: CryptoKey | null = null;
   private readonly decryptKeys: Map<string, { key: CryptoKey; expires: number }> = new Map();
   private frameCounter = 0;
+  private rotationChain: Promise<void> = Promise.resolve();
 
   // Debounced key rotation — collapses rapid join/leave bursts into a single
   // rotation to avoid O(N²) HKDF cost when many users join simultaneously.
@@ -206,12 +207,24 @@ export class MediaEncryption {
 
   /** Rotate keys (new epoch) — ratchet forward, keep old keys for overlap */
   async rotateKeys(): Promise<void> {
+    const run = this.rotationChain.then(
+      () => this.rotateKeysOnce(),
+      () => this.rotateKeysOnce()
+    );
+    this.rotationChain = run.catch(() => {});
+    return run;
+  }
+
+  private async rotateKeysOnce(): Promise<void> {
     if (!this.encryptKey) return;
 
     const oldKeyId = this.currentKeyId;
     const newKeyId = oldKeyId + 1;
+    const currentEncryptKey = this.encryptKey;
+    const newEncryptKey = await ratchetKey(currentEncryptKey);
+    if (this.encryptKey !== currentEncryptKey || this.currentKeyId !== oldKeyId) return;
     this.currentKeyId = newKeyId;
-    this.encryptKey = await ratchetKey(this.encryptKey);
+    this.encryptKey = newEncryptKey;
 
     // Ratchet ALL decrypt keys at oldKeyId → newKeyId so receivers stay in
     // sync with senders.  Without this, decrypt keys stay at keyId 0 while
@@ -282,13 +295,17 @@ export class MediaEncryption {
    * Used by the periodic epoch-sync mechanism to recover from missed events.
    */
   async catchUpToEpoch(targetEpoch: number): Promise<void> {
-    const steps = targetEpoch - this.currentKeyId;
-    if (steps <= 0) return; // Already at or ahead of target
-    if (steps > 100) {
-      throw new Error('E2EE epoch gap too large (' + steps + '), rejoin required');
-    }
-    for (let i = 0; i < steps; i++) {
+    while (this.currentKeyId < targetEpoch) {
+      const steps = targetEpoch - this.currentKeyId;
+      if (steps > 100) {
+        throw new Error('E2EE epoch gap too large (' + steps + '), rejoin required');
+      }
+      const before = this.currentKeyId;
       await this.rotateKeys();
+      await this.rotationChain;
+      if (this.currentKeyId <= before) {
+        throw new Error('E2EE epoch catch-up stalled, rejoin required');
+      }
     }
   }
 
@@ -297,6 +314,8 @@ export class MediaEncryption {
   async encryptFrame(frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame): Promise<void> {
     if (!this.encryptKey) throw new Error('E2EE: no encrypt key');
 
+    const encryptKey = this.encryptKey;
+    const keyId = this.currentKeyId;
     const data = new Uint8Array(frame.data);
 
     // #1742 root cause: an empty (0-byte) DTX frame would otherwise encrypt to
@@ -331,11 +350,7 @@ export class MediaEncryption {
     // Encrypt payload with AES-128-GCM (no AAD — frame misrouting between
     // consumers in a BUNDLE group can change the receiver's frame.type,
     // which would cause an AAD mismatch if we authenticated the header).
-    const ciphertext = await crypto.subtle.encrypt(
-      { name: 'AES-GCM', iv },
-      this.encryptKey,
-      payload
-    );
+    const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, encryptKey, payload);
 
     // Compose: [header][ciphertext + 16-byte tag][1-byte headerBytes][1-byte keyId][12-byte IV][2-byte magic]
     const result = new Uint8Array(header.length + ciphertext.byteLength + 1 + 1 + 12 + 2);
@@ -351,7 +366,7 @@ export class MediaEncryption {
     // handled by the early return above; this closes the residual sub-header case.
     result[offset] = header.length;
     offset += 1;
-    result[offset] = this.currentKeyId;
+    result[offset] = keyId;
     offset += 1;
     result.set(iv, offset);
     offset += 12;
@@ -415,7 +430,12 @@ export class MediaEncryption {
     const data = new Uint8Array(frame.data);
 
     // Minimum: 1 header + 16 GCM tag + 16 trailer = 33 bytes
-    if (data.length < TRAILER_SIZE + 17) return; // Too small to be encrypted
+    if (data.length < TRAILER_SIZE + 17) {
+      if (data.length >= 2 && data.at(-1) === MAGIC_1 && data.at(-2) === MAGIC_0) {
+        throw new Error('E2EE: malformed encrypted frame too small');
+      }
+      return; // Too small to be encrypted
+    }
 
     // Check magic trailer — if absent, frame is not encrypted (pass through)
     if (data.at(-1) !== MAGIC_1 || data.at(-2) !== MAGIC_0) {
@@ -443,7 +463,7 @@ export class MediaEncryption {
 
     // Sanity check: headerBytes should be 1-10
     if (headerBytes < 1 || headerBytes > 10 || headerBytes >= data.length - TRAILER_SIZE) {
-      return; // Malformed trailer or not our frame — pass through
+      throw new Error('E2EE: malformed encrypted frame trailer');
     }
 
     const header = data.slice(0, headerBytes);
@@ -451,7 +471,7 @@ export class MediaEncryption {
 
     // AES-GCM ciphertext must be at least 16 bytes (the auth tag alone)
     if (ciphertext.byteLength < 16) {
-      return; // Too small to be valid AES-GCM — false positive magic trailer
+      throw new Error('E2EE: malformed encrypted frame ciphertext');
     }
 
     // Find the right decryption key, ratcheting forward if needed
@@ -489,6 +509,7 @@ export class MediaEncryption {
     }
     this.rotationPending = false;
     this.rotationDeadline = 0;
+    this.rotationChain = Promise.resolve();
     this.encryptKey = null;
     this.decryptKeys.clear();
     this.frameCounter = 0;

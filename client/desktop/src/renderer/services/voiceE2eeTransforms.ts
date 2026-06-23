@@ -21,6 +21,7 @@ export interface DecryptRecoveryCallbacks {
   getActiveChannelId: () => string | null;
   addDecryptKeyForUser: (channelId: string, userId: string) => Promise<boolean>;
   invalidateChannelKey: (channelId: string) => void;
+  requestKeyframe: (senderUserId: string) => void;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────
@@ -152,6 +153,9 @@ export function applyLegacyDecryptPipeline(
             console.debug(
               `E2EE: decrypt recovered after ${dropCount} dropped frames for ${senderUserId}`
             );
+            if ('type' in frame) {
+              callbacks.requestKeyframe(senderUserId);
+            }
             dropCount = 0;
           }
         } catch (decryptErr) {
