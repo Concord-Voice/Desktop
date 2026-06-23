@@ -14,6 +14,7 @@ vi.mock('@/renderer/services/e2eeService', () => ({
 }));
 
 import ConversationList from '@/renderer/components/DirectMessages/ConversationList';
+import ContextMenuProvider from '@/renderer/components/ui/ContextMenuProvider';
 import { e2eeService } from '@/renderer/services/e2eeService';
 
 const makeConversation = (overrides: Partial<DMConversation> = {}): DMConversation => ({
@@ -616,6 +617,157 @@ describe('ConversationList', () => {
         removeFriend: opts.removeFriend ?? vi.fn().mockResolvedValue(undefined),
       });
     }
+
+    it('shows only the DM row menu when wrapped by the global channel-area context provider (#1712)', async () => {
+      await setupFriendStore({ isFriend: true });
+      useDMStore.setState({
+        conversations: [makeConversation()],
+        fetchConversations: vi.fn().mockResolvedValue(undefined),
+        openPersonalThread: vi.fn().mockResolvedValue(personalThread),
+      });
+
+      render(
+        <ContextMenuProvider>
+          <div data-context-area="channels">
+            <ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />
+          </div>
+        </ContextMenuProvider>
+      );
+
+      fireEvent.contextMenu(screen.getByLabelText('Alice'));
+
+      expect(await screen.findByText('Block User')).toBeInTheDocument();
+      expect(screen.getByText('Unfriend')).toBeInTheDocument();
+      expect(screen.queryByText('Create Channel')).not.toBeInTheDocument();
+      expect(screen.queryByText('Create Category')).not.toBeInTheDocument();
+      expect(screen.queryByText('Channels')).not.toBeInTheDocument();
+    });
+
+    it('does not fall through to the channel menu when right-clicking empty DM list space (#1712)', () => {
+      useDMStore.setState({
+        conversations: [],
+        fetchConversations: vi.fn().mockResolvedValue(undefined),
+        openPersonalThread: vi.fn().mockResolvedValue(personalThread),
+      });
+
+      render(
+        <ContextMenuProvider>
+          <div data-context-area="channels">
+            <ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />
+          </div>
+        </ContextMenuProvider>
+      );
+
+      fireEvent.contextMenu(screen.getByText('No conversations yet'));
+
+      expect(screen.queryByText('Create Channel')).not.toBeInTheDocument();
+      expect(screen.queryByText('Create Category')).not.toBeInTheDocument();
+      expect(screen.queryByText('Channels')).not.toBeInTheDocument();
+    });
+
+    it('does not fall through to the channel menu from the DM row keyboard context-menu path (#1712)', () => {
+      useDMStore.setState({
+        conversations: [makeConversation()],
+        fetchConversations: vi.fn().mockResolvedValue(undefined),
+        openPersonalThread: vi.fn().mockResolvedValue(personalThread),
+      });
+
+      render(
+        <ContextMenuProvider>
+          <div data-context-area="channels">
+            <ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />
+          </div>
+        </ContextMenuProvider>
+      );
+
+      const convButton = screen.getByLabelText('Alice');
+      convButton.focus();
+      fireEvent.keyDown(convButton, { key: 'ContextMenu' });
+
+      expect(screen.queryByText('Create Channel')).not.toBeInTheDocument();
+      expect(screen.queryByText('Create Category')).not.toBeInTheDocument();
+      expect(screen.queryByText('Channels')).not.toBeInTheDocument();
+    });
+
+    it('does not fall through to the channel menu from Shift+F10 on a DM row (#1712)', () => {
+      useDMStore.setState({
+        conversations: [makeConversation()],
+        fetchConversations: vi.fn().mockResolvedValue(undefined),
+        openPersonalThread: vi.fn().mockResolvedValue(personalThread),
+      });
+
+      render(
+        <ContextMenuProvider>
+          <div data-context-area="channels">
+            <ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />
+          </div>
+        </ContextMenuProvider>
+      );
+
+      const convButton = screen.getByLabelText('Alice');
+      convButton.focus();
+      fireEvent.keyDown(convButton, { key: 'F10', shiftKey: true });
+
+      expect(screen.queryByText('Create Channel')).not.toBeInTheDocument();
+      expect(screen.queryByText('Create Category')).not.toBeInTheDocument();
+      expect(screen.queryByText('Channels')).not.toBeInTheDocument();
+    });
+
+    it('ignores non-context keyboard events inside the DM list boundary (#1712)', () => {
+      useDMStore.setState({
+        conversations: [makeConversation()],
+        fetchConversations: vi.fn().mockResolvedValue(undefined),
+        openPersonalThread: vi.fn().mockResolvedValue(personalThread),
+      });
+
+      render(
+        <ContextMenuProvider>
+          <div data-context-area="channels">
+            <ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />
+          </div>
+        </ContextMenuProvider>
+      );
+
+      const convButton = screen.getByLabelText('Alice');
+      convButton.focus();
+      fireEvent.keyDown(convButton, { key: 'ArrowDown' });
+
+      expect(screen.queryByText('Create Channel')).not.toBeInTheDocument();
+      expect(screen.queryByText('Create Category')).not.toBeInTheDocument();
+      expect(screen.queryByText('Channels')).not.toBeInTheDocument();
+    });
+
+    it('keeps the global text-input context menu available from the DM search field (#1712)', () => {
+      render(
+        <ContextMenuProvider>
+          <div data-context-area="channels">
+            <ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />
+          </div>
+        </ContextMenuProvider>
+      );
+
+      fireEvent.contextMenu(screen.getByPlaceholderText('Search conversations...'));
+
+      expect(screen.getByText('Paste')).toBeInTheDocument();
+      expect(screen.queryByText('Create Channel')).not.toBeInTheDocument();
+    });
+
+    it('keeps the global keyboard context menu available from the DM search field (#1712)', () => {
+      render(
+        <ContextMenuProvider>
+          <div data-context-area="channels">
+            <ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />
+          </div>
+        </ContextMenuProvider>
+      );
+
+      const searchInput = screen.getByPlaceholderText('Search conversations...');
+      searchInput.focus();
+      fireEvent.keyDown(searchInput, { key: 'ContextMenu' });
+
+      expect(screen.getByText('Paste')).toBeInTheDocument();
+      expect(screen.queryByText('Create Channel')).not.toBeInTheDocument();
+    });
 
     it('Block User flow: right-click → Block User → modal → Confirm → friendStore.blockUser called', async () => {
       const blockSpy = vi.fn().mockResolvedValue(undefined);

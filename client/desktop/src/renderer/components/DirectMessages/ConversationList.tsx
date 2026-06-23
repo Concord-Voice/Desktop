@@ -11,6 +11,7 @@ import { resolveMediaUrl } from '../../utils/resolveMediaUrl';
 import { resolveUserAccentColors } from '../../utils/schemeColors';
 import CreateGroupModal from './CreateGroupModal';
 import ConfirmActionModal from '../ui/ConfirmActionModal';
+import { DIRECT_MESSAGES_CONTEXT_AREA } from '../ui/ContextMenuProvider';
 import DMConversationContextMenu from './DMConversationContextMenu';
 import DMProfileModal from './DMProfileModal';
 import './DirectMessages.css';
@@ -205,7 +206,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
   };
 
   return (
-    <div className="conversation-list">
+    <div className="conversation-list" data-context-area={DIRECT_MESSAGES_CONTEXT_AREA}>
       <div className="conversation-search">
         <input
           type="text"
