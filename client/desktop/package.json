@@ -20,7 +20,7 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
-    "postinstall": "node scripts/patch-rpm-sandbox-spec.mjs && (bash scripts/patch-electron-plist.sh || true)",
+    "postinstall": "bash scripts/patch-electron-plist.sh || true",
     "lint": "eslint . --ignore-pattern 'tests/**'",
     "lint:fix": "eslint . --ignore-pattern 'tests/**' --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css}\"",
