@@ -26,7 +26,7 @@
   max-height: 300px;
   object-fit: contain;
   border-radius: 8px;
-  cursor: pointer;
+  cursor: zoom-in; /* #1729 — opens the lightbox; the affordance is now real */
 }
 
 .attachment-loading {
