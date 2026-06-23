@@ -1,5 +1,5 @@
-import { render, screen, fireEvent, waitFor } from '../../../test-utils';
-import { useDMStore, type DMConversation } from '@/renderer/stores/dmStore';
+import { render, screen, fireEvent, waitFor, act } from '../../../test-utils';
+import { useDMStore, type DMConversation, type DMLastMessage } from '@/renderer/stores/dmStore';
 import { useUserStore } from '@/renderer/stores/userStore';
 import { useVoiceStore } from '@/renderer/stores/voiceStore';
 import { API_BASE } from '@/renderer/config';
@@ -200,6 +200,52 @@ describe('ConversationList', () => {
     });
     render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
     expect(screen.getByText('Encrypted message')).toBeInTheDocument();
+  });
+
+  it('prefers an optimistic plaintext preview over a stale decrypted cache', async () => {
+    (e2eeService as any).isInitialized = true;
+    const decryptMock = e2eeService.decryptForChannel as ReturnType<typeof vi.fn>;
+    decryptMock.mockResolvedValueOnce('First sent message');
+
+    useDMStore.setState({
+      conversations: [
+        makeConversation({
+          lastMessage: {
+            content: 'first-ciphertext',
+            userId: 'user-1',
+            username: 'me',
+            createdAt: '2025-01-01T12:00:00Z',
+          },
+        }),
+      ],
+      fetchConversations: vi.fn().mockResolvedValue(undefined),
+    });
+
+    render(<ConversationList selectedThreadId={null} onSelectThread={mockOnSelectThread} />);
+    await waitFor(() => expect(screen.getByText('First sent message')).toBeInTheDocument());
+
+    decryptMock.mockRejectedValueOnce(new Error('optimistic content is not ciphertext'));
+    const optimisticLastMessage: DMLastMessage & { plaintextPreview: string } = {
+      content: 'Second sent message',
+      plaintextPreview: 'Second sent message',
+      userId: 'user-1',
+      username: 'me',
+      createdAt: '2025-01-01T12:01:00Z',
+    };
+
+    await act(async () => {
+      useDMStore.setState({
+        conversations: [
+          makeConversation({
+            lastMessage: optimisticLastMessage,
+          }),
+        ],
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText('Second sent message')).toBeInTheDocument());
+    expect(screen.queryByText('First sent message')).not.toBeInTheDocument();
+    (e2eeService as any).isInitialized = false;
   });
 
   it('calls onSelectThread on conversation click', () => {
