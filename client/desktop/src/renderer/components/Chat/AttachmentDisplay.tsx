@@ -136,18 +136,19 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   // The blob is already decrypted in-renderer; read its bytes and hand them to
   // the main process, which owns the dialog + write (the renderer cannot reach
   // a native "Save Image As…" on a blob: URL). User-cancel is a no-op success.
-  const handleSaveImage = useCallback(async () => {
+  // Sync wrapper whose promise chain ends in `.catch`, so the promise is handled
+  // (not floating) without the `void` operator, and callers invoke it directly.
+  const handleSaveImage = useCallback((): void => {
     if (!url) return;
-    try {
-      const bytes = await (await fetch(url)).arrayBuffer();
-      await window.electron.saveImageAs(
-        bytes,
-        `image-${attachment.id}${extFromMime(attachment.mime_type)}`
-      );
-    } catch {
-      // Non-fatal: the blob read or the Save-As IPC failed. No card-level UI
-      // feedback (mirrors FileAttachment's silent download-failure handling).
-    }
+    fetch(url)
+      .then((r) => r.arrayBuffer())
+      .then((bytes) =>
+        globalThis.electron.saveImageAs(
+          bytes,
+          `image-${attachment.id}${extFromMime(attachment.mime_type)}`
+        )
+      )
+      .catch(() => undefined); // Non-fatal: blob read or Save-As IPC failed.
   }, [url, attachment.id, attachment.mime_type]);
 
   const load = useCallback(async () => {
@@ -229,7 +230,16 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
           alt={`Attachment ${attachment.id}`}
           className="attachment-image"
           loading="lazy"
+          role="button"
+          tabIndex={0}
+          aria-label="Open image in viewer"
           onClick={() => setLightboxOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setLightboxOpen(true);
+            }
+          }}
           onContextMenu={(e) => {
             e.preventDefault();
             setMenuPos({ x: e.clientX, y: e.clientY });
@@ -253,7 +263,7 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
           src={url}
           alt={`Attachment ${attachment.id}`}
           onClose={() => setLightboxOpen(false)}
-          onSave={() => void handleSaveImage()}
+          onSave={handleSaveImage}
         />
       )}
       {menuPos && (
@@ -271,7 +281,7 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
             label="Save image…"
             onClick={() => {
               setMenuPos(null);
-              void handleSaveImage();
+              handleSaveImage();
             }}
           />
         </ContextMenu>

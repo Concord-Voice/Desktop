@@ -169,6 +169,12 @@ describe('AttachmentDisplay', () => {
     expect(screen.queryByRole('dialog', { name: 'Image viewer' })).not.toBeInTheDocument();
   });
 
+  it('opens the lightbox via keyboard (Enter) on the image (#1729 a11y)', async () => {
+    const { img } = await renderLoadedImage('img-key');
+    fireEvent.keyDown(img, { key: 'Enter' });
+    expect(screen.getByRole('dialog', { name: 'Image viewer' })).toBeInTheDocument();
+  });
+
   it('right-click opens a menu with Open + Save image (#1729)', async () => {
     const { img } = await renderLoadedImage('img-ctx');
     fireEvent.contextMenu(img);

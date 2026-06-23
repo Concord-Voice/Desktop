@@ -37,7 +37,7 @@ const clampScale = (s: number): number => Math.min(MAX_SCALE, Math.max(MIN_SCALE
  * inside a Modal, migrate this to `useModalStack` like `Modal.tsx`.
  */
 const ImageLightbox: React.FC<ImageLightboxProps> = ({ src, alt, onClose, onSave }) => {
-  const overlayRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDialogElement>(null);
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   const [scale, setScale] = useState(MIN_SCALE);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -124,10 +124,15 @@ const ImageLightbox: React.FC<ImageLightboxProps> = ({ src, alt, onClose, onSave
   };
 
   return createPortal(
-    <div
+    // Rendered as a non-modal `<dialog open>` (not `showModal()`): the element
+    // gives us native dialog semantics (no `role="dialog"` needed) and is an
+    // interactive element, so the backdrop/keyboard/wheel handlers are valid on
+    // it. Modality is enforced behaviorally by the focus trap + Escape below;
+    // jsdom has no `showModal`, so `open` keeps the component unit-testable.
+    <dialog
       ref={overlayRef}
+      open
       className="image-lightbox-overlay"
-      role="dialog"
       aria-modal="true"
       aria-label="Image viewer"
       onClick={handleOverlayClick}
@@ -199,7 +204,7 @@ const ImageLightbox: React.FC<ImageLightboxProps> = ({ src, alt, onClose, onSave
         onPointerUp={onPointerUp}
         draggable={false}
       />
-    </div>,
+    </dialog>,
     document.body
   );
 };
