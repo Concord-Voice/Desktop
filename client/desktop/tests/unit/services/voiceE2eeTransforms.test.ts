@@ -78,9 +78,11 @@ describe('applyLegacyDecryptPipeline', () => {
     vi.restoreAllMocks();
   });
 
-  it('warns when createEncodedStreams is not available', () => {
+  it('throws when createEncodedStreams is not available', () => {
     const receiver: InsertableStreamsReceiver = {};
-    applyLegacyDecryptPipeline(receiver, 'user-1', mockEncryption(), mockCallbacks(), false);
+    expect(() =>
+      applyLegacyDecryptPipeline(receiver, 'user-1', mockEncryption(), mockCallbacks(), false)
+    ).toThrow('no Insertable Streams API available');
     expect(console.warn).toHaveBeenCalledWith(
       'E2EE: no Insertable Streams API available — frames will not be decrypted'
     );
@@ -106,14 +108,16 @@ describe('applyLegacyDecryptPipeline', () => {
     );
   });
 
-  it('handles createEncodedStreams throwing', () => {
+  it('throws when createEncodedStreams throws', () => {
     const receiver = {
       createEncodedStreams: vi.fn().mockImplementation(() => {
         throw new Error('API not ready');
       }),
     };
 
-    applyLegacyDecryptPipeline(receiver, 'user-1', mockEncryption(), mockCallbacks(), false);
+    expect(() =>
+      applyLegacyDecryptPipeline(receiver, 'user-1', mockEncryption(), mockCallbacks(), false)
+    ).toThrow('createEncodedStreams failed on receiver');
 
     expect(console.error).toHaveBeenCalledWith(
       'E2EE: createEncodedStreams failed on receiver:',

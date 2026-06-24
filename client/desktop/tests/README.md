@@ -11,7 +11,7 @@ tests/
 ├── setup.ts                        # Global test setup (jest-dom, crypto polyfill, window.electron mock)
 ├── test-utils.tsx                  # Custom render() with BrowserRouter, re-exports Testing Library
 ├── helpers/
-│   ├── store-helpers.ts            # resetAllStores() for all 30 Zustand stores
+│   ├── store-helpers.ts            # resetAllStores() for all 41 Zustand stores
 │   └── crypto-helpers.ts           # mockE2EEService() stubs
 ├── mocks/
 │   ├── fixtures.ts                 # Typed mock data: mockUser, mockServer, mockChannel, mockMessage, mockMember

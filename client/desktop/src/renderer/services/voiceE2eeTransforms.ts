@@ -129,8 +129,9 @@ export function applyLegacyDecryptPipeline(
   verbose: boolean
 ): void {
   if (typeof receiver.createEncodedStreams !== 'function') {
-    console.warn('E2EE: no Insertable Streams API available — frames will not be decrypted');
-    return;
+    const message = 'E2EE: no Insertable Streams API available — frames will not be decrypted';
+    console.warn(message);
+    throw new Error(message);
   }
 
   try {
@@ -185,5 +186,6 @@ export function applyLegacyDecryptPipeline(
     console.debug(`E2EE: decrypt transform applied for ${senderUserId} (createEncodedStreams)`);
   } catch (err) {
     console.error('E2EE: createEncodedStreams failed on receiver:', errorMessage(err));
+    throw new Error(`E2EE: createEncodedStreams failed on receiver: ${errorMessage(err)}`);
   }
 }

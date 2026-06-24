@@ -77,7 +77,7 @@ const MAX_REMOTE_VIDEO_DEVICE_PIXEL_RATIO = 8;
 // RTCRtpScriptTransform WITHOUT encodedInsertableStreams receives no frames at all.
 // createEncodedStreams + encodedInsertableStreams is the proven path (#295).
 //
-interface RtpSenderWithEncodedStreams {
+interface RtpSenderWithEncodedStreams extends RTCRtpSender {
   createEncodedStreams?: () => { readable: ReadableStream; writable: WritableStream };
 }
 
@@ -3717,12 +3717,18 @@ class VoiceService {
       if (channelId) {
         try {
           await this.initEncryption(channelId);
-        } catch {
-          console.warn('E2EE: lazy re-init failed, consumer will receive encrypted frames');
+        } catch (err) {
+          console.warn('E2EE: lazy re-init failed, closing consumer fail-closed', {
+            error: errorMessage(err),
+          });
         }
       }
     }
-    if (!this.mediaEncryption) return;
+    if (!this.mediaEncryption) {
+      throw new Error(
+        'E2EE: failed to attach decrypt transform (media encryption is not initialized)'
+      );
+    }
 
     // Fire-and-forget: add decrypt key without blocking the consume queue.
     const channelId = useVoiceStore.getState().activeChannelId;
@@ -3843,7 +3849,12 @@ class VoiceService {
 
       // Apply E2EE decrypt transform (all channels are always encrypted)
       const producerUserId = senderUserId || result.producerUserId;
-      await this.ensureE2EEForConsumer(consumer, producerUserId);
+      try {
+        await this.ensureE2EEForConsumer(consumer, producerUserId);
+      } catch (err) {
+        this.closeConsumerAfterDecryptTransformFailure(consumer, errorMessage(err));
+        return;
+      }
 
       // Attach stream to participant
       this.routeConsumerToStore(consumer, result);
@@ -4828,12 +4839,11 @@ class VoiceService {
       this.failClosedEncryptTransform(producer, 'media encryption is not initialized');
     }
     const encryption = this.mediaEncryption;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- createEncodedStreams is a non-standard Chromium 86-130 API not in RTCRtpSender's typed surface; runtime check below gates usage
-    const senderAny = sender as any;
+    const legacySender = sender as RtpSenderWithEncodedStreams;
 
-    if (typeof senderAny.createEncodedStreams === 'function') {
+    if (typeof legacySender.createEncodedStreams === 'function') {
       try {
-        const { readable, writable } = senderAny.createEncodedStreams();
+        const { readable, writable } = legacySender.createEncodedStreams();
         let encryptDropCount = 0;
         let firstEncryptLogged = false;
         const transform = new TransformStream({
@@ -4911,8 +4921,7 @@ class VoiceService {
   private applyDecryptTransform(consumer: mediasoupTypes.Consumer, senderUserId: string): void {
     const receiver = consumer.rtpReceiver;
     if (!receiver) {
-      console.warn('E2EE: no rtpReceiver on consumer — frames will not be decrypted');
-      return;
+      throw new Error('E2EE: failed to attach decrypt transform (no rtpReceiver on consumer)');
     }
 
     // Modern path: RTCRtpScriptTransform (Chromium 129+)
@@ -4925,12 +4934,19 @@ class VoiceService {
         );
       } catch (err) {
         console.error('E2EE: RTCRtpScriptTransform failed on receiver:', errorMessage(err));
+        throw new Error(
+          `E2EE: failed to attach decrypt transform (RTCRtpScriptTransform failed: ${errorMessage(err)})`
+        );
       }
       return;
     }
 
     // Legacy path: createEncodedStreams (Chromium 86-130)
-    if (!this.mediaEncryption) return;
+    if (!this.mediaEncryption) {
+      throw new Error(
+        'E2EE: failed to attach decrypt transform (media encryption is not initialized)'
+      );
+    }
     applyLegacyDecryptPipeline(
       receiver as InsertableStreamsReceiver,
       senderUserId,
@@ -4938,6 +4954,27 @@ class VoiceService {
       this.decryptRecoveryCallbacks(),
       E2EE_VERBOSE
     );
+  }
+
+  private closeConsumerAfterDecryptTransformFailure(
+    consumer: mediasoupTypes.Consumer,
+    reason: string
+  ): void {
+    console.error('E2EE: closing consumer because decrypt transform failed', {
+      consumerId: consumer.id,
+      producerId: consumer.producerId,
+      reason,
+    });
+    if (!consumer.closed) consumer.close();
+    this.consumers.delete(consumer.id);
+    this.consumerMeta.delete(consumer.id);
+    this.lastPreferredLayerKeyByConsumer.delete(consumer.id);
+    this.pauseCoordinator.clearConsumer(consumer.id);
+    this.testSuspendedConsumerIds.delete(consumer.id);
+    this.testRestoreEligibleConsumerIds.delete(consumer.id);
+    this.testServerPausedConsumerIds.delete(consumer.id);
+    this.serverResumeOnUndeafenConsumerIds.delete(consumer.id);
+    this.socket?.emit('close-consumer', { consumerId: consumer.id });
   }
 
   // ─── Helpers ───────────────────────────────────────────────────────

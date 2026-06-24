@@ -361,6 +361,17 @@ function createMockProducer(id = 'prod-1', source = 'mic') {
   };
 }
 
+function createEncodedStreamPair() {
+  return {
+    readable: new ReadableStream({
+      start(controller) {
+        controller.close();
+      },
+    }),
+    writable: new WritableStream(),
+  };
+}
+
 function createMockConsumer(id = 'cons-1', kind: 'audio' | 'video' = 'audio', prodId = 'p-1') {
   return {
     id,
@@ -374,7 +385,10 @@ function createMockConsumer(id = 'cons-1', kind: 'audio' | 'video' = 'audio', pr
     resume: vi.fn(),
     on: vi.fn(),
     getStats: vi.fn().mockResolvedValue(new Map()),
-    rtpReceiver: { transform: null },
+    rtpReceiver: {
+      transform: null,
+      createEncodedStreams: vi.fn().mockImplementation(createEncodedStreamPair),
+    },
   };
 }
 
@@ -1974,6 +1988,61 @@ describe('VoiceService Extended', () => {
       expect(mockSocket.emit).toHaveBeenCalledWith('close-producer', {
         producerId: 'cam-no-transform',
       });
+    });
+  });
+
+  // ===== applyDecryptTransform =====
+
+  describe('applyDecryptTransform', () => {
+    it('fails closed before routing when an encrypted consumer has no receiver transform API', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      svc.recvTransportAudio = makeRecvTransport('recv-audio');
+
+      const consumer = createMockConsumer('c-no-transform', 'audio', 'p-audio');
+      delete (consumer.rtpReceiver as Record<string, unknown>).createEncodedStreams;
+      svc.recvTransportAudio.consume.mockResolvedValue(consumer);
+
+      setupEmitResponses({
+        consume: {
+          id: 'c-no-transform',
+          producerId: 'p-audio',
+          kind: 'audio',
+          rtpParameters: {},
+          producerUserId: 'user-2',
+          source: 'mic',
+        },
+        'resume-consumer': undefined,
+        'close-consumer': undefined,
+      });
+
+      const store = useVoiceStore.getState();
+      store.addParticipant({
+        userId: 'user-2',
+        username: 'u2',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+      const updateSpy = vi.spyOn(store, 'updateParticipant');
+
+      await svc.consumeProducerImpl('p-audio', 'user-2', 'audio');
+
+      expect(consumer.close).toHaveBeenCalled();
+      expect(svc.consumers.has('c-no-transform')).toBe(false);
+      expect(svc.consumerMeta.has('c-no-transform')).toBe(false);
+      expect(mockSocket.emit).toHaveBeenCalledWith('close-consumer', {
+        consumerId: 'c-no-transform',
+      });
+      expect(mockSocket.emit).not.toHaveBeenCalledWith('resume-consumer', {
+        consumerId: 'c-no-transform',
+      });
+      expect(updateSpy).not.toHaveBeenCalledWith(
+        'user-2',
+        expect.objectContaining({ audioStream: expect.any(MediaStream) })
+      );
     });
   });
 

@@ -1,7 +1,7 @@
 /**
  * Media E2EE — Insertable Streams frame encryption for voice/video.
  *
- * All media frames are encrypted with AES-128-GCM before being sent to the
+ * All media frames are encrypted with AES-256-GCM before being sent to the
  * SFU. The SFU forwards encrypted RTP payloads transparently — it never sees
  * plaintext audio/video.
  *
@@ -23,9 +23,8 @@
  * can still decrypt correctly using the sender-encoded headerBytes field.
  *
  * The 2-byte magic trailer (0xDE 0xAD) allows the receiver to distinguish
- * encrypted frames from unencrypted ones. If the encrypt transform fails to
- * apply (e.g. Insertable Streams API unavailable for a particular producer),
- * the receiver skips decryption instead of misinterpreting raw codec bytes.
+ * encrypted frames from raw codec frames. Sender transform attachment failures
+ * fail closed before publishing unencrypted media.
  *
  * Epoch-based key rotation (#96):
  *   On member join/leave → new epoch → new keys derived
@@ -81,7 +80,7 @@ function getUnencryptedBytes(frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame)
   return isVideo ? 2 : 1;
 }
 
-/** Derive an AES-128-GCM key from a channel CSK + sender userId via HKDF */
+/** Derive an AES-256-GCM key from a channel CSK + sender userId via HKDF */
 export async function deriveFrameKey(
   channelCSK: CryptoKey,
   senderUserId: string
@@ -92,7 +91,7 @@ export async function deriveFrameKey(
   // Import as HKDF key
   const hkdfKey = await crypto.subtle.importKey('raw', cskBytes, 'HKDF', false, ['deriveKey']);
 
-  // Derive AES-128-GCM frame key (extractable: true so it can be ratcheted on epoch rotation)
+  // Derive AES-256-GCM frame key (extractable: true so it can be ratcheted on epoch rotation)
   return crypto.subtle.deriveKey(
     {
       name: 'HKDF',
@@ -101,7 +100,7 @@ export async function deriveFrameKey(
       info: new TextEncoder().encode(senderUserId),
     },
     hkdfKey,
-    { name: 'AES-GCM', length: 128 },
+    { name: 'AES-GCM', length: 256 },
     true,
     ['encrypt', 'decrypt']
   );
@@ -119,7 +118,7 @@ export async function ratchetKey(currentKey: CryptoKey): Promise<CryptoKey> {
       info: RATCHET_INFO,
     },
     hkdfKey,
-    { name: 'AES-GCM', length: 128 },
+    { name: 'AES-GCM', length: 256 },
     true,
     ['encrypt', 'decrypt']
   );
@@ -347,7 +346,7 @@ export class MediaEncryption {
     counterView.setUint32(0, this.frameCounter++);
     crypto.getRandomValues(iv.subarray(4));
 
-    // Encrypt payload with AES-128-GCM (no AAD — frame misrouting between
+    // Encrypt payload with AES-256-GCM (no AAD — frame misrouting between
     // consumers in a BUNDLE group can change the receiver's frame.type,
     // which would cause an AAD mismatch if we authenticated the header).
     const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, encryptKey, payload);
@@ -418,10 +417,11 @@ export class MediaEncryption {
   /**
    * Decrypt a media frame (called by Insertable Streams transform).
    *
-   * Returns normally if decryption succeeds OR the frame is unencrypted
-   * (no magic trailer). Throws if the frame IS encrypted but can't be
-   * decrypted — the caller should DROP the frame to avoid feeding
-   * ciphertext into the audio/video decoder (garbled noise / black screen).
+   * Returns normally if decryption succeeds or the frame is empty (e.g. DTX).
+   * Throws for any non-empty frame without the E2EE magic trailer or any frame
+   * that carries the trailer but cannot be decrypted. The caller should DROP
+   * those frames to avoid feeding plaintext-policy violations or ciphertext
+   * into the audio/video decoder.
    */
   async decryptFrame(
     frame: RTCEncodedAudioFrame | RTCEncodedVideoFrame,
@@ -429,17 +429,19 @@ export class MediaEncryption {
   ): Promise<void> {
     const data = new Uint8Array(frame.data);
 
-    // Minimum: 1 header + 16 GCM tag + 16 trailer = 33 bytes
-    if (data.length < TRAILER_SIZE + 17) {
-      if (data.length >= 2 && data.at(-1) === MAGIC_1 && data.at(-2) === MAGIC_0) {
-        throw new Error('E2EE: malformed encrypted frame too small');
-      }
-      return; // Too small to be encrypted
+    // Empty frames can appear for DTX/control cases and carry no plaintext media.
+    if (data.length === 0) {
+      return;
     }
 
-    // Check magic trailer — if absent, frame is not encrypted (pass through)
-    if (data.at(-1) !== MAGIC_1 || data.at(-2) !== MAGIC_0) {
-      return; // Unencrypted frame — leave as-is for the decoder
+    const hasMagic = data.length >= 2 && data.at(-1) === MAGIC_1 && data.at(-2) === MAGIC_0;
+    if (!hasMagic) {
+      throw new Error('E2EE: unencrypted media frame received');
+    }
+
+    // Minimum: 1 header + 16 GCM tag + 16 trailer = 33 bytes
+    if (data.length < TRAILER_SIZE + 17) {
+      throw new Error('E2EE: malformed encrypted frame too small');
     }
 
     // Extract components from the trailer (before magic bytes).

@@ -245,7 +245,17 @@ function createMockConsumer(id = 'cons-1', kind: 'audio' | 'video' = 'audio', pr
     resume: vi.fn(),
     on: vi.fn(),
     getStats: vi.fn().mockResolvedValue(new Map()),
-    rtpReceiver: { transform: null },
+    rtpReceiver: {
+      transform: null,
+      createEncodedStreams: vi.fn().mockImplementation(() => ({
+        readable: new ReadableStream({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        writable: new WritableStream(),
+      })),
+    },
   };
 }
 
