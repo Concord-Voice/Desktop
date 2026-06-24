@@ -165,7 +165,7 @@ without the value produces an inert Google SSO (empty secret), not a failure.
 - Presence indicators (online/offline/typing)
 - Server invites with code sharing
 - Channel read states and unread badges
-- Custom themes (11 theme blocks, 5 color schemes x dark/light)
+- Custom themes (32 theme blocks, 15 color schemes x dark/light + root + base light)
 - Compact mode, resizable panels, font scaling
 
 ### Phase 1C: Voice & Media ✅

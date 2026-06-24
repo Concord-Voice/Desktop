@@ -2805,6 +2805,43 @@ describe('VoiceService Extended', () => {
       expect(useVoiceStore.getState().participants['user-2']).toBeUndefined();
       expect(mockDebouncedRotateKeys).toHaveBeenCalled();
     });
+
+    it('uses authoritative leave epoch when local media epoch is behind', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      const workerPostMessage = vi.fn();
+      svc.e2eeWorker = { postMessage: workerPostMessage, terminate: vi.fn() };
+      const { MediaEncryption } = await import('@/renderer/services/mediaEncryption');
+      svc.mediaEncryption = new MediaEncryption();
+      mockGetCurrentKeyId.mockReturnValue(1);
+
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'leaver',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-3',
+        username: 'remaining',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      triggerSocketEvent('user-left', { userId: 'user-2', e2eeEpoch: 4 });
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(mockAddDecryptKeyAtEpoch).toHaveBeenCalledWith(expect.anything(), 'user-3', 4);
+      expect(workerPostMessage).toHaveBeenCalledWith({ type: 'catchUpToEpoch', targetEpoch: 4 });
+      expect(mockCatchUpToEpoch).toHaveBeenCalledWith(4);
+      expect(mockAddDecryptKeyAtEpoch).not.toHaveBeenCalledWith(expect.anything(), 'user-2', 4);
+    });
   });
 
   // ===== new-producer with E2EE =====

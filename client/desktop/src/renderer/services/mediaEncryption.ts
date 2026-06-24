@@ -135,7 +135,6 @@ export class MediaEncryption {
   private currentKeyId = 0;
   private encryptKey: CryptoKey | null = null;
   private readonly decryptKeys: Map<string, { key: CryptoKey; expires: number }> = new Map();
-  private frameCounter = 0;
   private rotationChain: Promise<void> = Promise.resolve();
 
   // Debounced key rotation — collapses rapid join/leave bursts into a single
@@ -150,14 +149,12 @@ export class MediaEncryption {
   async init(channelCSK: CryptoKey, localUserId: string): Promise<void> {
     this.encryptKey = await deriveFrameKey(channelCSK, localUserId);
     this.currentKeyId = 0;
-    this.frameCounter = 0;
   }
 
   /** Initialize encryption with a pre-derived key (used by Worker) */
   initFromKey(key: CryptoKey, keyId: number): void {
     this.encryptKey = key;
     this.currentKeyId = keyId;
-    this.frameCounter = 0;
   }
 
   /** Update the current epoch ID without changing the encrypt key (main-thread sync) */
@@ -343,11 +340,9 @@ export class MediaEncryption {
     const header = data.slice(0, headerBytes);
     const payload = data.slice(headerBytes);
 
-    // Generate IV: 12 bytes = 4-byte counter + 8-byte random
+    // Generate IV: full 96-bit random nonce per GCM operation.
     const iv = new Uint8Array(12);
-    const counterView = new DataView(iv.buffer);
-    counterView.setUint32(0, this.frameCounter++);
-    crypto.getRandomValues(iv.subarray(4));
+    crypto.getRandomValues(iv);
 
     // Encrypt payload with AES-256-GCM (no AAD — frame misrouting between
     // consumers in a BUNDLE group can change the receiver's frame.type,
@@ -517,6 +512,5 @@ export class MediaEncryption {
     this.rotationChain = Promise.resolve();
     this.encryptKey = null;
     this.decryptKeys.clear();
-    this.frameCounter = 0;
   }
 }

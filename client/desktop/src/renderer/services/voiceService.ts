@@ -4086,24 +4086,48 @@ class VoiceService {
       }
     );
 
-    this.socket.on('user-left', async ({ userId }) => {
-      useVoiceStore.getState().removeParticipant(userId);
+    this.socket.on(
+      'user-left',
+      async ({ userId, e2eeEpoch }: { userId: string; e2eeEpoch?: number }) => {
+        useVoiceStore.getState().removeParticipant(userId);
 
-      // Solo bandwidth saving: enter solo mode when everyone else leaves
-      this.checkSoloBandwidthSaving();
+        // Solo bandwidth saving: enter solo mode when everyone else leaves
+        this.checkSoloBandwidthSaving();
 
-      // E2EE: rotate keys when a member leaves (forward secrecy)
-      if (this.mediaEncryption) {
-        const channelId = useVoiceStore.getState().activeChannelId;
-        if (channelId) {
-          await this.addDecryptKeysForActiveParticipantsAtEpoch(
-            channelId,
-            this.mediaEncryption.getCurrentKeyId() + 1
-          );
+        // E2EE: rotate keys when a member leaves (forward secrecy)
+        if (this.mediaEncryption) {
+          const channelId = useVoiceStore.getState().activeChannelId;
+          const targetEpoch =
+            typeof e2eeEpoch === 'number' ? e2eeEpoch : this.mediaEncryption.getCurrentKeyId() + 1;
+          if (channelId) {
+            await this.addDecryptKeysForActiveParticipantsAtEpoch(channelId, targetEpoch);
+          }
+
+          if (typeof e2eeEpoch === 'number') {
+            const localEpoch = this.mediaEncryption.getCurrentKeyId();
+            if (e2eeEpoch > localEpoch) {
+              try {
+                if (this.e2eeWorker) {
+                  this.e2eeWorker.postMessage({
+                    type: 'catchUpToEpoch',
+                    targetEpoch: e2eeEpoch,
+                  } satisfies E2EEWorkerMessage);
+                }
+                await this.mediaEncryption.catchUpToEpoch(e2eeEpoch);
+              } catch (err) {
+                console.error('E2EE: leave epoch catch-up failed — decrypt may fail until rejoin', {
+                  localEpoch,
+                  serverEpoch: e2eeEpoch,
+                  error: err instanceof Error ? err.message : err,
+                });
+              }
+            }
+          } else {
+            this.debouncedRotateE2EEKeys();
+          }
         }
-        this.debouncedRotateE2EEKeys();
       }
-    });
+    );
 
     // E2EE: periodic epoch sync — recover from missed join/leave events
     this.socket.on('epoch-sync', async ({ epoch }: { epoch: number }) => {
