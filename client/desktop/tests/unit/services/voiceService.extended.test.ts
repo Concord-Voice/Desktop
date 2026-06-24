@@ -2842,6 +2842,80 @@ describe('VoiceService Extended', () => {
       expect(mockCatchUpToEpoch).toHaveBeenCalledWith(4);
       expect(mockAddDecryptKeyAtEpoch).not.toHaveBeenCalledWith(expect.anything(), 'user-2', 4);
     });
+
+    it('does not catch up when authoritative leave epoch is not ahead locally', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      const workerPostMessage = vi.fn();
+      svc.e2eeWorker = { postMessage: workerPostMessage, terminate: vi.fn() };
+      const { MediaEncryption } = await import('@/renderer/services/mediaEncryption');
+      svc.mediaEncryption = new MediaEncryption();
+      mockGetCurrentKeyId.mockReturnValue(4);
+
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'leaver',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-3',
+        username: 'remaining',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      triggerSocketEvent('user-left', { userId: 'user-2', e2eeEpoch: 4 });
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(mockAddDecryptKeyAtEpoch).toHaveBeenCalledWith(expect.anything(), 'user-3', 4);
+      expect(workerPostMessage).not.toHaveBeenCalledWith({
+        type: 'catchUpToEpoch',
+        targetEpoch: 4,
+      });
+      expect(mockCatchUpToEpoch).not.toHaveBeenCalled();
+      expect(mockDebouncedRotateKeys).not.toHaveBeenCalled();
+    });
+
+    it('logs authoritative leave epoch catch-up failures', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      const { MediaEncryption } = await import('@/renderer/services/mediaEncryption');
+      svc.mediaEncryption = new MediaEncryption();
+      mockGetCurrentKeyId.mockReturnValue(1);
+      mockCatchUpToEpoch.mockRejectedValueOnce(new Error('catch-up failed'));
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      useVoiceStore.getState().addParticipant({
+        userId: 'user-2',
+        username: 'leaver',
+        isMuted: false,
+        isDeafened: false,
+        isVideoOn: false,
+        isScreenSharing: false,
+        isSpeaking: false,
+      });
+
+      triggerSocketEvent('user-left', { userId: 'user-2', e2eeEpoch: 4 });
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(mockCatchUpToEpoch).toHaveBeenCalledWith(4);
+      expect(errorSpy).toHaveBeenCalledWith(
+        'E2EE: leave epoch catch-up failed — decrypt may fail until rejoin',
+        expect.objectContaining({
+          localEpoch: 1,
+          serverEpoch: 4,
+          error: 'catch-up failed',
+        })
+      );
+      errorSpy.mockRestore();
+    });
   });
 
   // ===== new-producer with E2EE =====
