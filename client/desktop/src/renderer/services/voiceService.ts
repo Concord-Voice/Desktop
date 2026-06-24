@@ -33,7 +33,11 @@ import {
   type ScreenShareOptions,
 } from '../stores/videoSettingsStore';
 import { apiFetch } from './apiClient';
-import { MediaEncryption, deriveFrameKey } from './mediaEncryption';
+import {
+  MEDIA_E2EE_FRAME_CRYPTO_VERSION,
+  MediaEncryption,
+  deriveFrameKey,
+} from './mediaEncryption';
 import { e2eeService } from './e2eeService';
 import { isPendingKeyError } from './e2eeErrors';
 import {
@@ -235,6 +239,7 @@ interface JoinResponse {
 
 interface RoomJoinedResponse {
   rtpCapabilities: mediasoupTypes.RtpCapabilities;
+  mediaFrameCryptoVersion?: number;
   existingProducers: Array<{
     producerId: string;
     userId: string;
@@ -1771,7 +1776,11 @@ class VoiceService {
       const roomJoined = await this.emitAsync<RoomJoinedResponse>('join-room', {
         roomId: channel.id,
         rtpCapabilities: undefined, // Will be set after device.load
+        mediaFrameCryptoVersion: MEDIA_E2EE_FRAME_CRYPTO_VERSION,
       });
+      if (roomJoined.mediaFrameCryptoVersion !== MEDIA_E2EE_FRAME_CRYPTO_VERSION) {
+        throw new Error('Media frame crypto version mismatch');
+      }
 
       // Step 4: Load device with router capabilities
       this.device = new Device();

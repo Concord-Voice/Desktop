@@ -107,6 +107,7 @@ const mockDebouncedRotateKeys = vi.fn();
 const mockCatchUpToEpoch = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('@/renderer/services/mediaEncryption', () => ({
+  MEDIA_E2EE_FRAME_CRYPTO_VERSION: 2,
   MediaEncryption: class MockMediaEncryption {
     init = mockMediaEncryptionInit;
     initFromKey = mockMediaEncryptionInitFromKey;
@@ -312,6 +313,7 @@ function makeJoinResponse(co?: Record<string, unknown>) {
 function makeRoomJoined(ov?: Record<string, unknown>) {
   return {
     rtpCapabilities: mockDeviceRtpCapabilities,
+    mediaFrameCryptoVersion: 2,
     existingProducers: [],
     participants: [{ userId: 'user-1', username: 'testuser', displayName: 'Test User' }],
     channelName: 'General',

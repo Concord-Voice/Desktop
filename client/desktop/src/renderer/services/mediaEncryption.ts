@@ -46,6 +46,9 @@ const RATCHET_INFO = new TextEncoder().encode('concord-e2ee-ratchet');
 // distinguish encrypted frames from unencrypted ones.
 const MAGIC_0 = 0xde;
 const MAGIC_1 = 0xad;
+// Media-frame crypto format advertised to the SFU at join time. v1 was the
+// legacy AES-128-GCM frame key; v2 is AES-256-GCM and must not mix in a room.
+export const MEDIA_E2EE_FRAME_CRYPTO_VERSION = 2;
 // Total trailer size: 1-byte headerBytes + 1-byte keyId + 12-byte IV + 2-byte magic = 16
 const TRAILER_SIZE = 16;
 

@@ -82,6 +82,7 @@ vi.mock('@/renderer/services/e2eeService', () => ({
 
 // --- mediaEncryption ---
 vi.mock('@/renderer/services/mediaEncryption', () => ({
+  MEDIA_E2EE_FRAME_CRYPTO_VERSION: 2,
   MediaEncryption: class MockMediaEncryption {
     init = vi.fn().mockResolvedValue(undefined);
     initFromKey = vi.fn();
@@ -284,6 +285,7 @@ function makeJoinResponse(co?: Record<string, unknown>) {
 function makeRoomJoined(ov?: Record<string, unknown>) {
   return {
     rtpCapabilities: mockDeviceRtpCapabilities,
+    mediaFrameCryptoVersion: 2,
     existingProducers: [],
     participants: [{ userId: 'user-1', username: 'testuser', displayName: 'Test User' }],
     channelName: 'General',
@@ -525,6 +527,33 @@ describe('VoiceService', () => {
     it('uses channel quality tier when valid', async () => {
       await joinVoiceChannel({ audio_quality_tier: 'high' });
       expect(useVoiceStore.getState().effectiveQualityTier).toBe('high');
+    });
+
+    it('advertises the media-frame crypto version during room join', async () => {
+      await joinVoiceChannel();
+      expect(mockSocket.emit).toHaveBeenCalledWith(
+        'join-room',
+        expect.objectContaining({
+          roomId: 'channel-1',
+          mediaFrameCryptoVersion: 2,
+        }),
+        expect.any(Function)
+      );
+    });
+
+    it('fails the join if media-plane confirms a different frame crypto version', async () => {
+      setupAuth();
+      mockApiFetch.mockResolvedValueOnce({
+        ok: true,
+        json: vi.fn().mockResolvedValue(makeJoinResponse()),
+      });
+      mockSocket.connected = true;
+      setupEmitResponses({ 'join-room': makeRoomJoined({ mediaFrameCryptoVersion: 1 }) });
+
+      await expect(voiceService.joinChannel('channel-1')).rejects.toThrow(
+        'Media frame crypto version mismatch'
+      );
+      expect(mockDeviceLoad).not.toHaveBeenCalled();
     });
 
     it('falls back to personal tier when channel tier invalid', async () => {
