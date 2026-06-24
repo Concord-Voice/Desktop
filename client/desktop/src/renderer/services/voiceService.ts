@@ -261,6 +261,11 @@ interface RoomJoinedResponse {
   e2eeEpoch?: number;
 }
 
+interface UserLeftEvent {
+  userId: string;
+  e2eeEpoch?: number;
+}
+
 interface TransportOptions {
   id: string;
   iceParameters: mediasoupTypes.IceParameters;
@@ -4086,48 +4091,9 @@ class VoiceService {
       }
     );
 
-    this.socket.on(
-      'user-left',
-      async ({ userId, e2eeEpoch }: { userId: string; e2eeEpoch?: number }) => {
-        useVoiceStore.getState().removeParticipant(userId);
-
-        // Solo bandwidth saving: enter solo mode when everyone else leaves
-        this.checkSoloBandwidthSaving();
-
-        // E2EE: rotate keys when a member leaves (forward secrecy)
-        if (this.mediaEncryption) {
-          const channelId = useVoiceStore.getState().activeChannelId;
-          const targetEpoch =
-            typeof e2eeEpoch === 'number' ? e2eeEpoch : this.mediaEncryption.getCurrentKeyId() + 1;
-          if (channelId) {
-            await this.addDecryptKeysForActiveParticipantsAtEpoch(channelId, targetEpoch);
-          }
-
-          if (typeof e2eeEpoch === 'number') {
-            const localEpoch = this.mediaEncryption.getCurrentKeyId();
-            if (e2eeEpoch > localEpoch) {
-              try {
-                if (this.e2eeWorker) {
-                  this.e2eeWorker.postMessage({
-                    type: 'catchUpToEpoch',
-                    targetEpoch: e2eeEpoch,
-                  } satisfies E2EEWorkerMessage);
-                }
-                await this.mediaEncryption.catchUpToEpoch(e2eeEpoch);
-              } catch (err) {
-                console.error('E2EE: leave epoch catch-up failed — decrypt may fail until rejoin', {
-                  localEpoch,
-                  serverEpoch: e2eeEpoch,
-                  error: err instanceof Error ? err.message : err,
-                });
-              }
-            }
-          } else {
-            this.debouncedRotateE2EEKeys();
-          }
-        }
-      }
-    );
+    this.socket.on('user-left', async (event: UserLeftEvent) => {
+      await this.handleUserLeft(event);
+    });
 
     // E2EE: periodic epoch sync — recover from missed join/leave events
     this.socket.on('epoch-sync', async ({ epoch }: { epoch: number }) => {
@@ -4724,6 +4690,52 @@ class VoiceService {
         // eslint-disable-next-line no-console -- worker log bridge; levels beyond .warn/.error/.debug need to propagate as the worker emitted them for parity with worker-side output
         console[msg.level](msg.message, msg.data || '');
         break;
+    }
+  }
+
+  private async handleUserLeft({ userId, e2eeEpoch }: UserLeftEvent): Promise<void> {
+    useVoiceStore.getState().removeParticipant(userId);
+    this.checkSoloBandwidthSaving();
+    await this.rotateE2EEAfterUserLeft(e2eeEpoch);
+  }
+
+  private async rotateE2EEAfterUserLeft(e2eeEpoch: number | undefined): Promise<void> {
+    const mediaEncryption = this.mediaEncryption;
+    if (!mediaEncryption) return;
+
+    const targetEpoch = e2eeEpoch ?? mediaEncryption.getCurrentKeyId() + 1;
+    const channelId = useVoiceStore.getState().activeChannelId;
+    if (channelId) {
+      await this.addDecryptKeysForActiveParticipantsAtEpoch(channelId, targetEpoch);
+    }
+
+    await this.catchUpToAuthoritativeLeaveEpoch(e2eeEpoch);
+  }
+
+  private async catchUpToAuthoritativeLeaveEpoch(e2eeEpoch: number | undefined): Promise<void> {
+    const mediaEncryption = this.mediaEncryption;
+    if (!mediaEncryption) return;
+
+    if (e2eeEpoch === undefined) {
+      this.debouncedRotateE2EEKeys();
+      return;
+    }
+
+    const localEpoch = mediaEncryption.getCurrentKeyId();
+    if (e2eeEpoch <= localEpoch) return;
+
+    try {
+      this.e2eeWorker?.postMessage({
+        type: 'catchUpToEpoch',
+        targetEpoch: e2eeEpoch,
+      } satisfies E2EEWorkerMessage);
+      await mediaEncryption.catchUpToEpoch(e2eeEpoch);
+    } catch (err) {
+      console.error('E2EE: leave epoch catch-up failed — decrypt may fail until rejoin', {
+        localEpoch,
+        serverEpoch: e2eeEpoch,
+        error: err instanceof Error ? err.message : err,
+      });
     }
   }
 
