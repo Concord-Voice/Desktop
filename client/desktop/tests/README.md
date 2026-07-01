@@ -2,7 +2,7 @@
 
 Test suite for the Concord Voice Desktop Client (Electron/React/TypeScript).
 
-Test files span unit, component, hook, service, shared, and E2E categories. See internal reference omitted for current count.
+Test files span unit, component, hook, service, shared, and E2E categories. See internal reference omitted for the current count.
 
 ## Structure
 
