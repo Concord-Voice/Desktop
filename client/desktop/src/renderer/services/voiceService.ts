@@ -333,6 +333,15 @@ interface VideoReproduceToken {
   sourceGeneration: number;
 }
 
+interface WebrtcHwObservation {
+  source: VideoReproduceSource;
+  producer: mediasoupTypes.Producer;
+  token: VideoReproduceToken;
+  signal: { mime: string; powerEfficient: boolean };
+  previousHw: boolean | undefined;
+  activeCodecMime: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // VoiceService singleton
 // ---------------------------------------------------------------------------
@@ -692,14 +701,7 @@ class VoiceService {
     // would suppress re-selection — leaving the second source pinned on the CPU encoder
     // (Codex review of #2189). Pass 1 captures previousHw before any write; pass 2 writes the
     // learned B and then decides per source.
-    const observed: Array<{
-      source: 'camera' | 'screen';
-      producer: mediasoupTypes.Producer;
-      token: VideoReproduceToken;
-      signal: { mime: string; powerEfficient: boolean };
-      previousHw: boolean | undefined;
-      activeCodecMime: string | null;
-    }> = [];
+    const observed: WebrtcHwObservation[] = [];
     for (const source of ['camera', 'screen'] as const) {
       if (!this.isCurrentVideoReproduceSession(expectedSessionGeneration)) return;
       const token = this.captureVideoReproduceToken(source);
@@ -710,7 +712,7 @@ class VoiceService {
         if (!this.isCurrentVideoReproduceSession(expectedSessionGeneration)) return;
         const signal = extractWebrtcHwSignal(stats);
         if (!signal) continue;
-        if (!this.isCurrentVideoReproduceToken(token) || this.producers.get(source) !== producer) {
+        if (!this.isCurrentVideoProducer(token, source, producer)) {
           continue;
         }
         observed.push({
@@ -726,11 +728,17 @@ class VoiceService {
       }
     }
 
-    const store = useVideoSettingsStore.getState();
-    const currentObservations = observed.filter(
-      (o) =>
-        this.isCurrentVideoReproduceToken(o.token) && this.producers.get(o.source) === o.producer
+    this.applyWebrtcHwObservations(observed, expectedSessionGeneration);
+  }
+
+  private applyWebrtcHwObservations(
+    observed: WebrtcHwObservation[],
+    expectedSessionGeneration: number
+  ): void {
+    const currentObservations = observed.filter((observation) =>
+      this.isCurrentVideoProducer(observation.token, observation.source, observation.producer)
     );
+    const store = useVideoSettingsStore.getState();
     for (const o of currentObservations) {
       store.setWebrtcHwForMime(o.signal.mime, o.signal.powerEfficient);
     }
@@ -1492,53 +1500,33 @@ class VoiceService {
     const vs = useVideoSettingsStore.getState();
     const preset = VIDEO_QUALITY_PRESETS[vs.cameraPreset] || VIDEO_QUALITY_PRESETS['system'];
     const isSystemDefault = vs.cameraPreset === 'system' || preset.width === 0;
+    const videoConstraints: MediaTrackConstraints = isSystemDefault
+      ? {}
+      : {
+          width: { ideal: preset.width },
+          height: { ideal: preset.height },
+          frameRate: { ideal: preset.frameRate },
+        };
 
     producer.pause();
     let stream: MediaStream | null = null;
 
     try {
-      // Try preferred constraints, fall back to bare minimum on OverconstrainedError
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            ...(isSystemDefault
-              ? {}
-              : {
-                  width: { ideal: preset.width },
-                  height: { ideal: preset.height },
-                  frameRate: { ideal: preset.frameRate },
-                }),
-          },
-        });
-      } catch (err) {
-        if (
-          err instanceof DOMException &&
-          err.name === 'OverconstrainedError' &&
-          !isSystemDefault
-        ) {
-          if (
-            !this.isCurrentVideoReproduceToken(token) ||
-            this.producers.get('camera') !== producer
-          ) {
-            return;
-          }
-          console.warn(
-            'Camera overconstrained during track replace, falling back:',
-            errorMessage(err)
-          );
-          stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        } else {
-          throw err;
-        }
-      }
-      if (!this.isCurrentVideoReproduceToken(token) || this.producers.get('camera') !== producer) {
+      stream = await this.acquireReplacementCameraStream(
+        token,
+        producer,
+        videoConstraints,
+        !isSystemDefault
+      );
+      if (!stream) return;
+      if (!this.isCurrentVideoProducer(token, 'camera', producer)) {
         this.stopMediaStream(stream);
         return;
       }
       const track = stream.getVideoTracks()[0];
 
       await producer.replaceTrack({ track });
-      if (!this.isCurrentVideoReproduceToken(token) || this.producers.get('camera') !== producer) {
+      if (!this.isCurrentVideoProducer(token, 'camera', producer)) {
         this.stopMediaStream(stream);
         return;
       }
@@ -1559,9 +1547,28 @@ class VoiceService {
         console.warn('liveReplaceCameraTrack failed:', errorMessage(err));
       }
     } finally {
-      if (this.isCurrentVideoReproduceToken(token) && this.producers.get('camera') === producer) {
+      if (this.isCurrentVideoProducer(token, 'camera', producer)) {
         producer.resume();
       }
+    }
+  }
+
+  private async acquireReplacementCameraStream(
+    token: VideoReproduceToken,
+    producer: mediasoupTypes.Producer,
+    videoConstraints: MediaTrackConstraints,
+    allowFallback: boolean
+  ): Promise<MediaStream | null> {
+    try {
+      return await navigator.mediaDevices.getUserMedia({ video: videoConstraints });
+    } catch (err) {
+      const shouldFallback =
+        err instanceof DOMException && err.name === 'OverconstrainedError' && allowFallback;
+      if (!shouldFallback) throw err;
+      if (!this.isCurrentVideoProducer(token, 'camera', producer)) return null;
+
+      console.warn('Camera overconstrained during track replace, falling back:', errorMessage(err));
+      return navigator.mediaDevices.getUserMedia({ video: true });
     }
   }
 
@@ -1783,41 +1790,15 @@ class VoiceService {
     this.producers.delete('screen');
     this.socket?.emit('close-producer', { producerId: oldProducerId });
 
-    // Pick new codec respecting the floor
-    const { codec, encodings, effectiveBitrate: screenBitrate } = this.pickScreenCodec();
-
-    let newProducer: mediasoupTypes.Producer;
-    try {
-      newProducer = await transport.produce({
-        track,
-        encodings,
-        codec,
-        codecOptions: { videoGoogleStartBitrate: this.computeStartBitrate(screenBitrate) },
-        stopTracks: false,
-        appData: { source: 'screen' },
-      });
-    } catch (err) {
-      if (
-        this.isCurrentVideoReproduce(token, transport) &&
-        this.localScreenStream === stream &&
-        !this.producers.has('screen')
-      ) {
-        await this.cleanupScreenState({ token, transport, stream });
-        if (this.isCurrentVideoReproduce(token, transport)) {
-          this.setVideoReproduceError('screen');
-        }
-      }
-      throw err;
-    }
-
-    if (
-      !this.isCurrentVideoReproduce(token, transport) ||
-      this.localScreenStream !== stream ||
-      this.producers.has('screen')
-    ) {
-      this.discardProducedProducer(newProducer, socket);
-      return;
-    }
+    const replacement = await this.produceScreenReplacement(
+      token,
+      transport,
+      stream,
+      track,
+      socket
+    );
+    if (!replacement) return;
+    const { producer: newProducer, codec } = replacement;
 
     this.applyDegradationPreference(newProducer);
     this.producers.set('screen', newProducer);
@@ -1902,6 +1883,53 @@ class VoiceService {
     console.debug(
       `[codec-floor] Fast re-produced screen with ${codec?.mimeType ?? 'default'} (${hwTag})`
     );
+  }
+
+  private async produceScreenReplacement(
+    token: VideoReproduceToken,
+    transport: mediasoupTypes.Transport,
+    stream: MediaStream,
+    track: MediaStreamTrack,
+    socket: Socket | null
+  ): Promise<{
+    producer: mediasoupTypes.Producer;
+    codec?: mediasoupTypes.RtpCodecCapability;
+  } | null> {
+    const { codec, encodings, effectiveBitrate: screenBitrate } = this.pickScreenCodec();
+
+    let producer: mediasoupTypes.Producer;
+    try {
+      producer = await transport.produce({
+        track,
+        encodings,
+        codec,
+        codecOptions: { videoGoogleStartBitrate: this.computeStartBitrate(screenBitrate) },
+        stopTracks: false,
+        appData: { source: 'screen' },
+      });
+    } catch (err) {
+      if (
+        this.isCurrentVideoReproduce(token, transport) &&
+        this.localScreenStream === stream &&
+        !this.producers.has('screen')
+      ) {
+        await this.cleanupScreenState({ token, transport, stream });
+        if (this.isCurrentVideoReproduce(token, transport)) {
+          this.setVideoReproduceError('screen');
+        }
+      }
+      throw err;
+    }
+
+    if (
+      !this.isCurrentVideoReproduce(token, transport) ||
+      this.localScreenStream !== stream ||
+      this.producers.has('screen')
+    ) {
+      this.discardProducedProducer(producer, socket);
+      return null;
+    }
+    return { producer, codec };
   }
 
   /** Re-produce screen audio if an active screen-audio producer and live audio track exist. */
@@ -2024,6 +2052,14 @@ class VoiceService {
       this.isCurrentVideoReproduceSession(token.sessionGeneration) &&
       token.sourceGeneration === this.videoReproduceSourceGenerations[token.source]
     );
+  }
+
+  private isCurrentVideoProducer(
+    token: VideoReproduceToken,
+    source: VideoReproduceSource,
+    producer: mediasoupTypes.Producer
+  ): boolean {
+    return this.isCurrentVideoReproduceToken(token) && this.producers.get(source) === producer;
   }
 
   private isCurrentVideoReproduce(
@@ -3247,53 +3283,9 @@ class VoiceService {
         stopTracks: false,
         appData: { source: 'camera' },
       });
-
-      if (
-        !this.isCurrentVideoReproduce(token, transport) ||
-        this.localCameraStream !== acquiredStream ||
-        this.producers.has('camera')
-      ) {
-        this.discardProducedProducer(producer, socket);
-        this.stopMediaStream(acquiredStream);
-        if (this.localCameraStream === acquiredStream) this.localCameraStream = null;
+      if (!this.commitCameraProducer(producer, acquiredStream, token, transport, socket, codec)) {
         return;
       }
-
-      this.applyDegradationPreference(producer);
-      this.producers.set('camera', producer);
-
-      // Start the session-stats monitor from the video path too, so the WebRTC HW
-      // B-signal is learned in no-mic (video/screen-only) sessions (#2187 item 1). Idempotent.
-      this.startPacketLossMonitor();
-
-      if (this.mediaEncryption) {
-        this.applyEncryptTransform(producer);
-      }
-
-      useVoiceStore.getState().setActiveCameraCodec(codec?.mimeType?.toLowerCase() ?? null);
-
-      const store = useVoiceStore.getState();
-      store.setVideoOn(true);
-      const localUserId = useUserStore.getState().user?.id;
-      if (localUserId && this.localCameraStream) {
-        store.updateParticipant(localUserId, {
-          videoStream: this.localCameraStream,
-          isVideoOn: true,
-        });
-      }
-
-      producer.on('transportclose', () => {
-        if (this.producers.get('camera') !== producer) return;
-        this.producers.delete('camera');
-        if (this.localCameraStream) {
-          for (const t of this.localCameraStream.getTracks()) t.stop();
-          this.localCameraStream = null;
-        }
-        const s = useVoiceStore.getState();
-        s.setVideoOn(false);
-        const uid = useUserStore.getState().user?.id;
-        if (uid) s.updateParticipant(uid, { videoStream: undefined, isVideoOn: false });
-      });
     } catch (err) {
       if (!this.isCurrentVideoReproduce(token, transport)) {
         this.stopMediaStream(acquiredStream);
@@ -3305,6 +3297,67 @@ class VoiceService {
         this.localCameraStream = null;
       }
       useVoiceStore.getState().setVideoSlotError(VoiceService.mapCameraError(err));
+    }
+  }
+
+  private commitCameraProducer(
+    producer: mediasoupTypes.Producer,
+    stream: MediaStream,
+    token: VideoReproduceToken,
+    transport: mediasoupTypes.Transport,
+    socket: Socket | null,
+    codec?: mediasoupTypes.RtpCodecCapability
+  ): boolean {
+    if (
+      !this.isCurrentVideoReproduce(token, transport) ||
+      this.localCameraStream !== stream ||
+      this.producers.has('camera')
+    ) {
+      this.discardProducedProducer(producer, socket);
+      this.stopMediaStream(stream);
+      if (this.localCameraStream === stream) this.localCameraStream = null;
+      return false;
+    }
+
+    this.applyDegradationPreference(producer);
+    this.producers.set('camera', producer);
+
+    // Start the session-stats monitor from the video path too, so the WebRTC HW
+    // B-signal is learned in no-mic (video/screen-only) sessions (#2187 item 1). Idempotent.
+    this.startPacketLossMonitor();
+
+    if (this.mediaEncryption) {
+      this.applyEncryptTransform(producer);
+    }
+
+    useVoiceStore.getState().setActiveCameraCodec(codec?.mimeType?.toLowerCase() ?? null);
+
+    const store = useVoiceStore.getState();
+    store.setVideoOn(true);
+    const localUserId = useUserStore.getState().user?.id;
+    if (localUserId && this.localCameraStream) {
+      store.updateParticipant(localUserId, {
+        videoStream: this.localCameraStream,
+        isVideoOn: true,
+      });
+    }
+
+    producer.on('transportclose', () => this.handleCameraProducerTransportClose(producer));
+    return true;
+  }
+
+  private handleCameraProducerTransportClose(producer: mediasoupTypes.Producer): void {
+    if (this.producers.get('camera') !== producer) return;
+    this.producers.delete('camera');
+    if (this.localCameraStream) {
+      for (const track of this.localCameraStream.getTracks()) track.stop();
+      this.localCameraStream = null;
+    }
+    const store = useVoiceStore.getState();
+    store.setVideoOn(false);
+    const localUserId = useUserStore.getState().user?.id;
+    if (localUserId) {
+      store.updateParticipant(localUserId, { videoStream: undefined, isVideoOn: false });
     }
   }
 

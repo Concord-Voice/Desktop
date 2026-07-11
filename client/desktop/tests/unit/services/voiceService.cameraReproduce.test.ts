@@ -345,6 +345,80 @@ describe('voiceService camera/screen re-produce track lifecycle', () => {
     expect(screenTrack.readyState, 'reused screen track must stay live').toBe('live');
   });
 
+  it('screen track-ended cleanup ignores stale swaps and catches current close failures', async () => {
+    const svc = voiceService as any;
+    resetService(svc);
+
+    const screenTrack = makeVideoTrack('screen-track-ended');
+    const screenStream = new MockMediaStream([screenTrack]);
+    svc.captureScreen = vi.fn().mockResolvedValue(screenStream);
+
+    await svc.produceScreen('window:1:0');
+    await svc.fastReproduceScreen();
+    const reproduced = svc.producers.get('screen');
+    expect(screenTrack.onended).toEqual(expect.any(Function));
+
+    const closeProducer = vi.fn().mockRejectedValue(new Error('close failed'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    svc.closeProducer = closeProducer;
+    try {
+      svc.producers.set(
+        'screen',
+        makeMockProducer({ source: 'screen', track: screenTrack, stopTracks: false })
+      );
+      screenTrack.onended();
+      expect(closeProducer).not.toHaveBeenCalled();
+
+      svc.producers.set('screen', reproduced);
+      screenTrack.onended();
+      await vi.waitFor(() => {
+        expect(warn).toHaveBeenCalledWith(
+          '[screen-share] Track-ended cleanup failed:',
+          'close failed'
+        );
+      });
+      expect(closeProducer).toHaveBeenCalledWith('screen');
+    } finally {
+      delete svc.closeProducer;
+      warn.mockRestore();
+    }
+  });
+
+  it('camera transport close only cleans up the producer that owns the callback', async () => {
+    const svc = voiceService as any;
+    resetService(svc);
+    useUserStore.setState({ user: { id: 'local-user', username: 'me' } } as never);
+    useVoiceStore.getState().upsertParticipant('local-user', { username: 'me', isVideoOn: true });
+
+    const cameraTrack = makeVideoTrack('camera-transport-close');
+    svc.acquireCameraWithFallback = vi.fn().mockResolvedValue(new MockMediaStream([cameraTrack]));
+
+    await svc.produceVideo();
+    const producer = svc.producers.get('camera');
+    const transportClose = producer.on.mock.calls.find(
+      ([event]: [string]) => event === 'transportclose'
+    )?.[1];
+    expect(transportClose).toEqual(expect.any(Function));
+
+    const successor = makeMockProducer({
+      source: 'camera',
+      track: cameraTrack,
+      stopTracks: false,
+    });
+    svc.producers.set('camera', successor);
+    transportClose();
+    expect(svc.producers.get('camera')).toBe(successor);
+    expect(cameraTrack.readyState).toBe('live');
+
+    svc.producers.set('camera', producer);
+    transportClose();
+    expect(svc.producers.has('camera')).toBe(false);
+    expect(svc.localCameraStream).toBeNull();
+    expect(cameraTrack.readyState).toBe('ended');
+    expect(useVoiceStore.getState().isVideoOn).toBe(false);
+    expect(useVoiceStore.getState().participants['local-user']?.isVideoOn).toBe(false);
+  });
+
   it('screen re-produce carries the activeScreenShares metadata to the new producerId (#2088)', async () => {
     const svc = voiceService as any;
     resetService(svc);
