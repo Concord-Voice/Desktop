@@ -395,6 +395,14 @@ class VoiceService {
   private consumeQueueAudio: Promise<void> = Promise.resolve();
   private consumeQueueVideo: Promise<void> = Promise.resolve();
 
+  // Serialize codec-driven producer swaps per source. Camera and screen may still
+  // re-produce in parallel, but two callers for the same source must re-check the
+  // live producer/codec after the earlier swap completes (#2187).
+  private readonly videoReproduceQueues: Record<'camera' | 'screen', Promise<void>> = {
+    camera: Promise.resolve(),
+    screen: Promise.resolve(),
+  };
+
   // Client-side voice activity detection (Web Audio API)
   private vadAudioContext: AudioContext | null = null;
   private vadAnalyser: AnalyserNode | null = null;
@@ -709,8 +717,9 @@ class VoiceService {
         // Fire-and-forget with an explicit catch: the void detaches this promise from the
         // caller, so a mid-swap reproduce rejection (transport/track race — fastReproduce* has
         // already closed the old producer) must be swallowed here, not surface as an unhandled
-        // rejection. Best-effort: a failed reproduce leaves the current codec in place. Log
-        // .message only, never the raw error (observability.md § Console error logging).
+        // rejection. The swap path cleans up the source on replacement failure so UI/capture
+        // cannot claim a live publish. Log .message only, never the raw error
+        // (observability.md § Console error logging).
         void this.reProduceIfBetterCodec(o.source, { requireHwImprovement: true }).catch((err) =>
           console.warn('[codec-floor] HW re-selection failed:', (err as Error).message)
         );
@@ -1531,7 +1540,11 @@ class VoiceService {
    * Fast re-produce camera: close producer and re-produce with best floor-compatible
    * codec, reusing the existing video track for a subsecond switch.
    */
-  private async fastReproduceCamera(): Promise<void> {
+  private async fastReproduceCamera(alreadyQueued = false): Promise<void> {
+    if (!alreadyQueued) {
+      return this.enqueueVideoReproduce('camera', () => this.fastReproduceCamera(true));
+    }
+
     const producer = this.producers.get('camera');
     if (!producer || !this.sendTransport || !this.localCameraStream) return;
 
@@ -1555,14 +1568,20 @@ class VoiceService {
     const { codec, encodings } = this.pickCameraCodec();
     const cameraBitrate = this.cameraStartBitrate(encodings);
 
-    const newProducer = await this.sendTransport.produce({
-      track,
-      encodings,
-      codec,
-      codecOptions: { videoGoogleStartBitrate: this.computeStartBitrate(cameraBitrate) },
-      stopTracks: false,
-      appData: { source: 'camera' },
-    });
+    let newProducer: mediasoupTypes.Producer;
+    try {
+      newProducer = await this.sendTransport.produce({
+        track,
+        encodings,
+        codec,
+        codecOptions: { videoGoogleStartBitrate: this.computeStartBitrate(cameraBitrate) },
+        stopTracks: false,
+        appData: { source: 'camera' },
+      });
+    } catch (err) {
+      this.cleanupCameraState();
+      throw err;
+    }
 
     this.applyDegradationPreference(newProducer);
     this.producers.set('camera', newProducer);
@@ -1594,7 +1613,11 @@ class VoiceService {
    * Fast re-produce screen: close producer and re-produce with best floor-compatible
    * codec, reusing the existing screen track.
    */
-  private async fastReproduceScreen(): Promise<void> {
+  private async fastReproduceScreen(alreadyQueued = false): Promise<void> {
+    if (!alreadyQueued) {
+      return this.enqueueVideoReproduce('screen', () => this.fastReproduceScreen(true));
+    }
+
     const oldProducer = this.producers.get('screen');
     if (!oldProducer || !this.sendTransport || !this.localScreenStream) return;
 
@@ -1629,14 +1652,20 @@ class VoiceService {
     // Pick new codec respecting the floor
     const { codec, encodings, effectiveBitrate: screenBitrate } = this.pickScreenCodec();
 
-    const newProducer = await this.sendTransport.produce({
-      track,
-      encodings,
-      codec,
-      codecOptions: { videoGoogleStartBitrate: this.computeStartBitrate(screenBitrate) },
-      stopTracks: false,
-      appData: { source: 'screen' },
-    });
+    let newProducer: mediasoupTypes.Producer;
+    try {
+      newProducer = await this.sendTransport.produce({
+        track,
+        encodings,
+        codec,
+        codecOptions: { videoGoogleStartBitrate: this.computeStartBitrate(screenBitrate) },
+        stopTracks: false,
+        appData: { source: 'screen' },
+      });
+    } catch (err) {
+      await this.cleanupScreenState();
+      throw err;
+    }
 
     this.applyDegradationPreference(newProducer);
     this.producers.set('screen', newProducer);
@@ -1754,8 +1783,24 @@ class VoiceService {
     }
   }
 
+  private enqueueVideoReproduce(
+    source: 'camera' | 'screen',
+    operation: () => Promise<void>
+  ): Promise<void> {
+    const queued = this.videoReproduceQueues[source].catch(() => {}).then(operation);
+    this.videoReproduceQueues[source] = queued;
+    return queued;
+  }
+
   /** Re-produce a video source if the codec cascade now selects a different codec. */
   private async reProduceIfBetterCodec(
+    source: 'camera' | 'screen',
+    opts?: { requireHwImprovement?: boolean }
+  ): Promise<void> {
+    await this.enqueueVideoReproduce(source, () => this.reProduceIfBetterCodecQueued(source, opts));
+  }
+
+  private async reProduceIfBetterCodecQueued(
     source: 'camera' | 'screen',
     opts?: { requireHwImprovement?: boolean }
   ): Promise<void> {
@@ -1788,9 +1833,9 @@ class VoiceService {
     );
 
     if (source === 'camera') {
-      await this.fastReproduceCamera();
+      await this.fastReproduceCamera(true);
     } else {
-      await this.fastReproduceScreen();
+      await this.fastReproduceScreen(true);
     }
   }
 
