@@ -263,6 +263,11 @@ function resetService(svc: any): void {
   svc.cameraLayeringReproducePending = false;
   svc.screenLayeringReproduceInFlight = false;
   svc.screenLayeringReproducePending = false;
+  svc.videoReproduceSessionActive = true;
+  svc.videoReproduceQueues.camera = Promise.resolve();
+  svc.videoReproduceQueues.screen = Promise.resolve();
+  svc.videoReproduceSourceGenerations.camera = 0;
+  svc.videoReproduceSourceGenerations.screen = 0;
   // Stub helpers that are incidental to the track-lifecycle bug.
   svc.ensureOsPermission = vi.fn().mockResolvedValue('granted');
   svc.applyDegradationPreference = vi.fn();

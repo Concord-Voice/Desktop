@@ -325,6 +325,14 @@ interface ConsumeResponse {
   source: string;
 }
 
+type VideoReproduceSource = 'camera' | 'screen';
+
+interface VideoReproduceToken {
+  source: VideoReproduceSource;
+  sessionGeneration: number;
+  sourceGeneration: number;
+}
+
 // ---------------------------------------------------------------------------
 // VoiceService singleton
 // ---------------------------------------------------------------------------
@@ -398,10 +406,19 @@ class VoiceService {
   // Serialize codec-driven producer swaps per source. Camera and screen may still
   // re-produce in parallel, but two callers for the same source must re-check the
   // live producer/codec after the earlier swap completes (#2187).
-  private readonly videoReproduceQueues: Record<'camera' | 'screen', Promise<void>> = {
+  private readonly videoReproduceQueues: Record<VideoReproduceSource, Promise<void>> = {
     camera: Promise.resolve(),
     screen: Promise.resolve(),
   };
+  // Invalidates queued/in-flight swaps when their owning media session is torn
+  // down. Queue reset lets a successor call start immediately; generation checks
+  // keep continuations already attached to an old tail from touching it (#2187).
+  private videoReproduceGeneration = 0;
+  private readonly videoReproduceSourceGenerations: Record<VideoReproduceSource, number> = {
+    camera: 0,
+    screen: 0,
+  };
+  private videoReproduceSessionActive = false;
 
   // Client-side voice activity detection (Web Audio API)
   private vadAudioContext: AudioContext | null = null;
@@ -667,6 +684,8 @@ class VoiceService {
    * WebCodecs silicon capability (A) until a producer of that codec reports.
    */
   private async learnWebrtcHwSignal(): Promise<void> {
+    const expectedSessionGeneration = this.videoReproduceGeneration;
+    if (!this.isCurrentVideoReproduceSession(expectedSessionGeneration)) return;
     // Two-pass so camera and screen sharing the same codec each evaluate the re-selection
     // trigger against the PRE-tick B value (#2187 item 2). If we wrote B mid-loop, the first
     // source's write would flip previousHw to false for the second source and its churn guard
@@ -675,18 +694,29 @@ class VoiceService {
     // learned B and then decides per source.
     const observed: Array<{
       source: 'camera' | 'screen';
+      producer: mediasoupTypes.Producer;
+      token: VideoReproduceToken;
       signal: { mime: string; powerEfficient: boolean };
       previousHw: boolean | undefined;
       activeCodecMime: string | null;
     }> = [];
     for (const source of ['camera', 'screen'] as const) {
+      if (!this.isCurrentVideoReproduceSession(expectedSessionGeneration)) return;
+      const token = this.captureVideoReproduceToken(source);
       const producer = this.producers.get(source);
       if (!producer) continue;
       try {
-        const signal = extractWebrtcHwSignal(await producer.getStats());
+        const stats = await producer.getStats();
+        if (!this.isCurrentVideoReproduceSession(expectedSessionGeneration)) return;
+        const signal = extractWebrtcHwSignal(stats);
         if (!signal) continue;
+        if (!this.isCurrentVideoReproduceToken(token) || this.producers.get(source) !== producer) {
+          continue;
+        }
         observed.push({
           source,
+          producer,
+          token,
           signal,
           previousHw: useVideoSettingsStore.getState().webrtcHwByMime[signal.mime],
           activeCodecMime: this.getProducerCodecMimeType(source)?.split(':')[0] ?? null,
@@ -697,7 +727,11 @@ class VoiceService {
     }
 
     const store = useVideoSettingsStore.getState();
-    for (const o of observed) {
+    const currentObservations = observed.filter(
+      (o) =>
+        this.isCurrentVideoReproduceToken(o.token) && this.producers.get(o.source) === o.producer
+    );
+    for (const o of currentObservations) {
       store.setWebrtcHwForMime(o.signal.mime, o.signal.powerEfficient);
     }
 
@@ -705,7 +739,7 @@ class VoiceService {
     // re-select toward a HW codec (once per SW transition; reProduceIfBetterCodec no-ops if no
     // genuinely-better HW codec exists — including under camera-layering, where the SVC ladder
     // owns codec choice and re-selection is intentionally a no-op).
-    for (const o of observed) {
+    for (const o of currentObservations) {
       if (
         shouldReselectForHwDowngrade({
           learnedHw: o.signal.powerEfficient,
@@ -720,7 +754,11 @@ class VoiceService {
         // rejection. The swap path cleans up the source on replacement failure so UI/capture
         // cannot claim a live publish. Log .message only, never the raw error
         // (observability.md § Console error logging).
-        void this.reProduceIfBetterCodec(o.source, { requireHwImprovement: true }).catch((err) =>
+        void this.reProduceIfBetterCodec(
+          o.source,
+          { requireHwImprovement: true },
+          expectedSessionGeneration
+        ).catch((err) =>
           console.warn('[codec-floor] HW re-selection failed:', (err as Error).message)
         );
       }
@@ -1235,12 +1273,18 @@ class VoiceService {
       this.liveUpdateVideoPriority(cameraProducer, state.cameraPriority);
     }
     if (state.cameraPreset !== prev.cameraPreset) {
-      this.liveReplaceCameraTrack();
+      void this.liveReplaceCameraTrack().catch((err) =>
+        console.warn('[video-settings] Camera track replacement failed:', errorMessage(err))
+      );
     }
     if (state.preferredVideoCodec !== prev.preferredVideoCodec) {
-      this.liveReproduceCamera();
+      void this.liveReproduceCamera().catch((err) =>
+        console.warn('[video-settings] Camera re-produce failed:', errorMessage(err))
+      );
       if (this.producers.get('screen')) {
-        this.fastReproduceScreen();
+        void this.fastReproduceScreen().catch((err) =>
+          console.warn('[video-settings] Screen re-produce failed:', errorMessage(err))
+        );
       }
     }
     // SVC/Simulcast casting toggles (#1921): a shape-only change does not alter the
@@ -1248,7 +1292,9 @@ class VoiceService {
     // liveReproduceCamera rides the existing stopTracks:false (#1902) + fail-closed
     // capture-stop (CWE-212) path; do NOT call sendTransport.produce directly.
     if (state.supportSvc !== prev.supportSvc || state.supportSimulcast !== prev.supportSimulcast) {
-      this.liveReproduceCamera();
+      void this.liveReproduceCamera().catch((err) =>
+        console.warn('[video-settings] Camera re-produce failed:', errorMessage(err))
+      );
     }
   }
 
@@ -1432,22 +1478,26 @@ class VoiceService {
   }
 
   private async liveReplaceCameraTrack(): Promise<void> {
+    return this.enqueueVideoReproduce('camera', (token) =>
+      this.liveReplaceCameraTrackQueued(token)
+    );
+  }
+
+  private async liveReplaceCameraTrackQueued(token: VideoReproduceToken): Promise<void> {
+    if (!this.isCurrentVideoReproduceToken(token)) return;
     const producer = this.producers.get('camera');
     if (!producer) return;
+    const oldStream = this.localCameraStream;
 
     const vs = useVideoSettingsStore.getState();
     const preset = VIDEO_QUALITY_PRESETS[vs.cameraPreset] || VIDEO_QUALITY_PRESETS['system'];
     const isSystemDefault = vs.cameraPreset === 'system' || preset.width === 0;
 
     producer.pause();
+    let stream: MediaStream | null = null;
 
     try {
-      if (this.localCameraStream) {
-        for (const t of this.localCameraStream.getTracks()) t.stop();
-      }
-
       // Try preferred constraints, fall back to bare minimum on OverconstrainedError
-      let stream: MediaStream;
       try {
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
@@ -1466,6 +1516,12 @@ class VoiceService {
           err.name === 'OverconstrainedError' &&
           !isSystemDefault
         ) {
+          if (
+            !this.isCurrentVideoReproduceToken(token) ||
+            this.producers.get('camera') !== producer
+          ) {
+            return;
+          }
           console.warn(
             'Camera overconstrained during track replace, falling back:',
             errorMessage(err)
@@ -1475,21 +1531,38 @@ class VoiceService {
           throw err;
         }
       }
-      this.localCameraStream = stream;
+      if (!this.isCurrentVideoReproduceToken(token) || this.producers.get('camera') !== producer) {
+        this.stopMediaStream(stream);
+        return;
+      }
       const track = stream.getVideoTracks()[0];
 
       await producer.replaceTrack({ track });
+      if (!this.isCurrentVideoReproduceToken(token) || this.producers.get('camera') !== producer) {
+        this.stopMediaStream(stream);
+        return;
+      }
+
+      this.stopMediaStream(oldStream);
+      const activeStream = stream;
+      this.localCameraStream = activeStream;
+      stream = null;
 
       // Update participant store with new stream
       const localUserId = useUserStore.getState().user?.id;
       if (localUserId) {
-        useVoiceStore.getState().updateParticipant(localUserId, { videoStream: stream });
+        useVoiceStore.getState().updateParticipant(localUserId, { videoStream: activeStream });
       }
     } catch (err) {
-      console.warn('liveReplaceCameraTrack failed:', errorMessage(err));
+      this.stopMediaStream(stream);
+      if (this.isCurrentVideoReproduceToken(token)) {
+        console.warn('liveReplaceCameraTrack failed:', errorMessage(err));
+      }
+    } finally {
+      if (this.isCurrentVideoReproduceToken(token) && this.producers.get('camera') === producer) {
+        producer.resume();
+      }
     }
-
-    producer.resume();
   }
 
   // --- Re-produce: close + re-create producer with new codec options ---
@@ -1501,13 +1574,33 @@ class VoiceService {
   }
 
   private async liveReproduceCamera(): Promise<void> {
-    if (!this.producers.get('camera') || !this.sendTransport) return;
-    if (this.localCameraStream) {
-      for (const t of this.localCameraStream.getTracks()) t.stop();
-      this.localCameraStream = null;
+    return this.enqueueVideoReproduce('camera', (token) => this.liveReproduceCameraQueued(token));
+  }
+
+  private async liveReproduceCameraQueued(token: VideoReproduceToken): Promise<void> {
+    if (!this.isCurrentVideoReproduceToken(token)) return;
+
+    const producer = this.producers.get('camera');
+    const transport = this.sendTransport;
+    if (!producer || !transport) return;
+
+    producer.close();
+    await this.drainSendTransportQueue(transport);
+    if (
+      !this.isCurrentVideoReproduce(token, transport) ||
+      this.producers.get('camera') !== producer
+    ) {
+      return;
     }
-    await this.closeProducer('camera');
-    await this.produceVideo();
+
+    this.producers.delete('camera');
+    this.socket?.emit('close-producer', { producerId: producer.id });
+    this.stopMediaStream(this.localCameraStream);
+    this.localCameraStream = null;
+    await this.produceVideoQueued(undefined, token, true, transport);
+    if (this.isCurrentVideoReproduce(token, transport) && !this.producers.has('camera')) {
+      this.cleanupCameraState();
+    }
   }
 
   // --- Codec floor: fast re-produce (reuses existing track, no media re-acquisition) ---
@@ -1540,17 +1633,22 @@ class VoiceService {
    * Fast re-produce camera: close producer and re-produce with best floor-compatible
    * codec, reusing the existing video track for a subsecond switch.
    */
-  private async fastReproduceCamera(alreadyQueued = false): Promise<void> {
-    if (!alreadyQueued) {
-      return this.enqueueVideoReproduce('camera', () => this.fastReproduceCamera(true));
-    }
+  private async fastReproduceCamera(): Promise<void> {
+    return this.enqueueVideoReproduce('camera', (token) => this.fastReproduceCameraQueued(token));
+  }
+
+  private async fastReproduceCameraQueued(token: VideoReproduceToken): Promise<void> {
+    if (!this.isCurrentVideoReproduceToken(token)) return;
 
     const producer = this.producers.get('camera');
-    if (!producer || !this.sendTransport || !this.localCameraStream) return;
+    const transport = this.sendTransport;
+    const stream = this.localCameraStream;
+    const socket = this.socket;
+    if (!producer || !transport || !stream) return;
 
-    const track = this.localCameraStream.getVideoTracks()[0];
+    const track = stream.getVideoTracks()[0];
     if (track?.readyState !== 'live') {
-      await this.liveReproduceCamera();
+      await this.liveReproduceCameraQueued(token);
       return;
     }
 
@@ -1560,7 +1658,14 @@ class VoiceService {
     // close() stops the track and the produce() below throws 'track ended'.)
     producer.close();
     // Drain transport queue so stopSending SDP renegotiation finishes before produce()
-    await this.drainSendTransportQueue();
+    await this.drainSendTransportQueue(transport);
+    if (
+      !this.isCurrentVideoReproduce(token, transport) ||
+      this.producers.get('camera') !== producer ||
+      this.localCameraStream !== stream
+    ) {
+      return;
+    }
     this.producers.delete('camera');
     this.socket?.emit('close-producer', { producerId: producer.id });
 
@@ -1570,7 +1675,7 @@ class VoiceService {
 
     let newProducer: mediasoupTypes.Producer;
     try {
-      newProducer = await this.sendTransport.produce({
+      newProducer = await transport.produce({
         track,
         encodings,
         codec,
@@ -1579,8 +1684,24 @@ class VoiceService {
         appData: { source: 'camera' },
       });
     } catch (err) {
-      this.cleanupCameraState();
+      if (
+        this.isCurrentVideoReproduce(token, transport) &&
+        this.localCameraStream === stream &&
+        !this.producers.has('camera')
+      ) {
+        this.cleanupCameraState();
+        this.setVideoReproduceError('camera');
+      }
       throw err;
+    }
+
+    if (
+      !this.isCurrentVideoReproduce(token, transport) ||
+      this.localCameraStream !== stream ||
+      this.producers.has('camera')
+    ) {
+      this.discardProducedProducer(newProducer, socket);
+      return;
     }
 
     this.applyDegradationPreference(newProducer);
@@ -1591,6 +1712,7 @@ class VoiceService {
     }
 
     newProducer.on('transportclose', () => {
+      if (this.producers.get('camera') !== newProducer) return;
       this.producers.delete('camera');
       if (this.localCameraStream) {
         for (const t of this.localCameraStream.getTracks()) t.stop();
@@ -1613,15 +1735,20 @@ class VoiceService {
    * Fast re-produce screen: close producer and re-produce with best floor-compatible
    * codec, reusing the existing screen track.
    */
-  private async fastReproduceScreen(alreadyQueued = false): Promise<void> {
-    if (!alreadyQueued) {
-      return this.enqueueVideoReproduce('screen', () => this.fastReproduceScreen(true));
-    }
+  private async fastReproduceScreen(): Promise<void> {
+    return this.enqueueVideoReproduce('screen', (token) => this.fastReproduceScreenQueued(token));
+  }
+
+  private async fastReproduceScreenQueued(token: VideoReproduceToken): Promise<void> {
+    if (!this.isCurrentVideoReproduceToken(token)) return;
 
     const oldProducer = this.producers.get('screen');
-    if (!oldProducer || !this.sendTransport || !this.localScreenStream) return;
+    const transport = this.sendTransport;
+    const stream = this.localScreenStream;
+    const socket = this.socket;
+    if (!oldProducer || !transport || !stream) return;
 
-    const track = this.localScreenStream.getVideoTracks()[0];
+    const track = stream.getVideoTracks()[0];
     if (track?.readyState !== 'live') {
       console.warn('[codec-floor] Screen track is dead, cannot re-acquire without user gesture');
       return;
@@ -1645,7 +1772,14 @@ class VoiceService {
     // close() stops the track and the produce() below throws 'track ended'.)
     oldProducer.close();
     // Drain transport queue so stopSending SDP renegotiation finishes before produce()
-    await this.drainSendTransportQueue();
+    await this.drainSendTransportQueue(transport);
+    if (
+      !this.isCurrentVideoReproduce(token, transport) ||
+      this.producers.get('screen') !== oldProducer ||
+      this.localScreenStream !== stream
+    ) {
+      return;
+    }
     this.producers.delete('screen');
     this.socket?.emit('close-producer', { producerId: oldProducerId });
 
@@ -1654,7 +1788,7 @@ class VoiceService {
 
     let newProducer: mediasoupTypes.Producer;
     try {
-      newProducer = await this.sendTransport.produce({
+      newProducer = await transport.produce({
         track,
         encodings,
         codec,
@@ -1663,8 +1797,26 @@ class VoiceService {
         appData: { source: 'screen' },
       });
     } catch (err) {
-      await this.cleanupScreenState();
+      if (
+        this.isCurrentVideoReproduce(token, transport) &&
+        this.localScreenStream === stream &&
+        !this.producers.has('screen')
+      ) {
+        await this.cleanupScreenState({ token, transport, stream });
+        if (this.isCurrentVideoReproduce(token, transport)) {
+          this.setVideoReproduceError('screen');
+        }
+      }
       throw err;
+    }
+
+    if (
+      !this.isCurrentVideoReproduce(token, transport) ||
+      this.localScreenStream !== stream ||
+      this.producers.has('screen')
+    ) {
+      this.discardProducedProducer(newProducer, socket);
+      return;
     }
 
     this.applyDegradationPreference(newProducer);
@@ -1676,7 +1828,16 @@ class VoiceService {
 
     // Re-wire track ended handler
     track.onended = () => {
-      this.closeProducer('screen');
+      if (
+        !this.isCurrentVideoReproduceToken(token) ||
+        this.localScreenStream !== stream ||
+        this.producers.get('screen') !== newProducer
+      ) {
+        return;
+      }
+      void this.closeProducer('screen').catch((err) =>
+        console.warn('[screen-share] Track-ended cleanup failed:', errorMessage(err))
+      );
     };
 
     // Update tuned-in mapping since producer ID changed. Keyed off the
@@ -1716,6 +1877,7 @@ class VoiceService {
     }
 
     newProducer.on('transportclose', () => {
+      if (this.producers.get('screen') !== newProducer) return;
       this.producers.delete('screen');
       if (this.localScreenStream) {
         for (const t of this.localScreenStream.getTracks()) t.stop();
@@ -1727,7 +1889,13 @@ class VoiceService {
       if (uid) s.updateParticipant(uid, { screenStream: undefined, isScreenSharing: false });
     });
 
-    await this.reProduceScreenAudio();
+    await this.reProduceScreenAudio(token, transport);
+    if (
+      !this.isCurrentVideoReproduce(token, transport) ||
+      this.producers.get('screen') !== newProducer
+    ) {
+      return;
+    }
 
     useVoiceStore.getState().setActiveScreenCodec(codec?.mimeType?.toLowerCase() ?? null);
     const hwTag = codec?.mimeType && this.isHwAccelerated(codec.mimeType) ? 'HW' : 'SW';
@@ -1737,35 +1905,65 @@ class VoiceService {
   }
 
   /** Re-produce screen audio if an active screen-audio producer and live audio track exist. */
-  private async reProduceScreenAudio(): Promise<void> {
+  private async reProduceScreenAudio(
+    token = this.captureVideoReproduceToken('screen'),
+    transport: mediasoupTypes.Transport | null = this.sendTransport
+  ): Promise<void> {
     const oldAudioProducer = this.producers.get('screen-audio');
-    if (!oldAudioProducer || !this.localScreenStream || !this.sendTransport) return;
+    const stream = this.localScreenStream;
+    const socket = this.socket;
+    if (
+      !oldAudioProducer ||
+      !stream ||
+      !transport ||
+      !this.isCurrentVideoReproduce(token, transport)
+    ) {
+      return;
+    }
 
-    const audioTrack = this.localScreenStream.getAudioTracks()[0];
+    const audioTrack = stream.getAudioTracks()[0];
     if (audioTrack?.readyState !== 'live') return;
 
     const oldAudioId = oldAudioProducer.id;
     oldAudioProducer.close();
-    await this.drainSendTransportQueue();
+    await this.drainSendTransportQueue(transport);
+    if (
+      !this.isCurrentVideoReproduce(token, transport) ||
+      this.producers.get('screen-audio') !== oldAudioProducer ||
+      this.localScreenStream !== stream
+    ) {
+      return;
+    }
     this.producers.delete('screen-audio');
     this.socket?.emit('close-producer', { producerId: oldAudioId });
 
     try {
-      const newAudioProducer = await this.sendTransport.produce({
+      const newAudioProducer = await transport.produce({
         track: audioTrack,
         codecOptions: { opusStereo: true, opusDtx: false },
         stopTracks: false,
         appData: { source: 'screen-audio' },
       });
+      if (
+        !this.isCurrentVideoReproduce(token, transport) ||
+        this.localScreenStream !== stream ||
+        this.producers.has('screen-audio')
+      ) {
+        this.discardProducedProducer(newAudioProducer, socket);
+        return;
+      }
       this.producers.set('screen-audio', newAudioProducer);
       if (this.mediaEncryption) {
         this.applyEncryptTransform(newAudioProducer);
       }
       newAudioProducer.on('transportclose', () => {
+        if (this.producers.get('screen-audio') !== newAudioProducer) return;
         this.producers.delete('screen-audio');
       });
     } catch (err) {
-      console.warn('Failed to re-produce screen audio:', errorMessage(err));
+      if (this.isCurrentVideoReproduce(token, transport)) {
+        console.warn('Failed to re-produce screen audio:', errorMessage(err));
+      }
     }
   }
 
@@ -1776,32 +1974,115 @@ class VoiceService {
    */
   private async handleCodecFloorChange(
     _previousFloor: string[] | null,
-    _newFloor: string[] | null
+    _newFloor: string[] | null,
+    expectedSessionGeneration = this.videoReproduceGeneration
   ): Promise<void> {
+    if (!this.isCurrentVideoReproduceSession(expectedSessionGeneration)) {
+      return;
+    }
     for (const source of ['camera', 'screen'] as const) {
-      await this.reProduceIfBetterCodec(source);
+      await this.reProduceIfBetterCodec(source, undefined, expectedSessionGeneration);
     }
   }
 
   private enqueueVideoReproduce(
-    source: 'camera' | 'screen',
-    operation: () => Promise<void>
+    source: VideoReproduceSource,
+    operation: (token: VideoReproduceToken) => Promise<void>,
+    expectedSessionGeneration = this.videoReproduceGeneration
   ): Promise<void> {
-    const queued = this.videoReproduceQueues[source].catch(() => {}).then(operation);
-    this.videoReproduceQueues[source] = queued;
+    if (!this.isCurrentVideoReproduceSession(expectedSessionGeneration)) {
+      return Promise.resolve();
+    }
+    const token = this.captureVideoReproduceToken(source);
+    const queued = this.videoReproduceQueues[source]
+      .catch(() => undefined)
+      .then(async () => {
+        if (!this.isCurrentVideoReproduceToken(token)) return;
+        await operation(token);
+      });
+    // Keep the tail fulfilled so a detached caller's rejection cannot become a
+    // latent unhandled rejection. Return the original promise so awaited callers
+    // still observe the operation failure.
+    this.videoReproduceQueues[source] = queued.catch(() => undefined);
     return queued;
+  }
+
+  private captureVideoReproduceToken(source: VideoReproduceSource): VideoReproduceToken {
+    return {
+      source,
+      sessionGeneration: this.videoReproduceGeneration,
+      sourceGeneration: this.videoReproduceSourceGenerations[source],
+    };
+  }
+
+  private isCurrentVideoReproduceSession(generation: number): boolean {
+    return this.videoReproduceSessionActive && generation === this.videoReproduceGeneration;
+  }
+
+  private isCurrentVideoReproduceToken(token: VideoReproduceToken): boolean {
+    return (
+      this.isCurrentVideoReproduceSession(token.sessionGeneration) &&
+      token.sourceGeneration === this.videoReproduceSourceGenerations[token.source]
+    );
+  }
+
+  private isCurrentVideoReproduce(
+    token: VideoReproduceToken,
+    transport: mediasoupTypes.Transport
+  ): boolean {
+    return (
+      this.isCurrentVideoReproduceToken(token) &&
+      this.sendTransport === transport &&
+      !transport.closed
+    );
+  }
+
+  private cancelVideoReproduce(source: VideoReproduceSource): void {
+    this.videoReproduceSourceGenerations[source]++;
+  }
+
+  private invalidateVideoReproduces(): void {
+    this.videoReproduceSessionActive = false;
+    this.videoReproduceGeneration++;
+    this.cancelVideoReproduce('camera');
+    this.cancelVideoReproduce('screen');
+    // A successor media session uses different transports, so it must not wait
+    // for an old session's potentially blocked device/transport operation.
+    this.videoReproduceQueues.camera = Promise.resolve();
+    this.videoReproduceQueues.screen = Promise.resolve();
+  }
+
+  private setVideoReproduceError(source: VideoReproduceSource): void {
+    useVoiceStore
+      .getState()
+      .setVideoSlotError(
+        source === 'camera'
+          ? 'Camera stopped because codec re-selection failed. Turn it back on to retry.'
+          : 'Screen share stopped because codec re-selection failed. Start sharing again to retry.'
+      );
+  }
+
+  private discardProducedProducer(producer: mediasoupTypes.Producer, socket: Socket | null): void {
+    producer.close();
+    socket?.emit('close-producer', { producerId: producer.id });
   }
 
   /** Re-produce a video source if the codec cascade now selects a different codec. */
   private async reProduceIfBetterCodec(
-    source: 'camera' | 'screen',
-    opts?: { requireHwImprovement?: boolean }
+    source: VideoReproduceSource,
+    opts?: { requireHwImprovement?: boolean },
+    expectedSessionGeneration = this.videoReproduceGeneration
   ): Promise<void> {
-    await this.enqueueVideoReproduce(source, () => this.reProduceIfBetterCodecQueued(source, opts));
+    await this.enqueueVideoReproduce(
+      source,
+      (token) => this.reProduceIfBetterCodecQueued(source, token, opts),
+      expectedSessionGeneration
+    );
   }
 
   private async reProduceIfBetterCodecQueued(
-    source: 'camera' | 'screen',
+    source: VideoReproduceSource,
+    token: VideoReproduceToken,
     opts?: { requireHwImprovement?: boolean }
   ): Promise<void> {
     const producer = this.producers.get(source);
@@ -1833,9 +2114,9 @@ class VoiceService {
     );
 
     if (source === 'camera') {
-      await this.fastReproduceCamera(true);
+      await this.fastReproduceCameraQueued(token);
     } else {
-      await this.fastReproduceScreen(true);
+      await this.fastReproduceScreenQueued(token);
     }
   }
 
@@ -2568,6 +2849,7 @@ class VoiceService {
 
   /** Stop local streams, close producers/consumers/transports. */
   private cleanupMediaAndTransports(): void {
+    this.invalidateVideoReproduces();
     for (const stream of [this.localMicStream, this.localCameraStream, this.localScreenStream]) {
       if (stream) for (const t of stream.getTracks()) t.stop();
     }
@@ -2858,9 +3140,11 @@ class VoiceService {
 
   /** Try each constraint set in order, relaxing on OverconstrainedError. */
   private async acquireCameraWithFallback(
-    fallbackChain: MediaStreamConstraints[]
+    fallbackChain: MediaStreamConstraints[],
+    shouldContinue: () => boolean = () => true
   ): Promise<MediaStream | null> {
     for (const constraints of fallbackChain) {
+      if (!shouldContinue()) return null;
       try {
         return await navigator.mediaDevices.getUserMedia(constraints);
       } catch (err) {
@@ -2891,12 +3175,25 @@ class VoiceService {
 
   /** Produce camera video — single-layer until the media-plane gate enables AV1/VP9 SVC or H264/VP8 simulcast. */
   async produceVideo(deviceId?: string): Promise<void> {
-    if (!this.sendTransport || !this.device) return;
+    return this.enqueueVideoReproduce('camera', (token) =>
+      this.produceVideoQueued(deviceId, token)
+    );
+  }
+
+  private async produceVideoQueued(
+    deviceId: string | undefined,
+    token: VideoReproduceToken,
+    replacing = false,
+    transport = this.sendTransport
+  ): Promise<void> {
+    if (!transport || !this.device || !this.isCurrentVideoReproduce(token, transport)) return;
+    if (this.producers.has('camera')) return;
+    const socket = this.socket;
 
     // Video slot enforcement
     const voiceState = useVoiceStore.getState();
     const videoOnCount = Object.values(voiceState.participants).filter((p) => p.isVideoOn).length;
-    if (videoOnCount >= voiceState.maxVideoSlots) {
+    if (!replacing && videoOnCount >= voiceState.maxVideoSlots) {
       voiceState.setVideoSlotError(
         `Maximum video streams reached (${voiceState.maxVideoSlots}). ` +
           'Wait for someone to turn off video or a screen share to end.'
@@ -2904,8 +3201,10 @@ class VoiceService {
       return;
     }
 
+    let acquiredStream: MediaStream | null = null;
     try {
       await this.ensureOsPermission('camera');
+      if (!this.isCurrentVideoReproduce(token, transport)) return;
 
       const videoSettings = useVideoSettingsStore.getState();
       const preset =
@@ -2913,20 +3212,31 @@ class VoiceService {
       const isSystemDefault = videoSettings.cameraPreset === 'system' || preset.width === 0;
 
       const fallbackChain = this.buildCameraFallbackChain(deviceId, preset, isSystemDefault);
-      this.localCameraStream = await this.acquireCameraWithFallback(fallbackChain);
+      acquiredStream = await this.acquireCameraWithFallback(fallbackChain, () =>
+        this.isCurrentVideoReproduce(token, transport)
+      );
 
-      if (!this.localCameraStream) {
-        voiceState.setVideoSlotError(
-          'Could not access camera. Check that your camera is connected and not in use by another application.'
-        );
+      if (!acquiredStream) {
+        if (this.isCurrentVideoReproduce(token, transport)) {
+          useVoiceStore
+            .getState()
+            .setVideoSlotError(
+              'Could not access camera. Check that your camera is connected and not in use by another application.'
+            );
+        }
         return;
       }
-      const track = this.localCameraStream.getVideoTracks()[0];
+      if (!this.isCurrentVideoReproduce(token, transport) || this.producers.has('camera')) {
+        this.stopMediaStream(acquiredStream);
+        return;
+      }
+      this.localCameraStream = acquiredStream;
+      const track = acquiredStream.getVideoTracks()[0];
 
       const { codec, encodings } = this.pickCameraCodec();
       const cameraBitrate = this.cameraStartBitrate(encodings);
 
-      const producer = await this.sendTransport.produce({
+      const producer = await transport.produce({
         track,
         encodings,
         codec,
@@ -2937,6 +3247,17 @@ class VoiceService {
         stopTracks: false,
         appData: { source: 'camera' },
       });
+
+      if (
+        !this.isCurrentVideoReproduce(token, transport) ||
+        this.localCameraStream !== acquiredStream ||
+        this.producers.has('camera')
+      ) {
+        this.discardProducedProducer(producer, socket);
+        this.stopMediaStream(acquiredStream);
+        if (this.localCameraStream === acquiredStream) this.localCameraStream = null;
+        return;
+      }
 
       this.applyDegradationPreference(producer);
       this.producers.set('camera', producer);
@@ -2962,6 +3283,7 @@ class VoiceService {
       }
 
       producer.on('transportclose', () => {
+        if (this.producers.get('camera') !== producer) return;
         this.producers.delete('camera');
         if (this.localCameraStream) {
           for (const t of this.localCameraStream.getTracks()) t.stop();
@@ -2973,12 +3295,16 @@ class VoiceService {
         if (uid) s.updateParticipant(uid, { videoStream: undefined, isVideoOn: false });
       });
     } catch (err) {
+      if (!this.isCurrentVideoReproduce(token, transport)) {
+        this.stopMediaStream(acquiredStream);
+        return;
+      }
       console.error('Failed to start camera:', errorMessage(err));
-      if (this.localCameraStream) {
-        for (const t of this.localCameraStream.getTracks()) t.stop();
+      this.stopMediaStream(acquiredStream);
+      if (this.localCameraStream === acquiredStream) {
         this.localCameraStream = null;
       }
-      voiceState.setVideoSlotError(VoiceService.mapCameraError(err));
+      useVoiceStore.getState().setVideoSlotError(VoiceService.mapCameraError(err));
     }
   }
 
@@ -4492,8 +4818,9 @@ class VoiceService {
    * This pushes a no-op onto the same queue and awaits it, guaranteeing all prior
    * queued operations (including stopSending) have finished before we proceed.
    */
-  private async drainSendTransportQueue(): Promise<void> {
-    const transport = this.sendTransport;
+  private async drainSendTransportQueue(
+    transport: mediasoupTypes.Transport | null = this.sendTransport
+  ): Promise<void> {
     if (!transport || transport.closed) return;
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- mediasoup-client's internal `_awaitQueue` is not in the public Transport type; documented workaround for the Chromium PT 45 BUNDLE collision (see comment above method)
@@ -4507,6 +4834,9 @@ class VoiceService {
 
   /** Close a specific producer by source */
   async closeProducer(source: string): Promise<void> {
+    if (source === 'camera' || source === 'screen') {
+      this.cancelVideoReproduce(source);
+    }
     const producer = this.producers.get(source);
 
     if (producer) {
@@ -4570,12 +4900,31 @@ class VoiceService {
     }
   }
 
-  private async cleanupScreenState(): Promise<void> {
+  private async cleanupScreenState(guard?: {
+    token: VideoReproduceToken;
+    transport: mediasoupTypes.Transport;
+    stream: MediaStream;
+  }): Promise<void> {
+    if (
+      guard &&
+      (!this.isCurrentVideoReproduce(guard.token, guard.transport) ||
+        this.localScreenStream !== guard.stream)
+    ) {
+      return;
+    }
     // Also close the paired screen-audio producer
     const audioProducer = this.producers.get('screen-audio');
     if (audioProducer) {
       audioProducer.close();
-      await this.drainSendTransportQueue();
+      await this.drainSendTransportQueue(guard?.transport);
+      if (
+        guard &&
+        (!this.isCurrentVideoReproduce(guard.token, guard.transport) ||
+          this.localScreenStream !== guard.stream ||
+          this.producers.get('screen-audio') !== audioProducer)
+      ) {
+        return;
+      }
       this.producers.delete('screen-audio');
       this.socket?.emit('close-producer', { producerId: audioProducer.id });
     }
@@ -4621,10 +4970,14 @@ class VoiceService {
 
   private async createSendTransport(): Promise<void> {
     if (!this.device) throw new Error('Device not initialized before creating send transport');
+    const expectedSessionGeneration = this.videoReproduceGeneration;
 
     const options = await this.emitAsync<TransportOptions>('create-transport', {
       direction: 'send',
     });
+    if (expectedSessionGeneration !== this.videoReproduceGeneration) {
+      throw new Error('Media session changed while creating send transport');
+    }
 
     this.sendTransport = this.device.createSendTransport({
       id: options.id,
@@ -4640,6 +4993,7 @@ class VoiceService {
         } as unknown as Partial<RTCConfiguration>,
       }),
     });
+    this.videoReproduceSessionActive = true;
 
     const sendTransportId = this.sendTransport.id;
     this.sendTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
@@ -5440,7 +5794,9 @@ class VoiceService {
       const store = useVoiceStore.getState();
       const previousFloor = store.codecFloor;
       store.setCodecFloor(codecFloor);
-      this.handleCodecFloorChange(previousFloor, codecFloor);
+      void this.handleCodecFloorChange(previousFloor, codecFloor).catch((err) =>
+        console.warn('[codec-floor] Floor-change re-produce failed:', errorMessage(err))
+      );
     });
 
     this.socket.on('camera-layering-gate', ({ enabled }: { enabled: boolean }) => {
@@ -6572,6 +6928,7 @@ class VoiceService {
   }
 
   private async cleanup(): Promise<void> {
+    this.invalidateVideoReproduces();
     // Clear solo bandwidth saving state
     if (this.soloNotificationTimer) {
       clearTimeout(this.soloNotificationTimer);
