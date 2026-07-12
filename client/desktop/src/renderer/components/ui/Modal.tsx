@@ -10,6 +10,7 @@ export interface ModalProps {
   children: React.ReactNode;
   width?: 'small' | 'medium' | 'large' | 'xlarge';
   dismissable?: boolean;
+  initialFocusRef?: React.RefObject<HTMLElement | null>;
 }
 
 // Focusable descendants of a modal container, in DOM order, for the Tab trap.
@@ -31,6 +32,7 @@ const Modal: React.FC<ModalProps> = ({
   children,
   width = 'medium',
   dismissable = true,
+  initialFocusRef,
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDialogElement>(null);
@@ -81,11 +83,11 @@ const Modal: React.FC<ModalProps> = ({
     if (!isOpen || !isTopmost(modalId)) return;
     // The invoker was captured in the register effect above (before #root became
     // inert). Here we only move focus into the dialog; the cleanup restores it.
-    containerRef.current?.focus();
+    (initialFocusRef?.current ?? containerRef.current)?.focus();
     return () => {
       previousFocusRef.current?.focus?.();
     };
-  }, [isOpen, isTopmost, modalId]);
+  }, [isOpen, isTopmost, modalId, initialFocusRef]);
 
   // Contain Tab / Shift-Tab within the topmost modal. A document-level listener
   // (mirroring the Escape handler above) is used rather than an onKeyDown on the

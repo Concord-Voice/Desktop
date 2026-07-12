@@ -1,7 +1,7 @@
 import { render, screen, userEvent } from '../../../test-utils';
 import { fireEvent } from '@testing-library/react';
 import Modal from '@/renderer/components/ui/Modal';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { vi } from 'vitest';
 
 describe('Modal', () => {
@@ -102,6 +102,29 @@ describe('Modal', () => {
   });
 
   describe('focus management (a11y — #2087)', () => {
+    it('moves initial focus to an explicitly supplied disclosure heading', () => {
+      function Harness() {
+        const disclosureHeadingRef = useRef<HTMLHeadingElement>(null);
+        return (
+          <Modal
+            isOpen={true}
+            onClose={onClose}
+            title="Review Activity History terms"
+            initialFocusRef={disclosureHeadingRef}
+          >
+            <h4 ref={disclosureHeadingRef} tabIndex={-1}>
+              Activity History disclosure
+            </h4>
+            <button>Continue</button>
+          </Modal>
+        );
+      }
+
+      render(<Harness />);
+
+      expect(screen.getByRole('heading', { name: 'Activity History disclosure' })).toHaveFocus();
+    });
+
     it('moves focus into the dialog on open', () => {
       render(
         <Modal isOpen={true} onClose={onClose} title="Focus Me">
