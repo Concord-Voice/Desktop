@@ -246,6 +246,20 @@ describe('ActivityHistoryCard', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('focuses the persistent heading after successful re-consent removes its invoker', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getPresenceHistorySettings).mockResolvedValue(PAUSED_SETTINGS);
+    vi.mocked(patchPresenceHistorySettings).mockResolvedValue(ON_SETTINGS);
+    render(<ActivityHistoryCard />);
+
+    await user.click(await screen.findByRole('button', { name: 'Review updated terms' }));
+    await user.click(screen.getByRole('checkbox', { name: DISCLOSURE.acknowledgementLabel }));
+    await user.click(screen.getByRole('button', { name: 'Accept updated terms' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'Activity History' })).toHaveFocus();
+  });
+
   it('closes enable consent and blocks its stale submit when capability leaves supported', async () => {
     const user = userEvent.setup();
     render(<ActivityHistoryCard />);
@@ -515,9 +529,11 @@ describe('ActivityHistoryCard', () => {
       '90'
     );
 
-    expect(
-      await screen.findByText('Activity History settings could not be saved.')
-    ).toBeInTheDocument();
+    const errorNotice = await screen.findByRole('alert');
+    expect(errorNotice).toHaveTextContent('Activity History settings could not be saved.');
+    expect(screen.getByRole('status')).not.toHaveTextContent(
+      'Activity History settings could not be saved.'
+    );
     expect(screen.getByText('Not refreshed')).toBeInTheDocument();
     expect(screen.getByText('On')).toBeInTheDocument();
     expect(screen.getByRole('switch', { name: 'Activity History' })).toBeDisabled();

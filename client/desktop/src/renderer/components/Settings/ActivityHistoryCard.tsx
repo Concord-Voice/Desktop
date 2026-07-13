@@ -466,6 +466,9 @@ function useActivityHistoryCardController(): ActivityHistoryCardController {
         if (!isCurrentRequest(request)) return;
         commitRequestState(requestOwnerKey, stateForSettings(settings));
         setMutationForOwner(requestOwnerKey, false);
+        if (priorSettings.reconsentRequired) {
+          pendingHeadingFocusOwnerRef.current = requestOwnerKey;
+        }
         setModalForOwner(requestOwnerKey, null, null);
         setAnnouncementForOwner(requestOwnerKey, 'Activity History is on.');
       } catch (error) {
@@ -731,7 +734,11 @@ const ActivityHistoryAvailability: React.FC<ControllerProps> = ({ controller }) 
         )}
 
       {requestState.status === 'error' && (
-        <div className="activity-history-card__notice activity-history-card__notice--error">
+        <div
+          className="activity-history-card__notice activity-history-card__notice--error"
+          role="alert"
+          aria-atomic="true"
+        >
           <span>{requestState.message}</span>
           {requestState.confirmed !== null && <strong>Not refreshed</strong>}
           {ownerKey !== null && canLoadSettings && (

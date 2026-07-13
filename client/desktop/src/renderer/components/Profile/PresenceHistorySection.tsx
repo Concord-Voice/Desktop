@@ -59,6 +59,7 @@ const CATEGORY_PRESENTATION: Record<PresenceHistoryItem['category'], CategoryPre
   creator: { label: 'Creator', icon: '✦' },
   custom_text: { label: 'Custom Status', icon: '●' },
 };
+const LOAD_MORE_RETRY_ID = 'presence-history-load-more-retry';
 
 const historyDateFormatter = new Intl.DateTimeFormat(undefined, {
   year: 'numeric',
@@ -216,7 +217,11 @@ function HistoryItemCard({ item }: HistoryItemCardProps) {
     let emoji: ReactNode = null;
     if (item.payload.emoji !== undefined) {
       emoji = (
-        <span className="presence-history__emoji" role="img" aria-label="Status emoji">
+        <span
+          className="presence-history__emoji"
+          role="img"
+          aria-label={`Status emoji: ${item.payload.emoji}`}
+        >
           {item.payload.emoji}
         </span>
       );
@@ -313,7 +318,7 @@ function ReadyHistoryFeed({ state, onLoadMore }: ReadyHistoryFeedProps) {
     loadMoreError = (
       <div className="presence-history__load-error">
         <p>Could not load more Activity History.</p>
-        <button type="button" onClick={onLoadMore}>
+        <button id={LOAD_MORE_RETRY_ID} type="button" onClick={onLoadMore}>
           Retry load more
         </button>
       </div>
@@ -361,7 +366,7 @@ export default function PresenceHistorySection({ userId }: PresenceHistorySectio
     ownerId: userId,
     message: '',
   });
-  const pendingFocusRef = useRef<{ ownerId: string; itemId: string } | null>(null);
+  const pendingFocusRef = useRef<{ ownerId: string; elementId: string } | null>(null);
 
   const startInitialLoad = useCallback(
     (reason: InitialLoadReason) => {
@@ -434,7 +439,7 @@ export default function PresenceHistorySection({ userId }: PresenceHistorySectio
   useEffect(() => {
     const pendingFocus = pendingFocusRef.current;
     if (pendingFocus?.ownerId !== userId) return;
-    const target = document.getElementById(itemElementId(pendingFocus.itemId));
+    const target = document.getElementById(pendingFocus.elementId);
     if (!target) return;
     target.focus();
     pendingFocusRef.current = null;
@@ -472,7 +477,19 @@ export default function PresenceHistorySection({ userId }: PresenceHistorySectio
         });
         const firstNewItem = page.items[0];
         if (firstNewItem) {
-          pendingFocusRef.current = { ownerId: userId, itemId: firstNewItem.id };
+          pendingFocusRef.current = {
+            ownerId: userId,
+            elementId: itemElementId(firstNewItem.id),
+          };
+        } else if (page.nextCursor === null) {
+          const lastVisibleItem = current.items.at(-1);
+          pendingFocusRef.current = {
+            ownerId: userId,
+            elementId:
+              lastVisibleItem === undefined
+                ? 'presence-history-heading'
+                : itemElementId(lastVisibleItem.id),
+          };
         }
         setAnnouncement({
           ownerId: userId,
@@ -481,6 +498,7 @@ export default function PresenceHistorySection({ userId }: PresenceHistorySectio
       })
       .catch(() => {
         if (!isCurrentRequest(controller, generation, userId, generationRef, ownerRef)) return;
+        pendingFocusRef.current = { ownerId: userId, elementId: LOAD_MORE_RETRY_ID };
         setFeedState((latest) => {
           if (latest.ownerId !== userId || latest.status !== 'ready') return latest;
           return { ...latest, loadMoreState: 'error' };

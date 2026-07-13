@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from '../../../test-utils';
+import { act, fireEvent, render, screen, userEvent, waitFor, within } from '../../../test-utils';
 import { http, HttpResponse } from 'msw';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -339,7 +339,7 @@ describe('PresenceHistorySection safe timeline rendering', () => {
     const { container } = render(<PresenceHistorySection userId={USER_A} />);
 
     expect(await screen.findByText(unsafeText)).toBeInTheDocument();
-    expect(screen.getByRole('img', { name: 'Status emoji' })).toHaveTextContent('🔍');
+    expect(screen.getByRole('img', { name: 'Status emoji: 🔍' })).toHaveTextContent('🔍');
     const timeline = screen.getByRole('list', { name: 'Activity History timeline' });
     expect(within(timeline).getAllByRole('listitem')).toHaveLength(1);
     expect(screen.getByText('45 minutes')).toBeInTheDocument();
@@ -495,6 +495,7 @@ describe('PresenceHistorySection errors and pagination', () => {
   });
 
   it('preserves prior rows after a load-more failure and retries from the same cursor', async () => {
+    const user = userEvent.setup();
     let nextPageAttempts = 0;
     server.use(
       http.get(SETTINGS_ENDPOINT, () => HttpResponse.json(enabledSettings())),
@@ -513,15 +514,38 @@ describe('PresenceHistorySection errors and pagination', () => {
 
     render(<PresenceHistorySection userId={USER_A} />);
     await screen.findByText('Keep me');
-    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    await user.click(screen.getByRole('button', { name: 'Load more' }));
 
     expect(await screen.findByText(/could not load more activity history/i)).toBeInTheDocument();
     expect(screen.getByText('Keep me')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /retry load more/i }));
+    const retry = screen.getByRole('button', { name: /retry load more/i });
+    expect(retry).toHaveFocus();
+    await user.click(retry);
 
     expect(await screen.findByText('Appended')).toBeInTheDocument();
     expect(screen.getByText('Keep me')).toBeInTheDocument();
     expect(nextPageAttempts).toBe(2);
+  });
+
+  it('returns focus to the last visible item when an empty terminal page removes Load more', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get(SETTINGS_ENDPOINT, () => HttpResponse.json(enabledSettings())),
+      http.get(HISTORY_ENDPOINT, ({ request }) => {
+        const before = new URL(request.url).searchParams.get('before');
+        if (before === null) {
+          return HttpResponse.json(historyPage([supportedItem('Only page')], 'terminal-cursor'));
+        }
+        return HttpResponse.json(historyPage());
+      })
+    );
+
+    render(<PresenceHistorySection userId={USER_A} />);
+    await screen.findByText('Only page');
+    await user.click(screen.getByRole('button', { name: 'Load more' }));
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull());
+    expect(screen.getByRole('article', { name: 'Custom Status' })).toHaveFocus();
   });
 });
 
