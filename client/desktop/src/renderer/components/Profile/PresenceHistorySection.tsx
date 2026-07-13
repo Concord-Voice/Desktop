@@ -17,7 +17,7 @@ import {
 import './PresenceHistorySection.css';
 
 export interface PresenceHistorySectionProps {
-  userId: string | null;
+  readonly userId: string | null;
 }
 
 type LoadMoreState = 'idle' | 'loading' | 'error';
@@ -144,7 +144,7 @@ function retryCapabilityAvailability(): void {
 }
 
 interface CapabilityAvailabilityNoticeProps {
-  staleSupported: boolean;
+  readonly staleSupported: boolean;
 }
 
 function CapabilityAvailabilityNotice({ staleSupported }: CapabilityAvailabilityNoticeProps) {
@@ -178,7 +178,7 @@ function CapabilityAvailabilityNotice({ staleSupported }: CapabilityAvailability
 }
 
 interface EmptyHistoryProps {
-  settings: PresenceHistorySettings;
+  readonly settings: PresenceHistorySettings;
 }
 
 function EmptyHistory({ settings }: EmptyHistoryProps) {
@@ -204,7 +204,7 @@ function EmptyHistory({ settings }: EmptyHistoryProps) {
 }
 
 interface HistoryItemCardProps {
-  item: PresenceHistoryItem;
+  readonly item: PresenceHistoryItem;
 }
 
 function HistoryItemCard({ item }: HistoryItemCardProps) {
@@ -278,8 +278,8 @@ function HistoryItemCard({ item }: HistoryItemCardProps) {
 }
 
 interface ReadyHistoryFeedProps {
-  state: ReadyPresenceHistoryFeedState;
-  onLoadMore: () => void;
+  readonly state: ReadyPresenceHistoryFeedState;
+  readonly onLoadMore: () => void;
 }
 
 function ReadyHistoryFeed({ state, onLoadMore }: ReadyHistoryFeedProps) {
@@ -433,7 +433,7 @@ export default function PresenceHistorySection({ userId }: PresenceHistorySectio
 
   useEffect(() => {
     const pendingFocus = pendingFocusRef.current;
-    if (!pendingFocus || pendingFocus.ownerId !== userId) return;
+    if (pendingFocus?.ownerId !== userId) return;
     const target = document.getElementById(itemElementId(pendingFocus.itemId));
     if (!target) return;
     target.focus();

@@ -602,7 +602,8 @@ describe('ActivityHistoryCard', () => {
     });
 
     const liveStatus = screen.getByText('Availability not refreshed.', { selector: 'output' });
-    expect(liveStatus).toHaveAttribute('role', 'status');
+    expect(screen.getByRole('status')).toBe(liveStatus);
+    expect(liveStatus).not.toHaveAttribute('role');
     expect(liveStatus).toHaveAttribute('aria-live', 'polite');
   });
 

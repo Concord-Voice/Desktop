@@ -50,6 +50,28 @@ function topmostId(stack: StackEntry[]): string | null {
   return top.id;
 }
 
+function syncNativeHostBackgroundInert(
+  topElement: HTMLElement | null | undefined,
+  managedHostBackgroundInert: Set<HTMLElement>
+) {
+  if (!topElement) return;
+  const nativeHost = topElement.closest('dialog[open]');
+  if (!nativeHost) return;
+
+  for (const child of nativeHost.children) {
+    if (
+      !(child instanceof HTMLElement) ||
+      child === topElement ||
+      child.contains(topElement) ||
+      child.hasAttribute('inert')
+    ) {
+      continue;
+    }
+    child.setAttribute('inert', '');
+    managedHostBackgroundInert.add(child);
+  }
+}
+
 // Background-inert coordination (#2087). Modals portal outside #root (to body or
 // a designated native-dialog host), so the app root can be made `inert` while
 // any modal is open WITHOUT inert-ing the modal itself. A host-local portal also
@@ -72,28 +94,15 @@ function syncInert(stack: StackEntry[], managedHostBackgroundInert: Set<HTMLElem
   clearManagedHostBackgroundInert(managedHostBackgroundInert);
   const root = document.getElementById('root');
   const top = topmostId(stack);
-  if (root) {
-    if (stack.length > 0) root.setAttribute('inert', '');
-    else root.removeAttribute('inert');
-  }
+  root?.toggleAttribute('inert', stack.length > 0);
   for (const entry of stack) {
     if (!entry.el) continue;
     entry.el.style.zIndex = String(1000 + entry.depth);
-    if (entry.id === top) entry.el.removeAttribute('inert');
-    else entry.el.setAttribute('inert', '');
+    entry.el.toggleAttribute('inert', entry.id !== top);
   }
 
   const topEntry = stack.find((entry) => entry.id === top);
-  const nativeHost = topEntry?.el?.closest('dialog[open]');
-  if (nativeHost) {
-    for (const child of nativeHost.children) {
-      if (!(child instanceof HTMLElement)) continue;
-      if (child === topEntry?.el || child.contains(topEntry?.el ?? null)) continue;
-      if (child.hasAttribute('inert')) continue;
-      child.setAttribute('inert', '');
-      managedHostBackgroundInert.add(child);
-    }
-  }
+  syncNativeHostBackgroundInert(topEntry?.el, managedHostBackgroundInert);
 }
 
 export function ModalProvider({ children }: Readonly<{ children: React.ReactNode }>) {

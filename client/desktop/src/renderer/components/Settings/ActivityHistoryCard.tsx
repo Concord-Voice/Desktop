@@ -474,10 +474,10 @@ function useActivityHistoryCardController(): ActivityHistoryCardController {
           const refreshed = await refetchAfterConflict(request, priorSettings);
           if (refreshed === null || !isCurrentRequest(request)) return;
           setMutationForOwner(requestOwnerKey, false);
-          if (refreshed.requiredConsent !== null) {
-            setModalForOwner(requestOwnerKey, 'reconsent', null);
-          } else {
+          if (refreshed.requiredConsent === null) {
             setModalForOwner(requestOwnerKey, null, null);
+          } else {
+            setModalForOwner(requestOwnerKey, 'reconsent', null);
           }
           throw new Error('Activity History terms changed. Review the updated disclosure.');
         }
@@ -996,7 +996,7 @@ const ActivityHistoryCardView: React.FC<ControllerProps> = ({ controller }) => {
         />
       )}
 
-      <output className="activity-history-card__live" role="status" aria-live="polite">
+      <output className="activity-history-card__live" aria-live="polite">
         {liveAnnouncementFor(controller)}
       </output>
 

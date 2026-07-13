@@ -369,7 +369,7 @@ function isLoopbackAuthority(authority: string, parsedHostname: string): boolean
 function isIPv4Loopback(hostname: string): boolean {
   const octets = hostname.split('.');
   if (octets.length !== 4 || octets[0] !== '127') return false;
-  return octets.every((octet) => /^(0|[1-9][0-9]{0,2})$/u.test(octet) && Number(octet) <= 255);
+  return octets.every((octet) => /^(0|[1-9]\d{0,2})$/u.test(octet) && Number(octet) <= 255);
 }
 
 function isIPv6Loopback(parsedHostname: string): boolean {
@@ -484,7 +484,7 @@ async function requestError(
 }
 
 function parseRetryAfter(value: string | null): number | null {
-  if (value === null || !/^(0|[1-9][0-9]*)$/u.test(value)) return null;
+  if (value === null || !/^(0|[1-9]\d*)$/u.test(value)) return null;
   const seconds = Number(value);
   return Number.isSafeInteger(seconds) ? seconds : null;
 }

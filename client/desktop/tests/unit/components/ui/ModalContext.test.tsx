@@ -74,6 +74,38 @@ describe('ModalContext', () => {
     expect(result.current.isTopmost('modal-1')).toBe(true);
   });
 
+  it('keeps only the topmost overlay interactive and restores the root when the stack empties', () => {
+    const root = document.createElement('div');
+    root.id = 'root';
+    const outerOverlay = document.createElement('div');
+    const innerOverlay = document.createElement('div');
+    document.body.append(root, outerOverlay, innerOverlay);
+    const provider = renderHook(() => useModalStack(), { wrapper });
+
+    try {
+      act(() => provider.result.current.register('outer', 0, outerOverlay));
+      expect(root).toHaveAttribute('inert');
+      expect(outerOverlay).not.toHaveAttribute('inert');
+      expect(outerOverlay).toHaveStyle({ zIndex: '1000' });
+
+      act(() => provider.result.current.register('inner', 1, innerOverlay));
+      expect(outerOverlay).toHaveAttribute('inert');
+      expect(innerOverlay).not.toHaveAttribute('inert');
+      expect(innerOverlay).toHaveStyle({ zIndex: '1001' });
+
+      act(() => provider.result.current.unregister('inner'));
+      expect(outerOverlay).not.toHaveAttribute('inert');
+
+      act(() => provider.result.current.unregister('outer'));
+      expect(root).not.toHaveAttribute('inert');
+    } finally {
+      provider.unmount();
+      root.remove();
+      outerOverlay.remove();
+      innerOverlay.remove();
+    }
+  });
+
   it('does not clear native-host inert state owned by another provider', () => {
     const firstHost = document.createElement('dialog');
     firstHost.setAttribute('open', '');
