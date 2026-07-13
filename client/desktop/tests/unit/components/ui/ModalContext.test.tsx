@@ -73,4 +73,41 @@ describe('ModalContext', () => {
 
     expect(result.current.isTopmost('modal-1')).toBe(true);
   });
+
+  it('does not clear native-host inert state owned by another provider', () => {
+    const firstHost = document.createElement('dialog');
+    firstHost.setAttribute('open', '');
+    const firstPanel = document.createElement('div');
+    const firstOverlay = document.createElement('div');
+    firstHost.append(firstPanel, firstOverlay);
+
+    const secondHost = document.createElement('dialog');
+    secondHost.setAttribute('open', '');
+    const secondPanel = document.createElement('div');
+    const secondOverlay = document.createElement('div');
+    secondHost.append(secondPanel, secondOverlay);
+    document.body.append(firstHost, secondHost);
+
+    const firstProvider = renderHook(() => useModalStack(), { wrapper });
+    const secondProvider = renderHook(() => useModalStack(), { wrapper });
+
+    try {
+      act(() => firstProvider.result.current.register('first', 0, firstOverlay));
+      expect(firstPanel).toHaveAttribute('inert');
+
+      act(() => secondProvider.result.current.register('second', 0, secondOverlay));
+
+      expect(firstPanel).toHaveAttribute('inert');
+      expect(secondPanel).toHaveAttribute('inert');
+
+      act(() => secondProvider.result.current.unregister('second'));
+      expect(firstPanel).toHaveAttribute('inert');
+      expect(secondPanel).not.toHaveAttribute('inert');
+    } finally {
+      firstProvider.unmount();
+      secondProvider.unmount();
+      firstHost.remove();
+      secondHost.remove();
+    }
+  });
 });
