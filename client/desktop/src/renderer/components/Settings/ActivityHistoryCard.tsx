@@ -435,6 +435,15 @@ function useActivityHistoryCardController(): ActivityHistoryCardController {
     [commitMutationFailure, commitRequestState, isCurrentRequest]
   );
 
+  const requestHeadingFocusAfterReconsent = useCallback(
+    (requestOwnerKey: string, priorSettings: PresenceHistorySettings): void => {
+      if (priorSettings.reconsentRequired) {
+        pendingHeadingFocusOwnerRef.current = requestOwnerKey;
+      }
+    },
+    []
+  );
+
   const enableHistory = useCallback(
     async (
       selection: ActivityHistoryConsentSelection,
@@ -466,9 +475,7 @@ function useActivityHistoryCardController(): ActivityHistoryCardController {
         if (!isCurrentRequest(request)) return;
         commitRequestState(requestOwnerKey, stateForSettings(settings));
         setMutationForOwner(requestOwnerKey, false);
-        if (priorSettings.reconsentRequired) {
-          pendingHeadingFocusOwnerRef.current = requestOwnerKey;
-        }
+        requestHeadingFocusAfterReconsent(requestOwnerKey, priorSettings);
         setModalForOwner(requestOwnerKey, null, null);
         setAnnouncementForOwner(requestOwnerKey, 'Activity History is on.');
       } catch (error) {
@@ -495,6 +502,7 @@ function useActivityHistoryCardController(): ActivityHistoryCardController {
       commitRequestState,
       isCurrentRequest,
       refetchAfterConflict,
+      requestHeadingFocusAfterReconsent,
       setAnnouncementForOwner,
       setModalForOwner,
       setMutationForOwner,
