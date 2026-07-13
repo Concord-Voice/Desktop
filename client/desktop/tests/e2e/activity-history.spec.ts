@@ -668,6 +668,6 @@ test.describe('Activity History lifecycle', () => {
 
     // The browser cannot list rows after the owner row is gone. The 204 proves
     // PostgreSQL accepted DELETE FROM users while the known child existed; the
-    // migration-85 and repository integration tests are the physical cascade oracle.
+    // migration-86 and repository integration tests are the physical cascade oracle.
   });
 });
