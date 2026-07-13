@@ -397,12 +397,12 @@ export default function PresenceHistorySection({ userId }: PresenceHistorySectio
     (reason: InitialLoadReason, preserveConfirmed = false) => {
       if (!userId) return;
       const priorState = feedStateRef.current;
-      const priorConfirmed =
-        priorState.ownerId === userId && priorState.status === 'ready'
-          ? priorState
-          : priorState.ownerId === userId && priorState.status === 'error'
-            ? priorState.confirmed
-            : null;
+      let priorConfirmed: ReadyPresenceHistoryFeedState | null = null;
+      if (priorState.ownerId === userId && priorState.status === 'ready') {
+        priorConfirmed = priorState;
+      } else if (priorState.ownerId === userId && priorState.status === 'error') {
+        priorConfirmed = priorState.confirmed;
+      }
       const confirmed = preserveConfirmed ? priorConfirmed : null;
       initialControllerRef.current?.abort();
       loadMoreControllerRef.current?.abort();
