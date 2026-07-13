@@ -36,6 +36,7 @@ const ServerCapabilitiesSchema = z.object({
 class ClientConfigService {
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private startupTimer: ReturnType<typeof setTimeout> | null = null;
+  private configAbortController: AbortController | null = null;
   private capabilityAbortController: AbortController | null = null;
   private runtimeServerGeneration = 0;
   private spaCheckPromise: Promise<boolean> | null = null;
@@ -126,14 +127,23 @@ class ClientConfigService {
   }
 
   private async fetchClientConfig(): Promise<void> {
+    this.configAbortController?.abort();
+    const controller = new AbortController();
+    this.configAbortController = controller;
+    const generation = this.runtimeServerGeneration;
+
     try {
-      const res = await apiFetch('/api/v1/client/config');
+      const res = await apiFetch('/api/v1/client/config', {
+        signal: controller.signal,
+      });
+      if (!this.isCurrentConfigRequest(controller, generation)) return;
       if (!res.ok) {
         console.warn('[ClientConfig] Fetch failed');
         return;
       }
 
       const data: ServerConfigResponse = await res.json();
+      if (!this.isCurrentConfigRequest(controller, generation)) return;
       // Snapshot the previous config so we can decide whether to log a
       // change. Polling fires every 5 minutes; without this gate the
       // [ClientConfig] Updated config line spammed the console every poll
@@ -182,7 +192,13 @@ class ClientConfigService {
         console.debug('[ClientConfig] Updated config');
       }
     } catch (err) {
-      console.warn('[ClientConfig] Fetch error:', err instanceof Error ? err.message : 'unknown');
+      if (this.isCurrentConfigRequest(controller, generation)) {
+        console.warn('[ClientConfig] Fetch error:', err instanceof Error ? err.message : 'unknown');
+      }
+    } finally {
+      if (this.configAbortController === controller) {
+        this.configAbortController = null;
+      }
     }
   }
 
@@ -228,12 +244,18 @@ class ClientConfigService {
     }
   }
 
-  resetAndRefreshServerCapabilities(): Promise<void> {
+  resetAndRefreshRuntimeServer(): Promise<void> {
+    this.configAbortController?.abort();
+    this.configAbortController = null;
     this.capabilityAbortController?.abort();
     this.capabilityAbortController = null;
     this.runtimeServerGeneration += 1;
-    useClientConfigStore.getState().resetServerCapabilities();
-    return this.refreshServerCapabilities();
+    useClientConfigStore.getState().resetForRuntimeServer();
+    return this.fetch();
+  }
+
+  private isCurrentConfigRequest(controller: AbortController, generation: number): boolean {
+    return this.configAbortController === controller && this.runtimeServerGeneration === generation;
   }
 
   private isCurrentCapabilityRequest(controller: AbortController, generation: number): boolean {
@@ -283,6 +305,8 @@ class ClientConfigService {
       clearInterval(this.pollTimer);
       this.pollTimer = null;
     }
+    this.configAbortController?.abort();
+    this.configAbortController = null;
     this.capabilityAbortController?.abort();
     this.capabilityAbortController = null;
     globalThis.removeEventListener?.('focus', this.focusListener);

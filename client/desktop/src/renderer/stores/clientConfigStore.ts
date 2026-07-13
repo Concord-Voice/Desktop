@@ -48,7 +48,7 @@ interface ClientConfigState extends ClientConfig {
   setConfig: (config: ClientConfig) => void;
   setServerCapabilities: (capabilities: ServerCapabilities | null) => void;
   setActivityHistoryCapability: (capability: ActivityHistoryCapabilityState) => void;
-  resetServerCapabilities: () => void;
+  resetForRuntimeServer: () => void;
 }
 
 export const useClientConfigStore = createStore<ClientConfigState>()((set) => ({
@@ -64,9 +64,16 @@ export const useClientConfigStore = createStore<ClientConfigState>()((set) => ({
   setConfig: (config) => set({ ...config, lastFetchedAt: Date.now() }),
   setServerCapabilities: (serverCapabilities) => set({ serverCapabilities }),
   setActivityHistoryCapability: (activityHistoryCapability) => set({ activityHistoryCapability }),
-  resetServerCapabilities: () =>
+  resetForRuntimeServer: () =>
     set({
+      minVersion: '',
+      featureFlags: {},
+      mediaPlaneUrl: '',
+      turn: { host: '', realm: '' },
+      spaUrl: '',
+      spaIpcContract: 0,
       serverCapabilities: null,
       activityHistoryCapability: { status: 'loading' },
+      lastFetchedAt: null,
     }),
 }));

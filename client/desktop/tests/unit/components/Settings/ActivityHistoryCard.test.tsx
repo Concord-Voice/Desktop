@@ -151,6 +151,9 @@ describe('ActivityHistoryCard', () => {
     expect(
       screen.getByText('Activity History availability could not be confirmed.')
     ).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Activity History availability could not be confirmed.'
+    );
     expect(screen.queryByText('Off')).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Retry availability check' }));
     expect(clientConfigService.refreshServerCapabilities).toHaveBeenCalledTimes(1);

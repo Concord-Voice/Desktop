@@ -117,13 +117,13 @@ const AuthFlow: React.FC = () => {
 
   const handleServerConnect = (url: string) => {
     setRuntimeServerBase(url);
-    void clientConfigService.resetAndRefreshServerCapabilities();
+    void clientConfigService.resetAndRefreshRuntimeServer();
     setStep('hosted-login');
   };
 
   const handleBack = () => {
     resetRuntimeServerBase();
-    void clientConfigService.resetAndRefreshServerCapabilities();
+    void clientConfigService.resetAndRefreshRuntimeServer();
     setStep('connection-select');
   };
 

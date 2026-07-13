@@ -7,10 +7,10 @@ import { API_BASE } from '@/renderer/config';
 import { getApiBase, resetRuntimeServerBase } from '@/renderer/services/runtimeServerBase';
 import { resetAllStores } from '../../../helpers/store-helpers';
 
-const resetAndRefreshServerCapabilitiesMock = vi.hoisted(() => vi.fn(() => Promise.resolve()));
+const resetAndRefreshRuntimeServerMock = vi.hoisted(() => vi.fn(() => Promise.resolve()));
 vi.mock('@/renderer/services/clientConfigService', () => ({
   clientConfigService: {
-    resetAndRefreshServerCapabilities: resetAndRefreshServerCapabilitiesMock,
+    resetAndRefreshRuntimeServer: resetAndRefreshRuntimeServerMock,
   },
 }));
 
@@ -134,15 +134,15 @@ vi.mock('@/renderer/components/Auth/SSOAccountLinkConfirm', () => ({
 import AuthFlow from '@/renderer/components/Auth/AuthFlow';
 
 describe('AuthFlow', () => {
-  const capabilityRefreshBases: string[] = [];
+  const runtimeRefreshBases: string[] = [];
 
   beforeEach(() => {
     resetAllStores();
     resetRuntimeServerBase();
     vi.clearAllMocks();
-    capabilityRefreshBases.length = 0;
-    resetAndRefreshServerCapabilitiesMock.mockImplementation(() => {
-      capabilityRefreshBases.push(getApiBase());
+    runtimeRefreshBases.length = 0;
+    resetAndRefreshRuntimeServerMock.mockImplementation(() => {
+      runtimeRefreshBases.push(getApiBase());
       return Promise.resolve();
     });
   });
@@ -204,7 +204,7 @@ describe('AuthFlow', () => {
     fireEvent.click(screen.getByText('Connect'));
     expect(screen.getByTestId('login')).toBeInTheDocument();
     expect(getApiBase()).toBe('https://my.server.com');
-    expect(capabilityRefreshBases).toEqual(['https://my.server.com']);
+    expect(runtimeRefreshBases).toEqual(['https://my.server.com']);
   });
 
   it('resets the runtime API base when backing out of self-hosted login', () => {
@@ -215,7 +215,7 @@ describe('AuthFlow', () => {
 
     expect(screen.getByTestId('connection-selector')).toBeInTheDocument();
     expect(getApiBase()).toBe(API_BASE);
-    expect(capabilityRefreshBases).toEqual(['https://my.server.com', API_BASE]);
+    expect(runtimeRefreshBases).toEqual(['https://my.server.com', API_BASE]);
   });
 
   it('handles registration success — routes to email-verification', () => {

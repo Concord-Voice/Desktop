@@ -81,7 +81,7 @@ describe('clientConfigStore', () => {
       status: 'supported',
     });
 
-    useClientConfigStore.getState().resetServerCapabilities();
+    useClientConfigStore.getState().resetForRuntimeServer();
 
     expect(useClientConfigStore.getState().serverCapabilities).toBeNull();
     expect(useClientConfigStore.getState().activityHistoryCapability).toEqual({

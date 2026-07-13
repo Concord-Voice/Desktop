@@ -169,7 +169,11 @@ function CapabilityAvailabilityNotice({ staleSupported }: CapabilityAvailability
   }
 
   return (
-    <div className="presence-history__state presence-history__state--error">
+    <div
+      className="presence-history__state presence-history__state--error"
+      role="alert"
+      aria-atomic="true"
+    >
       <p>Activity History availability could not be confirmed.</p>
       <button type="button" onClick={retryCapabilityAvailability}>
         Retry availability check

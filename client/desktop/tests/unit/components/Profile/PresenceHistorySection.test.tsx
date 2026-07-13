@@ -199,6 +199,7 @@ describe('PresenceHistorySection capability states', () => {
     render(<PresenceHistorySection userId={USER_A} />);
 
     expect(screen.getByText(/availability could not be confirmed/i)).toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent(/availability could not be confirmed/i);
     fireEvent.click(screen.getByRole('button', { name: /retry availability check/i }));
 
     await waitFor(() => expect(capabilityRequests).toBe(1));

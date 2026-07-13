@@ -145,7 +145,11 @@ describe('clientConfigService', () => {
 
       await clientConfigService.fetch();
 
-      expect(mockApiFetch).toHaveBeenNthCalledWith(1, '/api/v1/client/config');
+      expect(mockApiFetch).toHaveBeenNthCalledWith(
+        1,
+        '/api/v1/client/config',
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
       expect(mockApiFetch).toHaveBeenNthCalledWith(
         2,
         '/api/v1/server/capabilities',
@@ -329,29 +333,83 @@ describe('clientConfigService', () => {
       });
     });
 
-    it('aborts the old server request and ignores its late response after a server switch', async () => {
-      const oldServer = deferred<Response>();
-      const newServer = deferred<Response>();
-      mockApiFetch.mockReturnValueOnce(oldServer.promise).mockReturnValueOnce(newServer.promise);
+    it('aborts stale config and capabilities and refreshes both after a server switch', async () => {
+      const oldConfig = deferred<Response>();
+      const oldCapabilities = deferred<Response>();
+      const newConfig = deferred<Response>();
+      const newCapabilities = deferred<Response>();
+      mockApiFetch
+        .mockReturnValueOnce(oldConfig.promise)
+        .mockReturnValueOnce(oldCapabilities.promise)
+        .mockReturnValueOnce(newConfig.promise)
+        .mockReturnValueOnce(newCapabilities.promise);
 
-      const oldRefresh = clientConfigService.refreshServerCapabilities();
-      const oldSignal = (mockApiFetch.mock.calls[0]?.[1] as RequestInit | undefined)?.signal;
+      const oldFetch = clientConfigService.fetch();
+      const oldConfigSignal = (mockApiFetch.mock.calls[0]?.[1] as RequestInit | undefined)?.signal;
+      const oldCapabilitySignal = (mockApiFetch.mock.calls[1]?.[1] as RequestInit | undefined)
+        ?.signal;
 
-      const switchedRefresh = clientConfigService.resetAndRefreshServerCapabilities();
-
-      expect(oldSignal?.aborted).toBe(true);
-      expect(useClientConfigStore.getState().activityHistoryCapability).toEqual({
-        status: 'loading',
+      useClientConfigStore.setState({
+        minVersion: '0.2.0',
+        featureFlags: { gifsEnabled: false },
+        mediaPlaneUrl: 'https://old-stored-media.test',
+        turn: { host: 'old-stored-turn.test', realm: 'old' },
+        spaUrl: 'https://old-spa.test',
+        spaIpcContract: 16,
+        lastFetchedAt: 1,
       });
 
-      newServer.resolve(jsonResponse(serverCapabilitiesPayload(true)));
+      const switchedRefresh = clientConfigService.resetAndRefreshRuntimeServer();
+
+      expect(oldConfigSignal?.aborted).toBe(true);
+      expect(oldCapabilitySignal?.aborted).toBe(true);
+      expect(useClientConfigStore.getState()).toMatchObject({
+        minVersion: '',
+        featureFlags: {},
+        mediaPlaneUrl: '',
+        turn: { host: '', realm: '' },
+        spaUrl: '',
+        spaIpcContract: 0,
+        lastFetchedAt: null,
+      });
+      expect(mockApiFetch).toHaveBeenNthCalledWith(
+        3,
+        '/api/v1/client/config',
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
+      expect(mockApiFetch).toHaveBeenNthCalledWith(
+        4,
+        '/api/v1/server/capabilities',
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
+
+      newConfig.resolve(
+        jsonResponse({
+          minVersion: '0.3.0',
+          featureFlags: { gifsEnabled: true },
+          mediaPlaneUrl: 'https://new-media.test',
+          turn: { host: 'new-turn.test', realm: 'new' },
+          spaUrl: '',
+          spaIpcContract: 17,
+        })
+      );
+      newCapabilities.resolve(jsonResponse(serverCapabilitiesPayload(true)));
       await switchedRefresh;
-      expect(useClientConfigStore.getState().activityHistoryCapability).toEqual({
-        status: 'supported',
-      });
 
-      oldServer.resolve(jsonResponse(serverCapabilitiesPayload(false)));
-      await oldRefresh;
+      oldConfig.resolve(
+        jsonResponse({
+          minVersion: '0.2.0',
+          featureFlags: { gifsEnabled: false },
+          mediaPlaneUrl: 'https://old-media.test',
+          turn: { host: 'old-turn.test', realm: 'old' },
+          spaUrl: '',
+          spaIpcContract: 16,
+        })
+      );
+      oldCapabilities.resolve(jsonResponse(serverCapabilitiesPayload(false)));
+      await oldFetch;
+
+      expect(useClientConfigStore.getState().mediaPlaneUrl).toBe('https://new-media.test');
       expect(useClientConfigStore.getState().activityHistoryCapability).toEqual({
         status: 'supported',
       });
@@ -531,7 +589,11 @@ describe('clientConfigService', () => {
       await vi.advanceTimersByTimeAsync(2_000);
       await flushFetchPath();
       expect(mockApiFetch).toHaveBeenCalledTimes(2);
-      expect(mockApiFetch).toHaveBeenNthCalledWith(1, '/api/v1/client/config');
+      expect(mockApiFetch).toHaveBeenNthCalledWith(
+        1,
+        '/api/v1/client/config',
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      );
       expect(mockApiFetch).toHaveBeenNthCalledWith(
         2,
         '/api/v1/server/capabilities',

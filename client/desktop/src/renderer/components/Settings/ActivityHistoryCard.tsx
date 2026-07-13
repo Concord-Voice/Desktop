@@ -718,7 +718,7 @@ const ActivityHistoryAvailability: React.FC<ControllerProps> = ({ controller }) 
       )}
 
       {capabilityUnknown && (
-        <div className="activity-history-card__notice">
+        <div className="activity-history-card__notice" role="alert" aria-atomic="true">
           <p>Activity History availability could not be confirmed.</p>
           <button type="button" className="secondary-button" onClick={controller.retryAvailability}>
             Retry availability check
