@@ -162,7 +162,7 @@ describe('PresenceSettingsSection', () => {
 
     await waitFor(() => expect(overridePuts).toBe(1));
     expect(tierPatches).toBe(0);
-    expect(screen.getByText('Saved Custom Status exceptions.')).toBeInTheDocument();
+    expect(await screen.findByText('Saved Custom Status exceptions.')).toBeInTheDocument();
     expect(overrideBody).toEqual({
       encrypted_data: 'encrypted-exceptions',
       expected_version: 0,
