@@ -170,14 +170,129 @@ describe('PresenceHistorySection capability states', () => {
     expect(screen.getByText(/checking activity history availability/i)).toBeInTheDocument();
   });
 
-  it('hides only after a schema-valid capability response confirms unsupported', () => {
+  it('renders a validated Off feed with activation paused when support is absent', async () => {
     useClientConfigStore
       .getState()
       .setActivityHistoryCapability({ status: 'confirmed-unsupported' });
+    serveHistory(settings(), historyPage());
+
+    render(<PresenceHistorySection userId={USER_A} />);
+
+    expect(await screen.findByText('Activity History is off')).toBeInTheDocument();
+    expect(screen.getByText(/new opt-ins are paused/i)).toBeInTheDocument();
+  });
+
+  it('hides when an old server has no self history routes', async () => {
+    useClientConfigStore
+      .getState()
+      .setActivityHistoryCapability({ status: 'confirmed-unsupported' });
+    server.use(
+      http.get(SETTINGS_ENDPOINT, () => new HttpResponse(null, { status: 404 })),
+      http.get(HISTORY_ENDPOINT, () => new HttpResponse(null, { status: 404 }))
+    );
 
     const { container } = render(<PresenceHistorySection userId={USER_A} />);
 
-    expect(container).toBeEmptyDOMElement();
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+
+  it('shows retry when a current gate-false history route fails transiently', async () => {
+    const user = userEvent.setup();
+    useClientConfigStore
+      .getState()
+      .setActivityHistoryCapability({ status: 'confirmed-unsupported' });
+    server.use(
+      http.get(SETTINGS_ENDPOINT, () => HttpResponse.json(enabledSettings())),
+      http.get(HISTORY_ENDPOINT, () => new HttpResponse(null, { status: 500 }))
+    );
+    render(<PresenceHistorySection userId={USER_A} />);
+
+    expect(await screen.findByText('Activity History could not be loaded.')).toBeInTheDocument();
+    server.use(
+      http.get(HISTORY_ENDPOINT, () =>
+        HttpResponse.json(historyPage([supportedItem('Recovered after retry')]))
+      )
+    );
+    await user.click(screen.getByRole('button', { name: 'Retry loading Activity History' }));
+
+    expect(await screen.findByText('Recovered after retry')).toBeInTheDocument();
+  });
+
+  it('keeps an existing user history feed available during a gate-false drain', async () => {
+    useClientConfigStore
+      .getState()
+      .setActivityHistoryCapability({ status: 'confirmed-unsupported' });
+    serveHistory(enabledSettings(), historyPage([supportedItem('Preserved during the drain')]));
+
+    render(<PresenceHistorySection userId={USER_A} />);
+
+    expect(await screen.findByText('Preserved during the drain')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Activity History' })).toBeInTheDocument();
+    expect(screen.getByText(/new opt-ins are paused/i)).toBeInTheDocument();
+  });
+
+  it('preserves a loaded existing-user feed when a supported instance enters a drain', async () => {
+    serveHistory(enabledSettings(), historyPage([supportedItem('Loaded before the drain')]));
+    render(<PresenceHistorySection userId={USER_A} />);
+
+    expect(await screen.findByText('Loaded before the drain')).toBeInTheDocument();
+    act(() => {
+      useClientConfigStore
+        .getState()
+        .setActivityHistoryCapability({ status: 'confirmed-unsupported' });
+    });
+
+    expect(screen.getByText('Loaded before the drain')).toBeInTheDocument();
+    expect(screen.getByText(/new opt-ins are paused/i)).toBeInTheDocument();
+  });
+
+  it('hides a confirmed feed when a drain probe proves the routes are absent', async () => {
+    let drain = false;
+    server.use(
+      http.get(SETTINGS_ENDPOINT, () =>
+        drain ? new HttpResponse(null, { status: 404 }) : HttpResponse.json(enabledSettings())
+      ),
+      http.get(HISTORY_ENDPOINT, () =>
+        drain
+          ? new HttpResponse(null, { status: 404 })
+          : HttpResponse.json(historyPage([supportedItem('Loaded before route removal')]))
+      )
+    );
+    const { container } = render(<PresenceHistorySection userId={USER_A} />);
+
+    expect(await screen.findByText('Loaded before route removal')).toBeInTheDocument();
+    drain = true;
+    act(() => {
+      useClientConfigStore
+        .getState()
+        .setActivityHistoryCapability({ status: 'confirmed-unsupported' });
+    });
+
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+  });
+
+  it('refetches a drain feed when capability support is activated', async () => {
+    let historyRequests = 0;
+    useClientConfigStore
+      .getState()
+      .setActivityHistoryCapability({ status: 'confirmed-unsupported' });
+    server.use(
+      http.get(SETTINGS_ENDPOINT, () => HttpResponse.json(enabledSettings())),
+      http.get(HISTORY_ENDPOINT, () => {
+        historyRequests += 1;
+        const text = historyRequests === 1 ? 'Loaded during drain' : 'Loaded after activation';
+        return HttpResponse.json(historyPage([supportedItem(text)]));
+      })
+    );
+    render(<PresenceHistorySection userId={USER_A} />);
+
+    expect(await screen.findByText('Loaded during drain')).toBeInTheDocument();
+    act(() => {
+      useClientConfigStore.getState().setActivityHistoryCapability({ status: 'supported' });
+    });
+
+    expect(await screen.findByText('Loaded after activation')).toBeInTheDocument();
+    expect(historyRequests).toBe(2);
   });
 
   it('shows capability errors as unknown and retries capability discovery', async () => {

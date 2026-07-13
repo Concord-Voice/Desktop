@@ -31,6 +31,7 @@ type ActivityHistoryRequestState =
       status: 'error';
       confirmed: PresenceHistorySettings | null;
       message: string;
+      routeMissing: boolean;
     };
 
 interface RequestEnvelope {
@@ -160,6 +161,12 @@ function isConsentConflict(error: unknown): boolean {
   return error instanceof PresenceHistoryRequestError && error.status === 409;
 }
 
+function isMissingHistoryRoute(error: unknown): boolean {
+  return (
+    error instanceof PresenceHistoryRequestError && (error.status === 404 || error.status === 405)
+  );
+}
+
 function isConfirmedOff(settings: PresenceHistorySettings): boolean {
   return (
     !settings.enabled &&
@@ -184,6 +191,7 @@ function useActivityHistoryCardController(): ActivityHistoryCardController {
   const capability = useClientConfigStore((state) => state.activityHistoryCapability);
   const canLoadSettings =
     capability.status === 'supported' ||
+    capability.status === 'confirmed-unsupported' ||
     (capability.status === 'error' && capability.lastConfirmedSupported);
   const ownerKey = userId !== null && sessionId !== null ? `${userId}:${sessionId}` : null;
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -193,6 +201,15 @@ function useActivityHistoryCardController(): ActivityHistoryCardController {
   const ownerLifecycleGenerationRef = useRef(0);
   const pendingHeadingFocusOwnerRef = useRef<string | null>(null);
   const invalidatedConsentEnvelopeRef = useRef<ModalEnvelope | null>(null);
+  const settingsLoadStateRef = useRef<{
+    ownerKey: string | null;
+    capabilityStatus: ActivityHistoryCapabilityState['status'];
+    canLoadSettings: boolean;
+  } | null>(null);
+  const pendingSettingsRefreshRef = useRef<{
+    ownerKey: string;
+    preserveConfirmed: boolean;
+  } | null>(null);
   ownerKeyRef.current = ownerKey;
 
   const initialRequestEnvelope: RequestEnvelope = {
@@ -301,12 +318,14 @@ function useActivityHistoryCardController(): ActivityHistoryCardController {
         const settings = await getPresenceHistorySettings(request.controller.signal);
         if (!isCurrentRequest(request)) return;
         commitRequestState(requestOwnerKey, stateForSettings(settings));
-      } catch {
+      } catch (error) {
         if (!isCurrentRequest(request)) return;
+        const routeMissing = isMissingHistoryRoute(error);
         commitRequestState(requestOwnerKey, {
           status: 'error',
-          confirmed: priorSettings,
+          confirmed: routeMissing ? null : priorSettings,
           message: 'Activity History settings could not be refreshed.',
+          routeMissing,
         });
       }
     },
@@ -350,13 +369,54 @@ function useActivityHistoryCardController(): ActivityHistoryCardController {
       requestControllerRef.current = null;
       requestGenerationRef.current += 1;
       pendingHeadingFocusOwnerRef.current = null;
+      settingsLoadStateRef.current = null;
+      pendingSettingsRefreshRef.current = null;
     };
   }, [ownerKey]);
 
   useEffect(() => {
-    if (ownerKey === null || !canLoadSettings) return;
-    handleSettledPromise(refreshSettings(ownerKey, false));
-  }, [canLoadSettings, ownerKey, refreshSettings]);
+    const previous = settingsLoadStateRef.current;
+    const ownerChanged = previous === null || previous.ownerKey !== ownerKey;
+    const becameLoadable =
+      !ownerChanged && previous !== null && !previous.canLoadSettings && canLoadSettings;
+    const loadableStatusChanged =
+      !ownerChanged &&
+      previous !== null &&
+      previous.canLoadSettings &&
+      canLoadSettings &&
+      previous.capabilityStatus !== capability.status &&
+      (previous.capabilityStatus === 'confirmed-unsupported' ||
+        capability.status === 'confirmed-unsupported');
+
+    settingsLoadStateRef.current = {
+      ownerKey,
+      capabilityStatus: capability.status,
+      canLoadSettings,
+    };
+
+    if (ownerKey === null) {
+      pendingSettingsRefreshRef.current = null;
+      return;
+    }
+
+    if (canLoadSettings && (ownerChanged || becameLoadable || loadableStatusChanged)) {
+      const preserveConfirmed = !ownerChanged;
+      const pending = pendingSettingsRefreshRef.current;
+      pendingSettingsRefreshRef.current = {
+        ownerKey,
+        preserveConfirmed:
+          pending?.ownerKey === ownerKey
+            ? pending.preserveConfirmed && preserveConfirmed
+            : preserveConfirmed,
+      };
+    }
+
+    if (mutationActive || !canLoadSettings) return;
+    const pending = pendingSettingsRefreshRef.current;
+    if (pending === null || pending.ownerKey !== ownerKey) return;
+    pendingSettingsRefreshRef.current = null;
+    handleSettledPromise(refreshSettings(ownerKey, pending.preserveConfirmed));
+  }, [canLoadSettings, capability.status, mutationActive, ownerKey, refreshSettings]);
 
   useEffect(() => {
     if (!consentCapabilityLost || ownerKey === null) return;
@@ -405,10 +465,12 @@ function useActivityHistoryCardController(): ActivityHistoryCardController {
 
   const commitMutationFailure = useCallback(
     (requestOwnerKey: string, priorSettings: PresenceHistorySettings, error: unknown): void => {
+      const routeMissing = isMissingHistoryRoute(error);
       commitRequestState(requestOwnerKey, {
         status: 'error',
-        confirmed: priorSettings,
+        confirmed: routeMissing ? null : priorSettings,
         message: mutationErrorMessage(error),
+        routeMissing,
       });
       setMutationForOwner(requestOwnerKey, false);
     },
@@ -735,6 +797,16 @@ const ActivityHistoryAvailability: React.FC<ControllerProps> = ({ controller }) 
         </div>
       )}
 
+      {capability.status === 'confirmed-unsupported' && (
+        <aside
+          className="activity-history-card__notice"
+          aria-label="Activity History activation paused"
+        >
+          New opt-ins and retention increases are paused. Existing history remains available to
+          view, shorten, disable, or delete.
+        </aside>
+      )}
+
       {!capabilityUnknown &&
         capability.status !== 'loading' &&
         requestState.status === 'loading' && (
@@ -1022,7 +1094,16 @@ const ActivityHistoryCardView: React.FC<ControllerProps> = ({ controller }) => {
 
 const ActivityHistoryCard: React.FC = () => {
   const controller = useActivityHistoryCardController();
-  if (controller.capability.status === 'confirmed-unsupported') return null;
+  if (controller.capability.status === 'confirmed-unsupported') {
+    if (controller.requestState.status === 'loading') return null;
+    if (
+      controller.requestState.status === 'error' &&
+      controller.requestState.confirmed === null &&
+      controller.requestState.routeMissing
+    ) {
+      return null;
+    }
+  }
   return <ActivityHistoryCardView controller={controller} />;
 };
 

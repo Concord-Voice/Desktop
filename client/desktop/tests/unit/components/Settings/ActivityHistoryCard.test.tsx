@@ -135,12 +135,146 @@ describe('ActivityHistoryCard', () => {
     expect(getPresenceHistorySettings).not.toHaveBeenCalled();
   });
 
-  it('hides only after capability support is confirmed absent', () => {
+  it('keeps validated Off settings visible but blocks opt-in when support is absent', async () => {
+    setCapability({ status: 'confirmed-unsupported' });
+    render(<ActivityHistoryCard />);
+
+    await waitFor(() => expect(getPresenceHistorySettings).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText('Off')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Activity History' })).toBeDisabled();
+    expect(screen.getByText(/new opt-ins and retention increases are paused/i)).toBeInTheDocument();
+  });
+
+  it('keeps the card hidden when an old server has no self-settings route', async () => {
+    vi.mocked(getPresenceHistorySettings).mockRejectedValue(
+      new PresenceHistoryRequestError(404, 'not_found', null)
+    );
     setCapability({ status: 'confirmed-unsupported' });
     const { container } = render(<ActivityHistoryCard />);
 
+    await waitFor(() => expect(getPresenceHistorySettings).toHaveBeenCalledTimes(1));
     expect(container).toBeEmptyDOMElement();
-    expect(getPresenceHistorySettings).not.toHaveBeenCalled();
+  });
+
+  it('shows a retry surface for a transient gate-false settings failure', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getPresenceHistorySettings)
+      .mockRejectedValueOnce(new PresenceHistoryRequestError(500, 'internal_error', null))
+      .mockResolvedValueOnce(OFF_SETTINGS);
+    setCapability({ status: 'confirmed-unsupported' });
+    render(<ActivityHistoryCard />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Activity History settings could not be refreshed.'
+    );
+    await user.click(screen.getByRole('button', { name: 'Retry settings' }));
+    expect(await screen.findByText('Off')).toBeInTheDocument();
+  });
+
+  it('keeps existing-user view and deletion controls available during a gate-false drain', async () => {
+    const user = userEvent.setup();
+    vi.mocked(getPresenceHistorySettings).mockResolvedValue(ON_SETTINGS);
+    setCapability({ status: 'confirmed-unsupported' });
+    render(<ActivityHistoryCard />);
+
+    expect(await screen.findByText('On')).toBeInTheDocument();
+    expect(screen.getByText(/new opt-ins and retention increases are paused/i)).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Activity History' })).toBeChecked();
+    expect(
+      within(screen.getByRole('combobox', { name: 'Retention period' })).getByRole('option', {
+        name: '7 days',
+      })
+    ).toBeEnabled();
+    expect(
+      within(screen.getByRole('combobox', { name: 'Retention period' })).getByRole('option', {
+        name: '90 days',
+      })
+    ).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Delete history and turn off' })).toBeEnabled();
+
+    await user.click(screen.getByRole('button', { name: 'View history' }));
+    expect(useSettingsNavStore.getState().focusRequest).toEqual({
+      section: 'account',
+      controlId: 'presence-history-heading',
+    });
+  });
+
+  it('keeps confirmed existing-user controls when a supported instance enters a drain', async () => {
+    vi.mocked(getPresenceHistorySettings).mockResolvedValue(ON_SETTINGS);
+    render(<ActivityHistoryCard />);
+
+    expect(await screen.findByText('On')).toBeInTheDocument();
+    act(() => setCapability({ status: 'confirmed-unsupported' }));
+
+    expect(screen.getByText(/new opt-ins and retention increases are paused/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'View history' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Delete history and turn off' })).toBeEnabled();
+  });
+
+  it('refetches drain settings when capability support is activated', async () => {
+    vi.mocked(getPresenceHistorySettings)
+      .mockResolvedValueOnce(ON_SETTINGS)
+      .mockResolvedValueOnce({ ...ON_SETTINGS, retentionDays: 90 });
+    setCapability({ status: 'confirmed-unsupported' });
+    render(<ActivityHistoryCard />);
+
+    expect(await screen.findByRole('combobox', { name: 'Retention period' })).toHaveValue('30');
+    act(() => setCapability({ status: 'supported' }));
+
+    await waitFor(() =>
+      expect(screen.getByRole('combobox', { name: 'Retention period' })).toHaveValue('90')
+    );
+    expect(getPresenceHistorySettings).toHaveBeenCalledTimes(2);
+  });
+
+  it('defers a capability refetch until an active retention mutation settles', async () => {
+    const user = userEvent.setup();
+    const pendingMutation = deferred<PresenceHistorySettings>();
+    vi.mocked(getPresenceHistorySettings)
+      .mockResolvedValueOnce(ON_SETTINGS)
+      .mockResolvedValueOnce({ ...ON_SETTINGS, retentionDays: 90 });
+    vi.mocked(patchPresenceHistorySettings).mockReturnValue(pendingMutation.promise);
+    render(<ActivityHistoryCard />);
+
+    await user.selectOptions(
+      await screen.findByRole('combobox', { name: 'Retention period' }),
+      '90'
+    );
+    act(() => setCapability({ status: 'confirmed-unsupported' }));
+    expect(getPresenceHistorySettings).toHaveBeenCalledTimes(1);
+
+    pendingMutation.resolve({ ...ON_SETTINGS, retentionDays: 90 });
+    await waitFor(() => expect(getPresenceHistorySettings).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('combobox', { name: 'Retention period' })).toHaveValue('90');
+    expect(screen.getByRole('button', { name: 'Delete history and turn off' })).toBeEnabled();
+  });
+
+  it('hides confirmed settings when a drain probe proves the routes are absent', async () => {
+    vi.mocked(getPresenceHistorySettings)
+      .mockResolvedValueOnce(ON_SETTINGS)
+      .mockRejectedValueOnce(new PresenceHistoryRequestError(404, 'not_found', null));
+    const { container } = render(<ActivityHistoryCard />);
+
+    expect(await screen.findByText('On')).toBeInTheDocument();
+    act(() => setCapability({ status: 'confirmed-unsupported' }));
+
+    await waitFor(() => expect(container).toBeEmptyDOMElement());
+    expect(getPresenceHistorySettings).toHaveBeenCalledTimes(2);
+  });
+
+  it('restarts the initial settings request after StrictMode effect replay', async () => {
+    const signals: AbortSignal[] = [];
+    vi.mocked(getPresenceHistorySettings).mockImplementation((signal) => {
+      signals.push(signal);
+      return Promise.resolve(OFF_SETTINGS);
+    });
+
+    render(<ActivityHistoryCard />, { reactStrictMode: true });
+
+    expect(await screen.findByText('Off')).toBeInTheDocument();
+    expect(getPresenceHistorySettings).toHaveBeenCalledTimes(2);
+    expect(signals[0]?.aborted).toBe(true);
+    expect(signals[1]?.aborted).toBe(false);
   });
 
   it('shows a named capability error and retries discovery without guessing state', async () => {
@@ -465,11 +599,12 @@ describe('ActivityHistoryCard', () => {
     );
   });
 
-  it('keeps deletion separately labeled, uses DELETE, and refetches before success', async () => {
+  it('keeps the Off card and focus after deletion completes during a gate-false drain', async () => {
     const user = userEvent.setup();
     vi.mocked(getPresenceHistorySettings)
       .mockResolvedValueOnce(ON_SETTINGS)
       .mockResolvedValueOnce(OFF_SETTINGS);
+    setCapability({ status: 'confirmed-unsupported' });
     render(<ActivityHistoryCard />);
 
     await user.click(await screen.findByRole('button', { name: 'Delete history and turn off' }));
@@ -483,7 +618,41 @@ describe('ActivityHistoryCard', () => {
     expect(
       await screen.findByText('Activity History was deleted and recording was turned off.')
     ).toBeInTheDocument();
+    expect(screen.getByText('Off')).toBeInTheDocument();
+    expect(screen.getByRole('switch', { name: 'Activity History' })).toBeDisabled();
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Activity History' })).toHaveFocus()
+    );
   });
+
+  it.each(['delete request', 'confirmation readback'] as const)(
+    'hides stale settings when a drain loses its routes during the %s',
+    async (failureStage) => {
+      const user = userEvent.setup();
+      vi.mocked(getPresenceHistorySettings).mockResolvedValueOnce(ON_SETTINGS);
+      if (failureStage === 'delete request') {
+        vi.mocked(deletePresenceHistory).mockRejectedValueOnce(
+          new PresenceHistoryRequestError(404, 'not_found', null)
+        );
+      } else {
+        vi.mocked(getPresenceHistorySettings).mockRejectedValueOnce(
+          new PresenceHistoryRequestError(404, 'not_found', null)
+        );
+      }
+      setCapability({ status: 'confirmed-unsupported' });
+      const { container } = render(<ActivityHistoryCard />);
+
+      await user.click(await screen.findByRole('button', { name: 'Delete history and turn off' }));
+      await user.click(
+        within(screen.getByRole('dialog', { name: 'Delete Activity History?' })).getByRole(
+          'button',
+          { name: 'Delete history and turn off' }
+        )
+      );
+
+      await waitFor(() => expect(container).toBeEmptyDOMElement());
+    }
+  );
 
   it.each([
     { label: 'On', readback: ON_SETTINGS },

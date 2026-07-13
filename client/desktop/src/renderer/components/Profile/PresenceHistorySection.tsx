@@ -11,6 +11,7 @@ import { clientConfigService } from '../../services/clientConfigService';
 import {
   getPresenceHistoryPage,
   getPresenceHistorySettings,
+  PresenceHistoryRequestError,
   type PresenceHistoryItem,
   type PresenceHistorySettings,
 } from '../../services/presenceHistoryService';
@@ -23,20 +24,25 @@ export interface PresenceHistorySectionProps {
 type LoadMoreState = 'idle' | 'loading' | 'error';
 type InitialLoadReason = 'initial' | 'retry';
 
+interface ReadyPresenceHistoryFeedState {
+  ownerId: string;
+  status: 'ready';
+  settings: PresenceHistorySettings;
+  items: PresenceHistoryItem[];
+  nextCursor: string | null;
+  loadMoreState: LoadMoreState;
+}
+
 type PresenceHistoryFeedState =
   | { ownerId: string | null; status: 'idle' }
   | { ownerId: string; status: 'loading' }
-  | { ownerId: string; status: 'error' }
   | {
       ownerId: string;
-      status: 'ready';
-      settings: PresenceHistorySettings;
-      items: PresenceHistoryItem[];
-      nextCursor: string | null;
-      loadMoreState: LoadMoreState;
-    };
-
-type ReadyPresenceHistoryFeedState = Extract<PresenceHistoryFeedState, { status: 'ready' }>;
+      status: 'error';
+      confirmed: ReadyPresenceHistoryFeedState | null;
+      routeMissing: boolean;
+    }
+  | ReadyPresenceHistoryFeedState;
 
 interface OwnerMessage {
   ownerId: string | null;
@@ -142,6 +148,12 @@ function isCurrentRequest(
 
 function retryCapabilityAvailability(): void {
   clientConfigService.refreshServerCapabilities().catch(() => undefined);
+}
+
+function isMissingHistoryRoute(error: unknown): boolean {
+  return (
+    error instanceof PresenceHistoryRequestError && (error.status === 404 || error.status === 405)
+  );
 }
 
 interface CapabilityAvailabilityNoticeProps {
@@ -357,7 +369,10 @@ function ReadyHistoryFeed({ state, onLoadMore }: ReadyHistoryFeedProps) {
 export default function PresenceHistorySection({ userId }: PresenceHistorySectionProps) {
   const capability = useClientConfigStore((state) => state.activityHistoryCapability);
   const staleSupported = capability.status === 'error' && capability.lastConfirmedSupported;
-  const historyCapabilityUsable = capability.status === 'supported' || staleSupported;
+  const historyCapabilityUsable =
+    capability.status === 'supported' ||
+    capability.status === 'confirmed-unsupported' ||
+    staleSupported;
   const ownerRef = useRef<string | null>(userId);
   ownerRef.current = userId;
   const generationRef = useRef(0);
@@ -366,15 +381,29 @@ export default function PresenceHistorySection({ userId }: PresenceHistorySectio
   const [feedState, setFeedState] = useState<PresenceHistoryFeedState>(() =>
     emptyFeedState(userId)
   );
+  const feedStateRef = useRef(feedState);
+  feedStateRef.current = feedState;
   const [announcement, setAnnouncement] = useState<OwnerMessage>({
     ownerId: userId,
     message: '',
   });
   const pendingFocusRef = useRef<{ ownerId: string; elementId: string } | null>(null);
+  const previousCapabilityRef = useRef({
+    status: capability.status,
+    usable: historyCapabilityUsable,
+  });
 
   const startInitialLoad = useCallback(
-    (reason: InitialLoadReason) => {
+    (reason: InitialLoadReason, preserveConfirmed = false) => {
       if (!userId) return;
+      const priorState = feedStateRef.current;
+      const priorConfirmed =
+        priorState.ownerId === userId && priorState.status === 'ready'
+          ? priorState
+          : priorState.ownerId === userId && priorState.status === 'error'
+            ? priorState.confirmed
+            : null;
+      const confirmed = preserveConfirmed ? priorConfirmed : null;
       initialControllerRef.current?.abort();
       loadMoreControllerRef.current?.abort();
       const controller = new AbortController();
@@ -382,7 +411,9 @@ export default function PresenceHistorySection({ userId }: PresenceHistorySectio
       loadMoreControllerRef.current = null;
       const generation = generationRef.current + 1;
       generationRef.current = generation;
-      setFeedState({ ownerId: userId, status: 'loading' });
+      if (confirmed === null) {
+        setFeedState({ ownerId: userId, status: 'loading' });
+      }
       setAnnouncement({ ownerId: userId, message: '' });
       pendingFocusRef.current = null;
 
@@ -405,9 +436,15 @@ export default function PresenceHistorySection({ userId }: PresenceHistorySectio
             message: initialAnnouncement(page.items.length, reason),
           });
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (!isCurrentRequest(controller, generation, userId, generationRef, ownerRef)) return;
-          setFeedState({ ownerId: userId, status: 'error' });
+          const routeMissing = isMissingHistoryRoute(error);
+          setFeedState({
+            ownerId: userId,
+            status: 'error',
+            confirmed: routeMissing ? null : confirmed,
+            routeMissing,
+          });
           setAnnouncement({ ownerId: userId, message: 'Activity History request failed.' });
         })
         .finally(() => {
@@ -439,6 +476,25 @@ export default function PresenceHistorySection({ userId }: PresenceHistorySectio
       loadMoreControllerRef.current?.abort();
     };
   }, [historyCapabilityUsable, startInitialLoad, userId]);
+
+  useEffect(() => {
+    const previous = previousCapabilityRef.current;
+    previousCapabilityRef.current = {
+      status: capability.status,
+      usable: historyCapabilityUsable,
+    };
+    const drainBoundaryCrossed =
+      previous.status === 'confirmed-unsupported' || capability.status === 'confirmed-unsupported';
+    if (
+      previous.usable &&
+      historyCapabilityUsable &&
+      previous.status !== capability.status &&
+      drainBoundaryCrossed &&
+      userId
+    ) {
+      startInitialLoad('initial', true);
+    }
+  }, [capability.status, historyCapabilityUsable, startInitialLoad, userId]);
 
   useEffect(() => {
     const pendingFocus = pendingFocusRef.current;
@@ -519,9 +575,17 @@ export default function PresenceHistorySection({ userId }: PresenceHistorySectio
       });
   }, [feedState, userId]);
 
-  if (capability.status === 'confirmed-unsupported') return null;
-
   const currentState = feedState.ownerId === userId ? feedState : emptyFeedState(userId);
+  if (
+    capability.status === 'confirmed-unsupported' &&
+    (currentState.status === 'idle' ||
+      currentState.status === 'loading' ||
+      (currentState.status === 'error' &&
+        currentState.confirmed === null &&
+        currentState.routeMissing))
+  ) {
+    return null;
+  }
   const currentAnnouncement = announcement.ownerId === userId ? announcement.message : '';
   let body: ReactNode;
 
@@ -534,13 +598,22 @@ export default function PresenceHistorySection({ userId }: PresenceHistorySectio
   } else if (currentState.status === 'loading' || currentState.status === 'idle') {
     body = <p className="presence-history__state">Loading Activity History…</p>;
   } else if (currentState.status === 'error') {
+    const confirmedState = currentState.confirmed;
     body = (
-      <div className="presence-history__state presence-history__state--error">
-        <p>Activity History could not be loaded.</p>
-        <button type="button" onClick={() => startInitialLoad('retry')}>
-          Retry loading Activity History
-        </button>
-      </div>
+      <>
+        <div className="presence-history__state presence-history__state--error" role="alert">
+          <p>Activity History could not be loaded.</p>
+          <button type="button" onClick={() => startInitialLoad('retry', true)}>
+            Retry loading Activity History
+          </button>
+        </div>
+        {confirmedState !== null && (
+          <ReadyHistoryFeed
+            state={{ ...confirmedState, nextCursor: null, loadMoreState: 'idle' }}
+            onLoadMore={loadMore}
+          />
+        )}
+      </>
     );
   } else {
     body = <ReadyHistoryFeed state={currentState} onLoadMore={loadMore} />;
@@ -560,6 +633,16 @@ export default function PresenceHistorySection({ userId }: PresenceHistorySectio
         Activity History
       </h3>
       {staleSupported && <CapabilityAvailabilityNotice staleSupported />}
+      {capability.status === 'confirmed-unsupported' &&
+        (currentState.status === 'ready' ||
+          (currentState.status === 'error' && currentState.confirmed !== null)) && (
+          <aside
+            className="presence-history__state presence-history__state--stale"
+            aria-label="Activity History activation paused"
+          >
+            New opt-ins are paused. Your existing history remains available during this drain.
+          </aside>
+        )}
       {body}
       <output className="presence-history__announcement" aria-live="polite" aria-atomic="true">
         {currentAnnouncement}
