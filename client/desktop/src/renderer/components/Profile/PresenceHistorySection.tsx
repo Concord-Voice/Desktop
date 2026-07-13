@@ -463,7 +463,7 @@ export default function PresenceHistorySection({ userId }: PresenceHistorySectio
     generationRef.current = resetGeneration;
     pendingFocusRef.current = null;
 
-    queueMicrotask(() => {
+    Promise.resolve().then(() => {
       if (generationRef.current !== resetGeneration || ownerRef.current !== userId) return;
       setFeedState(emptyFeedState(userId));
       setAnnouncement({ ownerId: userId, message: '' });
@@ -492,7 +492,7 @@ export default function PresenceHistorySection({ userId }: PresenceHistorySectio
       drainBoundaryCrossed &&
       userId
     ) {
-      startInitialLoad('initial', true);
+      Promise.resolve().then(() => startInitialLoad('initial', true));
     }
   }, [capability.status, historyCapabilityUsable, startInitialLoad, userId]);
 
