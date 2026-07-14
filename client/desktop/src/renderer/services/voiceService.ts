@@ -2008,9 +2008,11 @@ class VoiceService {
     if (!this.isCurrentVideoReproduceSession(expectedSessionGeneration)) {
       return;
     }
-    for (const source of ['camera', 'screen'] as const) {
-      await this.reProduceIfBetterCodec(source, undefined, expectedSessionGeneration);
-    }
+    await Promise.all(
+      (['camera', 'screen'] as const).map((source) =>
+        this.reProduceIfBetterCodec(source, undefined, expectedSessionGeneration)
+      )
+    );
   }
 
   private enqueueVideoReproduce(
@@ -4380,6 +4382,8 @@ class VoiceService {
   private resetRemoteVideoLayeringState(): void {
     this.cameraLayeringEnabled = false;
     this.screenLayeringEnabled = false;
+    this.cameraLayeringReproduceInFlight = false;
+    this.screenLayeringReproduceInFlight = false;
     this.cameraLayeringReproducePending = false;
     this.screenLayeringReproducePending = false;
     this.remoteVideoPressureByUser.clear();
@@ -4399,12 +4403,13 @@ class VoiceService {
     }
 
     this.cameraLayeringReproduceInFlight = true;
-    void this.drainCameraLayeringReproduceQueue();
+    void this.drainCameraLayeringReproduceQueue(this.videoReproduceGeneration);
   }
 
-  private async drainCameraLayeringReproduceQueue(): Promise<void> {
+  private async drainCameraLayeringReproduceQueue(sessionGeneration: number): Promise<void> {
     try {
       do {
+        if (!this.isCurrentVideoReproduceSession(sessionGeneration)) return;
         this.cameraLayeringReproducePending = false;
         try {
           await this.fastReproduceCamera();
@@ -4414,9 +4419,14 @@ class VoiceService {
             errorMessage(err)
           );
         }
-      } while (this.cameraLayeringReproducePending);
+      } while (
+        this.isCurrentVideoReproduceSession(sessionGeneration) &&
+        this.cameraLayeringReproducePending
+      );
     } finally {
-      this.cameraLayeringReproduceInFlight = false;
+      if (sessionGeneration === this.videoReproduceGeneration) {
+        this.cameraLayeringReproduceInFlight = false;
+      }
     }
   }
 
@@ -4435,12 +4445,13 @@ class VoiceService {
     }
 
     this.screenLayeringReproduceInFlight = true;
-    void this.drainScreenLayeringReproduceQueue();
+    void this.drainScreenLayeringReproduceQueue(this.videoReproduceGeneration);
   }
 
-  private async drainScreenLayeringReproduceQueue(): Promise<void> {
+  private async drainScreenLayeringReproduceQueue(sessionGeneration: number): Promise<void> {
     try {
       do {
+        if (!this.isCurrentVideoReproduceSession(sessionGeneration)) return;
         this.screenLayeringReproducePending = false;
         try {
           await this.fastReproduceScreen();
@@ -4450,9 +4461,14 @@ class VoiceService {
             errorMessage(err)
           );
         }
-      } while (this.screenLayeringReproducePending);
+      } while (
+        this.isCurrentVideoReproduceSession(sessionGeneration) &&
+        this.screenLayeringReproducePending
+      );
     } finally {
-      this.screenLayeringReproduceInFlight = false;
+      if (sessionGeneration === this.videoReproduceGeneration) {
+        this.screenLayeringReproduceInFlight = false;
+      }
     }
   }
 
@@ -5563,6 +5579,14 @@ class VoiceService {
     // marker that simply expires. tuneInToScreenShare is idempotent, so even a double
     // trigger cannot double-consume the same producerId.
     const reverseOrderReproduce = !reproduce && this.isUserScreenTunedIn(userId, store);
+    const dominantConsumerId =
+      store.dominantScreenShareId === null
+        ? undefined
+        : store.tunedInScreenShares[store.dominantScreenShareId];
+    const reverseOrderWasDominant =
+      reverseOrderReproduce &&
+      dominantConsumerId !== undefined &&
+      this.consumerMeta.get(dominantConsumerId)?.producerUserId === userId;
     if (reproduce || reverseOrderReproduce) {
       if (reproduce) {
         clearTimeout(reproduce.timer);
@@ -5574,10 +5598,10 @@ class VoiceService {
         await this.tuneInToScreenShare(producerId, userId);
         // setDominantScreenShare no-ops unless the id is currently tuned in, so a
         // cap-exhausted / stale-context bail inside tuneInToScreenShare cannot point
-        // dominance at an un-consumed producer. In the reverse-order case dominance is
-        // preserved when the old producer-closed tunes out and reassigns dominant to a
-        // remaining tuned-in share (which includes this new one).
-        if (reproduce?.wasDominant) {
+        // dominance at an un-consumed producer. Reverse-order delivery reasserts the
+        // old dominant sharer's replacement before producer-closed falls back to an
+        // arbitrary remaining tuned-in share.
+        if (reproduce?.wasDominant || reverseOrderWasDominant) {
           useVoiceStore.getState().setDominantScreenShare(producerId);
         }
       } catch (err) {

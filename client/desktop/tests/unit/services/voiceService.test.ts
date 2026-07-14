@@ -2083,6 +2083,44 @@ describe('VoiceService', () => {
         delete svc.fastReproduceCamera;
       }
     });
+
+    it('does not let a stale camera-layering drain release a successor session latch', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      let releaseStale: (() => void) | undefined;
+      let releaseCurrent: (() => void) | undefined;
+      const stale = new Promise<void>((resolve) => {
+        releaseStale = resolve;
+      });
+      const current = new Promise<void>((resolve) => {
+        releaseCurrent = resolve;
+      });
+      const fastReproduceCamera = vi.fn().mockReturnValueOnce(stale).mockReturnValueOnce(current);
+      svc.fastReproduceCamera = fastReproduceCamera;
+
+      try {
+        svc.scheduleCameraLayeringReproduce();
+        expect(svc.cameraLayeringReproduceInFlight).toBe(true);
+
+        svc.invalidateVideoReproduces();
+        svc.resetRemoteVideoLayeringState();
+        svc.videoReproduceSessionActive = true;
+        svc.scheduleCameraLayeringReproduce();
+        expect(fastReproduceCamera).toHaveBeenCalledTimes(2);
+
+        releaseStale?.();
+        await stale;
+        await Promise.resolve();
+        expect(svc.cameraLayeringReproduceInFlight).toBe(true);
+
+        releaseCurrent?.();
+        await current;
+        await Promise.resolve();
+        expect(svc.cameraLayeringReproduceInFlight).toBe(false);
+      } finally {
+        delete svc.fastReproduceCamera;
+      }
+    });
   });
 
   // ===== Connection state =====

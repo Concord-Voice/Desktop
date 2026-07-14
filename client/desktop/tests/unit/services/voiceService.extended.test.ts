@@ -3716,6 +3716,36 @@ describe('VoiceService Extended', () => {
       expect(svc.producers.has('camera')).toBe(false);
     });
 
+    it('enqueues camera and screen floor changes before awaiting either source', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      let releaseCamera: (() => void) | undefined;
+      const camera = new Promise<void>((resolve) => {
+        releaseCamera = resolve;
+      });
+      const reProduceIfBetterCodec = vi
+        .fn()
+        .mockReturnValueOnce(camera)
+        .mockResolvedValueOnce(undefined);
+      svc.reProduceIfBetterCodec = reProduceIfBetterCodec;
+
+      try {
+        const change = svc.handleCodecFloorChange(null, ['video/vp8']);
+        await Promise.resolve();
+
+        expect(reProduceIfBetterCodec).toHaveBeenCalledTimes(2);
+        expect(reProduceIfBetterCodec.mock.calls.map((call: unknown[]) => call[0])).toEqual([
+          'camera',
+          'screen',
+        ]);
+
+        releaseCamera?.();
+        await change;
+      } finally {
+        delete svc.reProduceIfBetterCodec;
+      }
+    });
+
     it('skips HW codec switch when HW accel disabled', async () => {
       await joinVoiceChannel();
       const svc = voiceService as any;
@@ -3783,7 +3813,8 @@ describe('VoiceService Extended', () => {
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it('supportSvc change reproduces screen once', () => {
+    it('supportSvc change reproduces screen once', async () => {
+      await joinVoiceChannel();
       const svc = voiceService as any;
       svc.producers.set('screen', createMockProducer('scr-1', 'screen'));
       const spy = vi.spyOn(svc, 'fastReproduceScreen').mockResolvedValue(undefined);
