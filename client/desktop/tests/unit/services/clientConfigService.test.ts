@@ -146,7 +146,7 @@ describe('clientConfigService', () => {
       expect(mockApiFetch).toHaveBeenNthCalledWith(
         2,
         '/api/v1/server/capabilities',
-        expect.objectContaining({ signal: expect.any(AbortSignal) })
+        expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) })
       );
       expect(useClientConfigStore.getState().serverCapabilities).toEqual({
         auth: { oauthProviders: ['google'] },
