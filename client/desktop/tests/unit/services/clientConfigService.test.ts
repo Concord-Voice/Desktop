@@ -273,6 +273,13 @@ describe('clientConfigService', () => {
     });
 
     it('rejects an unknown numeric envelope version', async () => {
+      useClientConfigStore.setState({
+        serverCapabilities: {
+          auth: { oauthProviders: [] },
+          features: { chunkedAttachmentUpload: true, attachmentEnvelopeVersions: [2, 3] },
+        },
+        chunkedUploadCapability: { status: 'supported' },
+      });
       mockApiFetch.mockResolvedValueOnce(
         jsonResponse({
           server: { name: 'Concord Voice', version: 'test', instanceType: 'saas' },
