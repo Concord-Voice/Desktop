@@ -255,7 +255,24 @@ describe('clientConfigService', () => {
       });
     });
 
-    it('preserves supported and future numeric envelope versions', async () => {
+    it('accepts the supported numeric envelope versions', async () => {
+      mockApiFetch.mockResolvedValueOnce(
+        jsonResponse({
+          server: { name: 'Concord Voice', version: 'test', instanceType: 'saas' },
+          auth: { oauthProviders: [] },
+          features: { chunkedAttachmentUpload: true, attachmentEnvelopeVersions: [2, 3] },
+        })
+      );
+
+      await clientConfigService.refreshServerCapabilities();
+
+      expect(useClientConfigStore.getState().serverCapabilities?.features).toHaveProperty(
+        'attachmentEnvelopeVersions',
+        [2, 3]
+      );
+    });
+
+    it('rejects an unknown numeric envelope version', async () => {
       mockApiFetch.mockResolvedValueOnce(
         jsonResponse({
           server: { name: 'Concord Voice', version: 'test', instanceType: 'saas' },
@@ -266,10 +283,10 @@ describe('clientConfigService', () => {
 
       await clientConfigService.refreshServerCapabilities();
 
-      expect(useClientConfigStore.getState().serverCapabilities?.features).toHaveProperty(
-        'attachmentEnvelopeVersions',
-        [2, 3, 4]
-      );
+      expect(useClientConfigStore.getState().serverCapabilities).toBeNull();
+      expect(useClientConfigStore.getState().chunkedUploadCapability).toEqual({
+        status: 'error',
+      });
     });
 
     it.each([
