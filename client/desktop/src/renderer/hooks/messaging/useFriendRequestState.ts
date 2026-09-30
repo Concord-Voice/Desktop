@@ -37,7 +37,7 @@ export interface FriendRequestState {
   canSend: boolean;
   status: FriendRequestSendStatus;
   errorMessage: string | null;
-  /** ExampleChat-style relationship label: Friends / Request Pending / Send Friend Request. */
+  /** Relationship label: Friends / Request Pending / Send Friend Request. */
   label: string;
   send: () => Promise<void>;
 }
