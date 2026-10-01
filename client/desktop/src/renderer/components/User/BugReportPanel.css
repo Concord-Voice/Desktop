@@ -253,7 +253,7 @@
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
-  font-family: 'SourceSans', sans-serif;
+  font-family: inherit;
   font-size: calc(13px * var(--font-scale, 1));
   font-weight: 600;
   padding: 7px 14px;
