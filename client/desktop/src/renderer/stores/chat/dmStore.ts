@@ -103,6 +103,11 @@ export interface DMLastMessage {
    */
   username?: string;
   createdAt: string;
+  /**
+   * The key epoch `content` was encrypted under. Decrypt with it, not the
+   * current key: after a group member leaves, the current key is a later epoch.
+   */
+  keyVersion?: number;
   /** Server-authored metadata for plaintext voice-call history rows. */
   type?: string;
   callEventPayload?: CallEventPayload;
@@ -604,19 +609,15 @@ function resolveExpirationReaders(
   for (const { read, resolve } of readers) resolve(result(read));
 }
 
+/** The DMState keys a conversation-list fetch reads and reconciles. */
+type ConversationListKey = 'conversations' | 'activeConversationId' | 'invalidExpirationPolicyIds';
+
 function completeConversationFetch(
   data: unknown,
   journal: ConversationFetchJournal,
   read: ExpirationPolicyReadRequest | undefined,
-  set: (
-    state: Partial<
-      Pick<
-        DMState,
-        'conversations' | 'activeConversationId' | 'error' | 'invalidExpirationPolicyIds'
-      >
-    >
-  ) => void,
-  get: () => Pick<DMState, 'conversations' | 'activeConversationId' | 'invalidExpirationPolicyIds'>
+  set: (state: Partial<Pick<DMState, ConversationListKey | 'error'>>) => void,
+  get: () => Pick<DMState, ConversationListKey>
 ): ExpirationPolicyReadResult | undefined {
   if (!isRecord(data) || !Array.isArray(data.conversations)) {
     set({ error: 'Failed to load conversations' });
@@ -657,11 +658,8 @@ function failedConversationFetch(
 function reconcileConversationResponse(
   rows: Record<string, unknown>[],
   journal: ConversationFetchJournal,
-  currentState: Pick<
-    DMState,
-    'conversations' | 'activeConversationId' | 'invalidExpirationPolicyIds'
-  >
-): Pick<DMState, 'conversations' | 'activeConversationId' | 'invalidExpirationPolicyIds'> {
+  currentState: Pick<DMState, ConversationListKey>
+): Pick<DMState, ConversationListKey> {
   const currentById = new Map(
     currentState.conversations.map((conversation) => [conversation.id, conversation])
   );
@@ -974,9 +972,18 @@ export const useDMStore = wrapStore(
           updateLastMessage: (convId: string, message: DMLastMessage) => {
             markConversationFetchMutation(convId, 'lastMessage');
             set((state) => {
-              const updated = state.conversations.map((c) =>
-                c.id === convId ? { ...c, lastMessage: message } : c
-              );
+              const updated = state.conversations.map((c) => {
+                if (c.id !== convId) return c;
+                // A notify from a server that predates key_version omits it.
+                // For the same ciphertext keep the label already held, or the
+                // preview retries it with the current key after a rotation.
+                const keyVersion =
+                  message.keyVersion ??
+                  (c.lastMessage?.content === message.content
+                    ? c.lastMessage.keyVersion
+                    : undefined);
+                return { ...c, lastMessage: { ...message, keyVersion } };
+              });
               return { conversations: sortConversationsByActivity(updated) };
             });
           },
@@ -1182,6 +1189,10 @@ function mapConversation(c: Record<string, unknown>): DMConversation {
           userId: lastMsg.user_id as string,
           username: lastMsg.username as string | undefined,
           createdAt: lastMsg.created_at as string,
+          keyVersion:
+            Number.isInteger(lastMsg.key_version) && (lastMsg.key_version as number) > 0
+              ? (lastMsg.key_version as number)
+              : undefined,
           type: lastMsg.type as string | undefined,
           callEventPayload: lastMsg.call_event_payload as CallEventPayload | undefined,
           attachmentType: lastMsg.attachment_type as string | undefined,
