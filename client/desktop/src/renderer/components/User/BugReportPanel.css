@@ -230,11 +230,13 @@
 }
 
 .bug-report-screenshot-remove:hover:not(:disabled) {
-  background: var(--danger);
+  /* Literal, not themed: this control sits on an arbitrary image, so its
+   * foreground and background are paired theme-invariantly (contrast guard). */
+  background: rgba(0, 0, 0, 0.85);
 }
 
 .bug-report-screenshot-remove:focus-visible {
-  outline: 2px solid #ffffff;
+  outline: 2px solid var(--state-focused);
   outline-offset: 1px;
 }
 
@@ -267,7 +269,7 @@
 }
 
 .bug-report-attach-btn:focus-visible {
-  outline: 2px solid var(--accent-primary);
+  outline: 2px solid var(--state-focused);
   outline-offset: 2px;
 }
 
