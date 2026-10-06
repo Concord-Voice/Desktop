@@ -25,11 +25,15 @@ interface CollapsibleSectionProps {
  * input task.
  *
  * `onToggle` bubbles in React (unlike the native event): a nested `<details>` — the
- * font-area accordion, the About legal text — invokes this handler with
- * `target !== currentTarget` and must be ignored, or it would overwrite this section's
- * memory with its own state. The handler reads `currentTarget.open`, the DOM truth at
- * dispatch, never `newState`: jsdom supplies no `newState`, and `target.open` is the
- * nested-details bug.
+ * font-area accordion, the About legal text — invokes this handler too, with
+ * `target !== currentTarget`. The handler reads `currentTarget.open`, the DOM truth at
+ * dispatch, never `newState` (jsdom supplies none) and never `target.open` — that read
+ * is the nested-details bug, where the inner element's state overwrites this section's
+ * memory. The `target === currentTarget` guard is defence in depth on top of that read:
+ * with `currentTarget.open` a bubbled toggle would only re-record the section's own
+ * current state, so the guard skips a redundant write and keeps a future `target` read
+ * from ever reaching the store. Mutation testing showed the guard alone is not
+ * observable; the `currentTarget` read is what the nested-toggle test pins.
  */
 const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ id, title, children }) => {
   const open = useSettingsCollapsibleStore((s) => s.openSections[id] === true);
