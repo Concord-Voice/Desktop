@@ -2,8 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ClientBehaviorSection } from '@/renderer/components/Settings/ClientBehaviorSection';
 import { useSettingsStore } from '@/renderer/stores/ui/settingsStore';
+import { resetAllStores } from '../../../../helpers/store-helpers';
 
 beforeEach(() => {
+  resetAllStores();
   vi.clearAllMocks();
   (window as unknown as { electron: unknown }).electron = {
     window: { setClientBehavior: vi.fn().mockResolvedValue(undefined) },
