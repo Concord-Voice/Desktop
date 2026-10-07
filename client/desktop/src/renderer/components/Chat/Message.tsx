@@ -78,6 +78,18 @@ function formatTimestamp(timestamp: string): string {
   });
 }
 
+/**
+ * Puts the caret after the last character when the edit box mounts (#1959). `autoFocus` alone
+ * leaves it at the start, so fixing a typo at the end of a message opened with Up Arrow or Edit
+ * first meant moving the caret. A stable module-level ref callback runs on mount only, never on
+ * a re-render, so it cannot move a caret the user has placed.
+ */
+function placeCaretAtEnd(el: HTMLTextAreaElement | null): void {
+  if (!el) return;
+  const end = el.value.length;
+  el.setSelectionRange(end, end);
+}
+
 /** Inline edit box with save/cancel actions. */
 function MessageEditBox({
   content,
@@ -99,6 +111,7 @@ function MessageEditBox({
       <textarea
         className="message-edit-input"
         aria-label="Edit message"
+        ref={placeCaretAtEnd}
         value={content}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}

@@ -1291,4 +1291,77 @@ describe('Message edit box driven by chatStore.editingMessageId (#1959)', () => 
     expect(useChatStore.getState().editingMessageId).toBeNull();
     expect(document.querySelector('.message-edit-input')).not.toBeInTheDocument();
   });
+
+  describe('caret placement when the edit box opens', () => {
+    const body = 'Fix the typo at the end';
+    const caretRow = { ...mockMessage, id: 'm-caret', content: body };
+
+    it('#1959 opening through the store leaves the caret after the last character', () => {
+      render(
+        <Message message={caretRow} currentUserId="user-1" onEdit={vi.fn()} showAvatar={true} />
+      );
+      // Gate: no edit box yet, and the precondition that 0 and the length differ.
+      expect(screen.queryByRole('textbox', { name: 'Edit message' })).not.toBeInTheDocument();
+      expect(body.length).toBeGreaterThan(0);
+
+      act(() => useChatStore.getState().setEditingMessageId(caretRow.id));
+
+      const textarea = screen.getByRole('textbox', {
+        name: 'Edit message',
+      }) as HTMLTextAreaElement;
+      expect(textarea.value).toBe(body);
+      expect(textarea.selectionStart).toBe(body.length);
+      expect(textarea.selectionEnd).toBe(body.length);
+    });
+
+    it('#1959 opening through the Edit action leaves the caret after the last character', () => {
+      render(
+        <Message message={caretRow} currentUserId="user-1" onEdit={vi.fn()} showAvatar={true} />
+      );
+      expect(screen.queryByRole('textbox', { name: 'Edit message' })).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByLabelText('Message options'));
+      fireEvent.click(screen.getByText('Edit'));
+
+      const textarea = screen.getByRole('textbox', {
+        name: 'Edit message',
+      }) as HTMLTextAreaElement;
+      expect(textarea.value).toBe(body);
+      expect(textarea.selectionStart).toBe(body.length);
+      expect(textarea.selectionEnd).toBe(body.length);
+    });
+
+    it('#1959 a re-render that leaves the value alone does not move a caret the user placed', () => {
+      const onEdit = vi.fn();
+      const { rerender } = render(
+        <Message message={caretRow} currentUserId="user-1" onEdit={onEdit} showAvatar={true} />
+      );
+      act(() => useChatStore.getState().setEditingMessageId(caretRow.id));
+      const textarea = screen.getByRole('textbox', {
+        name: 'Edit message',
+      }) as HTMLTextAreaElement;
+      // Gate: the mount placement happened, so moving the caret below is a real change.
+      expect(textarea.selectionStart).toBe(body.length);
+
+      textarea.setSelectionRange(2, 2);
+      expect(textarea.selectionStart).toBe(2);
+
+      // A new message object with identical content forces the row (and the edit box) to
+      // re-render without touching the textarea's value.
+      rerender(
+        <Message
+          message={{ ...caretRow }}
+          currentUserId="user-1"
+          onEdit={onEdit}
+          showAvatar={true}
+        />
+      );
+
+      const after = screen.getByRole('textbox', { name: 'Edit message' }) as HTMLTextAreaElement;
+      expect(after).toBe(textarea);
+      expect(after.value).toBe(body);
+      expect(after.selectionStart).toBe(2);
+      expect(after.selectionEnd).toBe(2);
+    });
+  });
 });
