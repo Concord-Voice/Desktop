@@ -10,6 +10,7 @@ import { useE2EEStore } from '@/renderer/stores/auth/e2eeStore';
 import { useInviteStore } from '@/renderer/stores/chat/inviteStore';
 import { useVoiceStore } from '@/renderer/stores/voice/voiceStore';
 import { useVideoSettingsStore } from '@/renderer/stores/voice/videoSettingsStore';
+import { usePrivacyStore } from '@/renderer/stores/ui/privacyStore';
 import { useFriendStore } from '@/renderer/stores/chat/friendStore';
 import { extractInviteCodes } from '@/renderer/utils/messaging/inviteUrl';
 import { resetAllStores } from '../../helpers/store-helpers';
@@ -175,6 +176,7 @@ describe('App', () => {
     usePendingRegistrationStore.getState().clearPending();
     useE2EEStore.getState().reset();
     useVoiceStore.getState().reset();
+    useVoiceStore.setState({ joinError: null } as Parameters<typeof useVoiceStore.setState>[0]);
     useVideoSettingsStore.setState({ hdrEncoding: false, systemHdr: false });
     __resetRestoreSessionCalledForTesting();
     Object.assign(globalThis.electron ?? {}, {
@@ -227,6 +229,40 @@ describe('App', () => {
   it('renders auth flow on root path', () => {
     render(<App />);
     expect(screen.getByTestId('auth-flow')).toBeInTheDocument();
+  });
+
+  it('shows a microphone join alert in the primary window', () => {
+    useVoiceStore.setState({
+      joinError: 'Could not start the selected microphone. Choose another mic and try again.',
+    } as Parameters<typeof useVoiceStore.setState>[0]);
+
+    render(<App />);
+    expect(screen.getByRole('alert')).toHaveTextContent(/microphone/i);
+    act(() => screen.getByRole('button', { name: /dismiss/i }).click());
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect((useVoiceStore.getState() as unknown as { joinError?: string | null }).joinError).toBe(
+      null
+    );
+  });
+
+  it('does not show a microphone join alert when there is no join error', () => {
+    render(<App />);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByTestId('auth-flow')).toBeInTheDocument();
+  });
+
+  it('does not show the microphone join alert in a PiP window', () => {
+    useVoiceStore.setState({ joinError: 'Choose another microphone and retry.' } as Parameters<
+      typeof useVoiceStore.setState
+    >[0]);
+    const originalHash = window.location.hash;
+    window.location.hash = '#/pip/pip-test';
+    try {
+      render(<App />);
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    } finally {
+      window.location.hash = originalHash;
+    }
   });
 
   it('renders app container with correct class', () => {
@@ -806,7 +842,7 @@ describe('extractInviteCodes — friend links (#945)', () => {
 });
 
 describe('KLIPY personalization wiring (#1785)', () => {
-  it('applies the personalization preference eagerly when App is imported, with no GIF surface mounted', () => {
+  it('waits for the confirmed preference before enabling a stable GIF ID', () => {
     // App.tsx carries a side-effect `import './services/messaging/gifProvider'`. That
     // module owns the personalization wiring and applies the stored preference
     // on evaluation. Nothing here mounts GifPicker or GifEmbed — and that is
@@ -820,12 +856,13 @@ describe('KLIPY personalization wiring (#1785)', () => {
     // is the only importer left.
     expect(klipyPersonalizationCalls.length).toBeGreaterThan(0);
 
-    // Assert the VALUE, not merely that a call happened. privacyStore defaults
-    // sharePersonalizationWithGifProvider to `true` while klipyClient's class
-    // field defaults to `false` — that asymmetry IS the regression, so the
-    // wiring is only correct if `true` actually reaches the provider. A guard
-    // that checked call-count alone would still pass if the wiring fired with
-    // a hardcoded or wrongly-sourced value.
-    expect(klipyPersonalizationCalls).toContain(true);
+    // The stored preference has not been fetched yet. Its initial ON value is
+    // only a placeholder, so the provider must start without a stable ID.
+    expect(klipyPersonalizationCalls[0]).toBe(false);
+
+    act(() => {
+      usePrivacyStore.setState({ loaded: true });
+    });
+    expect(klipyPersonalizationCalls.at(-1)).toBe(true);
   });
 });

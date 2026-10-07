@@ -296,6 +296,8 @@ import { useUserStore } from '@/renderer/stores/auth/userStore';
 import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { useAudioSettingsStore } from '@/renderer/stores/audio/audioSettingsStore';
 import { useVideoSettingsStore } from '@/renderer/stores/voice/videoSettingsStore';
+import { useDraftSettingsStore } from '@/renderer/stores/ui/draftSettingsStore';
+import { selectCodecCandidate } from '@/renderer/services/voice/voiceCodecSelection';
 import { simulcastLadderBitrates } from '@/renderer/services/voice/cameraLayering';
 import { deferred } from '../../helpers/deferred';
 import {
@@ -2448,19 +2450,6 @@ describe('VoiceService Extended', () => {
   // ===== produceVideo with pre-acquired stream =====
 
   describe('produceAudio', () => {
-    it('uses pre-acquired stream', async () => {
-      const { sendTransport } = await joinVoiceChannel();
-      const svc = voiceService as any;
-      const preStream = createMockMediaStream([{ kind: 'audio', id: 'pre-mic' }]);
-      const newProducer = createMockProducer('new-mic', 'mic');
-      sendTransport.produce.mockResolvedValue(newProducer);
-
-      // Close existing mic first
-      await svc.closeProducer('mic');
-      await svc.produceAudio(undefined, preStream);
-      expect(sendTransport.produce).toHaveBeenCalled();
-    });
-
     it('uses the selected microphone when no explicit deviceId is passed', async () => {
       const { sendTransport } = await joinVoiceChannel();
       const svc = voiceService as any;
@@ -2480,24 +2469,6 @@ describe('VoiceService Extended', () => {
           deviceId: { exact: 'mic-selected' },
         }),
       });
-    });
-
-    it('stops pre-acquired stream when deviceId changes', async () => {
-      const { sendTransport } = await joinVoiceChannel();
-      const svc = voiceService as any;
-      const preStream = createMockMediaStream([{ kind: 'audio' }]);
-      const newStream = createMockMediaStream([{ kind: 'audio', id: 'device-mic' }]);
-      mockGetUserMedia.mockResolvedValue(newStream);
-      const newProducer = createMockProducer('new-mic', 'mic');
-      sendTransport.produce.mockResolvedValue(newProducer);
-
-      await svc.closeProducer('mic');
-      await svc.produceAudio('specific-device-id', preStream);
-
-      // Pre-acquired stream tracks should be stopped
-      for (const t of preStream.getTracks()) {
-        expect(t.stop).toHaveBeenCalled();
-      }
     });
 
     it('noop without transport', async () => {
@@ -2624,6 +2595,7 @@ describe('VoiceService Extended', () => {
 
     it('exitSoloBandwidthSaving does not resume mic when muted', async () => {
       const { micProducer } = await joinVoiceChannel();
+      micProducer.resume.mockClear();
       const svc = voiceService as any;
       svc.producers.set('mic', micProducer);
       micProducer.paused = true;
@@ -3418,27 +3390,6 @@ describe('VoiceService Extended', () => {
     });
   });
 
-  // ===== acquireMicStream =====
-
-  describe('acquireMicStream', () => {
-    it('returns stream on success', async () => {
-      await joinVoiceChannel();
-      const svc = voiceService as any;
-      const stream = createMockMediaStream([{ kind: 'audio' }]);
-      mockGetUserMedia.mockResolvedValue(stream);
-      const result = await svc.acquireMicStream();
-      expect(result).toBe(stream);
-    });
-
-    it('returns null on failure', async () => {
-      await joinVoiceChannel();
-      const svc = voiceService as any;
-      mockGetUserMedia.mockRejectedValue(new Error('denied'));
-      const result = await svc.acquireMicStream();
-      expect(result).toBeNull();
-    });
-  });
-
   // ===== E2EE setupE2EEForChannel =====
 
   describe('setupE2EEForChannel', () => {
@@ -3887,6 +3838,75 @@ describe('VoiceService Extended', () => {
     });
   });
 
+  describe('exact HDR target eligibility', () => {
+    it('falls back from AV1 HDR when its exact software probe is negative', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      useVideoSettingsStore.setState({
+        codecCapabilities: [
+          { mimeType: 'video/AV1', profileId: 'hdr', hwAvailable: false, swAvailable: false },
+          { mimeType: 'video/AV1', profileId: 'sdr', hwAvailable: false, swAvailable: true },
+        ],
+      } as any);
+
+      const selected = selectCodecCandidate({
+        preferred: null,
+        hwAccel: false,
+        hdrEncoding: true,
+        prioritizeHdrCodecs: true,
+        ...svc.codecLookup(),
+      });
+
+      expect(selected?.candidate.key).toBe('video/AV1:sdr');
+      expect(selected?.codec.mimeType).toBe('video/AV1');
+
+      useVideoSettingsStore.setState({
+        codecCapabilities: [
+          { mimeType: 'video/AV1', profileId: 'hdr', hwAvailable: false, swAvailable: true },
+          { mimeType: 'video/AV1', profileId: 'sdr', hwAvailable: false, swAvailable: true },
+        ],
+      } as any);
+      const withExactProbe = selectCodecCandidate({
+        preferred: null,
+        hwAccel: false,
+        hdrEncoding: true,
+        prioritizeHdrCodecs: true,
+        ...svc.codecLookup(),
+      });
+      expect(withExactProbe?.candidate.key).toBe('video/AV1:hdr');
+    });
+
+    it('falls back from VP9 Profile 2 when its exact software probe is negative', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      svc.device.rtpCapabilities = {
+        codecs: [
+          { mimeType: 'video/VP9', kind: 'video', parameters: { 'profile-id': '2' } },
+          { mimeType: 'video/VP9', kind: 'video', parameters: { 'profile-id': '0' } },
+        ],
+      };
+      useVideoSettingsStore.setState({
+        codecCapabilities: [
+          { mimeType: 'video/VP9', profileId: '2', hwAvailable: false, swAvailable: false },
+          { mimeType: 'video/VP9', profileId: '0', hwAvailable: false, swAvailable: true },
+        ],
+      } as any);
+
+      const selected = selectCodecCandidate({
+        preferred: null,
+        hwAccel: false,
+        hdrEncoding: true,
+        prioritizeHdrCodecs: true,
+        ...svc.codecLookup(),
+      });
+
+      expect(selected?.candidate.key).toBe('video/VP9:0');
+      expect(selected?.codec.parameters?.['profile-id']).toBe('0');
+      expect(svc.pickCameraCodec().codec?.parameters?.['profile-id']).toBe('0');
+      expect(svc.pickScreenCodec().codec?.parameters?.['profile-id']).toBe('0');
+    });
+  });
+
   describe('isInCodecFloor', () => {
     it('returns true when floor is null', async () => {
       await joinVoiceChannel();
@@ -4130,6 +4150,41 @@ describe('VoiceService Extended', () => {
         typeof useVideoSettingsStore.getState
       >;
 
+    it('draft Apply sends both HDR changes as one live codec-plan transition', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      useVideoSettingsStore.setState({ hdrEncoding: false, prioritizeHdrCodecs: false });
+      svc.producers.set('camera', createMockProducer('cam-1', 'camera'));
+      svc.producers.set('screen', createMockProducer('scr-1', 'screen'));
+      const cameraSpy = vi.spyOn(svc, 'liveReproduceCamera').mockResolvedValue(undefined);
+      const screenSpy = vi.spyOn(svc, 'fastReproduceScreen').mockResolvedValue(undefined);
+      const videoChanges = vi.fn();
+      const unsubscribe = useVideoSettingsStore.subscribe((next, prev) =>
+        videoChanges(
+          next.hdrEncoding,
+          next.prioritizeHdrCodecs,
+          prev.hdrEncoding,
+          prev.prioritizeHdrCodecs
+        )
+      );
+
+      try {
+        useDraftSettingsStore.getState().initialize();
+        useDraftSettingsStore.getState().setVideoDraft('hdrEncoding', true);
+        useDraftSettingsStore.getState().setVideoDraft('prioritizeHdrCodecs', true);
+        await useDraftSettingsStore.getState().apply();
+
+        expect(videoChanges).toHaveBeenCalledExactlyOnceWith(true, true, false, false);
+        expect(cameraSpy).toHaveBeenCalledTimes(1);
+        expect(screenSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        unsubscribe();
+        useDraftSettingsStore.getState().teardown();
+        cameraSpy.mockRestore();
+        screenSpy.mockRestore();
+      }
+    });
+
     it('preferred codec change reproduces an active screen without a camera', () => {
       const svc = voiceService as any;
       svc.producers.delete('camera');
@@ -4176,6 +4231,121 @@ describe('VoiceService Extended', () => {
       expect(screenSpy).toHaveBeenCalledTimes(1);
       cameraSpy.mockRestore();
       screenSpy.mockRestore();
+    });
+
+    it('HDR priority change reproduces each active video source exactly once', () => {
+      const svc = voiceService as any;
+      svc.producers.set('camera', createMockProducer('cam-1', 'camera'));
+      svc.producers.set('screen', createMockProducer('scr-1', 'screen'));
+      const cameraSpy = vi.spyOn(svc, 'liveReproduceCamera').mockResolvedValue(undefined);
+      const screenSpy = vi.spyOn(svc, 'fastReproduceScreen').mockResolvedValue(undefined);
+
+      svc.handleVideoSettingsChange(
+        flip({ prioritizeHdrCodecs: true }),
+        flip({ prioritizeHdrCodecs: false })
+      );
+
+      expect(cameraSpy).toHaveBeenCalledTimes(1);
+      expect(screenSpy).toHaveBeenCalledTimes(1);
+      cameraSpy.mockRestore();
+      screenSpy.mockRestore();
+    });
+
+    it('reselects active video after an HDR codec probe finishes', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      useVideoSettingsStore.setState({
+        hdrEncoding: true,
+        prioritizeHdrCodecs: true,
+        codecCapabilities: [],
+      });
+      svc.producers.set('camera', createMockProducer('cam-1', 'camera'));
+      svc.producers.set('screen', createMockProducer('scr-1', 'screen'));
+      const cameraSpy = vi.spyOn(svc, 'liveReproduceCamera').mockResolvedValue(undefined);
+      const screenSpy = vi.spyOn(svc, 'fastReproduceScreen').mockResolvedValue(undefined);
+
+      try {
+        useVideoSettingsStore.getState().setCodecCapabilities([
+          {
+            mimeType: 'video/AV1',
+            profileId: 'hdr',
+            profileLabel: 'HDR',
+            hwAvailable: false,
+            swAvailable: true,
+            supported: true,
+            isHdr: true,
+          },
+        ]);
+
+        expect(cameraSpy).toHaveBeenCalledTimes(1);
+        expect(screenSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        cameraSpy.mockRestore();
+        screenSpy.mockRestore();
+      }
+    });
+
+    it('reselects SDR video when its hardware codec probe finishes', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      useVideoSettingsStore.setState({ hdrEncoding: false, codecCapabilities: [] });
+      svc.producers.set('camera', createMockProducer('cam-1', 'camera'));
+      svc.producers.set('screen', createMockProducer('scr-1', 'screen'));
+      const cameraSpy = vi.spyOn(svc, 'liveReproduceCamera').mockResolvedValue(undefined);
+      const screenSpy = vi.spyOn(svc, 'fastReproduceScreen').mockResolvedValue(undefined);
+
+      try {
+        useVideoSettingsStore.getState().setCodecCapabilities([
+          {
+            mimeType: 'video/H264',
+            profileId: '42e01f',
+            profileLabel: 'Baseline',
+            hwAvailable: true,
+            swAvailable: true,
+            supported: true,
+            isHdr: false,
+          },
+        ]);
+
+        expect(cameraSpy).toHaveBeenCalledTimes(1);
+        expect(screenSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        cameraSpy.mockRestore();
+        screenSpy.mockRestore();
+      }
+    });
+
+    it('keeps active streams when a repeat probe leaves the selected codec unchanged', async () => {
+      await joinVoiceChannel();
+      const svc = voiceService as any;
+      const hdrCapability = {
+        mimeType: 'video/AV1',
+        profileId: 'hdr',
+        profileLabel: 'HDR',
+        hwAvailable: false,
+        swAvailable: true,
+        supported: true,
+        isHdr: true,
+      };
+      useVideoSettingsStore.setState({
+        hdrEncoding: true,
+        prioritizeHdrCodecs: true,
+        codecCapabilities: [hdrCapability],
+      });
+      svc.producers.set('camera', createMockProducer('cam-1', 'camera'));
+      svc.producers.set('screen', createMockProducer('scr-1', 'screen'));
+      const cameraSpy = vi.spyOn(svc, 'liveReproduceCamera').mockResolvedValue(undefined);
+      const screenSpy = vi.spyOn(svc, 'fastReproduceScreen').mockResolvedValue(undefined);
+
+      try {
+        useVideoSettingsStore.getState().setCodecCapabilities([{ ...hdrCapability }]);
+
+        expect(cameraSpy).not.toHaveBeenCalled();
+        expect(screenSpy).not.toHaveBeenCalled();
+      } finally {
+        cameraSpy.mockRestore();
+        screenSpy.mockRestore();
+      }
     });
 
     it('coalesces simultaneous codec and layering changes per active source', () => {
