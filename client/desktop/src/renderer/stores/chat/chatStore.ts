@@ -66,6 +66,13 @@ interface ChatState {
   replyingTo: Map<string, MessageWithStatus>;
   setReplyingTo: (channelId: string, message: MessageWithStatus | null) => void;
 
+  // The one message row whose inline edit box is open, or null (#1959). One value rather
+  // than one per context: a user edits one message at a time, and a stale id for a row that
+  // is not mounted is inert. The composer's Up Arrow shortcut and the row's own Edit action
+  // both write it; the row reads `editingMessageId === message.id`.
+  editingMessageId: string | null;
+  setEditingMessageId: (id: string | null) => void;
+
   // Connection
   setConnectionStatus: (
     isConnected: boolean,
@@ -84,6 +91,7 @@ export const useChatStore = wrapStore(
         messagesByChannel: new Map(),
         typingByChannel: new Map(),
         replyingTo: new Map(),
+        editingMessageId: null,
         isConnected: false,
         connectionState: 'disconnected',
         connectionClientId: null,
@@ -168,6 +176,8 @@ export const useChatStore = wrapStore(
 
             return {
               messagesByChannel: new Map(state.messagesByChannel),
+              // A row that leaves the store cannot stay "being edited" (#1959).
+              ...(state.editingMessageId === messageId ? { editingMessageId: null } : {}),
             };
           }),
 
@@ -205,9 +215,14 @@ export const useChatStore = wrapStore(
         // Clear all messages for a channel
         clearMessages: (channelId) =>
           set((state) => {
+            const cleared = state.messagesByChannel.get(channelId) || [];
+            const editingCleared =
+              state.editingMessageId !== null &&
+              cleared.some((m) => m.id === state.editingMessageId);
             state.messagesByChannel.delete(channelId);
             return {
               messagesByChannel: new Map(state.messagesByChannel),
+              ...(editingCleared ? { editingMessageId: null } : {}),
             };
           }),
 
@@ -246,6 +261,11 @@ export const useChatStore = wrapStore(
             }
             return { replyingTo: new Map(state.replyingTo) };
           }),
+
+        // #1959: open (an id) or close (null) the inline edit box of one row. A same-value
+        // write returns `state` so subscribers are not notified.
+        setEditingMessageId: (id) =>
+          set((state) => (state.editingMessageId === id ? state : { editingMessageId: id })),
 
         setTyping: (channelId, userId, isTyping, username) =>
           set((state) => {
@@ -325,6 +345,7 @@ export const useChatStore = wrapStore(
             messagesByChannel: new Map(),
             typingByChannel: new Map(),
             replyingTo: new Map(),
+            editingMessageId: null,
             isConnected: false,
             connectionState: 'disconnected',
             connectionClientId: null,
