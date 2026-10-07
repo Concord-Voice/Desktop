@@ -150,6 +150,57 @@ describe('CollapsibleSection (#2365)', () => {
     expect(details).not.toHaveAttribute('open');
   });
 
+  it('C8 onCollapse fires once per close of THIS section, after the store recorded it (#3635)', async () => {
+    useSettingsCollapsibleStore.setState({ openSections: { x: true } });
+    const onCollapse = vi.fn(() => {
+      // Ordering pin: by the time the callback runs, the memory already says closed.
+      expect(storeOpen('x')).toBe(false);
+    });
+
+    const { container } = render(
+      <CollapsibleSection id="x" title="Section X" onCollapse={onCollapse}>
+        <details data-testid="inner">
+          <summary>Inner</summary>
+          <p>inner body</p>
+        </details>
+      </CollapsibleSection>
+    );
+    const section = detailsFor(container, 'x');
+    const summary = section.querySelector('summary');
+    expect(summary).not.toBeNull();
+
+    // Close by click: one call.
+    act(() => {
+      summary?.click();
+    });
+    expect(section.open).toBe(false);
+    await waitFor(() => expect(onCollapse).toHaveBeenCalledTimes(1));
+
+    // Reopen: the store learns it, the callback does not fire.
+    act(() => {
+      summary?.click();
+    });
+    await waitFor(() => expect(storeOpen('x')).toBe(true));
+    expect(onCollapse).toHaveBeenCalledTimes(1);
+
+    // A nested <details> closing bubbles through the same handler and must not count.
+    const inner = container.querySelector<HTMLDetailsElement>('[data-testid="inner"]');
+    expect(inner).not.toBeNull();
+    if (!inner) return;
+    const innerToggles = vi.fn();
+    inner.addEventListener('toggle', innerToggles);
+    inner.open = true;
+    await waitFor(() => expect(innerToggles).toHaveBeenCalledTimes(1));
+    inner.open = false;
+    await waitFor(() => expect(innerToggles).toHaveBeenCalledTimes(2));
+    expect(onCollapse).toHaveBeenCalledTimes(1);
+    expect(storeOpen('x')).toBe(true);
+
+    // A script-driven close (Collapse all) counts like a click.
+    section.open = false;
+    await waitFor(() => expect(onCollapse).toHaveBeenCalledTimes(2));
+  });
+
   it('C7 every CollapsibleSection id is a unique string literal', () => {
     const root = path.resolve(process.cwd(), 'src/renderer/components/Settings');
     const files = (fs.readdirSync(root, { recursive: true }) as string[])
