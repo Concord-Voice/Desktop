@@ -140,6 +140,9 @@ describe('SettingsPage focus request under StrictMode (#2365)', () => {
     act(() => {
       useSettingsNavStore.getState().requestFocus('accessibility', 'toggle-dyslexic-support');
     });
+    // Positive gate: the request is still pending (the 50ms timer has not fired), so the
+    // null below can only come from the unmount cleanup.
+    expect(useSettingsNavStore.getState().focusRequest).not.toBeNull();
     // close Settings (unmount) BEFORE advancing the 50ms focus timer
     await act(async () => {
       unmount();

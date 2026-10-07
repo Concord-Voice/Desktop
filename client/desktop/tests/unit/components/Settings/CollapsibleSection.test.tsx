@@ -178,9 +178,11 @@ describe('CollapsibleSection (#2365)', () => {
 
   it('C8 onCollapse fires once per close of THIS section, after the store recorded it (#3635)', async () => {
     useSettingsCollapsibleStore.setState({ openSections: { x: true } });
+    // Ordering pin: record what the memory said when the callback ran, and assert on it in
+    // the test body — an `expect` inside a React event handler is not a reliable failure.
+    const storeAtCallback: Array<boolean | undefined> = [];
     const onCollapse = vi.fn(() => {
-      // Ordering pin: by the time the callback runs, the memory already says closed.
-      expect(storeOpen('x')).toBe(false);
+      storeAtCallback.push(storeOpen('x'));
     });
 
     const { container } = render(
@@ -195,12 +197,13 @@ describe('CollapsibleSection (#2365)', () => {
     const summary = section.querySelector('summary');
     expect(summary).not.toBeNull();
 
-    // Close by click: one call.
+    // Close by click: one call, after the store already said closed.
     act(() => {
       summary?.click();
     });
     expect(section.open).toBe(false);
     await waitFor(() => expect(onCollapse).toHaveBeenCalledTimes(1));
+    expect(storeAtCallback).toEqual([false]);
 
     // Reopen: the store learns it, the callback does not fire.
     act(() => {
@@ -225,5 +228,48 @@ describe('CollapsibleSection (#2365)', () => {
     // A script-driven close (Collapse all) counts like a click.
     section.open = false;
     await waitFor(() => expect(onCollapse).toHaveBeenCalledTimes(2));
+  });
+
+  it('C9 a nested <details> toggling under a CLOSED section fires no onCollapse (#3635)', async () => {
+    // This is the case that makes the same-target guard load-bearing: with the section
+    // collapsed, an unguarded handler would read `currentTarget.open === false` for the
+    // INNER toggle and fire onCollapse for a close the user never made.
+    const onCollapse = vi.fn();
+    const { container } = render(
+      <CollapsibleSection id="x" title="Section X" onCollapse={onCollapse}>
+        <details data-testid="inner">
+          <summary>Inner</summary>
+          <p>inner body</p>
+        </details>
+      </CollapsibleSection>
+    );
+    const section = detailsFor(container, 'x');
+    expect(section.open).toBe(false);
+
+    const inner = container.querySelector<HTMLDetailsElement>('[data-testid="inner"]');
+    expect(inner).not.toBeNull();
+    if (!inner) return;
+    const innerToggles = vi.fn();
+    inner.addEventListener('toggle', innerToggles);
+    inner.open = true;
+    await waitFor(() => expect(innerToggles).toHaveBeenCalledTimes(1));
+    inner.open = false;
+    await waitFor(() => expect(innerToggles).toHaveBeenCalledTimes(2));
+
+    // Bare negatives, gated by the two inner toggles above having dispatched.
+    expect(onCollapse).not.toHaveBeenCalled();
+    expect(storeOpen('x')).toBeUndefined();
+    expect(section.open).toBe(false);
+
+    // Positive control: the section's OWN close reaches the callback through the same harness.
+    act(() => {
+      useSettingsCollapsibleStore.getState().setSectionOpen('x', true);
+    });
+    expect(section.open).toBe(true);
+    const summary = section.querySelector('summary');
+    act(() => {
+      summary?.click();
+    });
+    await waitFor(() => expect(onCollapse).toHaveBeenCalledTimes(1));
   });
 });

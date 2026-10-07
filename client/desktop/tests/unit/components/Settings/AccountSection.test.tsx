@@ -49,7 +49,11 @@ describe('AccountSection', () => {
     for (const id of ids) {
       expect(document.getElementById(id), `${id} should be rendered`).not.toBeNull();
     }
-    const open = ids.filter((id) => document.getElementById(id)?.hasAttribute('open'));
+    // Sweep every rendered section, not only the listed ids, so a new section that ships
+    // open is caught too.
+    const open = Array.from(document.querySelectorAll('details.settings-collapsible[open]')).map(
+      (el) => el.id || '(no id)'
+    );
     expect(
       open,
       `expected no Settings section to be open on first visit, but these are open: ${open.join(', ')}`
