@@ -14,6 +14,11 @@ import {
 } from '../../utils/messaging/messageSanitizer';
 import { usePrivacyStore } from '../ui/privacyStore';
 
+export interface EditingMessage {
+  surfaceId: string;
+  messageId: string;
+}
+
 export interface TypingUser {
   userId: string;
   username?: string;
@@ -66,12 +71,17 @@ interface ChatState {
   replyingTo: Map<string, MessageWithStatus>;
   setReplyingTo: (channelId: string, message: MessageWithStatus | null) => void;
 
-  // The one message row whose inline edit box is open, or null (#1959). One value rather
-  // than one per context: a user edits one message at a time, and a stale id for a row that
-  // is not mounted is inert. The composer's Up Arrow shortcut and the row's own Edit action
-  // both write it; the row reads `editingMessageId === message.id`.
-  editingMessageId: string | null;
-  setEditingMessageId: (id: string | null) => void;
+  // The one inline edit that is open, or null (#1959): which chat surface it is in and which
+  // message it edits. The surface matters because two surfaces can be mounted at once and can
+  // show the same channel (see components/Chat/chatSurface.ts); a bare message id opened the
+  // edit box in both. One edit at a time across the app: opening another replaces it. The
+  // composer's Up Arrow shortcut and the row's own Edit actions open it; the row clears it on
+  // save, cancel and unmount, so an abandoned edit does not reopen when the row comes back.
+  editingMessage: EditingMessage | null;
+  setEditingMessage: (surfaceId: string, messageId: string) => void;
+  // Compare-and-clear: clears only when the open edit is in `surfaceId` (and, when given, on
+  // `messageId`), so one row or surface can never close another's edit.
+  clearEditingMessage: (surfaceId: string, messageId?: string) => void;
 
   // Connection
   setConnectionStatus: (
@@ -91,7 +101,7 @@ export const useChatStore = wrapStore(
         messagesByChannel: new Map(),
         typingByChannel: new Map(),
         replyingTo: new Map(),
-        editingMessageId: null,
+        editingMessage: null,
         isConnected: false,
         connectionState: 'disconnected',
         connectionClientId: null,
@@ -177,7 +187,7 @@ export const useChatStore = wrapStore(
             return {
               messagesByChannel: new Map(state.messagesByChannel),
               // A row that leaves the store cannot stay "being edited" (#1959).
-              ...(state.editingMessageId === messageId ? { editingMessageId: null } : {}),
+              ...(state.editingMessage?.messageId === messageId ? { editingMessage: null } : {}),
             };
           }),
 
@@ -216,13 +226,13 @@ export const useChatStore = wrapStore(
         clearMessages: (channelId) =>
           set((state) => {
             const cleared = state.messagesByChannel.get(channelId) || [];
+            const editing = state.editingMessage;
             const editingCleared =
-              state.editingMessageId !== null &&
-              cleared.some((m) => m.id === state.editingMessageId);
+              editing !== null && cleared.some((m) => m.id === editing.messageId);
             state.messagesByChannel.delete(channelId);
             return {
               messagesByChannel: new Map(state.messagesByChannel),
-              ...(editingCleared ? { editingMessageId: null } : {}),
+              ...(editingCleared ? { editingMessage: null } : {}),
             };
           }),
 
@@ -262,10 +272,23 @@ export const useChatStore = wrapStore(
             return { replyingTo: new Map(state.replyingTo) };
           }),
 
-        // #1959: open (an id) or close (null) the inline edit box of one row. A same-value
-        // write returns `state` so subscribers are not notified.
-        setEditingMessageId: (id) =>
-          set((state) => (state.editingMessageId === id ? state : { editingMessageId: id })),
+        // #1959: open one row's inline edit box. A same-value write returns `state` so
+        // subscribers are not notified.
+        setEditingMessage: (surfaceId, messageId) =>
+          set((state) =>
+            state.editingMessage?.surfaceId === surfaceId &&
+            state.editingMessage.messageId === messageId
+              ? state
+              : { editingMessage: { surfaceId, messageId } }
+          ),
+
+        clearEditingMessage: (surfaceId, messageId) =>
+          set((state) => {
+            const editing = state.editingMessage;
+            if (editing?.surfaceId !== surfaceId) return state;
+            if (messageId !== undefined && editing.messageId !== messageId) return state;
+            return { editingMessage: null };
+          }),
 
         setTyping: (channelId, userId, isTyping, username) =>
           set((state) => {
@@ -345,7 +368,7 @@ export const useChatStore = wrapStore(
             messagesByChannel: new Map(),
             typingByChannel: new Map(),
             replyingTo: new Map(),
-            editingMessageId: null,
+            editingMessage: null,
             isConnected: false,
             connectionState: 'disconnected',
             connectionClientId: null,

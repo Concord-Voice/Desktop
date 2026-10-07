@@ -2097,6 +2097,18 @@ describe('DMChatArea — Up Arrow edits the last own message (#1959)', () => {
     });
   });
 
+  // The surface id the owner handed to MessageList must be the id on its root element: that
+  // equality is what ties a row's edit to this panel and no other.
+  function listSurfaceId(container: HTMLElement): string {
+    const passed = capturedMLProps.surfaceId;
+    expect(typeof passed).toBe('string');
+    expect(passed).not.toBe('');
+    expect(
+      container.querySelector('.dm-chat-area-wrapper')?.getAttribute('data-chat-surface')
+    ).toBe(passed);
+    return passed as string;
+  }
+
   const ownMessage = (id: string, createdAt: string) => ({
     id,
     channel_id: 'conv-1',
@@ -2122,15 +2134,18 @@ describe('DMChatArea — Up Arrow edits the last own message (#1959)', () => {
       messagesByChannel: new Map([['conv-1', [olderOwn, newestOwn]]]),
       isConnected: true,
     });
-    render(<DMChatArea selectedThreadId="conv-1" />);
+    const { container } = render(<DMChatArea selectedThreadId="conv-1" />);
 
     // Positive gate: the wiring exists before anything is asserted about its effect.
     expect(capturedMIProps.onEditLastMessage).toEqual(expect.any(Function));
-    expect(useChatStore.getState().editingMessageId).toBeNull();
+    expect(useChatStore.getState().editingMessage).toBeNull();
 
     act(() => (capturedMIProps.onEditLastMessage as () => void)());
 
-    expect(useChatStore.getState().editingMessageId).toBe('own-newest');
+    expect(useChatStore.getState().editingMessage).toEqual({
+      surfaceId: listSurfaceId(container),
+      messageId: 'own-newest',
+    });
   });
 
   it('skips the other participant rows and opens the user own newest message', () => {
@@ -2138,12 +2153,15 @@ describe('DMChatArea — Up Arrow edits the last own message (#1959)', () => {
       messagesByChannel: new Map([['conv-1', [olderOwn, newestOwn, newestFromOther]]]),
       isConnected: true,
     });
-    render(<DMChatArea selectedThreadId="conv-1" />);
+    const { container } = render(<DMChatArea selectedThreadId="conv-1" />);
     expect(capturedMIProps.onEditLastMessage).toEqual(expect.any(Function));
 
     act(() => (capturedMIProps.onEditLastMessage as () => void)());
 
-    expect(useChatStore.getState().editingMessageId).toBe('own-newest');
+    expect(useChatStore.getState().editingMessage).toEqual({
+      surfaceId: listSurfaceId(container),
+      messageId: 'own-newest',
+    });
   });
 
   it('opens nothing when the thread holds no message by the current user', () => {
@@ -2156,6 +2174,6 @@ describe('DMChatArea — Up Arrow edits the last own message (#1959)', () => {
 
     act(() => (capturedMIProps.onEditLastMessage as () => void)());
 
-    expect(useChatStore.getState().editingMessageId).toBeNull();
+    expect(useChatStore.getState().editingMessage).toBeNull();
   });
 });

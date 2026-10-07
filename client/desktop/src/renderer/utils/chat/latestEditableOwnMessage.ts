@@ -1,23 +1,39 @@
 import type { MessageWithStatus } from '../../types/chat';
 
 /**
- * Whether a row can be edited by its author: the same test `Message.tsx` applies before it
- * offers Edit (a delivered row — status absent or `'delivered'` — whose content is readable).
+ * Whether the current user can open this row's inline edit box (#1959). One rule for both
+ * entry points — the composer's Up Arrow shortcut and the row's own Edit actions — so they
+ * cannot disagree about which messages are editable.
+ *
+ * - **Own, ordinary message.** System rows (call events, expiration events) carry the actor's
+ *   `user_id` but are never editable.
+ * - **Server-acknowledged.** A `pending`, `sent` or `failed` row still has a client id.
+ * - **Readable.** `decryptFailed` and `pendingKeys` rows have no plaintext to edit.
+ * - **Has a body.** A live message is inserted as a fail-closed placeholder with `content: ''`
+ *   before its decrypt settles (#1741), and nothing else marks it. Opening an edit there showed
+ *   an empty box over a message the user could not see. Attachments and a GIF arrive with the
+ *   row, so a message that has either is a real message with empty text and stays editable.
+ *
+ * Delete is gated separately (`canModify` in `Message.tsx`): an unreadable own message can
+ * still be deleted.
  */
-function isEditable(message: MessageWithStatus): boolean {
-  const delivered = !message.status || message.status === 'delivered';
-  return delivered && !message.decryptFailed && !message.pendingKeys;
+export function canEditMessage(message: MessageWithStatus, currentUserId: string): boolean {
+  if (!currentUserId || message.user_id !== currentUserId) return false;
+  if (message.type !== undefined && message.type !== 'user') return false;
+  if (message.status !== undefined && message.status !== 'delivered') return false;
+  if (message.decryptFailed || message.pendingKeys) return false;
+  return (
+    message.content !== '' || (message.attachments?.length ?? 0) > 0 || Boolean(message.gif_slug)
+  );
 }
 
 /**
  * The id of the current user's NEWEST message, if that message can be edited (#1959).
  *
- * "Newest" is the last row by this user whose `type` is `'user'` or absent — system rows
- * (expiration events, call events) carry the actor's `user_id` and are never offered for
- * editing. If that newest row is not editable — it is still `pending` right after a send, it
- * failed, or its content is unreadable — the answer is `null`, NOT the next older editable row.
- * Up Arrow means "edit what I just said"; skipping to an earlier message would silently open
- * the wrong one, so the shortcut stays a no-op until the newest row settles.
+ * "Newest" is the last row by this user whose `type` is `'user'` or absent. If that newest row
+ * is not editable (see `canEditMessage`) the answer is `null`, NOT the next older editable row.
+ * Up Arrow means "edit what I just said"; skipping to an earlier message would silently open the
+ * wrong one, so the shortcut stays a no-op until the newest row settles.
  *
  * `messages` is the store's order, oldest first. Only loaded rows are considered: a newest
  * message that pagination has not loaded yields `null`.
@@ -31,7 +47,7 @@ export function latestEditableOwnMessage(
     const message = messages[i];
     if (message.user_id !== currentUserId) continue;
     if (message.type !== undefined && message.type !== 'user') continue;
-    return isEditable(message) ? message.id : null;
+    return canEditMessage(message, currentUserId) ? message.id : null;
   }
   return null;
 }

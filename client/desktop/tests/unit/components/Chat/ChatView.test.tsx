@@ -1134,6 +1134,16 @@ describe('ChatView Up Arrow edits the last own message (#1959)', () => {
     mockGetChannelPins.mockResolvedValue([]);
   });
 
+  // The surface id the owner handed to MessageList must be the id on its root element: that
+  // equality is what ties a row's edit to this panel and no other.
+  function listSurfaceId(container: HTMLElement): string {
+    const passed = capturedMessageListProps.surfaceId;
+    expect(typeof passed).toBe('string');
+    expect(passed).not.toBe('');
+    expect(container.querySelector('.chat-view')?.getAttribute('data-chat-surface')).toBe(passed);
+    return passed as string;
+  }
+
   const olderOwn = { ...mockMessage, id: 'own-older', created_at: '2025-01-01T12:00:00Z' };
   const newestOwn = { ...mockMessage, id: 'own-newest', created_at: '2025-01-01T12:05:00Z' };
   const newestFromOther = {
@@ -1147,15 +1157,18 @@ describe('ChatView Up Arrow edits the last own message (#1959)', () => {
       messagesByChannel: new Map([['channel-1', [olderOwn, newestOwn]]]),
       isConnected: true,
     });
-    render(<ChatView />);
+    const { container } = render(<ChatView />);
 
     // Positive gate: the wiring exists before anything is asserted about its effect.
     expect(capturedMessageInputProps.onEditLastMessage).toEqual(expect.any(Function));
-    expect(useChatStore.getState().editingMessageId).toBeNull();
+    expect(useChatStore.getState().editingMessage).toBeNull();
 
     act(() => capturedMessageInputProps.onEditLastMessage?.());
 
-    expect(useChatStore.getState().editingMessageId).toBe('own-newest');
+    expect(useChatStore.getState().editingMessage).toEqual({
+      surfaceId: listSurfaceId(container),
+      messageId: 'own-newest',
+    });
   });
 
   it('skips other authors rows and opens the user own newest message', () => {
@@ -1163,12 +1176,15 @@ describe('ChatView Up Arrow edits the last own message (#1959)', () => {
       messagesByChannel: new Map([['channel-1', [olderOwn, newestOwn, newestFromOther]]]),
       isConnected: true,
     });
-    render(<ChatView />);
+    const { container } = render(<ChatView />);
     expect(capturedMessageInputProps.onEditLastMessage).toEqual(expect.any(Function));
 
     act(() => capturedMessageInputProps.onEditLastMessage?.());
 
-    expect(useChatStore.getState().editingMessageId).toBe('own-newest');
+    expect(useChatStore.getState().editingMessage).toEqual({
+      surfaceId: listSurfaceId(container),
+      messageId: 'own-newest',
+    });
   });
 
   it('opens nothing when the thread holds no message by the current user', () => {
@@ -1181,6 +1197,6 @@ describe('ChatView Up Arrow edits the last own message (#1959)', () => {
 
     act(() => capturedMessageInputProps.onEditLastMessage?.());
 
-    expect(useChatStore.getState().editingMessageId).toBeNull();
+    expect(useChatStore.getState().editingMessage).toBeNull();
   });
 });

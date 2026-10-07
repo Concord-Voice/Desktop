@@ -1,9 +1,20 @@
-import { latestEditableOwnMessage } from '@/renderer/utils/chat/latestEditableOwnMessage';
+import {
+  canEditMessage,
+  latestEditableOwnMessage,
+} from '@/renderer/utils/chat/latestEditableOwnMessage';
 import type { MessageWithStatus } from '@/renderer/types/chat';
+import type { AttachmentSummary } from '@/renderer/types/chat';
 import { mockMessage } from '../../../mocks/fixtures';
 
 const ME = 'user-me';
 const OTHER = 'user-other';
+
+const attachment: AttachmentSummary = {
+  id: 'att-1',
+  file_type: 'file',
+  mime_type: 'application/pdf',
+  file_size: 1024,
+};
 
 let seq = 0;
 function row(overrides: Partial<MessageWithStatus> & { id: string }): MessageWithStatus {
@@ -16,6 +27,51 @@ function row(overrides: Partial<MessageWithStatus> & { id: string }): MessageWit
     ...overrides,
   };
 }
+
+describe('canEditMessage (#1959)', () => {
+  beforeEach(() => {
+    seq = 0;
+  });
+
+  it.each<[string, Partial<MessageWithStatus>, string, boolean]>([
+    ['own delivered text message', {}, ME, true],
+    ['own message with an absent status', { status: undefined }, ME, true],
+    ['own message with type "user"', { type: 'user' }, ME, true],
+    ['own message with an absent type', { type: undefined }, ME, true],
+    ['message by another author', { user_id: OTHER }, ME, false],
+    ['empty current user id, even on an orphan row', { user_id: '' }, '', false],
+    ['own call_event system row', { type: 'call_event' }, ME, false],
+    ['own expiration_event system row', { type: 'expiration_event' }, ME, false],
+    ['own pending message', { status: 'pending' }, ME, false],
+    ['own sent (unacknowledged) message', { status: 'sent' }, ME, false],
+    ['own failed message', { status: 'failed' }, ME, false],
+    ['own message that failed to decrypt', { decryptFailed: true }, ME, false],
+    ['own message awaiting keys', { pendingKeys: true }, ME, false],
+    [
+      'the #1741 fail-closed decrypt placeholder (empty content, nothing else)',
+      {
+        content: '',
+        decryptFailed: false,
+        pendingKeys: false,
+        status: undefined,
+        attachments: undefined,
+        gif_slug: undefined,
+      },
+      ME,
+      false,
+    ],
+    [
+      'the same placeholder shape with an empty attachments list',
+      { content: '', attachments: [] },
+      ME,
+      false,
+    ],
+    ['empty text with an attachment', { content: '', attachments: [attachment] }, ME, true],
+    ['empty text with a gif slug', { content: '', gif_slug: 'happy-cat-7' }, ME, true],
+  ])('%s -> %s', (_label, overrides, currentUserId, expected) => {
+    expect(canEditMessage(row({ id: 'm', ...overrides }), currentUserId)).toBe(expected);
+  });
+});
 
 describe('latestEditableOwnMessage (#1959)', () => {
   beforeEach(() => {
@@ -75,6 +131,20 @@ describe('latestEditableOwnMessage (#1959)', () => {
     it('newest own row with pendingKeys returns null', () => {
       const messages = [older(), row({ id: 'newest', pendingKeys: true })];
       expect(latestEditableOwnMessage(messages, ME)).toBeNull();
+    });
+
+    it('newest own row that is the empty decrypt placeholder returns null, not the older delivered row', () => {
+      const placeholder = row({
+        id: 'newest',
+        content: '',
+        decryptFailed: false,
+        pendingKeys: false,
+        status: undefined,
+      });
+      expect(canEditMessage(placeholder, ME)).toBe(false);
+      expect(latestEditableOwnMessage([older()], ME)).toBe('older-editable');
+
+      expect(latestEditableOwnMessage([older(), placeholder], ME)).toBeNull();
     });
 
     it('a non-editable newest own row still wins over an other user later row (#1959)', () => {
