@@ -5,6 +5,8 @@ interface CollapsibleSectionProps {
   id: string;
   title: string;
   children: React.ReactNode;
+  /** Called after this section closes, by click, Collapse all or a script write (#3635). */
+  onCollapse?: () => void;
 }
 
 /**
@@ -34,17 +36,30 @@ interface CollapsibleSectionProps {
  * current state, so the guard skips a redundant write and keeps a future `target` read
  * from ever reaching the store. Mutation testing showed the guard alone is not
  * observable; the `currentTarget` read is what the nested-toggle test pins.
+ *
+ * `onCollapse` (#3635) rides the same handler: it fires once the store has recorded a
+ * close of THIS section, so the Audio and Video Configuration sections can stop a
+ * running device test. The guard above is what keeps a nested `<details>` closing from
+ * stopping it, and the store write comes first so a callback that throws cannot leave
+ * the memory stale.
  */
-const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({ id, title, children }) => {
+const CollapsibleSection: React.FC<CollapsibleSectionProps> = ({
+  id,
+  title,
+  children,
+  onCollapse,
+}) => {
   const open = useSettingsCollapsibleStore((s) => s.openSections[id] === true);
   const setSectionOpen = useSettingsCollapsibleStore((s) => s.setSectionOpen);
 
   const handleToggle = useCallback(
     (event: React.SyntheticEvent<HTMLDetailsElement>) => {
       if (event.target !== event.currentTarget) return;
-      setSectionOpen(id, event.currentTarget.open);
+      const isOpen = event.currentTarget.open;
+      setSectionOpen(id, isOpen);
+      if (!isOpen) onCollapse?.();
     },
-    [id, setSectionOpen]
+    [id, setSectionOpen, onCollapse]
   );
 
   return (
