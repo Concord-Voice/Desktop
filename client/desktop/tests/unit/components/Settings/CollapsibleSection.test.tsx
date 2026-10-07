@@ -150,6 +150,32 @@ describe('CollapsibleSection (#2365)', () => {
     expect(details).not.toHaveAttribute('open');
   });
 
+  it('C7 every CollapsibleSection id is a unique string literal', () => {
+    const root = path.resolve(process.cwd(), 'src/renderer/components/Settings');
+    const files = (fs.readdirSync(root, { recursive: true }) as string[])
+      .filter((f) => f.endsWith('.tsx') && !/\.test\.tsx$/.test(f))
+      .map((f) => path.join(root, f));
+    expect(files.length).toBeGreaterThan(0);
+
+    let usages = 0;
+    const literalIds: string[] = [];
+    for (const file of files) {
+      const source = fs.readFileSync(file, 'utf8');
+      usages += [...source.matchAll(/<CollapsibleSection\s/g)].length;
+      for (const match of source.matchAll(/<CollapsibleSection\s+id="([^"]+)"/g)) {
+        literalIds.push(match[1]);
+      }
+    }
+
+    // Positive gate: the scan found real call sites, so equal counts are not 0 === 0.
+    expect(usages).toBeGreaterThan(0);
+    // A dynamic `id={...}` (or any non-literal first prop) would make these differ.
+    expect(literalIds).toHaveLength(usages);
+    // A duplicate id would make two sections share one remembered state.
+    const duplicates = literalIds.filter((id, i) => literalIds.indexOf(id) !== i);
+    expect(duplicates).toEqual([]);
+  });
+
   it('C8 onCollapse fires once per close of THIS section, after the store recorded it (#3635)', async () => {
     useSettingsCollapsibleStore.setState({ openSections: { x: true } });
     const onCollapse = vi.fn(() => {
@@ -199,31 +225,5 @@ describe('CollapsibleSection (#2365)', () => {
     // A script-driven close (Collapse all) counts like a click.
     section.open = false;
     await waitFor(() => expect(onCollapse).toHaveBeenCalledTimes(2));
-  });
-
-  it('C7 every CollapsibleSection id is a unique string literal', () => {
-    const root = path.resolve(process.cwd(), 'src/renderer/components/Settings');
-    const files = (fs.readdirSync(root, { recursive: true }) as string[])
-      .filter((f) => f.endsWith('.tsx') && !/\.test\.tsx$/.test(f))
-      .map((f) => path.join(root, f));
-    expect(files.length).toBeGreaterThan(0);
-
-    let usages = 0;
-    const literalIds: string[] = [];
-    for (const file of files) {
-      const source = fs.readFileSync(file, 'utf8');
-      usages += [...source.matchAll(/<CollapsibleSection\s/g)].length;
-      for (const match of source.matchAll(/<CollapsibleSection\s+id="([^"]+)"/g)) {
-        literalIds.push(match[1]);
-      }
-    }
-
-    // Positive gate: the scan found real call sites, so equal counts are not 0 === 0.
-    expect(usages).toBeGreaterThan(0);
-    // A dynamic `id={...}` (or any non-literal first prop) would make these differ.
-    expect(literalIds).toHaveLength(usages);
-    // A duplicate id would make two sections share one remembered state.
-    const duplicates = literalIds.filter((id, i) => literalIds.indexOf(id) !== i);
-    expect(duplicates).toEqual([]);
   });
 });
