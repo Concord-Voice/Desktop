@@ -10,6 +10,7 @@ import { usePrivacyStore } from '../../stores/ui/privacyStore';
 import { useTTSSettingsStore } from '../../stores/audio/ttsSettingsStore';
 import { useMessageFetch } from '../../hooks/messaging/useMessageFetch';
 import { useReadMarker } from '../../hooks/messaging/useReadMarker';
+import { useEditLastMessage } from '../../hooks/messaging/useEditLastMessage';
 import { apiFetch } from '../../services/system/apiClient';
 import { useChatController } from '../../hooks/messaging/useChatController';
 import { useVoiceTextChatTarget } from '../../hooks/voice/useVoiceTextChatTarget';
@@ -114,6 +115,7 @@ const VoiceTextChat: React.FC = () => {
   );
 
   const currentUserId = user?.id || '';
+  const editLastMessage = useEditLastMessage(messages, currentUserId);
 
   // Advance the read marker while the panel is open (#3289): a message read
   // as it arrives here. Same shape as ChatView and DMChatArea: debounced,
@@ -229,6 +231,7 @@ const VoiceTextChat: React.FC = () => {
             placeholder={`Message ${targetName} text chat...`}
             replyingTo={replyingTo}
             onCancelReply={cancelReply}
+            onEditLastMessage={editLastMessage}
           />
         </div>
       )}

@@ -13,6 +13,7 @@ import { errorMessage } from '../../utils/runtime/redactError';
 import { useMessageFetch } from '../../hooks/messaging/useMessageFetch';
 import { useChatController } from '../../hooks/messaging/useChatController';
 import { useReadMarker } from '../../hooks/messaging/useReadMarker';
+import { useEditLastMessage } from '../../hooks/messaging/useEditLastMessage';
 import { apiFetch, safeJson } from '../../services/system/apiClient';
 import { useVoiceStore } from '../../stores/voice/voiceStore';
 import { voiceService } from '../../services/voice/voiceService';
@@ -318,6 +319,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId, onRequestRemo
     selectedThreadId,
     { type: 'dm', onFetchComplete: handleFetchComplete }
   );
+  const editLastMessage = useEditLastMessage(messages, currentUserId);
 
   // Advance the read marker while the thread stays open (#2006), so a message
   // read as it arrives doesn't come back as unread after a refresh —
@@ -573,6 +575,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId, onRequestRemo
               conversationId={selectedThreadId}
               replyingTo={replyingTo}
               onCancelReply={cancelReply}
+              onEditLastMessage={editLastMessage}
               expirationClause={expirationClause(expiration.policy, expiration.policyState)}
             />
           </div>

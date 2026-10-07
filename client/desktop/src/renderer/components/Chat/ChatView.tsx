@@ -16,6 +16,7 @@ import { errorMessage } from '../../utils/runtime/redactError';
 import { useMessageFetch } from '../../hooks/messaging/useMessageFetch';
 import { useChatController } from '../../hooks/messaging/useChatController';
 import { useReadMarker } from '../../hooks/messaging/useReadMarker';
+import { useEditLastMessage } from '../../hooks/messaging/useEditLastMessage';
 import { useUnreadStore } from '../../stores/chat/unreadStore';
 import { apiFetch } from '../../services/system/apiClient';
 import { useServerStore } from '../../stores/chat/serverStore';
@@ -63,6 +64,7 @@ const ChatView: React.FC = () => {
   // Active channel info
   const activeChannel = channels.find((c) => c.id === activeChannelId);
   const currentUserId = user?.id || '';
+  const editLastMessage = useEditLastMessage(messages, currentUserId);
   const headerHover = useHoverIntent();
   const expirationScope =
     activeChannelId && activeChannel?.type === 'text'
@@ -414,6 +416,7 @@ const ChatView: React.FC = () => {
           channelId={activeChannelId || undefined}
           replyingTo={replyingTo}
           onCancelReply={cancelReply}
+          onEditLastMessage={editLastMessage}
           expirationClause={expirationClause(expiration.policy, expiration.policyState)}
         />
       </div>

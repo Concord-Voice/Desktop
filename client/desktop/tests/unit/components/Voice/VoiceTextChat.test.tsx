@@ -6,7 +6,8 @@ import { useChannelStore } from '@/renderer/stores/chat/channelStore';
 import { useUserStore } from '@/renderer/stores/auth/userStore';
 import { useDMStore } from '@/renderer/stores/chat/dmStore';
 import { usePrivacyStore } from '@/renderer/stores/ui/privacyStore';
-import { mockUser } from '../../../mocks/fixtures';
+import { mockUser, mockMessage, mockMessage2 } from '../../../mocks/fixtures';
+import { useChatStore } from '@/renderer/stores/chat/chatStore';
 import { vi } from 'vitest';
 
 // ── Hooks mocks ──────────────────────────────────────────────────────────────
@@ -619,5 +620,70 @@ describe('VoiceTextChat — DM call', () => {
     render(<VoiceTextChat />);
     expect(screen.getByText(/All DMs have been disabled/)).toBeInTheDocument();
     expect(screen.queryByTestId('message-input')).not.toBeInTheDocument();
+  });
+});
+
+describe('VoiceTextChat — Up Arrow edits the last own message (#1959)', () => {
+  // A sibling describe does not inherit the outer beforeEach, so seed what the panel needs here.
+  beforeEach(() => {
+    resetAllStores();
+    vi.clearAllMocks();
+    capturedMessageListProps = {};
+    capturedMessageInputProps = {};
+    useVoiceStore.setState({
+      activeChannelId: VOICE_CHANNEL_ID,
+      voiceTextChatLayout: 'horizontal',
+    });
+    useChannelStore.setState({ channels: [linkedTextChannel] });
+    useUserStore.setState({ user: mockUser });
+  });
+
+  const olderOwn = { ...mockMessage, id: 'own-older', channel_id: TEXT_CHANNEL_ID };
+  const newestOwn = { ...mockMessage, id: 'own-newest', channel_id: TEXT_CHANNEL_ID };
+  const newestFromOther = { ...mockMessage2, id: 'other-newest', channel_id: TEXT_CHANNEL_ID };
+
+  async function serveMessages(messages: Array<typeof mockMessage>) {
+    const { useMessageFetch } = await import('@/renderer/hooks/messaging/useMessageFetch');
+    (useMessageFetch as ReturnType<typeof vi.fn>).mockReturnValue({
+      messages,
+      isLoading: false,
+      hasMore: false,
+      error: null,
+      handleLoadMore: vi.fn(),
+      isHistoryReady: true,
+    });
+  }
+
+  it('hands the composer a callback that opens the newest own message for editing', async () => {
+    await serveMessages([olderOwn, newestOwn]);
+    render(<VoiceTextChat />);
+
+    // Positive gate: the wiring exists before anything is asserted about its effect.
+    expect(capturedMessageInputProps.onEditLastMessage).toEqual(expect.any(Function));
+    expect(useChatStore.getState().editingMessageId).toBeNull();
+
+    act(() => (capturedMessageInputProps.onEditLastMessage as () => void)());
+
+    expect(useChatStore.getState().editingMessageId).toBe('own-newest');
+  });
+
+  it('skips other authors rows and opens the user own newest message', async () => {
+    await serveMessages([olderOwn, newestOwn, newestFromOther]);
+    render(<VoiceTextChat />);
+    expect(capturedMessageInputProps.onEditLastMessage).toEqual(expect.any(Function));
+
+    act(() => (capturedMessageInputProps.onEditLastMessage as () => void)());
+
+    expect(useChatStore.getState().editingMessageId).toBe('own-newest');
+  });
+
+  it('opens nothing when the thread holds no message by the current user', async () => {
+    await serveMessages([newestFromOther]);
+    render(<VoiceTextChat />);
+    expect(capturedMessageInputProps.onEditLastMessage).toEqual(expect.any(Function));
+
+    act(() => (capturedMessageInputProps.onEditLastMessage as () => void)());
+
+    expect(useChatStore.getState().editingMessageId).toBeNull();
   });
 });
