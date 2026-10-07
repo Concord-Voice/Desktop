@@ -1175,3 +1175,120 @@ describe('Message', () => {
     expect(screen.queryByText(/STALE_OR_INVALID_CONTENT/)).not.toBeInTheDocument();
   });
 });
+
+// ── #1959: store-driven edit box and focus return ──
+import { act } from '@testing-library/react';
+import { useChatStore } from '@/renderer/stores/chat/chatStore';
+
+describe('Message edit box driven by chatStore.editingMessageId (#1959)', () => {
+  // This describe is a sibling of `describe('Message')`, so that block's beforeEach does not run
+  // here: reset explicitly or an open edit leaks between cases.
+  beforeEach(() => {
+    resetAllStores();
+    useMemberStore.getState().addMember(mockMember);
+  });
+
+  const rowOne = { ...mockMessage, id: 'm-1', content: 'First message body' };
+  const rowTwo = { ...mockMessage, id: 'm-2', content: 'Second message body' };
+
+  const renderRows = (onEdit = vi.fn()) => {
+    render(
+      <>
+        <Message message={rowOne} currentUserId="user-1" onEdit={onEdit} showAvatar={true} />
+        <Message message={rowTwo} currentUserId="user-1" onEdit={onEdit} showAvatar={true} />
+        <textarea className="message-input-textarea" />
+      </>
+    );
+    return onEdit;
+  };
+
+  const composer = () => document.querySelector('.message-input-textarea') as HTMLTextAreaElement;
+
+  it('#1959 opens exactly the targeted row when the store names it', () => {
+    renderRows();
+    // Gate: nothing is open before the store is written.
+    expect(document.querySelectorAll('.message-edit-input')).toHaveLength(0);
+
+    act(() => useChatStore.getState().setEditingMessageId('m-2'));
+
+    const boxes = document.querySelectorAll<HTMLTextAreaElement>('.message-edit-input');
+    expect(boxes).toHaveLength(1);
+    expect(boxes[0].value).toBe('Second message body');
+    expect(boxes[0].value).not.toBe('First message body');
+  });
+
+  it('#1959 the options-menu Edit action writes the store and opens the box', () => {
+    render(
+      <Message message={mockMessage} currentUserId="user-1" onEdit={vi.fn()} showAvatar={true} />
+    );
+    expect(useChatStore.getState().editingMessageId).toBeNull();
+    fireEvent.click(screen.getByLabelText('Message options'));
+    fireEvent.click(screen.getByText('Edit'));
+    expect(useChatStore.getState().editingMessageId).toBe(mockMessage.id);
+    expect(document.querySelector('.message-edit-input')).toBeInTheDocument();
+  });
+
+  it('#1959 Escape clears the store and returns focus to the composer', () => {
+    renderRows();
+    act(() => useChatStore.getState().setEditingMessageId('m-2'));
+    const textarea = screen.getByRole('textbox', { name: 'Edit message' });
+    expect(textarea).toHaveFocus();
+
+    fireEvent.keyDown(textarea, { key: 'Escape' });
+
+    expect(useChatStore.getState().editingMessageId).toBeNull();
+    expect(document.querySelector('.message-edit-input')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(composer());
+  });
+
+  it('#1959 Save clears the store and returns focus to the composer', () => {
+    const onEdit = renderRows();
+    act(() => useChatStore.getState().setEditingMessageId('m-2'));
+    const textarea = screen.getByRole('textbox', { name: 'Edit message' });
+    fireEvent.change(textarea, { target: { value: 'Rewritten body' } });
+
+    fireEvent.keyDown(textarea, { key: 'Enter' });
+
+    expect(onEdit).toHaveBeenCalledWith('m-2', 'Rewritten body');
+    expect(useChatStore.getState().editingMessageId).toBeNull();
+    expect(document.querySelector('.message-edit-input')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(composer());
+  });
+
+  it('#1959 the Cancel button clears the store and returns focus to the composer', () => {
+    renderRows();
+    act(() => useChatStore.getState().setEditingMessageId('m-2'));
+    // Gate: the Cancel button exists only while the box is open.
+    const cancel = screen.getByText('Cancel');
+    expect(useChatStore.getState().editingMessageId).toBe('m-2');
+
+    fireEvent.click(cancel);
+
+    expect(useChatStore.getState().editingMessageId).toBeNull();
+    expect(document.querySelector('.message-edit-input')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(composer());
+  });
+
+  it('#1959 the edit textarea has the accessible name "Edit message"', () => {
+    renderRows();
+    act(() => useChatStore.getState().setEditingMessageId('m-1'));
+    const textarea = screen.getByRole('textbox', { name: 'Edit message' });
+    expect(textarea).toBeInTheDocument();
+    expect((textarea as HTMLTextAreaElement).value).toBe('First message body');
+  });
+
+  it('#1959 cancelling with no composer in the document does not throw and clears the store', () => {
+    render(
+      <Message message={mockMessage} currentUserId="user-1" onEdit={vi.fn()} showAvatar={true} />
+    );
+    act(() => useChatStore.getState().setEditingMessageId(mockMessage.id));
+    // Gate: the box is open and there is genuinely no composer to focus.
+    const textarea = screen.getByRole('textbox', { name: 'Edit message' });
+    expect(document.querySelector('.message-input-textarea')).toBeNull();
+
+    expect(() => fireEvent.keyDown(textarea, { key: 'Escape' })).not.toThrow();
+
+    expect(useChatStore.getState().editingMessageId).toBeNull();
+    expect(document.querySelector('.message-edit-input')).not.toBeInTheDocument();
+  });
+});

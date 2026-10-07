@@ -5,6 +5,7 @@ import { useMemberStore, type ServerMember } from '../../stores/chat/memberStore
 import { useDMStore, type DMParticipant } from '../../stores/chat/dmStore';
 import { usePermissionStore } from '../../stores/chat/permissionStore';
 import { useFriendOrgStore } from '../../stores/chat/friendOrgStore';
+import { useChatStore } from '../../stores/chat/chatStore';
 import { resolveUserAccentColors } from '../../utils/ui/schemeColors';
 import MessageAvatar from './MessageAvatar';
 import MessageActions from './MessageActions';
@@ -97,6 +98,7 @@ function MessageEditBox({
     <div className="message-edit-box">
       <textarea
         className="message-edit-input"
+        aria-label="Edit message"
         value={content}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={onKeyDown}
@@ -319,6 +321,17 @@ function handleEditKeyDown(e: React.KeyboardEvent, onSubmit: () => void, onCance
   }
 }
 
+/**
+ * Put focus back on the composer when an edit ends (#1959). The inline edit box takes focus
+ * with `autoFocus`; without this, Save and Escape dropped focus on `<body>`, which left a
+ * keyboard-only user nowhere — and the Up Arrow shortcut makes that user common. The same
+ * selector the delete-refusal flow uses; a row rendered somewhere without a composer is a
+ * no-op.
+ */
+function focusComposer(): void {
+  document.querySelector<HTMLElement>('.message-input-textarea')?.focus();
+}
+
 function getTopDisplayRole(
   senderMember:
     | {
@@ -517,7 +530,16 @@ const Message: React.FC<MessageProps> = ({
   const reduceAnimations = useSettingsStore((s) => s.appearance.reduceAnimations);
   const gifPlayback = useSettingsStore((s) => s.appearance.gifPlayback);
   const loadGifsAutomatically = usePrivacyStore((s) => s.settings.loadGifsAutomatically);
-  const [isEditing, setIsEditing] = useState(false);
+  // #1959: the edit box is open when this row is the store's editing target, so the composer's
+  // Up Arrow shortcut (or any other caller) can open it. `setIsEditing` keeps the child props'
+  // boolean contract: true aims the store at this row, false clears it. Only this row's own
+  // edit box and Edit actions call it, so a row can never clear another row's edit.
+  const isEditing = useChatStore((s) => s.editingMessageId === message.id);
+  const setEditingMessageId = useChatStore((s) => s.setEditingMessageId);
+  const setIsEditing = useCallback(
+    (editing: boolean) => setEditingMessageId(editing ? message.id : null),
+    [message.id, setEditingMessageId]
+  );
   const [editContent, setEditContent] = useState(message.content);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
@@ -584,13 +606,15 @@ const Message: React.FC<MessageProps> = ({
   const handleEditSubmit = useCallback(() => {
     if (trySubmitEdit(editContent, message.content, message.id, onEdit)) {
       setIsEditing(false);
+      focusComposer();
     }
-  }, [editContent, message.content, message.id, onEdit]);
+  }, [editContent, message.content, message.id, onEdit, setIsEditing]);
 
   const handleEditCancel = useCallback(() => {
     setEditContent(message.content);
     setIsEditing(false);
-  }, [message.content]);
+    focusComposer();
+  }, [message.content, setIsEditing]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => handleEditKeyDown(e, handleEditSubmit, handleEditCancel),
