@@ -7,7 +7,8 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as gen from './gen.mjs';
 
-type Vec = { name: string; type: string; bytes_b64?: string; input?: Record<string, any>; expect: Record<string, any> };
+type Vec = { name: string; type: string; bytes_b64?: string; input?: Record<string, any>; expect: Record<string, any>;
+  [k: string]: any };
 
 const file = JSON.parse(readFileSync(gen.VECTORS_PATH, 'utf8'));
 const vectors: Vec[] = file.vectors;
@@ -78,6 +79,69 @@ const PRIM: Record<string, (v: Vec) => Promise<void>> = {
     if (ok(v)) expect(gen.b64e(gen.encode('device-head', head))).toBe(v.expect.reencoded_b64);
   },
 };
+
+// PR-A2: the codec layer of every verification vector (plan, TS-side
+// decision). Reasons are #2628's to verify, not this file's.
+async function decodes(tag: string, s?: string) {
+  if (!s) return null;
+  const bytes = b(s);
+  const values = await gen.decode(tag, bytes);
+  expect(gen.equalBytes(gen.encode(tag, values), bytes), `${tag} re-encodes`).toBe(true);
+  return values;
+}
+
+async function bundleParts(s: string) {
+  const v = await decodes('bundle', s);
+  for (const [n, t] of [['intent', 'intent'], ['result', 'result'], ['cp_authz', 'cp-authz'], ['ek_binding', 'ek-binding'],
+    ['recovery_bind', 'recovery-bind'], ['held_status', 'signed']] as const) {
+    if (v[n].length) await decodes(t, gen.b64e(v[n]));
+  }
+}
+
+async function deviceBundleParts(s: string) {
+  const v = await decodes('device-bundle', s);
+  for (const [n, t] of [['device_intent', 'device-intent'], ['recovery_bind', 'recovery-bind'], ['cp_authz', 'cp-authz'],
+    ['device_result', 'device-result']] as const) {
+    if (v[n].length) await decodes(t, gen.b64e(v[n]));
+  }
+}
+
+const PRIMARY_TAG: Record<string, string> = { chain: 'signed', 'device-ledger': 'signed', 'device-wrap-open': 'device-wrap',
+  'apply-device-op': 'device-set', normalize: 'device-set' };
+const P1_TAG: Record<string, string> = { status: 'signed', history: 'history', shape: 'bundle', 'bind-shape': 'recovery-bind' };
+
+async function verificationVector(v: Vec) {
+  expect(gen.VERDICT[v.expect.reason], `reason ${v.expect.reason}`).toBeDefined();
+  expect(v.expect.verdict).toBe(gen.VERDICT[v.expect.reason]);
+  await decodes('chain-head', v.expect.head_b64);
+  await decodes('device-set', v.expect.set_b64);
+  if (v.expect.device_head_b64) await decodes('device-head', v.expect.device_head_b64);
+  if (v.expect.reason === 'malformed') return;
+  await decodes('anchors', v.anchors);
+  for (const s of v.trust ?? []) await decodes('signed', s);
+  await decodes('chain-head', v.prev_head);
+  for (const s of v.bundles ?? []) await bundleParts(s);
+  await decodes('signed', v.fix);
+  for (const s of v.device_bundles ?? []) await deviceBundleParts(s);
+  await decodes('signed', v.device_status);
+  for (const s of v.statuses ?? []) await decodes('signed', s);
+  if (v.prev_device_head) {
+    const dh = await decodes('device-head', v.prev_device_head);
+    expect(gen.equalBytes(dh.chain_head_digest, await gen.sha384(b(v.prev_head)))).toBe(true);
+  }
+  if (v.input?.bind_b64) await decodes('recovery-bind', v.input.bind_b64);
+  if (v.input?.new_dev) await gen.parseDev(v.input.new_dev);
+  const okish = v.expect.reason === 'ok' || v.expect.reason === 'ok_accepted_pin';
+  if (!v.bytes_b64 || (!okish && ['device-wrap-open', 'pattern', 'for-op'].includes(v.type))) return;
+  if (v.type === 'bundle-verify') return bundleParts(v.bytes_b64);
+  if (v.type === 'p1') {
+    await decodes(P1_TAG[v.input!.mode], v.bytes_b64);
+    return decodes(P1_TAG[v.input!.mode], v.input!.other_b64);
+  }
+  await decodes(PRIMARY_TAG[v.type] ?? v.input!.tag, v.bytes_b64);
+}
+
+for (const t of gen.A2_TYPES) PRIM[t] = verificationVector;
 
 // A vector whose type has no PRIM handler is a layout vector. An unregistered type
 // must fail here: decode() throws Malformed('unknown layout') for it, settles() reads
