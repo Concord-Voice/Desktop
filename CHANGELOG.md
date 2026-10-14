@@ -49,6 +49,7 @@ from Server Settings, and members who need it are told how to set it up.
 
 ### Fixed
 
+- **Reading a server's channels clears its unread indicator** ([#3777](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/3777)) — it stays clear when unread status arrives after a server switch. Mark All as Read clears the selected server; other servers keep their genuine unread indicators.
 - **Voice disconnects wait for media cleanup** ([PR #3778](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/3778), [#2624](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/2624)) — session authority is released only after the exact native transports are gone or the media worker has stopped. The media service also gains a serial durable-command consumer that retries unfinished enforcement before acknowledging delivery.
 - **Group-DM icons load through authenticated desktop requests** ([PR #3771](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/3771)) — Image resources are released when the icon, account, server or view changes.
 - **Verification setup cancels stale returns and confirmations** ([PR #3717](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/3717)) — Closing or replacing Settings cancels a pending return from verification setup. A message timer that changes while verification is open now abandons the old confirmation, so it cannot apply a choice made for the previous timer. The staged timer stays available for fresh confirmation unless the new policy already applies it.
