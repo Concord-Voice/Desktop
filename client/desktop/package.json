@@ -96,7 +96,7 @@
     "ioredis": "^6.0.0",
     "jsdom": "^30.1.2",
     "msw": "^3.0.2",
-    "node-gyp": "^13.0.2",
+    "node-gyp": "^13.1.0",
     "prettier": "^3.9.9",
     "rehype-parse": "^9.0.1",
     "rehype-stringify": "^10.0.1",
