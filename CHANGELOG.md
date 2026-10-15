@@ -33,6 +33,8 @@ from Server Settings, and members who need it are told how to set it up. A messa
 expiration timer can now keep pinned messages, and says so. Every account can create
 any number of servers, search as far back as a subscriber can, and use full theme
 colour customization.
+Account recovery now asks for an authenticator you reserved for recovery after
+you verify your email.
 
 ### Added
 
@@ -70,6 +72,8 @@ colour customization.
 - **Up Arrow edits your last message** ([#1959](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/1959)) — in an empty message box, Up Arrow opens your most recent message for editing, in channels, direct messages and voice text chat. It keeps its usual cursor behaviour while the box holds text, a reply or an attached file, while an input method is composing, and with Shift, Ctrl, Alt or Cmd held. When your newest message is still sending, failed to send or cannot be read, Up Arrow does nothing rather than opening an older message. Any message edit now opens with the cursor at the end of the text, saving or cancelling it returns focus to the message box you were using, and the edit box has an accessible name. If an edit cannot be saved, the edit box opens again with your text. An edit you leave open closes when you switch channels, and a message that cannot be read offers Delete but not Edit.
 
 ### Fixed
+
+- **Account recovery now checks your reserved authenticator** ([PR #3868](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/3868)) — if you reserved an authenticator app or security key for recovery, proving access to your email alone no longer permits a reset or device or social recovery. Recovery asks for that factor before continuing. If you began recovery before this update, request a new email code and start again. A recovery policy that requires an unsupported verification method blocks recovery.
 
 - **Editing a message is held to the character limit** ([#3857](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/3857), [PR #3873](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/3873)) — an edit could be saved longer than a new message is allowed to be. Over the limit, Save is disabled, Enter does nothing, and the box stays open with your text and says what the limit is. A counter appears as you near it.
 - **Direct messages authenticate unexpected message types** ([PR #3864](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/3864)) — participant messages are always stored as ordinary encrypted messages, and only validated call and expiration events can use the system-event history path.
