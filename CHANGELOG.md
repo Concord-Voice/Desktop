@@ -70,11 +70,11 @@ expiration timer can now keep pinned messages, and says so.
 ### Fixed
 
 - **Session refresh security** ([PR #3865](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/3865)) — Session recovery after a refresh retry now verifies the device identifier recorded on either the old token or its live successor.
+- **Recovery codes cannot be reused by concurrent sign-in attempts** ([PR #3860](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/3860)) — the first successful attempt now consumes the code before another attempt can use it.
 
 - **Voice enforcement readiness** ([PR #3852](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/3852)) — Voice service startup now waits for all enforcement subscriptions. If enforcement
   becomes unavailable, new voice joins stop immediately and remaining calls close
   within 30 seconds; reconnecting requires authentication again.
-
 - **Voice moderation survives delivery outages** ([PR #3818](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/3818)) — voice moderation and group DM member removal now save enforcement commands with the
   accepted action and retry delivery after broker outages. Acknowledged commands free
   broker capacity, and a full queue refuses new actions before changing saved state. Moderation responses identify
