@@ -82,6 +82,8 @@ expiration timer can now keep pinned messages, and says so.
   queued enforcement, so accepting a disconnect no longer claims the live connection
   has already closed ([#2623](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/2623)).
 
+- **Decorative security icons** ([PR #3869](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/3869)) — Screen readers now skip decorative icons beside labeled MFA choices, device sessions, security keys, and backup codes.
+
 - **Reading a server's channels clears its unread indicator** ([#3777](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/3777)) — it stays clear when unread status arrives after a server switch. Mark All as Read clears the selected server; other servers keep their genuine unread indicators.
 - **Voice disconnects wait for media cleanup** ([PR #3778](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/3778), [#2624](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/2624)) — session authority is released only after the exact native transports are gone or the media worker has stopped. The media service also gains a serial durable-command consumer that retries unfinished enforcement before acknowledging delivery.
 - **Group-DM icons load through authenticated desktop requests** ([PR #3771](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/3771)) — Image resources are released when the icon, account, server or view changes.
