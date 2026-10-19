@@ -39,6 +39,7 @@ you verify your email.
 
 ### Added
 
+- **A separate West staging deployment path is available to operators** ([#2751](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/2751)) — it remains off until its own secrets, private access and live checks are complete. West is not a production site.
 - **New voice rooms can move to a second media instance while existing rooms drain** ([#2752](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/2752)) — when operators enable the new blue/green deployment mode, new rooms use the active instance while existing rooms remain on the draining instance. The mode is off by default and requires a separately verified first activation.
 - **Shared media listeners are available for isolated validation** — an optional
   media-server mode gives each worker one shared UDP listener, with strict port
