@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+*.log
+.DS_Store
+# The repo-root .gitignore ignores package-lock.json by default; this package's
+# lockfile is committed so `npm ci` is reproducible.
+!package-lock.json
