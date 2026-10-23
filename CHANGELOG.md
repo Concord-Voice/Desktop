@@ -62,6 +62,7 @@ you verify your email.
 
 ### Added
 
+- **Managed egress support now waits for host commissioning** ([#4048](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/4048)) — ordinary deployments keep their direct path until the root-owned outbound boundary is fully verified. A partial installation stops before it changes services, and enabling filtering still requires a separate approved host operation.
 - **Managed Redis credential rotation groundwork** ([#3930](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/3930)) — a default-off runtime path prepares scoped service identities and rotates their credentials. Activation still requires separate host checks and deployment approval.
 - **A separate West staging deployment path is available to operators** ([#2751](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/2751)) — it remains off until its own secrets, private access and live checks are complete. West is not a production site.
 - **TURN credential rotation groundwork** ([#3931](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/3931)) — a dormant server path can issue short-lived credentials; host wiring and live-call proof remain required before activation.
