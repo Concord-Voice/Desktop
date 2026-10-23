@@ -1,11 +1,12 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { render, screen, userEvent, within } from '../../../../test-utils';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, render, screen, userEvent, within } from '../../../../test-utils';
 import { http, HttpResponse } from 'msw';
 import { server } from '../../../../mocks/server';
 import { resetAllStores } from '../../../../helpers/store-helpers';
 import SubscriptionSection from '@/renderer/components/Settings/subscription/SubscriptionSection';
 import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { useSubscriptionStore } from '@/renderer/stores/auth/subscriptionStore';
+import { useBillingStore } from '@/renderer/stores/auth/billingStore';
 
 const API_BASE = 'http://localhost:8080/api/v1';
 const STATUS_PATH = `${API_BASE}/subscriptions/me`;
@@ -150,7 +151,9 @@ describe('SubscriptionSection compact Account summary', () => {
     const user = userEvent.setup();
     await user.type(screen.getByRole('textbox', { name: 'Code' }), '  TEST-GRANT  ');
     await user.click(screen.getByRole('button', { name: 'Redeem' }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Supersonic access granted.');
+    // PlanCard keeps its own live <output> mounted, so look inside the form.
+    const form = screen.getByRole('textbox', { name: 'Code' }).closest('form') as HTMLElement;
+    expect(await within(form).findByRole('status')).toHaveTextContent('Supersonic access granted.');
     expect(await screen.findByRole('heading', { name: 'Supersonic' })).toBeInTheDocument();
     expect(screen.getByText('Redeemed via code')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Code' })).toHaveValue('');
@@ -169,5 +172,202 @@ describe('SubscriptionSection compact Account summary', () => {
     );
     expect(screen.getByText('Sonic')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'Code' })).toHaveValue('TEST-INVALID');
+  });
+});
+
+describe('SubscriptionSection paid plans (#2033 PR-4)', () => {
+  const PLANS_PATH = `${API_BASE}/billing/plans`;
+  const CHECKOUT_PATH = `${API_BASE}/billing/checkout-session`;
+  const catalog = (purchase: boolean) => ({
+    purchase_available: purchase,
+    founders: { active: false },
+    plans: [
+      { plan: 'supersonic', interval: 'month', currency: 'usd', unit_amount: 899 },
+      { plan: 'supersonic', interval: 'year', currency: 'usd', unit_amount: 9889 },
+      { plan: 'wing', interval: 'month', currency: 'usd', unit_amount: 1499 },
+      { plan: 'wing', interval: 'year', currency: 'usd', unit_amount: 16489 },
+    ],
+  });
+  const ACTIVE = {
+    tier: 'premium',
+    status: 'active',
+    source: 'stripe',
+    current_period_end: '2027-01-15T12:00:00Z',
+    billing: 'available',
+    stripe: {
+      plan: 'supersonic',
+      interval: 'month',
+      status: 'active',
+      current_period_end: '2027-01-15T12:00:00Z',
+      canceling: false,
+      founders_rate: false,
+    },
+  };
+  type Bridge = { openBilling?: unknown };
+  const bridge = (): Bridge => globalThis.electron as unknown as Bridge;
+
+  function serve(me: unknown, plans: unknown = catalog(true), plansStatus = 200) {
+    server.use(
+      http.get(STATUS_PATH, () => HttpResponse.json(me)),
+      http.get(PLANS_PATH, () => HttpResponse.json(plans, { status: plansStatus }))
+    );
+  }
+
+  beforeEach(() => {
+    resetAllStores();
+    useAuthStore.getState().setAccessToken('mock-token');
+    bridge().openBilling = vi.fn().mockResolvedValue({ result: 'cancel' });
+  });
+
+  afterEach(() => {
+    delete bridge().openBilling;
+  });
+
+  it('keeps the page as it was when purchase is off', async () => {
+    serve({ tier: 'free', status: 'none', billing: 'available' }, catalog(false));
+    render(<SubscriptionSection />);
+    await openSubscription();
+    expect(
+      await screen.findByText('Paid subscriptions are planned. Options and prices may change.')
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Billing period' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /subscribe/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the picker instead of the footer when purchase is on', async () => {
+    serve({ tier: 'free', status: 'none', billing: 'available' });
+    render(<SubscriptionSection />);
+    await openSubscription();
+    expect(await screen.findByRole('button', { name: 'Subscribe to Wing' })).toBeInTheDocument();
+    expect(screen.queryByText(/Paid subscriptions are planned/)).not.toBeInTheDocument();
+  });
+
+  it('shows a catalog failure as an inline alert with Retry, not the footer', async () => {
+    serve(
+      { tier: 'free', status: 'none', billing: 'available' },
+      { error: 'catalog_unavailable' },
+      503
+    );
+    render(<SubscriptionSection />);
+    await openSubscription();
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent("Couldn't load plans.");
+    expect(screen.queryByText(/Paid subscriptions are planned/)).not.toBeInTheDocument();
+    server.use(http.get(PLANS_PATH, () => HttpResponse.json(catalog(true))));
+    await userEvent.setup().click(within(alert).getByRole('button', { name: 'Retry' }));
+    expect(
+      await screen.findByRole('button', { name: 'Subscribe to Supersonic' })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('hides every paid control when billing is not configured', async () => {
+    let plansRead = false;
+    server.use(
+      http.get(STATUS_PATH, () =>
+        HttpResponse.json({ tier: 'free', status: 'none', billing: 'not_configured' })
+      ),
+      http.get(PLANS_PATH, () => {
+        plansRead = true;
+        return HttpResponse.json(catalog(true));
+      })
+    );
+    render(<SubscriptionSection />);
+    await openSubscription();
+    expect(await screen.findByText(/Paid subscriptions are planned/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /subscribe/i })).not.toBeInTheDocument();
+    expect(plansRead).toBe(false);
+  });
+
+  it('a self-hosted server shows its own state, no picker and no planned-options footer', async () => {
+    serve({ tier: 'free', status: 'none', billing: 'self_hosted' });
+    render(<SubscriptionSection />);
+    await openSubscription();
+    expect(await screen.findByText('Your server provides premium features.')).toBeInTheDocument();
+    expect(screen.queryByText(/Paid subscriptions are planned/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /subscribe/i })).not.toBeInTheDocument();
+  });
+
+  it('a shell without the launcher gets no picker and asks to update', async () => {
+    delete bridge().openBilling;
+    serve({ tier: 'free', status: 'none', billing: 'available' });
+    render(<SubscriptionSection />);
+    await openSubscription();
+    expect(
+      await screen.findByText('Update Concord to subscribe or manage billing.')
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /subscribe/i })).not.toBeInTheDocument();
+  });
+
+  it('a subscriber sees management, not the picker', async () => {
+    serve(ACTIVE);
+    render(<SubscriptionSection />);
+    await openSubscription();
+    expect(await screen.findByRole('button', { name: 'Manage subscription' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /subscribe/i })).not.toBeInTheDocument();
+  });
+
+  it('buys, confirms on the subscription read, and replaces the picker with the active plan', async () => {
+    let live = false;
+    server.use(
+      http.get(STATUS_PATH, () =>
+        HttpResponse.json(live ? ACTIVE : { tier: 'free', status: 'none', billing: 'available' })
+      ),
+      http.get(PLANS_PATH, () => HttpResponse.json(catalog(true))),
+      http.post(CHECKOUT_PATH, () =>
+        HttpResponse.json({ url: 'https://pay.concordvoice.com/c/1' }, { status: 201 })
+      )
+    );
+    bridge().openBilling = vi.fn().mockResolvedValue({ result: 'success' });
+    render(<SubscriptionSection />);
+    await openSubscription();
+    await userEvent
+      .setup()
+      .click(await screen.findByRole('button', { name: 'Subscribe to Supersonic' }));
+    expect(await screen.findByText('Confirming')).toBeInTheDocument();
+
+    live = true;
+    // What an entitlements_changed push or a reconnect hydrate does while Confirming.
+    await act(async () => {
+      await useBillingStore.getState().fetchMe();
+    });
+    expect(await screen.findByRole('button', { name: 'Manage subscription' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /subscribe/i })).not.toBeInTheDocument();
+    expect(screen.getByText('Your subscription is active.')).toBeInTheDocument();
+    useBillingStore.getState().reset();
+  });
+
+  it('shows the manage copy with a Manage action when Checkout says one exists', async () => {
+    serve({ tier: 'free', status: 'none', billing: 'available' });
+    render(<SubscriptionSection />);
+    await openSubscription();
+    await screen.findByRole('button', { name: 'Subscribe to Supersonic' });
+    act(() => useBillingStore.setState({ notice: 'manage_existing' }));
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('You already have a subscription.');
+    expect(within(alert).getByRole('button', { name: 'Manage subscription' })).toBeInTheDocument();
+  });
+
+  it('reports a closed Checkout politely, not as an alert', async () => {
+    serve({ tier: 'free', status: 'none', billing: 'available' });
+    render(<SubscriptionSection />);
+    await openSubscription();
+    await screen.findByRole('button', { name: 'Subscribe to Supersonic' });
+    act(() => useBillingStore.setState({ notice: 'checkout_closed' }));
+    expect(
+      screen.getByText('Checkout closed. If you finished paying, this page updates on its own.')
+    ).toHaveRole('status');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('does not replay a notice or the activation cue when the page is reopened', async () => {
+    serve({ tier: 'free', status: 'none', billing: 'available' });
+    const { unmount } = render(<SubscriptionSection />);
+    await openSubscription();
+    await screen.findByRole('button', { name: 'Subscribe to Supersonic' });
+    act(() => useBillingStore.setState({ notice: 'checkout_failed', activated: true }));
+    unmount();
+    expect(useBillingStore.getState().notice).toBeNull();
+    expect(useBillingStore.getState().activated).toBe(false);
   });
 });

@@ -7,6 +7,7 @@ import { useVoiceStore } from '@/renderer/stores/voice/voiceStore';
 import { useDMStore } from '@/renderer/stores/chat/dmStore';
 import { useUserStore } from '@/renderer/stores/auth/userStore';
 import { useSubscriptionStore, FREE_ENTITLEMENT } from '@/renderer/stores/auth/subscriptionStore';
+import { useBillingStore } from '@/renderer/stores/auth/billingStore';
 import { ConnectionState } from '@/renderer/services/messaging/websocketService';
 import { resetAllStores } from '../../helpers/store-helpers';
 import { mockChannel } from '../../mocks/fixtures';
@@ -851,6 +852,88 @@ describe('useWebSocketMessages', () => {
       });
       expect(useSubscriptionStore.getState().entitlement.tier).toBe('premium');
       expect(useSubscriptionStore.getState().entitlement.allowMusicMode).toBe(true);
+    });
+
+    it('re-reads the subscription on a push only while a purchase is Confirming (#2033)', () => {
+      const fetchMe = vi.fn().mockResolvedValue(undefined);
+      const original = useBillingStore.getState().fetchMe;
+      useBillingStore.setState({ fetchMe });
+      try {
+        const ws = createMockWsService();
+        renderHook(() => useWebSocketMessages(ws as never));
+        const handler = ws.handlers.get('entitlements_changed');
+        const push = {
+          type: 'entitlements_changed',
+          data: { ...FREE_ENTITLEMENT, tier: 'premium' },
+        };
+        act(() => handler?.(push));
+        expect(fetchMe).not.toHaveBeenCalled();
+
+        useBillingStore.setState({ pending: true });
+        act(() => handler?.(push));
+        expect(fetchMe).toHaveBeenCalledTimes(1);
+      } finally {
+        useBillingStore.setState({ fetchMe: original, pending: false });
+      }
+    });
+
+    it('re-reads loaded billing details on a same-tier push (cancel, resume, payment recovery)', () => {
+      const fetchMe = vi.fn().mockResolvedValue(undefined);
+      const original = useBillingStore.getState().fetchMe;
+      useBillingStore.setState({
+        fetchMe,
+        pending: false,
+        me: { tier: 'premium' } as never,
+      });
+      try {
+        const ws = createMockWsService();
+        renderHook(() => useWebSocketMessages(ws as never));
+        const handler = ws.handlers.get('entitlements_changed');
+        act(() =>
+          handler?.({
+            type: 'entitlements_changed',
+            data: { ...FREE_ENTITLEMENT, tier: 'premium' },
+          })
+        );
+        expect(fetchMe).toHaveBeenCalledTimes(1);
+      } finally {
+        useBillingStore.setState({ fetchMe: original, me: null });
+      }
+    });
+
+    it('re-reads the subscription after the reconnect hydrate while Confirming (#2033)', async () => {
+      const fetchMe = vi.fn().mockResolvedValue(undefined);
+      const original = useBillingStore.getState().fetchMe;
+      useBillingStore.setState({ fetchMe });
+      vi.spyOn(useSubscriptionStore.getState(), 'hydrate').mockResolvedValue(undefined);
+      try {
+        const ws = createMockWsService();
+        renderHook(() => useWebSocketMessages(ws as never));
+        act(() => ws.emitConnectionChange(ConnectionState.CONNECTED));
+        await Promise.resolve();
+        expect(fetchMe).not.toHaveBeenCalled();
+
+        useBillingStore.setState({ pending: true });
+        act(() => ws.emitConnectionChange(ConnectionState.CONNECTED));
+        await vi.waitFor(() => expect(fetchMe).toHaveBeenCalledTimes(1));
+      } finally {
+        useBillingStore.setState({ fetchMe: original });
+      }
+    });
+
+    it('re-reads loaded billing details after the reconnect hydrate (#2033)', async () => {
+      const fetchMe = vi.fn().mockResolvedValue(undefined);
+      const original = useBillingStore.getState().fetchMe;
+      useBillingStore.setState({ fetchMe, pending: false, me: { tier: 'premium' } as never });
+      vi.spyOn(useSubscriptionStore.getState(), 'hydrate').mockResolvedValue(undefined);
+      try {
+        const ws = createMockWsService();
+        renderHook(() => useWebSocketMessages(ws as never));
+        act(() => ws.emitConnectionChange(ConnectionState.CONNECTED));
+        await vi.waitFor(() => expect(fetchMe).toHaveBeenCalledTimes(1));
+      } finally {
+        useBillingStore.setState({ fetchMe: original, me: null });
+      }
     });
   });
 });
