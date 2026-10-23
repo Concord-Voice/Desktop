@@ -177,7 +177,7 @@ describe("Concord Bridge MCP server", () => {
       });
       expect(json(r).admitted_by).toBe("RC-1: path client/desktop/src/renderer/services/e2ee/epoch.ts");
       expect(elicitor).not.toHaveBeenCalled();
-      expect(claude.calls[0]).toMatchObject({ model: "mythos", effort: "max", access: "isolated-write" });
+      expect(claude.calls[0]).toMatchObject({ model: "claude-mythos-5-1", effort: "max", access: "isolated-write" });
       expect(server.ledger.query()[0].admission).toEqual({ criterion: "RC-1: path client/desktop/src/renderer/services/e2ee/epoch.ts" });
     });
 

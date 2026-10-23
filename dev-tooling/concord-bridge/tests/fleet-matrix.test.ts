@@ -21,7 +21,7 @@ describe("Fleet Matrix Configuration", () => {
   it("resolves red-team-critical to Mythos on claude with max effort and no codex profile", () => {
     const config = getAgentConfig("@red-team-critical");
     expect(config.defaultHarness).toBe("claude");
-    expect(config.claudeModel).toBe("mythos");
+    expect(config.claudeModel).toBe("claude-mythos-5-1");
     expect(config.claudeEffort).toBe("max");
     expect(config.codexModel).toBeNull();
   });

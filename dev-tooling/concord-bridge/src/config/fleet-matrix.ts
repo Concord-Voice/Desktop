@@ -89,7 +89,7 @@ const FLEET_ROWS: readonly FleetRow[] = [
   ["e2ee-reviewer", "Claude Opus", "claude", "read-only", "opus", "high", "gpt-6-sol", "medium", null, null, 25, 1],
   ["rbac-reviewer", "Claude Opus", "claude", "read-only", "opus", "high", "gpt-6-sol", "medium", null, null, 25, 1],
   ["red-team", "gpt-6-sol", "codex", "isolated-write", "opus", "max", "gpt-6-sol", "xhigh", null, null, 40, 2],
-  ["red-team-critical", "Claude Mythos 5.1", "claude", "isolated-write", "mythos", "max", null, null, null, null, 40, 2],
+  ["red-team-critical", "Claude Mythos 5.1", "claude", "isolated-write", "claude-mythos-5-1", "max", null, null, null, null, 40, 2],
   ["code-reviewer", "Claude Opus", "claude", "read-only", "opus", "high", "gpt-6-astra", "medium", "gemini-3.8-flash", "medium", 30, 1],
   ["scope-reviewer", "Antigravity", "antigravity", "read-only", "sonnet", "medium", "gpt-6.1-sol", "low", "gemini-3.8-flash", "low", 20, 1],
   ["test-reviewer", "Antigravity", "antigravity", "read-only", "sonnet", "medium", "gpt-6.1-sol", "low", "gemini-3.8-flash", "low", 15, 1],
