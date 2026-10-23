@@ -200,6 +200,35 @@
   color: var(--text-primary);
 }
 
+/* Code-credit confirmation (#2033 D1): the quote plus Add / Cancel. */
+.subscription-redeem-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
+  color: var(--text-primary);
+  font-size: calc(14px * var(--font-scale, 1));
+  line-height: 1.4;
+}
+
+.subscription-redeem-confirm p {
+  margin: 0;
+}
+
+.subscription-redeem-confirm:focus-visible {
+  outline: 2px solid var(--state-focused);
+  outline-offset: 2px;
+}
+
+/* Cancel is the secondary action beside Add: no fill. */
+.subscription-redeem-submit.subscription-redeem-cancel,
+.subscription-redeem-submit.subscription-redeem-cancel:disabled {
+  background: transparent;
+}
+
 .subscription-redeem-status {
   background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
   border: 1px solid var(--accent-primary);
