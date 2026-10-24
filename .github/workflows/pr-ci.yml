@@ -102,12 +102,12 @@ jobs:
       media-plane-tests-changed: ${{ needs.detect-changes.outputs.media-plane-tests }}
       admin-changed: ${{ needs.detect-changes.outputs.admin }}
       production-docker-changed: ${{ needs.detect-changes.outputs.production-docker }}
-      force-coverage: ${{ inputs.trusted-source == true && needs.detect-changes.result == 'success' && needs.detect-changes.outputs.scan-known == 'true' && (fromJSON(needs.detect-changes.outputs.scan-selection).selected.sonar_force_all || (fromJSON(needs.detect-changes.outputs.scan-selection).coverage_required.desktop && fromJSON(needs.detect-changes.outputs.scan-selection).coverage_required.control_plane && fromJSON(needs.detect-changes.outputs.scan-selection).coverage_required.media_plane && fromJSON(needs.detect-changes.outputs.scan-selection).coverage_required.admin)) }}
+      force-coverage: ${{ inputs.trusted-source == true && needs.detect-changes.result == 'success' && needs.detect-changes.outputs.scan-known == 'true' && fromJSON(needs.detect-changes.outputs.scan-selection).coverage_required.desktop }}
 
   # ─── concord-dev unit/smoke suite + buildtools age (#1475) ───────────
   # Orchestrated (not standalone): the native smoke installs repo
   # dependencies via concord-dev.sh, so the IOC-first invariant applies.
-  # D: server and deployment jobs remain with Self-Hosted / Hosted.
+  # D: server, deployment and admin code belongs to Self-Hosted / Hosted. Removed unit-smoke.
   semgrep:
     name: semgrep
     needs: [ioc, detect-changes]
@@ -142,7 +142,7 @@ jobs:
     with:
       external-verdict: ${{ inputs.enforcement-only == true }}
 
-  # D: server and deployment jobs remain with Self-Hosted / Hosted.
+  # D: server, deployment and admin code belongs to Self-Hosted / Hosted. Removed govulncheck.
   secret-scanning:
     name: secret-scanning
     needs: [ioc]
@@ -167,7 +167,7 @@ jobs:
   # make a version pin supply-chain-equivalent to a SHA pin (govulncheck.yml).
   # Whole module, never --new-from-*: `golangci-lint run ./...` is 0 issues on
   # main, so any finding is one this PR introduced or a rev bump surfaced.
-  # D: server and deployment jobs remain with Self-Hosted / Hosted.
+  # D: server, deployment and admin code belongs to Self-Hosted / Hosted. Removed golangci-lint.
   native-audiocap:
     name: native-audiocap
     needs: [ioc, detect-changes]
@@ -184,9 +184,9 @@ jobs:
   # fails pr-ci and so blocks "Required PR build result", which reads
   # needs.pr-ci.result: a fixable HIGH/CRITICAL finding, or a scan that saw no
   # OS packages, blocks any PR on this path.
-  # D: server and deployment jobs remain with Self-Hosted / Hosted.
-  # D: server and deployment jobs remain with Self-Hosted / Hosted.
-  # D: server and deployment jobs remain with Self-Hosted / Hosted.
+  # D: server, deployment and admin code belongs to Self-Hosted / Hosted. Removed container-image-scan.
+  # D: server, deployment and admin code belongs to Self-Hosted / Hosted. Removed west-deployment-lab.
+  # D: server, deployment and admin code belongs to Self-Hosted / Hosted. Removed managed-firewall.
   static-guards:
     name: static-guards
     needs: [ioc, detect-changes]
@@ -218,39 +218,39 @@ jobs:
 
       # The staging dry runs previously occupied their own sub-minute job.
       # Keep each path gate and run both even if the first fails.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
       - name: Ensure PyYAML for static guards
         if: ${{ !cancelled() && (needs.detect-changes.result != 'success' || needs.detect-changes.outputs.scan-known != 'true' || fromJSON(needs.detect-changes.outputs.scan-selection).hotfix || fromJSON(needs.detect-changes.outputs.scan-selection).advisory.go_toolchain || needs.detect-changes.result != 'success' || needs.detect-changes.outputs.scan-known != 'true' || fromJSON(needs.detect-changes.outputs.scan-selection).hotfix || fromJSON(needs.detect-changes.outputs.scan-selection).advisory.secrets_contract || needs.detect-changes.result != 'success' || needs.detect-changes.outputs.scan-known != 'true' || fromJSON(needs.detect-changes.outputs.scan-selection).hotfix || fromJSON(needs.detect-changes.outputs.scan-selection).advisory.dispatch_trust) }}
         run: >-
           python3 -m pip install --user --quiet --disable-pip-version-check --require-hashes --only-binary=:all: -r .github/requirements-pyyaml.txt
 
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
       - name: Native addon IOC-gate wiring (ADR-0018)
         if: ${{ !cancelled() && (needs.detect-changes.result != 'success' || needs.detect-changes.outputs.scan-known != 'true' || fromJSON(needs.detect-changes.outputs.scan-selection).hotfix || fromJSON(needs.detect-changes.outputs.scan-selection).advisory.native_ioc) }}
         run: bash scripts/check-native-ioc-gate.sh
@@ -262,18 +262,18 @@ jobs:
       # Copilot-mirror drift guard: .github/instructions/claude-<rule>.instructions.md
       # bodies must match their internal-reference<rule>.md canonical. `--fix`
       # regenerates locally.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
       - name: Verify CHANGELOG discipline (#1857)
         # `!cancelled()` restores the independence this check had as its own
         # job. Steps inherit an implicit success(), so without it an earlier
@@ -291,7 +291,7 @@ jobs:
         # No step-level path guard. It used to run the script only when
         # package.json / CHANGELOG.md / the script itself changed, which is
         # exactly the set Rule 4 (#2996) must NOT be limited to: Rule 4 fires on
-        # a PR that touches client/desktop/src or a service and touches the
+        # a PR that touches desktop/src or a service and touches the
         # changelog not at all, so a guard keyed on changelog-adjacent paths
         # skips precisely the PRs it exists to catch. The script fast-exits
         # internally instead — Rule 4 filters paths itself, and Rule 1 returns
@@ -352,7 +352,7 @@ jobs:
           WORKFLOW_REPOSITORY: ${{ fromJSON(toJSON(job)).workflow_repository }}
           WORKFLOW_SHA: ${{ fromJSON(toJSON(job)).workflow_sha }}
         run: |
-          if [[ "$WORKFLOW_REPOSITORY" != Concord-Voice/Concord-Voice-Alpha ||
+          if [[ "$WORKFLOW_REPOSITORY" != Concord-Voice/Desktop ||
                 ! "$WORKFLOW_SHA" =~ ^[0-9a-fA-F]{40}$ ]]; then
             echo "::error::Protected PR CI workflow identity is unavailable or invalid."
             exit 1
@@ -455,7 +455,7 @@ jobs:
             # Keep an invalid/missing protected selection visible as unknown;
             # the final API verdict fails closed instead of inferring false.
             echo 'known=false'
-            echo 'selection={"version":1,"known":false,"advisory":{"static_guards":true},"workers":["apple-sso-bridge","invite-landing"],"npm_workspaces":["client/desktop","services/media-plane","client/admin"],"license_go":true}'
+            echo 'selection={"version":1,"known":false,"advisory":{"static_guards":true},"workers":["apple-sso-bridge","invite-landing"],"npm_workspaces":["desktop","services/media-plane","client/admin"],"license_go":true}'
             echo 'codeql_matrix={"include":[]}'
           } >> "$GITHUB_OUTPUT"
           if [[ "$METADATA_VALID" != 'true' || -z "$POLICY_SHA" || ! -f policy/.github/scripts/ci-scan-relevance.mjs ]]; then
@@ -512,7 +512,7 @@ jobs:
           # explicit null; an empty or any other value is not a confirmation.
           jq -e -s 'any(.[][]; .type == "workflows" and
             any(.parameters.workflows[]?;
-              .repository_id == 1158152129 and
+              .repository_id == 1425846887 and
               .path == ".github/workflows/required-pr-build.yml" and
               (.ref == "main" or .ref == "refs/heads/main") and
               .sha == null))' \
@@ -566,9 +566,9 @@ jobs:
           assert re.fullmatch(rf'{re.escape(action.group(1))}@sha256:[0-9a-f]{{64}}', runtime), f'TruffleHog runtime must match action v{action.group(1)} and be digest-pinned; got {runtime}'
           PY
 
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
       - name: Desktop PR/release trust boundary (#2274)
-        run: bash .github/scripts/lint-pr-release-trust.sh .
+        run: bash .github/scripts/lint-pr-release-trust.sh --unsigned .
 
       - name: §5.2 — multi-secret AND-check completeness
         run: bash .github/scripts/lint-multisecret-andcheck.sh .github/workflows/
@@ -576,9 +576,9 @@ jobs:
       - name: §5.3 — always() requires justification comment
         run: bash .github/scripts/lint-always-needs-comment.sh .github/workflows/
 
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
       - name: G3 — workflow_dispatch boolean comparison enforcement (#1000)
         run: bash .github/scripts/lint-boolean-coercion.sh .github/workflows/
 
@@ -588,9 +588,9 @@ jobs:
       - name: Test suites are both invoked and reachable by their filter (#3139)
         run: bash .github/scripts/lint-test-suite-wiring.sh
 
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
       - name: G4 — empty expression tokens inside run-block bash comments (#1001)
         run: bash .github/scripts/lint-empty-expression.sh .github/workflows/
 
@@ -622,43 +622,46 @@ jobs:
       - name: P14 — actionlint workflow-injection scan (#836)
         run: actionlint -config-file=.actionlint.yaml
 
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
-      # D: guard belongs to Hosted / Self-Hosted or private Alpha tooling.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
       - name: Self-test — lint scripts pass their own test suites
         # Defense-in-depth: re-run each lint's hermetic test suite in CI
         # so a regression to the lint scripts themselves is caught even
         # if a developer skips pre-commit.
         run: |
           bash .github/scripts/tests/lint-pr-release-trust.test.sh
+          python3 .github/scripts/tests/test_verify_unsigned_desktop.py
+          python3 .github/scripts/tests/test_ci_scan_verdict.py
+          bash .github/scripts/tests/resolve-hotfix-label.test.sh
           bash .github/scripts/tests/lint-multisecret-andcheck.test.sh
           bash .github/scripts/tests/lint-always-needs-comment.test.sh
-          bash .github/scripts/tests/lint-branch-protection.test.sh
-          bash .github/scripts/tests/sonar-required-gate.test.sh
-          bash .github/scripts/tests/lint-deploy-app-bypass.test.sh
+          # D: lint-branch-protection.test.sh remains with Self-Hosted / Hosted and private Alpha policy.
+          # D: sonar-required-gate.test.sh remains with Self-Hosted / Hosted and private Alpha policy.
+          # D: lint-deploy-app-bypass.test.sh remains with Self-Hosted / Hosted and private Alpha policy.
           bash .github/scripts/tests/lint-boolean-coercion.test.sh
           bash .github/scripts/tests/lint-empty-expression.test.sh
           bash .github/scripts/tests/lint-gh-repo-flag.test.sh
           bash .github/scripts/tests/lint-workflow-injection.test.sh
-          bash .github/scripts/tests/lint-sync-releases-secret-path.test.sh
-          bash .github/scripts/tests/lint-spa-real-asset-retry.test.sh
+          # D: lint-sync-releases-secret-path.test.sh remains with Self-Hosted / Hosted and private Alpha policy.
+          # D: lint-spa-real-asset-retry.test.sh remains with Self-Hosted / Hosted and private Alpha policy.
           bash .github/scripts/tests/parse-dispatched-workflow.test.sh
           bash .github/scripts/tests/workflow-validate-report.test.sh
-          bash .github/scripts/tests/deploy-canary.test.sh
-          bash .github/scripts/tests/deployment-access-west.test.sh
+          # D: deploy-canary.test.sh remains with Self-Hosted / Hosted and private Alpha policy.
+          # D: deployment-access-west.test.sh remains with Self-Hosted / Hosted and private Alpha policy.
           python3 .github/scripts/tests/test_print_codeql_results.py
           bash .github/scripts/tests/classify-release.test.sh
           bash .github/scripts/tests/verify-changelog.test.sh
           bash .github/scripts/tests/promote-unreleased-changelog.test.sh
           # Both of these existed with NO runner at all — not this step, not
           # pre-commit — so they had never executed in CI or locally.
-          bash .github/scripts/tests/check-pattern-register.test.sh
-          bash .github/scripts/tests/check-required-statuses.test.sh
-          bash .github/scripts/tests/deployment-client.test.sh
+          # D: check-pattern-register.test.sh remains with Self-Hosted / Hosted and private Alpha policy.
+          # D: check-required-statuses.test.sh remains with Self-Hosted / Hosted and private Alpha policy.
+          # D: deployment-client.test.sh remains with Self-Hosted / Hosted and private Alpha policy.
           bash .github/scripts/tests/lint-test-suite-wiring.test.sh
           bash .github/scripts/tests/ci-scan-relevance.test.sh
-          bash .github/scripts/tests/trivy-assert-os.test.sh
-          bash scripts/test-nats-server-bootstrap.sh
-          # D: the Hosted secret-catalog suite remains with its owner.
+          # D: trivy-assert-os.test.sh remains with Self-Hosted / Hosted and private Alpha policy.
+          # D: server bootstrap and secret catalog tests remain with Self-Hosted / Hosted.
+          # D: server bootstrap and secret catalog tests remain with Self-Hosted / Hosted.
 
   # NOTE: the former verify-openapi-coverage, verify-spa-env, and
   # verify-deploy-scripts jobs are consolidated into the single `static-guards`
@@ -668,9 +671,24 @@ jobs:
   # results; the protected wrapper adds its selected OSV job result separately.
   # always() preserves failed and skipped producers as explicit values for
   # the required wrapper.
+      - name: Protected workflow pin contract
+        # Bootstrap pins intentionally fail until this port reaches main. Run every contract.
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/tests/test_verify_required_build_pins.py
+
+      - name: Protected CodeQL call graph
+        # Bootstrap pins intentionally fail until this port reaches main. Run every contract.
+        if: ${{ !cancelled() }}
+        run: python3 .github/scripts/tests/test_codeql_required_workflow.py
+
+      - name: Reusable workflow call contract
+        # Bootstrap pins intentionally fail until this port reaches main. Run every contract.
+        if: ${{ !cancelled() }}
+        run: bash .github/scripts/tests/lint-workflow-call-contract.test.sh
+
   report:
     name: report
-    needs: [ioc, detect-changes, build, semgrep, eslint, govulncheck, west-deployment-lab]
+    needs: [ioc, detect-changes, build, semgrep, eslint]
     if: ${{ always() && (inputs.enforcement-only || !(github.event.action == 'edited' && github.event.changes.base == null && (github.event.changes.title != null || github.event.changes.body != null))) }}
     permissions:
       contents: read
@@ -697,7 +715,7 @@ jobs:
         run: |
           set -euo pipefail
           actual_sha="$(git rev-parse HEAD)"
-          if [[ "$WORKFLOW_REPOSITORY" != Concord-Voice/Concord-Voice-Alpha ||
+          if [[ "$WORKFLOW_REPOSITORY" != Concord-Voice/Desktop ||
                 ! "$WORKFLOW_SHA" =~ ^[0-9a-fA-F]{40}$ || "$actual_sha" != "$WORKFLOW_SHA" ]]; then
             echo "::error::Protected report source identity is unavailable or invalid."
             exit 1
@@ -715,7 +733,7 @@ jobs:
           BUILD_RESULT: ${{ needs.build.result }}
           SEMGREP_RESULT: ${{ needs.semgrep.result }}
           ESLINT_RESULT: ${{ needs.eslint.result }}
-          GOVULNCHECK_RESULT: ${{ needs.govulncheck.result }}
+          GOVULNCHECK_RESULT: 'skipped'
           DESKTOP_COVERAGE: ${{ needs.build.outputs.desktop-coverage == 'true' }}
           CONTROL_PLANE_COVERAGE: ${{ needs.build.outputs.control-plane-coverage == 'true' }}
           MEDIA_PLANE_COVERAGE: ${{ needs.build.outputs.media-plane-coverage == 'true' }}
@@ -752,13 +770,4 @@ jobs:
           PY
 
       # always() preserves scan outputs before a selected lab failure blocks the verdict.
-      - name: Require selected West deployment-access lab
-        if: >-
-          ${{ always() &&
-          (needs.detect-changes.result != 'success' || needs.detect-changes.outputs.scan-known != 'true' ||
-           fromJSON(needs.detect-changes.outputs.scan-selection).hotfix ||
-           fromJSON(needs.detect-changes.outputs.scan-selection).advisory.deployment) &&
-          needs.west-deployment-lab.result != 'success' }}
-        run: |
-          echo "::error::Selected West deployment-access lab did not succeed."
-          exit 1
+      # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.

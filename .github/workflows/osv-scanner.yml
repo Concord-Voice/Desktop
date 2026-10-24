@@ -5,7 +5,7 @@
 # Protected required-workflow calls scan from protected source and bind upload IDs.
 # Main-push skips require verified closed/merged main-PR provenance for the exact
 # pushed merge commit; unknown or ambiguous provenance keeps the full scan.
-# Recursive scan-args pick up ALL manifests: client/desktop/package-lock.json,
+# Recursive scan-args pick up ALL manifests: desktop/package-lock.json,
 # services/media-plane/package-lock.json, services/control-plane/go.mod+go.sum
 # (and any future workspace automatically).
 # Unknown standalone provenance, metadata, policy, filter, or protected rule

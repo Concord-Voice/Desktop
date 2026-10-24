@@ -54,7 +54,7 @@ jobs:
     outputs:
       # Path match OR pending-release probe. The probe is the SOLE detector
       # of a pending version bump — the path filter no longer lists
-      # client/desktop/package.json (see the filter block below) — as well as
+      # desktop/package.json (see the filter block below) — as well as
       # the liveness backstop for the dispatch topology (#2274): if a gated
       # dispatch fails its SHA binding because main advanced mid-pipeline,
       # the untagged version re-arms the release path on every successor push
@@ -106,7 +106,7 @@ jobs:
             # so a change to it still smokes the release path. Version-bump
             # detection is the `pending` probe's job below, NOT this filter's.
             #
-            # client/desktop/package.json is deliberately NOT listed, and was
+            # desktop/package.json is deliberately NOT listed, and was
             # removed here: every dependabot bump to a desktop dependency edits
             # that file (37 of 302 main commits in the 30 days to 2026-08-19),
             # and each one armed a dispatch with nothing to release — the
@@ -131,7 +131,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          VERSION=$(node -p "require('./client/desktop/package.json').version")
+          VERSION=$(node -p "require('./desktop/package.json').version")
           AUTH_HEADER=$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')
           if GIT_CONFIG_COUNT=1 \
             GIT_CONFIG_KEY_0='http.https://github.com/.extraheader' \
@@ -239,21 +239,7 @@ jobs:
       actions: read
     uses: ./.github/workflows/codeql.yml
 
-  govulncheck:
-    name: govulncheck
-    needs: [changes, ioc]
-    # Runs ONLY on the hotfix release path. Ordinary merges are covered by
-    # nightly-ci.yml — every PR is already rebased onto current main before it
-    # merges (strict_required_status_checks_policy), so re-scanning the squash
-    # commit bought a fresh baseline and little else. See nightly-ci.yml header
-    # for the trade this accepts.
-    if: needs.changes.outputs.hotfix == 'true' && needs.changes.outputs.desktop-release == 'true'
-    permissions:
-      contents: read
-      security-events: write
-      actions: read
-    uses: ./.github/workflows/govulncheck.yml
-
+  # D: server, deployment and admin code belongs to Self-Hosted / Hosted. Removed govulncheck.
   scorecard:
     name: scorecard
     needs: [changes, ioc]
@@ -298,53 +284,10 @@ jobs:
   # `needs: build` means any failed build job skips the scan — no scan on
   # partial coverage. On push:main the scanner runs in MAIN-branch context,
   # refreshing the main dashboard/badges (not a PR analysis).
-  sonar:
-    name: sonar
-    needs: [changes, build]
-    # Runs ONLY on the hotfix release path. Ordinary merges are covered by
-    # nightly-ci.yml — every PR is already rebased onto current main before it
-    # merges (strict_required_status_checks_policy), so re-scanning the squash
-    # commit bought a fresh baseline and little else. See nightly-ci.yml header
-    # for the trade this accepts.
-    if: needs.changes.outputs.hotfix == 'true' && needs.changes.outputs.desktop-release == 'true'
-    permissions:
-      contents: read
-      actions: read
-      pull-requests: read
-      checks: read
-    uses: ./.github/workflows/sonarcloud.yml
-    with:
-      reusable-analysis: true
-      desktop-coverage: ${{ needs.build.outputs.desktop-coverage == 'true' }}
-      control-plane-coverage: ${{ needs.build.outputs.control-plane-coverage == 'true' }}
-      media-plane-coverage: ${{ needs.build.outputs.media-plane-coverage == 'true' }}
-      admin-coverage: ${{ needs.build.outputs.admin-coverage == 'true' }}
-      concord-bridge-coverage: ${{ needs.build.outputs.concord-bridge-coverage == 'true' }}
-    secrets:  # pragma: allowlist secret
-      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-  # ─── Desktop release path (after ALL scan verdicts) ──────────────────
-  # success() is load-bearing: with an explicit `if:` the implicit
-  # success()-on-needs is REPLACED, so it must be restated — a failed
-  # scanner must block the release dispatch (#1077 discipline, dispatcher side).
-  #
-  # Dispatch the standalone workflow instead of workflow_call: the trusted
-  # release-build/release jobs resolve signing secrets from the desktop-release
-  # environment, and workflow_call paths repeatedly lose environment secrets
-  # (#2048; third incident #2274 — the v0.2.29 release run resolved
-  # APPLE_CERTIFICATE_P12 / AZURE_* empty even though the environment OIDC
-  # claim validated, proving the environment binds but its secrets never merge
-  # into a called workflow's secrets context). Same dispatch-only topology as
-  # sync-releases below. EXPECTED_SHA binds the child to this run's gated
-  # commit: the child fails closed if main advanced past it, and the
-  # pending-release probe in `changes` re-arms EVERY successor push (not just
-  # release-path ones) until the version is tagged, so a binding failure is
-  # re-dispatched by the next merge's own gated run. The child run owns
-  # release publication, release-asset sync, and the public-mirror fan-out
-  # (its workflow_dispatch-gated jobs), so no fan-out jobs remain here.
+  # D: Sonar is deferred until Alpha #2949 closes. Removed sonar.
   build-desktop:
     name: build-desktop
-    needs: [changes, ioc, eslint, codeql, govulncheck, scorecard, build, sonar]
+    needs: [changes, ioc, eslint, codeql, scorecard, build]
     # The complete gate set above still guards every release this job cuts —
     # deployment.md:411's requirement is intact, because when hotfix is false
     # those jobs skip and this one skips with them. A release is never

@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+Desktop packaging now supports a standalone source checkout.
+
 New subscribers get a 30-day free trial. Your card is collected up front, and
 billing starts when the trial ends unless you cancel.
 
@@ -2103,7 +2105,7 @@ The Beta release. Sign in with Google or Apple, add two-step verification or a p
 
 ### Added
 
-- **Federated identity — Google SSO** ([#808](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/808)) — backend OAuth flow for Google sign-in and registration; desktop client integration shipped alongside Apple SSO in [#824](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/824) (`client/desktop/src/main/ssoLoopback.ts`, `Login.tsx` / `Register.tsx`).
+- **Federated identity — Google SSO** ([#808](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/808)) — backend OAuth flow for Google sign-in and registration; desktop client integration shipped alongside Apple SSO in [#824](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/824) (`desktop/src/main/ssoLoopback.ts`, `Login.tsx` / `Register.tsx`).
 - **Federated identity — Apple Sign in with Apple** ([#824](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/824)) — privacy-relay-aware Apple SSO alongside Google.
 - **MFA / WebAuthn authentication** ([#202](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/202)) — TOTP, WebAuthn/FIDO2, backup codes, recovery circles, trusted devices; closes #89.
 - **Account erasure (GDPR right to be forgotten)** ([#717](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/717)) — `POST /api/v1/privacy/erase-account` wired to a transactional account-deletion service that cascades across all linked tables; `refresh_tokens.user_id` cascades atomically.
@@ -2161,7 +2163,7 @@ The Beta release. Sign in with Google or Apple, add two-step verification or a p
 
 - **Sentry telemetry** stripped from all three services ([#770](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/770) control-plane, [#780](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/780) media-plane, [#793](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/793) Electron client) plus a closing sweep through MCP, CI, and rules ([#796](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/796)). The Sentry MCP server config was finally removed in the per-host MCP cleanup ([#838](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/838), closing the MCP-config dimension). Closes #610, #614, #672. The integration that landed earlier in the cycle (#586, #622, #623, #668, #682) was reversed once telemetry surfaced zero production logs and forced re-consent friction; project memory `Sentry — being removed` documents the decision.
 - **Postgres MCP server config** removed alongside Sentry MCP ([#838](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/838)) — unused operationally; final state is 6 servers in `.mcp.json` + 6 in `.vscode/mcp.json`.
-- **Deprecated `WebSocketMessage` source-compat type alias** removed from `client/desktop/src/renderer/services/websocketService.ts` ([#1185](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/1185)) — the discriminated-union migration ([#709](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/709) / PR [#1184](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/1184)) made the shim unused. `WebSocketEvent` remains the canonical name.
+- **Deprecated `WebSocketMessage` source-compat type alias** removed from `desktop/src/renderer/services/websocketService.ts` ([#1185](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/1185)) — the discriminated-union migration ([#709](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/709) / PR [#1184](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/1184)) made the shim unused. `WebSocketEvent` remains the canonical name.
 
 ### Fixed
 
@@ -2250,7 +2252,7 @@ Tracking at time of v0.2.0-Beta release. For the full open-issue list, see [issu
 
 ### Added
 
-- **Cross-platform native window controls** — Windows + Linux now show native close / minimize / maximize buttons in the top-right via Electron's `titleBarOverlay` API; macOS retains its native traffic lights via `titleBarStyle: 'hiddenInset'`. The per-platform branching lives in `client/desktop/src/main/browserWindowConfig.ts` ([#806](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/806)).
+- **Cross-platform native window controls** — Windows + Linux now show native close / minimize / maximize buttons in the top-right via Electron's `titleBarOverlay` API; macOS retains its native traffic lights via `titleBarStyle: 'hiddenInset'`. The per-platform branching lives in `desktop/src/main/browserWindowConfig.ts` ([#806](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/806)).
 - **Branded Titlebar** — new `<Titlebar />` component renders centered `CONCORD VOICE` in BaronNeue.woff with the running version + active SPA hash (`v0.1.41-abc123`). The version line updates live when an SPA hot-update lands via the new `spa:versionChanged` IPC event.
 - **Window state persistence** — size + position + maximized state save to `window-state.json` under `app.getPath('userData')` with 500ms debounce on resize/move and synchronous write on close. Restore validates the saved bounds against the current display layout (4 safety checks: NaN/missing, display intersection, min/max size, negative-coords). Wayland sessions omit x/y per compositor-controlled placement.
 - **Client Behavior settings** — new Settings → Appearance subsection lets users assign the `[×]` close and `[—]` minimize buttons to system tray, OS taskbar/dock, or graceful quit. Mutex + coverage rules visualize invalid configs as greyed-out segmented-control cards with explanatory `title=""` tooltips. Dynamic explanation panel reads the current configuration and renders 3 "How do I X" paragraphs.

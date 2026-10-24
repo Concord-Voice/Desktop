@@ -24,7 +24,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 import yaml
 
 
-REPO = "Concord-Voice/Concord-Voice-Alpha"
+REPO = "Concord-Voice/Desktop"
 API = f"https://api.github.com/repos/{REPO}"
 REPO_ROOT = Path(__file__).resolve().parents[2]
 GIT_ENV = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
@@ -194,8 +194,8 @@ def _finding_reasons(tool, analysis, alerts, main_alerts, instances, added_lines
             reasons.append("unknown: blocking finding location invalid")
             continue
         # Known scanner roots are explicit; an unfamiliar URI cannot be guessed.
-        if tool == "ESLint" and not path.startswith("client/desktop/"):
-            path = f"client/desktop/{path}"
+        if tool == "ESLint" and not path.startswith("desktop/"):
+            path = f"desktop/{path}"
         if tool == "govulncheck" and not path.startswith("services/control-plane/"):
             path = f"services/control-plane/{path}"
         lines = added_lines.get(path, [])

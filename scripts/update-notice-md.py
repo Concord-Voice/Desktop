@@ -135,7 +135,7 @@ NOTICE = REPO_ROOT / "NOTICE.md"
 
 # Heading -> workspace directory. Order matters only for reporting.
 NPM_FAMILIES = [
-    ("Desktop Client Production Dependencies", "client/desktop"),
+    ("Desktop Client Production Dependencies", "desktop"),
     ("Media-Plane Production Dependencies", "services/media-plane"),
     ("Admin Portal Production Dependencies", "client/admin"),
 ]
@@ -611,7 +611,7 @@ def regenerate(text: str, scope: str, today: str | None,
         raise RuntimeError("--workspace requires --check --scope npm and a known npm workspace")
     original_total = sum(count_rows(text, h) for h in ALL_HEADINGS)
 
-    if scope in ("go", "all"):
+    if scope in ("go", "all") and GO_HEADING in ALL_HEADINGS:
         text = replace_table(text, GO_HEADING, go_rows(recorded_go_licences(text)))
     if scope in ("npm", "all"):
         for heading, target in NPM_FAMILIES:
@@ -673,6 +673,7 @@ def regenerate(text: str, scope: str, today: str | None,
 
 
 def _main() -> int:
+    global NPM_FAMILIES, ALL_HEADINGS, SUMMARY_PATTERNS
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     mode = ap.add_mutually_exclusive_group()
@@ -682,9 +683,19 @@ def _main() -> int:
                       help="exit 1 on an attribution defect (for CI)")
     ap.add_argument("--scope", choices=("npm", "go", "all"), default="all",
                     help="which ecosystems to regenerate (default: all)")
-    ap.add_argument("--workspace", choices=tuple(target for _, target in NPM_FAMILIES),
+    ap.add_argument("--workspace", choices=tuple(target for _, target in NPM_FAMILIES) + ("tools/concord-bridge",),
                     help="limit --check --scope npm to one workspace")
+    ap.add_argument("--desktop-only", action="store_true",
+                    help="attribute Desktop and concord-bridge; server bundles belong to Self-Hosted")
     args = ap.parse_args()
+    if args.desktop_only:
+        NPM_FAMILIES = [("Desktop Client Production Dependencies", "desktop"),
+                        ("Concord Bridge Production Dependencies", "tools/concord-bridge")]
+        ALL_HEADINGS = [heading for heading, _ in NPM_FAMILIES]
+        SUMMARY_PATTERNS = {
+            "Desktop Client Production Dependencies": SUMMARY_PATTERNS["Desktop Client Production Dependencies"],
+            "Concord Bridge Production Dependencies": r"- \*\*(\d+)\*\* npm packages in the concord-bridge production bundle",
+        }
 
     if args.apply and args.scope != "all":
         ap.error("--apply regenerates the whole file; it does not take --scope")
@@ -731,7 +742,7 @@ def _main() -> int:
 
     blocking, advisory = classify(current, updated)
     fix = ("Regenerate with:  scripts/update-notice-md.py --apply\n"
-           "(needs `npm ci` in client/desktop, services/media-plane and "
+           "(needs `npm ci` in desktop, services/media-plane and "
            "client/admin first.)")
 
     if not args.check:

@@ -27,7 +27,7 @@ const CATEGORIES = [
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const EMOJI_DIR = resolve(__dirname, '../client/desktop/src/renderer/data/emoji');
+const EMOJI_DIR = resolve(__dirname, '../desktop/src/renderer/data/emoji');
 
 function buildGemojiIndex(): Map<string, string[]> {
   const index = new Map<string, string[]>();

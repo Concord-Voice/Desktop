@@ -81,7 +81,7 @@ if not 1 <= noop_exit_code <= 255:
 IOC_PATH = "scripts/security/iocs/shai-hulud-2.0.txt"
 ALLOWLIST = Path("scripts/security/iocs/false-positive-allowlist.txt")
 LOCKFILES = [
-    Path("client/desktop/package-lock.json"),
+    Path("desktop/package-lock.json"),
     Path("services/media-plane/package-lock.json"),
     Path(".github/tools/license-checker/package-lock.json"),
 ]

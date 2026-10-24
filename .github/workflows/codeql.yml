@@ -27,7 +27,7 @@ on:
       codeql-matrix:
         description: "JSON matrix of selected CodeQL languages"
         type: string
-        default: '{"include":[{"language":"actions","runner":"blacksmith-2vcpu-ubuntu-2404","build-mode":"none"},{"language":"go","runner":"blacksmith-4vcpu-ubuntu-2404","build-mode":"manual"},{"language":"javascript-typescript","runner":"blacksmith-4vcpu-ubuntu-2404","build-mode":"none"}]}'
+        default: '{"include":[{"language":"actions","runner":"blacksmith-2vcpu-ubuntu-2404","build-mode":"none"},{"language":"javascript-typescript","runner":"blacksmith-4vcpu-ubuntu-2404","build-mode":"none"}]}'
         required: false
       external-verdict:
         description: "Report actual SARIF upload provenance for the protected verifier"
@@ -79,36 +79,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        if: matrix.language == 'go'
-        with:
-          go-version-file: services/control-plane/go.mod
-          cache-dependency-path: services/control-plane/go.sum
-
-      # GOCACHE (compiler output) for the manual Go build below. setup-go above
-      # only restores the module download cache (~/go/pkg/mod); without a
-      # ~/.cache/go-build cache every leg recompiles all packages from cold,
-      # which is why this leg's p95 (~229s) runs far above its p50 (~74s).
-      #
-      # RESTORE-ONLY, deliberately. The keyspace still mirrors build.yml's
-      # control-plane job exactly so this leg shares the warm GOCACHE that job
-      # populates on main — content-addressed entries are safe to share across
-      # jobs. But build.yml is the SINGLE WRITER: it compiles the whole module
-      # plus tests (a superset of this leg's output), and two savers racing an
-      # identical key inside one push would collide. If this leg ever needs to
-      # write, give it a distinct key suffix rather than duplicating that one.
-      - name: Restore Go build cache
-        if: matrix.language == 'go'
-        # Pin every action to a verified immutable commit; keep the release comment
-        # aligned with the resolved upstream tag.
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/go-build
-          key: go-build-${{ runner.os }}-${{ hashFiles('services/control-plane/go.sum') }}
-          restore-keys: |
-            go-build-${{ runner.os }}-${{ hashFiles('services/control-plane/go.sum') }}-
-            go-build-${{ runner.os }}-
-
+      # D: Go analysis belongs to Self-Hosted.
+      # D: Go analysis belongs to Self-Hosted.
       - name: Initialize CodeQL
         # first-party, SHA-pinned for Alpha Code Scanning Gate (#1431).
         # Keep the trailing version comment bare: dependabot only rewrites that
@@ -122,34 +94,9 @@ jobs:
           queries: +security-extended
           # Excludes the vendored prototypes/ tree (browser-only design mocks,
           # #204) from analysis — mirrors the Semgrep/detect-secrets excludes.
-          config-file: remote=Concord-Voice/Concord-Voice-Alpha@main:.github/codeql/codeql-config.yml
+          config-file: ./.github/codeql/codeql-config.yml
 
-      - name: Build all Go modules (manual build mode)
-        if: matrix.language == 'go'
-        shell: bash
-        run: |
-          # CodeQL manual build: trace EVERY Go module that has source files.
-          # The find-guard skips source-less modules (a bare go.mod with no .go
-          # files would fail `go build ./...`) and automatically picks a module
-          # up the day it gains code, closing the silent-coverage-gap failure
-          # mode.
-          # NOTE: the guard uses `find -print -quit` (no pipe). The obvious
-          # `find | head -1 | grep -q .` form is a pipefail trap: on a module
-          # with many .go files, head closes the pipe early, find dies with
-          # SIGPIPE (141), and under `bash -e -o pipefail` the if-condition
-          # reads failure — silently skipping a REAL module (observed on this
-          # PR's first manual-build run: control-plane was skipped and CodeQL
-          # failed with "no source code seen", exit 32).
-          while IFS= read -r mod; do
-            dir=$(dirname "$mod")
-            if [ -n "$(find "$dir" -name '*.go' -not -path '*/node_modules/*' -print -quit)" ]; then
-              echo "Building Go module: $dir"
-              (cd "$dir" && go build ./...)
-            else
-              echo "Skipping Go module with no sources yet: $dir"
-            fi
-          done < <(find . -name go.mod -not -path '*/node_modules/*' -not -path './.git/*')
-
+      # D: Go analysis belongs to Self-Hosted.
       - name: Perform CodeQL Analysis
         # first-party, SHA-pinned for Alpha Code Scanning Gate (#1431).
         # Keep the trailing version comment bare: dependabot only rewrites that

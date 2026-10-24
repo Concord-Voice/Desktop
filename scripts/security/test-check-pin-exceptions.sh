@@ -63,10 +63,10 @@ mkroot() {
   local name="$1" reg="$2" dbot="$3" pkg="${4:-}"
   local d="$WORK/$name"
   local default_pkg='{"name":"d"}'
-  mkdir -p "$d/.github" "$d/client/desktop" "$d/client/admin" "$d/services/media-plane"
+  mkdir -p "$d/.github" "$d/desktop" "$d/client/admin" "$d/services/media-plane"
   printf '%s\n' "$reg"  > "$d/.github/dependency-pin-exceptions.json"
   { printf '%s\n' "$dbot"; npm_blocks; } > "$d/.github/dependabot.yml"
-  printf '%s\n' "${pkg:-$default_pkg}" > "$d/client/desktop/package.json"
+  printf '%s\n' "${pkg:-$default_pkg}" > "$d/desktop/package.json"
   printf '%s\n' '{"name":"a"}' > "$d/client/admin/package.json"
   printf '%s\n' '{"name":"m"}' > "$d/services/media-plane/package.json"
   echo "$d"
@@ -81,19 +81,19 @@ run() {
 }
 
 EMPTY_REG='{"exceptions":[]}'
-ONE_REG='{"exceptions":[{"kind":"exact-pin","ecosystem":"npm","workspace":"client/desktop","package":"jose","pinned":"6.2.8","reason":"r","review_by":"2027-01-01"}]}'
+ONE_REG='{"exceptions":[{"kind":"exact-pin","ecosystem":"npm","workspace":"desktop","package":"jose","pinned":"6.2.8","reason":"r","review_by":"2027-01-01"}]}'
 # An ignore: rule requires kind=held-back specifically (case 12). The fixtures
 # below use it so the workspace and multi-directory assertions test the thing
 # they name, rather than incidentally depending on kind the way they used to.
-ONE_HELD='{"exceptions":[{"kind":"held-back","ecosystem":"npm","workspace":"client/desktop","package":"jose","pinned":"6.2.8","available":"7.0.0","reason":"r","review_by":"2027-01-01"}]}'
+ONE_HELD='{"exceptions":[{"kind":"held-back","ecosystem":"npm","workspace":"desktop","package":"jose","pinned":"6.2.8","available":"7.0.0","reason":"r","review_by":"2027-01-01"}]}'
 BOTH_HELD='{"exceptions":[
-  {"kind":"held-back","ecosystem":"npm","workspace":"client/desktop","package":"jose","pinned":"6.2.8","available":"7.0.0","reason":"r","review_by":"2027-01-01"},
+  {"kind":"held-back","ecosystem":"npm","workspace":"desktop","package":"jose","pinned":"6.2.8","available":"7.0.0","reason":"r","review_by":"2027-01-01"},
   {"kind":"held-back","ecosystem":"npm","workspace":"client/admin","package":"jose","pinned":"6.2.8","available":"7.0.0","reason":"r","review_by":"2027-01-01"}
 ]}'
 NO_IGNORES='version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/client/desktop"'
+    directory: "/desktop"'
 
 # ── 1. Clean tree.
 D=$(mkroot clean "$EMPTY_REG" "$NO_IGNORES")
@@ -114,7 +114,7 @@ run "a caret range is not an exact pin"  "$D" 0 "accounted for"
 IGN='version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/client/desktop"
+    directory: "/desktop"
     ignore:
       - dependency-name: "left-pad"
         versions: [">=2.0.0"]'
@@ -127,7 +127,7 @@ run "blocks an undocumented ignore rule" "$D" 1 "ignore rule\(s\) with no regist
 IGN_COMMENT='version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/client/desktop"
+    directory: "/desktop"
     ignore:  # temporary, see #1234
       - dependency-name: "left-pad"
         versions: [">=2.0.0"]'
@@ -135,7 +135,7 @@ D=$(mkroot igncomment "$EMPTY_REG" "$IGN_COMMENT")
 run "sees an ignore: key with a trailing comment" "$D" 1 "left-pad"
 
 # ── 6. WORKSPACE-SCOPED ignore matching (CodeRabbit, PR #2769, Major).
-#     A register entry for client/desktop must NOT satisfy an ignore rule that
+#     A register entry for desktop must NOT satisfy an ignore rule that
 #     lives in the client/admin update block.
 IGN_ADMIN='version: 2
 updates:
@@ -149,7 +149,7 @@ run "a desktop entry does not cover an admin ignore" "$D" 1 "jose \(in client/ad
 IGN_DESKTOP='version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/client/desktop"
+    directory: "/desktop"
     ignore:
       - dependency-name: "jose"
         versions: [">=7.0.0"]'
@@ -157,26 +157,26 @@ D=$(mkroot rightws "$ONE_HELD" "$IGN_DESKTOP")
 run "the matching workspace does cover it"          "$D" 0 "accounted for"
 
 # ── 7. Malformed entries block.
-BAD_KIND='{"exceptions":[{"kind":"whatever","ecosystem":"npm","workspace":"client/desktop","package":"x","pinned":"1.0.0","reason":"r","review_by":"2027-01-01"}]}'
+BAD_KIND='{"exceptions":[{"kind":"whatever","ecosystem":"npm","workspace":"desktop","package":"x","pinned":"1.0.0","reason":"r","review_by":"2027-01-01"}]}'
 D=$(mkroot badkind "$BAD_KIND" "$NO_IGNORES")
 run "rejects an unknown kind" "$D" 1 "kind must be one of"
 
-MISSING='{"exceptions":[{"kind":"exact-pin","ecosystem":"npm","workspace":"client/desktop","package":"x","pinned":"1.0.0","review_by":"2027-01-01"}]}'
+MISSING='{"exceptions":[{"kind":"exact-pin","ecosystem":"npm","workspace":"desktop","package":"x","pinned":"1.0.0","review_by":"2027-01-01"}]}'
 D=$(mkroot missing "$MISSING" "$NO_IGNORES")
 run "rejects a missing reason" "$D" 1 'missing or empty "reason"'
 
-HELD_NO_AVAIL='{"exceptions":[{"kind":"held-back","ecosystem":"npm","workspace":"client/desktop","package":"x","pinned":"1.0.0","reason":"r","review_by":"2027-01-01"}]}'
+HELD_NO_AVAIL='{"exceptions":[{"kind":"held-back","ecosystem":"npm","workspace":"desktop","package":"x","pinned":"1.0.0","reason":"r","review_by":"2027-01-01"}]}'
 D=$(mkroot heldnoavail "$HELD_NO_AVAIL" "$NO_IGNORES")
 run "held-back must name the refused version" "$D" 1 'requires "available"'
 
 # ── 8. INVALID CALENDAR DATE (CodeRabbit, PR #2769).
 #     A shape-only check accepted 2026-13-45, an expiry that can never fire.
-BAD_DATE='{"exceptions":[{"kind":"exact-pin","ecosystem":"npm","workspace":"client/desktop","package":"x","pinned":"1.0.0","reason":"r","review_by":"2026-13-45"}]}'
+BAD_DATE='{"exceptions":[{"kind":"exact-pin","ecosystem":"npm","workspace":"desktop","package":"x","pinned":"1.0.0","reason":"r","review_by":"2026-13-45"}]}'
 D=$(mkroot baddate "$BAD_DATE" "$NO_IGNORES")
 run "rejects an impossible calendar date" "$D" 1 "must be a real YYYY-MM-DD date"
 
 # ── 9. Expiry WARNS but never blocks — a wall-clock date must not red-gate CI.
-EXPIRED='{"exceptions":[{"kind":"exact-pin","ecosystem":"npm","workspace":"client/desktop","package":"jose","pinned":"6.2.8","reason":"r","review_by":"2020-01-01"}]}'
+EXPIRED='{"exceptions":[{"kind":"exact-pin","ecosystem":"npm","workspace":"desktop","package":"jose","pinned":"6.2.8","reason":"r","review_by":"2020-01-01"}]}'
 D=$(mkroot expired "$EXPIRED" "$NO_IGNORES" '{"name":"d","dependencies":{"jose":"6.2.8"}}')
 run "an expired review_by warns"            "$D" 0 "WARN  review_by 2020-01-01 has passed"
 run "...and does not block"                 "$D" 0 "past review_by \(warning only\)"
@@ -198,18 +198,18 @@ MULTI_DIR='version: 2
 updates:
   - package-ecosystem: "docker"
     directories:
-      - "/client/desktop"
+      - "/desktop"
       - "/client/admin"
     ignore:
       - dependency-name: "jose"
         versions: [">=7.0.0"]'
 
-# ONE_REG documents client/desktop only. The second directory must still block.
+# ONE_REG documents desktop only. The second directory must still block.
 D=$(mkroot multidir1 "$ONE_REG" "$MULTI_DIR")
 run "a multi-directory ignore is demanded for EVERY directory" "$D" 1 "jose \(in client/admin\)"
 
 BOTH_REG='{"exceptions":[
-  {"kind":"exact-pin","ecosystem":"npm","workspace":"client/desktop","package":"jose","pinned":"6.2.8","reason":"r","review_by":"2027-01-01"},
+  {"kind":"exact-pin","ecosystem":"npm","workspace":"desktop","package":"jose","pinned":"6.2.8","reason":"r","review_by":"2027-01-01"},
   {"kind":"exact-pin","ecosystem":"npm","workspace":"client/admin","package":"jose","pinned":"6.2.8","reason":"r","review_by":"2027-01-01"}
 ]}'
 D=$(mkroot multidir2 "$BOTH_HELD" "$MULTI_DIR")
@@ -222,7 +222,7 @@ LIST_SIBLINGS='version: 2
 updates:
   - package-ecosystem: "docker"
     directories:
-      - "/client/desktop"
+      - "/desktop"
       - "/client/admin"
     labels:
       - "area: deps"
@@ -299,13 +299,13 @@ DRIFT_LIST='version: 2
 updates:
   - package-ecosystem: "npm"
     directories:
-      - "/client/desktop"
+      - "/desktop"
       - "/client/admin"
       - "/services/media-plane"
       - "/.github/tools/license-checker"
       - "/fixtures/policy/workers/workers/apple-sso-bridge"
       - "/fixtures/policy/workers/workers/invite-landing"
-      - "/dev-tooling/concord-bridge"'
+      - "/tools/concord-bridge"'
 D=$(mkroot_raw driftlist "$EMPTY_REG" "$DRIFT_LIST")
 run "accepts a directories: list as coverage"   "$D" 0 "accounted for"
 
@@ -337,7 +337,7 @@ run "fails closed when dependabot.yml is absent" "$D" 2 "dependabot config not f
 DRIFT_FLOW='version: 2
 updates:
   - package-ecosystem: "npm"
-    directories: ["/client/desktop", "/client/admin", "/services/media-plane", "/.github/tools/license-checker", "/fixtures/policy/workers/workers/apple-sso-bridge", "/fixtures/policy/workers/workers/invite-landing", "/dev-tooling/concord-bridge"]'
+    directories: ["/desktop", "/client/admin", "/services/media-plane", "/.github/tools/license-checker", "/fixtures/policy/workers/workers/apple-sso-bridge", "/fixtures/policy/workers/workers/invite-landing", "/tools/concord-bridge"]'
 D=$(mkroot_raw driftflow "$EMPTY_REG" "$DRIFT_FLOW")
 run "accepts a flow-style directories list"    "$D" 0 "accounted for"
 
@@ -347,13 +347,13 @@ DRIFT_FLOW_ML='version: 2
 updates:
   - package-ecosystem: "npm"
     directories: [
-      "/client/desktop",
+      "/desktop",
       "/client/admin",
       "/services/media-plane",
       "/.github/tools/license-checker",
       "/fixtures/policy/workers/workers/apple-sso-bridge",
       "/fixtures/policy/workers/workers/invite-landing",
-      "/dev-tooling/concord-bridge"
+      "/tools/concord-bridge"
     ]'
 D=$(mkroot_raw driftflowml "$EMPTY_REG" "$DRIFT_FLOW_ML")
 run "accepts a multi-line flow sequence"       "$D" 0 "accounted for"
@@ -366,7 +366,7 @@ run "accepts a multi-line flow sequence"       "$D" 0 "accounted for"
 DRIFT_BAD='version: 2
 updates:
   - package-ecosystem: "npm"
-    directories: "/client/desktop"'
+    directories: "/desktop"'
 D=$(mkroot_raw driftbadshape "$EMPTY_REG" "$DRIFT_BAD")
 run "an unreadable directories: shape exits 2" "$D" 2 "directories.*not a non-empty sequence"
 
@@ -380,20 +380,20 @@ DRIFT_QUOTED="version: 2
 updates:
   - 'package-ecosystem': 'npm'
     'directories':
-      - '/client/desktop'
+      - '/desktop'
       - '/client/admin'
       - '/services/media-plane'
       - '/.github/tools/license-checker'
       - '/fixtures/policy/workers/workers/apple-sso-bridge'
       - '/fixtures/policy/workers/workers/invite-landing'
-      - '/dev-tooling/concord-bridge'"
+      - '/tools/concord-bridge'"
 D=$(mkroot_raw driftquoted "$EMPTY_REG" "$DRIFT_QUOTED")
 run "quoted mapping keys are read"             "$D" 0 "accounted for"
 
 # ── 22. The same update written as a flow mapping.
 DRIFT_FLOWMAP='version: 2
 updates:
-  - { package-ecosystem: npm, directories: ["/client/desktop", "/client/admin", "/services/media-plane", "/.github/tools/license-checker", "/fixtures/policy/workers/workers/apple-sso-bridge", "/fixtures/policy/workers/workers/invite-landing", "/dev-tooling/concord-bridge"] }'
+  - { package-ecosystem: npm, directories: ["/desktop", "/client/admin", "/services/media-plane", "/.github/tools/license-checker", "/fixtures/policy/workers/workers/apple-sso-bridge", "/fixtures/policy/workers/workers/invite-landing", "/tools/concord-bridge"] }'
 D=$(mkroot_raw driftflowmap "$EMPTY_REG" "$DRIFT_FLOWMAP")
 run "a flow mapping update block is read"      "$D" 0 "accounted for"
 
@@ -405,7 +405,7 @@ run "a flow mapping update block is read"      "$D" 0 "accounted for"
 IGN_NOTLIST='version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/client/desktop"
+    directory: "/desktop"
     ignore: not-a-list'
 D=$(mkroot ignnotlist "$EMPTY_REG" "$IGN_NOTLIST")
 run "a non-sequence ignore: exits 2, never 0"  "$D" 2 "\"ignore:\" is not a sequence"
@@ -415,7 +415,7 @@ run "a non-sequence ignore: exits 2, never 0"  "$D" 2 "\"ignore:\" is not a sequ
 IGN_BADITEM='version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/client/desktop"
+    directory: "/desktop"
     ignore:
       - left-pad'
 D=$(mkroot ignbaditem "$EMPTY_REG" "$IGN_BADITEM")
@@ -429,7 +429,7 @@ run "a non-mapping ignore item exits 2"        "$D" 2 "is not a mapping"
 IGN_NONAME='version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/client/desktop"
+    directory: "/desktop"
     ignore:
       - versions: [">=2.0.0"]'
 D=$(mkroot ignnoname "$EMPTY_REG" "$IGN_NONAME")
@@ -440,7 +440,7 @@ run "an ignore rule with no dependency-name exits 2" "$D" 2 "dependency-name"
 IGN_NUMNAME='version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/client/desktop"
+    directory: "/desktop"
     ignore:
       - dependency-name: 123'
 D=$(mkroot ignnumname "$EMPTY_REG" "$IGN_NUMNAME")
@@ -453,7 +453,7 @@ run "a non-string dependency-name exits 2"          "$D" 2 "dependency-name"
 BOTH_KEYS='version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/client/desktop"
+    directory: "/desktop"
     directories: ["/client/admin"]'
 D=$(mkroot_raw bothkeys "$EMPTY_REG" "$BOTH_KEYS")
 run "a block naming both directory keys exits 2"    "$D" 2 "declares both"
@@ -464,7 +464,7 @@ NULL_DIR='version: 2
 updates:
   - package-ecosystem: "npm"
     directory: null
-    directories: ["/client/desktop"]'
+    directories: ["/desktop"]'
 D=$(mkroot_raw nulldir "$EMPTY_REG" "$NULL_DIR")
 run "an explicit null directory counts as present"  "$D" 2 "declares both"
 

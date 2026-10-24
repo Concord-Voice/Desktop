@@ -54,12 +54,12 @@ const DEPENDABOT = '.github/dependabot.yml';
 // means a sixth workspace never breaks the suite — and never silently un-tests it.
 export const WORKSPACES = [
   '.github/tools/license-checker',
-  'client/desktop',
+  'desktop',
   'client/admin',
   'services/media-plane',
   'fixtures/policy/workers/workers/apple-sso-bridge',
   'fixtures/policy/workers/workers/invite-landing',
-  'dev-tooling/concord-bridge',
+  'tools/concord-bridge',
 ];
 const REQUIRED = ['kind', 'ecosystem', 'workspace', 'package', 'pinned', 'reason', 'review_by'];
 const KINDS = new Set(['exact-pin', 'held-back']);
@@ -418,8 +418,8 @@ function main() {
   // Ignores match on workspace+package when the block names a directory, and
   // fall back to package-only when it does not. Matching on package alone let a
   // register entry for one workspace satisfy an ignore in another (PR #2769
-  // review, CodeRabbit, Major). `directory: "/client/desktop"` is normalised to
-  // the register's `workspace: "client/desktop"` form.
+  // review, CodeRabbit, Major). `directory: "/desktop"` is normalised to
+  // the register's `workspace: "desktop"` form.
   const normWs = (d) => (d ?? '').replace(/^\/+/, '').replace(/\/+$/, '');
   const undocumentedIgnores = [];
   const dbPath = join(root, DEPENDABOT);

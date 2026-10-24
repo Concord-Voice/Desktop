@@ -51,7 +51,7 @@ if not body.strip():
 #
 # PORTED, NOT APPROXIMATED — this is the part a future editor needs at the code.
 # The source is extractPreamble in
-# client/desktop/src/renderer/services/system/changelog.ts; keep the two in step.
+# desktop/src/renderer/services/system/changelog.ts; keep the two in step.
 # A simpler sketch — "everything above the first '### ', or the whole body when
 # there is none" — is LOOSER than the TS rule in two places, not stricter: it
 # reads a heading-less body as one big preamble, and it accepts a fenced '### '
@@ -101,7 +101,7 @@ LINK_REF_DEF_RE = re.compile(r"^\[[^\]]+\]:\s*\S")
 # for a self-inflicted red job; it belongs with the other deferred work.
 
 # MIRRORS the `strip:` array in
-# client/desktop/src/renderer/components/Markdown/sanitizeSchema.ts -- tags whose
+# desktop/src/renderer/components/Markdown/sanitizeSchema.ts -- tags whose
 # CONTENT the renderer removes, not just the tag. A partial copy is a silent
 # hole (the first version carried ten of these and `button` was found in
 # review), so the promoter's self-test PINS this list against that file: drift

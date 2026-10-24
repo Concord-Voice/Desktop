@@ -17,7 +17,7 @@
 // do not exist yet. So the entry stays true about the past and quietly becomes
 // false about the present, because the tree moved rather than the entry.
 //
-// Founding incident (PR #2709, 2026-08-14). client/desktop pinned
+// Founding incident (PR #2709, 2026-08-14). desktop pinned
 // `undici: ^7.29.0` to close GHSA-4cwx-7wf7-3272 back when the tree hoisted a
 // single copy. By the time jsdom 30 landed:
 //

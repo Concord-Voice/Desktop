@@ -91,6 +91,12 @@ export function composeSelection(filters, metadata, options) {
     for (const key of Object.keys(CODEQL)) selected[key] = false;
   }
 
+  // D: Go and server coverage belong to Self-Hosted; Sonar awaits Alpha #2949.
+  for (const key of ['codeql_go', 'govulncheck', ...ANALYSIS_KEYS.filter(key => key.startsWith('sonar'))]) {
+    selected[key] = false;
+  }
+  for (const key of ['control_plane', 'media_plane', 'admin']) coverage_required[key] = false;
+
   const result = {
     version: 1,
     known: true,
@@ -109,10 +115,10 @@ export function composeSelection(filters, metadata, options) {
         (key === 'selfhost' && filters.selfhost === 'true')])),
     workers: WORKER_KEYS.filter(key => filters[key] === 'true')
       .map(key => key === 'worker_apple' ? 'apple-sso-bridge' : 'invite-landing'),
-    npm_workspaces: NPM_LICENSE_KEYS.filter(key => filters[key] === 'true')
-      .map(key => ({ license_desktop: 'client/desktop', license_media: 'services/media-plane',
+    npm_workspaces: NPM_LICENSE_KEYS.filter(key => key === 'license_desktop' && filters[key] === 'true')
+      .flatMap(key => ({ license_desktop: ['desktop', 'tools/concord-bridge'], license_media: 'services/media-plane',
         license_admin: 'client/admin' })[key]),
-    license_go: filters.license_go === 'true',
+    license_go: false,
     coverage_required,
     codeql_matrix: JSON.stringify({ include: Object.keys(CODEQL)
       .filter(key => selected[key]).map(key => CODEQL[key]) }),

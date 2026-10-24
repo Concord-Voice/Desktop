@@ -7,7 +7,7 @@
 > The published copy at `concordvoice.com/terms` is dated **June 5, 2026**; this canonical
 > file has never carried a real date. Setting one is a decision for whoever owns the terms,
 > taken together with the lockstep sync described below — not a documentation fix.
-> `client/desktop/tests/unit/components/Settings/AboutUpdateSection.test.tsx` pins this
+> `desktop/tests/unit/components/Settings/AboutUpdateSection.test.tsx` pins this
 > placeholder, because the desktop client renders this file as in-app legal copy.
 
 > **Source-of-truth note.** This document is the canonical Terms of Service

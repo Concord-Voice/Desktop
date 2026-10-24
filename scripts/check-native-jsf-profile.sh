@@ -17,7 +17,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # An explicit path argument exists so the self-test can point this at a fixture
 # tree. Without it the guard could only ever be run against the real rt/, and a
 # guard whose own detection is never exercised is the same wish it replaced.
-RT_DIR="${1:-${ROOT}/client/desktop/native/concord-audiocap/rt}"
+RT_DIR="${1:-${ROOT}/desktop/native/concord-audiocap/rt}"
 
 # A MISSING DIRECTORY IS AN ERROR, not a pass. This branch used to exit 0 with a
 # "does not exist yet" note, which was right for exactly one moment: before rt/ was

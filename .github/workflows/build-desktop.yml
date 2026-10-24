@@ -1,18 +1,11 @@
 name: Build Desktop Client
 
 on:
-  # Dispatch-only for releases (#2048/#2274): main-ci.yml DISPATCHES this
-  # workflow on ref=main AFTER all scan verdicts instead of workflow_call —
-  # the trusted jobs resolve signing secrets from the desktop-release
-  # environment, and a workflow_call path repeatedly loses environment
-  # secrets (third incident: the v0.2.29 macOS/Windows legs saw empty
-  # APPLE_CERTIFICATE_P12 / AZURE_* while the environment OIDC claim
-  # validated — the environment binds, its secrets never merge into a
-  # called workflow's secrets context). The former path filter
-  # (client/desktop/package.json + this file) lives in main-ci's `changes`
-  # job. Every release run is therefore event_name == 'workflow_dispatch',
-  # and artifact attestations minted in release-build carry this workflow
-  # as their own top-level identity again.
+  # N: unsigned PR artifacts exercise the D1 packaging lane before merge.
+  pull_request:
+    branches: [main]
+    # C: signing and publication move to Hosted / Release-Ops in D2.
+  # This workflow only builds unsigned artifacts; the update feed is unchanged.
   workflow_dispatch:
     inputs:
       force_release:
@@ -40,11 +33,18 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # N: PR packaging executes repository dependencies, so the IOC gate must precede it.
+  ioc:
+    uses: ./.github/workflows/ioc-scanning.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
   # ─── Job 1: Detect whether a release is needed ────────────────────────
   detect-release:
     name: Detect release
     # Releases can only be cut through the main-ref workflow_dispatch path.
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     # ADR-0013 §2 / ADR-0005 §3: ADR-0016 measured sub-minute parity;
     # 2-vCPU Blacksmith is the half-cost tier for detect/verify work.
     runs-on: blacksmith-2vcpu-ubuntu-2404
@@ -83,8 +83,9 @@ jobs:
         shell: bash
         env:
           FORCE_RELEASE: ${{ inputs.force_release }}
+          BUILD_EVENT: ${{ github.event_name }}
         run: |
-          VERSION=$(node -p "require('./client/desktop/package.json').version")
+          VERSION=$(node -p "require('./desktop/package.json').version")
           echo "Package version: ${VERSION}"
 
           TAG_NAME="desktop-v${VERSION}"
@@ -105,7 +106,7 @@ jobs:
             SHOULD_RELEASE="true"
           fi
 
-          if [[ "$FORCE_RELEASE" == "true" ]]; then
+          if [[ "$FORCE_RELEASE" == "true" || "$BUILD_EVENT" == "pull_request" ]]; then
             echo "Force release requested"
             SHOULD_RELEASE="true"
           fi
@@ -121,29 +122,23 @@ jobs:
 
   # ─── Job 2: Build trusted release artifacts ───────────────────────────
   release-build:
-    name: Build trusted release (${{ matrix.label }})
-    needs: [detect-release]
+    name: Build unsigned artifact (${{ matrix.label }})
+    needs: [detect-release, ioc]
     if: >-
-      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&
-      github.ref == 'refs/heads/main' &&
-      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'Concord-Voice/Desktop' &&
+      (github.event_name == 'pull_request' ||
+       (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')) &&
+      needs.ioc.result == 'success' &&
       needs.detect-release.result == 'success' &&
       needs.detect-release.outputs.should_release == 'true'
-    environment: desktop-release
-    # Per-job permission grant: id-token: write is consumed by the win32
-    # leg's azure/login OIDC step (always active). attestations: write is
-    # reserved for the macOS attest-build-provenance step, which is
-    # feature-flagged OFF by default via vars.ENABLE_BUILD_ATTESTATION:
-    # GitHub Artifact Attestations require a public repo or GitHub Enterprise,
-    # and this is a private Team-plan repo, so the persist call returns
-    # "Feature not available for the organization" and reds the build. The
-    # grant is left in place (dormant) so flipping the variable to 'true' is
-    # the ONLY action needed to re-enable provenance — no permission edit.
-    # contents: read is the workflow-level default. (#829, #643, #1480)
+    # C: desktop-release credentials belong to Release-Ops.
+
     permissions:
       contents: read
-      id-token: write
-      attestations: write # #643: attest-build-provenance (dormant unless vars.ENABLE_BUILD_ATTESTATION == 'true')
+    # C: unsigned builds do not request OIDC credentials.
+
+    # C: release attestations belong to Release-Ops.
+ # #643: attest-build-provenance (dormant unless vars.ENABLE_BUILD_ATTESTATION == 'true')
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60 # #643: 60 already supersedes the 6h default; 45 rejected — app+DMG notarize can near 40-45m on slow Apple-notary days (ADR-0021 §2.2)
     strategy:
@@ -206,10 +201,10 @@ jobs:
         with:
           node-version: 24.20.0
           cache: 'npm'
-          cache-dependency-path: client/desktop/package-lock.json
+          cache-dependency-path: desktop/package-lock.json
 
       - name: Install dependencies
-        working-directory: client/desktop
+        working-directory: desktop
         run: npm ci
 
       # Use the community-maintained Apple signing-cert import action instead
@@ -221,36 +216,10 @@ jobs:
       # Pinned to a full commit SHA (not a floating tag) so a compromised
       # maintainer cannot silently redirect the version we consume; bump the
       # SHA via PR when upgrading.
-      - name: Import macOS signing certificate
-        if: matrix.platform == 'darwin'
-        uses: apple-actions/import-codesign-certs@77ba2a2a8f5cfc8c405ebf3159f767c323e238f9 # v7.1.0
-        with:
-          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-
-      - name: Verify signing identity is available
-        if: matrix.platform == 'darwin'
-        run: |
-          set -euo pipefail
-          # Sanity-check the imported keychain contains exactly one
-          # Developer ID Application identity. We assert count == 1
-          # rather than grepping for a specific team so cert rotation
-          # only has to update the APPLE_CERTIFICATE_P12 + APPLE_TEAM_ID
-          # secrets, not this workflow. The count check is load-bearing
-          # because `security find-identity` itself exits 0 even with
-          # zero identities. We print counts rather than the full
-          # `security` output to avoid leaking cert SHAs and subject
-          # CNs to world-readable Actions logs (CWE-532).
-          DEV_ID_COUNT=$(security find-identity -v -p codesigning \
-            | grep -c 'Developer ID Application:' || true)
-          echo "Developer ID Application identities in keychain: $DEV_ID_COUNT"
-          if [ "$DEV_ID_COUNT" -ne 1 ]; then
-            echo "::error::Expected exactly 1 Developer ID Application identity, found $DEV_ID_COUNT"
-            exit 1
-          fi
-
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
       - name: Configure build environment
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         env:
           GITHUB_SHA: ${{ github.sha }}
@@ -263,16 +232,16 @@ jobs:
             echo "VITE_ENABLE_E2EE=true"
             echo "VITE_ENABLE_VOICE=true"
             echo "VITE_ENABLE_VIDEO=true"
-            echo "CONCORD_BUILD_TAG=release-${GITHUB_SHA:0:8}"
+            echo "CONCORD_BUILD_TAG=unsigned-${GITHUB_SHA:0:8}"
           } > .env
-          echo "::notice::RELEASE build → api.concordvoice.chat (TLS)"
+          echo "::notice::UNSIGNED build → api.concordvoice.chat (TLS)"
           # Forensic build tag — baked into the packaged app for
           # incident-response identification (#920 §5.13, #939). Always
           # uses the exact trusted commit prefix and remains main-process-only.
           cat .env
 
       - name: Generate app-update.yml for electron-updater
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: |
           # electron-updater requires app-update.yml in the app's Resources
@@ -291,64 +260,13 @@ jobs:
           cat app-update.yml
 
       - name: Build application
-        working-directory: client/desktop
+        working-directory: desktop
         env:
           NODE_ENV: production
         run: npm run build
 
-      - name: Setup Apple API key for notarization (darwin only)
-        if: matrix.platform == 'darwin'
-        shell: bash
-        env:
-          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
-        run: |
-          # @electron/notarize expects appleApiKey to be a filesystem PATH
-          # to the .p8 file, NOT the raw key contents. The GHA secret
-          # APPLE_API_KEY stores the multi-line .p8 contents, so we
-          # write it to a temp file here and overwrite the env var with
-          # the path. See #825.
-          set -euo pipefail
-          KEY_PATH="${RUNNER_TEMP}/AppleAPIKey.p8"
-          # Use `printf '%s'` (no trailing \n) — a .p8 is a PEM artifact whose
-          # final newline is part of the document. The secret value already
-          # carries the terminator if pasted faithfully; adding our own would
-          # double it.
-          printf '%s' "${APPLE_API_KEY_CONTENT}" > "${KEY_PATH}"
-          chmod 600 "${KEY_PATH}"
-
-          # Smoke check: verify the .p8 has a valid PKCS#8 PEM structure
-          # before handing it to @electron/notarize. A future secret
-          # rotation that strips trailing whitespace (or other transcription
-          # corruption) would silently produce an invalid ASN.1 structure
-          # and surface deep inside notarytool with a cryptic error far
-          # from the root cause. (#920 §5.9)
-          #
-          # Output handling: `-out /dev/null` sends openssl's PEM output
-          # (the parsed/canonicalized key bytes) to /dev/null — key
-          # material never reaches stdout. `2>&1` merges stderr into
-          # stdout. On success both streams are empty. On failure,
-          # openssl writes ASN.1-parser diagnostics to stderr (e.g.,
-          # "Expecting: ANY PRIVATE KEY", "no start line") which then
-          # surface in the workflow log — useful for triage and contains
-          # no key material. Runs in ~100ms on a macOS runner.
-          if ! openssl pkcs8 -inform PEM -nocrypt -in "${KEY_PATH}" -out /dev/null 2>&1; then
-            echo "::error::APPLE_API_KEY contents do not parse as a valid PKCS#8 PEM (.p8) document. Check the GHA secret value for stripped trailing newline, line-ending corruption, or other transcription damage. (#920 §5.9)"
-            exit 1
-          fi
-
-          echo "APPLE_API_KEY=${KEY_PATH}" >> "$GITHUB_ENV"
-
-      - name: Emit Apple API public-key fingerprint
-        if: matrix.platform == 'darwin'
-        shell: bash
-        run: |
-          set -euo pipefail
-          PUBLIC_KEY_DER="${RUNNER_TEMP}/AppleAPIKey-public.der"
-          trap 'rm -f "$PUBLIC_KEY_DER"' EXIT
-          openssl pkey -in "$APPLE_API_KEY" -pubout -outform DER -out "$PUBLIC_KEY_DER"
-          FINGERPRINT="$(openssl dgst -sha256 "$PUBLIC_KEY_DER" | sed 's/^.*= //')"
-          printf 'APPLE_API_KEY public-key SPKI SHA-256 fingerprint: %s\n' "$FINGERPRINT"
-
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
       - name: Generate buildtag.json for forensic observability (#920 §5.13)
         # Runs ONLY in the packaging workflow, BETWEEN `npm run build` (which
         # no longer chains build:buildtag — see #920 §5.13 post-merge fixes
@@ -356,7 +274,7 @@ jobs:
         # the test workflow's `npm run build` smoke would fail-loud because
         # CONCORD_BUILD_TAG isn't set there; centralizing here makes the
         # generation explicit and scoped to actual packaging.
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: npm run build:buildtag
 
@@ -367,9 +285,9 @@ jobs:
         # native-app guidance (PKCE is the actual control); deliberately NOT
         # VITE_-prefixed so it never reaches the renderer bundle. Absent secret
         # => empty value => Google SSO inert in that build (not a hard failure).
-        working-directory: client/desktop
+        working-directory: desktop
         env:
-          GOOGLE_OAUTH_CLIENT_SECRET_DESKTOP: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET_DESKTOP }}
+          GOOGLE_OAUTH_CLIENT_SECRET_DESKTOP: ''
         shell: bash
         run: npm run build:gclientsecret
 
@@ -382,7 +300,7 @@ jobs:
       # native addon, so it has no step here.
       - name: Build the native addon (darwin)
         if: runner.os == 'macOS'
-        working-directory: client/desktop
+        working-directory: desktop
         env:
           MATRIX_ARCH: ${{ matrix.arch }}
         run: npm run build:native -- --arch="$MATRIX_ARCH"
@@ -390,14 +308,14 @@ jobs:
       - name: Build the native addon (win32)
         if: runner.os == 'Windows'
         shell: pwsh
-        working-directory: client/desktop
+        working-directory: desktop
         env:
           MATRIX_ARCH: ${{ matrix.arch }}
         run: npm run build:native -- --arch=$env:MATRIX_ARCH
 
       - name: Patch RPM sandbox spec metadata
         if: matrix.platform == 'linux'
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: node scripts/patch-rpm-sandbox-spec.mjs
 
@@ -409,36 +327,34 @@ jobs:
       # DMG-finalize failure on:
       #   hdiutil detach /Volumes/Concord Voice -> No such file or directory
       # (a race — the volume auto-unmounts before detach, tracked in #1893).
-      # The current local MakerDmg at client/desktop/build/makerDmg.ts uses
+      # The current local MakerDmg at desktop/build/makerDmg.ts uses
       # app-builder-lib. The historical #1893 incident showed that an
       # unhandled flake could gate off "Create release" and leave the desktop
       # release uncut (observed stranding v0.2.9; recovered via force_release).
       - name: Package with Electron Forge (Windows)
         if: matrix.platform == 'win32'
         shell: pwsh
-        working-directory: client/desktop
+        working-directory: desktop
         env:
           MATRIX_ARCH: ${{ matrix.arch }}
         run: npx electron-forge make --arch=$env:MATRIX_ARCH
 
       - name: Package with Electron Forge (Linux)
         if: matrix.platform == 'linux'
-        working-directory: client/desktop
+        working-directory: desktop
         env:
           MATRIX_ARCH: ${{ matrix.arch }}
         run: npx electron-forge make --arch="$MATRIX_ARCH"
 
       - name: Package with Electron Forge (macOS, retry on hdiutil-detach DMG flake)
         if: matrix.platform == 'darwin'
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         env:
           # Apple notarization — App Store Connect API key path (#825). APPLE_API_KEY
           # is set in the prior darwin-only setup step via $GITHUB_ENV (PATH to the
           # temp .p8). `osxSign: {}` autodiscovers the signing identity from the
           # keychain; notarytool derives the team from the API key.
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           # The arch travels in the environment: a template inside the script text is a scanner
           # error for Semgrep's protected scan (internal-reference P18).
           MATRIX_ARCH: ${{ matrix.arch }}
@@ -467,7 +383,7 @@ jobs:
           done
 
       - name: Verify asar integrity and preload bundle
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: |
           set -euo pipefail
@@ -481,7 +397,7 @@ jobs:
           ASAR_MATCHES=$(find out -name 'app.asar' -not -path '*/node_modules/*')
           ASAR_COUNT=$(echo "$ASAR_MATCHES" | grep -c .)
           if [ "$ASAR_COUNT" -ne 1 ]; then
-            echo "::error::Expected exactly 1 app.asar under client/desktop/out, found $ASAR_COUNT:"
+            echo "::error::Expected exactly 1 app.asar under desktop/out, found $ASAR_COUNT:"
             echo "$ASAR_MATCHES"
             exit 1
           fi
@@ -621,7 +537,7 @@ jobs:
       # reads the fuse wire from its binary, so all six legs run it unchanged; a failure here
       # fails the leg, which blocks `release`.
       - name: Verify packaged Electron fuses
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: npx tsx scripts/verify-packaged-app.mts fuses --out out
 
@@ -633,25 +549,25 @@ jobs:
       # input booleans), and the step is one `npx tsx` line, so P16's Bash 4 hazards do not apply.
       - name: Verify asar integrity digest in Electron Framework (macOS)
         if: matrix.platform == 'darwin'
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: npx tsx scripts/verify-packaged-app.mts asar-digest --out out
 
       - name: Verify Linux package desktop integration
         if: matrix.platform == 'linux'
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: |
           set -euo pipefail
 
           mapfile -t DEBS < <(find out/make/deb -type f -name '*.deb' | sort)
           if [ "${#DEBS[@]}" -eq 0 ]; then
-            echo "::error::No .deb package found under client/desktop/out/make/deb"
+            echo "::error::No .deb package found under desktop/out/make/deb"
             exit 1
           fi
           mapfile -t RPMS < <(find out/make/rpm -type f -name '*.rpm' | sort)
           if [ "${#RPMS[@]}" -eq 0 ]; then
-            echo "::error::No .rpm package found under client/desktop/out/make/rpm"
+            echo "::error::No .rpm package found under desktop/out/make/rpm"
             exit 1
           fi
 
@@ -731,62 +647,7 @@ jobs:
 
           echo "::notice::Linux package desktop integration verified"
 
-      - name: Verify signature and notarization
-        if: matrix.platform == 'darwin'
-        working-directory: client/desktop
-        run: |
-          set -euo pipefail
-
-          # Pick the top-level app bundle, not nested Electron helpers
-          # (e.g. `Contents/Frameworks/Concord Voice Helper.app`).
-          # Count-assertion (not `head -1`): multi-match would mean Forge
-          # produced >1 top-level .app, which would cause us to verify the
-          # wrong bundle (a silent supply-chain risk on the signed artifact
-          # that ships to users). The `-not -path '*/Contents/*'` filter
-          # already excludes nested helpers; the assertion catches any
-          # remaining anomaly. Replaces the prior `head -1 || true` form
-          # whose `|| true` existed to swallow SIGPIPE from pipefail+head;
-          # the new form runs `find` to completion before counting, so
-          # there is no broken pipe and `mapfile` (Bash 4-only) is not
-          # needed — this still works on macOS's Bash 3.2. (#920 §5.6)
-          APP_MATCHES=$(find out -name '*.app' -type d -not -path '*/Contents/*')
-          APP_COUNT=$(echo "$APP_MATCHES" | grep -c .)
-          if [ "$APP_COUNT" -ne 1 ]; then
-            echo "::error::Expected exactly 1 top-level .app under client/desktop/out, found $APP_COUNT:"
-            echo "$APP_MATCHES"
-            exit 1
-          fi
-          APP=$(echo "$APP_MATCHES" | head -1)
-          echo "Verifying: $APP"
-
-          echo "── codesign --verify ──"
-          codesign --verify --deep --strict --verbose=2 "$APP"
-
-          echo "── spctl --assess (Gatekeeper simulation) ──"
-          spctl --assess --type execute --verbose=4 "$APP"
-
-          echo "── stapler validate (notarization ticket) ──"
-          # Pre-flight check on stapler availability (#920 §5.8). If a
-          # future macOS runner image strips Xcode CLT, `xcrun stapler`
-          # will fail with a generic "tool not found" error, masking the
-          # root cause. We surface a clearer, attributable error here
-          # before invoking it. Full decoupling from `stapler` is not
-          # structurally available — `@electron/notarize`'s notarytool
-          # flow staples the ticket via `xcrun stapler staple` inside the
-          # earlier Package step, so a stripped Xcode image would have
-          # already failed `npx electron-forge make` upstream of this
-          # verifier. The pre-flight check therefore catches an
-          # equivalent failure mode in a way the operator can quickly
-          # triage: "Xcode CLT missing from runner image" rather than
-          # "stapler: command not found" buried deep in workflow output.
-          if ! xcrun --find stapler >/dev/null 2>&1; then
-            echo "::error::xcrun stapler is unavailable on this macOS runner image — Xcode CLT may have been stripped. Cannot verify the notarization ticket offline. (#920 §5.8)"
-            exit 1
-          fi
-          xcrun stapler validate "$APP"
-
-          echo "::notice::macOS signing + notarization verified for $APP"
-
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
       - name: Verify DMG artifact produced (macOS, #1159 Phase 1)
         # Structural check that the local MakerDmg produced the expected .dmg artifact(s).
         # Pre-flight gate for the #1164 sign + notarize + staple steps that follow:
@@ -796,7 +657,7 @@ jobs:
         # actually emit the .dmg?" — orthogonal to the signing concern.
         # See: internal-reference
         if: matrix.platform == 'darwin'
-        working-directory: client/desktop
+        working-directory: desktop
         run: |
           set -euo pipefail
           # Use `find` instead of bash 4+ globstar (`**`) — macOS GHA runners
@@ -816,142 +677,12 @@ jobs:
           done
           echo "::notice::macOS DMG artifact and Finder layout verified (${#DMG_FILES[@]} file(s)). Sign + notarize + staple proceeds in the next step."
 
-      - name: Sign + notarize + staple DMG
-        # Issue #1164: notarize the outer .dmg shell to eliminate the first-download
-        # Gatekeeper prompt. The inner .app is already notarized at packager-stage by
-        # forge.config.ts's osxNotarize block; the .dmg shell needs a separate post-make
-        # notarytool submission. The trusted release job always requires its
-        # environment-scoped Apple credentials before this step can run.
-        if: matrix.platform == 'darwin'
-        timeout-minutes: 18  # notarytool 15m + 3m buffer for codesign+staple+retry
-        working-directory: client/desktop
-        env:
-          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-        run: |
-          set -euo pipefail
-
-          # Pre-flight: stapler availability (per #920 §5.8). Same pattern as the
-          # stapler-availability check in the "Verify signature and notarization" step.
-          if ! xcrun --find stapler >/dev/null 2>&1; then
-            echo "::error::xcrun stapler is unavailable on this macOS runner image — Xcode CLT may have been stripped."
-            exit 1
-          fi
-
-          # Discover DMG artifacts. The preceding "Verify DMG artifact produced" step
-          # already confirmed ≥1 exists, but the find-and-array pattern here is self-contained
-          # for resilience: a regression in the preceding step's contract should not silently
-          # propagate through this step. find used over bash globstar — macOS GHA runners ship
-          # Bash 3.2 (workflow-failure-patterns.md P16).
-          DMG_FILES=()
-          while IFS= read -r dmg; do
-            DMG_FILES+=("$dmg")
-          done < <(find out/make -type f -name '*.dmg' | sort)
-
-          for DMG in "${DMG_FILES[@]}"; do
-            echo "── codesign --force --sign (Developer ID Application) for $DMG ──"
-            # --force: idempotent re-sign if a prior cancelled run left a partial signature.
-            # --options runtime: enables Hardened Runtime (required for notarization).
-            # --timestamp: requests a TSA-timestamped signature (required for notarization).
-            # "Developer ID Application": cert-fragment auto-select, matching forge's osxSign:{} convention.
-            codesign --force --sign "Developer ID Application" --options runtime --timestamp "$DMG"
-
-            echo "── notarytool submit --wait --timeout 15m ──"
-            # APPLE_API_KEY is the filesystem path to the .p8, exported to $GITHUB_ENV by the
-            # "Setup Apple API key for notarization" step.
-            # --output-format json enables jq-based submission-ID extraction for forensic anchor.
-            #
-            # Capture notarytool's exit code separately so `set -e` does not abort the script
-            # before we parse status / submission ID and emit the audit-log triage guidance.
-            # (Copilot finding on #1255 reconcile: `set -e` + $() command substitution would
-            # otherwise lose the path that emits the `::error::` with the submission ID.)
-            NOTARY_RC=0
-            NOTARY_OUTPUT=$(xcrun notarytool submit "$DMG" \
-              --key "$APPLE_API_KEY" \
-              --key-id "$APPLE_API_KEY_ID" \
-              --issuer "$APPLE_API_ISSUER" \
-              --wait --timeout 15m \
-              --output-format json) || NOTARY_RC=$?
-
-            # Always surface the raw notarytool response BEFORE parsing — if the JSON is
-            # malformed (truncated transport, Apple service partial response), jq exits non-zero
-            # under `set -e` and the raw response would otherwise be silently discarded.
-            # (silent-failure-hunter finding on #1255 reconcile.)
-            echo "── Raw notarytool response ──"
-            printf '%s\n' "${NOTARY_OUTPUT:-"<empty>"}"
-
-            SUBMISSION_ID=$(echo "$NOTARY_OUTPUT" | jq -r '.id // empty')
-            STATUS=$(echo "$NOTARY_OUTPUT" | jq -r '.status // empty')
-            echo "Submission ID: ${SUBMISSION_ID:-"<none>"}"
-            echo "Status: ${STATUS:-"<unknown>"}"
-
-            if [[ "$NOTARY_RC" -ne 0 ]] || [[ "${STATUS}" != "Accepted" ]]; then
-              # Use ${SUBMISSION_ID:-"<SUBMISSION_ID_UNAVAILABLE>"} in the operator's copy-paste
-              # advisory so an empty ID produces a visibly-broken command rather than a
-              # silently-malformed one. (silent-failure-hunter finding on #1255 reconcile.)
-              # The default is quoted because Semgrep's protected scan cannot parse a bare `<`
-              # there; the printed text is identical (workflow-failure-patterns.md P18).
-              echo "::error::Apple's notary service did not accept the submission for $DMG. notarytool exit: $NOTARY_RC. Status: ${STATUS:-"<unknown>"}. Submission ID: ${SUBMISSION_ID:-"<none>"}. Fetch the audit log with: xcrun notarytool log ${SUBMISSION_ID:-"<SUBMISSION_ID_UNAVAILABLE>"} --key \$APPLE_API_KEY --key-id \$APPLE_API_KEY_ID --issuer \$APPLE_API_ISSUER"
-              exit 1
-            fi
-
-            echo "── stapler staple (with 1 retry on CDN race) ──"
-            # Single retry only: Apple's CDN can race between notarytool's success return
-            # and the ticket being readable. 30-sec sleep matches Apple's documented propagation window.
-            if ! xcrun stapler staple "$DMG"; then
-              echo "::warning::stapler failed for $DMG; sleeping 30s and retrying once (CDN propagation race)"
-              sleep 30
-              if ! xcrun stapler staple "$DMG"; then
-                echo "::error::stapler failed twice for $DMG. Notarization succeeded (submission ${SUBMISSION_ID}) but the ticket could not be attached. Re-run the workflow or investigate Apple CDN status."
-                exit 1
-              fi
-            fi
-
-            echo "::notice::DMG signed + notarized + stapled: $DMG (submission ${SUBMISSION_ID})"
-          done
-
-      - name: Verify DMG signature and notarization
-        # Companion verifier for #1164's mutation step. Mirrors the "Verify signature and
-        # notarization" step on the .app (codesign --verify + stapler validate). Independent
-        # step so a stapler bug doesn't mask a notarytool failure (and vice versa).
-        if: matrix.platform == 'darwin'
-        working-directory: client/desktop
-        run: |
-          set -euo pipefail
-          DMG_FILES=()
-          while IFS= read -r dmg; do
-            DMG_FILES+=("$dmg")
-          done < <(find out/make -type f -name '*.dmg' | sort)
-
-          # Self-contained empty-array guard. Don't rely on the preceding mutation step's
-          # contract — a logic regression there (e.g., working-directory drift, partial
-          # consumption of DMG_FILES) should not produce a false-positive "All 0 DMG(s)
-          # verified" notice from this step. (Gitar finding on #1255 reconcile.)
-          if [[ ${#DMG_FILES[@]} -eq 0 ]]; then
-            echo "::error::No .dmg artifacts found for verification. Expected under out/make/ after sign+notarize+staple step."
-            exit 1
-          fi
-
-          for DMG in "${DMG_FILES[@]}"; do
-            echo "── codesign --verify --strict --verbose=2 for $DMG ──"
-            codesign --verify --strict --verbose=2 "$DMG"
-            echo "── xcrun stapler validate for $DMG ──"
-            xcrun stapler validate "$DMG"
-          done
-          echo "::notice::All ${#DMG_FILES[@]} DMG(s) verified: signed + notarization ticket present"
-
-      # #643 / ADR-0021: cross-job integrity binding for macOS release
-      # artifacts. Gate A (the sidecar, below) binds the SHA-512 to THIS
-      # signing+notarizing runner and is plan-independent — it stays the
-      # active integrity gate. Gate B (the attestation, further below) records
-      # signed, transparency-logged provenance but is feature-flagged OFF by
-      # default (see its step comment). Whichever gates are active are
-      # re-verified in the release job before the latest-mac.yml manifest is
-      # generated.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
       - name: Emit SHA-512 sidecars for release artifacts (#643 Gate A source)
         if: matrix.platform == 'darwin'
         shell: bash
-        working-directory: client/desktop
+        working-directory: desktop
         run: |
           set -euo pipefail
           # base64 matches electron-updater's sha512 encoding in latest-mac.yml,
@@ -983,83 +714,11 @@ jobs:
       # provenance after the repo goes public or moves to Enterprise, set the repo
       # variable: `gh variable set ENABLE_BUILD_ATTESTATION --body true`. The
       # release-job Gate B verify is gated on the same variable. (#1480)
-      - name: Attest build provenance for release artifacts (#643 Gate B source)
-        if: matrix.platform == 'darwin' && vars.ENABLE_BUILD_ATTESTATION == 'true'
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
-        with:
-          subject-path: |
-            client/desktop/out/make/zip/darwin/**/*.zip
-            client/desktop/out/make/**/*.dmg
-
-      # Windows code signing via Microsoft Artifact Signing (issue #404).
-      # OIDC federation: no long-lived client secret in GitHub; GitHub's
-      # short-lived JWT is exchanged at runtime for an Azure access token.
-      - name: Validate environment OIDC claims
-        if: matrix.platform == 'win32'
-        shell: bash
-        env:
-          BASH_ENV: /dev/null
-        run: |
-          set -euo pipefail
-          expected_issuer='https://token.actions.githubusercontent.com'
-          expected_subject='repo:Concord-Voice/Concord-Voice-Alpha:environment:desktop-release'
-          expected_audience='api://AzureADTokenExchange'
-          response="$(curl --fail --silent --show-error \
-            --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
-            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${expected_audience}")"
-          token="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<<"$response")"
-          payload="$(python3 - "$token" <<'PY'
-          import base64
-          import json
-          import sys
-          encoded = sys.argv[1].split(".")[1]
-          encoded += "=" * (-len(encoded) % 4)
-          claims = json.loads(base64.urlsafe_b64decode(encoded))
-          allowlist = (
-              "iss", "sub", "aud", "repository", "repository_id",
-              "repository_owner_id", "ref", "workflow_ref",
-              "job_workflow_ref", "environment",
-          )
-          print(json.dumps({key: claims[key] for key in allowlist if key in claims}, sort_keys=True), file=sys.stderr)
-          print(json.dumps(claims))
-          PY
-          )"
-          issuer="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["iss"])' <<<"$payload")"
-          subject="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["sub"])' <<<"$payload")"
-          audience="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["aud"])' <<<"$payload")"
-          if [[ "$issuer" != "$expected_issuer" || "$subject" != "$expected_subject" || "$audience" != "$expected_audience" ]]; then
-            exit 1
-          fi
-
-      - name: Azure login (OIDC)
-        if: matrix.platform == 'win32'
-        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906  # v3.1.0
-        with:
-          tenant-id:       ${{ secrets.AZURE_TENANT_ID }}
-          client-id:       ${{ secrets.AZURE_CLIENT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Sign Windows artifacts
-        if: matrix.platform == 'win32'
-        uses: azure/trusted-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82  # v2.0.0
-        with:
-          endpoint:                     ${{ secrets.AZURE_SIGNING_ENDPOINT }}
-          signing-account-name:         ${{ secrets.AZURE_SIGNING_ACCOUNT }}
-          certificate-profile-name:     ${{ secrets.AZURE_SIGNING_CERT_PROFILE }}
-          files-folder:                 client/desktop/out/make
-          files-folder-filter:          exe
-          files-folder-recurse:         true
-          file-digest:                  SHA256
-          timestamp-rfc3161:            http://timestamp.acs.microsoft.com
-          timestamp-digest:             SHA256
-
-      - name: Verify Windows signature
-        if: matrix.platform == 'win32'
-        shell: pwsh
-        # The checks live in a script: Semgrep's protected scan cannot parse PowerShell inside a
-        # run: block (internal-reference P18).
-        run: ./client/desktop/scripts/verify-windows-signature.ps1
-
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
       - name: Upload artifacts (Windows)
         if: matrix.platform == 'win32'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -1071,7 +730,7 @@ jobs:
           # rather than `out/make/**/*` so a stray electron-builder `latest.yml`
           # cannot collide by basename with the canonical one the release job
           # generates.
-          path: client/desktop/out/make/*Setup.exe
+          path: desktop/out/make/*Setup.exe
           # Load-bearing: the default is `warn`, so a path that matches nothing
           # uploads zero files and the SIGNED build leg still goes green — the
           # failure would surface much later as a missing *windows-*-Setup.exe in
@@ -1090,10 +749,10 @@ jobs:
           # are published. Same artifact bundle name — both flow through to
           # sync-releases.yml's gh release download + rsync.
           path: |
-            client/desktop/out/make/zip/darwin/**/*.zip
-            client/desktop/out/make/**/*.dmg
-            client/desktop/out/make/zip/darwin/**/*.zip.sha512
-            client/desktop/out/make/**/*.dmg.sha512
+            desktop/out/make/zip/darwin/**/*.zip
+            desktop/out/make/**/*.dmg
+            desktop/out/make/zip/darwin/**/*.zip.sha512
+            desktop/out/make/**/*.dmg.sha512
           retention-days: 7 # #643: GitHub Release persists binaries; shrink signed-artifact exposure window
 
       - name: Upload artifacts (Linux)
@@ -1102,638 +761,12 @@ jobs:
         with:
           name: concord-voice-${{ matrix.label }}-v${{ needs.detect-release.outputs.version }}
           path: |
-            client/desktop/out/make/deb/**/*.deb
-            client/desktop/out/make/rpm/**/*.rpm
-            client/desktop/out/make/**/*.AppImage
+            desktop/out/make/deb/**/*.deb
+            desktop/out/make/rpm/**/*.rpm
+            desktop/out/make/**/*.AppImage
           retention-days: 7 # #643: GitHub Release persists binaries; shrink signed-artifact exposure window
 
   # ─── Job 3: Create GitHub Release ─────────────────────────────────────
-  release:
-    name: Create release
-    needs: [detect-release, release-build]
-    # `always()` is load-bearing so the explicit result checks classify every
-    # trusted build outcome instead of inheriting a cascade skip.
-    if: >-
-      always() &&
-      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&
-      github.ref == 'refs/heads/main' &&
-      github.event_name == 'workflow_dispatch' &&
-      needs.detect-release.result == 'success' &&
-      needs.release-build.result == 'success' &&
-      needs.detect-release.outputs.should_release == 'true'
-    environment: desktop-release
-    # The final step sets these only after every release step succeeds. The
-    # sync and mirror fan-out jobs below key off them (#2048).
-    outputs:
-      released: ${{ steps.release_succeeded.outputs.released }}
-      release_tag: ${{ steps.release_succeeded.outputs.release_tag }}
-    # Per-job permission grant: contents: write needed for git tag push
-    # and gh release create. Other jobs in this workflow get only
-    # contents: read from the workflow-level default. (#829)
-    permissions:
-      contents: write
-      attestations: read # #643: gh attestation verify reads provenance (Gate B; dormant unless vars.ENABLE_BUILD_ATTESTATION == 'true', #1480)
-    # trust-boundary (ADR-0016): release creation (contents: write) stays GitHub-hosted - do NOT migrate to third-party runners
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-
-      - name: Prepare empty release artifact directory
-        shell: bash
-        env:
-          BASH_ENV: /dev/null
-        run: |
-          set -euo pipefail
-          rm -rf -- artifacts
-          mkdir -- artifacts
-          test -d artifacts
-          test -z "$(find artifacts -mindepth 1 -maxdepth 1 -print -quit)"
-
-      - name: Download all build artifacts
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          path: artifacts
-          pattern: concord-voice-*
-
-      # Reject any extra/missing top-level artifact bundle before a file can be
-      # normalized, signed, or attached to the release. This binds publication
-      # to the exact six bundles produced by this run's release-build matrix.
-      - name: Verify exact release-build artifact set
-        shell: bash
-        env:
-          BASH_ENV: /dev/null
-          VERSION: ${{ needs.detect-release.outputs.version }}
-        run: |
-          set -euo pipefail
-          expected=(
-            "concord-voice-linux-arm64-v${VERSION}"
-            "concord-voice-linux-x64-v${VERSION}"
-            "concord-voice-macos-arm64-v${VERSION}"
-            "concord-voice-macos-x64-v${VERSION}"
-            "concord-voice-windows-arm64-v${VERSION}"
-            "concord-voice-windows-x64-v${VERSION}"
-          )
-          mapfile -t paths < <(find artifacts -mindepth 1 -maxdepth 1 -print | LC_ALL=C sort)
-          if [[ ${#paths[@]} -ne ${#expected[@]} ]]; then
-            printf '::error::expected %d release-build artifact directories, found %d\n' "${#expected[@]}" "${#paths[@]}"
-            printf 'found: %s\n' "${paths[*]:-"<none>"}" >&2
-            exit 1
-          fi
-          for index in "${!expected[@]}"; do
-            actual="${paths[$index]#artifacts/}"
-            if [[ ! -d "${paths[$index]}" || "$actual" != "${expected[$index]}" ]]; then
-              printf '::error::release-build artifact set mismatch at index %s: expected=%s actual=%s\n' "$index" "${expected[$index]}" "$actual" >&2
-              exit 1
-            fi
-          done
-
-      # #643 / ADR-0021: cross-job integrity HARD GATES. These run BEFORE the
-      # normalize-filenames step on purpose — normalize renames the .zip
-      # binaries but not the .sha512 sidecars, so the name-based sidecar match
-      # in Gate A only holds while the original signing-runner filenames are
-      # intact. Gate B (attestation) is digest-based and rename-robust, kept
-      # here alongside Gate A but feature-flagged OFF by default
-      # (vars.ENABLE_BUILD_ATTESTATION) because the attestation API is
-      # unavailable on this private Team-plan repo (#1480). Whichever gates are
-      # active run inside the existing always()-guarded release job; no
-      # job-level if: change (ADR-0004 preserved).
-      - name: Verify signing-runner SHA-512 sidecars (#643 Gate A)
-        shell: bash
-        run: |
-          set -euo pipefail
-          # A MISSING sidecar is a hard failure: the signing-runner integrity
-          # binding is absent, so the artifact is untrusted. Sidecars are an
-          # internal cross-job transfer — removed once verified so they don't
-          # flow into normalize/release (the public anchor is the attestation).
-          mapfile -t files < <(find artifacts -type f \( -name '*.zip' -o -name '*.dmg' \) | sort)
-          if [[ ${#files[@]} -eq 0 ]]; then
-            echo "::error::#643 Gate A: no macOS .zip/.dmg artifacts found"
-            exit 1
-          fi
-          for f in "${files[@]}"; do
-            sidecar="$f.sha512"
-            if [[ ! -f "$sidecar" ]]; then
-              echo "::error::#643 Gate A: missing sidecar for $f (signing-runner binding absent)"
-              exit 1
-            fi
-            expected=$(cat "$sidecar")
-            actual=$(openssl dgst -sha512 -binary "$f" | openssl base64 -A)
-            if [[ "$expected" != "$actual" ]]; then
-              echo "::error::#643 Gate A: SHA-512 mismatch for $f"
-              exit 1
-            fi
-            echo "Gate A OK: $(basename "$f")"
-            rm -f "$sidecar"
-          done
-
-      - name: Verify build-provenance attestation (#643 Gate B)
-        # Gated on the same repo variable as the Gate B source step. When
-        # attestation is disabled (the default on this private Team-plan repo),
-        # no provenance exists to verify, so this skips rather than fails.
-        # Gate A above remains the active, plan-independent integrity gate. (#1480)
-        if: vars.ENABLE_BUILD_ATTESTATION == 'true'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          mapfile -t files < <(find artifacts -type f \( -name '*.zip' -o -name '*.dmg' \) | sort)
-          if [[ ${#files[@]} -eq 0 ]]; then
-            echo "::error::#643 Gate B: no macOS .zip/.dmg artifacts found"
-            exit 1
-          fi
-          for f in "${files[@]}"; do
-            gh attestation verify "$f" --repo Concord-Voice/Concord-Voice-Alpha
-            echo "Gate B OK: $(basename "$f")"
-          done
-
-      - name: Normalize artifact filenames with platform labels
-        run: |
-          # Rename all release artifacts to include their platform label
-          # (e.g. windows-x64, macos-arm64, linux-x64) so users can tell
-          # which file is for which platform. VERSION sourced from env: block above.
-          for dir in artifacts/concord-voice-*; do
-            label=$(basename "$dir" | sed "s/concord-voice-//;s/-v${VERSION}//")
-            find "$dir" -type f | while read -r file; do
-              base=$(basename "$file")
-              dest="$(dirname "$file")"
-
-              case "$base" in
-                # NOTE: Windows packaging is NSIS, not Squirrel.Windows (#2402) —
-                # Squirrel's Setup.exe recursive-deleted its own install root,
-                # which meant deleting the installer running from
-                # %LOCALAPPDATA%\ConcordVoice\pending\, and electron-builder
-                # documents Squirrel.Windows as unsupported by electron-updater.
-                # So there is no `RELEASES` manifest and no `*.nupkg` case: NSIS
-                # produces neither. The client uses electron-updater with
-                # `latest.yml` exclusively (see #920 §5.12 audit, 2026-05-13).
-                *.exe)
-                  mv "$file" "${dest}/ConcordVoice-${VERSION}-${label}-Setup.exe" ;;
-                *.zip)
-                  mv "$file" "${dest}/ConcordVoice-${VERSION}-${label}.zip" ;;
-                *.deb)
-                  mv "$file" "${dest}/concord-voice_${VERSION}_${label}.deb" ;;
-                *.rpm)
-                  mv "$file" "${dest}/concord-voice-${VERSION}-${label}.rpm" ;;
-                *.msi)
-                  mv "$file" "${dest}/ConcordVoice-${VERSION}-${label}.msi" ;;
-                *.AppImage)
-                  mv "$file" "${dest}/ConcordVoice-${VERSION}-${label}.AppImage" ;;
-                # macOS DMG installer (#1162) — first-install drag-to-Applications
-                # download. Normalize to the platform-labelled name so the release
-                # asset reads ConcordVoice-<ver>-macos-<arch>.dmg, matching the .zip.
-                # The local MakerDmg sets artifactName to
-                # `${appName}-${version}-${arch}.dmg`, but its output still has
-                # the app-name form (with a space) and no macos- label. Without
-                # this branch the .dmg fell through to the `*)` catch-all and
-                # shipped un-normalized. The .dmg stays
-                # install-only — it is NEVER added to the latest-mac.yml glob
-                # (Squirrel.Mac cannot auto-update from a DMG); this only renames
-                # the file so it attaches cleanly to the GitHub Release below.
-                *.dmg)
-                  mv "$file" "${dest}/ConcordVoice-${VERSION}-${label}.dmg" ;;
-                *)
-                  # Surface unmatched artifact names so a new Forge maker
-                  # added without a matching rename branch doesn't silently
-                  # leave files un-normalized (#920 §5.12 + post-merge
-                  # silent-failure audit). `::warning::` is non-fatal; the
-                  # workflow continues but the GitHub Actions UI flags it.
-                  echo "::warning::Unmatched artifact name '$base' under $file — skipping rename. Update build-desktop.yml case statement if this is a new artifact type." ;;
-              esac
-            done
-          done
-        env:
-          VERSION: ${{ needs.detect-release.outputs.version }}
-
-      - name: Sign Linux artifacts (detached Ed25519, #653)
-        shell: bash
-        env:
-          LINUX_UPDATE_SIGNING_KEY: ${{ secrets.LINUX_UPDATE_SIGNING_KEY }}
-        run: |
-          set -euo pipefail
-          # #653: produce a detached Ed25519 signature next to every NORMALIZED
-          # Linux artifact. Runs AFTER "Normalize artifact filenames" so each .sig
-          # covers the public filename the client downloads (<name>.sig). The
-          # client verifies it against the bundled public key in
-          # client/desktop/src/main/linuxUpdatePublicKey.ts before install
-          # (electron-updater has no Linux signature hook).
-          # Fail-LOUD on a missing key: an update-security gate must never
-          # skip-when-empty (that would be fail-open). The release job runs only
-          # on push:main, so the secret is unavailable to PR/fork contexts.
-          if [ -z "${LINUX_UPDATE_SIGNING_KEY:-}" ]; then
-            echo "::error::LINUX_UPDATE_SIGNING_KEY is empty — Linux update signing cannot proceed (#653). LINUX_UPDATE_SIGNING_KEY must be set as an Actions secret on the desktop-release environment before releasing."
-            exit 1
-          fi
-          KEY="${RUNNER_TEMP}/linux-update.pem"
-          trap 'rm -f "$KEY"' EXIT
-          printf '%s' "$LINUX_UPDATE_SIGNING_KEY" > "$KEY"
-          chmod 600 "$KEY"
-          PUB="${GITHUB_WORKSPACE}/infrastructure/signing/linux-update.pub"
-          mapfile -t LINUX_ARTIFACTS < <(find artifacts -type f \( -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \) | sort)
-          if [ "${#LINUX_ARTIFACTS[@]}" -eq 0 ]; then
-            echo "::error::no Linux artifacts found to sign (#653)"
-            exit 1
-          fi
-          for f in "${LINUX_ARTIFACTS[@]}"; do
-            openssl pkeyutl -sign -inkey "$KEY" -rawin -in "$f" -out "$f.sig"
-            # Key-mismatch tripwire: the signature MUST verify against the SAME
-            # public key the client bundles — catches a secret/pubkey drift in CI
-            # before any user hits a signature-failure.
-            openssl pkeyutl -verify -pubin -inkey "$PUB" -rawin -in "$f" -sigfile "$f.sig"
-            echo "signed + self-verified: $(basename "$f")"
-          done
-
-      - name: Setup Node (for manifest generator + verifier)
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '24'
-
-      - name: Install client/desktop dependencies (manifest generator + verifier)
-        working-directory: client/desktop
-        run: npm ci
-
-      - name: Generate macOS blockmaps (differential auto-update — #1292)
-        shell: bash
-        run: |
-          set -euo pipefail
-          # app-builder-bin ships the same Go blockmap tool electron-builder uses
-          # (content-defined chunking). Resolve its binary path portably (a
-          # devDependency installed by the preceding `npm ci`). The npm-extracted
-          # binary is NOT marked executable, so chmod +x before invoking. Generate
-          # <zip>.blockmap next to each *normalized* macOS zip so electron-updater
-          # can fetch <url>.blockmap (no more 404) and the manifest generator can
-          # stat it for blockMapSize. Runs AFTER normalize (final names) and AFTER
-          # the #643 Gate-A sidecar check (blockmaps are not signing-runner
-          # sidecars). See internal-reference §D4-a.
-          APP_BUILDER="$(node -e "process.stdout.write(require('./client/desktop/node_modules/app-builder-bin').appBuilderPath)")"
-          chmod +x "$APP_BUILDER"
-          count=0
-          # IMPORTANT: this macOS-zip selector MUST stay identical to the
-          # MAC_FILES selector in the "Generate update manifests" step below — the
-          # blockmap PRODUCER and the manifest CONSUMER must enumerate the exact
-          # same set, or blockMapSize silently drifts off the surviving path
-          # (Gitar review, PR #1563). If you change one, change both.
-          while IFS= read -r zip; do
-            count=$((count + 1))
-            "$APP_BUILDER" blockmap --input "$zip" --output "$zip.blockmap"
-            # Validate the artifact is a parseable gzip blockmap, not just present —
-            # a future app-builder flag/compression change could emit a file
-            # electron-updater silently rejects (→ fallback to full, no signal).
-            gzip -t "$zip.blockmap" || { echo "::error::#1292: $(basename "$zip").blockmap is not valid gzip"; exit 1; }
-            echo "::notice::blockmap → $(basename "$zip").blockmap ($(stat -c%s "$zip.blockmap") bytes)"
-          done < <(find artifacts -type f \( -name "*.zip" -path "*/darwin/*" -o -name "*.zip" -path "*macos*" \) | sort)
-          # A release build always produces >=1 macOS zip (arm64, +x64 on release);
-          # an empty glob is a pipeline regression (mirrors the #1009 fail-loud
-          # manifest discipline). >=1, not ==1: the release matrix yields two arches.
-          test "$count" -ge 1 || { echo "::error::#1292: no macOS .zip found to blockmap"; exit 1; }
-
-      - name: Generate update manifests for electron-updater
-        shell: bash
-        env:
-          VERSION: ${{ needs.detect-release.outputs.version }}
-        run: |
-          # Generator: client/desktop/scripts/generate-update-manifest.mts.
-          # Reads schemas/update-manifest.json (shared with the read-side
-          # verifier below) and emits schema-validated YAML. Replaces the
-          # prior bash heredoc that built the YAML by string concatenation
-          # with no generation-time structural check. (#920 §5.7)
-          # VERSION sourced from env: block above.
-          set -euo pipefail
-          TSX=client/desktop/node_modules/.bin/tsx
-          GEN=client/desktop/scripts/generate-update-manifest.mts
-
-          # ── Windows (latest.yml) ──
-          # #1009 L1: fail-loud on empty glob. The pre-fix conditional
-          # silently skipped manifest generation when the find pattern
-          # produced zero matches — shipping a release with no Windows
-          # manifest. Listing the searched paths in the error annotation
-          # is load-bearing for incident response.
-          mapfile -t WIN_FILES < <(find artifacts -type f -name "*.exe" | sort)
-          if [[ ${#WIN_FILES[@]} -eq 0 ]]; then
-            echo "::error::No Windows .exe artifacts found for manifest generation. Searched: artifacts/ for *.exe"
-            find artifacts -type f -name "*.exe" 2>&1 | head -20 >&2 || true
-            exit 1
-          fi
-          "$TSX" "$GEN" "$VERSION" artifacts/latest.yml "${WIN_FILES[@]}"
-          echo "── artifacts/latest.yml ──"
-          cat artifacts/latest.yml
-
-          # ── macOS (latest-mac.yml) ──
-          # #1009 L1: fail-loud on empty glob. This is the specific
-          # failure mode that shipped v0.1.35 without latest-mac.yml.
-          #
-          # ⚠ DO NOT add *.dmg to this glob. (#1159 Phase 1 design.)
-          # The .dmg is install-only — electron-updater on macOS reads
-          # .zip payloads from the latest-mac.yml manifest. DMG-format
-          # auto-update is NOT supported by Squirrel.Mac. Adding .dmg
-          # here would produce a manifest electron-updater attempts to
-          # mount and copy from, which fails silently — exactly the
-          # silent-update-failure mode that motivated #1159 Phase 2.
-          # See internal-reference §6 R2.
-          mapfile -t MAC_FILES < <(find artifacts -type f \( -name "*.zip" -path "*/darwin/*" -o -name "*.zip" -path "*macos*" \) | sort)
-          if [[ ${#MAC_FILES[@]} -eq 0 ]]; then
-            echo "::error::No macOS .zip artifacts found for manifest generation. Searched: artifacts/ for *.zip with path */darwin/* or *macos*"
-            find artifacts -type f -name "*.zip" 2>&1 | head -20 >&2 || true
-            exit 1
-          fi
-          "$TSX" "$GEN" "$VERSION" artifacts/latest-mac.yml "${MAC_FILES[@]}"
-          echo "── artifacts/latest-mac.yml ──"
-          cat artifacts/latest-mac.yml
-
-          # ── Linux AppImage (latest-linux.yml) ──
-          # #1009 L1: fail-loud on empty glob.
-          mapfile -t LINUX_FILES < <(find artifacts -type f -name "*.AppImage" | sort)
-          if [[ ${#LINUX_FILES[@]} -eq 0 ]]; then
-            echo "::error::No Linux .AppImage artifacts found for manifest generation. Searched: artifacts/ for *.AppImage"
-            find artifacts -type f -name "*.AppImage" 2>&1 | head -20 >&2 || true
-            exit 1
-          fi
-          "$TSX" "$GEN" "$VERSION" artifacts/latest-linux.yml "${LINUX_FILES[@]}"
-          echo "── artifacts/latest-linux.yml ──"
-          cat artifacts/latest-linux.yml
-
-      - name: Assert required manifest set
-        shell: bash
-        working-directory: client/desktop
-        run: |
-          # #1009 L2: fail-loud guard for the per-platform expected-set
-          # contract. The hardcoded list `latest-mac.yml,latest.yml,latest-linux.yml`
-          # is the single canonical declaration of "what platforms we ship"
-          # — adding/removing a platform requires updating this line in the
-          # same PR that touches the matrix shape. Runs BEFORE the SHA-512
-          # verifier because that verifier exits 0 on empty input.
-          set -euo pipefail
-          REPO_ROOT=$(git rev-parse --show-toplevel)
-          node scripts/assert-manifest-set.mjs \
-            --dir="${REPO_ROOT}/artifacts" \
-            --require=latest-mac.yml,latest.yml,latest-linux.yml
-
-      - name: Verify update manifest SHA-512
-        shell: bash
-        working-directory: client/desktop
-        run: |
-          set -euo pipefail
-          REPO_ROOT=$(git rev-parse --show-toplevel)
-          MANIFESTS=()
-          for M in latest.yml latest-mac.yml latest-linux.yml; do
-            if [[ -f "${REPO_ROOT}/artifacts/${M}" ]]; then
-              MANIFESTS+=("${REPO_ROOT}/artifacts/${M}")
-            fi
-          done
-          if [[ ${#MANIFESTS[@]} -eq 0 ]]; then
-            echo "::error::No update manifests found in artifacts/ — expected at least one"
-            exit 1
-          fi
-          echo "Verifying ${#MANIFESTS[@]} manifest(s): ${MANIFESTS[*]}"
-          node scripts/verify-update-manifest.mjs "${MANIFESTS[@]}"
-
-      - name: Assert required binary asset set (#643)
-        shell: bash
-        working-directory: client/desktop
-        run: |
-          set -euo pipefail
-          REPO_ROOT=$(git rev-parse --show-toplevel)
-          # Per-arch public binaries must all be present before we push a tag /
-          # cut a release — prevents a silently-failed matrix leg shipping a
-          # platform-missing release or a download-page link that will 404.
-          # Keep this in sync with scripts/public-mirror/lib.sh's exact public
-          # release asset contract.
-          required_assets=(
-            '*macos-arm64.zip'
-            '*macos-arm64.dmg'
-            '*macos-arm64.zip.blockmap'
-            '*macos-x64.zip'
-            '*macos-x64.dmg'
-            '*macos-x64.zip.blockmap'
-            '*windows-arm64-Setup.exe'
-            '*windows-x64-Setup.exe'
-            '*linux-arm64.AppImage'
-            '*linux-arm64.deb'
-            '*linux-arm64.rpm'
-            '*linux-x64.AppImage'
-            '*linux-x64.deb'
-            '*linux-x64.rpm'
-            # #653: every Linux artifact must carry a detached Ed25519 .sig
-            # before publish (kept in lockstep with scripts/public-mirror/lib.sh).
-            '*linux-arm64.AppImage.sig'
-            '*linux-arm64.deb.sig'
-            '*linux-arm64.rpm.sig'
-            '*linux-x64.AppImage.sig'
-            '*linux-x64.deb.sig'
-            '*linux-x64.rpm.sig'
-          )
-          node scripts/assert-binary-asset-set.mjs \
-            --dir="${REPO_ROOT}/artifacts" \
-            --require="$(IFS=,; printf '%s' "${required_assets[*]}")"
-
-      - name: List downloaded artifacts
-        run: find artifacts -type f | head -50
-
-      - name: Create git tag
-        shell: bash
-        env:
-          TAG_NAME: ${{ needs.detect-release.outputs.tag_name }}
-          COMMIT_SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          # PLATFORM CONSTRAINT (#2026): GITHUB_TOKEN cannot push a ref whose
-          # target commit modifies .github/workflows/** ("refusing to allow a
-          # GitHub App to create or update workflow ... without `workflows`
-          # permission"). A version-bump commit that also touches a workflow
-          # file therefore breaks this push (founding incident: v0.2.21, run
-          # 28565118707). Recovery: push the tag manually with an owner
-          # credential and re-run this job (the guard below makes that rerun
-          # pass), or delete the stranded tag and dispatch force_release from
-          # a HEAD whose own diff touches no workflow files. Prevention: never
-          # batch workflow edits into bump commits — see
-          # docs/release/desktop-release-checklist.md.
-          #
-          # ls-remote col 1 is the commit SHA ONLY because desktop-v* tags are
-          # lightweight; an annotated-tag migration must peel the ^{} line.
-          REMOTE_SHA=$(git ls-remote --tags origin "refs/tags/$TAG_NAME" | awk '{print $1}')
-          if [[ -n "$REMOTE_SHA" ]]; then
-            if [[ "$REMOTE_SHA" == "$COMMIT_SHA" ]]; then
-              echo "::notice::Tag $TAG_NAME already exists at $COMMIT_SHA — skipping create+push (idempotent rerun)"
-              exit 0
-            fi
-            echo "::error::Tag $TAG_NAME exists at $REMOTE_SHA but this release commit is $COMMIT_SHA — possible tag hijack or stale tag; refusing to proceed (#2026)"
-            exit 1
-          fi
-          git tag "$TAG_NAME" "$COMMIT_SHA"
-          git push origin "$TAG_NAME"
-
-      - name: Find previous tag
-        id: prev_tag
-        env:
-          TAG_NAME: ${{ needs.detect-release.outputs.tag_name }}
-        run: |
-          PREV_TAG=$(git tag --list 'desktop-v*' --sort=-version:refname | grep -vFx -- "$TAG_NAME" | head -1)
-          if [[ -n "$PREV_TAG" ]]; then
-            echo "prev_tag=${PREV_TAG}" >> "$GITHUB_OUTPUT"
-            echo "has_prev=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_prev=false" >> "$GITHUB_OUTPUT"
-          fi
-          echo "::notice::Previous tag: ${PREV_TAG:-none}"
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ needs.detect-release.outputs.version }}
-          TAG_NAME: ${{ needs.detect-release.outputs.tag_name }}
-          IS_PRERELEASE: ${{ needs.detect-release.outputs.is_prerelease }}
-          BUILD_NUMBER: ${{ needs.detect-release.outputs.build_number }}
-          HAS_PREV_TAG: ${{ steps.prev_tag.outputs.has_prev }}
-          PREV_TAG: ${{ steps.prev_tag.outputs.prev_tag }}
-        run: |
-          # VERSION, TAG_NAME, IS_PRERELEASE, BUILD_NUMBER sourced from env: block above.
-          TAG="${TAG_NAME}"
-          IS_PRE="${IS_PRERELEASE}"
-          BUILD="${BUILD_NUMBER}"
-
-          ARGS=(
-            "$TAG"
-            --title "Concord Voice v${VERSION}"
-            --generate-notes
-          )
-
-          if [[ "$HAS_PREV_TAG" == "true" ]]; then
-            ARGS+=(--notes-start-tag "$PREV_TAG")
-          fi
-
-          if [[ "$IS_PRE" == "true" ]]; then
-            ARGS+=(--prerelease)
-          fi
-
-          FILES=()
-          while IFS= read -r file; do
-            FILES+=("$file")
-          # NOTE: *.dmg IS attached here (the macOS first-install installer, #1162)
-          # but is deliberately ABSENT from the latest-mac.yml manifest glob above —
-          # the .dmg is install-only; electron-updater consumes the .zip. Do not
-          # "reconcile" the two globs: this attachment list and the updater manifest
-          # are intentionally different sets.
-          # #653: *.sig attaches the detached Linux update signatures — WITHOUT
-          # this clause the .sig files are produced but never uploaded, every
-          # client .sig fetch 404s, and the fail-closed verifier refuses every
-          # Linux install. The glob is default-deny; a new asset type must be
-          # added here explicitly.
-          done < <(find artifacts -type f \( -name "*.exe" -o -name "*.zip" -o -name "*.deb" -o -name "*.rpm" -o -name "*.msi" -o -name "*.AppImage" -o -name "*.yml" -o -name "*.blockmap" -o -name "*.dmg" -o -name "*.sig" \))
-
-          echo "Attaching ${#FILES[@]} files to release"
-          for f in "${FILES[@]}"; do
-            echo "  - $(basename "$f")"
-          done
-
-          gh release create "${ARGS[@]}" "${FILES[@]}"
-
-          echo "::notice::Release created: Concord Voice v${VERSION} (build ${BUILD})"
-
-      # Keep this as the final release step: its output is the success-only
-      # signal consumed by main-ci's parallel post-release jobs (#2048).
-      - name: Mark release publication complete
-        id: release_succeeded
-        env:
-          RELEASE_TAG: ${{ needs.detect-release.outputs.tag_name }}
-        run: |
-          echo "released=true" >> "$GITHUB_OUTPUT"
-          echo "release_tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
-
-  # ─── Job: PR smoke test result aggregator ─────────────────────────────
-  # The single required status check seen by branch protection. Emits
-  # success when paths didn't match (sentinel branch) or when the unsigned
-  # smoke build succeeded; emits failure when it failed/cancelled.
-  #
-  # ─── Sync release assets to production (#1601) ───────────────────────────
-  # After a release is published, sync its assets to /opt/concord/releases/ so
-  # the update API serves the new version. This REPLACES sync-releases.yml's
-  # dead `workflow_run` trigger: #1477 moved this workflow under main-ci.yml's
-  # workflow_call, and a workflow run via workflow_call emits no standalone
-  # workflow_run completion event under its own name, so the trigger never
-  # fired and the update API froze at v0.1.59 while v0.1.60–.64 shipped.
-  # Both organic and standalone manual releases dispatch sync-releases.yml as a
-  # separate run. workflow_call paths have repeatedly lost that workflow's
-  # production-environment deploy key (#2048).
-  sync-releases:
-    name: Sync release assets to production
-    needs: [detect-release, release-build, release]
-    # `always()` + explicit result check, same #1077 cascade-skip class the
-    # `release` job above documents: detect-release/release-build/release are `skipped`
-    # on PR events, so the implicit success() chain would cascade-skip this job.
-    # Gate on `release` SUCCESS specifically — the release job only runs when
-    # should_release=='true' AND release-build succeeded, so its success is the precise
-    # signal that a release was actually published and there are assets to sync.
-    # Every release run is a workflow_dispatch of this workflow (Main CI
-    # dispatches organically after its scan gates; humans dispatch manually),
-    # so this job is the sole sync-promotion path (#2048/#2274).
-    # Off-main branch/tag dispatches are detection-only: release-build/release
-    # cannot start, so they cannot reach this promotion job.
-    if: >-
-      always() &&
-      github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/main' &&
-      needs.release.result == 'success'
-    # The explicit dispatch is the only elevated capability in this job.
-    permissions:
-      actions: write
-      checks: read
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - name: Dispatch and await release asset sync
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.release.outputs.release_tag }}
-        run: |
-          set -euo pipefail
-          # ref=main is load-bearing: production environment admits protected branch refs only.
-          # RELEASE_TAG remains the exact release-data binding for the child run.
-          RUN_ID=$(gh api --method POST \
-            -H "X-GitHub-Api-Version: 2026-03-10" \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/sync-releases.yml/dispatches" \
-            -F return_run_details=true \
-            -f ref=main \
-            -f "inputs[release_tag]=$RELEASE_TAG" \
-            --jq '.workflow_run_id')
-          test -n "$RUN_ID" || { echo "::error::Dispatch returned no workflow run ID"; exit 1; }
-          echo "::notice::Watching release sync run ${RUN_ID} for ${RELEASE_TAG}"
-          gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --compact --exit-status
-
-  # Dispatch the sole publisher from a trusted main-ref release.
-  public-release-mirror:
-    name: Mirror release to public repo
-    needs: [detect-release, release-build, release]
-    # Pattern register P3: `always()` avoids the #1077 cascade-skip class. The dispatch gate matches
-    # the sync job above: every release run is a workflow_dispatch run.
-    if: >-
-      always() &&
-      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&
-      github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/main' &&
-      needs.release.result == 'success'
-    permissions:
-      actions: write
-      checks: read
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    steps:
-      - name: Dispatch and await public mirror
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ needs.release.outputs.release_tag }}
-        run: |
-          set -euo pipefail
-          RUN_ID=$(gh api --method POST \
-            -H "X-GitHub-Api-Version: 2026-03-10" \
-            "repos/$GITHUB_REPOSITORY/actions/workflows/publish-public-mirror.yml/dispatches" \
-            -F return_run_details=true \
-            -f ref=main \
-            -f "inputs[mirror_release_tag]=$RELEASE_TAG" \
-            --jq '.workflow_run_id')
-          test -n "$RUN_ID" || { echo "::error::Dispatch returned no workflow run ID"; exit 1; }
-          echo "::notice::Watching public mirror run ${RUN_ID} for ${RELEASE_TAG}"
-          gh run watch "$RUN_ID" --repo "$GITHUB_REPOSITORY" --compact --exit-status
+    # C: signing and publication belong to Hosted / Release-Ops (D2). Removed release.
+    # C: signing and publication belong to Hosted / Release-Ops (D2). Removed sync-releases.
+    # C: signing and publication belong to Hosted / Release-Ops (D2). Removed public-release-mirror.

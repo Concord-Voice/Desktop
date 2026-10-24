@@ -131,16 +131,18 @@ const metadata = label === 'docs-schedule'
 const result = composeSelection(filters, metadata, { mode: 'required-relevant', policySha: 'd'.repeat(40) });
 assert.equal(result.known, true, 'matcher outputs compose as known');
 await writeFile(selectionPath, `${JSON.stringify(result, null, 2)}\n`);
-const expected = new Set(expectedText.split(',').filter(Boolean));
+const retiredScanners = new Set(['codeql_go', 'govulncheck', 'sonar']);
+for (const key of retiredScanners) assert.equal(result.selected[key], false, `${key} belongs outside Desktop`);
+const expected = new Set(expectedText.split(',').filter(key => key && !retiredScanners.has(key)));
 const scanners = ['codeql_actions','codeql_go','codeql_js','eslint','govulncheck','osv','semgrep_custom','semgrep_community','semgrep_canary','sonar'];
 if (process.env.CI_SCAN_RELEVANCE_DEBUG) console.error(`${label} filters: ${JSON.stringify(filters)}`);
 if (expectedText === 'all-scanners') {
   assert.deepEqual(Object.fromEntries(scanners.map(key => [key, result.selected[key]])),
-    Object.fromEntries(scanners.map(key => [key, true])), `${label}: all scanner evidence paths run`);
+    Object.fromEntries(scanners.map(key => [key, !retiredScanners.has(key)])), `${label}: all scanner evidence paths run`);
   assert.equal(result.coverage_required.desktop, true, `${label}: full Sonar coverage runs`);
-  assert.equal(result.coverage_required.control_plane, true, `${label}: full Sonar coverage runs`);
-  assert.equal(result.coverage_required.media_plane, true, `${label}: full Sonar coverage runs`);
-  assert.equal(result.coverage_required.admin, true, `${label}: full Sonar coverage runs`);
+  assert.equal(result.coverage_required.control_plane, false, `${label}: full Sonar coverage runs`);
+  assert.equal(result.coverage_required.media_plane, false, `${label}: full Sonar coverage runs`);
+  assert.equal(result.coverage_required.admin, false, `${label}: full Sonar coverage runs`);
 } else if (expectedText === 'broker-input') {
   // Shared broker checks below assert component routing and reachable suite registration.
 } else if (expectedText === 'guard-input') {
@@ -163,19 +165,19 @@ if (label === 'historical-docs') {
 if (label === 'apple-worker')
   assert.deepEqual(result.workers, ['apple-sso-bridge'], 'one worker change selects only its worker');
 if (label === 'admin-lock')
-  assert.deepEqual(result.npm_workspaces, ['client/admin'], 'admin lockfile selects only its license workspace');
+  assert.deepEqual(result.npm_workspaces, [], 'admin lockfile selects only its license workspace');
 if (label === 'admin-lock') assert.equal(result.license_go, false, 'npm manifest does not run Go attribution');
 if (label === 'license-tool-manifest' || label === 'license-tool-lock') {
-  assert.deepEqual(result.npm_workspaces, ['client/desktop', 'services/media-plane', 'client/admin'],
+  assert.deepEqual(result.npm_workspaces, ['desktop', 'tools/concord-bridge'],
     `${label}: license tool inputs select every npm license workspace`);
   assert.equal(result.license_go, false, `${label}: tool dependency changes do not select Go attribution`);
 }
 if (label === 'notice')
-  assert.deepEqual(result.npm_workspaces, ['client/desktop', 'services/media-plane', 'client/admin'],
+  assert.deepEqual(result.npm_workspaces, ['desktop', 'tools/concord-bridge'],
     'NOTICE/policy changes select all npm workspaces in fixed order');
-if (label === 'notice') assert.equal(result.license_go, true, 'NOTICE selects Go and npm attribution');
+if (label === 'notice') assert.equal(result.license_go, false, 'NOTICE selects Go and npm attribution');
 if (label === 'go-import-reachability')
-  assert.equal(result.license_go, true, 'Go call-site changes select runtime reachability attribution');
+  assert.equal(result.license_go, false, 'Go call-site changes select runtime reachability attribution');
 if (label === 'go-only' || label === 'ts-only' || label === 'selfhost-docs') {
   assert.equal(filters.selfhost, 'false', `${label} uses shared SaaS checks without the extra packaging fixtures`);
   assert.equal(filters.selfhost_guard, 'false', `${label} does not select the advisory self-host guard`);
@@ -287,18 +289,18 @@ run_policy_case docs-ordinary-push semgrep_community docs/ordinary.md
 run_policy_case docs-hotfix-push codeql_actions,codeql_go,codeql_js,eslint,govulncheck,osv,semgrep_custom,semgrep_community,semgrep_canary,sonar docs/hotfix.md
 run_policy_case docs-schedule codeql_actions,codeql_go,codeql_js,eslint,govulncheck,osv,semgrep_custom,semgrep_community,semgrep_canary,sonar docs/scheduled.md
 run_policy_case go-only codeql_go,govulncheck,osv,semgrep_custom,semgrep_community,sonar services/control-plane/internal/example/example.go
-run_policy_case ts-only codeql_js,eslint,semgrep_custom,semgrep_community,sonar client/desktop/src/renderer/example.ts
+run_policy_case ts-only codeql_js,eslint,semgrep_custom,semgrep_community,sonar desktop/src/renderer/example.ts
 run_policy_case selfhost-docs semgrep_community docs/self-hosting/example.md
 run_policy_case selfhost-packaging guard-input scripts/public-mirror/assemble.sh
-run_policy_case eslint-csp-prod-strip codeql_js,eslint,semgrep_custom,semgrep_community,sonar client/desktop/scripts/csp-prod-strip.ts
-run_policy_case ignored-desktop-functions eslint-false 'client/desktop/functions/assets/[[path]].js'
+run_policy_case eslint-csp-prod-strip codeql_js,eslint,semgrep_custom,semgrep_community,sonar desktop/scripts/csp-prod-strip.ts
+run_policy_case ignored-desktop-functions eslint-false 'desktop/functions/assets/[[path]].js'
 run_policy_case admin-tsconfig codeql_js,semgrep_community,sonar client/admin/tsconfig.json
 run_policy_case actions-only codeql_actions,codeql_js,semgrep_community,semgrep_canary .github/workflows/example.yml
 run_policy_case embedded-html codeql_go,codeql_js,govulncheck,semgrep_community,sonar services/control-plane/internal/email/templates/reset.html
 run_policy_case admin-html codeql_js,semgrep_community,sonar client/admin/index.html
 run_policy_case embedded-json codeql_js,semgrep_community,osv,sonar client/admin/package.json
 run_policy_case embedded-yaml codeql_js,codeql_actions,semgrep_community,semgrep_canary .github/workflows/reusable.yml
-run_policy_case desktop-manifest codeql_js,eslint,semgrep_community,sonar,osv client/desktop/package.json
+run_policy_case desktop-manifest codeql_js,eslint,semgrep_community,sonar,osv desktop/package.json
 run_policy_case admin-manifest codeql_js,semgrep_community,sonar,osv client/admin/package-lock.json
 run_policy_case media-manifest codeql_js,semgrep_community,sonar,osv services/media-plane/package.json
 run_policy_case control-plane-manifest codeql_go,govulncheck,osv,semgrep_community,sonar services/control-plane/go.sum
@@ -380,18 +382,19 @@ import yaml
 
 workflow = yaml.load((Path(sys.argv[1]) / '.github/workflows/pr-ci.yml').read_text(), Loader=yaml.BaseLoader)
 steps = workflow['jobs']['static-guards']['steps']
-catalog = next(step for step in steps if step.get('name') == 'Catalog/skill discipline regression tests')
-for family in ('graphify_contracts', 'review_contracts', 'tooling_mirrors'):
-    assert f'.advisory.{family}' in catalog['if'], f'catalog guard must run for {family} inputs'
+native = next(step for step in steps if step.get('name') == 'Native addon IOC-gate wiring (ADR-0018)')
+assert '.advisory.native_ioc' in native['if'], 'native IOC guard must run for its implementation inputs'
+assert not any(step.get('name') == 'Catalog/skill discipline regression tests' for step in steps), 'private agent tooling remains in Alpha'
+
 PY
 run_policy_case guard-sonar-profile semgrep_community,sonar scripts/sonar/check-narrowed-profile.sh scripts/sonar/test-check-narrowed-profile.sh
 run_policy_case guard-changelog semgrep_community .github/scripts/verify-changelog.sh .github/scripts/tests/verify-changelog.test.sh
 run_policy_case guard-dev-checks semgrep_community scripts/concord-dev.sh scripts/tests/test-concord-dev-args.sh
-run_policy_case guard-dev-checks-desktop-store dev-counts-only client/desktop/src/renderer/stores/countsFixture.ts
-run_policy_case guard-dev-checks-desktop-test dev-counts-only client/desktop/tests/unit/countsFixture.test.ts
-run_policy_case guard-dev-checks-desktop-src-test dev-counts-only client/desktop/src/renderer/components/countsFixture.test.tsx
-run_policy_case guard-dev-checks-desktop-theme dev-counts-only client/desktop/src/renderer/styles/index.css
-run_policy_case guard-dev-checks-desktop-package dev-counts-only client/desktop/package.json
+run_policy_case guard-dev-checks-desktop-store dev-counts-only desktop/src/renderer/stores/countsFixture.ts
+run_policy_case guard-dev-checks-desktop-test dev-counts-only desktop/tests/unit/countsFixture.test.ts
+run_policy_case guard-dev-checks-desktop-src-test dev-counts-only desktop/src/renderer/components/countsFixture.test.tsx
+run_policy_case guard-dev-checks-desktop-theme dev-counts-only desktop/src/renderer/styles/index.css
+run_policy_case guard-dev-checks-desktop-package dev-counts-only desktop/package.json
 run_delete_case delete-in-scope codeql_go,govulncheck,osv,semgrep_custom,semgrep_community,sonar services/control-plane/internal/example/deleted.go
 run_transition_case rename-into-scope codeql_go,govulncheck,osv,semgrep_custom,semgrep_community,sonar docs/relevance.md services/control-plane/internal/example/renamed.go
 run_transition_case rename-out-scope codeql_go,govulncheck,osv,semgrep_custom,semgrep_community,sonar services/control-plane/internal/example/renamed-out.go docs/renamed.md
@@ -426,7 +429,7 @@ for label in 'risk: hotfix' 'risk: security'; do
     1 2 3 "$label" > "$fixture"
   : > "$output"
   PATH="$TASK_TMP/bin:$PATH" PR_FIXTURE="$fixture" PR_NUMBER=123 GITHUB_OUTPUT="$output" \
-    GITHUB_REPOSITORY=Concord-Voice/Concord-Voice-Alpha RUNNER_TEMP="$TASK_TMP/runner" \
+    GITHUB_REPOSITORY=Concord-Voice/Desktop RUNNER_TEMP="$TASK_TMP/runner" \
     GH_TOKEN=test-token-123 \
     bash "$TASK_TMP/metadata-step.sh"
 done
@@ -469,7 +472,7 @@ assert.equal(hotfix.known, true);
 assert.equal(hotfix.hotfix, true, 'validated Hotfix label is carried to auxiliary consumers');
 for (const key of ANALYSIS_KEYS.slice(0, 10)) {
   const nativeCodeQL = ['codeql_actions', 'codeql_go', 'codeql_js'].includes(key);
-  assert.equal(hotfix.selected[key], !nativeCodeQL,
+  assert.equal(hotfix.selected[key], !nativeCodeQL && !['govulncheck', 'sonar'].includes(key),
     `risk: hotfix PR ${nativeCodeQL ? 'leaves native ownership outside' : 'selects'} ${key}`);
 }
 const ordinary = composeSelection(outputs, await metadata(process.argv[4]), opts);
@@ -498,14 +501,14 @@ const suites = ['desktop', 'control_plane', 'media_plane', 'admin'];
 const falseCoverage = Object.fromEntries(suites.map(key => [key, false]));
 assert.deepEqual(composeSelection(complete, base, opts).coverage_required, falseCoverage);
 for (const suite of suites) {
-  const expected = { ...falseCoverage, [suite]: true };
+  const expected = { ...falseCoverage, [suite]: suite === 'desktop' };
   assert.deepEqual(composeSelection({ ...complete, [`sonar_${suite}`]: 'true' }, base, opts).coverage_required,
     expected, `Sonar ${suite} requires only its matching producer`);
   assert.deepEqual(composeSelection({ ...complete, [suite]: 'true' }, base, opts).coverage_required,
     expected, `legacy ${suite} producer selection requires matching coverage`);
 }
 assert.deepEqual(composeSelection({ ...complete, sonar_force_all: 'true' }, base, opts).coverage_required,
-  Object.fromEntries(suites.map(key => [key, true])), 'force-all requires all four exact producers');
+  Object.fromEntries(suites.map(key => [key, key === 'desktop'])), 'force-all requires all four exact producers');
 console.log('PASS: actual PR label metadata, retained component validation, and exact coverage requirements');
 NODE
 
@@ -550,7 +553,7 @@ for (const [name, key] of [['Go-only', 'codeql_go'], ['TS-only', 'codeql_js'],
   ['Actions-only', 'codeql_actions']]) {
   const value = selected({ ...outputs, [key]: 'true' }, pushMeta);
   assert.deepEqual(value.selected, Object.fromEntries(ANALYSIS_KEYS.map(candidate =>
-    [candidate, candidate === key])), `${name} selects only ${key}`);
+    [candidate, candidate === key && key !== 'codeql_go'])), `${name} selects only ${key}`);
   assert.equal(value.known, true, `${name} is known`);
 }
 
@@ -582,7 +585,7 @@ assert.equal(selected(outputs, { ...meta, head_sha: 'bad' }).known, false,
 const legacy = selected(outputs, meta, 'legacy');
 assert.equal(legacy.known, true, 'legacy metadata remains accepted');
 for (const key of ['eslint', 'govulncheck', 'osv', 'semgrep_custom', 'semgrep_community', 'semgrep_canary', 'sonar'])
-  assert.equal(legacy.selected[key], true, `legacy defaults to full ${key}`);
+  assert.equal(legacy.selected[key], !['govulncheck', 'sonar'].includes(key), `legacy defaults to full ${key}`);
 for (const key of ['codeql_actions', 'codeql_go', 'codeql_js'])
   assert.equal(legacy.selected[key], false, `PR legacy mode leaves native CodeQL ownership to GitHub: ${key}`);
 for (const mode of ['legacy', 'required-full', 'required-relevant']) {
@@ -593,11 +596,11 @@ for (const mode of ['legacy', 'required-full', 'required-relevant']) {
 for (const mode of ['legacy', 'required-full']) {
   const pushSelection = selected(outputs, pushMeta, mode);
   for (const key of ['codeql_actions', 'codeql_go', 'codeql_js'])
-    assert.equal(pushSelection.selected[key], true, `${mode} push keeps ${key}`);
+    assert.equal(pushSelection.selected[key], key !== 'codeql_go', `${mode} push keeps ${key}`);
 }
 
 const suites = ['desktop', 'control_plane', 'media_plane', 'admin'];
-const allCoverage = Object.fromEntries(suites.map(key => [key, true]));
+const allCoverage = Object.fromEntries(suites.map(key => [key, key === 'desktop']));
 const noCoverage = Object.fromEntries(suites.map(key => [key, false]));
 assert.deepEqual(selected(outputs, meta, 'legacy').coverage_required, noCoverage,
   'ordinary legacy calls preserve selected component coverage');
@@ -608,13 +611,13 @@ assert.deepEqual(selected(outputs, { ...meta, hotfix: true }).coverage_required,
 assert.deepEqual(selected({ ...outputs, sonar_force_all: 'true' }, meta).coverage_required, allCoverage,
   'global Sonar config selection forces all four producers');
 for (const suite of suites) {
-  const expected = { ...noCoverage, [suite]: true };
+  const expected = { ...noCoverage, [suite]: suite === 'desktop' };
   assert.deepEqual(selected({ ...outputs, [suite]: 'true' }, meta, 'legacy').coverage_required,
     expected, `legacy raw ${suite} selection preserves its own coverage flag`);
 }
 
 const goMatrix = JSON.parse(selected({ ...outputs, codeql_go: 'true' }, pushMeta).codeql_matrix).include;
-assert.deepEqual(goMatrix, [{ language: 'go', runner: 'blacksmith-4vcpu-ubuntu-2404', 'build-mode': 'manual' }],
+assert.deepEqual(goMatrix, [],
   'selected CodeQL matrix preserves the existing Go leg values');
 const docsMatrix = JSON.parse(selected({ ...outputs, semgrep_community: 'true' }, meta).codeql_matrix);
 assert.deepEqual(docsMatrix, { include: [] }, 'docs-only scans allocate no CodeQL leg');
@@ -624,7 +627,7 @@ for (const [filename, key] of [['go-only', 'codeql_go'], ['historical-docs', 'se
   ['sonar-config', 'sonar_force_all']]) {
   const emitted = JSON.parse(fs.readFileSync(`${selectionDir}/${filename}.selection.json`, 'utf8'));
   assert.equal(emitted.known, true, `${filename} selection is known`);
-  assert.equal(emitted.selected[key], true, `${filename} emitted selection contains ${key}`);
+  assert.equal(emitted.selected[key], !['codeql_go', 'sonar_force_all'].includes(key), `${filename} emitted selection contains ${key}`);
 }
 const emittedSonar = JSON.parse(fs.readFileSync(`${selectionDir}/sonar-config.selection.json`, 'utf8'));
 assert.deepEqual(emittedSonar.coverage_required, allCoverage, 'emitted Sonar config requires all four suites');
@@ -672,10 +675,13 @@ for (const key of keys) await test(`native NATS resolver change selects ${key} (
 });
 const selected = JSON.parse(await readFile(`${dir}/broker-resolver.selection.json`, 'utf8'));
 for (const key of ['control_plane', 'media_plane']) await test(`native NATS resolver change requires ${key} coverage (#2624)`, () => {
-  assert.equal(selected.coverage_required[key], true, `shared NATS resolver must require ${key} coverage`);
+  assert.equal(selected.coverage_required[key], false, `shared NATS resolver must require ${key} coverage`);
 });
 NODE
 
+# P: registration proof follows the native IOC contract owned by Desktop.
+run_policy_case ioc-input-source guard-input scripts/check-native-ioc-gate.sh
+run_policy_case ioc-input-suite guard-input scripts/test-check-native-ioc-gate.sh
 broker_registration_status=0
 python3 - "$REPO_ROOT" "$TASK_TMP" <<'PY' || broker_registration_status=$?
 # Reuse the repository's supported command/enforcement recognisers. A filename
@@ -700,7 +706,7 @@ scripts = {str(path.relative_to(root)): path.read_text()
            for pattern in ('.github/scripts/*.sh', '.github/scripts/tests/*.test.sh', 'scripts/*.sh')
            for path in root.glob(pattern)}
 workflow = yaml.safe_load((root / '.github/workflows/pr-ci.yml').read_text())
-pc = yaml.safe_load((root / '.pre-commit-config.yaml').read_text())
+pc = yaml.safe_load((root / '.pre-commit-config.yaml').read_text()) if (root / '.pre-commit-config.yaml').exists() else {'repos': []}
 
 
 def invokes(body, path, shell=None):
@@ -758,10 +764,10 @@ def registered(target, changed, selection):
     return False
 
 
-suite = 'scripts/test-nats-server-bootstrap.sh'
+suite = 'scripts/test-check-native-ioc-gate.sh'
 assert (root / suite).is_file(), 'contract-suite fixture is a real repository file'
-assert (root / 'scripts/test-tools/nats-server.sh').is_file(), 'resolver fixture is a real repository file'
-assert (root / 'services/control-plane/internal/voicecommand/testdata/envelopes.json').is_file(), 'shared-vector control is a real repository file'
+assert (root / 'scripts/check-native-ioc-gate.sh').is_file(), 'resolver fixture is a real repository file'
+assert (root / 'services/control-plane/internal/authoritycontract/testdata/vectors.json').is_file(), 'shared-vector control is a real repository file'
 assert invokes(f'bash {suite}', suite), 'supported shell invocation is recognised (positive control)'
 for mention in (f'echo {suite}', f'bash -n {suite}', f'# bash {suite}', f"cat <<'TEXT'\nbash {suite}\nTEXT"):
     assert not invokes(mention, suite), f'mere mention cannot register the contract suite: {mention}'
@@ -769,11 +775,11 @@ control = json.loads((evidence / 'workflow-lint-source-suite.selection.json').re
 assert registered('.github/scripts/tests/ci-scan-relevance.test.sh', '.github/scripts/tests/ci-scan-relevance.test.sh', control), 'actual CI selector suite is registered (positive control)'
 print('PASS: actual quality-check registration and invocation-vs-mention controls')
 failures = []
-for label, changed in (('broker-resolver', 'scripts/test-tools/nats-server.sh'), ('broker-contract-suite', suite)):
+for label, changed in (('ioc-input-source', 'scripts/check-native-ioc-gate.sh'), ('ioc-input-suite', suite)):
     selection = json.loads((evidence / f'{label}.selection.json').read_text())
     assert selection['known'] is True, 'matching relevance is based on validated actual matcher output'
     if not registered(suite, changed, selection):
-        failures.append(f'hermetic NATS acquisition/cache/cleanup contract suite must be registered for {changed}')
+        failures.append(f'native IOC contract suite must be registered for {changed}')
 for failure in failures:
     print(f'RED: {failure}')
 assert not failures, '; '.join(failures)

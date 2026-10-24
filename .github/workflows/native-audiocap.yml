@@ -94,7 +94,7 @@ jobs:
       # found the defect — a green job that already knows the answer is the one
       # outcome worth engineering against here, since nothing downstream re-checks.
       - name: Build and run
-        working-directory: client/desktop/native/concord-audiocap
+        working-directory: desktop/native/concord-audiocap
         env:
           # The flags travel in the environment: a template inside the script text is a scanner
           # error for Semgrep's protected scan (internal-reference P18).
@@ -120,7 +120,7 @@ jobs:
           # The macOS backend's state machine. It compiles HERE, on Linux,
           # because rt/platform/macos/hal_api.h names no Apple type -- which is
           # the only reason this code gets sanitizer coverage at all
-          # (client/desktop/native/** is outside sonar.sources).
+          # (desktop/native/** is outside sonar.sources).
           clang++ -std=c++17 -Wall -Wextra -Werror -g -O1 -pthread \
             "${sanitizer_flags[@]}" -fno-omit-frame-pointer -I. \
             test/macos_tap_test.cc -o macos_tap_test
@@ -143,7 +143,7 @@ jobs:
       # or byte-pair — unbounded inputs buy depth in the operation sequence, not
       # in the geometry, which is where the interesting states are.
       - name: Build and run libFuzzer targets
-        working-directory: client/desktop/native/concord-audiocap
+        working-directory: desktop/native/concord-audiocap
         run: |
           clang++ --version
           clang++ -std=c++17 -Wall -Wextra -Werror -g -O1 \
@@ -195,10 +195,10 @@ jobs:
         with:
           node-version: 24
       - name: Install desktop dependencies
-        working-directory: client/desktop
+        working-directory: desktop
         run: npm ci
       - name: Build the addon
-        working-directory: client/desktop
+        working-directory: desktop
         run: node scripts/build-native.mjs --arch ${{ matrix.arch }}
       # Loading it is the only proof the build produced something usable. The addon
       # is N-API (NAPI_VERSION=8), which is ABI-stable across runtimes, so the
@@ -211,9 +211,9 @@ jobs:
       # runner and is not worth one for a capability probe.
       - name: Load it and probe the capability ladder
         if: matrix.loadable == 'yes'
-        working-directory: client/desktop
+        working-directory: desktop
         run: node -e "const a=require('./native/concord-audiocap');const c=a.capability();console.log(JSON.stringify(c));if(!c.platform||c.platform==='unsupported')process.exit(1);"
-      # The window-owner resolver's ONLY coverage: client/desktop/native/** is outside
+      # The window-owner resolver's ONLY coverage: desktop/native/** is outside
       # sonar.sources, so the >=80% new-code gate cannot bind one line of it (#3198
       # spec §8, R2). Three refusals on a real runner of each OS.
       #
@@ -228,11 +228,11 @@ jobs:
       # an arm64 Node, same reason the capability probe above is gated.
       - name: Resolver refusals (real runner)
         if: matrix.loadable == 'yes'
-        working-directory: client/desktop/native/concord-audiocap
+        working-directory: desktop/native/concord-audiocap
         run: node test/resolve_window_owner_probe.js
       - name: Confirm the binary exists when it cannot be loaded
         if: matrix.loadable == 'no'
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: |
           NODE_BIN=native/concord-audiocap/build/Release/concord_audiocap.node
@@ -272,7 +272,7 @@ jobs:
       # on Windows it re-enters the node-gyp.cmd EINVAL trap that script exists to
       # avoid. Both are documented in build-native.mjs; do not inline it here.
       - name: Build the synthetic target
-        working-directory: client/desktop
+        working-directory: desktop
         run: node scripts/build-native.mjs --arch ${{ matrix.arch }} --synthetic
 
       # The load-bearing assertion, and it proves BOTH halves of the compile gate
@@ -291,7 +291,7 @@ jobs:
 
       - name: Prove the define separates the two binaries
         if: matrix.loadable == 'yes'
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: |
           node -e "
@@ -346,7 +346,7 @@ jobs:
       # BOTH targets linked — which is the regression this row exists to catch.
       - name: Confirm both targets linked when they cannot be loaded
         if: matrix.loadable == 'no'
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: |
           R=native/concord-audiocap/build/Release

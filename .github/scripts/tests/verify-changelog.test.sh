@@ -24,8 +24,8 @@ make_repo() {
   git -C "$dir" init -q
   git -C "$dir" config user.email test@example.com
   git -C "$dir" config user.name test
-  mkdir -p "$dir/client/desktop"
-  printf '{\n  "name": "concord",\n  "version": "%s"\n}\n' "$version" > "$dir/client/desktop/package.json"
+  mkdir -p "$dir/desktop"
+  printf '{\n  "name": "concord",\n  "version": "%s"\n}\n' "$version" > "$dir/desktop/package.json"
   cat > "$dir/CHANGELOG.md" <<'EOF'
 # Changelog
 
@@ -90,7 +90,7 @@ run_case_at() { # <name> <expected> <dir> <base_rev>
 }
 
 set_version() { # <dir> <version>
-  printf '{\n  "name": "concord",\n  "version": "%s"\n}\n' "$2" > "$1/client/desktop/package.json"
+  printf '{\n  "name": "concord",\n  "version": "%s"\n}\n' "$2" > "$1/desktop/package.json"
 }
 
 add_entry() { # <dir> <label>
@@ -139,7 +139,7 @@ seed_unreleased_promotable() { # <dir> <preamble> <bullet text>
   # seed_unreleased writes a bare bullet with NO category heading, which is all
   # verify-changelog.sh Rule 4 needs. promote-unreleased-changelog.sh is stricter
   # since #3139: it mirrors extractPreamble in
-  # client/desktop/src/renderer/services/system/changelog.ts, where a body with
+  # desktop/src/renderer/services/system/changelog.ts, where a body with
   # no `### ` heading is ALL detail and therefore has no preamble at all. Case 36
   # is the only case that runs the real promoter, so only it needs this shape.
   awk -v pre="$2" -v line="- $3" '
@@ -166,12 +166,12 @@ commit_all() { git -C "$1" add -A && git -C "$1" commit -qm change; }
 # make_repo produces NO include-set files, which is why every case above is
 # unaffected by Rule 4 — its path filter matches nothing, so the rule fast-exits.
 # Rule 4's own cases have to create them.
-touch_include() { mkdir -p "$1/client/desktop/src" && echo "// $2" >> "$1/client/desktop/src/app.ts"; }
-touch_test()    { mkdir -p "$1/client/desktop/src/__tests__" && echo "// $2" >> "$1/client/desktop/src/__tests__/app.test.ts"; }
+touch_include() { mkdir -p "$1/desktop/src" && echo "// $2" >> "$1/desktop/src/app.ts"; }
+touch_test()    { mkdir -p "$1/desktop/src/__tests__" && echo "// $2" >> "$1/desktop/src/__tests__/app.test.ts"; }
 # A file inside a test DIRECTORY that is not itself named *.test.ts. Without it
 # the directory filter is unfalsifiable: app.test.ts is caught by the filename
 # filter too, so deleting the directory filter changes no result.
-touch_testdir()  { mkdir -p "$1/client/desktop/src/__tests__" && echo "// $2" >> "$1/client/desktop/src/__tests__/helpers.ts"; }
+touch_testdir()  { mkdir -p "$1/desktop/src/__tests__" && echo "// $2" >> "$1/desktop/src/__tests__/helpers.ts"; }
 # Two-thirds of Rule 4's include set had NO fixture: nothing put a non-exempt
 # file under services/control-plane or services/media-plane, so deleting either
 # from the regex survived the whole suite. The Go backend is exactly where the
@@ -499,8 +499,8 @@ r=$(mktemp -d)
 git -C "$r" init -q
 git -C "$r" config user.email test@example.com
 git -C "$r" config user.name test
-mkdir -p "$r/client/desktop"
-printf '{\n  "name": "concord",\n  "version": "0.2.20"\n}\n' > "$r/client/desktop/package.json"
+mkdir -p "$r/desktop"
+printf '{\n  "name": "concord",\n  "version": "0.2.20"\n}\n' > "$r/desktop/package.json"
 git -C "$r" add -A && git -C "$r" commit -qm "base without a changelog"
 printf '# Changelog\n\n## [Unreleased]\n\n## [0.2.20] — 2026-06-30\n\n- New file.\n' > "$r/CHANGELOG.md"
 commit_all "$r"

@@ -33,7 +33,7 @@ FAIL_DETAILS=()
 
 mkdir -p "$TMP/scripts" "$TMP/bin" \
          "$TMP/.github/tools/license-checker/node_modules/.bin" \
-         "$TMP/client/desktop/node_modules" \
+         "$TMP/desktop/node_modules" \
          "$TMP/services/media-plane/node_modules" \
          "$TMP/client/admin/node_modules" \
          "$TMP/services/control-plane"
@@ -48,7 +48,7 @@ cat > "$LICENSE_CHECKER_BIN" <<'SHIM'
 printf '%s|%s\n' "$PWD" "$*" >> "${LOCKED_CALL_LOG:?}"
 echo '"module name","license","repository"'
 case "$PWD" in
-  */client/desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"' ;;
+  */desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"' ;;
   */services/media-plane)  echo '"beta@2.0.0","ISC","https://example.com/beta"'
                            echo '"dup@1.0.0","MIT","https://example.com/dup"'
                            echo '"dup@2.0.0","MIT","https://example.com/dup"'
@@ -70,7 +70,7 @@ SHIM
 # the script must drop rather than tabulate.
 cat > "$TMP/bin/go" <<'SHIM'
 #!/bin/bash
-echo "github.com/Concord-Voice/Concord-Voice-Alpha/services/control-plane "
+echo "github.com/Concord-Voice/Desktop/services/control-plane "
 echo "github.com/example/one v1.1.0"
 echo "github.com/example/two v2.2.0"
 SHIM
@@ -189,7 +189,7 @@ expect "clean fixture passes --check" 0 --check
 assert_output "clean fixture" "No changes needed"
 if [[ "$(wc -l < "$LOCKED_CALL_LOG" | tr -d ' ')" == 3 ]] \
   && ! [[ -e "$NPX_TRAP_LOG" ]] \
-  && awk -F'|' '$2 == "--production --csv --excludePrivatePackages" && $1 ~ "/(client/desktop|services/media-plane|client/admin)$" { n++ } END { exit n != 3 }' "$LOCKED_CALL_LOG"; then
+  && awk -F'|' '$2 == "--production --csv --excludePrivatePackages" && $1 ~ "/(desktop|services/media-plane|client/admin)$" { n++ } END { exit n != 3 }' "$LOCKED_CALL_LOG"; then
   PASSES=$((PASSES + 1))
 else
   FAILS=$((FAILS + 1))
@@ -349,7 +349,7 @@ cat > "$LICENSE_CHECKER_BIN" <<'SHIM'
 printf '%s|%s\n' "$PWD" "$*" >> "${LOCKED_CALL_LOG:?}"
 echo '"module name","license","repository"'
 case "$PWD" in
-  */client/desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"' ;;
+  */desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"' ;;
   */services/media-plane)  echo '"beta@2.0.0","ISC","https://example.com/beta"'
                            echo '"dup@1.0.0","Apache-2.0","https://example.com/dup"'
                            echo '"dup@2.0.0","MIT","https://example.com/dup"'
@@ -380,7 +380,7 @@ cat > "$LICENSE_CHECKER_BIN" <<'SHIM'
 printf '%s|%s\n' "$PWD" "$*" >> "${LOCKED_CALL_LOG:?}"
 echo '"module name","license","repository"'
 case "$PWD" in
-  */client/desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"' ;;
+  */desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"' ;;
   */services/media-plane)  echo '"beta@2.0.0","ISC","https://example.com/beta"'
                            echo '"dup@1.0.0","MIT","https://example.com/dup"'
                            echo '"dup@2.0.0","Apache-2.0","https://example.com/dup"'
@@ -398,7 +398,7 @@ cat > "$LICENSE_CHECKER_BIN" <<'SHIM'
 printf '%s|%s\n' "$PWD" "$*" >> "${LOCKED_CALL_LOG:?}"
 echo '"module name","license","repository"'
 case "$PWD" in
-  */client/desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"' ;;
+  */desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"' ;;
   */services/media-plane)  echo '"beta@2.0.0","ISC","https://example.com/beta"'
                            echo '"dup@1.0.0","MIT","https://example.com/dup"'
                            echo '"dup@2.0.0","MIT","https://example.com/dup"'
@@ -428,7 +428,7 @@ cat > "$LICENSE_CHECKER_BIN" <<'SHIM'
 printf '%s|%s\n' "$PWD" "$*" >> "${LOCKED_CALL_LOG:?}"
 echo '"module name","license","repository"'
 case "$PWD" in
-  */client/desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"' ;;
+  */desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"' ;;
   */services/media-plane)  echo '"beta@2.0.0","ISC","https://example.com/beta"'
                            echo '"dup@1.0.0","MIT","https://example.com/dup"'
                            echo '"dup@2.0.0","MIT","https://example.com/dup"'
@@ -450,7 +450,7 @@ cat > "$LICENSE_CHECKER_BIN" <<'SHIM'
 printf '%s|%s\n' "$PWD" "$*" >> "${LOCKED_CALL_LOG:?}"
 echo '"module name","license","repository"'
 case "$PWD" in
-  */client/desktop)        echo '"alpha@1.0.0","UNKNOWN","https://example.com/alpha"' ;;
+  */desktop)        echo '"alpha@1.0.0","UNKNOWN","https://example.com/alpha"' ;;
   */services/media-plane)  echo '"beta@2.0.0","ISC","https://example.com/beta"' ;;
   */client/admin)          echo '"delta@4.0.0","MIT","https://example.com/delta"' ;;
 esac
@@ -465,7 +465,7 @@ cat > "$LICENSE_CHECKER_BIN" <<'SHIM'
 printf '%s|%s\n' "$PWD" "$*" >> "${LOCKED_CALL_LOG:?}"
 echo '"module name","license","repository"'
 case "$PWD" in
-  */client/desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"' ;;
+  */desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"' ;;
   */services/media-plane)  echo '"beta@2.0.0","ISC","https://example.com/beta"'
                            echo '"dup@1.0.0","MIT","https://example.com/dup"'
                            echo '"dup@2.0.0","MIT","https://example.com/dup"'
@@ -528,7 +528,7 @@ cat > "$LICENSE_CHECKER_BIN" <<'SHIM'
 printf '%s|%s\n' "$PWD" "$*" >> "${LOCKED_CALL_LOG:?}"
 echo '"module name","license","repository"'
 case "$PWD" in
-  */client/desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"'
+  */desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"'
                            echo '"epsilon@5.0.0","MIT","https://example.com/epsilon"' ;;
   */services/media-plane)  echo '"beta@2.0.0","ISC","https://example.com/beta"'
                            echo '"dup@1.0.0","MIT","https://example.com/dup"'
@@ -572,7 +572,7 @@ cat > "$LICENSE_CHECKER_BIN" <<'SHIM'
 printf '%s|%s\n' "$PWD" "$*" >> "${LOCKED_CALL_LOG:?}"
 echo '"module name","license","repository"'
 case "$PWD" in
-  */client/desktop)        echo '"alpha@1.0.0","MIT | GPL-3.0","https://example.com/alpha"' ;;
+  */desktop)        echo '"alpha@1.0.0","MIT | GPL-3.0","https://example.com/alpha"' ;;
   */services/media-plane)  echo '"beta@2.0.0","ISC","https://example.com/beta"' ;;
   */client/admin)          echo '"delta@4.0.0","MIT","https://example.com/delta"' ;;
 esac
@@ -588,7 +588,7 @@ cat > "$LICENSE_CHECKER_BIN" <<'SHIM'
 printf '%s|%s\n' "$PWD" "$*" >> "${LOCKED_CALL_LOG:?}"
 echo '"module name","license","repository"'
 case "$PWD" in
-  */client/desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"' ;;
+  */desktop)        echo '"alpha@1.0.0","MIT","https://example.com/alpha"' ;;
   */services/media-plane)  echo '"beta@2.0.0","ISC","https://example.com/beta"'
                            echo '"dup@1.0.0","MIT","https://example.com/dup"'
                            echo '"dup@2.0.0","MIT","https://example.com/dup"'

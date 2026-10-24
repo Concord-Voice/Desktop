@@ -11,16 +11,4 @@ name: "Concord CodeQL config"
 paths-ignore:
   - prototypes
 
-# go/log-injection is replaced by a scoped copy of itself. The upstream query treats
-# every log/slog call as a sink, but slog's JSON and Text handlers escape control
-# characters at render time, so CWE-117 record forging cannot happen through them.
-# It produced 434 false positives, each dismissed by hand (see
-# internal-reference, go/log-injection calibration note).
-# The scoped query keeps stdlib log.Printf and every other unstructured logger as
-# sinks. The workflow's `queries:` input is prefixed with `+` so this list ADDS to
-# security-extended instead of being ignored.
-queries:
-  - uses: Concord-Voice/Concord-Voice-Alpha/.github/codeql/queries/go/LogInjectionUnstructured.ql@main
-query-filters:
-  - exclude:
-      id: go/log-injection
+# D: Go queries remain with Self-Hosted. Desktop analyzes JavaScript/TypeScript and Actions.

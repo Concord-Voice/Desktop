@@ -2,6 +2,12 @@
 
 set -euo pipefail
 
+# P: Desktop's unsigned lane has no signing or publication consumers.
+if [[ "${1:-}" == --unsigned ]]; then
+  shift
+  exec python3 "$(dirname "${BASH_SOURCE[0]}")/verify-unsigned-desktop.py" "$@"
+fi
+
 if [[ $# -gt 1 ]]; then
   echo "ERROR: lint-pr-release-trust.sh: expected zero or one repository-root argument" >&2
   exit 2
@@ -180,7 +186,7 @@ EXPECTED_ARTIFACT_DIRECTORY_PREP = [
 EXPECTED_OIDC_VALIDATOR = [
     "set -euo pipefail",
     "expected_issuer='https://token.actions.githubusercontent.com'",
-    "expected_subject='repo:Concord-Voice/Concord-Voice-Alpha:environment:desktop-release'",
+    "expected_subject='repo:Concord-Voice/Desktop:environment:desktop-release'",
     "expected_audience='api://AzureADTokenExchange'",
     'response="$(curl --fail --silent --show-error \\',
     '  --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \\',
@@ -210,7 +216,7 @@ EXPECTED_OIDC_VALIDATOR = [
     "fi",
 ]
 RELEASE_BUILD_CONDITION = (
-    "github.repository == 'Concord-Voice/Concord-Voice-Alpha' && "
+    "github.repository == 'Concord-Voice/Desktop' && "
     "github.ref == 'refs/heads/main' && "
     "github.event_name == 'workflow_dispatch' && "
     "needs.detect-release.result == 'success' && "
@@ -218,7 +224,7 @@ RELEASE_BUILD_CONDITION = (
 )
 RELEASE_CONDITION = (
     "always() && "
-    "github.repository == 'Concord-Voice/Concord-Voice-Alpha' && "
+    "github.repository == 'Concord-Voice/Desktop' && "
     "github.ref == 'refs/heads/main' && "
     "github.event_name == 'workflow_dispatch' && "
     "needs.detect-release.result == 'success' && "
@@ -282,7 +288,7 @@ NON_PR_CONDITIONS = {
         "needs.release.result == 'success'"
     ),
     (
-        "always() && github.repository == 'Concord-Voice/Concord-Voice-Alpha' && "
+        "always() && github.repository == 'Concord-Voice/Desktop' && "
         "github.event_name == 'workflow_dispatch' && "
         "github.ref == 'refs/heads/main' && "
         "needs.release.result == 'success'"
@@ -422,7 +428,7 @@ def calls_desktop_workflow(uses: str) -> bool:
         return True
     qualified, separator, ref = value.partition("@")
     return bool(separator and ref) and qualified.casefold() == (
-        "Concord-Voice/Concord-Voice-Alpha/.github/workflows/build-desktop.yml".casefold()
+        "Concord-Voice/Desktop/.github/workflows/build-desktop.yml".casefold()
     )
 
 
@@ -1091,7 +1097,7 @@ def check_classifier_trust_boundary() -> None:
     on = mapping(publisher.get("on"), f"{comment_path}.on")
     trigger = on.get("pull_request_target")
     gates = (
-        "github.repository == 'Concord-Voice/Concord-Voice-Alpha' && "
+        "github.repository == 'Concord-Voice/Desktop' && "
         "github.event.pull_request.base.ref == 'main' && "
         "github.event.pull_request.head.repo.full_name == github.repository"
     )
@@ -1265,7 +1271,7 @@ def check_public_mirror_contract() -> None:
         condition = normalize_expression(mirror.get("if"))
         required = (
             "always()",
-            "github.repository == 'Concord-Voice/Concord-Voice-Alpha'",
+            "github.repository == 'Concord-Voice/Desktop'",
             "github.event_name == 'workflow_dispatch'",
             "github.ref == 'refs/heads/main'",
             "needs.release.result == 'success'",
@@ -1324,13 +1330,13 @@ def check_public_mirror_contract() -> None:
             fail(PUBLISH_FILE, f"publisher job '{job_id}' must use environment public-mirror")
         condition = normalize_expression(job.get("if"))
         expected = (
-            "github.repository == 'Concord-Voice/Concord-Voice-Alpha' && "
+            "github.repository == 'Concord-Voice/Desktop' && "
             "github.ref == 'refs/heads/main' && "
             "(github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && "
             "inputs.mirror_release_tag == ''))"
             if job_id == "publish"
             else
-            "github.repository == 'Concord-Voice/Concord-Voice-Alpha' && "
+            "github.repository == 'Concord-Voice/Desktop' && "
             "github.ref == 'refs/heads/main' && "
             "github.event_name == 'workflow_dispatch' && "
             "format('{0}', inputs.stage_selfhost) != 'true' && "
@@ -1683,7 +1689,7 @@ def check_oidc_validator(steps: list[dict], azure_index: int) -> None:
 
     expected_claims = {
         "expected_issuer": "https://token.actions.githubusercontent.com",
-        "expected_subject": "repo:Concord-Voice/Concord-Voice-Alpha:environment:desktop-release",
+        "expected_subject": "repo:Concord-Voice/Desktop:environment:desktop-release",
         "expected_audience": "api://AzureADTokenExchange",
     }
     expected_occurrences = {

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { buildShortcodes } from './build-emoji-shortcodes';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const EMOJI_DIR = resolve(__dirname, '../client/desktop/src/renderer/data/emoji');
+const EMOJI_DIR = resolve(__dirname, '../desktop/src/renderer/data/emoji');
 
 describe('build-emoji-shortcodes', () => {
   describe('buildShortcodes (pure function)', () => {

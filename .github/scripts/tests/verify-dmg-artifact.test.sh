@@ -13,7 +13,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-CHECKER="$SCRIPT_DIR/../../../client/desktop/scripts/verify-dmg-artifact.sh"
+CHECKER="$SCRIPT_DIR/../../../desktop/scripts/verify-dmg-artifact.sh"
 CACHE_DIR=${ELECTRON_BUILDER_CACHE:-"$HOME/Library/Caches/electron-builder"}
 
 if [[ ! -f "$CHECKER" ]]; then

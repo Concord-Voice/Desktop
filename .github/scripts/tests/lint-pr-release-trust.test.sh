@@ -154,7 +154,7 @@ jobs:
   release-build:
     needs: [detect-release]
     if: >-
-      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&
+      github.repository == 'Concord-Voice/Desktop' &&
       github.ref == 'refs/heads/main' &&
       github.event_name == 'workflow_dispatch' &&
       needs.detect-release.result == 'success' &&
@@ -209,7 +209,7 @@ jobs:
         run: |
           set -euo pipefail
           expected_issuer='https://token.actions.githubusercontent.com'
-          expected_subject='repo:Concord-Voice/Concord-Voice-Alpha:environment:desktop-release'
+          expected_subject='repo:Concord-Voice/Desktop:environment:desktop-release'
           expected_audience='api://AzureADTokenExchange'
           response="$(curl --fail --silent --show-error \
             --header "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
@@ -271,7 +271,7 @@ jobs:
     needs: [detect-release, release-build]
     if: >-
       always() &&
-      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&
+      github.repository == 'Concord-Voice/Desktop' &&
       github.ref == 'refs/heads/main' &&
       github.event_name == 'workflow_dispatch' &&
       needs.detect-release.result == 'success' &&
@@ -332,14 +332,14 @@ jobs:
         env:
           LINUX_UPDATE_SIGNING_KEY: ${{ secrets.LINUX_UPDATE_SIGNING_KEY }}
         run: |
-          ./client/desktop/scripts/sign-linux-update.mjs
+          ./desktop/scripts/sign-linux-update.mjs
           gh release create "$GITHUB_REF_NAME" out/artifacts/*
 
   public-release-mirror:
     needs: [detect-release, release-build, release]
     if: >-
       always() &&
-      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&
+      github.repository == 'Concord-Voice/Desktop' &&
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
       needs.release.result == 'success'
@@ -467,7 +467,7 @@ jobs:
     permissions:
       contents: read
     if: >-
-      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&
+      github.repository == 'Concord-Voice/Desktop' &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mirror_release_tag == ''))
     steps: [{run: echo prepare mirror data}]
@@ -476,7 +476,7 @@ jobs:
     needs: [mirror-prepare]
     permissions: {}
     if: >-
-      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&
+      github.repository == 'Concord-Voice/Desktop' &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mirror_release_tag == ''))
     steps:
@@ -485,7 +485,7 @@ jobs:
   publish:
     needs: [mirror-prepare, mirror-scan]
     if: >-
-      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&
+      github.repository == 'Concord-Voice/Desktop' &&
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.mirror_release_tag == ''))
     environment: public-mirror
@@ -494,7 +494,7 @@ jobs:
       - run: echo "publish source"
   release-mirror:
     if: >-
-      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&
+      github.repository == 'Concord-Voice/Desktop' &&
       github.ref == 'refs/heads/main' &&
       github.event_name == 'workflow_dispatch' &&
       format('{0}', inputs.stage_selfhost) != 'true' &&
@@ -506,7 +506,7 @@ jobs:
   selfhost-release:
     needs: [selfhost-prepare, selfhost-scan]
     if: >-
-      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&
+      github.repository == 'Concord-Voice/Desktop' &&
       github.ref == 'refs/heads/main' &&
       github.event_name == 'workflow_dispatch' &&
       format('{0}', inputs.stage_selfhost) != 'true' &&
@@ -527,7 +527,7 @@ jobs:
       actions: read
       pull-requests: read
     if: >-
-      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&
+      github.repository == 'Concord-Voice/Desktop' &&
       github.ref == 'refs/heads/main' &&
       github.event_name == 'workflow_dispatch' &&
       format('{0}', inputs.stage_selfhost) != 'true' &&
@@ -539,7 +539,7 @@ jobs:
     needs: [selfhost-prepare]
     permissions: {}
     if: >-
-      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&
+      github.repository == 'Concord-Voice/Desktop' &&
       github.ref == 'refs/heads/main' &&
       github.event_name == 'workflow_dispatch' &&
       format('{0}', inputs.stage_selfhost) != 'true' &&
@@ -793,7 +793,7 @@ permissions:
   contents: read
 jobs:
   classify-data:
-    if: github.repository == 'Concord-Voice/Concord-Voice-Alpha' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository
+    if: github.repository == 'Concord-Voice/Desktop' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -878,7 +878,7 @@ jobs:
   classify-comment:
     name: Classify release impact
     needs: classify-data
-    if: github.repository == 'Concord-Voice/Concord-Voice-Alpha' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && needs.classify-data.result == 'success' && needs.classify-data.outputs.shell_changed != '' && needs.classify-data.outputs.old_contract != '' && needs.classify-data.outputs.new_contract != '' && needs.classify-data.outputs.contract_action != '' && needs.classify-data.outputs.old_version != '' && needs.classify-data.outputs.new_version != '' && needs.classify-data.outputs.version_action != '' && needs.classify-data.outputs.old_spa_min != '' && needs.classify-data.outputs.new_spa_min != '' && needs.classify-data.outputs.spa_min_action != '' && needs.classify-data.outputs.spa_min_present != '' && needs.classify-data.outputs.version_bump_required != ''
+    if: github.repository == 'Concord-Voice/Desktop' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && needs.classify-data.result == 'success' && needs.classify-data.outputs.shell_changed != '' && needs.classify-data.outputs.old_contract != '' && needs.classify-data.outputs.new_contract != '' && needs.classify-data.outputs.contract_action != '' && needs.classify-data.outputs.old_version != '' && needs.classify-data.outputs.new_version != '' && needs.classify-data.outputs.version_action != '' && needs.classify-data.outputs.old_spa_min != '' && needs.classify-data.outputs.new_spa_min != '' && needs.classify-data.outputs.spa_min_action != '' && needs.classify-data.outputs.spa_min_present != '' && needs.classify-data.outputs.version_bump_required != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -1091,7 +1091,7 @@ start = text.index("        run: |\n", text.index("      # TEST_MARKER_OIDC_STAR
 end = text.index("      # TEST_MARKER_OIDC_END", start)
 commented = '''          : # set -euo pipefail
           : # expected_issuer='https://token.actions.githubusercontent.com'
-          : # expected_subject='repo:Concord-Voice/Concord-Voice-Alpha:environment:desktop-release'
+          : # expected_subject='repo:Concord-Voice/Desktop:environment:desktop-release'
           : # expected_audience='api://AzureADTokenExchange'
           : # response="$(curl --fail ACTIONS_ID_TOKEN_REQUEST_URL ACTIONS_ID_TOKEN_REQUEST_TOKEN audience=${expected_audience}
           : # token="$(python3 json.load(sys.stdin) ["value"] <<<"$response"
@@ -1228,7 +1228,7 @@ name: Qualified second caller
 on: workflow_dispatch
 jobs:
   desktop-again:
-    uses: Concord-Voice/Concord-Voice-Alpha/.github/workflows/build-desktop.yml@main
+    uses: Concord-Voice/Desktop/.github/workflows/build-desktop.yml@main
 YAML
 }
 
@@ -1422,117 +1422,15 @@ remove_fixed_workflow() {
 }
 
 assert_selfhost_publisher_dry_run_behavior() {
-  # Interpret only the checked-in job predicate; no workflow is dispatched and
-  # no publisher step, credential mint, API call or repository code is executed.
-  python3 - "$REPO_ROOT/.github/workflows/publish-public-mirror.yml" <<'PY'
-import ast
-from pathlib import Path
-import re
-import sys
-
-import yaml
-
-workflow = yaml.load(Path(sys.argv[1]).read_text(), Loader=yaml.BaseLoader)
-input_spec = workflow['on']['workflow_dispatch']['inputs']['dry_run']
-if input_spec.get('type') not in ('string', 'boolean') or input_spec.get('default') != 'true':
-    raise SystemExit('FAIL: omitted dry_run must use the declared true default')
-default = True if input_spec['type'] == 'boolean' else input_spec['default']
-expression = workflow['jobs']['selfhost-release']['if'].strip()
-if expression.startswith('${{') and expression.endswith('}}'):
-    expression = expression[3:-2].strip()
-expression = re.sub(r'!(?!=)', ' not ', expression).replace('&&', ' and ').replace('||', ' or ')
-tree = ast.parse(expression.strip(), mode='eval').body
-
-def github_string(value):
-    if value is None:
-        return ''
-    if isinstance(value, bool):
-        return 'true' if value else 'false'
-    if isinstance(value, (str, int, float)):
-        return str(value)
-    raise AssertionError('unsupported inert input type')
-
-def selected(dry_run, **overrides):
-    values = {
-        'github.repository': 'Concord-Voice/Concord-Voice-Alpha',
-        'github.ref': 'refs/heads/main',
-        'github.event_name': 'workflow_dispatch',
-        'inputs.stage_selfhost': False,
-        'inputs.mirror_release_tag': 'selfhost-v1.2.3',
-        'inputs.dry_run': dry_run,
-    }
-    values.update(overrides)
-
-    def read(node):
-        if isinstance(node, ast.Constant):
-            return node.value
-        if isinstance(node, ast.Name) and node.id in ('true', 'false'):
-            return node.id == 'true'
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-            key = node.value.id + '.' + node.attr
-            if key in values:
-                return values[key]
-        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
-            return not read(node.operand)
-        if isinstance(node, ast.BoolOp):
-            terms = [bool(read(value)) for value in node.values]
-            if isinstance(node.op, ast.And):
-                return all(terms)
-            if isinstance(node.op, ast.Or):
-                return any(terms)
-        if isinstance(node, ast.Compare) and len(node.ops) == 1:
-            left, right = read(node.left), read(node.comparators[0])
-            # GitHub compares strings without case sensitivity. All admitted
-            # dispatch controls below avoid its unrelated numeric coercions.
-            if isinstance(left, str) and isinstance(right, str):
-                left, right = left.casefold(), right.casefold()
-            if isinstance(node.ops[0], ast.Eq):
-                return left == right
-            if isinstance(node.ops[0], ast.NotEq):
-                return left != right
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and not node.keywords:
-            args = [read(argument) for argument in node.args]
-            if node.func.id == 'format' and len(args) == 2 and args[0] == '{0}':
-                return github_string(args[1])
-            if node.func.id == 'startsWith' and len(args) == 2 and all(isinstance(arg, str) for arg in args):
-                return args[0].casefold().startswith(args[1].casefold())
-        raise AssertionError('predicate is outside the closed inert expression subset')
-
-    return bool(read(tree))
-
-cases = (
-    ('omitted flag uses declared true default', default, False),
-    ('explicit string true refuses', 'true', False),
-    ('explicit boolean true refuses', True, False),
-    ('explicit string false selects writer', 'false', True),
-    ('explicit boolean false selects writer', False, True),
-    ('blank flag refuses', '', False),
-    ('null context refuses', None, False),
-    ('unknown flag refuses', 'no', False),
-    ('numeric-looking flag refuses', '0', False),
-    ('trailing whitespace refuses', 'false ', False),
-)
-for label, value, expected in cases:
-    if selected(value) != expected:
-        raise SystemExit('FAIL: ' + label)
-for label, overrides in (
-    ('boolean staging cannot publish', {'inputs.stage_selfhost': True}),
-    ('string staging cannot publish', {'inputs.stage_selfhost': 'true'}),
-    ('push cannot select release writer', {'github.event_name': 'push'}),
-    ('other repository cannot publish', {'github.repository': 'example/inert'}),
-    ('other ref cannot publish', {'github.ref': 'refs/heads/inert'}),
-    ('desktop tag cannot select self-host writer', {'inputs.mirror_release_tag': 'desktop-v1.2.3'}),
-):
-    if selected('false', **overrides):
-        raise SystemExit('FAIL: ' + label)
-print('PASS: actual self-host writer predicate (16 inert dispatch controls)')
-PY
+  # D: the self-hosted publisher lives in Hosted. Desktop must have no publisher.
+  python3 "$REPO_ROOT/.github/scripts/verify-unsigned-desktop.py" "$REPO_ROOT"
+  printf 'PASS: Desktop has no signing or publishing consumers\n'
 }
 
 selfhost_dry_run_policy_cases() {
   new_case
   assert_run 0 "OK:" "selfhost writer fixture requires normalized explicit dry_run=false" "$SCANNER" "$CASE_ROOT"
-  assert_run 0 "PASS:" "actual selfhost writer refuses dry runs and unknown inputs" assert_selfhost_publisher_dry_run_behavior
+  assert_run 0 "PASS:" "actual Desktop workflow delegates publishing and refuses release credentials" assert_selfhost_publisher_dry_run_behavior
   policy_case_diagnostic "selfhost publisher drops the dry_run refusal" \
     "publisher job 'selfhost-release' must use the exact repository, main-ref, and event guard" \
     replace_in_job_once ".github/workflows/publish-public-mirror.yml" selfhost-release \
@@ -1987,7 +1885,7 @@ policy_case_diagnostic "approved Apple key-path export is duplicated" \
 for job in release-build release; do
   policy_case "$job omits exact repository guard" replace_in_job_once \
     ".github/workflows/build-desktop.yml" "$job" \
-    "      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&" \
+    "      github.repository == 'Concord-Voice/Desktop' &&" \
     ""
   policy_case "$job omits exact main ref guard" replace_in_job_once \
     ".github/workflows/build-desktop.yml" "$job" \
@@ -2009,8 +1907,8 @@ policy_case "release-build omits detect-release success guard" replace_in_job_on
   ""
 policy_case "release-build repository guard is not a conjunction" replace_in_job_once \
   ".github/workflows/build-desktop.yml" release-build \
-  "      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&" \
-  "      github.repository == 'Concord-Voice/Concord-Voice-Alpha' ||"
+  "      github.repository == 'Concord-Voice/Desktop' &&" \
+  "      github.repository == 'Concord-Voice/Desktop' ||"
 policy_case "release-build omits should-release guard" replace_in_job_once \
   ".github/workflows/build-desktop.yml" release-build \
   "      needs.detect-release.outputs.should_release == 'true'" \
@@ -2032,13 +1930,13 @@ policy_case_diagnostic "release guard omits load-bearing always()" \
 policy_case_diagnostic "release trusted guard clauses are reordered" \
   "release condition must match the exact trusted release guard" replace_in_job_once \
   ".github/workflows/build-desktop.yml" release \
-  $'      github.repository == \'Concord-Voice/Concord-Voice-Alpha\' &&\n      github.ref == \'refs/heads/main\' &&' \
-  $'      github.ref == \'refs/heads/main\' &&\n      github.repository == \'Concord-Voice/Concord-Voice-Alpha\' &&'
+  $'      github.repository == \'Concord-Voice/Desktop\' &&\n      github.ref == \'refs/heads/main\' &&' \
+  $'      github.ref == \'refs/heads/main\' &&\n      github.repository == \'Concord-Voice/Desktop\' &&'
 policy_case_diagnostic "release-build trusted guard clauses are reordered" \
   "release-build condition must match the exact trusted release guard" replace_in_job_once \
   ".github/workflows/build-desktop.yml" release-build \
-  $'      github.repository == \'Concord-Voice/Concord-Voice-Alpha\' &&\n      github.ref == \'refs/heads/main\' &&' \
-  $'      github.ref == \'refs/heads/main\' &&\n      github.repository == \'Concord-Voice/Concord-Voice-Alpha\' &&'
+  $'      github.repository == \'Concord-Voice/Desktop\' &&\n      github.ref == \'refs/heads/main\' &&' \
+  $'      github.ref == \'refs/heads/main\' &&\n      github.repository == \'Concord-Voice/Desktop\' &&'
 policy_case "release-build matrix loses one platform" replace_in_job_once \
   ".github/workflows/build-desktop.yml" release-build \
   $'          - {os: ubuntu-latest, platform: linux, arch: arm64, label: linux-arm64}\n' \
@@ -2162,8 +2060,8 @@ policy_case_diagnostic "OIDC validator has wrong issuer" \
 policy_case_diagnostic "OIDC validator has wrong subject" \
   "OIDC validator must assign each exact expected claim exactly once" replace_in_job_once \
   ".github/workflows/build-desktop.yml" release-build \
-  "repo:Concord-Voice/Concord-Voice-Alpha:environment:desktop-release" \
-  "repo:Concord-Voice/Concord-Voice-Alpha:ref:refs/heads/main"
+  "repo:Concord-Voice/Desktop:environment:desktop-release" \
+  "repo:Concord-Voice/Desktop:ref:refs/heads/main"
 policy_case_diagnostic "OIDC validator has wrong audience" \
   "OIDC validator must assign each exact expected claim exactly once" replace_in_job_once \
   ".github/workflows/build-desktop.yml" release-build \
@@ -2350,8 +2248,8 @@ for input in run-id repository github-token; do
 done
 policy_case "release invokes gh run download" replace_in_job_once \
   ".github/workflows/build-desktop.yml" release \
-  "./client/desktop/scripts/sign-linux-update.mjs" \
-  $'gh run download 1234\n          ./client/desktop/scripts/sign-linux-update.mjs'
+  "./desktop/scripts/sign-linux-update.mjs" \
+  $'gh run download 1234\n          ./desktop/scripts/sign-linux-update.mjs'
 policy_case "release no longer needs release-build" replace_in_job_once \
   ".github/workflows/build-desktop.yml" release \
   "needs: [detect-release, release-build]" \
@@ -2671,7 +2569,7 @@ policy_case_diagnostic "PR smoke calls the mirror reusable workflow" \
 # `\|` rather than `|` in the two expansions below, and in the loop further down: Semgrep's bash
 # grammar rejects a bare bar inside a ${var%%...} or ${var#...} pattern (P18, as above).
 for pair in \
-  "repository|      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&" \
+  "repository|      github.repository == 'Concord-Voice/Desktop' &&" \
   "main|      github.ref == 'refs/heads/main' &&" \
   "release success|      needs.release.result == 'success'"; do
   label="${pair%%\|*}"
@@ -2701,7 +2599,7 @@ for job in release-mirror selfhost-release; do
   family=desktop-v
   [[ "$job" == selfhost-release ]] && family=selfhost-v
   for pair in \
-    "repository|      github.repository == 'Concord-Voice/Concord-Voice-Alpha' &&" \
+    "repository|      github.repository == 'Concord-Voice/Desktop' &&" \
     "main|      github.ref == 'refs/heads/main' &&" \
     "dispatch event|      github.event_name == 'workflow_dispatch' &&" \
     "staging refusal|      format('{0}', inputs.stage_selfhost) != 'true' &&"; do
@@ -2909,7 +2807,7 @@ policy_case_diagnostic "comment publisher gains an unrelated action step" \
       - name: Post two-axis PR comment'
 
 
-assert_run 0 "OK:" "checked-in workflow tree" "$SCANNER" "$REPO_ROOT"
+assert_run 0 "OK:" "checked-in unsigned workflow tree" "$SCANNER" --unsigned "$REPO_ROOT"
 
 echo
 if [[ "$categories_covered" == "16" ]]; then

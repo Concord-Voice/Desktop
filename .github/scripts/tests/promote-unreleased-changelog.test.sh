@@ -241,7 +241,7 @@ echo "Preamble gate (#3139):"
 # what it separates is the promoter REJECTING from the promoter CRASHING.
 
 # The rule mirrors extractPreamble in
-# client/desktop/src/renderer/services/system/changelog.ts -- structurally, not
+# desktop/src/renderer/services/system/changelog.ts -- structurally, not
 # byte-for-byte: this side additionally models what the renderer paints, so it
 # rejects some preambles the mirror accepts. These cases pin the
 # two branches a NAIVE port gets wrong in the LOOSE direction — a heading-less
@@ -564,7 +564,7 @@ check 0 "an entity that decodes to a letter is still prose" \
 # the first version copied ten of twenty-four and `button` was caught by a
 # reviewer rather than a check. Compare the two lists directly so the next
 # divergence is a red test.
-SCHEMA="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/client/desktop/src/renderer/components/Markdown/sanitizeSchema.ts"
+SCHEMA="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/desktop/src/renderer/components/Markdown/sanitizeSchema.ts"
 if [[ -f "$SCHEMA" && -f "$PROMOTE_PY" ]]; then
   want=$(sed -n '/^  strip: \[/,/^  \]/p' "$SCHEMA" | grep -oE "'[a-z]+'" | tr -d "'" | sort -u | tr '\n' ' ')
   # `|| true`: a STRIP_TAGS block that stops matching must report as drift (an

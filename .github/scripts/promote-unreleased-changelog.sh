@@ -23,7 +23,7 @@
 # exits 1 where the emptiness check exits 3. A section with notes but no preamble
 # HAS something to ship and its notes are incomplete, so the answer is "finish the
 # notes", not "do not release". The rule MIRRORS extractPreamble in
-# client/desktop/src/renderer/services/system/changelog.ts: the post-update modal
+# desktop/src/renderer/services/system/changelog.ts: the post-update modal
 # renders `preamble || body`, so a section without one shows the reader every
 # bullet instead of a summary (#3139).
 #

@@ -50,25 +50,25 @@ jobs:
         with:
           filters: |
             desktop-shell:
-              - 'client/desktop/forge.config.ts'
-              - 'client/desktop/build/makerDmg.ts'
-              - 'client/desktop/package.json'
-              - 'client/desktop/package-lock.json'
-              - 'client/desktop/tsconfig.main.json'
-              - 'client/desktop/tsconfig.preload.json'
-              - 'client/desktop/vite.config.ts'
-              - 'client/desktop/src/main/**'
-              - 'client/desktop/src/preload/**'
-              - 'client/desktop/native/**'
-              - 'client/desktop/scripts/build-native.mjs'
-              - 'client/desktop/scripts/build-preload.mjs'
-              - 'client/desktop/scripts/patch-electron-plist.sh'
-              - 'client/desktop/scripts/patch-rpm-sandbox-spec.mjs'
-              - 'client/desktop/scripts/verify-asar-payload.sh'
-              - 'client/desktop/scripts/verify-dmg-artifact.sh'
-              - 'client/desktop/scripts/verify-packaged-app.mts'
-              - 'client/desktop/scripts/verify-packaged-app.lib.mts'
-              - 'client/desktop/scripts/verify-windows-signature.ps1'
+              - 'desktop/forge.config.ts'
+              - 'desktop/build/makerDmg.ts'
+              - 'desktop/package.json'
+              - 'desktop/package-lock.json'
+              - 'desktop/tsconfig.main.json'
+              - 'desktop/tsconfig.preload.json'
+              - 'desktop/vite.config.ts'
+              - 'desktop/src/main/**'
+              - 'desktop/src/preload/**'
+              - 'desktop/native/**'
+              - 'desktop/scripts/build-native.mjs'
+              - 'desktop/scripts/build-preload.mjs'
+              - 'desktop/scripts/patch-electron-plist.sh'
+              - 'desktop/scripts/patch-rpm-sandbox-spec.mjs'
+              - 'desktop/scripts/verify-asar-payload.sh'
+              - 'desktop/scripts/verify-dmg-artifact.sh'
+              - 'desktop/scripts/verify-packaged-app.mts'
+              - 'desktop/scripts/verify-packaged-app.lib.mts'
+              - 'desktop/scripts/verify-windows-signature.ps1'
               - '.github/scripts/tests/verify-dmg-artifact.test.sh'
               - '.github/workflows/build-desktop.yml'
               - '.github/workflows/desktop-pr-smoke.yml'
@@ -112,7 +112,7 @@ jobs:
           # the pinned action source: the input is read but only ever passed
           # into restoreCache, and no warning is emitted). Kept because it
           # documents exactly what the manual restore below hashes.
-          cache-dependency-path: client/desktop/package-lock.json
+          cache-dependency-path: desktop/package-lock.json
 
       # Restore-only. Measured 2026-08-22: 53 `node-cache-macOS-arm64-npm-*`
       # entries held 8.41 GB of a 9.75 GB store (86%), every one scoped to
@@ -147,16 +147,16 @@ jobs:
           # this restore permanently and SILENTLY cold — a miss looks the same
           # as a cold start. Re-check this literal whenever the runner label
           # or image changes.
-          key: node-cache-macOS-arm64-npm-${{ hashFiles('client/desktop/package-lock.json') }}
+          key: node-cache-macOS-arm64-npm-${{ hashFiles('desktop/package-lock.json') }}
           restore-keys: |
             node-cache-macOS-arm64-npm-
 
       - name: Install dependencies
-        working-directory: client/desktop
+        working-directory: desktop
         run: npm ci
 
       - name: Configure build environment
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         env:
           GITHUB_RUN_ID: ${{ github.run_id }}
@@ -174,7 +174,7 @@ jobs:
           cat .env
 
       - name: Generate app-update.yml for electron-updater
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: |
           npx tsx scripts/generate-app-update.mts > app-update.yml
@@ -182,28 +182,28 @@ jobs:
           cat app-update.yml
 
       - name: Build application
-        working-directory: client/desktop
+        working-directory: desktop
         env:
           NODE_ENV: production
         run: npm run build
 
       - name: Generate buildtag.json for forensic observability (#920 §5.13)
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: npm run build:buildtag
 
       - name: Generate googleClientSecret.json (#975)
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: npm run build:gclientsecret
 
       - name: Build the native addon (win32/darwin only)
         if: runner.os != 'Linux'
-        working-directory: client/desktop
+        working-directory: desktop
         run: npm run build:native
 
       - name: Package with Electron Forge (macOS, retry on hdiutil-detach DMG flake)
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: |
           set -euo pipefail
@@ -232,18 +232,18 @@ jobs:
           DMG_FILES=()
           while IFS= read -r dmg; do
             DMG_FILES+=("$dmg")
-          done < <(find client/desktop/out/make -type f -name '*.dmg' | sort)
+          done < <(find desktop/out/make -type f -name '*.dmg' | sort)
           bash .github/scripts/tests/verify-dmg-artifact.test.sh ${DMG_FILES[@]+"${DMG_FILES[@]}"}
 
       - name: Verify asar integrity and preload bundle
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: |
           set -euo pipefail
           ASAR_MATCHES=$(find out -name 'app.asar' -not -path '*/node_modules/*')
           ASAR_COUNT=$(echo "$ASAR_MATCHES" | grep -c .)
           if [ "$ASAR_COUNT" -ne 1 ]; then
-            echo "::error::Expected exactly 1 app.asar under client/desktop/out, found $ASAR_COUNT:"
+            echo "::error::Expected exactly 1 app.asar under desktop/out, found $ASAR_COUNT:"
             echo "$ASAR_MATCHES"
             exit 1
           fi
@@ -356,7 +356,7 @@ jobs:
       # script, never copied here. Shared with release-build in build-desktop.yml: change the two
       # together. Read-only, like the rest of this job: no secret, environment or upload.
       - name: Verify packaged Electron fuses
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: npx tsx scripts/verify-packaged-app.mts fuses --out out
 
@@ -364,7 +364,7 @@ jobs:
       # against an unwritten slot. This job is macOS-only, so the step has no platform guard; the
       # script itself refuses to run anywhere else rather than pass.
       - name: Verify asar integrity digest in Electron Framework
-        working-directory: client/desktop
+        working-directory: desktop
         shell: bash
         run: npx tsx scripts/verify-packaged-app.mts asar-digest --out out
 

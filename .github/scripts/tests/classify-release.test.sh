@@ -181,27 +181,27 @@ make_fixture() {
     git config user.email "test@test.invalid"
     git config user.name "Test"
 
-    mkdir -p client/desktop/src/main client/desktop
+    mkdir -p desktop/src/main desktop
 
     # Base commit
     printf 'export const IPC_CONTRACT_VERSION = %s;\n' "$base_contract" \
-      > client/desktop/src/main/ipcContract.ts
+      > desktop/src/main/ipcContract.ts
     if [[ "$base_spa_min" != "absent" ]]; then
       printf 'export const SPA_MIN_CONTRACT = %s;\n' "$base_spa_min" \
-        >> client/desktop/src/main/ipcContract.ts
+        >> desktop/src/main/ipcContract.ts
     fi
     printf '{\n  "name": "concord-desktop",\n  "version": "%s"\n}\n' "$base_version" \
-      > client/desktop/package.json
+      > desktop/package.json
     if [[ "$shell_change" == "shell" ]]; then
-      echo "// base shell file" > client/desktop/src/main/dummy.ts
+      echo "// base shell file" > desktop/src/main/dummy.ts
     fi
     if [[ "$shell_change" == "maker" ]]; then
-      mkdir -p client/desktop/build
-      echo "// base DMG maker" > client/desktop/build/makerDmg.ts
+      mkdir -p desktop/build
+      echo "// base DMG maker" > desktop/build/makerDmg.ts
     fi
     if [[ "$shell_change" == "dmg-checker" ]]; then
-      mkdir -p client/desktop/scripts
-      echo "# base DMG checker" > client/desktop/scripts/verify-dmg-artifact.sh
+      mkdir -p desktop/scripts
+      echo "# base DMG checker" > desktop/scripts/verify-dmg-artifact.sh
     fi
     if [[ "$shell_change" == "smoke-workflow" ]]; then
       mkdir -p .github/workflows
@@ -215,28 +215,28 @@ make_fixture() {
     # git commit never sees "nothing to commit" (renderer changes don't affect
     # shell_changed since they fall outside the SHELL_FILES diff set).
     printf 'export const IPC_CONTRACT_VERSION = %s;\n' "$head_contract" \
-      > client/desktop/src/main/ipcContract.ts
+      > desktop/src/main/ipcContract.ts
     if [[ "$head_spa_min" != "absent" ]]; then
       printf 'export const SPA_MIN_CONTRACT = %s;\n' "$head_spa_min" \
-        >> client/desktop/src/main/ipcContract.ts
+        >> desktop/src/main/ipcContract.ts
     fi
     if [[ "$ipc_extra" == "ipc_surface" ]]; then
       # Append a non-version surface line so ipcContract.ts DIFFERS from base
       # without the version constant moving (#1568 IPC-surface-change case).
-      echo "export const NEW_CHANNEL = 'voice:probe';" >> client/desktop/src/main/ipcContract.ts
+      echo "export const NEW_CHANNEL = 'voice:probe';" >> desktop/src/main/ipcContract.ts
     fi
     printf '{\n  "name": "concord-desktop",\n  "version": "%s"\n}\n' "$head_version" \
-      > client/desktop/package.json
-    mkdir -p client/desktop/src/renderer
-    echo "// renderer change marker" > client/desktop/src/renderer/marker.ts
+      > desktop/package.json
+    mkdir -p desktop/src/renderer
+    echo "// renderer change marker" > desktop/src/renderer/marker.ts
     if [[ "$shell_change" == "shell" ]]; then
-      echo "// head shell file changed" > client/desktop/src/main/dummy.ts
+      echo "// head shell file changed" > desktop/src/main/dummy.ts
     fi
     if [[ "$shell_change" == "maker" ]]; then
-      echo "// head DMG maker changed" > client/desktop/build/makerDmg.ts
+      echo "// head DMG maker changed" > desktop/build/makerDmg.ts
     fi
     if [[ "$shell_change" == "dmg-checker" ]]; then
-      echo "# head DMG checker changed" > client/desktop/scripts/verify-dmg-artifact.sh
+      echo "# head DMG checker changed" > desktop/scripts/verify-dmg-artifact.sh
     fi
     if [[ "$shell_change" == "smoke-workflow" ]]; then
       printf 'name: Desktop PR Smoke\n# changed fixture\n' > .github/workflows/desktop-pr-smoke.yml
@@ -379,8 +379,8 @@ blob_fixture_output=$(make_fixture 12 "0.1.57" 12 "0.1.57" "")
 BLOB_FIXTURE_DIR=$(echo "$blob_fixture_output" | sed -n '1p')
 BLOB_FIXTURE_BASE=$(echo "$blob_fixture_output" | sed -n '2p')
 git -C "$BLOB_FIXTURE_DIR" checkout -q "$BLOB_FIXTURE_BASE"
-rm "$BLOB_FIXTURE_DIR/client/desktop/package.json"
-ln -s src/main/ipcContract.ts "$BLOB_FIXTURE_DIR/client/desktop/package.json"
+rm "$BLOB_FIXTURE_DIR/desktop/package.json"
+ln -s src/main/ipcContract.ts "$BLOB_FIXTURE_DIR/desktop/package.json"
 git -C "$BLOB_FIXTURE_DIR" add -A
 git -C "$BLOB_FIXTURE_DIR" commit -q -m "non-regular classifier blob"
 BLOB_SYMLINK_SHA=$(git -C "$BLOB_FIXTURE_DIR" rev-parse HEAD)
@@ -391,14 +391,14 @@ oversize_fixture_output=$(make_fixture 12 "0.1.57" 12 "0.1.57" "")
 OVERSIZE_FIXTURE_DIR=$(echo "$oversize_fixture_output" | sed -n '1p')
 OVERSIZE_FIXTURE_BASE=$(echo "$oversize_fixture_output" | sed -n '2p')
 git -C "$OVERSIZE_FIXTURE_DIR" checkout -q "$OVERSIZE_FIXTURE_BASE"
-python3 - "$OVERSIZE_FIXTURE_DIR/client/desktop/package.json" <<'PY'
+python3 - "$OVERSIZE_FIXTURE_DIR/desktop/package.json" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 Path(sys.argv[1]).write_text(json.dumps({"name": "concord-desktop", "version": "0.1.57", "padding": "x" * (256 * 1024)}))
 PY
-git -C "$OVERSIZE_FIXTURE_DIR" add client/desktop/package.json
+git -C "$OVERSIZE_FIXTURE_DIR" add desktop/package.json
 git -C "$OVERSIZE_FIXTURE_DIR" commit -q -m "oversized classifier blob"
 OVERSIZE_FIXTURE_SHA=$(git -C "$OVERSIZE_FIXTURE_DIR" rev-parse HEAD)
 assert_target_sha_rejected "$OVERSIZE_FIXTURE_DIR" "$OVERSIZE_FIXTURE_BASE" "$OVERSIZE_FIXTURE_SHA" \
@@ -410,14 +410,14 @@ semver_fixture_output=$(make_fixture 12 "0.1.57" 12 "0.1.57" "")
 SEMVER_FIXTURE_DIR=$(echo "$semver_fixture_output" | sed -n '1p')
 SEMVER_FIXTURE_BASE=$(echo "$semver_fixture_output" | sed -n '2p')
 git -C "$SEMVER_FIXTURE_DIR" checkout -q "$SEMVER_FIXTURE_BASE"
-python3 - "$SEMVER_FIXTURE_DIR/client/desktop/package.json" <<'PY'
+python3 - "$SEMVER_FIXTURE_DIR/desktop/package.json" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 Path(sys.argv[1]).write_text(json.dumps({"name": "concord-desktop", "version": "1.2.3-" + "a" * 129}))
 PY
-git -C "$SEMVER_FIXTURE_DIR" add client/desktop/package.json
+git -C "$SEMVER_FIXTURE_DIR" add desktop/package.json
 git -C "$SEMVER_FIXTURE_DIR" commit -q -m "overlong semantic version"
 SEMVER_FIXTURE_SHA=$(git -C "$SEMVER_FIXTURE_DIR" rev-parse HEAD)
 assert_target_sha_rejected "$SEMVER_FIXTURE_DIR" "$SEMVER_FIXTURE_BASE" "$SEMVER_FIXTURE_SHA" \
@@ -428,8 +428,8 @@ INTEGER_FIXTURE_DIR=$(echo "$integer_fixture_output" | sed -n '1p')
 INTEGER_FIXTURE_BASE=$(echo "$integer_fixture_output" | sed -n '2p')
 git -C "$INTEGER_FIXTURE_DIR" checkout -q "$INTEGER_FIXTURE_BASE"
 printf 'export const IPC_CONTRACT_VERSION = 1234567890;\nexport const SPA_MIN_CONTRACT = 12;\n' \
-  > "$INTEGER_FIXTURE_DIR/client/desktop/src/main/ipcContract.ts"
-git -C "$INTEGER_FIXTURE_DIR" add client/desktop/src/main/ipcContract.ts
+  > "$INTEGER_FIXTURE_DIR/desktop/src/main/ipcContract.ts"
+git -C "$INTEGER_FIXTURE_DIR" add desktop/src/main/ipcContract.ts
 git -C "$INTEGER_FIXTURE_DIR" commit -q -m "overlong contract integer"
 INTEGER_FIXTURE_SHA=$(git -C "$INTEGER_FIXTURE_DIR" rev-parse HEAD)
 assert_target_sha_rejected "$INTEGER_FIXTURE_DIR" "$INTEGER_FIXTURE_BASE" "$INTEGER_FIXTURE_SHA" \
@@ -440,8 +440,8 @@ CANONICAL_FIXTURE_DIR=$(echo "$canonical_fixture_output" | sed -n '1p')
 CANONICAL_FIXTURE_BASE=$(echo "$canonical_fixture_output" | sed -n '2p')
 git -C "$CANONICAL_FIXTURE_DIR" checkout -q "$CANONICAL_FIXTURE_BASE"
 printf 'export const IPC_CONTRACT_VERSION = 012;\nexport const SPA_MIN_CONTRACT = 12;\n' \
-  > "$CANONICAL_FIXTURE_DIR/client/desktop/src/main/ipcContract.ts"
-git -C "$CANONICAL_FIXTURE_DIR" add client/desktop/src/main/ipcContract.ts
+  > "$CANONICAL_FIXTURE_DIR/desktop/src/main/ipcContract.ts"
+git -C "$CANONICAL_FIXTURE_DIR" add desktop/src/main/ipcContract.ts
 git -C "$CANONICAL_FIXTURE_DIR" commit -q -m "noncanonical contract integer"
 CANONICAL_FIXTURE_SHA=$(git -C "$CANONICAL_FIXTURE_DIR" rev-parse HEAD)
 assert_target_sha_rejected "$CANONICAL_FIXTURE_DIR" "$CANONICAL_FIXTURE_BASE" "$CANONICAL_FIXTURE_SHA" \
@@ -451,7 +451,7 @@ diff_fixture_output=$(make_fixture 12 "0.1.57" 12 "0.1.57" "")
 DIFF_FIXTURE_DIR=$(echo "$diff_fixture_output" | sed -n '1p')
 DIFF_FIXTURE_BASE=$(echo "$diff_fixture_output" | sed -n '2p')
 git -C "$DIFF_FIXTURE_DIR" checkout -q "$DIFF_FIXTURE_BASE"
-python3 - "$DIFF_FIXTURE_DIR/client/desktop/src/main" <<'PY'
+python3 - "$DIFF_FIXTURE_DIR/desktop/src/main" <<'PY'
 import sys
 from pathlib import Path
 
@@ -459,7 +459,7 @@ root = Path(sys.argv[1])
 for index in range(1200):
     (root / f"{index:04d}-{'x' * 120}.ts").write_text("// bounded metadata fixture\n")
 PY
-git -C "$DIFF_FIXTURE_DIR" add client/desktop/src/main
+git -C "$DIFF_FIXTURE_DIR" add desktop/src/main
 git -C "$DIFF_FIXTURE_DIR" commit -q -m "oversized diff metadata"
 DIFF_FIXTURE_SHA=$(git -C "$DIFF_FIXTURE_DIR" rev-parse HEAD)
 assert_target_sha_rejected "$DIFF_FIXTURE_DIR" "$DIFF_FIXTURE_BASE" "$DIFF_FIXTURE_SHA" \
@@ -544,17 +544,17 @@ C8_DIR=$(mktemp -d); echo "$C8_DIR" >> "$FIXTURE_REGISTRY"
 C8_BASE=$(
   cd "$C8_DIR"
   git init -q; git config user.email "test@test.invalid"; git config user.name "Test"
-  mkdir -p client/desktop/src/main client/desktop client/desktop/src/renderer
-  printf 'export const IPC_CONTRACT_VERSION = 12;\n' > client/desktop/src/main/ipcContract.ts
-  printf '{\n  "name": "concord-desktop",\n  "version": "0.1.57"\n}\n' > client/desktop/package.json
-  echo "// v1" > client/desktop/src/main/dummy.ts
+  mkdir -p desktop/src/main desktop desktop/src/renderer
+  printf 'export const IPC_CONTRACT_VERSION = 12;\n' > desktop/src/main/ipcContract.ts
+  printf '{\n  "name": "concord-desktop",\n  "version": "0.1.57"\n}\n' > desktop/package.json
+  echo "// v1" > desktop/src/main/dummy.ts
   git add . >/dev/null; git commit -qm "B fork point"
   B=$(git rev-parse HEAD)
-  echo "// v2 main shell change" > client/desktop/src/main/dummy.ts
+  echo "// v2 main shell change" > desktop/src/main/dummy.ts
   git add . >/dev/null; git commit -qm "M main advances (shell)"
   M=$(git rev-parse HEAD)
   git checkout -q -b feature "$B"
-  echo "// renderer-only" > client/desktop/src/renderer/marker.ts
+  echo "// renderer-only" > desktop/src/renderer/marker.ts
   git add . >/dev/null; git commit -qm "F feature renderer-only"
   echo "$M"
 )
@@ -577,17 +577,17 @@ C9_DIR=$(mktemp -d); echo "$C9_DIR" >> "$FIXTURE_REGISTRY"
 C9_STALE_BASE=$(
   cd "$C9_DIR"
   git init -q; git config user.email "test@test.invalid"; git config user.name "Test"
-  mkdir -p client/desktop/src/main client/desktop client/desktop/src/renderer
-  printf 'export const IPC_CONTRACT_VERSION = 12;\n' > client/desktop/src/main/ipcContract.ts
-  printf '{\n  "name": "concord-desktop",\n  "version": "0.1.57"\n}\n' > client/desktop/package.json
-  echo "// v1" > client/desktop/src/main/dummy.ts
+  mkdir -p desktop/src/main desktop desktop/src/renderer
+  printf 'export const IPC_CONTRACT_VERSION = 12;\n' > desktop/src/main/ipcContract.ts
+  printf '{\n  "name": "concord-desktop",\n  "version": "0.1.57"\n}\n' > desktop/package.json
+  echo "// v1" > desktop/src/main/dummy.ts
   git add . >/dev/null; git commit -qm "B (stale base.sha point)"
   B=$(git rev-parse HEAD)
-  echo "// v2 main shell change" > client/desktop/src/main/dummy.ts
+  echo "// v2 main shell change" > desktop/src/main/dummy.ts
   git add . >/dev/null; git commit -qm "M main advances (shell)"
   M=$(git rev-parse HEAD)
   git checkout -q -b feature "$B"
-  echo "// renderer-only" > client/desktop/src/renderer/marker.ts
+  echo "// renderer-only" > desktop/src/renderer/marker.ts
   git add . >/dev/null; git commit -qm "F feature renderer-only"
   # Build the test-merge commit GitHub creates as refs/pull/N/merge (merge main into PR head):
   git checkout -q -b prmerge
@@ -611,7 +611,7 @@ done
 # classify-release.sh's SHELL_FILES list is a hand-copy of desktop-pr-smoke.yml's
 # `desktop-shell:` dorny/paths-filter. They MUST stay in sync EXCEPT for ONE
 # intentional delta (#827):
-#   - desktop-pr-smoke.yml-only: 'client/desktop/package.json'  (omitted from
+#   - desktop-pr-smoke.yml-only: 'desktop/package.json'  (omitted from
 #       SHELL_FILES so version_bump_only stays reachable)
 # NOTE: both lists DO include '.github/workflows/desktop-pr-smoke.yml' — the
 # desktop-pr-smoke.yml `desktop-shell:` filter has listed itself since #3570,
@@ -681,7 +681,7 @@ else
     # The ONLY accepted delta is desktop-pr-smoke.yml carrying package.json that
     # SHELL_FILES omits (#827). classify-release.sh must add nothing the smoke
     # filter lacks — '.github/workflows/desktop-pr-smoke.yml' is present in BOTH.
-    EXPECTED_BUILD_ONLY="client/desktop/package.json"
+    EXPECTED_BUILD_ONLY="desktop/package.json"
     EXPECTED_CLASSIFY_ONLY=""
 
     if [[ "$BUILD_ONLY" == "$EXPECTED_BUILD_ONLY" && "$CLASSIFY_ONLY" == "$EXPECTED_CLASSIFY_ONLY" ]]; then
@@ -700,9 +700,9 @@ fi
 
 # ── Workflow trigger guard ────────────────────────────────────────────────────
 echo ""
-echo "Workflow trigger guard:"
-CLASSIFY_RELEASE_YML="${REPO_ROOT}/.github/workflows/classify-release.yml"
-CLASSIFY_COMMENT_YML="${REPO_ROOT}/.github/workflows/classify-release-comment.yml"
+echo "Hosted classification contract fixtures (publication remains outside Desktop):"
+CLASSIFY_RELEASE_YML="${REPO_ROOT}/.github/scripts/tests/fixtures/hosted-release/classify-release.yml"
+CLASSIFY_COMMENT_YML="${REPO_ROOT}/.github/scripts/tests/fixtures/hosted-release/classify-release-comment.yml"
 assert_exit 0 "build-desktop.yml is included in pull_request.paths" awk '
   /^  pull_request:/ { in_pr=1; next }
   in_pr && /^[^ ]/ { in_pr=0; in_paths=0 }

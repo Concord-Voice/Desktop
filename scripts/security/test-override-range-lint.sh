@@ -42,14 +42,14 @@ assert() {
 # than a stand-in whose behaviour could diverge from production.
 SEMVER_SRC=""
 for cand in \
-  "$SCRIPT_DIR/../../client/desktop/node_modules/semver" \
+  "$SCRIPT_DIR/../../desktop/node_modules/semver" \
   "$SCRIPT_DIR/../../client/admin/node_modules/semver" \
   "$SCRIPT_DIR/../../services/media-plane/node_modules/semver"; do
   [ -d "$cand" ] && { SEMVER_SRC="$(cd "$cand" && pwd)"; break; }
 done
 if [ -z "$SEMVER_SRC" ]; then
   echo "SKIP: no installed semver found in any workspace — cannot run override-range-lint tests"
-  echo "      (run 'npm install' in client/desktop, then re-run)"
+  echo "      (run 'npm install' in desktop, then re-run)"
   exit 0
 fi
 

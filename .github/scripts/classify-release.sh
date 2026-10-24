@@ -163,7 +163,7 @@ read_fixed_blob() {
 #
 # This SHELL_FILES list is a hand-copy of that filter and MUST stay in sync with
 # it, EXCEPT for ONE intentional delta (#827):
-#   - desktop-pr-smoke.yml's filter includes 'client/desktop/package.json';
+#   - desktop-pr-smoke.yml's filter includes 'desktop/package.json';
 #     this list OMITS it. package.json is tracked separately below for
 #     version-bump detection — including it here would make the
 #     version_bump_only category unreachable.
@@ -176,24 +176,24 @@ read_fixed_blob() {
 DIFF_METADATA_FILE=$(mktemp)
 trap 'rm -f "${DIFF_METADATA_FILE:-}" "${OUTPUT_BUFFER:-}"' EXIT
 if ! git diff --name-only "${MERGE_BASE}" "${TARGET_COMMIT}" -- \
-  'client/desktop/forge.config.ts' \
-  'client/desktop/build/makerDmg.ts' \
-  'client/desktop/package-lock.json' \
-  'client/desktop/tsconfig.main.json' \
-  'client/desktop/tsconfig.preload.json' \
-  'client/desktop/vite.config.ts' \
-  'client/desktop/src/main/**' \
-  'client/desktop/src/preload/**' \
-  'client/desktop/native/**' \
-  'client/desktop/scripts/build-native.mjs' \
-  'client/desktop/scripts/build-preload.mjs' \
-  'client/desktop/scripts/patch-electron-plist.sh' \
-  'client/desktop/scripts/patch-rpm-sandbox-spec.mjs' \
-  'client/desktop/scripts/verify-asar-payload.sh' \
-  'client/desktop/scripts/verify-dmg-artifact.sh' \
-  'client/desktop/scripts/verify-packaged-app.mts' \
-  'client/desktop/scripts/verify-packaged-app.lib.mts' \
-  'client/desktop/scripts/verify-windows-signature.ps1' \
+  'desktop/forge.config.ts' \
+  'desktop/build/makerDmg.ts' \
+  'desktop/package-lock.json' \
+  'desktop/tsconfig.main.json' \
+  'desktop/tsconfig.preload.json' \
+  'desktop/vite.config.ts' \
+  'desktop/src/main/**' \
+  'desktop/src/preload/**' \
+  'desktop/native/**' \
+  'desktop/scripts/build-native.mjs' \
+  'desktop/scripts/build-preload.mjs' \
+  'desktop/scripts/patch-electron-plist.sh' \
+  'desktop/scripts/patch-rpm-sandbox-spec.mjs' \
+  'desktop/scripts/verify-asar-payload.sh' \
+  'desktop/scripts/verify-dmg-artifact.sh' \
+  'desktop/scripts/verify-packaged-app.mts' \
+  'desktop/scripts/verify-packaged-app.lib.mts' \
+  'desktop/scripts/verify-windows-signature.ps1' \
   '.github/scripts/tests/verify-dmg-artifact.test.sh' \
   '.github/workflows/build-desktop.yml' \
   '.github/workflows/desktop-pr-smoke.yml' \
@@ -215,15 +215,15 @@ fi
 
 # ── IPC contract version ──────────────────────────────────────────────────────
 # Read only the four fixed blobs, checking mode, type, NUL absence and size first.
-read_fixed_blob "$MERGE_BASE" "client/desktop/src/main/ipcContract.ts"
+read_fixed_blob "$MERGE_BASE" "desktop/src/main/ipcContract.ts"
 OLD_IPC_CONTRACT_BLOB="$BLOB_CONTENT"
 OLD_SPA_CONTRACT_BLOB="$BLOB_CONTENT"
-read_fixed_blob "$MERGE_BASE" "client/desktop/package.json"
+read_fixed_blob "$MERGE_BASE" "desktop/package.json"
 OLD_PACKAGE_BLOB="$BLOB_CONTENT"
-read_fixed_blob "$TARGET_COMMIT" "client/desktop/src/main/ipcContract.ts"
+read_fixed_blob "$TARGET_COMMIT" "desktop/src/main/ipcContract.ts"
 NEW_IPC_CONTRACT_BLOB="$BLOB_CONTENT"
 NEW_SPA_CONTRACT_BLOB="$BLOB_CONTENT"
-read_fixed_blob "$TARGET_COMMIT" "client/desktop/package.json"
+read_fixed_blob "$TARGET_COMMIT" "desktop/package.json"
 NEW_PACKAGE_BLOB="$BLOB_CONTENT"
 
 # Use sed with POSIX character classes for portability (macOS BSD sed lacks \s).
@@ -257,7 +257,7 @@ done
 # adding a constant that is not IPC surface at all. Strip comment lines, blank
 # lines and SPA_MIN_CONTRACT from the diff; whatever survives is real surface.
 IPC_CONTRACT_FILE_CHANGED=$(git diff -U0 "${MERGE_BASE}" "${TARGET_COMMIT}" -- \
-    client/desktop/src/main/ipcContract.ts 2>/dev/null \
+    desktop/src/main/ipcContract.ts 2>/dev/null \
   | grep -E '^[+-]' \
   | grep -vE '^(\+\+\+|---)' \
   | grep -vE '^[+-][[:space:]]*(\*|//|/\*)' \

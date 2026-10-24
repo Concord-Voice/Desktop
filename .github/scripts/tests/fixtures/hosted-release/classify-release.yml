@@ -1,0 +1,145 @@
+# Release-impact classification — extracted from build.yml per ADR-0018 (#1474).
+#
+# Standalone by design (NOT orchestrated under pr-ci): the job consumes no
+# artifacts, installs no repo dependencies (bash + curl + github-script only,
+# so the IOC-first gate does not apply), and needs only a desktop-path
+# signal — the workflow-level paths filter below replaces the former
+# needs.changes.outputs.desktop job gate. On non-desktop PRs the workflow
+# does not run at all (previously: a skipped check); /enhanced-pr-review's
+# bot table already treats the Release Classifier as expected only on
+# shippable (desktop-touching) PRs.
+#
+# Check-context note: the standalone job surfaces as `Classify release impact`
+# (was `build / Classify release impact`).
+name: Classify release
+
+on:
+  pull_request:
+    # `labeled`/`unlabeled` are here for the release-timing axis: `risk: hotfix`
+    # is normally applied during triage AFTER the PR opens, so without them the
+    # classification comment reports "standard" on a PR that is in fact flagged
+    # — stale at exactly the moment someone reads it to decide how to merge.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - '.github/workflows/build-desktop.yml'
+      - '.github/workflows/desktop-pr-smoke.yml'
+      # This workflow was absent from its own filter, so every edit to it
+      # shipped without ever executing on the PR that made the edit. Listing it
+      # here is what makes a change to the classifier exercise the classifier.
+      - '.github/workflows/classify-release.yml'
+
+concurrency:
+  group: classify-release-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# Least-privilege default; this lockstep-only workflow is read-only.
+permissions:
+  contents: read
+
+jobs:
+
+  # ─── Contract/version lockstep gate (the one BLOCKING assertion) ──────
+  # Separate job on purpose. The `classify-release-comment.yml` workflow is
+  # continue-on-error by design — its live probes and PR comment are best-effort
+  # and never fail a PR. This job asserts exactly one thing and is allowed to fail,
+  # so the advisory surface keeps its semantics and the gate keeps its teeth.
+  #
+  # It re-runs the classifier rather than consuming the other job's outputs:
+  # a continue-on-error job that died would hand this one empty strings, which
+  # would read as "not bumped" and pass. Re-running is a few git commands and
+  # fails closed on its own.
+  contract-version-lockstep:
+    name: SPA minimum ships with its client
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Classify client changes
+        id: classify
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          bash .github/scripts/classify-release.sh
+
+      - name: Assert a raised SPA minimum carries a version bump
+        env:
+          REQUIRED: ${{ steps.classify.outputs.version_bump_required }}
+          PRESENT: ${{ steps.classify.outputs.spa_min_present }}
+          OLD_SPA_MIN: ${{ steps.classify.outputs.old_spa_min }}
+          NEW_SPA_MIN: ${{ steps.classify.outputs.new_spa_min }}
+          NEW_VERSION: ${{ steps.classify.outputs.new_version }}
+        run: |
+          set -euo pipefail
+          if [[ "${PRESENT}" == "false" ]]; then
+            echo "::error title=SPA_MIN_CONTRACT was removed::deploy-spa.sh cannot parse a minimum that is not declared and exits 2, so this would break every SPA deploy after merge."
+            echo "Restore 'export const SPA_MIN_CONTRACT = <n>;' in desktop/src/main/ipcContract.ts." >&2
+            echo "It is the oldest shell this renderer runs on, and the number the deploy publishes." >&2
+            exit 1
+          fi
+          if [[ "${REQUIRED}" != "true" ]]; then
+            echo "::notice::No SPA-minimum/version lockstep violation."
+            exit 0
+          fi
+          # Untrusted-ish values stay in env and are only echoed, never eval'd.
+          # Falls back to a placeholder rather than raising. The finding does
+          # not depend on computing a next version, but the remediation block
+          # below is the entire value of this step — a ValueError traceback from
+          # a prerelease-suffixed or hand-edited version would replace it with
+          # nothing actionable, failing the PR with no way forward.
+          NEXT=$(python3 -c "
+          import os, re
+          m = re.match(r'^(\d+)\.(\d+)\.(\d+)$', os.environ['NEW_VERSION'])
+          print(f'{m.group(1)}.{m.group(2)}.{int(m.group(3)) + 1}' if m else '<next-version>')
+          ")
+          echo "::error title=SPA minimum raised without a client release::SPA_MIN_CONTRACT moved ${OLD_SPA_MIN} -> ${NEW_SPA_MIN}, but desktop/package.json is still ${NEW_VERSION}."
+          cat >&2 <<EOF
+
+          SPA_MIN_CONTRACT raised ${OLD_SPA_MIN} -> ${NEW_SPA_MIN} with no version bump.
+
+          deploy-spa.sh publishes this number as SPA_IPC_CONTRACT, and spaLoader.ts
+          drops any shell below it to its BUNDLED renderer. Raising it declares that
+          older clients cannot run this renderer, so a client that satisfies
+          ${NEW_SPA_MIN} has to ship with it. Nothing treats the contract as a release
+          trigger: the release is armed by package.json vs the desktop-v<version>
+          tag, which is why raising the minimum alone blocks every SPA deploy and why
+          'risk: hotfix' on this PR would do nothing -- main-ci would have no version
+          to cut.
+
+          FIRST, check whether you need this at all. Most new IPC surface does NOT
+          require raising the minimum: guard the renderer call and older shells lose
+          the feature instead of the whole remote SPA.
+
+              const fn = globalThis.electron?.newThing;
+              if (typeof fn !== 'function') return;
+
+          Every surface added between v20 and v25 is guarded this way, which is why
+          the minimum sits six versions below the capability. Lowering it back is
+          almost always the right fix -- bumping IPC_CONTRACT_VERSION alone is free
+          and does not trip this gate.
+
+          If the renderer GENUINELY cannot degrade, ship the client in THIS PR:
+
+            ./.github/scripts/promote-unreleased-changelog.sh ${NEXT}
+            cd desktop && npm version ${NEXT} --no-git-tag-version
+
+          The promoter moves the existing '## [Unreleased]' body under a dated
+          heading verbatim -- it authors nothing. Running it is the sanctioned manual
+          path and satisfies verify-changelog.sh Rules 1 and 3. Note it promotes
+          everything currently pending, so rebase before merging if other notes land
+          in the meantime.
+
+          It exits 1 if '## [Unreleased]' has notes but no preamble. Write 1-3
+          sentences under the heading, above the first '###' category heading, and
+          re-run. If the section has no category heading yet, add one (e.g.
+          '### Fixed') below that paragraph — a body with no category heading is
+          read as all detail. That paragraph is what the post-update modal shows.
+          EOF
+          exit 1

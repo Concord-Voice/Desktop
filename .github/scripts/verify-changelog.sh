@@ -3,7 +3,7 @@
 # verify-changelog.sh — CHANGELOG.md discipline gate (#1857).
 #
 # Fail-closed pr-ci check with five rules:
-#   1. A desktop version bump (client/desktop/package.json "version" changed
+#   1. A desktop version bump (desktop/package.json "version" changed
 #      upward in this PR) must have a matching "## [<new-version>]" section
 #      present in CHANGELOG.md at HEAD. Presence-at-HEAD (not diff-added) is
 #      deliberate: it is immune to merged-main sweeps / pre-added entries /
@@ -15,7 +15,7 @@
 #   3. A `## [X.Y.Z]` heading may only be ADDED in a promotion-shaped diff:
 #      [Unreleased] non-empty at the base, emptied at HEAD, heading matching
 #      package.json. Version sections are the promoter's output, not a PR's.
-#   4. A change under client/desktop/src, services/control-plane or
+#   4. A change under desktop/src, services/control-plane or
 #      services/media-plane must add a line under `## [Unreleased]`, unless a
 #      `Changelog-Exempt: <reason>` commit trailer says why a user cannot
 #      observe it. Tests and dependency manifests are exempt by path.
@@ -193,7 +193,7 @@ if [[ -n "$NEW_HEADINGS" ]]; then
   # undiagnosable in a CI log, and outside this file's documented exit contract.
   BASE_UNREL=$(unreleased_body "$MERGE_BASE" | tr -d '[:space:]' || true)
   HEAD_UNREL=$(unreleased_body HEAD | tr -d '[:space:]' || true)
-  HEAD_PKG_VERSION=$(git show HEAD:client/desktop/package.json 2>/dev/null \
+  HEAD_PKG_VERSION=$(git show HEAD:desktop/package.json 2>/dev/null \
     | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | first_line || true)
   # Compare the numeric triple only. Heading labels carry suffixes that
   # package.json never does — `## [0.3.0-Beta]` against a manifest reading
@@ -209,7 +209,7 @@ if [[ -n "$NEW_HEADINGS" ]]; then
   elif [[ -n "$HEAD_UNREL" ]]; then
     RULE3_FAIL="'## [Unreleased]' is still populated at HEAD — a promotion empties it"
   elif [[ "$HEAD_PKG_VERSION" != "$ADDED_TRIPLE" ]]; then
-    RULE3_FAIL="the added heading is [${ADDED_HEADING}] but client/desktop/package.json is ${HEAD_PKG_VERSION}"
+    RULE3_FAIL="the added heading is [${ADDED_HEADING}] but desktop/package.json is ${HEAD_PKG_VERSION}"
   fi
 
   if [[ -n "$RULE3_FAIL" ]]; then
@@ -220,7 +220,7 @@ if [[ -n "$NEW_HEADINGS" ]]; then
     echo "heading later, so nothing is lost and the notes cover the whole tag range." >&2
     echo "If it IS cutting one, run the promoter rather than editing the file:" >&2
     echo "  ./.github/scripts/promote-unreleased-changelog.sh <version>" >&2
-    echo "  cd client/desktop && npm version <version> --no-git-tag-version" >&2
+    echo "  cd desktop && npm version <version> --no-git-tag-version" >&2
     echo "See docs/release/desktop-release-checklist.md." >&2
     exit 1
   fi
@@ -240,7 +240,7 @@ fi
 # exits, so anything after it is unreachable.
 CHANGED=$(git diff --name-only "${MERGE_BASE}" HEAD || true)
 RELEVANT=$(printf '%s\n' "$CHANGED" \
-  | grep -E '^(client/desktop/src/|services/control-plane/|services/media-plane/)' \
+  | grep -E '^(desktop/src/|services/control-plane/|services/media-plane/)' \
   | grep -vE '(^|/)(tests?|testdata|testhelpers|testutil|__tests__|__mocks__|fixtures)/' \
   | grep -vE '\.(test|spec)\.(ts|tsx|js|jsx)$|_test\.go$' \
   | grep -vE '(^|/)(package(-lock)?\.json|go\.(mod|sum))$' \
@@ -409,10 +409,10 @@ fi
 
 # ── Rule 1: version bump requires a matching section at HEAD ─────────────────
 # sed parse (not jq) for portability with the hermetic test suite (macOS).
-OLD_VERSION=$(git show "${MERGE_BASE}":client/desktop/package.json 2>/dev/null \
+OLD_VERSION=$(git show "${MERGE_BASE}":desktop/package.json 2>/dev/null \
   | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | first_line || true)
 OLD_VERSION="${OLD_VERSION:-0.0.0}"
-NEW_VERSION=$(git show HEAD:client/desktop/package.json 2>/dev/null \
+NEW_VERSION=$(git show HEAD:desktop/package.json 2>/dev/null \
   | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | first_line || true)
 NEW_VERSION="${NEW_VERSION:-0.0.0}"
 
