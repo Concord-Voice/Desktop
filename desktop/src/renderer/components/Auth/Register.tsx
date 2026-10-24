@@ -416,7 +416,7 @@ const Register: React.FC<RegisterProps> = ({ onBack, onSuccess, onSwitchToLogin 
                         <strong>How it works:</strong>
                         <ul>
                           <li>
-                            <strong>User-to-User & Groups:</strong> Always fully encrypted - maximum
+                            <strong>User-to-User &amp; Groups:</strong> Always fully encrypted - maximum
                             protection guaranteed
                           </li>
                           <li>

@@ -293,7 +293,7 @@ const ForceUpdateOverlay: React.FC = () => {
           {phase === 'downloaded' && (
             <button className="force-update-btn primary" onClick={handleInstall}>
               <RefreshCw size={16} />
-              Install & Restart
+              Install &amp; Restart
             </button>
           )}
         </div>

@@ -201,7 +201,7 @@ const AudioOpusSection: React.FC<AudioOpusSectionProps> = ({ qualityTier }) => {
       </div>
 
       {/* ── Error Correction & Reliability ── */}
-      <h3 className="settings-subsection-title">Error Correction & Reliability</h3>
+      <h3 className="settings-subsection-title">Error Correction &amp; Reliability</h3>
 
       <div className="settings-row">
         <div className="settings-row-info">

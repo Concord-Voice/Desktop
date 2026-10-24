@@ -1394,7 +1394,7 @@ const VideoConfigSection: React.FC = () => {
             />
           </div>
 
-          <h3 className="settings-subsection-title">Codec & Hardware</h3>
+          <h3 className="settings-subsection-title">Codec &amp; Hardware</h3>
 
           {gpuInfo && (
             <p className="settings-section-description" style={{ marginTop: 0, marginBottom: 6 }}>

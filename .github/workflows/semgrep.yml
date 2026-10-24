@@ -71,7 +71,7 @@ jobs:
       # Single source of truth for the Semgrep version. Referenced by
       # both the pip install step and the cache key so a future bump
       # only needs to change this one line.
-      SEMGREP_VERSION: '1.121.0'
+      SEMGREP_VERSION: '1.130.0'
       EXTERNAL_VERDICT: ${{ inputs.external-verdict }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
