@@ -194,6 +194,31 @@ describe('PlanCard (#1304, #2033 PR-4)', () => {
       bridge().openBilling = vi.fn();
     });
 
+    it('shows the trial end and first paid charge, with a way to cancel', async () => {
+      useBillingStore.setState({ plans: CATALOG });
+      const { container } = render(
+        <PlanCard info={subscriber({ status: 'trialing', founders_rate: true, plan: 'wing' })} />
+      );
+      expect(screen.getByRole('heading', { name: 'Wing' })).toBeInTheDocument();
+      expect(screen.getByText(`Trial ends ${formatExpiry(PERIOD_END)}`)).toBeInTheDocument();
+      expect(container.querySelector('.lucide-calendar-clock')).not.toBeNull();
+      expect(screen.getByText(/Paid billing begins/)).toHaveTextContent(
+        `Paid billing begins on ${formatExpiry(PERIOD_END)} at ${formatPrice(749, 'usd')}/month unless you cancel before then. Any redeemed code credit reduces the first paid charge.`
+      );
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Cancel subscription' }));
+      expect(openPortal).toHaveBeenCalledWith('subscription_cancel');
+    });
+
+    it('shows a canceled trial without promising a charge', async () => {
+      render(<PlanCard info={subscriber({ status: 'trialing', canceling: true })} />);
+      expect(screen.getByText(/You won't be charged/)).toHaveTextContent(
+        `Your free trial ends ${formatExpiry(PERIOD_END)}. You won't be charged.`
+      );
+      expect(screen.queryByRole('button', { name: 'Cancel subscription' })).not.toBeInTheDocument();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Resume subscription' }));
+      expect(openPortal).toHaveBeenCalledWith(undefined);
+    });
+
     it('P3: shows the plan, the founders price, the renewal and both Portal actions', async () => {
       useBillingStore.setState({ plans: CATALOG });
       const { container } = render(<PlanCard info={subscriber({ founders_rate: true })} />);

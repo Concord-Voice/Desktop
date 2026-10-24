@@ -242,6 +242,16 @@ describe('SubscriptionSection paid plans (#2033 PR-4)', () => {
     expect(screen.queryByText(/Paid subscriptions are planned/)).not.toBeInTheDocument();
   });
 
+  it('uses server trial eligibility to show the first Checkout terms', async () => {
+    serve({ tier: 'free', status: 'none', billing: 'available', trial_available: true });
+    render(<SubscriptionSection />);
+    await openSubscription();
+    expect(
+      await screen.findByRole('button', { name: 'Start 30-day free trial of Wing' })
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Your free trial lasts 30 days/)).toBeInTheDocument();
+  });
+
   it('shows a catalog failure as an inline alert with Retry, not the footer', async () => {
     serve(
       { tier: 'free', status: 'none', billing: 'available' },

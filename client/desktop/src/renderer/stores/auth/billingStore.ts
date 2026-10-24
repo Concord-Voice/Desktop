@@ -47,6 +47,7 @@ const MeSchema = z.object({
   // An older server sends no `billing`. Reading that as `not_configured` hides
   // every paid control, which is the page as it was before billing existed.
   billing: z.enum(['self_hosted', 'not_configured', 'available']).catch('not_configured'),
+  trial_available: z.boolean().optional().catch(false),
   stripe: StripeRowSchema.optional(),
   code: z.object({ current_period_end: z.string().nullable() }).optional(),
 });

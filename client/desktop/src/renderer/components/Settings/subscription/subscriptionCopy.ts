@@ -76,6 +76,7 @@ export const BILLING_COPY = {
   confirmingStalled:
     "We haven't received confirmation yet. If you were charged, your subscription will appear here shortly. You don't need to pay again.",
   activated: 'Your subscription is active.',
+  trialActivated: 'Your 30-day free trial has started.',
   checkAgain: 'Check again',
   shellTooOld: 'Update Concord to subscribe or manage billing.',
   selfHosted: 'Your server provides premium features.',
@@ -86,6 +87,9 @@ export const BILLING_COPY = {
   foundersChip: 'Founders rate',
   foundersDiscount: '50% off while you stay subscribed. Canceling ends it.',
   renewsAutomatically: 'Renews automatically until you cancel.',
+  trialTerms:
+    'Your free trial lasts 30 days. Your chosen plan starts billing when the trial ends unless you cancel before then. Any redeemed code credit reduces the first paid charge.',
+  trialStripePage: "You'll enter your card on Stripe's secure page. Concord never sees your card.",
   stripePage: "You'll pay on Stripe's secure page. Concord never sees your card.",
   openingCheckout: 'Opening secure checkout…',
   openingPortal: 'Opening billing…',
@@ -103,10 +107,13 @@ export const BILLING_NOTICE_COPY: Record<BillingNotice, string> = {
   portal_load_failed: "Couldn't load billing. Check your connection and try again.",
 };
 
-export function codeOverlapNote(date: string | undefined): string {
-  return date
-    ? `Your code already covers Supersonic until ${date}. Subscribing starts billing today.`
-    : 'Your code already covers Supersonic. Subscribing starts billing today.';
+export function codeOverlapNote(date: string | undefined, trialAvailable = false): string {
+  const coverage = date
+    ? `Your code already covers Supersonic until ${date}.`
+    : 'Your code already covers Supersonic.';
+  return trialAvailable
+    ? `${coverage} Your free trial starts today; paid billing begins when it ends unless you cancel.`
+    : `${coverage} Subscribing starts billing today.`;
 }
 
 export function foundersTerms(date: string): string {

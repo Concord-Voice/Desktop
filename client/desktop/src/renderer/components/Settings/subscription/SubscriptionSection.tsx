@@ -77,7 +77,13 @@ const SubscriptionSection: React.FC = () => {
                 )}
               </div>
             ))}
-          {showPicker && plans && <PlanPicker plans={plans} codeExpiry={info.codeExpiry} />}
+          {showPicker && plans && (
+            <PlanPicker
+              plans={plans}
+              codeExpiry={info.codeExpiry}
+              trialAvailable={info.trialAvailable === true}
+            />
+          )}
           {showPlansAlert && (
             <div className="subscription-notice subscription-notice-alert" role="alert">
               <span>{BILLING_COPY.plansUnavailable}</span>

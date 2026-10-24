@@ -24,6 +24,7 @@ export interface SubscriptionInfo {
   source?: SubscriptionSource;
   expiry?: string; // RFC 3339 UTC, present only when the grant has a period end
   billing: BillingMode;
+  trialAvailable?: boolean;
   stripe?: StripeRow;
   codeExpiry?: string | null; // undefined: no live code row; null: a code row that never lapses
   loading: boolean;
@@ -66,6 +67,7 @@ export function useSubscription(): SubscriptionInfo {
     source: me.source,
     expiry: me.current_period_end,
     billing: me.billing,
+    trialAvailable: me.trial_available,
     stripe: me.stripe,
     codeExpiry: me.code ? me.code.current_period_end : undefined,
     loading: false,

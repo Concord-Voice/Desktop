@@ -30,11 +30,12 @@ interface PlanPickerProps {
   plans: BillingPlans;
   /** The live code row's period end: undefined without one, null when it never lapses. */
   codeExpiry?: string | null;
+  trialAvailable?: boolean;
 }
 
 const PLAN_ORDER: readonly PlanId[] = ['supersonic', 'wing'];
 
-const PlanPicker: React.FC<PlanPickerProps> = ({ plans, codeExpiry }) => {
+const PlanPicker: React.FC<PlanPickerProps> = ({ plans, codeExpiry, trialAvailable = false }) => {
   const [billingInterval, setBillingInterval] = useState<PlanInterval>('month');
   const [clicked, setClicked] = useState<PlanId | null>(null);
   const opening = useBillingStore((s) => s.opening);
@@ -133,7 +134,9 @@ const PlanPicker: React.FC<PlanPickerProps> = ({ plans, codeExpiry }) => {
               >
                 {opening === 'checkout' && clicked === plan
                   ? BILLING_COPY.openingCheckout
-                  : `Subscribe to ${name}`}
+                  : trialAvailable
+                    ? `Start 30-day free trial of ${name}`
+                    : `Subscribe to ${name}`}
               </button>
             </li>
           );
@@ -142,14 +145,15 @@ const PlanPicker: React.FC<PlanPickerProps> = ({ plans, codeExpiry }) => {
 
       {codeExpiry !== undefined && (
         <p className="subscription-picker-note">
-          {codeOverlapNote(formatExpiry(codeExpiry ?? undefined))}
+          {codeOverlapNote(formatExpiry(codeExpiry ?? undefined), trialAvailable)}
         </p>
       )}
 
       <div className="subscription-terms">
         {foundersEnd && <p>{foundersTerms(foundersEnd)}</p>}
+        {trialAvailable && <p>{BILLING_COPY.trialTerms}</p>}
         <p>{BILLING_COPY.renewsAutomatically}</p>
-        <p>{BILLING_COPY.stripePage}</p>
+        <p>{trialAvailable ? BILLING_COPY.trialStripePage : BILLING_COPY.stripePage}</p>
       </div>
     </section>
   );

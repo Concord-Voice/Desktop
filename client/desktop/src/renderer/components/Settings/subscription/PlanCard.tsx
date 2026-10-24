@@ -33,6 +33,7 @@ import {
 // Stripe states of #2033 PR-4, spec §13). Every state names itself with a glyph
 // AND a word, never a glyph or a colour alone:
 //   P0 loading · P1 free · P2 code · P3 active · P4 canceling · P5 past due ·
+//   trialing ·
 //   P6 confirming · P8 shell too old · P10 degraded read · P12 self-hosted.
 // The headline is the Stripe row when there is one, then the code; a code that
 // also runs under a subscription shows as a second line.
@@ -189,6 +190,61 @@ const PlanCard: React.FC<PlanCardProps> = ({ info }) => {
                 'subscription-button',
                 manageRef
               )}
+            </div>
+          )}
+        </>
+      );
+    }
+
+    if (stripe.status === 'trialing') {
+      const ends = formatExpiry(stripe.ends_at ?? stripe.current_period_end);
+      const price = stripe.plan
+        ? findPlanPrice(plans, stripe.plan, stripe.interval ?? 'month')
+        : undefined;
+      const amount = price
+        ? formatPrice(
+            stripe.founders_rate ? foundersAmount(price.unit_amount) : price.unit_amount,
+            price.currency
+          ) + intervalSuffix(stripe.interval ?? 'month')
+        : undefined;
+      return (
+        <>
+          <PlanHeader name={name}>
+            <StateWord icon={CalendarClock}>{ends ? `Trial ends ${ends}` : 'Free trial'}</StateWord>
+          </PlanHeader>
+          {activated && <span className="subscription-activation-rule" aria-hidden="true" />}
+          <div className="subscription-plan-details">
+            <p className="subscription-plan-blurb">
+              {stripe.canceling
+                ? `Your free trial ends ${ends ?? 'soon'}. You won't be charged.`
+                : ends
+                  ? `Paid billing begins on ${ends}${amount ? ` at ${amount}` : ''} unless you cancel before then. Any redeemed code credit reduces the first paid charge.`
+                  : 'Your chosen plan starts billing when the trial ends unless you cancel before then. Any redeemed code credit reduces the first paid charge.'}
+            </p>
+            {stripe.founders_rate && !stripe.canceling && (
+              <p className="subscription-plan-blurb">
+                {BILLING_COPY.foundersChip} applies after the trial.
+              </p>
+            )}
+            {codeLine}
+            {shellNote}
+          </div>
+          {paidControls && (
+            <div className="subscription-plan-actions">
+              {portalButton(
+                stripe.canceling ? 'resume' : 'manage',
+                stripe.canceling ? 'Resume subscription' : 'Manage subscription',
+                undefined,
+                'subscription-button',
+                manageRef
+              )}
+              {!stripe.canceling &&
+                portalButton(
+                  'cancel',
+                  'Cancel subscription',
+                  'subscription_cancel',
+                  'subscription-text-button'
+                )}
             </div>
           )}
         </>
@@ -385,7 +441,8 @@ const PlanCard: React.FC<PlanCardProps> = ({ info }) => {
   if (pending) {
     live = pendingStalled ? BILLING_COPY.confirmingStalled : BILLING_COPY.confirming;
   } else if (activated) {
-    live = BILLING_COPY.activated;
+    live =
+      info.stripe?.status === 'trialing' ? BILLING_COPY.trialActivated : BILLING_COPY.activated;
   }
 
   const pastDue = !pending && info.stripe?.status === 'past_due' && !info.error;
