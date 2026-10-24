@@ -663,14 +663,6 @@ jobs:
           # D: server bootstrap and secret catalog tests remain with Self-Hosted / Hosted.
           # D: server bootstrap and secret catalog tests remain with Self-Hosted / Hosted.
 
-  # NOTE: the former verify-openapi-coverage, verify-spa-env, and
-  # verify-deploy-scripts jobs are consolidated into the single `static-guards`
-  # job earlier in this file (2026-07 CI deep-dive).
-
-  # Final protected-source API report. This job reports its actual needs
-  # results; the protected wrapper adds its selected OSV job result separately.
-  # always() preserves failed and skipped producers as explicit values for
-  # the required wrapper.
       - name: Protected workflow pin contract
         # Bootstrap pins intentionally fail until this port reaches main. Run every contract.
         if: ${{ !cancelled() }}
@@ -686,6 +678,14 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash .github/scripts/tests/lint-workflow-call-contract.test.sh
 
+  # NOTE: the former verify-openapi-coverage, verify-spa-env, and
+  # verify-deploy-scripts jobs are consolidated into the single `static-guards`
+  # job earlier in this file (2026-07 CI deep-dive).
+
+  # Final protected-source API report. This job reports its actual needs
+  # results; the protected wrapper adds its selected OSV job result separately.
+  # always() preserves failed and skipped producers as explicit values for
+  # the required wrapper.
   report:
     name: report
     needs: [ioc, detect-changes, build, semgrep, eslint]

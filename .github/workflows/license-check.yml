@@ -34,15 +34,10 @@ on:
     paths:
       - 'desktop/package.json'
       - 'desktop/package-lock.json'
-      - 'services/media-plane/package.json'
-      - 'services/media-plane/package-lock.json'
-      - 'client/admin/package.json'
-      - 'client/admin/package-lock.json'
+      - 'tools/concord-bridge/package.json'
+      - 'tools/concord-bridge/package-lock.json'
       - '.github/tools/license-checker/package.json'
       - '.github/tools/license-checker/package-lock.json'
-      - 'services/control-plane/go.mod'
-      - 'services/control-plane/go.sum'
-      - 'services/control-plane/**/*.go'
       - 'NOTICE.md'
       - 'scripts/update-notice-md.py'
       - 'scripts/test-update-notice-md.sh'
@@ -55,15 +50,10 @@ on:
     paths:
       - 'desktop/package.json'
       - 'desktop/package-lock.json'
-      - 'services/media-plane/package.json'
-      - 'services/media-plane/package-lock.json'
-      - 'client/admin/package.json'
-      - 'client/admin/package-lock.json'
+      - 'tools/concord-bridge/package.json'
+      - 'tools/concord-bridge/package-lock.json'
       - '.github/tools/license-checker/package.json'
       - '.github/tools/license-checker/package-lock.json'
-      - 'services/control-plane/go.mod'
-      - 'services/control-plane/go.sum'
-      - 'services/control-plane/**/*.go'
       # Kept identical to the pull_request list above. These three were missing,
       # so a change to NOTICE.md, the regenerator, or this workflow that reached
       # main by any route other than a matching PR got no post-merge run at all.
@@ -174,8 +164,6 @@ jobs:
           const all = ['desktop', 'tools/concord-bridge'];
           const workspaces = process.env.FULL_SCAN === 'true' ? all : keys.filter(key => raw[key] === 'true').flatMap(key => ({
             license_desktop: ['desktop', 'tools/concord-bridge'],
-            license_media: 'services/media-plane',
-            license_admin: 'client/admin',
           })[key]);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `workspaces=${JSON.stringify(workspaces)}\n`);
           NODE
@@ -190,7 +178,7 @@ jobs:
       contents: read
     env:
       LICENSE_ALLOWLIST: 'MIT;ISC;Apache-2.0;BSD-2-Clause;BSD-3-Clause;0BSD;BlueOak-1.0.0;Python-2.0;Unlicense;CC0-1.0;CC-BY-3.0;CC-BY-4.0;MIT-0;MPL-2.0;(MIT OR CC0-1.0);(MIT OR Apache-2.0);(MIT OR GPL-2.0)'
-      NPM_WORKSPACES: ${{ needs.select-licenses.outputs.npm-workspaces || '["desktop","services/media-plane","client/admin"]' }}
+      NPM_WORKSPACES: ${{ needs.select-licenses.outputs.npm-workspaces || '["desktop","tools/concord-bridge"]' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -205,7 +193,7 @@ jobs:
         run: |
           set -euo pipefail
           mapfile -t workspaces < <(node -e '
-            const allowed = ["desktop", "services/media-plane", "client/admin"];
+            const allowed = ["desktop", "tools/concord-bridge"];
             let selected;
             try { selected = JSON.parse(process.env.NPM_WORKSPACES); } catch { selected = null; }
             if (!Array.isArray(selected) || selected.some(value => !allowed.includes(value))) selected = allowed;
@@ -213,7 +201,7 @@ jobs:
           ')
           for workspace in "${workspaces[@]}"; do
             case "$workspace" in
-              desktop|services/media-plane|client/admin) ;;
+              desktop|tools/concord-bridge) ;;
               *) echo '::error::invalid npm workspace selection'; exit 1 ;;
             esac
             (cd "$workspace" && npm ci --no-audit --no-fund && \
