@@ -107,8 +107,12 @@ describe('recoveryService', () => {
 
       await runPreflight();
 
-      const urls = fetchSpy.mock.calls.map((c) => String(c[0]));
-      expect(urls.some((u) => u.includes('google.com'))).toBe(false);
+      const hosts = fetchSpy.mock.calls.map(
+        (c) => new URL(String(c[0]), window.location.href).hostname
+      );
+      expect(hosts.some((host) => host === 'google.com' || host.endsWith('.google.com'))).toBe(
+        false
+      );
     });
 
     it('internet field equals navigator.onLine and triggers no fetch for it', async () => {

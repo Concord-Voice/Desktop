@@ -3,6 +3,7 @@
 import importlib.util
 import pathlib
 import shutil
+import subprocess
 import tempfile
 import unittest
 import yaml
@@ -16,6 +17,42 @@ spec.loader.exec_module(unsigned)
 class UnsignedDesktopTest(unittest.TestCase):
     def test_checked_in_workflows(self):
         unsigned.verify(ROOT)
+
+    def test_version_extraction_parses_data_without_executing_symlink_target(self):
+        workflow = yaml.load(
+            (ROOT / '.github/workflows/build-desktop.yml').read_text(),
+            Loader=yaml.BaseLoader,
+        )
+        step = next(step for step in workflow['jobs']['detect-release']['steps']
+                    if step.get('id') == 'check')
+        commands = [line for line in step['run'].splitlines()
+                    if line.startswith('VERSION=')]
+        self.assertEqual(len(commands), 1)
+        command = commands[0] + '\nprintf "%s\\n" "$VERSION"'
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            (root / 'desktop').mkdir()
+            package = root / 'desktop/package.json'
+            package.write_text('{"version": "0.2.29"}')
+            result = subprocess.run(
+                ['bash', '-e', '-o', 'pipefail', '-c', command],
+                cwd=root, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.strip(), '0.2.29')
+
+            package.unlink()
+            (root / 'payload.cjs').write_text(
+                "require('node:fs').writeFileSync('executed', 'yes');\n"
+                "module.exports = {version: '0.2.29'};\n"
+            )
+            package.symlink_to('../payload.cjs')
+            result = subprocess.run(
+                ['bash', '-e', '-o', 'pipefail', '-c', command],
+                cwd=root, capture_output=True, text=True, check=False,
+            )
+            self.assertFalse((root / 'executed').exists(), 'version extraction executed JavaScript')
+            self.assertNotEqual(result.returncode, 0)
 
     def test_rejects_release_capabilities_and_missing_checks(self):
         mutations = {

@@ -85,7 +85,7 @@ jobs:
           FORCE_RELEASE: ${{ inputs.force_release }}
           BUILD_EVENT: ${{ github.event_name }}
         run: |
-          VERSION=$(node -p "require('./desktop/package.json').version")
+          VERSION=$(node -p "JSON.parse(require('node:fs').readFileSync('./desktop/package.json', 'utf8')).version")
           echo "Package version: ${VERSION}"
 
           TAG_NAME="desktop-v${VERSION}"

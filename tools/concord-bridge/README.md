@@ -15,10 +15,16 @@ npm --prefix tools/concord-bridge ci
 npm --prefix tools/concord-bridge run build
 ```
 
-`.mcp.json` and `.codex/config.toml` both launch
-`node tools/concord-bridge/dist/index.js` from the repository root, with
-no network fetch at launch. If `dist/index.js` is missing, the server fails to
-start and the host shows the MCP server as failed.
+This repository does not include an MCP host configuration. Configure your host
+to launch this stdio server with the repository root as its working directory:
+
+```bash
+node tools/concord-bridge/dist/index.js
+```
+
+Use your host's local MCP configuration for that command and working directory.
+There is no network fetch at launch. If `dist/index.js` is missing, the server
+fails to start and the host shows the MCP server as failed.
 
 Test and coverage (Istanbul, lcov at `coverage/lcov.info`):
 

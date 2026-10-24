@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { Page, expect } from '@playwright/test';
 import Redis from 'ioredis';
 
@@ -71,7 +72,11 @@ async function fetchVerificationCode(pendingId: string, timeoutMs = 5000): Promi
 
 /** Generate a unique username for test isolation */
 export function uniqueUsername(prefix = 'e2e'): string {
-  const suffix = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const suffix =
+    Date.now().toString(36) +
+    randomInt(36 ** 4)
+      .toString(36)
+      .padStart(4, '0');
   return `${prefix}_${suffix}`;
 }
 

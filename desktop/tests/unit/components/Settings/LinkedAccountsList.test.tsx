@@ -101,7 +101,9 @@ describe('LinkedAccountsList', () => {
     render(<LinkedAccountsList />);
     await screen.findByText(/Hidden via Apple Privacy/);
     // The raw relay address must NOT be rendered.
-    expect(screen.queryByText(/privaterelay\.appleid\.com/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('privaterelay.appleid.com', { exact: false })
+    ).not.toBeInTheDocument();
     // last_used_at: null → "Never used" is the canonical never-used label.
     expect(screen.getByText(/never used/i)).toBeInTheDocument();
   });

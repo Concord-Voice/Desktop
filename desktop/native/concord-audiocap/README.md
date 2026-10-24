@@ -50,8 +50,10 @@ The `utilityProcess` that hosts it, the control channel main uses to drive
 `start`/`stop`, and the PCM path out to the renderer are all TypeScript and live
 outside this package: `src/main/audiocapHost.ts`, `src/main/audiocapChild.ts`,
 `src/preload/audiocapRelay.ts`, `src/renderer/services/voice/screenAudioBridge.ts`.
-See [`docs/architecture.md`](../../../docs/architecture.md) § "Per-process
-screen-share audio".
+The [main-process host](../../src/main/audiocapHost.ts) manages the
+[utility-process child](../../src/main/audiocapChild.ts). The
+[preload relay](../../src/preload/audiocapRelay.ts) delivers the audio channel to
+the [renderer bridge](../../src/renderer/services/voice/screenAudioBridge.ts).
 
 ## What exists today
 
