@@ -1,0 +1,355 @@
+name: Native Audiocap
+
+# Build and verification for the concord-audiocap native addon (ADR-0043).
+#
+# STANDALONE rather than a node under pr-ci.yml, and path-filtered. The addon is a
+# separate toolchain — node-gyp, four matrix rows across three OSes, sanitizers,
+# a fuzzer — and none
+# of it is meaningful for the ~99% of PRs that touch no native code. Folding it into
+# the orchestrator would either run it always (four idle rows per PR) or need a
+# path gate there anyway, which is this file.
+#
+# ADR-0043 § Verification requires two of these jobs:
+#   "ASAN and UBSAN builds of rt/ in CI."
+#   "The ring buffer is fuzzed. It is the one component reachable across a trust
+#    boundary."
+#
+# They are VISIBLE, NOT MERGE-BLOCKING, and saying otherwise here was wrong. The
+# org baseline ruleset's (17153062) required_status_checks names exactly two
+# contexts, `Gitar` and `SonarCloud Code Analysis`, and the Alpha-only 24957423
+# adds `Required PR build result`; nothing in this file is among them. Adding them is
+# also not the one-line follow-up it looks like: the caller node is path-gated, so
+# on a PR touching no native path this workflow's jobs never materialise as check
+# runs at all, and a required context that never reports leaves the PR pending
+# rather than passing. See ADR-0043 § Verification, which now says the same.
+#
+# TSAN is here for a reason the other two cannot cover. The falsification pass on
+# the ring's tests found that weakening push()'s RELEASE store to relaxed is caught
+# by the concurrent test on arm64 — but arm64 is not what these runners are.
+# ubuntu-latest is x86-64, whose TSO memory model makes a relaxed store behave
+# almost exactly like a release store, so that same test would very likely stay
+# GREEN here. TSAN detects the missing happens-before edge directly instead of
+# hoping the hardware reorders during this particular run.
+
+# REUSABLE ONLY. This began as a standalone `pull_request` workflow, and that was
+# an ADR-0018 violation: the addon-build leg runs `npm ci` on four rows, and
+# pr-ci.yml states the invariant plainly — "Every scanner that installs or executes
+# repo code carries `needs: ioc`." A standalone trigger ran that install in PARALLEL
+# with the supply-chain verdict rather than after it, so a PR introducing a
+# malicious install script could execute it before the IOC scan rejected the change.
+# Codex caught it on PR #3155.
+#
+# Invoked by pr-ci.yml with `needs: [ioc, detect-changes]`, and DELIBERATELY NOT by
+# main-ci.yml: every job there is gated on `hotfix == 'true' && desktop-release ==
+# 'true'`, its own `ioc` job included, so a `needs: ioc` node would be skipped on
+# exactly the ordinary merges it was meant to cover. `check-native-ioc-gate.sh`
+# asserts that absence — do not "fix" main-ci to match an older version of this
+# comment. Path gating lives in pr-ci's change filter,
+# which is also where the dependency manifests could be added — a dependency-only
+# Electron or node-gyp bump used to skip this workflow entirely.
+#
+# No `concurrency` here: it belongs at the orchestrators, matching govulncheck.yml
+# and the other reusable scanners.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  jsf-profile:
+    name: JSF++ profile (rt/)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      # The self-test runs FIRST and its failure fails the job. A guard that has
+      # stopped detecting anything would otherwise report a clean rt/ and read
+      # exactly like a pass.
+      - name: Guard self-test
+        run: ./scripts/test-check-native-jsf-profile.sh
+      - name: Enforce the profile on rt/
+        run: ./scripts/check-native-jsf-profile.sh
+
+  rt-sanitizers:
+    name: rt/ tests — ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: address+undefined
+            flags: '-fsanitize=address,undefined -fno-sanitize-recover=all'
+          - label: thread
+            flags: '-fsanitize=thread'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      # -fno-sanitize-recover=all on the UBSAN leg is load-bearing: UBSAN's default
+      # is to PRINT and CONTINUE, which exits 0 and reports a green job while having
+      # found the defect — a green job that already knows the answer is the one
+      # outcome worth engineering against here, since nothing downstream re-checks.
+      - name: Build and run
+        working-directory: client/desktop/native/concord-audiocap
+        env:
+          # The flags travel in the environment: a template inside the script text is a scanner
+          # error for Semgrep's protected scan (internal-reference P18).
+          MATRIX_FLAGS: ${{ matrix.flags }}
+        run: |
+          # Echo the compiler. It is unpinned on ubuntu-latest, so a runner-image
+          # bump changes what these legs actually test; without this line a
+          # sanitizer result that moved because clang moved reads as a code
+          # regression. Recording it is cheaper than pinning a toolchain the repo
+          # does not otherwise manage. Raised by @security-reviewer on PR #3155.
+          clang++ --version
+          # MATRIX_FLAGS holds several words (the address+undefined leg passes two). Split it on
+          # whitespace into an array so each flag stays its own argument and none is globbed.
+          read -r -a sanitizer_flags <<< "$MATRIX_FLAGS"
+          clang++ -std=c++17 -Wall -Wextra -Werror -g -O1 -pthread \
+            "${sanitizer_flags[@]}" -fno-omit-frame-pointer \
+            test/quantum_ring_test.cc -o quantum_ring_test
+          ./quantum_ring_test
+          clang++ -std=c++17 -Wall -Wextra -Werror -g -O1 -pthread \
+            "${sanitizer_flags[@]}" -fno-omit-frame-pointer \
+            test/rt_contract_test.cc -o rt_contract_test
+          ./rt_contract_test
+          # The macOS backend's state machine. It compiles HERE, on Linux,
+          # because rt/platform/macos/hal_api.h names no Apple type -- which is
+          # the only reason this code gets sanitizer coverage at all
+          # (client/desktop/native/** is outside sonar.sources).
+          clang++ -std=c++17 -Wall -Wextra -Werror -g -O1 -pthread \
+            "${sanitizer_flags[@]}" -fno-omit-frame-pointer -I. \
+            test/macos_tap_test.cc -o macos_tap_test
+          ./macos_tap_test
+
+  fuzz-smoke:
+    name: Fuzz the ring buffer
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      # A 120 s smoke BUDGET per PR, split 60/60 across the two targets rather
+      # than added to — per-PR wall clock does not grow. Not a campaign either
+      # way: it catches the shallow crash a change introduces; deep exploration
+      # is a job for a longer scheduled run if this component ever earns one.
+      # -max_len is bounded because both targets draw their geometry from a
+      # fixed prefix and then treat the rest as one operation/callback per byte
+      # or byte-pair — unbounded inputs buy depth in the operation sequence, not
+      # in the geometry, which is where the interesting states are.
+      - name: Build and run libFuzzer targets
+        working-directory: client/desktop/native/concord-audiocap
+        run: |
+          clang++ --version
+          clang++ -std=c++17 -Wall -Wextra -Werror -g -O1 \
+            -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=all \
+            test/fuzz_quantum_ring.cc -o fuzz_quantum_ring
+          ./fuzz_quantum_ring -max_total_time=60 -max_len=4096 -print_final_stats=1
+          clang++ -std=c++17 -Wall -Wextra -Werror -g -O1 \
+            -fsanitize=fuzzer,address,undefined -fno-sanitize-recover=all \
+            test/fuzz_quantum_pump.cc -o fuzz_quantum_pump
+          ./fuzz_quantum_pump -max_total_time=60 -max_len=4096 -print_final_stats=1
+
+  addon-build:
+    name: Build addon — ${{ matrix.os }} ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      # ADR-0043 D1 names win32-x64, darwin-arm64 AND darwin-x64. A single
+      # macos-latest row built only the runner's own architecture, because
+      # build-native.mjs defaulted to process.arch -- so darwin-x64 was never
+      # compiled and a broken x64 artifact could ship under a green matrix. The
+      # arch is passed explicitly now; darwin-x64 cross-compiles from the arm64
+      # runner, which is what the desktop release build already does.
+      # `loadable` is DECLARED, not computed. It was `matrix.arch == runner.arch`,
+      # and runner.arch is X64 / ARM64 (uppercase, per GitHub's contexts docs)
+      # while matrix.arch is lowercase — so the comparison was NEVER true and the
+      # arm64 row, the one that CAN load its own artifact, never did. Found by
+      # Codex on PR #3155. A declared string cannot be wrong about casing, and it
+      # says out loud which row is the cross-compile.
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: x64
+            loadable: 'yes'
+          - os: macos-latest
+            arch: arm64
+            loadable: 'yes'
+          - os: macos-latest
+            arch: x64
+            loadable: 'no'   # cross-compiled from the arm64 runner
+          - os: windows-latest
+            arch: x64
+            loadable: 'yes'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Install desktop dependencies
+        working-directory: client/desktop
+        run: npm ci
+      - name: Build the addon
+        working-directory: client/desktop
+        run: node scripts/build-native.mjs --arch ${{ matrix.arch }}
+      # Loading it is the only proof the build produced something usable. The addon
+      # is N-API (NAPI_VERSION=8), which is ABI-stable across runtimes, so the
+      # Electron-targeted artifact loads under plain Node here and this job needs no
+      # Electron install -- measured, not assumed. See scripts/build-native.mjs.
+      #
+      # Only for the NATIVE architecture: a cross-compiled darwin-x64 .node cannot
+      # be dlopen'd by an arm64 Node. That leg proves it COMPILES AND LINKS, which
+      # is the regression this matrix row exists to catch; loading it needs an x64
+      # runner and is not worth one for a capability probe.
+      - name: Load it and probe the capability ladder
+        if: matrix.loadable == 'yes'
+        working-directory: client/desktop
+        run: node -e "const a=require('./native/concord-audiocap');const c=a.capability();console.log(JSON.stringify(c));if(!c.platform||c.platform==='unsupported')process.exit(1);"
+      # The window-owner resolver's ONLY coverage: client/desktop/native/** is outside
+      # sonar.sources, so the >=80% new-code gate cannot bind one line of it (#3198
+      # spec §8, R2). Three refusals on a real runner of each OS.
+      #
+      # REFUSALS ONLY, DELIBERATELY. A stub `return null;` passes all three, so a green
+      # here is NOT evidence the resolver resolves -- it is evidence a refusal never
+      # leaks to JS as numeric 0, which is the #2161 falsy-check shape. The positive
+      # assertion needs a live window handle and lives in the Electron test that
+      # resolves one from inside the capture child. Do not read this step as more than
+      # it is; the probe's own header says the same thing.
+      #
+      # Native-arch rows only: a cross-compiled darwin-x64 .node cannot be dlopen'd by
+      # an arm64 Node, same reason the capability probe above is gated.
+      - name: Resolver refusals (real runner)
+        if: matrix.loadable == 'yes'
+        working-directory: client/desktop/native/concord-audiocap
+        run: node test/resolve_window_owner_probe.js
+      - name: Confirm the binary exists when it cannot be loaded
+        if: matrix.loadable == 'no'
+        working-directory: client/desktop
+        shell: bash
+        run: |
+          NODE_BIN=native/concord-audiocap/build/Release/concord_audiocap.node
+          test -f "$NODE_BIN"
+          # `lipo -archs`, not `file`. This row exists to prove the darwin-x64
+          # CROSS-COMPILE works, and `file` succeeds just as happily on an arm64
+          # binary -- so if --arch were ever dropped or ignored the row would build
+          # the host architecture and still report green, which is exactly the
+          # "the matrix is a lie" failure the explicit --arch was added to fix.
+          # Asserting the architecture is what makes this row mean anything.
+          # Found by CodeRabbit on PR #3155.
+          ARCHS="$(lipo -archs "$NODE_BIN")"
+          echo "architectures: ${ARCHS}"
+          case " ${ARCHS} " in
+            *" x86_64 "*) ;;
+            *) echo "::error::Expected an x86_64 addon, got: ${ARCHS}"; exit 1 ;;
+          esac
+
+      # ── The compile-gated synthetic target (#3245 review, CodeRabbit) ──
+      #
+      # WHY THIS EXISTS. `rt/synthetic_source.h` was compiled in exactly one place:
+      # `test/quantum_ring_test.cc`, which defines the macro itself and runs on
+      # ubuntu only. So the synthetic ADDON target — the N-API layer under that
+      # define — was built nowhere, on any platform, and a break in it would have
+      # surfaced first to whoever tried to use it in #3198. It is also the only
+      # thing that makes the transport testable end to end, so leaving it
+      # uncompiled undercuts the reason it exists.
+      #
+      # LAST IN THE JOB, deliberately: this is a `rebuild` (clean + configure +
+      # build), so running it earlier would clobber the artifact the load and
+      # `lipo` steps above depend on and make those steps assert something they
+      # did not build.
+      #
+      # It goes through `build-native.mjs --synthetic`, NOT a raw
+      # `node-gyp rebuild -- -D...`. A hand-rolled invocation loses
+      # --runtime/--target/--dist-url and compiles against the wrong headers, and
+      # on Windows it re-enters the node-gyp.cmd EINVAL trap that script exists to
+      # avoid. Both are documented in build-native.mjs; do not inline it here.
+      - name: Build the synthetic target
+        working-directory: client/desktop
+        run: node scripts/build-native.mjs --arch ${{ matrix.arch }} --synthetic
+
+      # The load-bearing assertion, and it proves BOTH halves of the compile gate
+      # in one step rather than merely that something compiled:
+      #   - the SHIPPED target has no producer at all -> NoBackend
+      #   - the SYNTHETIC target does -> ok:true, so the define really took effect
+      # A release build that started emitting a test tone, or a synthetic build
+      # that silently lost its backend, both turn this red.
+      # The floor check below can fail for two reasons and names both. This is
+      # what lets a reader settle which one in a glance instead of guessing --
+      # the message points at this output, so it has to actually exist.
+      - name: Record the runner's OS version
+        if: matrix.loadable == 'yes' && runner.os == 'macOS'
+        shell: bash
+        run: sw_vers
+
+      - name: Prove the define separates the two binaries
+        if: matrix.loadable == 'yes'
+        working-directory: client/desktop
+        shell: bash
+        run: |
+          node -e "
+            const R = './native/concord-audiocap/build/Release/';
+            const opts = {quantumMs:10,sampleRate:48000,channels:2,frameCount:480,ringSlots:8};
+            const probe = (f) => {
+              const b = require(R + f);
+              const r = b.start(opts, () => {});
+              if (r.ok) b.stop();
+              return r;
+            };
+            const shipped = probe('concord_audiocap.node');
+            const synth = probe('concord_audiocap_synthetic.node');
+            // PER-OS SINCE #3197 PR 2. macOS now HAS a platform backend, so the
+            // shipped binary no longer answers NoBackend there. The probe passes
+            // no target, so a present backend refuses with NoTarget -- and that
+            // is itself the assertion that the refusal happens BEFORE any OS
+            // call. ubuntu and windows still have no backend compiled in.
+            const expected = process.platform === 'darwin' ? 'NoTarget' : 'NoBackend';
+            console.log('shipped  ', JSON.stringify(shipped), '(expected', expected + ')');
+            console.log('synthetic', JSON.stringify(synth));
+            // A darwin NoBackend has TWO causes and this check cannot tell them
+            // apart, so it names both instead of asserting one.
+            //
+            // Either the runner is below the 14.4 product floor, so
+            // platformBackend() returned nullptr -- a runner-image fact -- or the
+            // floor gate itself broke on a perfectly capable machine: a
+            // productVersion() read that came back empty, an inverted
+            // availableForThisOs(), or kUnsupportedOs becoming reachable, all of
+            // which also stringify to NoBackend.
+            //
+            // WHICH ONE IS LIKELIER MATTERS. GitHub's macos-latest sits well above
+            // 14.4, so in practice every NoBackend this job will actually see is
+            // the second cause -- and the message used to assert the first,
+            // sending the engineer to check a runner image that was never the
+            // problem. sw_vers is printed so the reader can settle it in one look.
+            if (process.platform === 'darwin' && shipped.reason === 'NoBackend') {
+              console.error('::error::macOS reported NoBackend. Either this runner is below the macOS 14.4 product floor (check the sw_vers output above -- platformBackend() returns nullptr there), or the floor gate is broken on a capable machine. Settle which before changing the backend.');
+              process.exit(1);
+            }
+            if (shipped.ok !== false || shipped.reason !== expected) {
+              console.error('::error::The SHIPPED addon did not refuse as expected (' + expected + '). On a non-darwin runner this means a producer is compiled in, and a reachable test tone in a signed binary is the #2161 class of defect.');
+              process.exit(1);
+            }
+            if (synth.ok !== true) {
+              console.error('::error::The synthetic target built but has no backend — CONCORD_AUDIOCAP_SYNTHETIC did not reach it.');
+              process.exit(1);
+            }
+          "
+
+      # The cross-compiled row cannot dlopen either binary, so it proves only that
+      # BOTH targets linked — which is the regression this row exists to catch.
+      - name: Confirm both targets linked when they cannot be loaded
+        if: matrix.loadable == 'no'
+        working-directory: client/desktop
+        shell: bash
+        run: |
+          R=native/concord-audiocap/build/Release
+          test -f "$R/concord_audiocap.node"
+          test -f "$R/concord_audiocap_synthetic.node"
+          lipo -archs "$R/concord_audiocap_synthetic.node"
