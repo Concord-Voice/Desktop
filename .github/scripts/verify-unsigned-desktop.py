@@ -40,6 +40,17 @@ def verify(root):
         raise ValueError('unsigned packaging must use the exact repository/event/detection guard')
     if job.get('needs') != ['detect-release', 'ioc'] or build['jobs']['ioc'].get('uses') != './.github/workflows/ioc-scanning.yml':
         raise ValueError('packaging dependencies must follow the IOC gate')
+    smoke_jobs = smoke['jobs']
+    expected_ioc = {'uses': './.github/workflows/ioc-scanning.yml',
+                    'permissions': {'contents': 'read', 'pull-requests': 'read'}}
+    smoke_guard = ("github.event_name == 'pull_request' && needs.ioc.result == 'success' && "
+                   "needs.pr-paths-filter.outputs.desktop-shell == 'true'")
+    if (smoke_jobs.get('ioc') != expected_ioc
+            or smoke_jobs['pr-smoke-build'].get('needs') != ['pr-paths-filter', 'ioc']
+            or ' '.join(smoke_jobs['pr-smoke-build']['if'].split()) != smoke_guard):
+        raise ValueError('PR smoke installation must follow the enforcing IOC gate')
+    if smoke_jobs['pr-smoke-result'].get('needs') != ['pr-paths-filter', 'pr-smoke-build', 'ioc']:
+        raise ValueError('PR smoke result must wait for the IOC verdict')
     steps = job['steps']
     checkouts = [s for s in steps if s.get('uses', '').startswith('actions/checkout@')]
     if len(checkouts) != 1 or checkouts[0].get('with', {}).get('ref') != '${{ github.sha }}':

@@ -13,6 +13,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Dependency installation and packaging must wait for the IOC verdict.
+  ioc:
+    uses: ./.github/workflows/ioc-scanning.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
   # ─── Job: Detect whether PR touches desktop-shell paths ───────────────
   # Runs only on pull_request events. Emits the `desktop-shell` boolean
   # consumed by `pr-smoke-build` and `pr-smoke-result` jobs. The
@@ -76,8 +83,8 @@ jobs:
   # ─── Job: Fixed unsigned PR smoke build ───────────────────────────────
   pr-smoke-build:
     name: PR smoke build (macos-arm64)
-    needs: [pr-paths-filter]
-    if: github.event_name == 'pull_request' && needs.pr-paths-filter.outputs.desktop-shell == 'true'
+    needs: [pr-paths-filter, ioc]
+    if: github.event_name == 'pull_request' && needs.ioc.result == 'success' && needs.pr-paths-filter.outputs.desktop-shell == 'true'
     permissions:
       contents: read
     runs-on: macos-latest
@@ -379,7 +386,7 @@ jobs:
   # which reds an otherwise successful forced release run.
   pr-smoke-result:
     name: PR smoke test result
-    needs: [pr-paths-filter, pr-smoke-build]
+    needs: [pr-paths-filter, pr-smoke-build, ioc]
     if: ${{ github.event_name == 'pull_request' && always() }}
     permissions: {}
     # ADR-0013 §2 / ADR-0005 §3: ADR-0016 measured sub-minute parity;
@@ -390,10 +397,15 @@ jobs:
       - name: Aggregate result
         shell: bash
         env:
+          IOC_RESULT: ${{ needs.ioc.result }}
           PATHS_FILTER_RESULT: ${{ needs.pr-paths-filter.result }}
           DESKTOP_SHELL: ${{ needs.pr-paths-filter.outputs.desktop-shell }}
           SMOKE_BUILD_RESULT: ${{ needs.pr-smoke-build.result }}
         run: |
+          if [[ "${IOC_RESULT}" != "success" ]]; then
+            echo "::error::IOC scan did not complete successfully (status: ${IOC_RESULT}). Failing closed."
+            exit 1
+          fi
           # Fail-closed if pr-paths-filter itself didn't run cleanly
           # (e.g., GitHub API hiccup, cancelled mid-run). Without this
           # guard, an empty desktop-shell output would silently skip the

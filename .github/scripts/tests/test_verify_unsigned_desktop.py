@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the actual unsigned lane and fail-closed privilege boundaries."""
 import importlib.util
+import os
 import pathlib
 import shutil
 import subprocess
@@ -82,6 +83,53 @@ class UnsignedDesktopTest(unittest.TestCase):
     def test_missing_workflow_is_an_error(self):
         with tempfile.TemporaryDirectory() as directory, self.assertRaises(OSError):
             unsigned.verify(pathlib.Path(directory))
+
+    def test_rejects_smoke_ioc_bypasses(self):
+        mutations = {
+            'missing gate': lambda jobs: jobs.pop('ioc'),
+            'missing dependency': lambda jobs: jobs['pr-smoke-build'].update(needs=['pr-paths-filter']),
+            'failed gate bypass': lambda jobs: jobs['pr-smoke-build'].update({'if': 'always()'}),
+            'ignored scan failure': lambda jobs: jobs['ioc'].update({'continue-on-error': 'true'}),
+            'conditional scan': lambda jobs: jobs['ioc'].update({'if': 'false'}),
+            'untrusted scanner': lambda jobs: jobs['ioc'].update(uses='other/repo/.github/workflows/ioc.yml@main'),
+            'aggregate bypass': lambda jobs: jobs['pr-smoke-result'].update(needs=['pr-paths-filter', 'pr-smoke-build']),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                shutil.copytree(ROOT / '.github/workflows', root / '.github/workflows')
+                path = root / '.github/workflows/desktop-pr-smoke.yml'
+                workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+                mutate(workflow['jobs'])
+                path.write_text(yaml.safe_dump(workflow))
+                with self.assertRaises(ValueError):
+                    unsigned.verify(root)
+
+    def test_smoke_aggregate_fails_closed_on_ioc_and_preserves_path_filter(self):
+        workflow = yaml.load((ROOT / '.github/workflows/desktop-pr-smoke.yml').read_text(), Loader=yaml.BaseLoader)
+        job = workflow['jobs']['pr-smoke-result']
+        self.assertEqual(job['if'], "${{ github.event_name == 'pull_request' && always() }}")
+        step = next(step for step in job['steps'] if step.get('name') == 'Aggregate result')
+        self.assertEqual(step['env']['IOC_RESULT'], '${{ needs.ioc.result }}')
+        cases = [
+            ('success', 'success', 'true', 'success', True),
+            ('success', 'success', 'false', 'skipped', True),
+            ('success', 'failure', '', 'skipped', False),
+            ('success', 'success', 'true', 'skipped', False),
+            ('success', 'success', 'true', 'failure', False),
+        ]
+        for ioc in ['failure', 'cancelled', 'skipped', '']:
+            for paths in ['true', 'false']:
+                cases.append((ioc, 'success', paths, 'skipped', False))
+        for ioc, filtered, paths, built, success in cases:
+            with self.subTest(ioc=ioc, filtered=filtered, paths=paths, built=built):
+                result = subprocess.run(
+                    ['bash', '-e', '-o', 'pipefail', '-c', step['run']],
+                    env={**os.environ, 'IOC_RESULT': ioc, 'PATHS_FILTER_RESULT': filtered,
+                         'DESKTOP_SHELL': paths, 'SMOKE_BUILD_RESULT': built},
+                    capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(result.returncode == 0, success, result.stdout + result.stderr)
 
 
 if __name__ == '__main__':
