@@ -1,0 +1,14 @@
+# CodeQL Advanced config — consumed by .github/workflows/codeql.yml
+name: "Concord CodeQL config"
+
+# Exclude the vendored Claude Design mobile-client prototype from CodeQL
+# analysis. It is browser-only mock code (never production, #204) and its
+# design runtime intentionally uses patterns CodeQL flags (e.g. a postMessage
+# handler with no explicit origin check → js/missing-origin-check). This
+# mirrors the prototypes/ excludes already applied to Semgrep (.semgrepignore)
+# and detect-secrets (.pre-commit-config.yaml); CodeQL honours its own config,
+# not .semgrepignore. Revisit/remove when the prototype is retired (#204).
+paths-ignore:
+  - prototypes
+
+# D: Go queries remain with Self-Hosted. Desktop analyzes JavaScript/TypeScript and Actions.

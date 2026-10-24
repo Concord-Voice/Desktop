@@ -1,0 +1,517 @@
+# INSTALL-ORDERING NOTE (ADR-0018 / #1472): the supply-chain IOC scan moved to
+# ioc-scanning.yml; the orchestrator (pr-ci.yml) runs it as the FIRST node and
+# this workflow is invoked with `needs: ioc`. build.yml is workflow_call-only,
+# so that single structural edge at the only call site replaces the five
+# per-job `needs: supply-chain-scan` edges that previously lived here. Do NOT
+# add an independent trigger to this file without re-establishing the gate.
+name: Build
+
+on:
+  # Direct triggers (`push: main` + `pull_request:`) removed in #919 §5.5 —
+  # this workflow is invoked via workflow_call from BOTH orchestrators:
+  # pr-ci.yml (pull_request) and main-ci.yml (push: main, restored in #1510).
+  # NOTE: no required_status_checks rule exists since #1373 — these job
+  # contexts are advisory until the #1380 Alpha repo-ruleset lands (see
+  # docs/policies/branch-protection.md "Required Status Checks").
+  # The post-merge run was reinstated by repo-admin decision (2026-06-14,
+  # #1510): #919 had dropped it as "wasted compute," but SonarCloud's
+  # main-branch analysis (dashboard / badges / issue list) rides on this
+  # suite's coverage and MUST run on every merge to stay current — that
+  # freshness outweighs the re-run cost. The workflow_call trigger landed via
+  # the precursor PR #923 (merge commit 2c3757d8).
+  workflow_call:
+    # Caller-precomputed dorny/paths-filter results (2026-07 CI deep-dive). When
+    # a caller passes these, build.yml skips its `changes` detection steps and
+    # uses the passed values — collapsing three duplicate detects (pr-ci's
+    # detect-changes + build's changes + unit-smoke's changes) into one union
+    # filter computed once in pr-ci.yml. The empty-string default is the "not
+    # provided" sentinel: main-ci.yml (push:main) and any standalone caller pass
+    # nothing, so `changes` runs its local checkout + paths-filter exactly as
+    # before. dorny/paths-filter only ever emits 'true'/'false', so '' is an
+    # unambiguous "compute locally" marker. Strings (not booleans) so the empty
+    # sentinel is expressible.
+    inputs:
+      desktop-changed:
+        description: "Precomputed 'desktop' filter result ('true'/'false'); '' = compute locally."
+        type: string
+        required: false
+        default: ''
+      control-plane-changed:
+        description: "Precomputed 'control-plane' filter result ('true'/'false'); '' = compute locally."
+        type: string
+        required: false
+        default: ''
+      media-plane-changed:
+        description: "Precomputed 'media-plane' filter result ('true'/'false'); '' = compute locally."
+        type: string
+        required: false
+        default: ''
+      media-plane-tests-changed:
+        description: "Precomputed 'media-plane-tests' filter result ('true'/'false'); '' = compute locally."
+        type: string
+        required: false
+        default: ''
+      admin-changed:
+        description: "Precomputed 'admin' filter result ('true'/'false'); '' = compute locally."
+        type: string
+        required: false
+        default: ''
+      production-docker-changed:
+        description: "Precomputed 'production-docker' filter result ('true'/'false'); '' = compute locally."
+        type: string
+        required: false
+        default: ''
+      force-coverage:
+        description: "Run all four existing coverage test producers for a protected full analysis"
+        type: boolean
+        required: false
+        default: false
+    # Per-suite coverage-upload flags consumed by sonarcloud.yml (ADR-0018 /
+    # #1473): job outputs only propagate from SUCCEEDED jobs (skipped -> empty),
+    # so each flag is exactly "this suite ran and uploaded its artifact".
+    # SONAR_TOKEN moved to sonarcloud.yml with the scan; CODECOV_TOKEN was a
+    # dead declaration (never consumed) and is removed.
+    outputs:
+      desktop-coverage:
+        description: "true when the merged desktop coverage artifact exists"
+        value: ${{ jobs.desktop-coverage-merge.outputs.uploaded }}
+      control-plane-coverage:
+        description: "true when the merged control-plane coverage artifact exists"
+        value: 'false'
+      media-plane-coverage:
+        description: "true when the media-plane coverage artifact exists"
+        value: 'false'
+      admin-coverage:
+        description: "true when the Admin Portal coverage artifact exists"
+        value: 'false'
+      concord-bridge-coverage:
+        description: "true when the concord-bridge coverage artifact exists"
+        value: ${{ jobs.concord-bridge.outputs.uploaded }}
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # ─── Detect which components changed ─────────────────────────────────
+  changes:
+    name: Detect changes
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    # Callers with precomputed filters skip only these detection steps. Keeping
+    # the job successful is the sentinel that lets SonarCloud run when every
+    # component suite is path-skipped; consumers read inputs before outputs.
+    outputs:
+      desktop: ${{ steps.filter.outputs.desktop }}
+      control-plane: ${{ steps.filter.outputs.control-plane }}
+      media-plane: ${{ steps.filter.outputs.media-plane }}
+      media-plane-tests: ${{ steps.filter.outputs.media-plane-tests }}
+      admin: ${{ steps.filter.outputs.admin }}
+      production-docker: ${{ steps.filter.outputs.production-docker }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ inputs.desktop-changed == '' }}
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # SHA-pinned per supply-chain hardening (#847). Upgrade procedure: resolve
+      # `gh api repos/dorny/paths-filter/git/refs/tags/vX.Y.Z`, replace SHA + comment.
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        if: ${{ inputs.desktop-changed == '' }}
+        id: filter
+        with:
+          filters: |
+            desktop:
+              - 'desktop/**'
+              - 'scripts/security/override-range-lint.mjs'
+              - '.github/workflows/build.yml'
+              # Re-runs the desktop suite so the Go/TS purpose parity test
+              # (stepUpPurpose.parity.test.ts) sees a Go-only rename (#3455).
+              - 'services/control-plane/internal/stepup/purpose.go'
+              # Re-runs the desktop suite so the authority-vectors tests
+              # (scripts/authority-vectors/*.test.ts) see a vectors-only or a
+              # generator-only change (#3587 PR-A1): on a PR, pr-ci.yml computes
+              # desktop-changed and build.yml's own filter does not run.
+              - 'services/control-plane/internal/authoritycontract/testdata/vectors.json'
+              - 'scripts/authority-vectors/**'
+            control-plane:
+              - 'services/control-plane/**'
+              - 'scripts/test-tools/nats-server.sh'
+            media-plane:
+              - 'services/media-plane/**'
+            # Gates the media-plane TEST job only, never its Docker build. The
+            # camera layer-policy parity suite lives in the media-plane test tree
+            # but imports the DESKTOP copy of the ladder, so a desktop-only change
+            # to that file must run the one test pinning the two implementations
+            # in agreement (Codex, #3277). The audio-policy parity suite (#2153)
+            # imports the desktop audio tier ladder and FEC headroom cap for the
+            # same reason: drift there makes the policer pause stock clients.
+            #
+            # Kept separate from `media-plane` deliberately: that flag also gates
+            # `media-plane-docker-warm`, a 4-vCPU cache-warm build whose context is
+            # `services/media-plane` and which has no business running for a file
+            # outside it. One flag cannot answer both questions (Codex, #3277).
+            # crossWorkspaceImports.test.ts fails if this list drifts from the
+            # imports it must cover.
+            media-plane-tests:
+              - 'services/media-plane/**'
+              - 'scripts/test-tools/nats-server.sh'
+              # Shared wire fixtures are exercised by the media-plane decoder.
+              - 'services/control-plane/internal/voicecommand/testdata/**'
+              - 'desktop/src/renderer/services/voice/remoteVideoLayerPolicy.ts'
+              - 'desktop/src/renderer/stores/voice/audioQualityTiers.ts'
+              - 'desktop/src/renderer/services/voice/fecHeadroom.ts'
+            admin:
+              - 'client/admin/**'
+              - 'scripts/security/override-range-lint.mjs'
+              - '.github/workflows/build.yml'
+            # Gate for production-compose-docker (Tier 2, ADR-0006; #1439
+            # consolidation). Mirrors the path list of the retired
+            # cache-cold-defense.yml: everything that can change a
+            # production-active image — service sources, Docker infra
+            # (incl. the node-buildtools base media-plane FROMs), both
+            # compose files, and this workflow itself. Keep aligned with
+            # the production `--profile services` build set.
+            production-docker:
+              - 'services/**'
+              - 'client/admin/**'
+              - 'infrastructure/docker/**'
+              - 'docker-compose.yml'
+              - 'docker-compose.production.yml'
+              - '.github/workflows/build.yml'
+
+  # ─── Desktop Client (TypeScript/React) ────────────────────────────────
+  desktop:
+    name: Desktop / Test + Coverage (shard ${{ matrix.shard }})
+    needs: [changes]
+    # IOC gating is structural at the orchestrator (`needs: ioc` on the
+    # build invocation in pr-ci.yml) — see the header note (ADR-0018).
+    if: >-
+      !failure() && !cancelled() &&
+      (inputs.force-coverage || format('{0}', inputs.desktop-changed) == 'true' || needs.changes.outputs.desktop == 'true' || github.event_name != 'pull_request')
+    # Codesmith's CPU profile projects p50 shard times of 4m17s/3m17s to
+    # 2m39s/2m08s on 8 vCPU, at about +$28/month combined (ADR-0005/0016).
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 25
+    strategy:
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Supply-chain post-install tripwire
+        working-directory: ${{ github.workspace }}
+        run: scripts/security/scan-supply-chain-iocs.sh --include-node-modules --working-tree-only
+
+      - name: Verify installed Undici floors
+        working-directory: desktop
+        run: node ../scripts/security/override-range-lint.mjs --dir . --verify-installed-versions --minimum-version undici=6.28.1 --minimum-version undici=7.29.1 --minimum-version undici=8.10.2
+
+      - name: Run tests with coverage (shard ${{ matrix.shard }}/2)
+        working-directory: desktop
+        env:
+          NODE_OPTIONS: '--max-old-space-size=4096'
+          SHARD_INDEX: ${{ matrix.shard }}
+        run: npm run test:coverage -- "--shard=${SHARD_INDEX}/2"
+
+      - name: Format check
+        # Shard-guarded because formatting is tree-wide: `npm run format:check`
+        # globs all of src/, so one shard covers the package and a second run
+        # would be pure duplicate cost. Same pattern as Build and the audit
+        # gate below.
+        #
+        # This gate exists because the pre-commit prettier hook forwards
+        # pre-commit's changed-file arguments, so it only ever sees files a
+        # commit touches. Files that drift while untouched were checked by
+        # nothing, which is how three src/main files reached main unformatted.
+        if: matrix.shard == 1
+        working-directory: desktop
+        run: npm run format:check
+
+      - name: Build
+        if: matrix.shard == 1
+        working-directory: desktop
+        run: npm run build
+
+      - name: Dependency audit (allowlist-aware HIGH/CRITICAL gate)
+        if: matrix.shard == 1
+        working-directory: desktop
+        # Allowlist-aware replacement for bare `npm audit --audit-level=high`.
+        # A bare audit gate is time-brittle: it queries the live advisory DB at
+        # run time, so a newly-published HIGH advisory red-gates every PR with
+        # zero code change (incl. fix-less advisories authors cannot resolve).
+        # The gate fails only on un-accepted HIGH/CRITICAL advisories; tracked
+        # exceptions live in .audit-allowlist.json. See
+        # internal-reference "npm-audit gate".
+        run: bash "${GITHUB_WORKSPACE}/scripts/security/npm-audit-gate.sh" --allowlist .audit-allowlist.json
+
+      - name: Upload coverage (shard ${{ matrix.shard }})
+        # always() is load-bearing: upload partial coverage even when the
+        # test shard exited non-zero so the merge job downstream has data
+        # to compute coverage delta on test failures (otherwise SonarQube
+        # would see "no coverage" and gate on that instead of the failure).
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-coverage-shard-${{ matrix.shard }}
+          path: desktop/coverage/lcov.info
+          retention-days: 1
+
+  # ─── Electron host probe (ADR-0043 / #3195) ─────────────────────────
+  #
+  # PLACEMENT IS THE POINT, so do not "tidy" this into native-audiocap.yml.
+  # That workflow is NOT merge-gating -- the ruleset names only `Gitar` and
+  # `SonarCloud Code Analysis`. But pr-ci.yml wires `sonar: needs: [build]`, so a
+  # failed job in THIS file fails `build`, `sonar` never runs, and the required
+  # context never reports: the PR cannot merge. Moved out of here, the most
+  # load-bearing new assertion in #3195 becomes one a red run can be merged past.
+  #
+  # WHAT IT PROVES THAT NOTHING ELSE CAN. native-audiocap.yml's load step runs
+  # `node -e "require('./native/concord-audiocap')"` under PLAIN NODE, where the
+  # addon's D5 guard is gated on `process.versions.electron` and is therefore
+  # INERT. CI's only execution of the addon exercises the one branch a packaged
+  # build never takes, which makes every "no addon in main or the renderer" claim
+  # proven there vacuous. This job runs a minimal main-only Electron app -- no
+  # BrowserWindow, so no display server -- where the guard is live.
+  #
+  # LINUX RUNS ONE ASSERTION, AND THAT IS NOT A GAP TO FIX BY WIDENING ANYTHING.
+  # `resolveNativeAddonPath` supports only darwin and win32
+  # (desktop/src/main/nativeAddonPath.ts), so on Linux the host returns
+  # `unsupported-os` and never forks -- the fork-dependent assertions are
+  # structurally unreachable. A1 is the assertion that cannot be made anywhere
+  # else and it runs here; A2-A6 need a darwin or win32 runner, which build.yml
+  # does not currently have. The probe SKIPS them explicitly and says so in its
+  # output rather than passing silently. See #3195 for the follow-up.
+  electron-host-probe:
+    name: Desktop / Electron host probe (audiocap D5 guard)
+    needs: [changes]
+    if: >-
+      !failure() && !cancelled() &&
+      (format('{0}', inputs.desktop-changed) == 'true' || needs.changes.outputs.desktop == 'true' || github.event_name != 'pull_request')
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Supply-chain post-install tripwire
+        working-directory: ${{ github.workspace }}
+        run: scripts/security/scan-supply-chain-iocs.sh --include-node-modules --working-tree-only
+
+      # The probe imports the COMPILED host from dist/main, so the main leg must
+      # exist. Building only that leg keeps this job independent of the renderer
+      # build's cost.
+      - name: Build the main process
+        working-directory: desktop
+        run: npm run build:main
+
+      - name: Run the Electron host probe
+        working-directory: desktop
+        # `--ozone-platform=headless` IS REQUIRED, and the reasoning that said
+        # otherwise is worth keeping so it is not re-derived. This step first
+        # shipped with the comment "xvfb-run is NOT needed: the probe creates no
+        # BrowserWindow", which is true and irrelevant: Electron initializes its
+        # Ozone/Aura platform layer during app startup on Linux, BEFORE any window
+        # exists, so a windowless app still aborts with
+        #   ERROR:ozone_platform_x11.cc  Missing X server or $DISPLAY
+        #   ERROR:env.cc                 The platform failed to initialize. Exiting.
+        # and the process dies on SIGTRAP with no probe output at all.
+        #
+        # The claim was verified on darwin, which has no X11 path whatsoever, so
+        # the failure mode was structurally invisible to the local run that
+        # "proved" it. Headless Ozone does not weaken A1: the assertion reads
+        # `process.type` and `process.versions.electron`, neither of which the
+        # display platform touches.
+        #
+        # A renderer-dependent assertion (the AudioData offset and transfer checks)
+        # would need a REAL display and a darwin/win32 runner -- headless Ozone is
+        # not a substitute for either. Add both together.
+        run: ./node_modules/.bin/electron --ozone-platform=headless scripts/audiocap-host-probe
+
+  # ─── Desktop Coverage Merge ─────────────────────────────────────────
+  desktop-coverage-merge:
+    name: Desktop / Merge Coverage
+    needs: desktop
+    # Static-literal output: only propagates when the job SUCCEEDS (failed
+    # jobs drop outputs; skipped jobs yield empty) — consumed by the
+    # workflow_call coverage flags for sonarcloud.yml (ADR-0018 / #1473).
+    # Relies on the test step failing the job: do NOT add
+    # continue-on-error to the test run, or 'uploaded' would propagate
+    # from a failing-test run.
+    outputs:
+      uploaded: 'true'
+    # always() is load-bearing: GitHub's default "skip dependent jobs on
+    # upstream cancel/skip" would prevent the merge job from re-evaluating
+    # when matrix shards finish at different times. The explicit
+    # `needs.desktop.result == 'success'` re-enforces the success gate
+    # that always() relaxed — both clauses are required (the #906/#910
+    # cascade was caused by missing the second half of this pattern).
+    if: always() && needs.desktop.result == 'success'
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    steps:
+      - name: Download shard 1 coverage
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-coverage-shard-1
+          path: coverage/shard-1
+
+      - name: Download shard 2 coverage
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-coverage-shard-2
+          path: coverage/shard-2
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
+      - name: Merge coverage reports
+        run: npx --yes lcov-result-merger@5.0.1 'coverage/shard-*/lcov.info' coverage/lcov.info
+
+      - name: Upload merged coverage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-coverage
+          path: coverage/lcov.info
+          retention-days: 1
+
+  # ─── Control Plane (Go) — sharded across 2 runners ───────────────────
+  # The Go suite runs `go test -race -p 2` with one cloned database per package.
+  # Packages observing fixed NATS subjects are serialized against each other.
+  # The former shared-DB run used -p 1 and was the
+  # slowest PR job (p50 ~434s test step). It is split across two matrix shards
+  # (2026-07 CI deep-dive), each on its OWN isolated Postgres+Redis (matrix
+  # creates independent job instances with their own service containers), to
+  # roughly halve wall time / PR feedback latency. Within each shard, the
+  # wrapper clones a migrated template for every test binary, so the fixture's
+  # truncate and advisory lock cannot cross package boundaries. Packages are
+  # partitioned by a deterministic, time-balanced LPT split
+  # (services/control-plane/scripts/ci-shard-packages.sh) driven by the live
+  # `go list ./...`, guaranteeing every package is tested on exactly one shard —
+  # coverage parity with the unsharded `./...` is preserved and merged below.
+  # Cost note: sharding duplicates fixed per-job overhead + adds a merge job, so
+  # billing cost is ~neutral-to-slightly-up; the win is wall time (the user's
+  # explicit speed-over-cost choice for this job).
+  # D: server, deployment and admin code belongs to Self-Hosted / Hosted. Removed control-plane.
+  # D: server, deployment and admin code belongs to Self-Hosted / Hosted. Removed control-plane-coverage-merge.
+  # D: server, deployment and admin code belongs to Self-Hosted / Hosted. Removed media-plane.
+  concord-bridge:
+    name: Concord Bridge / Test + Coverage
+    # Not in the force-coverage set (that input selects the four product
+    # suites). `uploaded` is 'true' only when the upload ran and found lcov;
+    # consumers also stop on a failed build. Reads nothing from `changes`.
+    outputs:
+      uploaded: ${{ steps.upload.outcome == 'success' && 'true' || 'false' }}
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    steps:
+      # On pull_request paths-filter lists changed files through the API and
+      # needs no checkout. Every other event runs the suite unconditionally.
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        if: ${{ github.event_name == 'pull_request' }}
+        id: filter
+        with:
+          filters: |
+            concord-bridge:
+              - 'tools/concord-bridge/**'
+              - '.github/workflows/build.yml'
+
+      - name: Decide whether to run
+        id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          CHANGED: ${{ steps.filter.outputs.concord-bridge }}
+        run: |
+          if [[ "$EVENT_NAME" != pull_request || "$CHANGED" == true ]]; then
+            echo 'run=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'run=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ steps.gate.outputs.run == 'true' }}
+        with:
+          persist-credentials: false
+
+      # The workflow can land before the package does (companion-PR order), and
+      # push/nightly runs are not path-filtered, so a missing package is a skip.
+      - name: Check package is present
+        if: ${{ steps.gate.outputs.run == 'true' }}
+        id: present
+        run: |
+          if [[ -f tools/concord-bridge/package-lock.json ]]; then
+            echo 'ok=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ok=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: ${{ steps.present.outputs.ok == 'true' }}
+        with:
+          node-version: 24
+          cache: 'npm'
+          cache-dependency-path: tools/concord-bridge/package-lock.json
+
+      - name: Install dependencies
+        if: ${{ steps.present.outputs.ok == 'true' }}
+        working-directory: tools/concord-bridge
+        # No dependency needs a lifecycle script, so none runs before the tripwire.
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Supply-chain post-install tripwire
+        if: ${{ steps.present.outputs.ok == 'true' }}
+        working-directory: ${{ github.workspace }}
+        run: scripts/security/scan-supply-chain-iocs.sh --include-node-modules --working-tree-only
+
+      - name: Typecheck and build
+        if: ${{ steps.present.outputs.ok == 'true' }}
+        working-directory: tools/concord-bridge
+        run: npm run typecheck && npm run build
+
+      - name: Run tests with coverage
+        if: ${{ steps.present.outputs.ok == 'true' }}
+        working-directory: tools/concord-bridge
+        run: npm exec --no -- vitest run --coverage
+
+      - name: Upload coverage
+        # always() is load-bearing, as in the media-plane job: upload partial
+        # coverage even when vitest failed. The failed test step still fails
+        # the job, so `uploaded` never propagates from a failing run.
+        if: ${{ always() && steps.present.outputs.ok == 'true' }}
+        id: upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: concord-bridge-coverage
+          path: tools/concord-bridge/coverage/lcov.info
+          if-no-files-found: error
+          retention-days: 1
+
+  # ─── Admin Portal (React/TypeScript) ────────────────────────────────
+  # D: server, deployment and admin code belongs to Self-Hosted / Hosted. Removed admin.
+  # D: server, deployment and admin code belongs to Self-Hosted / Hosted. Removed media-plane-docker-warm.
+  # D: server, deployment and admin code belongs to Self-Hosted / Hosted. Removed production-compose-docker.

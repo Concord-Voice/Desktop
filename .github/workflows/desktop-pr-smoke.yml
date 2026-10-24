@@ -1,0 +1,446 @@
+name: Desktop PR Smoke
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# Unsigned PR validation has read-only repository access.
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Dependency installation and packaging must wait for the IOC verdict.
+  ioc:
+    uses: ./.github/workflows/ioc-scanning.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
+  # ─── Job: Detect whether PR touches desktop-shell paths ───────────────
+  # Runs only on pull_request events. Emits the `desktop-shell` boolean
+  # consumed by `pr-smoke-build` and `pr-smoke-result` jobs. The
+  # `filters:` block below is the canonical path list — the workflow's
+  # top-level pull_request trigger has no paths filter. (#829)
+  pr-paths-filter:
+    name: Detect desktop-shell changes (PR)
+    if: github.event_name == 'pull_request'
+    # ADR-0013 §2 / ADR-0005 §3: ADR-0016 measured sub-minute parity;
+    # 2-vCPU Blacksmith is the half-cost tier for detect/verify work.
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    # Per-job permission grant: dorny/paths-filter calls
+    # GET /repos/{owner}/{repo}/pulls/{n}/files on PR events. The default
+    # workflow-level grant of contents: read is preserved; pull-requests:
+    # read is added narrowly here. (#829)
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      desktop-shell: ${{ steps.filter.outputs.desktop-shell }}
+    steps:
+      # dorny/paths-filter on pull_request events uses the GitHub API
+      # (listFiles) by default, not git diff, so a shallow checkout is
+      # sufficient. `persist-credentials: false` prevents this untrusted PR
+      # workflow from retaining the checkout token in its local Git config.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # SHA-pinned per supply-chain hardening (#847). Same SHA as
+      # build.yml's invocation. Upgrade procedure: see
+      # `internal-reference`.
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          filters: |
+            desktop-shell:
+              - 'desktop/forge.config.ts'
+              - 'desktop/build/makerDmg.ts'
+              - 'desktop/package.json'
+              - 'desktop/package-lock.json'
+              - 'desktop/tsconfig.main.json'
+              - 'desktop/tsconfig.preload.json'
+              - 'desktop/vite.config.ts'
+              - 'desktop/src/main/**'
+              - 'desktop/src/preload/**'
+              - 'desktop/native/**'
+              - 'desktop/scripts/build-native.mjs'
+              - 'desktop/scripts/build-preload.mjs'
+              - 'desktop/scripts/patch-electron-plist.sh'
+              - 'desktop/scripts/patch-rpm-sandbox-spec.mjs'
+              - 'desktop/scripts/verify-asar-payload.sh'
+              - 'desktop/scripts/verify-dmg-artifact.sh'
+              - 'desktop/scripts/verify-packaged-app.mts'
+              - 'desktop/scripts/verify-packaged-app.lib.mts'
+              - 'desktop/scripts/verify-windows-signature.ps1'
+              - '.github/scripts/tests/verify-dmg-artifact.test.sh'
+              - '.github/workflows/build-desktop.yml'
+              - '.github/workflows/desktop-pr-smoke.yml'
+
+  # ─── Job: Fixed unsigned PR smoke build ───────────────────────────────
+  pr-smoke-build:
+    name: PR smoke build (macos-arm64)
+    needs: [pr-paths-filter, ioc]
+    if: github.event_name == 'pull_request' && needs.ioc.result == 'success' && needs.pr-paths-filter.outputs.desktop-shell == 'true'
+    permissions:
+      contents: read
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.20.0
+          # `cache: 'npm'` deliberately omitted — see the restore-only step
+          # below. setup-node's built-in cache always SAVES as well, and this
+          # is the only macOS job in the repo, so it runs GitHub-hosted and its
+          # entries land in GitHub's 10 GB store rather than Blacksmith's.
+          #
+          # package-manager-cache: false is NOT redundant with that omission.
+          # setup-node v7 added this input defaulting to TRUE: with `cache:`
+          # empty it falls back to reading a ROOT package.json's
+          # `packageManager` / `devEngines.packageManager` field and, on an npm
+          # match, silently re-enables both restore AND save. That fallback is
+          # inert today only because this repo has no root package.json — an
+          # accident of layout, not a decision. Without this line, the day
+          # anyone adds one, this job resumes writing PR-scoped entries and
+          # recreates the 8.41 GB churn removed here, with no diff to any
+          # workflow file to explain it.
+          package-manager-cache: false
+          # Retained with no `cache:` — a documented no-op (verified against
+          # the pinned action source: the input is read but only ever passed
+          # into restoreCache, and no warning is emitted). Kept because it
+          # documents exactly what the manual restore below hashes.
+          cache-dependency-path: desktop/package-lock.json
+
+      # Restore-only. Measured 2026-08-22: 53 `node-cache-macOS-arm64-npm-*`
+      # entries held 8.41 GB of a 9.75 GB store (86%), every one scoped to
+      # refs/pull/N/merge — GitHub scopes a cache created on a PR ref to that
+      # PR alone, so each was dead the moment its PR merged while still
+      # occupying quota until LRU eviction, pushing out the shared
+      # base-branch caches that ARE reusable. One PR (#2786) held eight.
+      # Restoring without saving keeps the warm path and stops the writes.
+      #
+      # Where the restore now HITS from, because it is not obvious: this job no
+      # longer writes the keyspace, so its only writer is release-build's macOS
+      # leg below, which still carries setup-node's `cache: 'npm'`. That job
+      # runs on workflow_dispatch at ref=main, so its entry is main-scoped —
+      # and a default-branch cache is readable from every branch, which makes
+      # one entry serve every PR instead of each PR serving only itself.
+      #
+      # Measured 2026-08-22, release-build succeeds ~8x/month (23 dispatches in
+      # 90 days; most recent 2026-08-20), so that entry refreshes every few
+      # days. Today ZERO node-cache-macOS-* entries are main-scoped: the 53
+      # PR-scoped ones fill the store and LRU-evict them, which is the cascade
+      # this change stops. So expect a short transition — until the next
+      # release build lands an entry that now survives, this restore misses and
+      # `npm ci` runs cold (~13 job runs/month, ~$1-1.60 total). After that the
+      # hit rate should be BETTER than the PR-scoped cache it replaces.
+      - name: Restore npm cache (restore-only)
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.npm
+          # `macOS-arm64` is hardcoded where setup-node computes it from
+          # RUNNER_OS + os.arch(). That is what makes the key match the writer
+          # today, but it means an arch change on `macos-latest` would make
+          # this restore permanently and SILENTLY cold — a miss looks the same
+          # as a cold start. Re-check this literal whenever the runner label
+          # or image changes.
+          key: node-cache-macOS-arm64-npm-${{ hashFiles('desktop/package-lock.json') }}
+          restore-keys: |
+            node-cache-macOS-arm64-npm-
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Configure build environment
+        working-directory: desktop
+        shell: bash
+        env:
+          GITHUB_RUN_ID: ${{ github.run_id }}
+        run: |
+          {
+            echo "VITE_SERVER_HOST=api.concordvoice.chat"
+            echo "VITE_API_PORT=443"
+            echo "VITE_USE_TLS=true"
+            echo "VITE_ENVIRONMENT=production"
+            echo "VITE_ENABLE_E2EE=true"
+            echo "VITE_ENABLE_VOICE=true"
+            echo "VITE_ENABLE_VIDEO=true"
+            echo "CONCORD_BUILD_TAG=pr-smoke-${GITHUB_RUN_ID}"
+          } > .env
+          cat .env
+
+      - name: Generate app-update.yml for electron-updater
+        working-directory: desktop
+        shell: bash
+        run: |
+          npx tsx scripts/generate-app-update.mts > app-update.yml
+          echo "Generated app-update.yml:"
+          cat app-update.yml
+
+      - name: Build application
+        working-directory: desktop
+        env:
+          NODE_ENV: production
+        run: npm run build
+
+      - name: Generate buildtag.json for forensic observability (#920 §5.13)
+        working-directory: desktop
+        shell: bash
+        run: npm run build:buildtag
+
+      - name: Generate googleClientSecret.json (#975)
+        working-directory: desktop
+        shell: bash
+        run: npm run build:gclientsecret
+
+      - name: Build the native addon (win32/darwin only)
+        if: runner.os != 'Linux'
+        working-directory: desktop
+        run: npm run build:native
+
+      - name: Package with Electron Forge (macOS, retry on hdiutil-detach DMG flake)
+        working-directory: desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          attempt=1
+          max=3
+          until npx electron-forge make --platform=darwin --arch=arm64; do
+            if [ "$attempt" -ge "$max" ]; then
+              echo "::error::electron-forge make failed after ${max} attempts (macOS)."
+              exit 1
+            fi
+            echo "::warning::electron-forge make failed (attempt ${attempt}/${max}) — likely the hdiutil-detach DMG race (#1893); cleaning stale mounts and retrying."
+            for vol in /Volumes/Concord*; do
+              if [ -d "$vol" ]; then
+                hdiutil detach -force "$vol" 2>/dev/null || true
+              fi
+            done
+            rm -f out/make/*.dmg 2>/dev/null || true
+            attempt=$((attempt + 1))
+            sleep 5
+          done
+
+      - name: Verify generated DMG layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          DMG_FILES=()
+          while IFS= read -r dmg; do
+            DMG_FILES+=("$dmg")
+          done < <(find desktop/out/make -type f -name '*.dmg' | sort)
+          bash .github/scripts/tests/verify-dmg-artifact.test.sh ${DMG_FILES[@]+"${DMG_FILES[@]}"}
+
+      - name: Verify asar integrity and preload bundle
+        working-directory: desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASAR_MATCHES=$(find out -name 'app.asar' -not -path '*/node_modules/*')
+          ASAR_COUNT=$(echo "$ASAR_MATCHES" | grep -c .)
+          if [ "$ASAR_COUNT" -ne 1 ]; then
+            echo "::error::Expected exactly 1 app.asar under desktop/out, found $ASAR_COUNT:"
+            echo "$ASAR_MATCHES"
+            exit 1
+          fi
+          ASAR=$(echo "$ASAR_MATCHES" | head -1)
+          ASAR="$(cd "$(dirname "$ASAR")" && pwd)/$(basename "$ASAR")"
+          ASAR_BIN="$(pwd)/node_modules/.bin/asar"
+          echo "Inspecting: $ASAR"
+
+          # ── Assert the native addon reached <Resources>/ (ADR-0043 PR 5, #3194) ──
+          # extraResource lands concord_audiocap.node in the SAME directory as
+          # app.asar on every platform, so this needs no platform path branching.
+          #
+          # This is the produced-artifact half of the boundary. Without it the two
+          # halves of the #3194 route are verified asymmetrically: the checks below
+          # prove the LOADER shipped inside the archive, and NOTHING proved the
+          # BINARY it loads reached the package. The extraResource push is guarded
+          # by existsSync in forge.config.ts, so a false guard, a deleted
+          # extraResource entry, or a Forge behaviour change would ship the loader,
+          # keep every asar assertion green, and leave the addon absent — the
+          # failure surfacing only at runtime once #3195 builds the production host.
+          #
+          # Config-level unit tests cannot stand in for this, for the same reason
+          # the ignore array is asserted on the produced archive rather than on its
+          # regexes (internal-reference § app.asar payload boundary).
+          #
+          # Linux is exempt BY DESIGN, not by omission: ADR-0043 puts PipeWire out
+          # of scope, the addon is not built there, and forge.config.ts correctly
+          # pushes nothing. Asserting it there would red every Linux release leg.
+          if [ "$RUNNER_OS" != "Linux" ]; then
+            ADDON="$(dirname "$ASAR")/concord_audiocap.node"
+            # -f AND -L AND -s, not -s alone. `[ -s ]` is "exists and size > 0" and is
+            # TRUE for a DIRECTORY — which is exactly the object the #3194 red-team pass
+            # turned into code execution, because require() resolves a directory named
+            # concord_audiocap.node as a CommonJS package and runs index.js inside it.
+            # An assertion that green-lights the exploit object is not an assertion.
+            # `-f` alone still admits a symlink to a regular file, so reject links too.
+            if [ ! -f "$ADDON" ] || [ -L "$ADDON" ] || [ ! -s "$ADDON" ]; then
+              echo "::error::concord_audiocap.node is missing, empty, a symlink, or not a regular file in <Resources>/ ($ADDON). packagerConfig.extraResource did not deliver a real addon, so a packaged build cannot dlopen it (#3194)."
+              ls -la "$(dirname "$ASAR")" || true
+              exit 1
+            fi
+            echo "  OK: concord_audiocap.node in Resources ($(wc -c < "$ADDON" | tr -d ' ') bytes)"
+          fi
+
+          PROBE_DIR=$(mktemp -d)
+          trap 'rm -rf "$PROBE_DIR"' EXIT
+          REQUIRED_FILES=(
+            "dist/preload/preload.js"
+            "dist/main/main.js"
+            "dist/renderer/index.html"
+          )
+          MISSING=0
+          for f in "${REQUIRED_FILES[@]}"; do
+            OUT="$PROBE_DIR/$(basename "$f")"
+            if (cd "$PROBE_DIR" && "$ASAR_BIN" extract-file "$ASAR" "$f") >/dev/null 2>&1 && [[ -s "$OUT" ]]; then
+              BYTE_COUNT=$(wc -c < "$OUT" | tr -d ' ')
+              echo "  OK: $f ($BYTE_COUNT bytes)"
+            else
+              echo "::error::Missing from asar: $f"
+              MISSING=$((MISSING + 1))
+            fi
+          done
+          if [[ $MISSING -gt 0 ]]; then
+            echo "--- Diagnostic: first 20 entries in asar ---"
+            "$ASAR_BIN" list "$ASAR" 2>/dev/null | head -20 || true
+            echo "::error::$MISSING required file(s) missing from asar"
+            exit 1
+          fi
+
+          PRELOAD="$PROBE_DIR/preload.js"
+          if [[ ! -s "$PRELOAD" ]]; then
+            echo "::error::preload.js not available for sandbox-safety checks"
+            exit 1
+          fi
+          tr -d '\r' < "$PRELOAD" > "$PROBE_DIR/preload_normalized.js"
+          if grep -qE 'require\(["'"'"']\.\.' "$PROBE_DIR/preload_normalized.js"; then
+            echo "::error::Bundled preload.js contains relative require() calls — will fail in sandbox"
+            grep -nE 'require\(["'"'"']\.\.' "$PROBE_DIR/preload_normalized.js" | head -5
+            exit 1
+          fi
+          NON_ELECTRON=$(grep -oE 'require\(["'"'"'][^"'"'"']+["'"'"']\)' "$PROBE_DIR/preload_normalized.js" \
+            | grep -v 'require("electron")' \
+            | grep -v "require('electron')" || true)
+          if [[ -n "$NON_ELECTRON" ]]; then
+            echo "::error::Bundled preload.js has non-electron external requires:"
+            echo "$NON_ELECTRON"
+            exit 1
+          fi
+          if ! grep -q 'exposeInMainWorld' "$PROBE_DIR/preload_normalized.js"; then
+            echo "::error::Bundled preload.js is missing contextBridge.exposeInMainWorld call"
+            exit 1
+          fi
+          # Payload boundary (#3156) — asserted on the PRODUCED archive, because the
+          # unit tests in packagingIdentity.test.ts apply packagerConfig.ignore's
+          # regexes to synthetic paths and so prove only that the config holds a
+          # value, not that Forge honours it. Shared by this job and release-build:
+          # an inline copy in each drifted within a single PR. The script is also
+          # runnable locally against `npm run package` output.
+          # Invoked via `bash` rather than relying on the exec bit: this step also
+          # runs on release-build's two windows-latest legs, which no PR-CI job
+          # exercises, and an exec-bit surprise there would surface as a failed
+          # release rather than a red PR.
+          bash ./scripts/verify-asar-payload.sh "$ASAR_BIN" "$ASAR"
+
+          echo "::notice::Asar integrity, payload boundary and preload sandbox safety verified"
+
+      # Read back what the PRODUCED app carries. forge.config.ts proves what we asked for;
+      # FusesPlugin and @electron/packager's digest write both fail open, so only the artifact can
+      # say what shipped. The expected fuse values are derived from forge.config.ts inside the
+      # script, never copied here. Shared with release-build in build-desktop.yml: change the two
+      # together. Read-only, like the rest of this job: no secret, environment or upload.
+      - name: Verify packaged Electron fuses
+        working-directory: desktop
+        shell: bash
+        run: npx tsx scripts/verify-packaged-app.mts fuses --out out
+
+      # The packager only WARNS when it cannot write the digest, and Electron enforces nothing
+      # against an unwritten slot. This job is macOS-only, so the step has no platform guard; the
+      # script itself refuses to run anywhere else rather than pass.
+      - name: Verify asar integrity digest in Electron Framework
+        working-directory: desktop
+        shell: bash
+        run: npx tsx scripts/verify-packaged-app.mts asar-digest --out out
+
+  # `always()` is load-bearing: GHA propagates `skipped` from `needs:`
+  # jobs through to dependent jobs unless `always()` overrides. Without
+  # it, this job would skip when `pr-smoke-build` is skipped (renderer-only PR),
+  # leaving the required status check pending forever. (#829)
+  #
+  # Keep the event gate first. On workflow_dispatch, `always()` before the
+  # event check still instantiates this PR-only aggregate job after its
+  # skipped PR dependency resolves, and GitHub reports it as cancelled,
+  # which reds an otherwise successful forced release run.
+  pr-smoke-result:
+    name: PR smoke test result
+    needs: [pr-paths-filter, pr-smoke-build, ioc]
+    if: ${{ github.event_name == 'pull_request' && always() }}
+    permissions: {}
+    # ADR-0013 §2 / ADR-0005 §3: ADR-0016 measured sub-minute parity;
+    # 2-vCPU Blacksmith is the half-cost tier for detect/verify work.
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    steps:
+      - name: Aggregate result
+        shell: bash
+        env:
+          IOC_RESULT: ${{ needs.ioc.result }}
+          PATHS_FILTER_RESULT: ${{ needs.pr-paths-filter.result }}
+          DESKTOP_SHELL: ${{ needs.pr-paths-filter.outputs.desktop-shell }}
+          SMOKE_BUILD_RESULT: ${{ needs.pr-smoke-build.result }}
+        run: |
+          if [[ "${IOC_RESULT}" != "success" ]]; then
+            echo "::error::IOC scan did not complete successfully (status: ${IOC_RESULT}). Failing closed."
+            exit 1
+          fi
+          # Fail-closed if pr-paths-filter itself didn't run cleanly
+          # (e.g., GitHub API hiccup, cancelled mid-run). Without this
+          # guard, an empty desktop-shell output would silently skip the
+          # smoke test and emit a false success — the gate must fail
+          # closed. (#829, security-review L2)
+          case "${PATHS_FILTER_RESULT}" in
+            success) ;;  # proceed to the desktop-shell branch
+            *)
+              echo "::error::pr-paths-filter did not complete successfully (status: ${PATHS_FILTER_RESULT}). Failing closed."
+              exit 1
+              ;;
+          esac
+          if [[ "${DESKTOP_SHELL}" != "true" ]]; then
+            echo "::notice::No desktop-shell paths modified; skipping smoke test."
+            exit 0
+          fi
+          case "${SMOKE_BUILD_RESULT}" in
+            success)
+              echo "::notice::Desktop smoke test passed."
+              exit 0
+              ;;
+            failure)
+              echo "::error::Desktop smoke test failed (pr-smoke-build failed)."
+              exit 1
+              ;;
+            cancelled)
+              echo "::error::Desktop smoke test was cancelled."
+              exit 1
+              ;;
+            skipped)
+              echo "::error::Desktop smoke test was unexpectedly skipped (paths matched but pr-smoke-build did not run)."
+              exit 1
+              ;;
+            *)
+              echo "::error::Unexpected smoke build result: ${SMOKE_BUILD_RESULT}"
+              exit 1
+              ;;
+          esac

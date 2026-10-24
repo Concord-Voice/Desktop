@@ -1,0 +1,772 @@
+name: Build Desktop Client
+
+on:
+  # N: unsigned PR artifacts exercise the D1 packaging lane before merge.
+  pull_request:
+    branches: [main]
+    # C: signing and publication move to Hosted / Release-Ops in D2.
+  # This workflow only builds unsigned artifacts; the update feed is unchanged.
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: 'Force a release even if version unchanged'
+        required: false
+        type: boolean
+        default: false
+      expected_sha:
+        description: >-
+          Fail closed unless main HEAD equals this SHA. Set by the Main CI
+          dispatcher to bind the release to its gated commit; leave empty
+          for a manual release of current main HEAD.
+        required: false
+        type: string
+        default: ''
+
+# Default to least-privilege for the workflow. Each job that needs more
+# explicitly raises permissions in its own block. (#829, #847)
+permissions:
+  contents: read
+
+concurrency:
+  # N: unsigned PR builds must not share the smoke lane cancellation group.
+  group: desktop-unsigned-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # N: PR packaging executes repository dependencies, so the IOC gate must precede it.
+  ioc:
+    uses: ./.github/workflows/ioc-scanning.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
+  # ─── Job 1: Detect whether a release is needed ────────────────────────
+  detect-release:
+    name: Detect release
+    # Releases can only be cut through the main-ref workflow_dispatch path.
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    # ADR-0013 §2 / ADR-0005 §3: ADR-0016 measured sub-minute parity;
+    # 2-vCPU Blacksmith is the half-cost tier for detect/verify work.
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    outputs:
+      should_release: ${{ steps.check.outputs.should_release }}
+      version: ${{ steps.check.outputs.version }}
+      tag_name: ${{ steps.check.outputs.tag_name }}
+      is_prerelease: ${{ steps.check.outputs.is_prerelease }}
+      build_number: ${{ github.run_number }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Binds a Main CI dispatch to the exact commit its scan gates passed
+      # on: if main advanced between gate completion and this run starting,
+      # fail closed — the successor Main CI run re-dispatches after its own
+      # gates. Empty for manual dispatches (release current main HEAD).
+      # Exact-line contract enforced by lint-pr-release-trust.sh (#2274).
+      - name: Verify dispatched SHA binding
+        shell: bash
+        env:
+          BASH_ENV: /dev/null
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [[ -n "$EXPECTED_SHA" && "$actual" != "$EXPECTED_SHA" ]]; then
+            printf '::error::main advanced past the gated commit (expected %s, HEAD %s); the next Main CI run re-dispatches after its own gates.\n' "$EXPECTED_SHA" "$actual"
+            exit 1
+          fi
+
+      - name: Check version against tags
+        id: check
+        shell: bash
+        env:
+          FORCE_RELEASE: ${{ inputs.force_release }}
+          BUILD_EVENT: ${{ github.event_name }}
+        run: |
+          VERSION=$(node -p "JSON.parse(require('node:fs').readFileSync('./desktop/package.json', 'utf8')).version")
+          echo "Package version: ${VERSION}"
+
+          TAG_NAME="desktop-v${VERSION}"
+          echo "Expected tag: ${TAG_NAME}"
+
+          MAJOR=$(echo "$VERSION" | cut -d. -f1)
+          if [[ "$MAJOR" == "0" ]]; then
+            IS_PRERELEASE="true"
+          else
+            IS_PRERELEASE="false"
+          fi
+
+          if git rev-parse "refs/tags/${TAG_NAME}" >/dev/null 2>&1; then
+            echo "Tag ${TAG_NAME} already exists"
+            SHOULD_RELEASE="false"
+          else
+            echo "Tag ${TAG_NAME} does not exist — new release detected"
+            SHOULD_RELEASE="true"
+          fi
+
+          if [[ "$FORCE_RELEASE" == "true" || "$BUILD_EVENT" == "pull_request" ]]; then
+            echo "Force release requested"
+            SHOULD_RELEASE="true"
+          fi
+
+          {
+            echo "should_release=${SHOULD_RELEASE}"
+            echo "version=${VERSION}"
+            echo "tag_name=${TAG_NAME}"
+            echo "is_prerelease=${IS_PRERELEASE}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "::notice::Version=${VERSION} Tag=${TAG_NAME} Release=${SHOULD_RELEASE} PreRelease=${IS_PRERELEASE}"
+
+  # ─── Job 2: Build trusted release artifacts ───────────────────────────
+  release-build:
+    name: Build unsigned artifact (${{ matrix.label }})
+    needs: [detect-release, ioc]
+    if: >-
+      github.repository == 'Concord-Voice/Desktop' &&
+      (github.event_name == 'pull_request' ||
+       (github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch')) &&
+      needs.ioc.result == 'success' &&
+      needs.detect-release.result == 'success' &&
+      needs.detect-release.outputs.should_release == 'true'
+    # C: desktop-release credentials belong to Release-Ops.
+
+    permissions:
+      contents: read
+    # C: unsigned builds do not request OIDC credentials.
+
+    # C: release attestations belong to Release-Ops.
+ # #643: attest-build-provenance (dormant unless vars.ENABLE_BUILD_ATTESTATION == 'true')
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60 # #643: 60 already supersedes the 6h default; 45 rejected — app+DMG notarize can near 40-45m on slow Apple-notary days (ADR-0021 §2.2)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: windows-latest, platform: win32, arch: x64, label: windows-x64}
+          - {os: windows-latest, platform: win32, arch: arm64, label: windows-arm64}
+          - {os: macos-latest, platform: darwin, arch: arm64, label: macos-arm64}
+          - {os: macos-latest, platform: darwin, arch: x64, label: macos-x64}
+          - {os: ubuntu-latest, platform: linux, arch: x64, label: linux-x64}
+          - {os: ubuntu-latest, platform: linux, arch: arm64, label: linux-arm64}
+
+    steps:
+      - name: Checkout trusted commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact trusted HEAD
+        shell: bash
+        env:
+          BASH_ENV: /dev/null
+        run: |
+          actual="$(git rev-parse HEAD)"
+          if [[ "$actual" != "$GITHUB_SHA" ]]; then
+            printf 'expected=%s actual=%s\n' "$GITHUB_SHA" "$actual" >&2
+            exit 1
+          fi
+
+      # Pin Node to an EXPLICIT patch version (structural defense against the
+      # runner-image tool rollover that silently broke electron-forge make —
+      # #1258 / workflow-failure-patterns.md P17). Never use floating "24" here:
+      # the floating tag is exactly what let the macos-15-arm64 image roll pull
+      # Node 24.16.0, under which `npx electron-forge make` exits 0 in ~1 sec with
+      # empty target resolution and never produces out/, failing the downstream
+      # "Verify asar integrity and preload bundle" step.
+      #
+      # LOCKSTEP: scripts/cloud-setup.sh pins this same version (NODE_VERSION) and
+      # its sha256. Bumping here without bumping there leaves cloud sessions on a
+      # different Node major-patch than CI builds against — and, since that pin
+      # carries a checksum, a stale pair fails the install outright rather than
+      # diverging quietly.
+      #
+      # 2026-09-04 (daily security P4): the prior 24.18.0 predates the July
+      # 2026 Node security release (CVE-2026-56846 and CVE-2026-56848, HTTP/2).
+      # Bumped to the patched 24.20.0 (latest 24.x LTS). This is a TEST-GATED bump:
+      # 24.20.0 is newer than the Forge-breaking 24.16.0, so this PR's mac-arm64
+      # `pr-smoke-build` leg re-runs `electron-forge make` and IS the validation
+      # that Forge target resolution survives the patched Node. If that leg regressed
+      # to the empty-out/ failure, revert to 24.18.0 and re-track — the exposure is
+      # build-time-only (this Node runs CI packaging; Electron ships its own bundled
+      # runtime to users, so it is not a shipped-to-user CVE).
+      #
+      # Revisit this exact version on the next Node 24.x security release.
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.20.0
+          cache: 'npm'
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+
+      # Use the community-maintained Apple signing-cert import action instead
+      # of inline `security` commands. Earlier iterations of this workflow
+      # used inline commands but hit silent codesign hangs during Forge's
+      # native-dep signing pass (see issue #403 debugging history).
+      # The action handles keychain creation, partition-list configuration,
+      # default-keychain setup, and teardown correctly for headless runners.
+      # Pinned to a full commit SHA (not a floating tag) so a compromised
+      # maintainer cannot silently redirect the version we consume; bump the
+      # SHA via PR when upgrading.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+      - name: Configure build environment
+        working-directory: desktop
+        shell: bash
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          {
+            echo "VITE_SERVER_HOST=api.concordvoice.chat"
+            echo "VITE_API_PORT=443"
+            echo "VITE_USE_TLS=true"
+            echo "VITE_ENVIRONMENT=production"
+            echo "VITE_ENABLE_E2EE=true"
+            echo "VITE_ENABLE_VOICE=true"
+            echo "VITE_ENABLE_VIDEO=true"
+            echo "CONCORD_BUILD_TAG=unsigned-${GITHUB_SHA:0:8}"
+          } > .env
+          echo "::notice::UNSIGNED build → api.concordvoice.chat (TLS)"
+          # Forensic build tag — baked into the packaged app for
+          # incident-response identification (#920 §5.13, #939). Always
+          # uses the exact trusted commit prefix and remains main-process-only.
+          cat .env
+
+      - name: Generate app-update.yml for electron-updater
+        working-directory: desktop
+        shell: bash
+        run: |
+          # electron-updater requires app-update.yml in the app's Resources
+          # directory to know where to fetch updates from. This file is
+          # normally generated by electron-builder, but since we use
+          # electron-forge we generate it manually.
+          #
+          # The generator reads UPDATE_ENDPOINT_URL from
+          # src/constants/updateEndpoint.mts — single source of truth for
+          # the production update feed URL (#920 §5.5). Hand-editing the
+          # URL here would defeat the grep audit; change the constant
+          # instead. Unit tests for the generator + constant live at
+          # scripts/generate-app-update.test.ts.
+          npx tsx scripts/generate-app-update.mts > app-update.yml
+          echo "Generated app-update.yml:"
+          cat app-update.yml
+
+      - name: Build application
+        working-directory: desktop
+        env:
+          NODE_ENV: production
+        run: npm run build
+
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+      - name: Generate buildtag.json for forensic observability (#920 §5.13)
+        # Runs ONLY in the packaging workflow, BETWEEN `npm run build` (which
+        # no longer chains build:buildtag — see #920 §5.13 post-merge fixes
+        # 8bf4f316 + this step) AND the forge make step below. Generating in
+        # the test workflow's `npm run build` smoke would fail-loud because
+        # CONCORD_BUILD_TAG isn't set there; centralizing here makes the
+        # generation explicit and scoped to actual packaging.
+        working-directory: desktop
+        shell: bash
+        run: npm run build:buildtag
+
+      - name: Generate googleClientSecret.json (#975)
+        # Mirrors the buildtag step above: writes a main-process-only resource
+        # (forge extraResource), read by src/main/oauth/google/clientSecret.ts.
+        # The client_secret is a NON-confidential build constant per Google's
+        # native-app guidance (PKCE is the actual control); deliberately NOT
+        # VITE_-prefixed so it never reaches the renderer bundle. Absent secret
+        # => empty value => Google SSO inert in that build (not a hard failure).
+        working-directory: desktop
+        env:
+          GOOGLE_OAUTH_CLIENT_SECRET_DESKTOP: ''
+        shell: bash
+        run: npm run build:gclientsecret
+
+      # The arch reaches the next steps through the environment, not through a `${{ }}` template
+      # in the script text: Semgrep's protected scan cannot parse a template there, and any scanner
+      # error fails the required check (internal-reference P18). Each step
+      # keeps the shell it has always run in and reads the variable in that shell's own syntax, so
+      # there is one step per shell. The Windows steps say `shell: pwsh`, which is the Windows
+      # default, so that actionlint does not shellcheck their PowerShell as bash. Linux builds no
+      # native addon, so it has no step here.
+      - name: Build the native addon (darwin)
+        if: runner.os == 'macOS'
+        working-directory: desktop
+        env:
+          MATRIX_ARCH: ${{ matrix.arch }}
+        run: npm run build:native -- --arch="$MATRIX_ARCH"
+
+      - name: Build the native addon (win32)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        working-directory: desktop
+        env:
+          MATRIX_ARCH: ${{ matrix.arch }}
+        run: npm run build:native -- --arch=$env:MATRIX_ARCH
+
+      - name: Patch RPM sandbox spec metadata
+        if: matrix.platform == 'linux'
+        working-directory: desktop
+        shell: bash
+        run: node scripts/patch-rpm-sandbox-spec.mjs
+
+      # Split by platform. Windows and Linux keep the simple single-command form, each in its
+      # default shell (pwsh on Windows, bash on Linux) and each reading the arch from the
+      # environment, as the native addon steps above explain. macOS gets a bash
+      # retry around the SAME command. The retry and cleanup are retained
+      # unchanged from the retired @electron-forge/maker-dmg path's historical
+      # DMG-finalize failure on:
+      #   hdiutil detach /Volumes/Concord Voice -> No such file or directory
+      # (a race — the volume auto-unmounts before detach, tracked in #1893).
+      # The current local MakerDmg at desktop/build/makerDmg.ts uses
+      # app-builder-lib. The historical #1893 incident showed that an
+      # unhandled flake could gate off "Create release" and leave the desktop
+      # release uncut (observed stranding v0.2.9; recovered via force_release).
+      - name: Package with Electron Forge (Windows)
+        if: matrix.platform == 'win32'
+        shell: pwsh
+        working-directory: desktop
+        env:
+          MATRIX_ARCH: ${{ matrix.arch }}
+        run: npx electron-forge make --arch=$env:MATRIX_ARCH
+
+      - name: Package with Electron Forge (Linux)
+        if: matrix.platform == 'linux'
+        working-directory: desktop
+        env:
+          MATRIX_ARCH: ${{ matrix.arch }}
+        run: npx electron-forge make --arch="$MATRIX_ARCH"
+
+      - name: Package with Electron Forge (macOS, retry on hdiutil-detach DMG flake)
+        if: matrix.platform == 'darwin'
+        working-directory: desktop
+        shell: bash
+        env:
+          # Apple notarization — App Store Connect API key path (#825). APPLE_API_KEY
+          # is set in the prior darwin-only setup step via $GITHUB_ENV (PATH to the
+          # temp .p8). `osxSign: {}` autodiscovers the signing identity from the
+          # keychain; notarytool derives the team from the API key.
+          # The arch travels in the environment: a template inside the script text is a scanner
+          # error for Semgrep's protected scan (internal-reference P18).
+          MATRIX_ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          ARCH="$MATRIX_ARCH"
+          attempt=1
+          max=3
+          until npx electron-forge make --arch="$ARCH"; do
+            if [ "$attempt" -ge "$max" ]; then
+              echo "::error::electron-forge make failed after ${max} attempts (macOS)."
+              exit 1
+            fi
+            echo "::warning::electron-forge make failed (attempt ${attempt}/${max}) — likely the hdiutil-detach DMG race (#1893); cleaning stale mounts and retrying."
+            # Detach any lingering Concord volume so a half-mounted image can't
+            # poison the retry (best-effort; ignore if already gone).
+            for vol in /Volumes/Concord*; do
+              if [ -d "$vol" ]; then
+                hdiutil detach -force "$vol" 2>/dev/null || true
+              fi
+            done
+            # Drop partial DMG output so the maker starts clean.
+            rm -f out/make/*.dmg 2>/dev/null || true
+            attempt=$((attempt + 1))
+            sleep 5
+          done
+
+      - name: Verify asar integrity and preload bundle
+        working-directory: desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # ── Locate the packaged asar ──
+          # Count-assertion (not `head -1`): multi-match would indicate a
+          # Forge/asar build defect (e.g., a leftover asar from a prior
+          # leg) that `head -1` silently masked. Single `-ne 1` check
+          # covers both 0-match (no build output) and N>1-match (defect).
+          # (#920 §5.6)
+          ASAR_MATCHES=$(find out -name 'app.asar' -not -path '*/node_modules/*')
+          ASAR_COUNT=$(echo "$ASAR_MATCHES" | grep -c .)
+          if [ "$ASAR_COUNT" -ne 1 ]; then
+            echo "::error::Expected exactly 1 app.asar under desktop/out, found $ASAR_COUNT:"
+            echo "$ASAR_MATCHES"
+            exit 1
+          fi
+          ASAR=$(echo "$ASAR_MATCHES" | head -1)
+          # Absolute paths — the loop below cd's into a probe dir to extract
+          # files because `@electron/asar extract-file` silently ignores any
+          # dest arg and always writes to CWD using the in-archive basename.
+          ASAR="$(cd "$(dirname "$ASAR")" && pwd)/$(basename "$ASAR")"
+          ASAR_BIN="$(pwd)/node_modules/.bin/asar"
+          echo "Inspecting: $ASAR"
+
+          # ── Assert the native addon reached <Resources>/ (ADR-0043 PR 5, #3194) ──
+          # extraResource lands concord_audiocap.node in the SAME directory as
+          # app.asar on every platform, so this needs no platform path branching.
+          #
+          # This is the produced-artifact half of the boundary. Without it the two
+          # halves of the #3194 route are verified asymmetrically: the checks below
+          # prove the LOADER shipped inside the archive, and NOTHING proved the
+          # BINARY it loads reached the package. The extraResource push is guarded
+          # by existsSync in forge.config.ts, so a false guard, a deleted
+          # extraResource entry, or a Forge behaviour change would ship the loader,
+          # keep every asar assertion green, and leave the addon absent — the
+          # failure surfacing only at runtime once #3195 builds the production host.
+          #
+          # Config-level unit tests cannot stand in for this, for the same reason
+          # the ignore array is asserted on the produced archive rather than on its
+          # regexes (internal-reference § app.asar payload boundary).
+          #
+          # Linux is exempt BY DESIGN, not by omission: ADR-0043 puts PipeWire out
+          # of scope, the addon is not built there, and forge.config.ts correctly
+          # pushes nothing. Asserting it there would red every Linux release leg.
+          if [ "$RUNNER_OS" != "Linux" ]; then
+            ADDON="$(dirname "$ASAR")/concord_audiocap.node"
+            # -f AND -L AND -s, not -s alone. `[ -s ]` is "exists and size > 0" and is
+            # TRUE for a DIRECTORY — which is exactly the object the #3194 red-team pass
+            # turned into code execution, because require() resolves a directory named
+            # concord_audiocap.node as a CommonJS package and runs index.js inside it.
+            # An assertion that green-lights the exploit object is not an assertion.
+            # `-f` alone still admits a symlink to a regular file, so reject links too.
+            if [ ! -f "$ADDON" ] || [ -L "$ADDON" ] || [ ! -s "$ADDON" ]; then
+              echo "::error::concord_audiocap.node is missing, empty, a symlink, or not a regular file in <Resources>/ ($ADDON). packagerConfig.extraResource did not deliver a real addon, so a packaged build cannot dlopen it (#3194)."
+              ls -la "$(dirname "$ASAR")" || true
+              exit 1
+            fi
+            echo "  OK: concord_audiocap.node in Resources ($(wc -c < "$ADDON" | tr -d ' ') bytes)"
+          fi
+
+          # ── Assert required files exist in the asar ──
+          PROBE_DIR=$(mktemp -d)
+          trap 'rm -rf "$PROBE_DIR"' EXIT
+          # NOTE: @electron/asar `list` emits leading-slash paths but
+          # `extract-file` rejects them ("not found in this archive").
+          # Keep these UNPREFIXED. See @electron/asar@3.4.x CLI asymmetry.
+          REQUIRED_FILES=(
+            "dist/preload/preload.js"
+            "dist/main/main.js"
+            "dist/renderer/index.html"
+          )
+          MISSING=0
+          for f in "${REQUIRED_FILES[@]}"; do
+            OUT="$PROBE_DIR/$(basename "$f")"
+            # Windows runners: electron-packager writes the asar header with
+            # the platform-native separator (`\`). @electron/asar extract-file
+            # matches literally, so rewrite `/` to `\` on Windows only.
+            if [[ "$RUNNER_OS" == "Windows" ]]; then
+              ARCHIVE_PATH="${f//\//\\}"
+            else
+              ARCHIVE_PATH="$f"
+            fi
+            if ( cd "$PROBE_DIR" && "$ASAR_BIN" extract-file "$ASAR" "$ARCHIVE_PATH" ) >/dev/null 2>&1 && [[ -s "$OUT" ]]; then
+              BYTE_COUNT=$(wc -c < "$OUT" | tr -d ' ')
+              echo "  OK: $f ($BYTE_COUNT bytes)"
+            else
+              echo "::error::Missing from asar: $f (tried: $ARCHIVE_PATH)"
+              MISSING=$((MISSING + 1))
+            fi
+          done
+          if [[ $MISSING -gt 0 ]]; then
+            echo "--- Diagnostic: first 20 entries in asar ---"
+            "$ASAR_BIN" list "$ASAR" 2>/dev/null | head -20 || true
+            echo "::error::$MISSING required file(s) missing from asar"
+            exit 1
+          fi
+
+          # ── Verify the already-extracted preload is sandbox-safe ──
+          PRELOAD="$PROBE_DIR/preload.js"
+          if [[ ! -s "$PRELOAD" ]]; then
+            echo "::error::preload.js not available for sandbox-safety checks"
+            exit 1
+          fi
+
+          # Normalize CRLF for Windows runner compatibility
+          tr -d '\r' < "$PRELOAD" > "$PROBE_DIR/preload_normalized.js"
+
+          # No relative requires (would fail under sandbox)
+          if grep -qE 'require\(["'"'"']\.\.' "$PROBE_DIR/preload_normalized.js"; then
+            echo "::error::Bundled preload.js contains relative require() calls — will fail in sandbox"
+            grep -nE 'require\(["'"'"']\.\.' "$PROBE_DIR/preload_normalized.js" | head -5
+            exit 1
+          fi
+
+          # Only electron as external
+          NON_ELECTRON=$(grep -oE 'require\(["'"'"'][^"'"'"']+["'"'"']\)' "$PROBE_DIR/preload_normalized.js" \
+            | grep -v 'require("electron")' \
+            | grep -v "require('electron')" || true)
+          if [[ -n "$NON_ELECTRON" ]]; then
+            echo "::error::Bundled preload.js has non-electron external requires:"
+            echo "$NON_ELECTRON"
+            exit 1
+          fi
+
+          # contextBridge call present
+          if ! grep -q 'exposeInMainWorld' "$PROBE_DIR/preload_normalized.js"; then
+            echo "::error::Bundled preload.js is missing contextBridge.exposeInMainWorld call"
+            exit 1
+          fi
+
+          # Payload boundary (#3156) — asserted on the PRODUCED archive, because the
+          # unit tests in packagingIdentity.test.ts apply packagerConfig.ignore's
+          # regexes to synthetic paths and so prove only that the config holds a
+          # value, not that Forge honours it. Shared by this job and release-build:
+          # an inline copy in each drifted within a single PR. The script is also
+          # runnable locally against `npm run package` output.
+          # Invoked via `bash` rather than relying on the exec bit: this step also
+          # runs on release-build's two windows-latest legs, which no PR-CI job
+          # exercises, and an exec-bit surprise there would surface as a failed
+          # release rather than a red PR.
+          bash ./scripts/verify-asar-payload.sh "$ASAR_BIN" "$ASAR"
+
+          echo "::notice::Asar integrity, payload boundary and preload sandbox safety verified"
+
+      # Read back what the PRODUCED app carries. forge.config.ts proves what we asked for;
+      # FusesPlugin and @electron/packager's digest write both fail open, so only the artifact can
+      # say what shipped. The expected fuse values are derived from forge.config.ts inside the
+      # script, never copied here. Shared with pr-smoke-build in desktop-pr-smoke.yml: change the
+      # two together. The script finds the one `<name>-<platform>-<arch>` directory under out/ and
+      # reads the fuse wire from its binary, so all six legs run it unchanged; a failure here
+      # fails the leg, which blocks `release`.
+      - name: Verify packaged Electron fuses
+        working-directory: desktop
+        shell: bash
+        run: npx tsx scripts/verify-packaged-app.mts fuses --out out
+
+      # macOS legs only: the digest slot lives in the macOS Electron Framework binary and is written
+      # by the packager's macOS code path, which also requires a darwin host. Both macOS legs run on
+      # macos-latest (arm64), so that holds for the x64 leg too. The packager only WARNS when it
+      # cannot write the digest, and Electron enforces nothing against an unwritten slot. The `if:`
+      # is a plain string comparison on a matrix value (workflow-failure-patterns.md P2 is about
+      # input booleans), and the step is one `npx tsx` line, so P16's Bash 4 hazards do not apply.
+      - name: Verify asar integrity digest in Electron Framework (macOS)
+        if: matrix.platform == 'darwin'
+        working-directory: desktop
+        shell: bash
+        run: npx tsx scripts/verify-packaged-app.mts asar-digest --out out
+
+      - name: Verify Linux package desktop integration
+        if: matrix.platform == 'linux'
+        working-directory: desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mapfile -t DEBS < <(find out/make/deb -type f -name '*.deb' | sort)
+          if [ "${#DEBS[@]}" -eq 0 ]; then
+            echo "::error::No .deb package found under desktop/out/make/deb"
+            exit 1
+          fi
+          mapfile -t RPMS < <(find out/make/rpm -type f -name '*.rpm' | sort)
+          if [ "${#RPMS[@]}" -eq 0 ]; then
+            echo "::error::No .rpm package found under desktop/out/make/rpm"
+            exit 1
+          fi
+
+          for deb in "${DEBS[@]}"; do
+            echo "Inspecting Linux desktop integration: $deb"
+            CONTENTS="$(dpkg-deb -c "$deb")"
+
+            require_path() {
+              local path="$1"
+              if ! grep -Fq "$path" <<< "$CONTENTS"; then
+                echo "::error::$deb is missing package path: $path"
+                exit 1
+              fi
+            }
+
+            require_path './usr/share/icons/hicolor/128x128/apps/concord-voice.png'
+            require_path './usr/share/icons/hicolor/256x256/apps/concord-voice.png'
+            require_path './usr/share/icons/hicolor/512x512/apps/concord-voice.png'
+            require_path './usr/share/applications/concord-voice.desktop'
+            require_path './usr/bin/concord-voice'
+            require_path './usr/lib/concord-voice/chrome-sandbox'
+
+            if ! grep -Eq '^-rwsr-xr-x root/root .* \./usr/lib/concord-voice/chrome-sandbox$' <<< "$CONTENTS"; then
+              echo "::error::$deb chrome-sandbox is missing SUID mode 4755 or root/root ownership"
+              grep 'chrome-sandbox' <<< "$CONTENTS" || true
+              exit 1
+            fi
+
+            DESKTOP_ENTRY="$(dpkg-deb --fsys-tarfile "$deb" | tar -xOf - ./usr/share/applications/concord-voice.desktop)"
+            for expected in \
+              'Name=Concord Voice' \
+              'Exec=concord-voice %U' \
+              'Icon=concord-voice' \
+              'Categories=Network;Chat;'
+            do
+              if ! grep -Fxq "$expected" <<< "$DESKTOP_ENTRY"; then
+                echo "::error::$deb desktop entry missing line: $expected"
+                echo "$DESKTOP_ENTRY"
+                exit 1
+              fi
+            done
+          done
+
+          if ! command -v rpm >/dev/null 2>&1; then
+            echo "::error::rpm command unavailable; cannot inspect generated RPM package contents"
+            exit 1
+          fi
+
+          for rpm_pkg in "${RPMS[@]}"; do
+            echo "Inspecting Linux RPM desktop integration: $rpm_pkg"
+            RPM_CONTENTS="$(rpm -qplv "$rpm_pkg")"
+            RPM_FILE_METADATA="$(
+              rpm -qp --qf '[%{FILEMODES:perms} %{FILEUSERNAME} %{FILEGROUPNAME} %{FILENAMES}\n]' "$rpm_pkg"
+            )"
+
+            require_rpm_path() {
+              local path="$1"
+              if ! grep -Fq "$path" <<< "$RPM_CONTENTS"; then
+                echo "::error::$rpm_pkg is missing package path: $path"
+                exit 1
+              fi
+            }
+
+            require_rpm_path '/usr/share/icons/hicolor/128x128/apps/concord-voice.png'
+            require_rpm_path '/usr/share/icons/hicolor/256x256/apps/concord-voice.png'
+            require_rpm_path '/usr/share/icons/hicolor/512x512/apps/concord-voice.png'
+            require_rpm_path '/usr/share/applications/concord-voice.desktop'
+            require_rpm_path '/usr/bin/concord-voice'
+            require_rpm_path '/usr/lib/concord-voice/chrome-sandbox'
+
+            if ! grep -Fxq -- '-rwsr-xr-x root root /usr/lib/concord-voice/chrome-sandbox' <<< "$RPM_FILE_METADATA"; then
+              echo "::error::$rpm_pkg chrome-sandbox is missing SUID mode 4755 or root/root ownership"
+              grep 'chrome-sandbox' <<< "$RPM_FILE_METADATA" || true
+              exit 1
+            fi
+          done
+
+          echo "::notice::Linux package desktop integration verified"
+
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+      - name: Verify DMG artifact produced (macOS, #1159 Phase 1)
+        # Structural check that the local MakerDmg produced the expected .dmg artifact(s).
+        # Pre-flight gate for the #1164 sign + notarize + staple steps that follow:
+        # before we try to sign anything, confirm Forge actually emitted a .dmg.
+        # Sign + notarize + staple of the .dmg shell happens in the next two steps
+        # (per ADR-0019); this step keeps its single responsibility — "did Forge
+        # actually emit the .dmg?" — orthogonal to the signing concern.
+        # See: internal-reference
+        if: matrix.platform == 'darwin'
+        working-directory: desktop
+        run: |
+          set -euo pipefail
+          # Use `find` instead of bash 4+ globstar (`**`) — macOS GHA runners
+          # ship Bash 3.2, see workflow-failure-patterns.md P16.
+          DMG_FILES=()
+          while IFS= read -r dmg; do
+            DMG_FILES+=("$dmg")
+          done < <(find out/make -type f -name '*.dmg' | sort)
+          if [[ ${#DMG_FILES[@]} -eq 0 ]]; then
+            echo "::error::No .dmg artifacts produced by electron-forge make. Expected under out/make/ per local MakerDmg config in forge.config.ts."
+            exit 1
+          fi
+          for DMG in "${DMG_FILES[@]}"; do
+            SIZE=$(stat -f%z "$DMG")
+            echo "── DMG produced: $DMG (${SIZE} bytes) ──"
+            bash ./scripts/verify-dmg-artifact.sh "$DMG"
+          done
+          echo "::notice::macOS DMG artifact and Finder layout verified (${#DMG_FILES[@]} file(s)). Sign + notarize + staple proceeds in the next step."
+
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+      - name: Emit SHA-512 sidecars for release artifacts (#643 Gate A source)
+        if: matrix.platform == 'darwin'
+        shell: bash
+        working-directory: desktop
+        run: |
+          set -euo pipefail
+          # base64 matches electron-updater's sha512 encoding in latest-mac.yml,
+          # so the release-job comparison is byte-for-byte on the same form.
+          # find used over bash globstar — macOS GHA runners ship Bash 3.2
+          # (workflow-failure-patterns.md P16); globstar in this step broke every
+          # darwin push-build leg from #1396 onward and stranded v0.1.57+.
+          files=()
+          while IFS= read -r f; do
+            files+=("$f")
+          done < <({ find out/make/zip/darwin -type f -name '*.zip'; find out/make -type f -name '*.dmg'; } 2>/dev/null | sort -u)
+          if [[ ${#files[@]} -eq 0 ]]; then
+            echo "::error::#643 sidecar step: no .zip/.dmg release artifacts found to hash"
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            openssl dgst -sha512 -binary "$f" | openssl base64 -A > "$f.sha512"
+            echo "sidecar: $f.sha512 = $(cat "$f.sha512")"
+          done
+
+      # #643 Gate B (build-provenance attestation) is feature-flagged OFF by
+      # default. GitHub Artifact Attestations call POST /repos/{o}/{r}/attestations,
+      # which is available only on public repos or private/internal repos on
+      # GitHub Enterprise Cloud. This is a private Team-plan repo, so the persist
+      # call returns HTTP "Feature not available for the organization" and reds
+      # every push:main macOS build leg (stranded v0.1.57+). Gate A (the sidecar
+      # above) remains the active integrity gate — consistent with ADR-0021's
+      # scope-cut fallback, where Gate A alone satisfies #643 AC #1. To re-enable
+      # provenance after the repo goes public or moves to Enterprise, set the repo
+      # variable: `gh variable set ENABLE_BUILD_ATTESTATION --body true`. The
+      # release-job Gate B verify is gated on the same variable. (#1480)
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+    # C: signing, notarization and release attestations move to Release-Ops in D2; Desktop builds unsigned.
+      - name: Upload artifacts (Windows)
+        if: matrix.platform == 'win32'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: concord-voice-${{ matrix.label }}-v${{ needs.detect-release.outputs.version }}
+          # NSIS writes directly into `directories.output` (= Forge's makeDir,
+          # `out/make`), NOT into a maker subdirectory — the `squirrel.windows/`
+          # path this used before #2402 no longer exists. Scoped to the installer
+          # rather than `out/make/**/*` so a stray electron-builder `latest.yml`
+          # cannot collide by basename with the canonical one the release job
+          # generates.
+          path: desktop/out/make/*Setup.exe
+          # Load-bearing: the default is `warn`, so a path that matches nothing
+          # uploads zero files and the SIGNED build leg still goes green — the
+          # failure would surface much later as a missing *windows-*-Setup.exe in
+          # assert-binary-asset-set, at which point trimming required_assets looks
+          # like the fix and would ship a Windows-less release. Fail here instead.
+          if-no-files-found: error
+          retention-days: 7 # #643: GitHub Release persists binaries; shrink signed-artifact exposure window
+
+      - name: Upload artifacts (macOS)
+        if: matrix.platform == 'darwin'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: concord-voice-${{ matrix.label }}-v${{ needs.detect-release.outputs.version }}
+          # Both .zip (auto-update payload, consumed by electron-updater via
+          # latest-mac.yml) AND .dmg (first-install installer, #1159 Phase 1)
+          # are published. Same artifact bundle name — both flow through to
+          # sync-releases.yml's gh release download + rsync.
+          path: |
+            desktop/out/make/zip/darwin/**/*.zip
+            desktop/out/make/**/*.dmg
+            desktop/out/make/zip/darwin/**/*.zip.sha512
+            desktop/out/make/**/*.dmg.sha512
+          retention-days: 7 # #643: GitHub Release persists binaries; shrink signed-artifact exposure window
+
+      - name: Upload artifacts (Linux)
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: concord-voice-${{ matrix.label }}-v${{ needs.detect-release.outputs.version }}
+          path: |
+            desktop/out/make/deb/**/*.deb
+            desktop/out/make/rpm/**/*.rpm
+            desktop/out/make/**/*.AppImage
+          retention-days: 7 # #643: GitHub Release persists binaries; shrink signed-artifact exposure window
+
+  # ─── Job 3: Create GitHub Release ─────────────────────────────────────
+    # C: signing and publication belong to Hosted / Release-Ops (D2). Removed release.
+    # C: signing and publication belong to Hosted / Release-Ops (D2). Removed sync-releases.
+    # C: signing and publication belong to Hosted / Release-Ops (D2). Removed public-release-mirror.

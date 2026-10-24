@@ -1,7 +1,17 @@
 # Update Trust Model
 
-> **Status:** Living document. Last updated 2026-06-30 (#654).
+> **Status:** Living document. Last updated 2026-10-24 (Desktop extraction D1).
 > **Audience:** Concord Voice contributors, security reviewers, and users who want to understand what they trust when accepting an auto-update.
+
+## Release authority during extraction
+
+Alpha's desktop release lane remains authoritative during D1. The signing,
+publication and release-verification guarantees below describe updates produced
+by that lane, not the unsigned test artifacts built in this Desktop repository.
+Desktop CI validates packaging without signing credentials, notarization,
+release publication or update-feed changes. The client's install-time signature
+checks and bundled trust anchors remain unchanged. See the
+[extraction record](../extraction/D1.md) for the repository split.
 
 ## What users implicitly trust when accepting an auto-update
 
@@ -20,7 +30,7 @@ This document describes which of those properties each platform verifies, and ho
 **Shipped in PR #641.**
 
 - **Build-time:** artifacts are signed with an Apple Developer ID certificate and notarized by Apple's notary service. The stapled notarization ticket is embedded in the `.app` bundle.
-- **CI verification** (`build-desktop.yml` — "Verify signature and notarization" step): every build runs `codesign --verify --deep --strict`, `spctl --assess --type execute` (Gatekeeper simulation), and `xcrun stapler validate`. Any failure fails the workflow.
+- **Alpha release CI verification** (`build-desktop.yml` — "Verify signature and notarization" step): every release build runs `codesign --verify --deep --strict`, `spctl --assess --type execute` (Gatekeeper simulation), and `xcrun stapler validate`. Any failure fails the workflow.
 - **Install-time:** Gatekeeper re-verifies the signature and notarization before executing the updated app. Unsigned or tampered artifacts are rejected by the OS.
 
 **What the user is trusting:** Apple's Developer ID program + Apple's notary service.
@@ -30,9 +40,9 @@ This document describes which of those properties each platform verifies, and ho
 **Shipped in #404; runtime hardening added in #644.**
 
 - **Build-time:** artifacts are signed by Microsoft Azure Trusted Signing using OIDC federation (no long-lived keys in CI). Leaf certs are 72-hour short-lived, auto-renewed daily. All signatures are RFC 3161 timestamped, so they remain valid past leaf expiry.
-- **CI verification** (`build-desktop.yml` — "Verify Windows signature" step, which runs [`client/desktop/scripts/verify-windows-signature.ps1`](../../client/desktop/scripts/verify-windows-signature.ps1)): every build verifies Authenticode status, requires leaf CN `Concord Voice LLC`, requires RFC 3161 timestamp, and requires the issuer CN to match `^Microsoft ID Verified CS `. The checks live in a script file because the protected Semgrep scan cannot parse PowerShell inside a `run:` block ([`workflow-failure-patterns.md`](../reference/workflow-failure-patterns.md) P18).
-- **Install-time (electron-updater built-in):** verifies Authenticode signature validity and compares the leaf CN against the `publisherName` list in the packaged `app-update.yml`, generated from the shared `ALLOWED_WINDOWS_PUBLISHERS` constant ([`client/desktop/src/shared/allowedWindowsPublishers.ts`](../../client/desktop/src/shared/allowedWindowsPublishers.ts), currently `['Concord Voice LLC']`) by `scripts/generate-app-update.mts`. electron-updater reads the allow-list ONLY from this on-disk file — the key was absent before #2020, leaving both install-time checks dormant.
-- **Install-time (custom hook, added by #644, armed by #2020):** `verifyUpdateCodeSignature` extracts the full cert chain and rejects the update unless the leaf was issued by a cert matching `^Microsoft ID Verified CS `. This defeats the CN-collision attack where a publicly-trusted cert with matching leaf CN is obtained from a different CA. See [`client/desktop/src/main/verifyWindowsSignature.ts`](../../client/desktop/src/main/verifyWindowsSignature.ts).
+- **Alpha release CI verification** (`build-desktop.yml` — "Verify Windows signature" step): every release build verifies Authenticode status, requires leaf CN `Concord Voice LLC`, requires RFC 3161 timestamp, and requires the issuer CN to match `^Microsoft ID Verified CS `. The [signature verification script](../../desktop/scripts/verify-windows-signature.ps1) remains in this repository, but Desktop's unsigned packaging lane does not invoke it. Keeping PowerShell in a script file also avoids requiring workflow scanners to parse it inside a YAML `run:` block.
+- **Install-time (electron-updater built-in):** verifies Authenticode signature validity and compares the leaf CN against the `publisherName` list in the packaged `app-update.yml`, generated from the shared `ALLOWED_WINDOWS_PUBLISHERS` constant ([`desktop/src/shared/allowedWindowsPublishers.ts`](../../desktop/src/shared/allowedWindowsPublishers.ts), currently `['Concord Voice LLC']`) by `scripts/generate-app-update.mts`. electron-updater reads the allow-list ONLY from this on-disk file — the key was absent before #2020, leaving both install-time checks dormant.
+- **Install-time (custom hook, added by #644, armed by #2020):** `verifyUpdateCodeSignature` extracts the full cert chain and rejects the update unless the leaf was issued by a cert matching `^Microsoft ID Verified CS `. This defeats the CN-collision attack where a publicly-trusted cert with matching leaf CN is obtained from a different CA. See [`desktop/src/main/verifyWindowsSignature.ts`](../../desktop/src/main/verifyWindowsSignature.ts).
 
 **What the user is trusting:** Microsoft Trusted Signing (which performs D-U-N-S-backed corporate verification before issuing to the allowed CN) + the Microsoft root of trust on Windows.
 
@@ -40,13 +50,13 @@ This document describes which of those properties each platform verifies, and ho
 
 ### Linux
 
-**Shipped in #653.** See [ADR-0026](../adr/0026-linux-update-signing.md) for the tool-choice rationale.
+**Shipped in #653.** A bundled public key lets the client authenticate the artifact independently of the server that supplies it.
 
 `electron-updater` has no Linux signature hook (`verifyUpdateCodeSignature` is wired only into the Windows `NsisUpdater`), so Linux verification is **out-of-band**, at a choke point Concord owns inside its own `safeQuitAndInstall()`.
 
-- **Build-time:** each Linux artifact (`.AppImage` / `.deb` / `.rpm`, both arches) is signed in CI (`.github/workflows/build-desktop.yml` release path) with a **raw Ed25519 detached signature** — `openssl pkeyutl -sign -rawin` — producing a 64-byte `<artifact>.sig` next to each artifact. The private key is the `desktop-release` environment secret `LINUX_UPDATE_SIGNING_KEY`, reachable only by the trusted exact-main release jobs.
-- **CI verification:** the signing step self-verifies each `.sig` against the committed public key (a signing-key/bundled-key mismatch tripwire), and the existing `required_assets` asset-set gate hard-fails the release if any of the six Linux `.sig` files are missing — so an unsigned Linux Release cannot publish.
-- **Install-time:** inside `safeQuitAndInstall()` on Linux, the client fetches `<artifact>.sig` from the static public recovery feed (`https://github.com/Concord-Voice/Concord-Voice/releases/latest/download`) and verifies it over the downloaded artifact bytes with one native `crypto.verify(null, …)` call against the bundled public key (`client/desktop/src/main/linuxUpdatePublicKey.ts`, via `client/desktop/src/main/verifyLinuxSignature.ts`). The verify is **fail-closed**: the only path to install is `verify → true`; a missing artifact, a non-2xx `.sig` fetch, a signature not exactly 64 bytes, a `verify → false`, or any thrown exception refuses the install (identical install boundary in every case). The *message* distinguishes the cause: only a cryptographic `verify → false` — the one outcome that is genuine evidence of an altered artifact — surfaces the `signature-failure` security banner; availability failures (network/IO error, a missing or malformed `.sig`) refuse with a retryable non-security "couldn't verify right now" message instead, so a transient blip does not cry wolf and erode the banner's credibility. An attacker who strips/blocks the `.sig` lands in the availability path and still cannot install. electron-updater still cross-checks the `latest-linux.yml` SHA-512 at download (#644); the Ed25519 signature is the layer that defends a manifest the attacker controls.
+- **Alpha release build-time:** each Linux artifact (`.AppImage` / `.deb` / `.rpm`, both arches) is signed with a **raw Ed25519 detached signature** — `openssl pkeyutl -sign -rawin` — producing a 64-byte `<artifact>.sig` next to each artifact. The private key is the `desktop-release` environment secret `LINUX_UPDATE_SIGNING_KEY`, reachable only by the trusted exact-main release jobs. Desktop's unsigned packaging lane has no signing key and does not produce these signatures.
+- **Alpha release CI verification:** the signing step self-verifies each `.sig` against the committed public key (a signing-key/bundled-key mismatch tripwire), and the `required_assets` asset-set gate hard-fails the release if any of the six Linux `.sig` files are missing — so an unsigned Linux Release cannot publish through that lane.
+- **Install-time:** inside `safeQuitAndInstall()` on Linux, the client fetches `<artifact>.sig` from the static public recovery feed (`https://github.com/Concord-Voice/Concord-Voice/releases/latest/download`) and verifies it over the downloaded artifact bytes with one native `crypto.verify(null, …)` call against the bundled public key (`desktop/src/main/linuxUpdatePublicKey.ts`, via `desktop/src/main/verifyLinuxSignature.ts`). The verify is **fail-closed**: the only path to install is `verify → true`; a missing artifact, a non-2xx `.sig` fetch, a signature not exactly 64 bytes, a `verify → false`, or any thrown exception refuses the install (identical install boundary in every case). The *message* distinguishes the cause: only a cryptographic `verify → false` — the one outcome that is genuine evidence of an altered artifact — surfaces the `signature-failure` security banner; availability failures (network/IO error, a missing or malformed `.sig`) refuse with a retryable non-security "couldn't verify right now" message instead, so a transient blip does not cry wolf and erode the banner's credibility. An attacker who strips/blocks the `.sig` lands in the availability path and still cannot install. electron-updater still cross-checks the `latest-linux.yml` SHA-512 at download (#644); the Ed25519 signature is the layer that defends a manifest the attacker controls.
 
 **What the user is trusting on Linux:** the bundled Ed25519 public key. **This is the SOLE trust anchor** — it holds even with no API-host TLS pinning, because an attacker who controls the public recovery feed controls both the artifact and its `.sig` but cannot forge a signature without the private key. TLS-layer API pinning (#658) was defense-in-depth for the API host and was never load-bearing for this guarantee; it has since been removed (see below).
 
@@ -57,7 +67,7 @@ This document describes which of those properties each platform verifies, and ho
 - **Update freeze** — a feed-controlling attacker answering "you're up to date" (`update-not-available`) can pin a victim indefinitely to a specific signed-but-known-vulnerable build. This product rides the prerelease channel fleet-wide (`allowPrerelease` default true), so the consequence is concrete: indefinite pinning to a known-CVE *signed* build. Artifact signing provides zero mitigation. #654 adds public distribution provenance and Alpha/public byte binding, but freeze defense still needs a separate manifest-freshness control.
 - **The verify→install TOCTOU residual (accepted).** The client verifies the bytes at the downloaded path, then `quitAndInstall()` independently re-reads the **same** cached path with no install-time checksum. A local process with write access to the updater cache (under user-writable `userData`) could swap the file in the gap — a wider window than the Windows model, whose verify runs inside electron-updater's install flow. Accepted because it requires a local attacker who already has `userData` write (who can compromise the app more cheaply) and is parity with the unavoidable disk-read-at-install on every platform. Mitigated by calling `quitAndInstall()` immediately after a successful verify with no intervening `await`.
 
-**Key rotation** requires shipping a new client build (the trust anchor is bundled, not fetched). See internal reference omitted.
+**Key rotation** requires shipping a new client build because the trust anchor is bundled, not fetched.
 
 ### API-host TLS trust (#658 removed)
 
@@ -67,25 +77,13 @@ The pin was removed after five fleet-wide outages between 2026-04 and 2026-08. I
 
 **This does not weaken the update trust anchors.** They never depended on it — see the Linux note above: the bundled Ed25519 key "holds even with no API-host TLS pinning". The Windows anchor is artifact-level Authenticode verification (#2020). Both are unchanged.
 
-**Rogue-cert MITM** is currently unmitigated for the API host. The intended control is out-of-band Certificate Transparency monitoring, which alerts an operator rather than bricking every client — it is **not yet implemented** (see the linked trust model). Re-pinning is safe only against a keypair Concord controls end to end; the conditions are enumerated in [`api-tls-trust-model.md`](api-tls-trust-model.md).
+**Rogue-cert MITM** has no additional API-host-specific mitigation beyond Chromium's standard certificate validation. Out-of-band Certificate Transparency monitoring could alert an operator to unexpected issuance without blocking clients, but it is **not yet implemented**. Reintroducing pinning would require end-to-end control of the served keypair and a tested rotation and recovery process; the current managed edge certificates do not provide that control.
 
 ## API-host trust boundary
 
-The packaged binary update feed is `https://github.com/Concord-Voice/Concord-Voice/releases/latest/download`. The API-hosted release directory remains an operational surface, but it is not the only packaged-client recovery path. API-host transport protections are:
+The packaged binary update feed remains `https://github.com/Concord-Voice/Concord-Voice/releases/latest/download`. API traffic uses HTTPS with Chromium's standard Web PKI and Certificate Transparency validation; there is no additional API SPKI pin. Self-hosted HTTPS connections likewise rely on the client's configured certificate trust.
 
-- **HTTPS only:** transport encryption + standard Web PKI cert validation on the server host.
-- **TLS-layer API pinning (#658):** in addition to standard Web PKI validation, clients pin the SPKI SHA-256 of the CloudFlare edge certificate for `api.concordvoice.chat`. See the dedicated subsection under §Per-platform trust model above.
-
-**What HTTPS + API pinning DOES guarantee:**
-
-- An attacker with a rogue cert for the API host (e.g., via a compromised intermediate CA) CANNOT MITM API-host traffic, because the rogue cert's SPKI will not match either pin.
-
-**What HTTPS + API pinning does NOT guarantee:**
-
-- That the server host itself has not been compromised (an attacker with root on the origin could serve hostile API responses or alter any API-hosted release directory — this is outside pinning's scope; the artifact-level signing layer from #644 is what defends update artifacts).
-- Self-hosted deployments at a different `apiBase`: pinning is SaaS-only; self-hosted deployments use system-CA trust.
-
-Those gaps are why the per-platform artifact trust anchors above are load-bearing. The public recovery feed is transport-diverse from the API host, but artifact signing remains the update-authenticity boundary.
+This transport validation does not protect against a compromised API host or a rogue certificate that passes the browser's normal validation. The public recovery feed uses a different host from the API, but the per-platform artifact signatures above remain the update-authenticity boundary. D1 changes neither that feed nor the install-time verification rules.
 
 ## SPA UI Update Trust Boundary
 
@@ -101,14 +99,25 @@ Current Phase 1 behavior:
 
 Persistent cached SPA execution is not enabled. A future last-known-good SPA cache must verify a signed manifest with a public key shipped in the desktop binary before any cached remote bytes can execute. The cache must verify the complete Vite asset graph, reject traversal/symlink/partial/stale/incompatible entries, and fall back to the signed bundled `app://concord` renderer when verification fails.
 
-## CI integrity gate
+## CI integrity gates
 
-The `build-desktop.yml` workflow runs, in order:
+### Desktop unsigned packaging
+
+This repository's [packaging workflow](../../.github/workflows/build-desktop.yml)
+builds test artifacts for Windows, macOS and Linux on both architectures. It
+checks archive integrity, the preload bundle, Electron fuses, and the applicable
+platform package layout before uploading CI artifacts. It does not sign,
+notarize, create releases, or publish update manifests. These artifacts are not
+substitutes for the signed updates described above.
+
+### Alpha release integrity
+
+Alpha's release pipeline retains the following order during extraction:
 
 1. Build the artifact (`electron-forge make`)
 2. Sign it (per-platform)
 3. **Re-verify the signature** (per-platform, see workflow line references above)
-4. **Verify update manifest SHA-512** (added by #644): `client/desktop/scripts/verify-update-manifest.mjs` reads `latest*.yml` and cross-checks every listed artifact hash against the actual file bytes on disk
+4. **Verify update manifest SHA-512** (added by #644): `desktop/scripts/verify-update-manifest.mjs` reads `latest*.yml` and cross-checks every listed artifact hash against the actual file bytes on disk
 5. Upload artifact and publish release
 6. Mirror the signed release to the public repo via `.github/workflows/publish-public-mirror.yml`; `scripts/public-mirror/mirror-release.sh` fails closed unless the source and public release contain exactly the expected `latest.yml`, `latest-mac.yml`, `latest-linux.yml`, platform installers, blockmaps, and Linux `.sig` files needed by the public recovery feed, then checks every public release asset digest against the Alpha source asset, passes the Alpha-generated digest manifest to the public `public-release-attestation.yml` workflow, verifies every public release asset attestation, and only then promotes `/releases/latest` before the mirror is considered successful
 
@@ -124,6 +133,7 @@ Step 4 catches the concrete threat of a tampered manifest between sign and publi
 
 ## Related documents
 
-- internal reference omitted — design spec
-- internal reference omitted — macOS as-shipped design
-- [`SECURITY.md`](../../.github/SECURITY.md) — vulnerability reporting policy
+- [Desktop extraction record](../extraction/D1.md) — CI scope and release ownership
+- [Update endpoint](../../desktop/src/shared/updateEndpoint.ts) — the unchanged packaged-client feed
+- [Windows signature verifier](../../desktop/src/main/verifyWindowsSignature.ts)
+- [Linux signature verifier](../../desktop/src/main/verifyLinuxSignature.ts)

@@ -1,0 +1,94 @@
+{
+  "//": [
+    "Register of dependencies we deliberately hold at a chosen version rather than letting",
+    "them float — the documentation trail for 'a newer version exists and we are not taking",
+    "it yet, here is why'. Enforced by scripts/security/check-pin-exceptions.mjs, which fails",
+    "when a pin or a dependabot ignore: rule exists with no entry here, and warns when an",
+    "entry passes its review_by date.",
+    "",
+    "TWO KINDS live here, and the difference matters:",
+    "  kind=exact-pin  — the manifest declares an exact version (no ^ or ~). Dependabot still",
+    "                    proposes bumps; the pin only forces each one to arrive as a reviewable",
+    "                    PR instead of resolving silently on npm ci. Being at latest is normal.",
+    "  kind=held-back  — we are actively refusing an available newer version, normally via a",
+    "                    dependabot ignore: rule. These are the ones that rot: every entry MUST",
+    "                    carry a review_by, and the lint warns once it passes.",
+    "",
+    "This register does NOT cover two neighbouring cases that have their own files:",
+    "  - accepted vulnerability advisories -> <workspace>/.audit-allowlist.json",
+    "  - overrides forcing a consumer off its declared range -> <workspace>/.override-range-baseline.json",
+    "",
+    "Adding an entry is not approval. An exact pin on anything in the desktop signing path is",
+    "governed by ADR-0034; a held-back entry on a security-sensitive package (see",
+    "internal-reference) needs the same",
+    "scrutiny as an audit-allowlist acceptance."
+  ],
+  "exceptions": [
+    {
+      "kind": "exact-pin",
+      "ecosystem": "npm",
+      "workspace": ".github/tools/license-checker",
+      "package": "license-checker",
+      "pinned": "25.0.1",
+      "reason": "CI license policy uses a reviewed tool version and integrity-locked dependency tree. Dependabot may propose version updates; this is not a hold against newer versions.",
+      "authority": "Code Scanning alert 1609; internal-reference",
+      "recorded": "2026-10-17",
+      "review_by": "2027-01-17"
+    },
+    {
+      "kind": "exact-pin",
+      "ecosystem": "npm",
+      "workspace": "desktop",
+      "package": "@electron-forge/plugin-fuses",
+      "pinned": "8.0.1",
+      "reason": "Mutates security-sensitive Electron fuse bits during desktop packaging, before signing and notarization. Exact-pinned so a package that rewrites the executable cannot change under npm ci without a reviewed dependency bump.",
+      "authority": "#2468; internal-reference; internal-reference § Package and capture hardening",
+      "recorded": "2026-08-27",
+      "review_by": "2027-08-27"
+    },
+    {
+      "kind": "exact-pin",
+      "ecosystem": "npm",
+      "workspace": "desktop",
+      "package": "@electron/fuses",
+      "pinned": "2.1.3",
+      "reason": "Defines and applies the fuse configuration written into packaged Electron executables. Exact-pinned so this signed-build input changes only through a reviewed dependency bump rather than silent range resolution.",
+      "authority": "#2468; internal-reference; internal-reference § Package and capture hardening",
+      "recorded": "2026-08-27",
+      "review_by": "2027-08-27"
+    },
+    {
+      "kind": "exact-pin",
+      "ecosystem": "npm",
+      "workspace": "desktop",
+      "package": "app-builder-lib",
+      "pinned": "26.15.3",
+      "reason": "Build-time dependency inside the desktop SIGNING path (desktop-release environment, Azure Trusted Signing, Apple notarization). A build dependency that floats on npm ci is a supply-chain exposure, not a convenience question, so every version change must arrive as a reviewable dependabot PR triaged through /weekly-deps. Consumed by the locally-owned Forge NSIS and DMG makers (build/makerNsis.ts, build/makerDmg.ts). Explicitly: do NOT relax to a caret.",
+      "authority": "ADR-0034 (accepted by repo admin 2026-07-25); internal-reference § Windows packaging",
+      "recorded": "2026-07-25",
+      "review_by": "2027-07-25"
+    },
+    {
+      "kind": "exact-pin",
+      "ecosystem": "npm",
+      "workspace": "desktop",
+      "package": "@microsoft/eslint-formatter-sarif",
+      "pinned": "3.1.0",
+      "reason": "Produces the SARIF that eslint-sarif.yml uploads to GitHub Code Scanning. Installed --save-exact so the SARIF schema cannot drift underneath the upload step without a reviewed bump; a malformed or reshaped report degrades a merge-gated scanner rather than failing loudly.",
+      "authority": "internal-reference (steps 1-3)",
+      "recorded": "2026-06-11",
+      "review_by": "2027-06-11"
+    },
+    {
+      "kind": "exact-pin",
+      "ecosystem": "npm",
+      "workspace": "desktop",
+      "package": "jose",
+      "pinned": "6.2.8",
+      "reason": "Verifies Apple and Google SSO ID tokens in the Electron main process (src/main/oauth/*/idTokenVerifier.ts) — an authentication trust boundary. Exact-pinned so every bump is a reviewed change rather than a silent range resolution; jose is on the /weekly-deps security-sensitive package list, which routes it to the specialist reviewers. NOTE this is an exact-pin, not a held-back: 6.2.9 published 2026-08-15 and is simply awaiting its normal Tuesday dependabot proposal.",
+      "authority": "#1486 (client-driven Apple OAuth with local JWKS verification); internal-reference",
+      "recorded": "2026-08-15",
+      "review_by": "2027-08-15"
+    }
+  ]
+}

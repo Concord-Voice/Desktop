@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Concord Voice — DMG Background Mockup (1:1)</title>
+<style>
+  /* ─── Brand tokens, mirrored from desktop/src/renderer/styles/index.css :root ─── */
+  :root {
+    --bg-primary: #0d0821;
+    --bg-secondary: #151028;
+    --bg-tertiary: #1d1630;
+    --accent-primary: #fa709a;
+    --accent-secondary: #ffe13f;
+    --accent-hover: #ff8bb0;
+    --text-primary: #ffffff;
+    --text-secondary: #b8b8c8;
+    --text-muted: #7f7f9e;
+    --border-color: #2a2440;
+  }
+
+  /* Brand display face — Droidiga, the same face as the desktop client titlebar
+     wordmark. Path is RELATIVE to this mockup so render-dmg-background.mjs
+     (which loads the page via file://) resolves it portably on any machine/CI. */
+  @font-face {
+    font-family: 'Droidiga';
+    src: url('../public/branding/Concord-Voice/fonts/Droidiga.otf') format('opentype');
+    font-weight: normal;
+    font-style: normal;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #2a2440;
+    font-family: 'Helvetica Neue', system-ui, sans-serif;
+    color: var(--text-secondary);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+    padding: 48px 24px;
+    box-sizing: border-box;
+  }
+
+  h1 {
+    font-family: 'Helvetica Neue', sans-serif;
+    font-weight: 200;
+    font-size: 18px;
+    letter-spacing: 0.12em;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    margin: 0;
+  }
+  .caption {
+    font-size: 12px;
+    color: var(--text-muted);
+    letter-spacing: 0.04em;
+    margin: 0;
+    max-width: 540px;
+    line-height: 1.5;
+  }
+
+  /* ─── The DMG window we're simulating ─── */
+  .dmg-frame {
+    width: 540px;
+    height: 410px; /* 380 + 30 title-bar */
+    border-radius: 10px;
+    box-shadow:
+      0 30px 60px -20px rgba(0,0,0,0.7),
+      0 18px 36px -12px rgba(0,0,0,0.5),
+      0 0 0 1px rgba(255,255,255,0.05);
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* macOS window chrome (simulated; the real DMG renders this in OS chrome
+     over the top of our 540×380 image — we just respect the 30px safe area) */
+  .chrome {
+    height: 30px;
+    background: linear-gradient(180deg, #3a3344 0%, #2a2438 100%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 14px;
+    position: relative;
+    z-index: 2;
+    border-bottom: 1px solid rgba(0,0,0,0.4);
+  }
+  .traffic-light {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 0.5px rgba(0,0,0,0.2);
+  }
+  .traffic-light.red { background: #ff5f57; }
+  .traffic-light.yellow { background: #febc2e; }
+  .traffic-light.green { background: #28c840; }
+  .chrome-title {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.55);
+    letter-spacing: 0.01em;
+  }
+
+  /* ─── The 540×380 background canvas (the actual asset) ─── */
+  .canvas {
+    width: 540px;
+    height: 380px;
+    position: relative;
+    overflow: hidden;
+    /* Base: deep cosmic gradient — bg-primary into a slightly darker corner
+       so the lit areas read */
+    background:
+      radial-gradient(120% 80% at 25% 50%, rgba(250,112,154,0.16) 0%, rgba(250,112,154,0) 55%),
+      radial-gradient(60% 50% at 80% 70%, rgba(255,225,63,0.08) 0%, rgba(255,225,63,0) 60%),
+      radial-gradient(140% 100% at 50% 110%, #1d1630 0%, #0d0821 70%);
+  }
+
+  /* ─── Starfield — a deliberately uneven scatter, NOT a CSS pattern repeat.
+       Each star has individual position, size, opacity. ─── */
+  .star {
+    position: absolute;
+    background: #ffffff;
+    border-radius: 50%;
+    box-shadow: 0 0 4px rgba(255,255,255,0.4);
+  }
+
+  /* ─── Constellation lines (thin, decorative, connect a subset of stars) ─── */
+  .constellation {
+    position: absolute;
+    background: linear-gradient(90deg, rgba(184,184,200,0) 0%, rgba(184,184,200,0.35) 50%, rgba(184,184,200,0) 100%);
+    height: 1px;
+    transform-origin: 0 50%;
+  }
+
+  /* ─── App-icon "well" — a faint pink glow centered where the .app will sit ─── */
+  .icon-well {
+    position: absolute;
+    top: 76px;       /* visual center at y=200 in 380 grid (icon center) — icon is 128, so top = 200-64 = 136… */
+    left: 66px;      /* icon center at x=130, icon is 128, so left = 130-64 = 66 */
+    width: 128px;
+    height: 128px;
+    transform: translateY(60px); /* center vertically — final visual at y≈200 */
+    background: radial-gradient(circle at 50% 50%,
+      rgba(250,112,154,0.28) 0%,
+      rgba(250,112,154,0.10) 45%,
+      rgba(250,112,154,0) 70%
+    );
+    border-radius: 50%;
+    filter: blur(8px);
+  }
+
+  /* ─── App-icon placeholder (the real .app icon is rendered by macOS — we
+       just need to show the developer where it will appear) ─── */
+  .icon-slot {
+    position: absolute;
+    width: 128px;
+    height: 128px;
+    border: 1.5px dashed rgba(255,255,255,0.18);
+    border-radius: 24px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,0.5);
+    font-size: 11px;
+    text-align: center;
+    font-family: 'Helvetica Neue', sans-serif;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+  }
+  .icon-slot.app {
+    left: 66px;     /* center 130 - 64 */
+    top: 136px;     /* center 200 - 64 */
+  }
+  .icon-slot.apps {
+    left: 346px;    /* center 410 - 64 */
+    top: 136px;
+  }
+  .icon-slot .placeholder-label {
+    margin-top: 8px;
+    font-size: 10px;
+    color: rgba(255,255,255,0.35);
+  }
+  .icon-glyph {
+    font-size: 36px;
+    opacity: 0.4;
+  }
+
+  /* ─── Drag affordance: a thin dashed line + chevrons between the two slots ─── */
+  .drag-hint {
+    position: absolute;
+    top: 198px;     /* y=200 - 2px for line stroke */
+    left: 196px;    /* right edge of left icon (66+128 = 194) + small gap */
+    width: 148px;   /* to left edge of right icon (346) minus small gap */
+    height: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    pointer-events: none;
+  }
+  .drag-hint::before {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; top: 1.5px;
+    height: 1px;
+    background-image: linear-gradient(to right,
+      rgba(255,225,63,0.0) 0%,
+      rgba(255,225,63,0.35) 30%,
+      rgba(255,225,63,0.45) 50%,
+      rgba(255,225,63,0.35) 70%,
+      rgba(255,225,63,0.0) 100%
+    );
+  }
+  .chevron {
+    width: 8px;
+    height: 8px;
+    border-right: 1.5px solid rgba(255,225,63,0.55);
+    border-top: 1.5px solid rgba(255,225,63,0.55);
+    transform: rotate(45deg);
+    position: relative;
+  }
+  .chevron-stack {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+    margin-right: 4px;
+  }
+
+  /* ─── Wordmark at the bottom: brand identity + soft instruction ─── */
+  .wordmark {
+    position: absolute;
+    bottom: 32px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    pointer-events: none;
+  }
+  .wordmark .brand {
+    /* Droidiga — same display face as the desktop client titlebar wordmark.
+       Title Case (NOT ALL-CAPS): Droidiga's decorative glyphs live in the
+       lowercase slots, so caps would render its plain forms. Tracking dropped
+       from the old 0.32em (tuned for spaced thin Helvetica caps) to a mild
+       value suited to Droidiga's geometric Title Case. */
+    font-family: 'Droidiga', 'Helvetica Neue', sans-serif;
+    font-weight: normal;
+    font-size: 20px;
+    letter-spacing: 0.04em;
+    color: rgba(255,255,255,0.78);
+    /* Subtle gradient ink — pink → yellow horizon mirroring the brand gradient */
+    background: linear-gradient(90deg, #fa709a 0%, #ffe13f 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .wordmark .tagline {
+    margin-top: 6px;
+    font-family: 'Helvetica Neue', sans-serif;
+    font-weight: 400;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: rgba(184,184,200,0.55);
+    text-transform: uppercase;
+  }
+
+  /* ─── Coordinate overlay (for the developer to verify positions) ─── */
+  .grid {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 10;
+    display: none;
+  }
+  .grid.show { display: block; }
+  .grid::before, .grid::after {
+    content: '';
+    position: absolute;
+    background: rgba(0,255,200,0.18);
+  }
+  .grid::before { /* vertical centerline */
+    left: 50%; top: 0; bottom: 0; width: 1px;
+  }
+  .grid::after { /* horizontal centerline */
+    top: 50%; left: 0; right: 0; height: 1px;
+  }
+  .crosshair-app, .crosshair-apps {
+    position: absolute;
+    width: 16px; height: 16px;
+    border: 1.5px solid #00ffc8;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+  }
+  .crosshair-app { left: 130px; top: 200px; }
+  .crosshair-apps { left: 410px; top: 200px; }
+
+  .coordinate-label {
+    position: absolute;
+    font-family: 'SF Mono', 'Monaco', monospace;
+    font-size: 10px;
+    color: #00ffc8;
+    background: rgba(0,0,0,0.65);
+    padding: 2px 6px;
+    border-radius: 3px;
+    transform: translate(-50%, 0);
+  }
+
+  /* ─── Toggle UI ─── */
+  .controls {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+  }
+  .controls button {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    border: 1px solid var(--border-color);
+    padding: 6px 14px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .controls button:hover {
+    background: var(--bg-secondary);
+    border-color: var(--accent-primary);
+  }
+
+  /* ─── Dialog mockup section ─── */
+  .dialog {
+    width: 420px;
+    background: #2a2440;
+    border-radius: 10px;
+    padding: 24px 24px 16px;
+    box-shadow:
+      0 25px 50px -10px rgba(0,0,0,0.8),
+      0 0 0 1px rgba(255,255,255,0.08);
+    text-align: center;
+  }
+  .dialog .icon {
+    width: 64px; height: 64px;
+    margin: 0 auto 14px;
+    background: var(--gradient-brand);
+    background: linear-gradient(135deg, #fa709a 0%, #ffe13f 100%);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+  }
+  .dialog .title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin: 0 0 6px;
+  }
+  .dialog .message {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+    margin: 0 0 6px;
+  }
+  .dialog .detail {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin: 0 0 18px;
+  }
+  .dialog .buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+  }
+  .dialog button {
+    padding: 7px 14px;
+    border-radius: 5px;
+    border: 1px solid var(--border-color);
+    background: transparent;
+    color: var(--text-primary);
+    font-size: 12px;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .dialog button.primary {
+    background: var(--accent-primary);
+    border-color: var(--accent-primary);
+    color: #0d0821;
+    font-weight: 600;
+  }
+  .dialog button.primary:hover { background: var(--accent-hover); }
+</style>
+</head>
+<body>
+
+<h1>DMG Background — 540 × 380 (1×)</h1>
+<p class="caption">
+  Rendered at 1:1 scale. The macOS DMG window chrome is shown on top of the canvas
+  so positions can be verified against the 30px top safe area. Toggle the grid to
+  see icon-center crosshairs at (130, 200) and (410, 200).
+</p>
+
+<div class="controls">
+  <button onclick="document.querySelector('.grid').classList.toggle('show')">Toggle Grid</button>
+  <button onclick="document.body.style.background = document.body.style.background === 'rgb(245, 245, 247)' ? '#2a2440' : '#f5f5f7'">Toggle Page BG (light/dark)</button>
+</div>
+
+<div class="dmg-frame">
+  <div class="chrome">
+    <div class="traffic-light red"></div>
+    <div class="traffic-light yellow"></div>
+    <div class="traffic-light green"></div>
+    <div class="chrome-title">Concord Voice</div>
+  </div>
+
+  <div class="canvas">
+    <!-- Starfield: hand-positioned, NOT pattern-repeated. Pseudo-random feel. -->
+    <div class="star" style="left: 38px; top: 42px; width: 1.5px; height: 1.5px; opacity: 0.45;"></div>
+    <div class="star" style="left: 84px; top: 28px; width: 1px; height: 1px; opacity: 0.30;"></div>
+    <div class="star" style="left: 142px; top: 56px; width: 2px; height: 2px; opacity: 0.55;"></div>
+    <div class="star" style="left: 198px; top: 38px; width: 1px; height: 1px; opacity: 0.40;"></div>
+    <div class="star" style="left: 235px; top: 72px; width: 1.5px; height: 1.5px; opacity: 0.50;"></div>
+    <div class="star" style="left: 286px; top: 24px; width: 1px; height: 1px; opacity: 0.25;"></div>
+    <div class="star" style="left: 322px; top: 58px; width: 2.5px; height: 2.5px; opacity: 0.65;"></div>
+    <div class="star" style="left: 376px; top: 42px; width: 1px; height: 1px; opacity: 0.35;"></div>
+    <div class="star" style="left: 414px; top: 76px; width: 1.5px; height: 1.5px; opacity: 0.50;"></div>
+    <div class="star" style="left: 462px; top: 30px; width: 1px; height: 1px; opacity: 0.30;"></div>
+    <div class="star" style="left: 498px; top: 64px; width: 1.5px; height: 1.5px; opacity: 0.45;"></div>
+
+    <div class="star" style="left: 22px; top: 98px; width: 1px; height: 1px; opacity: 0.30;"></div>
+    <div class="star" style="left: 65px; top: 132px; width: 1.5px; height: 1.5px; opacity: 0.40;"></div>
+    <div class="star" style="left: 248px; top: 102px; width: 2px; height: 2px; opacity: 0.55;"></div>
+    <div class="star" style="left: 290px; top: 124px; width: 1px; height: 1px; opacity: 0.30;"></div>
+    <div class="star" style="left: 444px; top: 110px; width: 1.5px; height: 1.5px; opacity: 0.45;"></div>
+    <div class="star" style="left: 510px; top: 142px; width: 1px; height: 1px; opacity: 0.25;"></div>
+
+    <div class="star" style="left: 48px; top: 304px; width: 1px; height: 1px; opacity: 0.30;"></div>
+    <div class="star" style="left: 102px; top: 332px; width: 1.5px; height: 1.5px; opacity: 0.45;"></div>
+    <div class="star" style="left: 268px; top: 320px; width: 1px; height: 1px; opacity: 0.25;"></div>
+    <div class="star" style="left: 418px; top: 312px; width: 2px; height: 2px; opacity: 0.50;"></div>
+    <div class="star" style="left: 478px; top: 340px; width: 1px; height: 1px; opacity: 0.30;"></div>
+
+    <!-- Constellation lines: 3 thin segments, deliberately suggesting form
+         without spelling out a literal constellation. -->
+    <!-- line 1: connects stars at (38,42) → (84,28) → (142,56) — upper left -->
+    <div class="constellation"
+         style="left: 38px; top: 42px; width: 47px;
+                transform: rotate(-17deg); opacity: 0.55;"></div>
+    <div class="constellation"
+         style="left: 84px; top: 28px; width: 60px;
+                transform: rotate(25deg); opacity: 0.55;"></div>
+    <!-- line 2: (286,24) → (322,58) → (376,42) — upper right -->
+    <div class="constellation"
+         style="left: 286px; top: 24px; width: 51px;
+                transform: rotate(43deg); opacity: 0.55;"></div>
+    <div class="constellation"
+         style="left: 322px; top: 58px; width: 56px;
+                transform: rotate(-17deg); opacity: 0.55;"></div>
+
+    <!-- App icon "well" — soft pink glow at icon position -->
+    <div class="icon-well"></div>
+
+    <!-- App icon placeholder slot (real .app icon will overlay this) -->
+    <div class="icon-slot app">
+      <div class="icon-glyph">◆</div>
+      <div class="placeholder-label">Concord Voice.app<br/>(rendered by OS)</div>
+    </div>
+
+    <!-- Applications shortcut placeholder slot -->
+    <div class="icon-slot apps">
+      <div class="icon-glyph">📁</div>
+      <div class="placeholder-label">Applications<br/>(rendered by OS)</div>
+    </div>
+
+    <!-- Drag affordance between the slots -->
+    <div class="drag-hint">
+      <span></span>
+      <div class="chevron-stack">
+        <div class="chevron"></div>
+        <div class="chevron"></div>
+      </div>
+    </div>
+
+    <!-- Wordmark at the bottom -->
+    <div class="wordmark">
+      <div class="brand">Concord Voice</div>
+      <div class="tagline">Drag to install · Privacy by design</div>
+    </div>
+
+    <!-- Coordinate grid overlay (toggle visibility) -->
+    <div class="grid">
+      <div class="crosshair-app"></div>
+      <div class="crosshair-apps"></div>
+      <div class="coordinate-label" style="left: 130px; top: 220px;">(130, 200)</div>
+      <div class="coordinate-label" style="left: 410px; top: 220px;">(410, 200)</div>
+    </div>
+  </div>
+</div>
+
+<h1 style="margin-top: 40px;">Runtime Move-Prompt — First Launch</h1>
+<div class="dialog">
+  <div class="icon">⤴</div>
+  <h2 class="title">Move Concord Voice to Applications?</h2>
+  <p class="message">
+    Concord Voice is currently running from outside your Applications folder.
+    Moving it ensures secure, reliable updates and proper macOS integration.
+  </p>
+  <p class="detail">
+    Your messages, channel keys, and account settings will remain unchanged.
+  </p>
+  <div class="buttons">
+    <button>Not Now</button>
+    <button class="primary">Move to Applications</button>
+  </div>
+</div>
+
+<h1 style="margin-top: 40px;">Runtime Move-Prompt — Re-prompt After Version Bump</h1>
+<div class="dialog">
+  <div class="icon">⤴</div>
+  <h2 class="title">Move Concord Voice to Applications</h2>
+  <p class="message">
+    A new version is available, but updates may not install reliably while
+    Concord Voice runs from outside Applications.
+  </p>
+  <p class="detail">
+    Moving the app now lets future updates install seamlessly. Your data is preserved.
+  </p>
+  <div class="buttons">
+    <button>Remind Me Later</button>
+    <button class="primary">Move to Applications</button>
+  </div>
+</div>
+
+</body>
+</html>
