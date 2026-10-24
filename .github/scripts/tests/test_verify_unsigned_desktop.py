@@ -19,6 +19,7 @@ class UnsignedDesktopTest(unittest.TestCase):
 
     def test_rejects_release_capabilities_and_missing_checks(self):
         mutations = {
+            'smoke concurrency collision': lambda w: w['concurrency'].update(group='desktop-build-${{ github.ref }}'),
             'environment': lambda w: w['jobs']['release-build'].update(environment='release'),
             'oidc': lambda w: w['jobs']['release-build']['permissions'].update({'id-token': 'write'}),
             'write token': lambda w: w['permissions'].update(contents='write'),

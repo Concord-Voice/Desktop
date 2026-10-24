@@ -36,7 +36,7 @@ describe('verify-windows-signature.ps1', () => {
 // The public mirror publishes client/ but not the private workflows parsed below, and its overlay
 // adds a CI workflow of its own, which makes that file the marker. Anywhere else a missing
 // workflow must fail loudly: a wiring test that skips itself is the silent loss it exists to stop.
-const WORKFLOWS = new URL('../../.github/workflows', import.meta.url);
+const WORKFLOWS = new URL('../../.github/workflows/', import.meta.url);
 const inPublicMirror = existsSync(new URL('public-ci-frontend.yml', WORKFLOWS));
 
 describe('workflow wiring: the skip is confined to the public mirror', () => {
@@ -56,6 +56,5 @@ describe.skipIf(inPublicMirror)('workflow wiring', () => {
     expect(steps).toHaveLength(0);
     // C: Release-Ops owns signing in D2; Desktop must never request signing credentials.
     expect(JSON.stringify(workflow)).not.toMatch(/secrets\.|azure\/login|desktop-release/);
-
   });
 });

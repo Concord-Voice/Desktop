@@ -116,6 +116,18 @@ function expectLinuxIconConfig(icon: unknown) {
 // ── Tests ────────────────────────────────────────────────────────────────
 
 describe('Packaging Identity (#382)', () => {
+  it('bundles the standalone repository NOTICE with the packaged application', async () => {
+    const config = await loadForgeConfig();
+    expect(config.packagerConfig?.extraResource).toContain('../NOTICE.md');
+  });
+
+  it('ships the DMG rendering source and its local font input', () => {
+    const template = fs.readFileSync(path.join(desktopRoot, 'build/dmg-background.html'), 'utf8');
+    const fontPath = /src: url\('([^']+)'\)/.exec(template)?.[1];
+    expect(fontPath).toBeDefined();
+    expect(fs.existsSync(path.resolve(desktopRoot, 'build', fontPath!))).toBe(true);
+  });
+
   it('configures the five Electron hardening fuses', async () => {
     const config = await loadForgeConfig();
     const fuses = config.plugins?.find((plugin) => plugin.name === 'fuses') as

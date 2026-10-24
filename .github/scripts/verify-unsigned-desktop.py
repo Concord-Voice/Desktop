@@ -28,6 +28,8 @@ def verify(root):
             for step in job.get('steps', []):
                 if name == 'desktop-pr-smoke' and 'actions/upload-artifact@' in step.get('uses', ''):
                     raise ValueError('PR smoke must not upload promotable artifacts')
+    if build.get('concurrency', {}).get('group') == smoke.get('concurrency', {}).get('group'):
+        raise ValueError('unsigned artifacts must not share the smoke lane cancellation group')
     job = build['jobs']['release-build']
     guard = ' '.join(job['if'].split())
     required = ["github.repository == 'Concord-Voice/Desktop'", "github.event_name == 'pull_request'",

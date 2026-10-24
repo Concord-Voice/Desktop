@@ -28,8 +28,8 @@ permissions:
   contents: read
 
 concurrency:
-  # Queue overlapping dispatches so an active signing run is never cancelled.
-  group: desktop-build-${{ github.ref }}
+  # N: unsigned PR builds must not share the smoke lane cancellation group.
+  group: desktop-unsigned-build-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

@@ -1083,7 +1083,7 @@ describe('CLI entry', () => {
 // overlay adds a CI workflow of its own to that tree, which makes the overlay's file the marker.
 // There the wiring tests have nothing to read, so they are skipped. Anywhere else a missing
 // workflow must fail loudly: a wiring test that skips itself is the silent loss it exists to stop.
-const WORKFLOWS = new URL('../../.github/workflows', import.meta.url);
+const WORKFLOWS = new URL('../../.github/workflows/', import.meta.url);
 const inPublicMirror = existsSync(new URL('public-ci-frontend.yml', WORKFLOWS));
 
 describe('workflow wiring: the skip is confined to the public mirror', () => {

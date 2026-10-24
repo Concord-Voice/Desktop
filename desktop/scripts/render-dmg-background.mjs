@@ -22,14 +22,8 @@ import fs from 'node:fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// desktop/scripts/ -> repo root is 3 levels up
-const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
-const HTML_PATH = path.join(
-  REPO_ROOT,
-  '.claude',
-  'artifacts',
-  '2026-05-22-dmg-background-mockup.html'
-);
+// The rendering source ships beside the generated public background assets.
+const HTML_PATH = path.join(__dirname, '..', 'build', 'dmg-background.html');
 const BUILD_DIR = path.join(__dirname, '..', 'build');
 
 if (!fs.existsSync(HTML_PATH)) {

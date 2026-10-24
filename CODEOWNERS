@@ -1,0 +1,31 @@
+# CODEOWNERS — Desktop security boundaries ported from Alpha.
+# Server, private agent tooling and deployment-only entries remain with their owners.
+**/crypto*                                          @Concord-Voice/security
+**/e2ee*                                            @Concord-Voice/security
+**/mediaEncryption*                                 @Concord-Voice/security
+**/auth/**                                          @Concord-Voice/security
+**/mfa/**                                           @Concord-Voice/security
+**/rbac/**                                          @Concord-Voice/security
+**/password*                                        @Concord-Voice/security
+**/tokenManager*                                    @Concord-Voice/security
+**/middleware/auth*                                  @Concord-Voice/security
+**/middleware/security*                              @Concord-Voice/security
+**/middleware/cors*                                  @Concord-Voice/security
+**/middleware/ratelimit*                             @Concord-Voice/security
+desktop/src/preload/**                       @Concord-Voice/security
+desktop/src/main/ipc*                        @Concord-Voice/security
+docs/policies/**                                    @Concord-Voice/security
+.github/workflows/**                                @Concord-Voice/security
+.github/codeql/**                                   @Concord-Voice/security
+infrastructure/**                                   @Concord-Voice/security
+scripts/security/scan-supply-chain-iocs.sh            @Concord-Voice/security
+scripts/security/check-self-hosted-runners.sh         @Concord-Voice/security
+scripts/security/regenerate-ioc-list.sh               @Concord-Voice/security
+scripts/security/check-ioc-refresh-pr.sh              @Concord-Voice/security
+scripts/security/iocs/shai-hulud-2.0.txt              @Concord-Voice/security
+scripts/security/iocs/false-positive-allowlist.txt    @Concord-Voice/security
+scripts/security/iocs/install-script-allowlist.txt    @Concord-Voice/security
+scripts/security/self-hosted-runner-allowlist.txt     @Concord-Voice/security
+/CODEOWNERS                                          @Concord-Voice/security
+/.github/CODEOWNERS                                  @Concord-Voice/security
+/docs/CODEOWNERS                                     @Concord-Voice/security

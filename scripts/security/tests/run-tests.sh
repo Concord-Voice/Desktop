@@ -700,8 +700,9 @@ test_codeowners_protects_ioc_refresh_guard_script() {
     || { echo "check-ioc-refresh-pr.sh must be CODEOWNERS-gated to @Concord-Voice/security" >&2; return 1; }
 }
 
+# C: the credentialed refresh workflow is Hosted-owned; retain its contract as test data.
 test_ioc_refresh_workflow_skips_noop_before_pr_creation() {
-  local workflow="$REPO_ROOT/.github/workflows/refresh-ioc-list.yml"
+  local workflow="$FIXTURES/hosted-refresh-ioc-list.yml"
   grep -q -- '--noop-exit-code 2' "$workflow" \
     || { echo "scheduled refresh must request distinct no-op exit code" >&2; return 1; }
   grep -q "steps.guard.outputs.exit_code != '2'" "$workflow" \
@@ -709,7 +710,7 @@ test_ioc_refresh_workflow_skips_noop_before_pr_creation() {
 }
 
 test_ioc_refresh_workflow_uses_valid_comment_queries() {
-  local workflow="$REPO_ROOT/.github/workflows/refresh-ioc-list.yml"
+  local workflow="$FIXTURES/hosted-refresh-ioc-list.yml"
   ! grep -q -- '--jq --arg' "$workflow" \
     || { echo "gh api --jq does not accept jq's --arg option" >&2; return 1; }
 
@@ -725,7 +726,7 @@ test_ioc_refresh_workflow_uses_valid_comment_queries() {
 }
 
 test_ioc_refresh_workflow_permissions_preserve_only_required_writes() {
-  python3 - "$REPO_ROOT/.github/workflows/refresh-ioc-list.yml" <<'PY'
+  python3 - "$FIXTURES/hosted-refresh-ioc-list.yml" <<'PY'
 import sys
 import yaml
 
