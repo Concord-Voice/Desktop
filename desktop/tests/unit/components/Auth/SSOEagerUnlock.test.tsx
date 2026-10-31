@@ -356,6 +356,10 @@ describe('SSOEagerUnlock', () => {
     // Retrying the passphrase cannot help a restored session, so the gate
     // offers a real sign-out that ends at the sign-in screen.
     expect(screen.queryByRole('button', { name: /^unlock$/i })).not.toBeInTheDocument();
+    // Enter cannot resubmit the doomed GET either.
+    expect(screen.getByLabelText(/passphrase/i)).toBeDisabled();
+    fireEvent.submit(screen.getByLabelText(/passphrase/i).closest('form') as HTMLFormElement);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
     const logout = vi.fn().mockResolvedValue(undefined);
     useUserStore.setState({ logout });
     fireEvent.click(screen.getByRole('button', { name: /sign in again/i }));
