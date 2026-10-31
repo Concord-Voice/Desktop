@@ -107,7 +107,7 @@ const SSOEagerUnlock: React.FC<Props> = ({ onUnlock, onSocialRecovery }) => {
 
   const handleSubmit = async (ev: React.FormEvent) => {
     ev.preventDefault();
-    if (submitting || passphrase.length === 0) {
+    if (submitting || reauthRequired || passphrase.length === 0) {
       return;
     }
     setSubmitting(true);
@@ -349,7 +349,7 @@ const SSOEagerUnlock: React.FC<Props> = ({ onUnlock, onSocialRecovery }) => {
           onChange={(ev) => setPassphrase(ev.target.value)}
           autoComplete="current-password"
           autoFocus
-          disabled={submitting}
+          disabled={submitting || reauthRequired}
         />
       </div>
 
