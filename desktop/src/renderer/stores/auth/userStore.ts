@@ -512,10 +512,14 @@ function revealMyKeys(currentPassword: string, signal: AbortSignal): Promise<Res
 async function reconcileAmbiguousPasswordCommit(
   submittedSaltBase64: string,
   currentPassword: string,
+  newPassword: string,
   signal: AbortSignal
 ): Promise<'committed' | 'not-committed' | 'unknown'> {
   try {
-    const res = await revealMyKeys(currentPassword, signal);
+    let res = await revealMyKeys(currentPassword, signal);
+    // A committed change makes the old password wrong (403), so the reveal
+    // can only see the new salt by proving the new password.
+    if (res.status === 403) res = await revealMyKeys(newPassword, signal);
     if (!res.ok) return 'unknown';
     const raw: unknown = await res.json();
     const persistedSalt = asRecord(asRecord(raw).e2ee_keys).key_derivation_salt;
@@ -587,6 +591,7 @@ async function reconcileAfterTransportFailure(
   const outcome = await reconcileAmbiguousPasswordCommit(
     ctx.newSaltBase64,
     ctx.currentPassword,
+    ctx.newPassword,
     ctx.signal
   );
   assertPasswordChangeCurrent(ctx.isCurrent);
