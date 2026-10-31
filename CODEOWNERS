@@ -29,3 +29,4 @@ scripts/security/self-hosted-runner-allowlist.txt     @Concord-Voice/security
 /CODEOWNERS                                          @Concord-Voice/security
 /.github/CODEOWNERS                                  @Concord-Voice/security
 /docs/CODEOWNERS                                     @Concord-Voice/security
+/.gitar/                                            @Concord-Voice/security
