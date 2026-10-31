@@ -190,7 +190,8 @@ repos:
         # so the developer sees the warning). Exit 1 (self-hosted+non-allowlisted)
         # and 10 (parser failure) still block.
         entry: bash -c 'scripts/security/check-self-hosted-runners.sh; rc=$?; [ "$rc" = "2" ] && exit 0 || exit $rc'
-        language: system
+        language: python
+        additional_dependencies: ['PyYAML==6.0.3']
         pass_filenames: false
         files: '^\.github/workflows/.*\.ya?ml$'
 
@@ -216,14 +217,16 @@ repos:
       - id: lint-pr-release-trust
         name: workflow lint — desktop PR/release trust boundary (#2274)
         entry: bash .github/scripts/lint-pr-release-trust.sh --unsigned .
-        language: system
+        language: python
+        additional_dependencies: ['PyYAML==6.0.3']
         files: '^(\.github/scripts/lint-pr-release-trust\.sh|\.github/scripts/tests/lint-pr-release-trust\.test\.sh|\.github/workflows/.*\.ya?ml)$'
         pass_filenames: false
 
       - id: test-lint-pr-release-trust
         name: workflow lint self-test — desktop PR/release trust boundary (#2274)
         entry: bash .github/scripts/tests/lint-pr-release-trust.test.sh
-        language: system
+        language: python
+        additional_dependencies: ['PyYAML==6.0.3']
         files: '^(\.github/scripts/lint-pr-release-trust\.sh|\.github/scripts/tests/lint-pr-release-trust\.test\.sh|\.github/workflows/.*\.ya?ml)$'
         pass_filenames: false
 
@@ -254,14 +257,16 @@ repos:
       - id: lint-workflow-call-contract
         name: workflow lint — workflow_call contract (permissions superset + secrets agree)
         entry: bash .github/scripts/lint-workflow-call-contract.sh .
-        language: system
+        language: python
+        additional_dependencies: ['PyYAML==6.0.3']
         files: '^(\.github/scripts/lint-workflow-call-contract\.sh|\.github/scripts/tests/lint-workflow-call-contract\.test\.sh|\.github/workflows/.*\.ya?ml)$'
         pass_filenames: false
 
       - id: test-lint-workflow-call-contract
         name: workflow lint self-test — workflow_call contract
         entry: bash .github/scripts/tests/lint-workflow-call-contract.test.sh
-        language: system
+        language: python
+        additional_dependencies: ['PyYAML==6.0.3']
         files: '^(\.github/scripts/lint-workflow-call-contract\.sh|\.github/scripts/tests/lint-workflow-call-contract\.test\.sh|\.github/workflows/.*\.ya?ml)$'
         pass_filenames: false
 
@@ -274,7 +279,8 @@ repos:
         # at if-eval time rather than at action runtime (PR #904 class).
         entry: .github/scripts/lint-multisecret-andcheck.sh
         args: ['.github/workflows/']
-        language: script
+        language: python
+        additional_dependencies: ['PyYAML==6.0.3']
         files: '^\.github/workflows/.*\.ya?ml$'
         pass_filenames: false
 
@@ -366,7 +372,8 @@ repos:
       - id: check-native-ioc-gate
         name: 'native-audiocap stays IOC-gated (ADR-0018)'
         entry: scripts/check-native-ioc-gate.sh
-        language: script
+        language: python
+        additional_dependencies: ['PyYAML==6.0.3']
         files: '^\.github/workflows/(native-audiocap|pr-ci|main-ci)\.yml$'
         pass_filenames: false
 
