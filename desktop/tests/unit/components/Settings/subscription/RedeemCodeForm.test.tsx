@@ -83,6 +83,21 @@ describe('RedeemCodeForm (#1304)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/already redeemed/i);
   });
 
+  it('on 409 seat_member says the code was not used (#2033 PR-5)', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(REDEEM_PATH, () => HttpResponse.json({ error: 'seat_member' }, { status: 409 }))
+    );
+    render(<RedeemCodeForm onRedeemed={() => {}} />);
+
+    await user.type(screen.getByRole('textbox', { name: 'Code' }), 'PROMO-SEAT');
+    await user.click(screen.getByRole('button', { name: 'Redeem' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(/friend's Wing/);
+    expect(alert).toHaveTextContent(/not used/);
+  });
+
   it('on 429 shows the rate-limited alert', async () => {
     const user = userEvent.setup();
     server.use(http.post(REDEEM_PATH, () => HttpResponse.json({ error: 'x' }, { status: 429 })));

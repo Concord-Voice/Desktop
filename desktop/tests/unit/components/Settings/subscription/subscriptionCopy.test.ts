@@ -7,6 +7,7 @@ import {
   foundersAmount,
   intervalSuffix,
   planDisplayName,
+  planChangeSummary,
   sourceDisplay,
   tierDisplayName,
 } from '@/renderer/components/Settings/subscription/subscriptionCopy';
@@ -50,5 +51,17 @@ describe('subscriptionCopy', () => {
     );
     expect(alsoFromCode(undefined)).toBe('Also Supersonic from a code.');
     expect(alsoFromCode('March 1, 2027')).toBe('Also Supersonic from a code until March 1, 2027.');
+  });
+
+  it('explains both mixed plan and interval changes', () => {
+    expect(planChangeSummary('supersonic', 'year', 'wing', 'month')).toContain(
+      'Wing yearly starts now'
+    );
+    expect(planChangeSummary('supersonic', 'year', 'wing', 'month')).toContain(
+      'Wing monthly starts at the end'
+    );
+    expect(planChangeSummary('wing', 'month', 'supersonic', 'year')).toContain(
+      'end of your current paid period'
+    );
   });
 });

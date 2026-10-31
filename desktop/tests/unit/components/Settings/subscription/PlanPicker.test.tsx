@@ -110,20 +110,23 @@ describe('PlanPicker (#2033 PR-4)', () => {
     ).toBeInTheDocument();
   });
 
-  it('offers an eligible account a 30-day trial with card collection and conversion terms', async () => {
+  it('offers an eligible account a 30-day Supersonic trial with card collection and conversion terms', async () => {
     render(<PlanPicker plans={catalog(false)} trialAvailable codeExpiry="2027-03-15T12:00:00Z" />);
-    expect(screen.getByText(/Your free trial lasts 30 days/)).toHaveTextContent(
-      'Your chosen plan starts billing when the trial ends unless you cancel before then. Any redeemed code credit reduces the first paid charge.'
+    expect(screen.getByText(/Supersonic comes with a 30-day free trial/)).toHaveTextContent(
+      'Supersonic comes with a 30-day free trial. It starts billing when the trial ends unless you cancel before then. Any redeemed code credit reduces the first paid charge. Wing has no trial and starts billing today.'
     );
     expect(screen.getByText(/enter your card on Stripe/)).toBeInTheDocument();
     expect(screen.getByText(/Your code already covers/)).toHaveTextContent(
-      'Your free trial starts today; paid billing begins when it ends unless you cancel.'
+      'A Supersonic trial starts today; paid billing begins when it ends unless you cancel. Wing starts billing today.'
     );
     expect(screen.queryByText(/Subscribing starts billing today/)).not.toBeInTheDocument();
+    // Wing never carries the trial (D6): it keeps the paid label.
+    expect(screen.queryByRole('button', { name: /free trial of Wing/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Subscribe to Wing' })).toBeInTheDocument();
     await userEvent
       .setup()
-      .click(screen.getByRole('button', { name: 'Start 30-day free trial of Wing' }));
-    expect(startCheckout).toHaveBeenCalledWith('wing', 'month');
+      .click(screen.getByRole('button', { name: 'Start 30-day free trial of Supersonic' }));
+    expect(startCheckout).toHaveBeenCalledWith('supersonic', 'month');
   });
 
   it('notes a never-lapsing code without a date, and nothing without a code', () => {

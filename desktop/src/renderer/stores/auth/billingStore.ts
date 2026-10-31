@@ -37,12 +37,35 @@ const StripeRowSchema = z.object({
   canceling: z.boolean(),
   ends_at: z.string().optional(),
   founders_rate: z.boolean(),
+  unit_amount: z.number().int().nonnegative().optional(),
+  schedule_attached: z.boolean().optional().catch(false),
+  pending_plan: z.enum(['supersonic', 'wing']).optional(),
+  pending_interval: z.enum(['month', 'year']).optional(),
+  pending_change_at: z.string().optional(),
+});
+
+// Wing seats (#2033 PR-5). Ids only: names come from the friend list.
+const SeatSchema = z.object({
+  role: z.enum(['payer', 'member']),
+  seat_id: z.string().optional(),
+  state: z.enum(['pending', 'active', 'expired']).optional().catch(undefined),
+  counterpart_user_id: z.string().optional(),
+  invite_expires_at: z.string().optional(),
+  next_swap_at: z.string().optional(),
+  suspended: z.boolean().optional(),
+});
+
+const InviteSchema = z.object({
+  invite_id: z.string(),
+  payer_user_id: z.string(),
+  expires_at: z.string(),
+  blocked: z.literal('own_subscription_active').optional().catch(undefined),
 });
 
 const MeSchema = z.object({
   tier: z.string(),
   status: z.string(),
-  source: z.enum(['code', 'stripe']).optional().catch(undefined),
+  source: z.enum(['code', 'stripe', 'seat']).optional().catch(undefined),
   current_period_end: z.string().optional(),
   // An older server sends no `billing`. Reading that as `not_configured` hides
   // every paid control, which is the page as it was before billing existed.
@@ -50,6 +73,17 @@ const MeSchema = z.object({
   trial_available: z.boolean().optional().catch(false),
   stripe: StripeRowSchema.optional(),
   code: z.object({ current_period_end: z.string().nullable() }).optional(),
+  // A seat or invite this client cannot read is dropped, never guessed at.
+  seat: SeatSchema.optional().catch(undefined),
+  invites: z
+    .array(z.unknown())
+    .optional()
+    .transform((rows) =>
+      (rows ?? []).flatMap((row) => {
+        const parsed = InviteSchema.safeParse(row);
+        return parsed.success ? [parsed.data] : [];
+      })
+    ),
 });
 
 const PlanPriceSchema = z.object({
@@ -86,25 +120,92 @@ const PlansSchema = z.object({
 
 const SessionUrlSchema = z.object({ url: z.string().min(1) });
 const ErrorBodySchema = z.object({ error: z.string() });
+const SeatErrorSchema = z.object({
+  error: z.string(),
+  available_at: z.string().optional(),
+  current_period_end: z.string().optional(),
+});
+const PlanChangeQuoteSchema = z.object({
+  effective: z.enum(['immediate', 'scheduled', 'immediate_then_scheduled']),
+  due_now: z.number().int().nonnegative(),
+  currency: z.literal('usd'),
+  proration_date: z.number().int().optional(),
+  change_at: z.string().optional(),
+});
+const PlanChangeResultSchema = z.object({ booking_failed: z.boolean().optional() });
+const PendingPlanPaymentSchema = z.object({
+  effective: z.literal('payment_pending'),
+  payment_status: z.enum(['requires_action', 'card_declined', 'processing']),
+  payment_url: z.string().url(),
+});
+
+function isStripePaymentUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    const host = url.hostname.toLowerCase();
+    return (
+      url.protocol === 'https:' &&
+      url.username === '' &&
+      url.password === '' &&
+      url.port === '' &&
+      (host === 'pay.concordvoice.com' || host === 'stripe.com' || host.endsWith('.stripe.com'))
+    );
+  } catch {
+    return false;
+  }
+}
 
 export type BillingMe = z.infer<typeof MeSchema>;
 export type StripeRow = z.infer<typeof StripeRowSchema>;
+export type SeatInfo = z.infer<typeof SeatSchema>;
+export type SeatInvite = z.infer<typeof InviteSchema>;
+
+/**
+ * The outcome of a seat request. `error` is the server's code, or `failed`,
+ * `rate_limited` or `offline`; `date` carries `available_at` (seat_cooldown)
+ * or `current_period_end` (own_subscription_active) when the server sent one.
+ */
+export type SeatResult = { ok: true } | { ok: false; error: string; date?: string };
 export type BillingPlans = z.infer<typeof PlansSchema>;
 export type PlanPrice = z.infer<typeof PlanPriceSchema>;
 export type PlanId = PlanPrice['plan'];
 export type PlanInterval = PlanPrice['interval'];
 export type PortalFlow = 'payment_method_update' | 'subscription_cancel';
+export type PlanChangeQuote = z.infer<typeof PlanChangeQuoteSchema> & {
+  plan: PlanId;
+  interval: PlanInterval;
+};
 
 /** Messages the page shows after a launcher outcome or a failed request. */
 export type BillingNotice =
   | 'manage_existing'
+  | 'seat_member'
   | 'checkout_failed'
   | 'portal_failed'
   | 'rate_limited'
   | 'offline'
   | 'checkout_closed'
   | 'checkout_load_failed'
-  | 'portal_load_failed';
+  | 'portal_load_failed'
+  | 'plan_change_failed'
+  | 'plan_change_conflict'
+  | 'pending_plan_change'
+  | 'plan_change_saved'
+  | 'plan_change_kept'
+  | 'plan_change_partial'
+  | 'plan_change_payment_pending'
+  | 'plan_change_payment_unavailable'
+  | 'card_declined'
+  | 'subscription_canceling'
+  | 'subscription_cancel_failed';
+
+// Server error code → notice for a refused plan change; anything else is a plain failure.
+const PLAN_CHANGE_ERROR_NOTICES = new Map<string, BillingNotice>([
+  ['card_declined', 'card_declined'],
+  ['pending_plan_change', 'pending_plan_change'],
+  ['payment_pending', 'plan_change_payment_pending'],
+  ['plan_change_conflict', 'plan_change_conflict'],
+]);
 
 /** How long Confirming waits before its one silent refetch (spec §13 P6). */
 export const CONFIRMING_STALL_MS = 45_000;
@@ -124,14 +225,29 @@ interface BillingState {
   /** Set once when P6 ends on a live Stripe row; cleared by the next action or on leaving the page. */
   activated: boolean;
   opening: BillingKind | null;
+  changing: boolean;
+  previewing: boolean;
+  preview: PlanChangeQuote | null;
+  previewError: boolean;
   notice: BillingNotice | null;
   fetchMe: () => Promise<void>;
   fetchPlans: () => Promise<void>;
   startCheckout: (plan: PlanId, interval: PlanInterval) => Promise<BillingOutcome | null>;
   openPortal: (flow?: PortalFlow) => Promise<BillingOutcome | null>;
+  previewPlanChange: (plan: PlanId, interval: PlanInterval) => Promise<void>;
+  clearPlanPreview: () => void;
+  changePlan: (plan: PlanId, interval: PlanInterval, quote: PlanChangeQuote) => Promise<void>;
+  keepCurrentPlan: () => Promise<void>;
+  cancelSubscription: () => Promise<void>;
   checkAgain: () => Promise<void>;
   /** Clears the one-shot activation and the last notice when the page closes. */
   dismissTransient: () => void;
+  /** Wing seats (#2033 PR-5). Each re-reads `/me` on success. */
+  inviteSeat: (userId: string, replace: boolean) => Promise<SeatResult>;
+  removeSeat: () => Promise<SeatResult>;
+  leaveSeat: () => Promise<SeatResult>;
+  acceptInvite: (inviteId: string) => Promise<SeatResult>;
+  declineInvite: (inviteId: string) => Promise<SeatResult>;
   reset: () => void;
 }
 
@@ -147,6 +263,10 @@ type BillingData = Pick<
   | 'pendingStalled'
   | 'activated'
   | 'opening'
+  | 'changing'
+  | 'previewing'
+  | 'preview'
+  | 'previewError'
   | 'notice'
 >;
 
@@ -160,6 +280,10 @@ const INITIAL: BillingData = {
   pendingStalled: false,
   activated: false,
   opening: null,
+  changing: false,
+  previewing: false,
+  preview: null,
+  previewError: false,
   notice: null,
 };
 
@@ -169,6 +293,7 @@ let meTicket = 0;
 let plansTicket = 0;
 // One Checkout or Portal launch at a time; reset() retires the one in flight.
 let launchTicket = 0;
+let previewTicket = 0;
 // Bumped whenever Confirming starts or ends, so a stale stall timer is inert.
 let pendingTicket = 0;
 let stallTimer: ReturnType<typeof setTimeout> | null = null;
@@ -219,8 +344,9 @@ async function requestSessionUrl(
       return parsed.success ? { ok: true, url: parsed.data.url } : { ok: false, notice: failed };
     }
     if (res.status === 429) return { ok: false, notice: 'rate_limited' };
-    if (res.status === 409 && (await readErrorCode(res)) === 'manage_existing') {
-      return { ok: false, notice: 'manage_existing' };
+    if (res.status === 409) {
+      const code = await readErrorCode(res);
+      if (code === 'manage_existing' || code === 'seat_member') return { ok: false, notice: code };
     }
     return { ok: false, notice: failed };
   } catch {
@@ -228,6 +354,43 @@ async function requestSessionUrl(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** One seat request; never rejects. */
+async function seatRequest(
+  path: string,
+  method: 'POST' | 'DELETE',
+  body?: Record<string, unknown>
+): Promise<SeatResult> {
+  if (isOffline()) return { ok: false, error: 'offline' };
+  try {
+    const res = await apiFetch(path, {
+      method,
+      ...(body
+        ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }
+        : {}),
+    });
+    if (res.ok) return { ok: true };
+    if (res.status === 429) return { ok: false, error: 'rate_limited' };
+    let parsed: ReturnType<typeof SeatErrorSchema.safeParse> | undefined;
+    try {
+      parsed = SeatErrorSchema.safeParse(await safeJson<unknown>(res));
+    } catch {
+      parsed = undefined;
+    }
+    if (!parsed?.success) return { ok: false, error: 'failed' };
+    const date = parsed.data.available_at ?? parsed.data.current_period_end;
+    return date
+      ? { ok: false, error: parsed.data.error, date }
+      : { ok: false, error: parsed.data.error };
+  } catch {
+    return { ok: false, error: 'failed' };
+  }
+}
+
+/** A 409 that says a plan change is already booked. */
+async function isPendingPlanChangeConflict(res: Response): Promise<boolean> {
+  return res.status === 409 && (await readErrorCode(res)) === 'pending_plan_change';
 }
 
 export const useBillingStore = createStore<BillingState>()((set, get) => {
@@ -283,7 +446,7 @@ export const useBillingStore = createStore<BillingState>()((set, get) => {
     path: string,
     body: Record<string, string>
   ): Promise<BillingOutcome | null> => {
-    if (get().opening !== null) return null;
+    if (get().opening !== null || get().changing) return null;
     const ticket = ++launchTicket;
     const lifecycle = captureAuthLifecycle();
     const current = (): boolean => ticket === launchTicket && isSameAuthLifecycle(lifecycle);
@@ -301,7 +464,9 @@ export const useBillingStore = createStore<BillingState>()((set, get) => {
       if (!current()) return null;
       if (!session.ok) {
         set({ notice: session.notice });
-        if (session.notice === 'manage_existing') void get().fetchMe();
+        if (session.notice === 'manage_existing' || session.notice === 'seat_member') {
+          void get().fetchMe();
+        }
         return null;
       }
       const outcome = await openBillingSheet(kind, session.url);
@@ -313,6 +478,75 @@ export const useBillingStore = createStore<BillingState>()((set, get) => {
       // a same-account generation advance (password change) must not strand it.
       if (ticket === launchTicket) set({ opening: null });
     }
+  };
+
+  const seatAction = async (
+    path: string,
+    method: 'POST' | 'DELETE',
+    body?: Record<string, unknown>
+  ): Promise<SeatResult> => {
+    const result = await seatRequest(path, method, body);
+    // The push also re-reads; this covers a client whose socket is down. A
+    // refused request re-reads too, because the refusal usually means the
+    // page is stale (an expired invite, a seat ended elsewhere). Capability
+    // gates read the entitlement store, so it is re-read alongside.
+    if (result.ok || result.error !== 'offline') {
+      void get().fetchMe();
+      void useSubscriptionStore.getState().hydrate();
+    }
+    return result;
+  };
+
+  // A booked change that needs a payment step: open Stripe's payment page.
+  const applyPlanChangePayment = async (res: Response, current: () => boolean): Promise<void> => {
+    const payment = PendingPlanPaymentSchema.parse(await safeJson<unknown>(res));
+    if (!current()) return;
+    previewTicket += 1;
+    set({ preview: null, previewing: false });
+    if (!isStripePaymentUrl(payment.payment_url)) {
+      set({ notice: 'plan_change_payment_unavailable' });
+      return;
+    }
+    const opened = await globalThis.electron?.openExternal?.(payment.payment_url);
+    if (!current()) return;
+    let notice: BillingNotice = 'plan_change_payment_unavailable';
+    if (opened?.ok) {
+      notice =
+        payment.payment_status === 'card_declined'
+          ? 'card_declined'
+          : 'plan_change_payment_pending';
+    }
+    set({ notice });
+  };
+
+  const applyPlanChangeResult = async (res: Response, current: () => boolean): Promise<void> => {
+    const result = PlanChangeResultSchema.parse(await safeJson<unknown>(res));
+    if (!current()) return;
+    previewTicket += 1;
+    set({
+      notice: result.booking_failed ? 'plan_change_partial' : 'plan_change_saved',
+      preview: null,
+      previewing: false,
+    });
+    await get().fetchMe();
+    if (current()) await useSubscriptionStore.getState().hydrate();
+  };
+
+  const applyPlanChangeRefusal = async (
+    res: Response,
+    current: () => boolean,
+    plan: PlanId,
+    interval: PlanInterval
+  ): Promise<void> => {
+    const code = await readErrorCode(res);
+    if (!current()) return;
+    set({ notice: PLAN_CHANGE_ERROR_NOTICES.get(code ?? '') ?? 'plan_change_failed' });
+    if (code === 'card_declined' || code === 'payment_pending') {
+      previewTicket += 1;
+      set({ preview: null, previewing: false, previewError: true });
+    }
+    if (code === 'plan_change_conflict') void get().previewPlanChange(plan, interval);
+    if (code === 'pending_plan_change') void get().fetchMe();
   };
 
   return {
@@ -375,14 +609,152 @@ export const useBillingStore = createStore<BillingState>()((set, get) => {
 
     openPortal: (flow) => launch('portal', '/api/v1/billing/portal-session', flow ? { flow } : {}),
 
+    previewPlanChange: async (plan, interval) => {
+      const ticket = ++previewTicket;
+      const lifecycle = captureAuthLifecycle();
+      const current = (): boolean => ticket === previewTicket && isSameAuthLifecycle(lifecycle);
+      set({ previewing: true, preview: null, previewError: false });
+      try {
+        if (isOffline()) {
+          if (current()) set({ previewError: true });
+          return;
+        }
+        const res = await apiFetch('/api/v1/billing/plan-change/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ plan, interval }),
+        });
+        if (!current()) return;
+        if (!res.ok) {
+          if (await isPendingPlanChangeConflict(res)) {
+            if (current()) {
+              set({ notice: 'pending_plan_change' });
+              void get().fetchMe();
+            }
+            return;
+          }
+          throw new Error(`plan preview ${res.status}`);
+        }
+        const parsed = PlanChangeQuoteSchema.parse(await safeJson<unknown>(res));
+        if (current()) set({ preview: { ...parsed, plan, interval }, previewError: false });
+      } catch {
+        if (current()) set({ previewError: true });
+      } finally {
+        if (current()) set({ previewing: false });
+      }
+    },
+
+    clearPlanPreview: () => {
+      previewTicket += 1;
+      set({ preview: null, previewing: false, previewError: false });
+    },
+
+    changePlan: async (plan, interval, quote) => {
+      if (quote.plan !== plan || quote.interval !== interval || get().preview !== quote) return;
+      if (get().changing || get().opening !== null || get().pending) return;
+      const ticket = ++launchTicket;
+      const lifecycle = captureAuthLifecycle();
+      const current = (): boolean => ticket === launchTicket && isSameAuthLifecycle(lifecycle);
+      set({ changing: true, notice: null });
+      try {
+        if (isOffline()) {
+          if (current()) set({ notice: 'offline' });
+          return;
+        }
+        const res = await apiFetch('/api/v1/billing/plan-change', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            plan,
+            interval,
+            expected_effective: quote.effective,
+            expected_change_at: quote.change_at,
+            quoted_amount_due: quote.due_now,
+            proration_date: quote.proration_date,
+          }),
+        });
+        if (!current()) return;
+        if (res.status === 202) await applyPlanChangePayment(res, current);
+        else if (res.ok) await applyPlanChangeResult(res, current);
+        else await applyPlanChangeRefusal(res, current, plan, interval);
+      } catch {
+        if (current()) set({ notice: 'plan_change_failed' });
+      } finally {
+        if (ticket === launchTicket) set({ changing: false });
+      }
+    },
+
+    keepCurrentPlan: async () => {
+      if (get().changing || get().opening !== null) return;
+      const ticket = ++launchTicket;
+      const lifecycle = captureAuthLifecycle();
+      const current = (): boolean => ticket === launchTicket && isSameAuthLifecycle(lifecycle);
+      set({ changing: true, notice: null });
+      try {
+        if (isOffline()) {
+          if (current()) set({ notice: 'offline' });
+          return;
+        }
+        const res = await apiFetch('/api/v1/billing/plan-change/cancel', { method: 'POST' });
+        if (!current()) return;
+        if (!res.ok) throw new Error(`keep plan ${res.status}`);
+        previewTicket += 1;
+        set({ notice: 'plan_change_kept', preview: null, previewing: false });
+        await get().fetchMe();
+      } catch {
+        if (current()) set({ notice: 'plan_change_failed' });
+      } finally {
+        if (ticket === launchTicket) set({ changing: false });
+      }
+    },
+
+    cancelSubscription: async () => {
+      if (get().changing || get().opening !== null) return;
+      const ticket = ++launchTicket;
+      const lifecycle = captureAuthLifecycle();
+      const current = (): boolean => ticket === launchTicket && isSameAuthLifecycle(lifecycle);
+      set({ changing: true, notice: null });
+      try {
+        if (isOffline()) {
+          if (current()) set({ notice: 'offline' });
+          return;
+        }
+        const res = await apiFetch('/api/v1/billing/subscription-cancel', { method: 'POST' });
+        if (!current()) return;
+        if (!res.ok) throw new Error(`cancel subscription ${res.status}`);
+        previewTicket += 1;
+        set({ notice: 'subscription_canceling', preview: null, previewing: false });
+        await get().fetchMe();
+        if (current()) await useSubscriptionStore.getState().hydrate();
+      } catch {
+        if (current()) set({ notice: 'subscription_cancel_failed' });
+      } finally {
+        if (ticket === launchTicket) set({ changing: false });
+      }
+    },
+
     checkAgain: () => get().fetchMe(),
 
     dismissTransient: () => set({ activated: false, notice: null }),
+
+    inviteSeat: (userId, replace) =>
+      seatAction('/api/v1/billing/seat/invite', 'POST', { user_id: userId, replace }),
+    removeSeat: () => seatAction('/api/v1/billing/seat', 'DELETE'),
+    leaveSeat: async () => {
+      const result = await seatAction('/api/v1/billing/seat/leave', 'POST');
+      if (result.ok && get().notice === 'seat_member') set({ notice: null });
+      return result;
+    },
+    acceptInvite: (inviteId) =>
+      seatAction(`/api/v1/billing/seat-invites/${encodeURIComponent(inviteId)}/accept`, 'POST'),
+    declineInvite: (inviteId) =>
+      seatAction(`/api/v1/billing/seat-invites/${encodeURIComponent(inviteId)}/decline`, 'POST'),
 
     reset: () => {
       meTicket += 1;
       plansTicket += 1;
       launchTicket += 1;
+      previewTicket += 1;
       pendingTicket += 1;
       clearStallTimer();
       set({ ...INITIAL });

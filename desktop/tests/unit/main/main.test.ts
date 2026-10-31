@@ -29,6 +29,7 @@ const { mockMainWindow, mockWebContents, MockBrowserWindow } = vi.hoisted(() => 
     restore: vi.fn(),
     setAlwaysOnTop: vi.fn(),
     setContentProtection: vi.fn(),
+    flashFrame: vi.fn(),
     webContents: mockWebContents,
   };
   // Use mockImplementation (not mockReturnValue) — Vitest requires this for `new` calls
@@ -145,6 +146,7 @@ vi.mock('electron', () => ({
     disableHardwareAcceleration: vi.fn(),
     quit: vi.fn(),
     relaunch: vi.fn(),
+    setBadgeCount: vi.fn(),
     on: vi.fn(),
     getGPUInfo: vi.fn(() =>
       Promise.resolve({
@@ -2343,6 +2345,105 @@ describe('main.ts', () => {
         sideEffects.forEach((effect) => expect(effect).not.toHaveBeenCalled());
       }
     );
+  });
+
+  // T7 boy-scout hardening (tray-status spec §4, AC15): the three desktop
+  // notification helpers were the last renderer-reachable app:* handlers with no
+  // sender check and no payload shape check.
+  describe('IPC: notification helpers (AC15)', () => {
+    it('app:setBadgeCount sets an in-range integer for a trusted sender', async () => {
+      const { app } = await import('electron');
+      (app.setBadgeCount as Mock).mockClear();
+      await handlers.get('app:setBadgeCount')!(trustedIpcEvent, 3);
+      await handlers.get('app:setBadgeCount')!(trustedIpcEvent, 0);
+      await handlers.get('app:setBadgeCount')!(trustedIpcEvent, 9999);
+      expect((app.setBadgeCount as Mock).mock.calls).toEqual([[3], [0], [9999]]);
+    });
+
+    it('app:setBadgeCount clamps a real total above 9999 instead of dropping it', async () => {
+      const { app } = await import('electron');
+      (app.setBadgeCount as Mock).mockClear();
+      await handlers.get('app:setBadgeCount')!(trustedIpcEvent, 10000);
+      expect((app.setBadgeCount as Mock).mock.calls).toEqual([[9999]]);
+    });
+
+    it.each([1.5, -1, '3', Number.NaN, null, undefined])(
+      'app:setBadgeCount rejects %s',
+      async (count) => {
+        const { app } = await import('electron');
+        (app.setBadgeCount as Mock).mockClear();
+        await handlers.get('app:setBadgeCount')!(trustedIpcEvent, count);
+        expect(app.setBadgeCount).not.toHaveBeenCalled();
+      }
+    );
+
+    it('app:flashFrame passes a boolean and rejects anything else', async () => {
+      mockMainWindow.flashFrame.mockClear();
+      await handlers.get('app:flashFrame')!(trustedIpcEvent, true);
+      expect(mockMainWindow.flashFrame).toHaveBeenCalledWith(true);
+      mockMainWindow.flashFrame.mockClear();
+      await handlers.get('app:flashFrame')!(trustedIpcEvent, 'yes');
+      await handlers.get('app:flashFrame')!(trustedIpcEvent, 1);
+      expect(mockMainWindow.flashFrame).not.toHaveBeenCalled();
+    });
+
+    it('app:focusWindow restores and focuses for a trusted sender', async () => {
+      mockMainWindow.focus.mockClear();
+      mockMainWindow.restore.mockClear();
+      mockMainWindow.isMinimized.mockReturnValueOnce(true);
+      await handlers.get('app:focusWindow')!(trustedIpcEvent);
+      expect(mockMainWindow.restore).toHaveBeenCalledTimes(1);
+      expect(mockMainWindow.focus).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([foreignIpcEvent, { senderFrame: null }])(
+      'all three reject an untrusted or missing sender',
+      async (event) => {
+        const { app } = await import('electron');
+        (app.setBadgeCount as Mock).mockClear();
+        mockMainWindow.flashFrame.mockClear();
+        mockMainWindow.focus.mockClear();
+        mockMainWindow.restore.mockClear();
+        await handlers.get('app:setBadgeCount')!(event, 1);
+        await handlers.get('app:flashFrame')!(event, true);
+        await handlers.get('app:focusWindow')!(event);
+        expect(app.setBadgeCount).not.toHaveBeenCalled();
+        expect(mockMainWindow.flashFrame).not.toHaveBeenCalled();
+        expect(mockMainWindow.focus).not.toHaveBeenCalled();
+        expect(mockMainWindow.restore).not.toHaveBeenCalled();
+      }
+    );
+  });
+
+  describe('status-aware tray wiring (tray-status spec §4, R17)', () => {
+    it('registers the tray reset hooks on the main window webContents', () => {
+      const events = mockWebContents.on.mock.calls.map((c: unknown[]) => c[0]);
+      expect(events).toEqual(
+        expect.arrayContaining([
+          'did-navigate',
+          'did-fail-load',
+          'unresponsive',
+          'responsive',
+          'destroyed',
+          'render-process-gone',
+        ])
+      );
+    });
+
+    it('feeds window focus to the tray', () => {
+      const events = mockMainWindow.on.mock.calls.map((c: unknown[]) => c[0]);
+      expect(events).toEqual(expect.arrayContaining(['focus', 'blur']));
+      const focus = mockMainWindow.on.mock.calls.find((c: unknown[]) => c[0] === 'focus');
+      const blur = mockMainWindow.on.mock.calls.find((c: unknown[]) => c[0] === 'blur');
+      expect(() => (focus![1] as () => void)()).not.toThrow();
+      expect(() => (blur![1] as () => void)()).not.toThrow();
+    });
+
+    it('tray:setStatus refuses a foreign sender without throwing', async () => {
+      await expect(
+        Promise.resolve(handlers.get('tray:setStatus')!(foreignIpcEvent, {}))
+      ).resolves.toBe(true);
+    });
   });
 
   describe('IPC: PiP window management', () => {
@@ -4994,6 +5095,10 @@ describe('main.ts', () => {
         'pip:open',
         'pip:close',
         'pip:setAlwaysOnTop',
+        'tray:setStatus',
+        'app:setBadgeCount',
+        'app:flashFrame',
+        'app:focusWindow',
       ];
       for (const channel of expected) {
         expect(handlers.has(channel), `missing handler: ${channel}`).toBe(true);
@@ -5009,30 +5114,33 @@ describe('main.ts', () => {
       expect(klipyInterceptor!.filter.urls).toEqual(['*://*/api/v1/klipy/media*']);
     });
 
-    it('injects Authorization header when token and matching origin are available', async () => {
-      const tokenManager = await import('../../../src/main/tokenManager');
-      const { app } = await import('electron');
-      (tokenManager.getCachedAccessToken as Mock).mockReturnValueOnce('test-jwt-token');
-      (tokenManager.getApiBaseOrigin as Mock).mockReturnValueOnce('http://localhost:8080');
-      (app.getVersion as Mock).mockReturnValueOnce('1.0.0');
+    it.each(['1.0.0', '1.1.0-pilot.2'])(
+      'injects Authorization header when token and matching origin are available (%s)',
+      async (version) => {
+        const tokenManager = await import('../../../src/main/tokenManager');
+        const { app } = await import('electron');
+        (tokenManager.getCachedAccessToken as Mock).mockReturnValueOnce('test-jwt-token');
+        (tokenManager.getApiBaseOrigin as Mock).mockReturnValueOnce('http://localhost:8080');
+        (app.getVersion as Mock).mockReturnValueOnce(version);
 
-      const details = {
-        url: 'http://localhost:8080/api/v1/klipy/media?url=https%3A%2F%2Fstatic.klipy.com%2Fimg.gif',
-        requestHeaders: {} as Record<string, string>,
-      };
-      const callback = vi.fn();
+        const details = {
+          url: 'http://localhost:8080/api/v1/klipy/media?url=https%3A%2F%2Fstatic.klipy.com%2Fimg.gif',
+          requestHeaders: {} as Record<string, string>,
+        };
+        const callback = vi.fn();
 
-      klipyInterceptor!.callback(details, callback);
+        klipyInterceptor!.callback(details, callback);
 
-      expect(callback).toHaveBeenCalledWith({
-        requestHeaders: {
-          Authorization: 'Bearer test-jwt-token',
-          'X-Concord-Client-Version': '1.0.0',
-        },
-      });
-    });
+        expect(callback).toHaveBeenCalledWith({
+          requestHeaders: {
+            Authorization: 'Bearer test-jwt-token',
+            'X-Concord-Client-Version': version,
+          },
+        });
+      }
+    );
 
-    it.each(['1.0.0-beta.1', 'custom-build'])(
+    it.each(['1.0.0-beta.1', 'custom-build', '1.1.1-pilot.2', '1.1.0-pilot.01', '1.1.0-pilot.1\n'])(
       'omits the client-version header for app version %s',
       async (version) => {
         const tokenManager = await import('../../../src/main/tokenManager');
@@ -5071,23 +5179,28 @@ describe('main.ts', () => {
       expect(details.requestHeaders['X-Concord-Client-Version']).toBeUndefined();
     });
 
-    it('does not inject header when request origin does not match API base', async () => {
-      const tokenManager = await import('../../../src/main/tokenManager');
-      (tokenManager.getCachedAccessToken as Mock).mockReturnValueOnce('test-jwt-token');
-      (tokenManager.getApiBaseOrigin as Mock).mockReturnValueOnce('http://localhost:8080');
+    it.each(['1.0.0', '1.1.0-pilot.2'])(
+      'does not inject header when request origin does not match API base (%s)',
+      async (version) => {
+        const { app } = await import('electron');
+        (app.getVersion as Mock).mockReturnValue(version);
+        const tokenManager = await import('../../../src/main/tokenManager');
+        (tokenManager.getCachedAccessToken as Mock).mockReturnValueOnce('test-jwt-token');
+        (tokenManager.getApiBaseOrigin as Mock).mockReturnValueOnce('http://localhost:8080');
 
-      const details = {
-        url: 'https://attacker.tld/api/v1/klipy/media?steal=true',
-        requestHeaders: {} as Record<string, string>,
-      };
-      const callback = vi.fn();
+        const details = {
+          url: 'https://attacker.tld/api/v1/klipy/media?steal=true',
+          requestHeaders: {} as Record<string, string>,
+        };
+        const callback = vi.fn();
 
-      klipyInterceptor!.callback(details, callback);
+        klipyInterceptor!.callback(details, callback);
 
-      expect(callback).toHaveBeenCalledWith({ requestHeaders: {} });
-      expect(details.requestHeaders['Authorization']).toBeUndefined();
-      expect(details.requestHeaders['X-Concord-Client-Version']).toBeUndefined();
-    });
+        expect(callback).toHaveBeenCalledWith({ requestHeaders: {} });
+        expect(details.requestHeaders['Authorization']).toBeUndefined();
+        expect(details.requestHeaders['X-Concord-Client-Version']).toBeUndefined();
+      }
+    );
 
     it('does not inject header when API base origin is null', async () => {
       const tokenManager = await import('../../../src/main/tokenManager');

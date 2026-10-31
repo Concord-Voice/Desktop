@@ -17,7 +17,9 @@ import { easterEggMessage, type RedeemResult } from './redeemEasterEgg';
 //   409 → the user already redeemed THIS code (idempotent, not an oracle), or,
 //         with error `credit_confirmation_required`, a code for another plan
 //         would become face-value credit on the user's subscription (#2033 D1):
-//         the form shows the quote and re-sends with `confirm_credit` on Add,
+//         the form shows the quote and re-sends with `confirm_credit` on Add;
+//         with error `seat_member`, the user's access comes from a friend's
+//         Wing and the code stays unused (#2033 PR-5, D5),
 //   503 `billing_unavailable` → billing is not set up for credit; nothing redeemed
 //         (any other 503 gets the generic message),
 //   otherwise → an infra error (the grant may still have landed post-commit).
@@ -62,6 +64,32 @@ const PLAN_NAMES: Record<string, string> = { supersonic: 'Supersonic', wing: 'Wi
 const planName = (plan: string) => PLAN_NAMES[plan] ?? plan;
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
+/** Parse a JSON body, or null when it is missing or unparseable. */
+async function readJson<T>(res: Response): Promise<T | null> {
+  try {
+    return await safeJson<T>(res);
+  } catch {
+    return null;
+  }
+}
+
+/** What a refused /redeem means: a credit offer to confirm, or a message. */
+async function redeemFailure(res: Response): Promise<{ quote: CreditQuote } | { message: string }> {
+  if (res.status === 409) {
+    // An unparseable 409 is treated as the already-redeemed case.
+    const body = await readJson<CreditConfirmationBody>(res);
+    const quote = creditQuote(body);
+    if (quote) return { quote };
+    if (body?.error === 'seat_member') return { message: SEAT_MEMBER_MESSAGE };
+  }
+  if (res.status === 503) {
+    // Only billing_unavailable is known to leave the code unused.
+    const body = await readJson<{ error?: string }>(res);
+    if (body?.error !== 'billing_unavailable') return { message: messageForStatus(0) };
+  }
+  return { message: messageForStatus(res.status) };
+}
+
 interface RedeemCodeFormProps {
   // Called after a successful redeem so the parent re-reads /subscriptions/me.
   onRedeemed: () => void;
@@ -74,7 +102,7 @@ const RedeemCodeForm: React.FC<RedeemCodeFormProps> = ({ onRedeemed }) => {
   const [quote, setQuote] = useState<CreditQuote | null>(null);
   const hydrateEntitlements = useSubscriptionStore((s) => s.hydrate);
   const inputRef = useRef<HTMLInputElement>(null);
-  const confirmRef = useRef<HTMLDivElement>(null);
+  const confirmRef = useRef<HTMLFieldSetElement>(null);
 
   // Move focus to the quote when it appears, so a screen reader reads it.
   useEffect(() => {
@@ -132,14 +160,8 @@ const RedeemCodeForm: React.FC<RedeemCodeFormProps> = ({ onRedeemed }) => {
         // richer "what was granted" description, but a parse failure on a 200
         // must NOT fall into the network-error catch below — the code IS
         // redeemed, so we still confirm success (with a generic message).
-        let description = 'Your code was redeemed.';
-        try {
-          const data = await safeJson<RedeemSuccess>(res);
-          if (data?.description) description = data.description;
-        } catch {
-          // Unparseable success body — keep the generic confirmation.
-        }
-        setResult({ kind: 'success', message: description });
+        const data = await readJson<RedeemSuccess>(res);
+        setResult({ kind: 'success', message: data?.description || 'Your code was redeemed.' });
         setCode('');
         // Re-hydrate the entitlement store immediately (the WS push also fires,
         // but this makes the FeatureGrid/PlanCard update without a race), then
@@ -149,30 +171,9 @@ const RedeemCodeForm: React.FC<RedeemCodeFormProps> = ({ onRedeemed }) => {
         return;
       }
 
-      if (res.status === 409) {
-        let q: CreditQuote | null = null;
-        try {
-          q = creditQuote(await safeJson<CreditConfirmationBody>(res));
-        } catch {
-          // Unparseable 409 — treat it as the already-redeemed case.
-        }
-        if (q) {
-          setQuote(q);
-          return;
-        }
-      }
-      let message = messageForStatus(res.status);
-      if (res.status === 503) {
-        // Only billing_unavailable is known to leave the code unused.
-        let body: { error?: string } | null = null;
-        try {
-          body = await safeJson<{ error?: string }>(res);
-        } catch {
-          // Unparseable 503 — use the generic message.
-        }
-        if (body?.error !== 'billing_unavailable') message = messageForStatus(0);
-      }
-      setResult({ kind: 'error', message });
+      const failure = await redeemFailure(res);
+      if ('quote' in failure) setQuote(failure.quote);
+      else setResult({ kind: 'error', message: failure.message });
     } catch {
       setResult({
         kind: 'error',
@@ -219,10 +220,9 @@ const RedeemCodeForm: React.FC<RedeemCodeFormProps> = ({ onRedeemed }) => {
       </div>
 
       {quote && (
-        <div
+        <fieldset
           ref={confirmRef}
           className="subscription-redeem-confirm"
-          role="group"
           aria-label="Confirm credit"
           tabIndex={-1}
         >
@@ -249,7 +249,7 @@ const RedeemCodeForm: React.FC<RedeemCodeFormProps> = ({ onRedeemed }) => {
               Cancel
             </button>
           </div>
-        </div>
+        </fieldset>
       )}
       {result?.kind === 'error' && (
         <div className="subscription-redeem-alert" role="alert">
@@ -266,6 +266,9 @@ const RedeemCodeForm: React.FC<RedeemCodeFormProps> = ({ onRedeemed }) => {
     </form>
   );
 };
+
+const SEAT_MEMBER_MESSAGE =
+  "You have Supersonic through a friend's Wing. Your code was not used. Leave Wing first to use it.";
 
 // messageForStatus maps the engine's HTTP status to a distinct user message. The
 // 400 message stays generic (no-oracle contract) — it must NOT claim to know

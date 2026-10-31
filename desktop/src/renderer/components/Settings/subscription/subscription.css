@@ -79,6 +79,9 @@
 }
 
 .subscription-plan-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: calc(14px * var(--font-scale, 1));
   font-weight: 600;
   color: var(--text-primary);
@@ -205,6 +208,8 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin: 0;
+  min-width: 0;
   padding: 8px 12px;
   border-radius: 8px;
   border: 1px solid var(--accent-primary);
@@ -304,12 +309,6 @@
   border: 0;
 }
 
-.subscription-plan-state {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .subscription-plan-state-icon {
   flex: 0 0 auto;
 }
@@ -400,6 +399,66 @@
   gap: 16px;
 }
 
+.subscription-plan-change {
+  margin: 16px 0 0;
+  padding: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.subscription-plan-change legend {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.subscription-plan-change label {
+  display: grid;
+  gap: 4px;
+  color: var(--text-primary);
+}
+
+.subscription-plan-change select {
+  min-height: 36px;
+  padding: 6px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.subscription-plan-change .subscription-plan-blurb {
+  flex-basis: 100%;
+}
+
+.subscription-plan-change select:focus-visible {
+  outline: 2px solid var(--state-focused);
+  outline-offset: 2px;
+}
+
+.subscription-pending-change,
+.subscription-cancel-confirmation {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.subscription-pending-change .subscription-plan-blurb,
+.subscription-cancel-confirmation p {
+  margin: 0;
+}
+
+.subscription-cancel-confirmation {
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  color: var(--text-primary);
+}
+
 .subscription-plan-hint {
   margin: 8px 0 0;
   color: var(--text-secondary);
@@ -425,7 +484,9 @@
 }
 
 .subscription-button[aria-disabled='true'],
-.subscription-text-button[aria-disabled='true'] {
+.subscription-text-button[aria-disabled='true'],
+.subscription-button:disabled,
+.subscription-text-button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
@@ -578,4 +639,61 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+
+/* ── Wing seats (#2033 PR-5) ───────────────────────────────────────────── */
+.subscription-seat-well {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-color);
+}
+
+.subscription-seat-well-title {
+  margin: 0 0 6px;
+  color: var(--text-primary);
+  font-size: calc(15px * var(--font-scale, 1));
+  font-weight: 600;
+}
+
+.subscription-seat-invite {
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 16px 18px;
+  background: var(--bg-secondary);
+}
+
+.subscription-seat-invite .subscription-plan-state {
+  margin: 0 0 8px;
+}
+
+.subscription-seat-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 280px;
+  margin: 8px 0 0;
+  padding: 0;
+  overflow-y: auto;
+  border: none;
+}
+
+.subscription-seat-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: calc(15px * var(--font-scale, 1));
+  cursor: pointer;
+}
+
+.subscription-seat-picker-option:hover {
+  background: var(--bg-tertiary);
+}
+
+.subscription-seat-picker-option input:focus-visible {
+  outline: 2px solid var(--state-focused);
+  outline-offset: 3px;
 }

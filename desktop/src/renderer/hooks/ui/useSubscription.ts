@@ -1,5 +1,11 @@
 import { useEffect } from 'react';
-import { useBillingStore, type BillingMe, type StripeRow } from '../../stores/auth/billingStore';
+import {
+  useBillingStore,
+  type BillingMe,
+  type SeatInfo,
+  type SeatInvite,
+  type StripeRow,
+} from '../../stores/auth/billingStore';
 import { useSubscriptionStore } from '../../stores/auth/subscriptionStore';
 
 // Subscription status for Settings ▸ Account ▸ Subscription: a thin selector
@@ -7,7 +13,7 @@ import { useSubscriptionStore } from '../../stores/auth/subscriptionStore';
 //
 // The entitlement store (#1297) carries only the resolved `tier`. This adds the
 // grant's status, source and expiry, the instance's billing mode, and the live
-// Stripe and code rows. The read runs on mount and again whenever the store's
+// Stripe and code rows, and the Wing seat side. The read runs on mount and again whenever the store's
 // tier changes (an entitlements_changed push), so a redeem or a purchase shows
 // without an explicit refetch; `refetch` is the Retry and post-redeem re-read.
 //
@@ -15,7 +21,7 @@ import { useSubscriptionStore } from '../../stores/auth/subscriptionStore';
 // falls back to the entitlement store's tier (itself fail-closed to free) with
 // status 'unknown' and `error` set. Cached access is never shown as verified.
 
-export type SubscriptionSource = 'code' | 'stripe';
+export type SubscriptionSource = 'code' | 'stripe' | 'seat';
 export type BillingMode = BillingMe['billing'];
 
 export interface SubscriptionInfo {
@@ -27,6 +33,8 @@ export interface SubscriptionInfo {
   trialAvailable?: boolean;
   stripe?: StripeRow;
   codeExpiry?: string | null; // undefined: no live code row; null: a code row that never lapses
+  seat?: SeatInfo; // the caller's Wing seat side (#2033 PR-5)
+  invites: SeatInvite[]; // open Wing invites the caller may answer
   loading: boolean;
   error: boolean;
   refetch: () => void;
@@ -55,6 +63,7 @@ export function useSubscription(): SubscriptionInfo {
       tier: storeTier,
       status: 'unknown',
       billing: 'not_configured',
+      invites: [],
       loading: !meError,
       error: meError,
       refetch,
@@ -70,6 +79,8 @@ export function useSubscription(): SubscriptionInfo {
     trialAvailable: me.trial_available,
     stripe: me.stripe,
     codeExpiry: me.code ? me.code.current_period_end : undefined,
+    seat: me.seat,
+    invites: me.invites,
     loading: false,
     error: false,
     refetch,

@@ -1,0 +1,83 @@
+name: Voice Runtime Probes
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "desktop/package*.json"
+      - "desktop/src/renderer/services/voice/**"
+      - "desktop/src/renderer/services/e2ee/**"
+      - "desktop/src/renderer/workers/e2eeWorker.ts"
+      - "desktop/scripts/voice-runtime-probe/**"
+      - ".github/workflows/voice-runtime-probes.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: voice-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ioc:
+    uses: ./.github/workflows/ioc-scanning.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
+  media:
+    name: Encrypted voice runtime / ${{ matrix.os }}
+    needs: [ioc]
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The media worker lives in the public Self-Hosted repo since the split (epic #3947).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Concord-Voice/Self-Hosted
+          path: self-hosted
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.20.0
+          package-manager-cache: false
+      - name: Install media worker and desktop dependencies
+        shell: bash
+        run: |
+          npm --prefix self-hosted/services/media-plane ci
+          npm --prefix desktop ci
+      - name: Supply-chain post-install tripwire
+        shell: bash
+        run: scripts/security/scan-supply-chain-iocs.sh --include-node-modules --working-tree-only
+      - name: Configure the test Electron sandbox helper
+        if: runner.os == 'Linux'
+        working-directory: desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper=$(node -e 'const fs=require("node:fs"),p=require("node:path");const dir=fs.realpathSync("node_modules/electron/dist"),helper=p.join(dir,"chrome-sandbox");if(p.dirname(fs.realpathSync(require("electron")))!==dir||fs.lstatSync(helper).isSymbolicLink()||!fs.lstatSync(helper).isFile())throw new Error("Unexpected Electron sandbox helper");process.stdout.write(helper)')
+          sudo chown root:root -- "$helper"
+          sudo chmod 4755 -- "$helper"
+      - name: Run real encrypted voice and A/V probes
+        working-directory: desktop
+        timeout-minutes: 5
+        shell: bash
+        env:
+          MEDIA_PROBE_OUTPUT: ${{ runner.temp }}/voice-runtime.json
+          MEDIA_PROBE_SERVER_DIR: ${{ github.workspace }}/self-hosted/services/media-plane
+        run: |
+          set -euo pipefail
+          node --test --test-concurrency=2 scripts/voice-runtime-probe/local-sfu.test.mjs scripts/voice-runtime-probe/witness-contract.test.mjs scripts/voice-runtime-probe/audio-witness.test.mjs
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            xvfb-run -a node scripts/voice-runtime-probe/run.mjs
+          else
+            node scripts/voice-runtime-probe/run.mjs
+          fi
