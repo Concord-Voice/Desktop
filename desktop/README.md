@@ -138,7 +138,8 @@ a "Desktop application" client's `client_secret` is **not confidential**. PKCE
 (`code_challenge_method=S256`) is the actual security control.
 
 `npm run build:gclientsecret` injects the value at package time (from the
-`GOOGLE_OAUTH_CLIENT_SECRET_DESKTOP` env var / CI repo secret) into a
+`GOOGLE_OAUTH_CLIENT_SECRET_DESKTOP` env var; in CI, the repo variable of the same
+name, since the unsigned build lane may read no secrets) into a
 main-process-only `googleClientSecret.json` resource, read by
 `src/main/oauth/google/clientSecret.ts`. It is deliberately **not** a
 `VITE_`-prefixed variable, so it never enters the renderer bundle. A build
