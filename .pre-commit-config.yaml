@@ -50,7 +50,7 @@ repos:
         pass_filenames: false
 
   - repo: https://github.com/Yelp/detect-secrets
-    rev: v1.5.0
+    rev: 01886c8a910c64595c47f186ca1ffc0b77fa5458  # frozen: v1.5.0
     hooks:
       - id: detect-secrets
         args: ['--baseline', '.secrets.baseline']
@@ -77,7 +77,7 @@ repos:
         exclude: '(^|/)package-lock\.json$'
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b  # frozen: v5.0.0
     hooks:
       - id: check-added-large-files
         args: ['--maxkb=5000']
@@ -110,7 +110,7 @@ repos:
       - id: mixed-line-ending
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
+    rev: cef0300fd0fc4d2a87a85fa2093c6b283ea36f4b  # frozen: v5.0.0
     hooks:
       - id: detect-aws-credentials
         args: ['--allow-missing-credentials']
@@ -122,16 +122,19 @@ repos:
   # Secret Scanning + push protection, org-enforced (code-security config
   # 251472) — fork PRs bypass pre-commit, which is why the other layers exist.
   - repo: https://github.com/trufflesecurity/trufflehog
-    rev: v3.99.2
+    rev: e76dff8a7e57d6df0c60ad8cbf5d5cba505a8fc9  # frozen: v3.99.2
     hooks:
       - id: trufflehog
         name: TruffleHog
-        entry: bash -c 'trufflehog git file://. --since-commit HEAD --only-verified --fail'
+        # No --only-verified: a staged key that is fake, revoked or offline
+        # never verifies, so the hook passed it (canary test, 2026-10-31).
+        # Silence a fixture with an inline `trufflehog:ignore` comment.
+        entry: bash -c 'trufflehog git file://. --since-commit HEAD --fail'
 
   # gitleaks stays in the local layer; its CI working-tree job was retired in
   # the #1429 consolidation (superseded by platform push protection).
   - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.24.3
+    rev: 107a41827bb6698dbbff756b2300537774a1d84c  # frozen: v8.24.3
     hooks:
       - id: gitleaks
 
@@ -159,7 +162,7 @@ repos:
   # .claude/rules/electron.md applies to third-party GHA actions in workflows,
   # not pre-commit hooks.
   - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.12
+    rev: 914e7df21a07ef503a81201c76d2b11c789d3fca  # frozen: v1.7.12
     hooks:
       - id: actionlint
         # Shellcheck integration is ENABLED. The 27 pre-existing shellcheck
@@ -305,7 +308,7 @@ repos:
 
   # ── SAST (Semgrep) ───────────────────────────────────────────────────
   - repo: https://github.com/semgrep/semgrep
-    rev: v1.121.0
+    rev: a8d5ed32994273e8c94a5bf27201fef1106d1e74  # frozen: v1.121.0
     hooks:
       - id: semgrep
         name: Semgrep SAST
@@ -520,3 +523,13 @@ repos:
         additional_dependencies: ['PyYAML==6.0.3']
         files: '^scripts/security/(audit-dependabot-coverage\.sh|test-audit-dependabot-coverage\.sh|check-pin-exceptions\.mjs)$'
         pass_filenames: false
+
+  # Remote hook revs are commit SHAs, never tags: a moved tag would run new
+  # code on the next `pre-commit install`. Keep the tag as `# frozen: vX`.
+  - repo: local
+    hooks:
+      - id: hook-revs-are-shas
+        name: pre-commit hook revs are pinned to commit SHAs
+        language: pygrep
+        entry: '^\s*rev:\s*(?![0-9a-f]{40}\s+# frozen: \S+\s*$)'
+        files: '^\.pre-commit-config\.yaml$'
