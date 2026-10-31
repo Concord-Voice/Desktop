@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ALLOWED_WINDOWS_PUBLISHERS } from '../../../src/shared/allowedWindowsPublishers';
+import type * as VerifyWindowsSignature from '../../../src/main/verifyWindowsSignature';
 
 // ── Hoisted mocks ────────────────────────────────────────────────────────
 
@@ -618,8 +619,7 @@ describe('updater', () => {
       mockPrepareForUpdate.mockReset().mockResolvedValue(true);
       mockAutoUpdater.downloadUpdate.mockReset().mockResolvedValue([]);
       vi.doMock('../../../src/main/verifyWindowsSignature', async (importOriginal) => {
-        const actual =
-          await importOriginal<typeof import('../../../src/main/verifyWindowsSignature')>();
+        const actual = await importOriginal<typeof VerifyWindowsSignature>();
         return { ...actual, extractChain };
       });
     });
