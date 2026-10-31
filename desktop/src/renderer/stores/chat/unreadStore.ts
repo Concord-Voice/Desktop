@@ -209,7 +209,7 @@ function clearServerIndicators(state: UnreadState, serverId: string) {
   };
 }
 
-function unreadChannelServerId(state: UnreadState, channelId: string): string | null {
+export function unreadChannelServerId(state: UnreadState, channelId: string): string | null {
   const entry = state.allUnreadCounts.get(channelId);
   if (entry) return entry.serverId;
   return state.unreadCountsSnapshotIds.has(channelId) ? state.unreadCountsServerId : null;

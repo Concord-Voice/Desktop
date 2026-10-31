@@ -24,6 +24,7 @@ const friend = (userId: string, displayName: string): Friend => ({
   status: 'online',
 });
 
+const ORIGINAL_FETCH_FRIENDS = useFriendStore.getState().fetchFriends;
 let inviteSeat: Mock<(u: string, r: boolean) => Promise<SeatResult>>;
 let removeSeat: Mock<() => Promise<SeatResult>>;
 let leaveSeat: Mock<() => Promise<SeatResult>>;
@@ -38,10 +39,14 @@ beforeEach(() => {
   acceptInvite = vi.fn().mockResolvedValue({ ok: true });
   declineInvite = vi.fn().mockResolvedValue({ ok: true });
   useBillingStore.setState({ inviteSeat, removeSeat, leaveSeat, acceptInvite, declineInvite });
-  useFriendStore.setState({ friends: [friend('u-ada', 'Ada'), friend('u-bo', 'Bo')] });
+  useFriendStore.setState({
+    friends: [friend('u-ada', 'Ada'), friend('u-bo', 'Bo')],
+    friendsHydrated: true,
+  });
 });
 
 afterEach(() => {
+  useFriendStore.setState({ fetchFriends: ORIGINAL_FETCH_FRIENDS });
   useBillingStore.setState({
     inviteSeat: ORIGINAL.inviteSeat,
     removeSeat: ORIGINAL.removeSeat,
@@ -93,6 +98,33 @@ describe('WingSeatPanel', () => {
     render(<WingSeatPanel seat={{ role: 'payer' }} />);
     expect(screen.getByText(/Add a friend first/)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Invite a friend' })).not.toBeInTheDocument();
+  });
+
+  it('loads an unloaded roster before offering the invite', async () => {
+    const fetchFriends = vi.fn(async () => {
+      useFriendStore.setState({ friends: [friend('u-ada', 'Ada')], friendsHydrated: true });
+    });
+    useFriendStore.setState({ friends: [], friendsHydrated: false, fetchFriends });
+    render(<WingSeatPanel seat={{ role: 'payer' }} />);
+    expect(screen.queryByText(/Add a friend first/)).not.toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Invite a friend' })).toBeInTheDocument();
+    expect(fetchFriends).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers a retry, not the no-friends copy, when the roster fails to load', async () => {
+    const fetchFriends = vi.fn().mockResolvedValue(undefined);
+    useFriendStore.setState({
+      friends: [],
+      friendsHydrated: false,
+      error: 'Failed to load friends',
+      fetchFriends,
+    });
+    render(<WingSeatPanel seat={{ role: 'payer' }} />);
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't load your friends.");
+    expect(screen.queryByText(/Add a friend first/)).not.toBeInTheDocument();
+    expect(fetchFriends).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(fetchFriends).toHaveBeenCalledTimes(1);
   });
 
   it('withdraws a pending invite', async () => {

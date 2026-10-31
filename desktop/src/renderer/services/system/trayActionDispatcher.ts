@@ -2,7 +2,11 @@ import { voiceService } from '../voice/voiceService';
 import { setOwnPresence } from '../presence/setOwnPresence';
 import { useVoiceStore } from '../../stores/voice/voiceStore';
 import { useUserStore } from '../../stores/auth/userStore';
-import { useUnreadStore, type RecentUnreadTarget } from '../../stores/chat/unreadStore';
+import {
+  unreadChannelServerId,
+  useUnreadStore,
+  type RecentUnreadTarget,
+} from '../../stores/chat/unreadStore';
 import { useDMStore } from '../../stores/chat/dmStore';
 import { useServerStore } from '../../stores/chat/serverStore';
 import { useNotificationNavigationStore } from '../../stores/ui/notificationNavigationStore';
@@ -121,10 +125,24 @@ function firstUnreadChannel(): RecentUnreadTarget | undefined {
   return rows.find(([target, count]) => count > 0 && !isMuted(target))?.[0];
 }
 
+/**
+ * Channel navigation needs a server. A target pushed before the first per-server
+ * fetch has none, so resolve it from the authoritative maps now, or skip it.
+ */
+function withServer(target: RecentUnreadTarget): RecentUnreadTarget | undefined {
+  if (target.type === 'dm' || target.serverId) return target;
+  const serverId = unreadChannelServerId(useUnreadStore.getState(), target.targetId);
+  return serverId ? { ...target, serverId } : undefined;
+}
+
 /** LIFO: the most recently received conversation that is still unread. */
 function openUnread(): void {
   const target =
-    useUnreadStore.getState().recentUnreadTargets.find(isStillUnread) ?? restoredUnreadTarget();
+    useUnreadStore
+      .getState()
+      // Resolve first so the mute check sees the server.
+      .recentUnreadTargets.map(withServer)
+      .find((t) => t !== undefined && isStillUnread(t)) ?? restoredUnreadTarget();
   if (!target) return;
   useNotificationNavigationStore.getState().setPendingNavigation({
     type: target.type,

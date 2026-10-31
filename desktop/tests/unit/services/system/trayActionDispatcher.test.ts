@@ -155,6 +155,7 @@ describe('trayActionDispatcher', () => {
     });
 
     it('skips entries already read and falls through to the next', () => {
+      useUnreadStore.getState().setInitialUnreads(new Map(), 's0');
       useUnreadStore.getState().incrementUnread('c-old');
       useUnreadStore.getState().bumpChannelUnread('c-new', 's1');
       // Read without going through clearUnread: the stack still holds c-new.
@@ -301,6 +302,49 @@ describe('trayActionDispatcher', () => {
       } finally {
         useNotificationPrefsStore.setState({ mutedChannels: new Map() });
       }
+    });
+
+    it('resolves a server recorded after the target was pushed', () => {
+      // Pushed before the first per-server fetch, so the stack entry has no server.
+      useUnreadStore.getState().incrementUnread('c-early');
+      expect(useUnreadStore.getState().recentUnreadTargets[0]?.serverId).toBeUndefined();
+      useUnreadStore.setState({
+        allUnreadCounts: new Map([['c-early', { serverId: 's9', count: 1 }]]),
+      });
+      handleTrayAction({ kind: 'open-unread' });
+      expect(useNotificationNavigationStore.getState().pendingNavigation).toEqual({
+        type: 'channel',
+        targetId: 'c-early',
+        serverId: 's9',
+      });
+    });
+
+    it('checks server mutes against the resolved server', () => {
+      const muted = { muted: true, mutedUntil: null, updatedAt: new Date(0) };
+      useUnreadStore.getState().incrementUnread('c-early');
+      // The snapshot owns c-early, but no bulk row names its server.
+      useUnreadStore.getState().setInitialUnreads(new Map([['c-early', 1]]), 's1');
+      useDMStore.setState({ conversations: [{ id: 'd1', unreadCount: 2 }] } as never);
+      useNotificationPrefsStore.setState({ mutedServers: new Map([['s1', muted]]) });
+      try {
+        handleTrayAction({ kind: 'open-unread' });
+        expect(useNotificationNavigationStore.getState().pendingNavigation).toEqual({
+          type: 'dm',
+          targetId: 'd1',
+        });
+      } finally {
+        useNotificationPrefsStore.setState({ mutedServers: new Map() });
+      }
+    });
+
+    it('skips a target whose server is unknown and falls through', () => {
+      useUnreadStore.getState().incrementUnread('c-orphan');
+      useDMStore.setState({ conversations: [{ id: 'd1', unreadCount: 2 }] } as never);
+      handleTrayAction({ kind: 'open-unread' });
+      expect(useNotificationNavigationStore.getState().pendingNavigation).toEqual({
+        type: 'dm',
+        targetId: 'd1',
+      });
     });
 
     it('does nothing when nothing is unread', () => {
