@@ -93,7 +93,7 @@ describe('LegalDocumentContent source-owned Markdown', () => {
     render(<LegalDocumentContent document={document} />);
     expect(screen.getByRole('link', { name: 'Repository guide' })).toHaveAttribute(
       'href',
-      'https://github.com/Concord-Voice/Concord-Voice/blob/main/README.md'
+      'https://github.com/Concord-Voice/Desktop/blob/main/README.md'
     );
     expect(screen.queryByRole('link', { name: 'Escapes repository' })).not.toBeInTheDocument();
   });
@@ -126,7 +126,7 @@ describe('LegalDocumentContent source-owned Markdown', () => {
     );
     expect(screen.getByRole('link', { name: 'Commercial license' })).toHaveAttribute(
       'href',
-      'https://github.com/Concord-Voice/Concord-Voice/blob/main/docs/legal/commercial-license.md#contact'
+      'https://github.com/Concord-Voice/Desktop/blob/main/docs/legal/commercial-license.md#contact'
     );
     expect(screen.getByRole('link', { name: 'Privacy contact' })).toHaveAttribute(
       'href',
@@ -167,7 +167,7 @@ describe('LegalDocumentContent source-owned Markdown', () => {
     }
     expect(screen.getByRole('link', { name: 'MinIO refresh runbook' })).toHaveAttribute(
       'href',
-      'https://github.com/Concord-Voice/Concord-Voice/blob/main/docs/runbooks/refresh-minio-image.md'
+      'https://github.com/Concord-Voice/Self-Hosted/blob/main/docs/runbooks/refresh-minio-image.md'
     );
   });
 
