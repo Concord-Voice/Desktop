@@ -59,11 +59,21 @@ const WingSeatPanel: React.FC<WingSeatPanelProps> = ({ seat }) => {
   const removeSeat = useBillingStore((s) => s.removeSeat);
   const fetchMe = useBillingStore((s) => s.fetchMe);
   const hasFriends = useFriendStore((s) => s.friends.length > 0);
+  const friendsHydrated = useFriendStore((s) => s.friendsHydrated);
+  const friendsLoading = useFriendStore((s) => s.isLoading);
+  const friendsError = useFriendStore((s) => s.error);
+  const fetchFriends = useFriendStore((s) => s.fetchFriends);
   const name = useFriendName(seat.counterpart_user_id, SEAT_FALLBACK_HOLDER);
   const cooldownId = useId();
   const [picker, setPicker] = useState<'invite' | 'change' | null>(null);
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [now, setNow] = useState(() => Date.now());
+
+  // The roster isn't persisted, and Settings can open before any screen that
+  // loads it. An empty list means "no friends" only once it has loaded.
+  useEffect(() => {
+    if (!friendsHydrated && !friendsLoading && friendsError === null) void fetchFriends();
+  }, [fetchFriends, friendsError, friendsHydrated, friendsLoading]);
 
   const swapAt = seat.next_swap_at ? Date.parse(seat.next_swap_at) : Number.NaN;
   useEffect(() => {
@@ -159,8 +169,27 @@ const WingSeatPanel: React.FC<WingSeatPanelProps> = ({ seat }) => {
         </div>
       </>
     );
-  } else {
+  } else if (friendsHydrated) {
     body = <p className="subscription-plan-blurb">{SEAT_COPY.noFriends}</p>;
+  } else if (friendsError !== null && !friendsLoading) {
+    body = (
+      <>
+        <p className="subscription-plan-blurb" role="alert">
+          {SEAT_COPY.rosterFailed}
+        </p>
+        <div className="subscription-plan-actions">
+          <button
+            type="button"
+            className="subscription-text-button"
+            onClick={() => void fetchFriends()}
+          >
+            {SEAT_COPY.retry}
+          </button>
+        </div>
+      </>
+    );
+  } else {
+    body = <p className="subscription-plan-blurb">{SEAT_COPY.rosterLoading}</p>;
   }
 
   return (

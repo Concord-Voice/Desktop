@@ -25,7 +25,7 @@ trial, plan changes, and code credit. Servers can require MFA for dangerous
 actions, purges and message timers can keep pinned messages, and the microphone
 gate can learn from your voice.
 
-**107 Total Changes** | 14 Added | 23 Changed | 48 Fixed | 22 Security
+**109 Total Changes** | 14 Added | 23 Changed | 50 Fixed | 22 Security
 
 ### Added
 
@@ -83,6 +83,8 @@ gate can learn from your voice.
 
 ### Fixed
 
+- **Billing:** Settings ▸ Subscription now loads your friend list before deciding you have none. A Wing payer who opens Settings right after launch sees the invite button instead of "Add a friend first", and a retry if the list fails to load ([#5](https://github.com/Concord-Voice/Desktop/issues/5)).
+- **Tray:** The tray's unread shortcut no longer does nothing when the newest unread channel arrived before its server's unread counts loaded ([#6](https://github.com/Concord-Voice/Desktop/issues/6)).
 - **Voice:** The media server now forwards your app's attestation when it checks your voice access, a step toward letting servers require an attested app ([#4211](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/4211)).
 - **Sign-in:** A signed-out session no longer retries its rejected refresh token every 10 seconds in the background ([#4205](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/4205)).
 - **Voice:** Calling someone back in a DM joins the call still open there instead of silently stopping, a failed call start now shows an error, your camera comes back after a brief connection drop, and 1:1 DMs show Join voice call during a call ([#4179](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/4179)).
