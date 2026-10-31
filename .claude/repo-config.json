@@ -1,0 +1,32 @@
+{
+  "default_branch": "main",
+  "paths": {
+    "electron_dir": "desktop"
+  },
+  "hooks": {
+    "protected_patterns": [
+      "/crypto",
+      "/e2ee",
+      "mediaEncryption",
+      "/auth/",
+      "/rbac/",
+      "tokenManager",
+      "desktop/src/preload/",
+      "desktop/src/main/ipc",
+      "desktop/src/main/oauth/",
+      "desktop/src/main/(secureStorage|ssoLoopback|browserWindowConfig|spaLoader|egressPolicy|guardedRequest|permissionManager|appProtocol|deepLink|attestation|selfHostedApprovals)",
+      "desktop/src/main/(updater|updateSafety|verifyLinuxSignature|verifyWindowsSignature|linuxUpdatePublicKey)\\.ts$",
+      "desktop/forge\\.config\\.ts$",
+      "desktop/scripts/(generate-update-manifest|generate-app-update|sign-spa-manifest|csp-prod-strip)",
+      "\\.github/workflows/",
+      "\\.github/scripts/",
+      "\\.pre-commit-config\\.yaml$",
+      "\\.secrets\\.baseline$",
+      "infrastructure/",
+      "scripts/security/",
+      "CODEOWNERS$",
+      "(^|/)\\.claude/(hooks/|settings\\.json|repo-config\\.json|\\.agentic-dev-tooling\\.lock$)",
+      "scripts/repo-config\\.sh$"
+    ]
+  }
+}
