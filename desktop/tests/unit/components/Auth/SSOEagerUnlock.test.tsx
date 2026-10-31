@@ -329,6 +329,29 @@ describe('SSOEagerUnlock', () => {
     await waitFor(() => expect(onUnlock).toHaveBeenCalledTimes(1));
   });
 
+  it('asks for a fresh sign-in when the server refuses a renewed token (403)', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: 'Recent sign-in required', code: 'recent_auth_required' }),
+        {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
+
+    const onUnlock = vi.fn();
+    render(<SSOEagerUnlock onUnlock={onUnlock} onSocialRecovery={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText(/passphrase/i), {
+      target: { value: 'CorrectPassphrase!12' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /unlock/i }));
+
+    expect(await screen.findByText(/please sign in again to unlock/i)).toBeInTheDocument();
+    expect(mockE2eeInitialize).not.toHaveBeenCalled();
+    expect(onUnlock).not.toHaveBeenCalled();
+  });
+
   it('after 3 wrong attempts, offers Social Recovery', async () => {
     // The component fetches keys lazily on each submit so the failing unwrap
     // can re-fetch — three rounds of /users/me/keys then a unwrap rejection.

@@ -158,6 +158,10 @@ const SSOEagerUnlock: React.FC<Props> = ({ onUnlock, onSocialRecovery }) => {
     if (!res.ok) {
       if (res.status === 401) {
         setError('Your session expired. Please sign in again.');
+      } else if (res.status === 403) {
+        // The server releases the wrapped key only to a fresh sign-in; a token
+        // renewed by refresh gets recent_auth_required.
+        setError('For your security, please sign in again to unlock your messages.');
       } else {
         setError("Couldn't load your encrypted keys. Please try again.");
       }

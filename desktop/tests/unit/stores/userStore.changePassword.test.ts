@@ -174,7 +174,7 @@ describe('userStore - changePassword', () => {
     };
     useFriendOrgStore.getState()._hydrate(friendOrgSnapshot);
 
-    // Mock GET /api/v1/users/me/keys
+    // Mock POST /api/v1/users/me/keys/reveal
     mockApiFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -201,10 +201,16 @@ describe('userStore - changePassword', () => {
 
     expect(result).toEqual({ success: true });
     expect(mockApiFetch).toHaveBeenCalledTimes(2);
+    // Mid-session the token may be refresh-renewed, so the key read proves
+    // the current password instead of using GET /users/me/keys.
     expect(mockApiFetch).toHaveBeenNthCalledWith(
       1,
-      '/api/v1/users/me/keys',
-      expect.objectContaining({ signal: expect.any(AbortSignal) })
+      '/api/v1/users/me/keys/reveal',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ current_password: 'oldpass' }),
+        signal: expect.any(AbortSignal),
+      })
     );
     expect(mockApiFetch).toHaveBeenNthCalledWith(
       2,
@@ -678,7 +684,7 @@ describe('userStore - changePassword', () => {
   });
 
   it('returns error when current password is incorrect (401)', async () => {
-    // Mock GET /api/v1/users/me/keys - succeeds
+    // Mock POST /api/v1/users/me/keys/reveal - succeeds
     mockApiFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -705,7 +711,7 @@ describe('userStore - changePassword', () => {
   });
 
   it('clears auth and returns session expired for generic 401', async () => {
-    // Mock GET /api/v1/users/me/keys - succeeds
+    // Mock POST /api/v1/users/me/keys/reveal - succeeds
     mockApiFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
@@ -732,7 +738,7 @@ describe('userStore - changePassword', () => {
   });
 
   it('handles general error (e.g., key fetch failure)', async () => {
-    // Mock GET /api/v1/users/me/keys - fails
+    // Mock POST /api/v1/users/me/keys/reveal - fails
     mockApiFetch.mockResolvedValueOnce({
       ok: false,
       status: 500,
@@ -747,7 +753,7 @@ describe('userStore - changePassword', () => {
   });
 
   it('handles crypto unwrap failure gracefully', async () => {
-    // Mock GET /api/v1/users/me/keys - succeeds
+    // Mock POST /api/v1/users/me/keys/reveal - succeeds
     mockApiFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
