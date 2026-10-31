@@ -17,16 +17,16 @@ The register exists because the `mcp__sonarqube__change_sonar_issue_status` tool
 > detection is re-homing from SonarQube's security sensors to per-tool GitHub
 > Code Scanning (CodeQL #1424, Semgrep #1426 — categories `semgrep-custom` /
 > `semgrep-community`). This is an architecture change recorded per
-> [ADR-0017](../adr/0017-ci-scanning-result-hub.md) §Consequences — NOT a rule
+> ADR-0017 (kept in Concord-Voice-Alpha) §Consequences — NOT a rule
 > suppression on AI-authored code. SonarQube retains coverage + new-code
 > quality + AI-Code-Assurance (#1430 narrows its scope).
 >
 > **Enactment (#1430):** the sensor retirement is enacted by deactivating the
 > `injection`-tagged VULNERABILITY (taint) rules in project-assigned custom
 > quality profiles — the Sonar-staff-documented mechanism for skipping the
-> security sensors (no scanner property exists). Run
-> [`scripts/sonar/narrow-security-profiles.sh`](../../scripts/sonar/narrow-security-profiles.sh)
-> (dry-run default). This is the recorded ADR-0017 architecture change, NOT
+> security sensors (no scanner property exists). The profiles are
+> org-level, so they are managed from Concord-Voice-Alpha
+> (`scripts/sonar/narrow-security-profiles.sh`), not from this repo. This is the recorded ADR-0017 architecture change, NOT
 > rule suppression on AI code: hotspot rules, DBD sensors, and all
 > maintainability/reliability rules stay active. Quality Gate thresholds are
 > byte-identical. CodeQL `security-extended` (#1424) + Semgrep (#1426) own the
@@ -276,21 +276,10 @@ reverted, SonarCloud's JS/TS/Go security sensors run again — re-introducing bo
 the #1381 timeout and a duplicate SAST signal that ADR-0017 deliberately re-homed
 to CodeQL + Semgrep.
 
-A CI **drift-guard** now detects that regression:
-[`scripts/sonar/check-narrowed-profile.sh`](../../scripts/sonar/check-narrowed-profile.sh)
-(read-only) asserts, per language (js/ts/go), that (1) the profile *assigned to
-the project* is the narrowed one, and (2) it has **zero active**
-injection-tagged VULNERABILITY rules — querying `rules/search` scoped with
-`qprofile=<key>&activation=true` (an org-wide query would always find injection
-rules in the catalog and false-positive forever). It runs in the
-`sonar-profile-drift` job of `.github/workflows/pr-ci.yml` as an **advisory**
-step (`continue-on-error`, gated on `SONAR_TOKEN` presence so it is fork-safe) —
-never a required check. The job is never dispatched for Dependabot, so the token
-never reaches a runner executing a Dependabot PR's action pins. It nags with
-exit 1 until an operator re-runs the human restore op
-`scripts/sonar/narrow-security-profiles.sh --apply`. A hermetic self-test
-(`scripts/sonar/test-check-narrowed-profile.sh`) runs blocking and token-free in
-the `static-guards` job.
+The drift-guard (`scripts/sonar/check-narrowed-profile.sh`) and the restore
+op (`scripts/sonar/narrow-security-profiles.sh --apply`) live in
+Concord-Voice-Alpha, which manages the shared org profiles. This repo's CI has
+no drift-guard job.
 
 ## Schema Rules
 

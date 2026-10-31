@@ -5,7 +5,7 @@
 **Decided:** 2026-06-02 — D2 (explicit `userData` pin) and D4-a (implement blockmap differential downloads now), per repo-admin direction.
 **Issue:** #1291 (D1+D2+D3 + boy-scout log fix) · #1292 (D4-a differential downloads, separate). Surfaced by the macOS update-log investigation.
 **Predecessors:** d9895603 (#385/#392 — the intended spaceless convention), 72b98f1a (v0.1.38 — the regression)
-**Related:** ADR-0003 (E2EE always), [ADR-0004 (desktop release contract)](0004-desktop-release-contract.md), [ADR-0008 (macOS install UX)](0008-macos-install-ux.md)
+**Related:** ADR-0003 (E2EE always), ADR-0004 (desktop release contract, kept in the private Release-Ops repo), [ADR-0008 (macOS install UX)](0008-macos-install-ux.md)
 
 > **The Windows rows in both tables below are superseded by [ADR-0034](0034-windows-nsis-migration.md) (#2402, 2026-07-25).** Squirrel.Windows was replaced by NSIS; `MakerSquirrel` is no longer imported by `forge.config.ts`. ADR-0034 supersedes the end-state row's **sufficiency** claim ("none (already correct)") — on Windows the install root and the updater cache must not be the same pinned directory. The path-identity principle and the macOS / Linux rows are unchanged.
 

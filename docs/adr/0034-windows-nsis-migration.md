@@ -5,7 +5,7 @@
 **Decided:** 2026-07-25 — migrate to NSIS with the install directory pinned to `%LOCALAPPDATA%\ConcordVoice\app`, built by a locally-owned Forge 7 maker over `app-builder-lib` (exact-version-pinned), per repo-admin direction.
 **Issue:** #2402 · parent epic #1323 (desktop auto-update delivery hardening) · public report [Concord-Voice/Concord-Voice#80](https://github.com/Concord-Voice/Concord-Voice/issues/80)
 **Supersedes:** the Windows half of [ADR-0020](0020-desktop-app-naming-and-update-cache.md)'s end-state table — the row recording Windows OS-package identity as **"none (already correct)"**. It was correct as an *identity* claim and wrong as a *sufficiency* claim; see Context.
-**Related:** [ADR-0020](0020-desktop-app-naming-and-update-cache.md) (path-identity pinning), ADR-0026 (Linux update signing), ADR-0032 (desktop release signing trust isolation), [ADR-0004](0004-desktop-release-contract.md) (desktop release contract)
+**Related:** [ADR-0020](0020-desktop-app-naming-and-update-cache.md) (path-identity pinning), ADR-0026 (Linux update signing), ADR-0032 (desktop release signing trust isolation), ADR-0004 (desktop release contract, kept in the private Release-Ops repo)
 **Spec:** `2026-07-25-2402-windows-nsis-migration-design.md`
 
 > **Addendum (PR #3794, 2026-10-14):** the local maker now runs under Forge 8 (`@electron-forge/maker-base` ^8.0.1), and the published wrapper still throws under Forge 8 for the same reason. "Forge 7" below is the version this decision was made against.

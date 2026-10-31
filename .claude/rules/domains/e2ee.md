@@ -48,6 +48,8 @@ paths:
   - "services/control-plane/internal/websocket/customtext.go"
 ---
 
+> **Imported from Concord-Voice-Alpha (@771eb3c) at the repo split.** `client/desktop/` there is `desktop/` here. References to `services/control-plane/**`, `services/media-plane/**`, `docs/superpowers/**`, `docs/runbooks/**`, `docs/ci/quality-gate-definition.md`, the public-mirror overlay and its workflows, Alpha's org rulesets, and ADRs not under `docs/adr/` in this repo point at Alpha or the private ops repos. Use them for context; they are not files or CI in this repo.
+
 # E2EE & Crypto Rules
 
 ## Cryptographic Standards
