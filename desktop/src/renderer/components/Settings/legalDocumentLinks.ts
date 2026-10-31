@@ -4,11 +4,13 @@ type LegalLink =
   | { kind: 'document'; document: LegalDocument; fragment: string | null }
   | { kind: 'external'; href: string };
 
-const PUBLIC_SOURCE_BASE = 'https://github.com/Concord-Voice/Concord-Voice/blob/main/';
-const PUBLIC_SOURCE_PATHS = new Set([
-  'README.md',
-  'docs/legal/commercial-license.md',
-  'docs/runbooks/refresh-minio-image.md',
+const DESKTOP_SOURCE_BASE = 'https://github.com/Concord-Voice/Desktop/blob/main/';
+const SELF_HOSTED_SOURCE_BASE = 'https://github.com/Concord-Voice/Self-Hosted/blob/main/';
+/** Approved public path → the repository that publishes it. */
+const PUBLIC_SOURCE_PATHS = new Map([
+  ['README.md', DESKTOP_SOURCE_BASE],
+  ['docs/legal/commercial-license.md', DESKTOP_SOURCE_BASE],
+  ['docs/runbooks/refresh-minio-image.md', SELF_HOSTED_SOURCE_BASE],
 ]);
 const UNSAFE_CHARACTERS = /[\u0000-\u0020\u007f\\]/;
 
@@ -85,12 +87,10 @@ export function resolveLegalLink(
     (entry) => repositoryPath(entry.sourcePath) === resolvedPath
   );
   if (bundled) return { kind: 'document', document: bundled, fragment };
-  if (!PUBLIC_SOURCE_PATHS.has(resolvedPath)) return null;
+  const base = PUBLIC_SOURCE_PATHS.get(resolvedPath);
+  if (!base) return null;
 
-  const external = new URL(
-    resolvedPath.split('/').map(encodeURIComponent).join('/'),
-    PUBLIC_SOURCE_BASE
-  );
+  const external = new URL(resolvedPath.split('/').map(encodeURIComponent).join('/'), base);
   if (fragment) external.hash = fragment;
   return { kind: 'external', href: external.href };
 }
