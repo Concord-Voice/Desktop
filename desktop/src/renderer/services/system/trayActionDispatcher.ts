@@ -125,7 +125,6 @@ function firstUnreadChannel(): RecentUnreadTarget | undefined {
   return rows.find(([target, count]) => count > 0 && !isMuted(target))?.[0];
 }
 
-/** LIFO: the most recently received conversation that is still unread. */
 /**
  * Channel navigation needs a server. A target pushed before the first per-server
  * fetch has none, so resolve it from the authoritative maps now, or skip it.
@@ -136,6 +135,7 @@ function withServer(target: RecentUnreadTarget): RecentUnreadTarget | undefined 
   return serverId ? { ...target, serverId } : undefined;
 }
 
+/** LIFO: the most recently received conversation that is still unread. */
 function openUnread(): void {
   const target =
     useUnreadStore
