@@ -43,7 +43,10 @@ if [[ "${1:-}" == "--check" ]]; then
   os="$2" major="$3" minor="$4" patch="$5" shell_desc="bash $3.$4.$5"
 elif [[ $# -eq 0 ]]; then
   # uname, not $OSTYPE: bash takes an exported OSTYPE from the environment.
-  case "$(uname -s)" in Darwin) os=darwin ;; *) os=other ;; esac
+  case "$(uname -s)" in
+    Darwin) os=darwin ;;
+    *) os=other ;;
+  esac
   major="${BASH_VERSINFO[0]}" minor="${BASH_VERSINFO[1]}" patch="${BASH_VERSINFO[2]}"
   shell_desc="$BASH ($BASH_VERSION)"
 else

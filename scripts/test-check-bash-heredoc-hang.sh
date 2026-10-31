@@ -80,7 +80,10 @@ printf '#!%s\ntouch "%s/used"\nexec "%s" "$@"\n' "$real_bash" "$TMP" "$real_bash
 chmod +x "$TMP/shim/bash"
 # shellcheck disable=SC2016  # expanded by the child bash, on purpose
 read -r maj min pat < <(bash -c 'echo "${BASH_VERSINFO[0]} ${BASH_VERSINFO[1]} ${BASH_VERSINFO[2]}"')
-case "$(uname -s)" in Darwin) os=darwin ;; *) os=other ;; esac
+case "$(uname -s)" in
+  Darwin) os=darwin ;;
+  *) os=other ;;
+esac
 set +e
 bash "$GUARD" --check "$os" "$maj" "$min" "$pat" >/dev/null 2>&1; want=$?
 PATH="$TMP/shim:$PATH" "$GUARD" >/dev/null 2>&1; got=$?
