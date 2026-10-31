@@ -70,16 +70,21 @@ fi
 # apostrophe inside double quotes is inert. A quoted single word ("." or 'src') is an
 # argument, so it is kept. A double-quoted span holding $( or a backtick is executed
 # by the shell, so its text stays visible. Any other quoted span is prose and dropped.
-SCAN=$(printf '%s' "$COMMAND" | perl -0777 -pe 's/"((?:[^"\\]|\\.)*)"|\x27([^\x27]*)\x27/my $d = defined $1; my $t = $d ? $1 : $2; ($d && $t =~ m{\$\(|`}) ? " $t " : ($t =~ m{^\S*$} ? $t : " ")/ge')
+SCAN=$(printf '%s' "$COMMAND" | perl -0777 -pe 's/"((?:[^"\\]|\\.)*)"|\x27([^\x27]*)\x27/my $d = defined $1; my $t = $d ? $1 : $2; ($d && $t =~ m{\$\(|`}) ? " $t " : ($t =~ m{^\S*$} ? $t : " ")/ge') || {
+    echo "BLOCKED: perl not available or failed — destructive-commands hook cannot evaluate command" >&2
+    exit 2
+}
 INNER=$(printf '%s' "$COMMAND" | grep -oE "(sh|bash|zsh)[[:space:]]+-c[[:space:]]+(\"[^\"]*\"|'[^']*')|eval[[:space:]]+(\"[^\"]*\"|'[^']*')" \
     | sed -E "s/^[^\"']*[\"']//; s/[\"']$//")
 [ -n "$INNER" ] && SCAN="$SCAN; $(printf '%s' "$INNER" | tr '\n' ';')"
 CMD_POS='(^|[;&|(])[[:space:]]*'
-DESTRUCTIVE_RE="${CMD_POS}git\s+push\b[^;&|]*(\s--force(\s|$)|\s-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^[:space:]]+)"
-DESTRUCTIVE_RE+="|${CMD_POS}git\s+reset\b[^;&|]*\s--hard"
-DESTRUCTIVE_RE+="|${CMD_POS}git\s+clean\b[^;&|]*\s(-[a-zA-Z]*f|--force)"
-DESTRUCTIVE_RE+="|${CMD_POS}git\s+checkout\b[^;&|]*\s\.{1,2}/?(\s|$)"
-RESTORE_RE="${CMD_POS}git\s+restore\b[^;&|]*\s\.{1,2}/?(\s|$)"
+# Global options such as -C <path>, -c <name>=<value> or --no-pager may sit before the subcommand.
+GIT='git(\s+(-[Cc]\s+[^[:space:];&|]+|--[a-z][a-z-]*(=[^[:space:];&|]*)?))*'
+DESTRUCTIVE_RE="${CMD_POS}${GIT}\s+push\b[^;&|]*(\s--force(\s|$)|\s-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+[^[:space:]]+)"
+DESTRUCTIVE_RE+="|${CMD_POS}${GIT}\s+reset\b[^;&|]*\s--hard"
+DESTRUCTIVE_RE+="|${CMD_POS}${GIT}\s+clean\b[^;&|]*\s(-[a-zA-Z]*f|--force)"
+DESTRUCTIVE_RE+="|${CMD_POS}${GIT}\s+checkout\b[^;&|]*\s\.{1,2}/?(\s|$)"
+RESTORE_RE="${CMD_POS}${GIT}\s+restore\b[^;&|]*\s\.{1,2}/?(\s|$)"
 DESTRUCTIVE_RE+="|(^|[;&|([:space:]])rm(\s+[^;&|]*)?\s(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)(\s|$)"
 restore_hits_worktree() { # --staged alone only touches the index; judged per command segment
     local seg
