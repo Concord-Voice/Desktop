@@ -4,6 +4,7 @@ import SSOEagerUnlock from '@/renderer/components/Auth/SSOEagerUnlock';
 import { e2eeService } from '@/renderer/services/e2ee/e2eeService';
 import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { useE2EEStore } from '@/renderer/stores/auth/e2eeStore';
+import { useUserStore } from '@/renderer/stores/auth/userStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
 import type * as ApiClient from '@/renderer/services/system/apiClient';
 
@@ -351,6 +352,15 @@ describe('SSOEagerUnlock', () => {
     expect(await screen.findByText(/please sign in again to unlock/i)).toBeInTheDocument();
     expect(mockE2eeInitialize).not.toHaveBeenCalled();
     expect(onUnlock).not.toHaveBeenCalled();
+
+    // Retrying the passphrase cannot help a restored session, so the gate
+    // offers a real sign-out that ends at the sign-in screen.
+    expect(screen.queryByRole('button', { name: /^unlock$/i })).not.toBeInTheDocument();
+    const logout = vi.fn().mockResolvedValue(undefined);
+    useUserStore.setState({ logout });
+    fireEvent.click(screen.getByRole('button', { name: /sign in again/i }));
+    await waitFor(() => expect(logout).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole('button', { name: /sign in again/i })).toBeDisabled();
   });
 
   it('after 3 wrong attempts, offers Social Recovery', async () => {

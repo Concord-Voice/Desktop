@@ -43,6 +43,7 @@ import {
 } from '../../services/system/runtimeServerBase';
 import { useAuthStore } from '../../stores/auth/authStore';
 import { useE2EEStore } from '../../stores/auth/e2eeStore';
+import { useUserStore } from '../../stores/auth/userStore';
 import { persistE2EESessionKeys } from '../../utils/crypto/persistE2EESessionKeys';
 import type { CredentialOwner } from '../../../main/ipcContract';
 import LoadingSpinner from './LoadingSpinner';
@@ -99,6 +100,9 @@ const SSOEagerUnlock: React.FC<Props> = ({ onUnlock, onSocialRecovery }) => {
   const [attemptCount, setAttemptCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // A restored session renews its token by refresh, so it can never read the
+  // wrapped key; only signing out and back in mints a token that can.
+  const [reauthRequired, setReauthRequired] = useState(false);
   const ssoCredentialOwner = useE2EEStore((state) => state.ssoCredentialOwner);
 
   const handleSubmit = async (ev: React.FormEvent) => {
@@ -162,6 +166,7 @@ const SSOEagerUnlock: React.FC<Props> = ({ onUnlock, onSocialRecovery }) => {
         // The server releases the wrapped key only to a fresh sign-in; a token
         // renewed by refresh gets recent_auth_required.
         setError('For your security, please sign in again to unlock your messages.');
+        setReauthRequired(true);
       } else {
         setError("Couldn't load your encrypted keys. Please try again.");
       }
@@ -298,6 +303,12 @@ const SSOEagerUnlock: React.FC<Props> = ({ onUnlock, onSocialRecovery }) => {
     onSocialRecovery();
   };
 
+  const handleSignInAgain = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    await useUserStore.getState().logout();
+  };
+
   if (attemptCount >= MAX_ATTEMPTS) {
     return (
       <div className="sso-eager-unlock sso-eager-unlock--locked">
@@ -348,20 +359,31 @@ const SSOEagerUnlock: React.FC<Props> = ({ onUnlock, onSocialRecovery }) => {
         </div>
       )}
 
-      <button
-        type="submit"
-        className="sso-eager-unlock__submit"
-        disabled={submitting || passphrase.length === 0}
-      >
-        {submitting ? (
-          <>
-            Unlocking…
-            <LoadingSpinner size="small" inline />
-          </>
-        ) : (
-          'Unlock'
-        )}
-      </button>
+      {reauthRequired ? (
+        <button
+          type="button"
+          className="sso-eager-unlock__submit"
+          onClick={() => void handleSignInAgain()}
+          disabled={submitting}
+        >
+          Sign in again
+        </button>
+      ) : (
+        <button
+          type="submit"
+          className="sso-eager-unlock__submit"
+          disabled={submitting || passphrase.length === 0}
+        >
+          {submitting ? (
+            <>
+              Unlocking…
+              <LoadingSpinner size="small" inline />
+            </>
+          ) : (
+            'Unlock'
+          )}
+        </button>
+      )}
     </form>
   );
 };
