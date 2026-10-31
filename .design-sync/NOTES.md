@@ -1,6 +1,6 @@
 # design-sync notes — Concord Voice Design System
 
-> **Imported from Concord-Voice-Alpha (@771eb3c) at the repo split.** `desktop/` there is `desktop/` here. `CLAUDE.md`, `docs/superpowers/**` and `docs/runbooks/**` references point at Alpha or the private ops repos.
+> **Imported from Concord-Voice-Alpha (@771eb3c) at the repo split.** Paths are rewritten for this repo's `desktop/` root. `CLAUDE.md`, `docs/superpowers/**` and `docs/runbooks/**` references point at Alpha or the private ops repos.
 
 Repo-specific gotchas for future syncs. One bullet per gotcha.
 
