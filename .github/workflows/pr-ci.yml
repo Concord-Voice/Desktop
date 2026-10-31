@@ -679,8 +679,16 @@ jobs:
         if: ${{ !cancelled() }}
         run: bash .github/scripts/tests/lint-workflow-call-contract.test.sh
 
+  # NOTE: the former verify-openapi-coverage, verify-spa-env, and
+  # verify-deploy-scripts jobs are consolidated into the single `static-guards`
+  # job earlier in this file (2026-07 CI deep-dive).
+
   # D: migration-lint (squawk on control-plane migrations) belongs to Self-Hosted.
 
+  # Final protected-source API report. This job reports its actual needs
+  # results; the protected wrapper adds its selected OSV job result separately.
+  # always() preserves failed and skipped producers as explicit values for
+  # the required wrapper.
   report:
     name: report
     needs: [ioc, detect-changes, build, semgrep, eslint]
