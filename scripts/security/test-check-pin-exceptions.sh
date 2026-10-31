@@ -256,7 +256,7 @@ run "a held-back entry does satisfy an ignore rule"      "$D" 0 "accounted for"
 #     accounted for" — a claim about the repository that held only for three
 #     directories. This asserts a worker manifest is now READ, which is the whole
 #     fix; the two cases below assert it cannot silently stop being read.
-WORKER_WS='fixtures/policy/workers/workers/apple-sso-bridge'
+WORKER_WS='tools/concord-bridge'
 D=$(mkroot workerpin "$EMPTY_REG" "$NO_IGNORES")
 mkdir -p "$D/$WORKER_WS"
 printf '%s\n' '{"name":"w","devDependencies":{"wrangler":"4.131.1"}}' > "$D/$WORKER_WS/package.json"
@@ -289,7 +289,7 @@ mkroot_raw() {
 }
 D=$(mkroot_raw driftstale "$EMPTY_REG" "$NO_IGNORES")
 run "blocks a WORKSPACES entry nothing watches" "$D" 1 "no npm update block watches"
-run "names the unwatched workspace"             "$D" 1 "services/media-plane"
+run "names the unwatched workspace"             "$D" 1 "tools/concord-bridge"
 
 # ── 15. The drift parser reads a `directories:` LIST, not only a scalar
 #     `directory:`. The docker blocks use the list form, so a parser that handled
@@ -300,11 +300,7 @@ updates:
   - package-ecosystem: "npm"
     directories:
       - "/desktop"
-      - "/client/admin"
-      - "/services/media-plane"
       - "/.github/tools/license-checker"
-      - "/fixtures/policy/workers/workers/apple-sso-bridge"
-      - "/fixtures/policy/workers/workers/invite-landing"
       - "/tools/concord-bridge"'
 D=$(mkroot_raw driftlist "$EMPTY_REG" "$DRIFT_LIST")
 run "accepts a directories: list as coverage"   "$D" 0 "accounted for"
@@ -337,7 +333,7 @@ run "fails closed when dependabot.yml is absent" "$D" 2 "dependabot config not f
 DRIFT_FLOW='version: 2
 updates:
   - package-ecosystem: "npm"
-    directories: ["/desktop", "/client/admin", "/services/media-plane", "/.github/tools/license-checker", "/fixtures/policy/workers/workers/apple-sso-bridge", "/fixtures/policy/workers/workers/invite-landing", "/tools/concord-bridge"]'
+    directories: ["/desktop", "/.github/tools/license-checker", "/tools/concord-bridge"]'
 D=$(mkroot_raw driftflow "$EMPTY_REG" "$DRIFT_FLOW")
 run "accepts a flow-style directories list"    "$D" 0 "accounted for"
 
@@ -348,11 +344,7 @@ updates:
   - package-ecosystem: "npm"
     directories: [
       "/desktop",
-      "/client/admin",
-      "/services/media-plane",
       "/.github/tools/license-checker",
-      "/fixtures/policy/workers/workers/apple-sso-bridge",
-      "/fixtures/policy/workers/workers/invite-landing",
       "/tools/concord-bridge"
     ]'
 D=$(mkroot_raw driftflowml "$EMPTY_REG" "$DRIFT_FLOW_ML")
@@ -381,11 +373,7 @@ updates:
   - 'package-ecosystem': 'npm'
     'directories':
       - '/desktop'
-      - '/client/admin'
-      - '/services/media-plane'
       - '/.github/tools/license-checker'
-      - '/fixtures/policy/workers/workers/apple-sso-bridge'
-      - '/fixtures/policy/workers/workers/invite-landing'
       - '/tools/concord-bridge'"
 D=$(mkroot_raw driftquoted "$EMPTY_REG" "$DRIFT_QUOTED")
 run "quoted mapping keys are read"             "$D" 0 "accounted for"
@@ -393,7 +381,7 @@ run "quoted mapping keys are read"             "$D" 0 "accounted for"
 # ── 22. The same update written as a flow mapping.
 DRIFT_FLOWMAP='version: 2
 updates:
-  - { package-ecosystem: npm, directories: ["/desktop", "/client/admin", "/services/media-plane", "/.github/tools/license-checker", "/fixtures/policy/workers/workers/apple-sso-bridge", "/fixtures/policy/workers/workers/invite-landing", "/tools/concord-bridge"] }'
+  - { package-ecosystem: npm, directories: ["/desktop", "/.github/tools/license-checker", "/tools/concord-bridge"] }'
 D=$(mkroot_raw driftflowmap "$EMPTY_REG" "$DRIFT_FLOWMAP")
 run "a flow mapping update block is read"      "$D" 0 "accounted for"
 

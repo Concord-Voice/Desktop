@@ -46,8 +46,8 @@ jobs:
     # Releases can only be cut through the main-ref workflow_dispatch path.
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     # ADR-0013 §2 / ADR-0005 §3: ADR-0016 measured sub-minute parity;
-    # 2-vCPU Blacksmith is the half-cost tier for detect/verify work.
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    # Detect/verify work runs on GitHub's standard runner, free for public repos.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     outputs:
       should_release: ${{ steps.check.outputs.should_release }}
