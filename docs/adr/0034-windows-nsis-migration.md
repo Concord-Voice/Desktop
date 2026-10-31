@@ -1,5 +1,7 @@
 # 0034 — Windows packaging: migrate from Squirrel.Windows to NSIS
 
+> **Historical record, imported from Concord-Voice-Alpha (@771eb3c) at the repo split.** `client/desktop/` there is `desktop/` here. Issue numbers, `docs/superpowers/**`, `docs/runbooks/**`, `docs/ci/**`, `.claude/rules/*.md` (now `.claude/rules/domains/`), control-plane paths and ADRs not in this folder refer to Alpha or the private ops repos.
+
 **Status:** Accepted
 **Date:** 2026-07-25
 **Decided:** 2026-07-25 — migrate to NSIS with the install directory pinned to `%LOCALAPPDATA%\ConcordVoice\app`, built by a locally-owned Forge 7 maker over `app-builder-lib` (exact-version-pinned), per repo-admin direction.

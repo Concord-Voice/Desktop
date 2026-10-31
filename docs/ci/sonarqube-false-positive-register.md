@@ -51,7 +51,7 @@ This register is only for `FALSE_POSITIVE` decisions. `ACCEPTED` findings — wh
 This register begins on **2026-04-11** and does not cover the approximately 616
 SonarQube false-positive markings made before that date. **No retroactive audit of
 them was ever run, and none is planned.**
-[#615](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/615), which
+#615, which
 tracked that audit, closed **completed** on 2026-05-04; its closing comment records
 that the pre-register markings were rectified incrementally through microchanges
 across a few hundred PRs rather than audited as a batch. Treat the pre-2026-04-11
@@ -292,9 +292,9 @@ no drift-guard job.
 
 ## Related Issues
 
-- [#431](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/431) — Register genesis, initial 7 entries
-- [#432](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/432) — Final ACCEPTED-bucket cleanup, 1 new entry (S4084 WebRTC audio)
-- [#615](https://github.com/Concord-Voice/Concord-Voice-Alpha/issues/615) — Retroactive audit of ~616 pre-register FPs; closed **completed** 2026-05-04 without running the audit (resolved incrementally instead)
+- #431 — Register genesis, initial 7 entries
+- #432 — Final ACCEPTED-bucket cleanup, 1 new entry (S4084 WebRTC audio)
+- #615 — Retroactive audit of ~616 pre-register FPs; closed **completed** 2026-05-04 without running the audit (resolved incrementally instead)
 
 ## Maintenance
 

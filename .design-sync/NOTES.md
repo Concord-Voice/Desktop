@@ -1,17 +1,19 @@
 # design-sync notes — Concord Voice Design System
 
+> **Imported from Concord-Voice-Alpha (@771eb3c) at the repo split.** `desktop/` there is `desktop/` here. `CLAUDE.md`, `docs/superpowers/**` and `docs/runbooks/**` references point at Alpha or the private ops repos.
+
 Repo-specific gotchas for future syncs. One bullet per gotcha.
 
 ## Build setup (this repo is an Electron app, not a component library)
 
-- **No library `dist` export.** `package.json` `main` points at `dist/main/main.js` (the Electron *main* process) — do NOT let the converter auto-pick it. The bundle is built from a hand-written re-export entry: `client/desktop/.ds-entry.tsx` (gitignored), passed via `--entry`. Add a component to the sync by adding it to BOTH `.ds-entry.tsx` (named export → `window.ConcordUI.*`) AND `cfg.componentSrcMap`.
-- **`--node-modules client/desktop/node_modules`** (where React 19.2.7 resolves), `--entry client/desktop/.ds-entry.tsx`, `srcDir: src/renderer`, `tsconfig: tsconfig.json` (relative to PKG_DIR = client/desktop, NOT the repo-relative path — that resolves wrong).
+- **No library `dist` export.** `package.json` `main` points at `dist/main/main.js` (the Electron *main* process) — do NOT let the converter auto-pick it. The bundle is built from a hand-written re-export entry: `desktop/.ds-entry.tsx` (gitignored), passed via `--entry`. Add a component to the sync by adding it to BOTH `.ds-entry.tsx` (named export → `window.ConcordUI.*`) AND `cfg.componentSrcMap`.
+- **`--node-modules desktop/node_modules`** (where React 19.2.7 resolves), `--entry desktop/.ds-entry.tsx`, `srcDir: src/renderer`, `tsconfig: tsconfig.json` (relative to PKG_DIR = desktop, NOT the repo-relative path — that resolves wrong).
 - **`.d.ts` extraction degrades to `[key: string]: unknown`** in synth-from-src mode (no dist to parse). Real prop contracts are hand-written in `cfg.dtsPropsFor` from the source `*Props` interfaces. When adding a component, copy its source props interface into `dtsPropsFor`.
 
 ## Fonts
 
-- Brand fonts live at `client/desktop/public/branding/Concord-Voice/fonts/`. `index.css` references them with ABSOLUTE `/branding/...` urls (the app serves `public/` at web root), which the converter can't resolve to disk → `[FONT_DANGLING]`.
-- Fix: `cfg.cssEntry` points at a gitignored cache copy `src/renderer/styles/.ds-index.css` (same dir as `index.css`, no internal @imports so nothing breaks) with the 13 font urls rewritten `/branding/Concord-Voice/fonts/` → `../../../public/branding/Concord-Voice/fonts/`. **Regenerate this copy whenever `index.css` changes:** `sed 's#/branding/Concord-Voice/fonts/#../../../public/branding/Concord-Voice/fonts/#g' src/renderer/styles/index.css > src/renderer/styles/.ds-index.css` (from `client/desktop/`).
+- Brand fonts live at `desktop/public/branding/Concord-Voice/fonts/`. `index.css` references them with ABSOLUTE `/branding/...` urls (the app serves `public/` at web root), which the converter can't resolve to disk → `[FONT_DANGLING]`.
+- Fix: `cfg.cssEntry` points at a gitignored cache copy `src/renderer/styles/.ds-index.css` (same dir as `index.css`, no internal @imports so nothing breaks) with the 13 font urls rewritten `/branding/Concord-Voice/fonts/` → `../../../public/branding/Concord-Voice/fonts/`. **Regenerate this copy whenever `index.css` changes:** `sed 's#/branding/Concord-Voice/fonts/#../../../public/branding/Concord-Voice/fonts/#g' src/renderer/styles/index.css > src/renderer/styles/.ds-index.css` (from `desktop/`).
 - The brand display font is **Droidiga** (the angular "LEAVE SERVER?" headings); body is Inter/Lato. All 11 faces ship to `fonts/` after the fix.
 
 ## Theme / preview backgrounds (LOAD-BEARING for authoring previews)
@@ -57,6 +59,6 @@ All 4 are prop-less and state-driven; previews seed store state / stub electron 
 
 - `.ds-entry.tsx` and `.ds-index.css` are gitignored build inputs a fresh clone must regenerate:
   - **`.ds-index.css`**: the `sed` under "Fonts" above.
-  - **`client/desktop/.ds-entry.tsx`**: named re-exports of the 13 components in `cfg.componentSrcMap` (all `export { default as X }` except `EnforcementMenuItems` which is a named export), PLUS these non-card exports the previews/provider need: `ModalProvider` (from `ui/ModalContext`), the 7 stores (`useKeyboardShortcutStore`, `useClientConfigStore`, `useConnectionStore`, `useChannelStore`, `useServerStore`, `useDMStore`, `useUserStore`), and `MemoryRouter` (from `react-router-dom`). Paths are `./src/renderer/...`.
+  - **`desktop/.ds-entry.tsx`**: named re-exports of the 13 components in `cfg.componentSrcMap` (all `export { default as X }` except `EnforcementMenuItems` which is a named export), PLUS these non-card exports the previews/provider need: `ModalProvider` (from `ui/ModalContext`), the 7 stores (`useKeyboardShortcutStore`, `useClientConfigStore`, `useConnectionStore`, `useChannelStore`, `useServerStore`, `useDMStore`, `useUserStore`), and `MemoryRouter` (from `react-router-dom`). Paths are `./src/renderer/...`.
 - The scoped set is 13 components (9 presentational primitives + 4 mocked overlays) — NOT the full 214-component tree. Most feature components can't render standalone (Zustand/e2ee/WebSocket/IPC coupling). Floor-card authoring of more components is available on any re-sync.
 - Wave-2 previews depend on internal store field names / phase values / the `globalThis.electron` bridge shape. If the app refactors any of those (renamed store field, changed `ConnectionPhase` values, changed updater IPC), the affected preview silently renders empty — re-verify the 4 overlays on a re-sync after store/updater changes.

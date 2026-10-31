@@ -1,5 +1,7 @@
 # ADR-0043: Per-process screen-share audio via a first-party native addon, with a JSF++-constrained real-time core
 
+> **Historical record, imported from Concord-Voice-Alpha (@771eb3c) at the repo split.** `client/desktop/` there is `desktop/` here. Issue numbers, `docs/superpowers/**`, `docs/runbooks/**`, `docs/ci/**`, `.claude/rules/*.md` (now `.claude/rules/domains/`), control-plane paths and ADRs not in this folder refer to Alpha or the private ops repos.
+
 **Status:** Accepted (2026-09-07 — D1, D2, D4; see § Sign-off)
 **Date:** 2026-09-07
 **Deciders:** Mark (project lead) — see § Sign-off.

@@ -1,5 +1,7 @@
 # ADR-0008: macOS install UX — DMG installer + runtime move prompt
 
+> **Historical record, imported from Concord-Voice-Alpha (@771eb3c) at the repo split.** `client/desktop/` there is `desktop/` here. Issue numbers, `docs/superpowers/**`, `docs/runbooks/**`, `docs/ci/**`, `.claude/rules/*.md` (now `.claude/rules/domains/`), control-plane paths and ADRs not in this folder refer to Alpha or the private ops repos.
+
 **Date:** 2026-05-22
 **Status:** Accepted — Phase 1 (DMG) shipped under issue #1159; Phase 2 (runtime gate) shipped in #1966. **DMG-shell signing + notarization + stapling** (originally deferred from Phase 1) shipped in #1164; see ADR-0019.
 **Issue:** #1159

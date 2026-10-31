@@ -33,4 +33,4 @@ sits inside the pinned desktop `userData` root.
   slice does not implement in-app certificate consent or certificate pin
   persistence.
 
-See runbooks/self-hosted-tls.md for server-side TLS setup.
+For server-side TLS setup, see the [self-host quickstart](https://github.com/Concord-Voice/Self-Hosted/blob/main/docs/runbooks/selfhost-quickstart.md) in the Self-Hosted repo.

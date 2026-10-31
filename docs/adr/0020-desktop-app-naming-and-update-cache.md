@@ -1,5 +1,7 @@
 # 0020 — Desktop App Naming: Decouple Path-Identity from Display Name
 
+> **Historical record, imported from Concord-Voice-Alpha (@771eb3c) at the repo split.** `client/desktop/` there is `desktop/` here. Issue numbers, `docs/superpowers/**`, `docs/runbooks/**`, `docs/ci/**`, `.claude/rules/*.md` (now `.claude/rules/domains/`), control-plane paths and ADRs not in this folder refer to Alpha or the private ops repos.
+
 **Status:** Accepted
 **Date:** 2026-06-02
 **Decided:** 2026-06-02 — D2 (explicit `userData` pin) and D4-a (implement blockmap differential downloads now), per repo-admin direction.

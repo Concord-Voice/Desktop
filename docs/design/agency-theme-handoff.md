@@ -5,13 +5,15 @@
 **Status:** Shipped 2026-05-29 in PR #1247. Retained as the design record for the Agency scheme.
 **Type:** Color scheme + font stack addition to `client/desktop`
 
+> **Imported from Concord-Voice-Alpha (@771eb3c) at the repo split.** `client/desktop/` there is `desktop/` here. `CLAUDE.md`, `docs/superpowers/**` and `docs/runbooks/**` references point at Alpha or the private ops repos.
+
 ---
 
 ## 1. Overview
 
 Adds the **Agency** color scheme to Concord Voice's `client/desktop` theme system — the 13th preset scheme alongside Concord, 9th Circle, Bardic, Fox Den, Hacker, Spooky, Driftwood, Grassy Nill, Cotton Candy, Eclipse, Leviathan, and Midnight Sky.
 
-> Counts in this document are as-of ship. Agency was the 13th preset; the live tree now carries more (`defacto` and `pride` landed later) — see CLAUDE.md Key Counts for the current scheme and CSS-block totals.
+> Counts in this document are as-of ship. Agency was the 13th preset; the live tree now carries more (`defacto` and `pride` landed later) — see Alpha's CLAUDE.md Key Counts (private) for the current scheme and CSS-block totals.
 
 Agency presents an atmospheric near-black surface with magenta + cyan brand accents and circuit-board palette grounding (navy + teal + mint + amber). The aesthetic direction is **cyberpunk-industrial** — sharp electric accents on a deep ambient ground, channeling decisiveness rather than warmth.
 
