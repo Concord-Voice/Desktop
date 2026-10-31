@@ -283,11 +283,13 @@ jobs:
         # (forge extraResource), read by src/main/oauth/google/clientSecret.ts.
         # The client_secret is a NON-confidential build constant per Google's
         # native-app guidance (PKCE is the actual control); deliberately NOT
-        # VITE_-prefixed so it never reaches the renderer bundle. Absent secret
+        # VITE_-prefixed so it never reaches the renderer bundle. Absent variable
         # => empty value => Google SSO inert in that build (not a hard failure).
         working-directory: desktop
         env:
-          GOOGLE_OAUTH_CLIENT_SECRET_DESKTOP: ''
+          # A repo variable, not a secret: Google treats a desktop client's secret
+          # as public, and this lane may read no secrets (verify-unsigned-desktop.py).
+          GOOGLE_OAUTH_CLIENT_SECRET_DESKTOP: ${{ vars.GOOGLE_OAUTH_CLIENT_SECRET_DESKTOP }}
         shell: bash
         run: npm run build:gclientsecret
 
