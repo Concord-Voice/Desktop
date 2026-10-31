@@ -17,7 +17,11 @@
       "\\.github/workflows/",
       "infrastructure/",
       "scripts/security/",
-      "CODEOWNERS$"
+      "CODEOWNERS$",
+      "desktop/src/main/secureStorage",
+      "desktop/src/main/ssoLoopback",
+      "/\\.claude/(hooks/|settings\\.json|repo-config\\.json)",
+      "scripts/repo-config\\.sh$"
     ]
   }
 }
