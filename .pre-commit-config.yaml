@@ -56,21 +56,10 @@ repos:
         args: ['--baseline', '.secrets.baseline']
         # Exclude paths where high-entropy strings are expected test data:
         #   - package-lock.json: npm integrity hashes
-        #   - desktop/tests/fixtures/pinning/: SPKI SHA-256 test
-        #     fingerprints, reproducible from the PEMs in the same directory
-        #     (issue #658 cert pinning).
         #   - services/control-plane/internal/age/testdata/: the age-claim
         #     cross-impl fixture's RSA-PSS test signature + PUBLIC key SPKI
         #     (base64). Reproducible via `UPDATE_AGE_FIXTURE=1 go test`; no
         #     private key is committed (#1623 child-B contract).
-        #   - prototypes/: vendored Claude Design HTML/JS prototype exports.
-        #     Their high-entropy strings are public CDN Subresource-Integrity
-        #     (sha384) hashes; real secrets are still caught by GitHub push
-        #     protection + the CI verified-secret scan (#204 mobile prototype).
-        #   - graphify-out/{graph.json,graph.html,manifest.json}: generated
-        #     graph identifiers and content digests. The queryable graph is
-        #     intentionally versioned; CI still performs a verified-secret
-        #     scan on the PR diff.
         #   - services/control-plane/internal/authoritycontract/testdata/vectors.json:
         #     the #3587 authority-contract vectors, regenerated with fresh
         #     ephemeral keys by scripts/authority-vectors/gen.mjs. In clear they
@@ -85,43 +74,26 @@ repos:
         #     vectors_wrap_hygiene_test.go opens every wrap and refuses a
         #     recovered key that any other vector publishes or that a package test
         #     file or gen.mjs commits, so the openable keys stay single-use.
-        exclude: '(package-lock\.json|desktop/tests/fixtures/pinning/.*|services/control-plane/internal/age/testdata/.*|services/control-plane/internal/authoritycontract/testdata/vectors\.json|prototypes/.*|graphify-out/(graph\.json|graph\.html|manifest\.json))'
+        exclude: '(package-lock\.json|services/control-plane/internal/age/testdata/.*|services/control-plane/internal/authoritycontract/testdata/vectors\.json)'
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
       - id: check-added-large-files
         args: ['--maxkb=5000']
-        # The versioned Graphify graph is a generated, queryable repository
-        # artifact. Keep its manifest and report under the normal size limit.
         # The account-authority conformance vectors are the DoR's single
         # committed file; vectors_hygiene_test.go bounds them at 8 MiB instead.
-        exclude: '^(graphify-out/graph\.json|services/control-plane/internal/authoritycontract/testdata/vectors\.json)$'
+        exclude: '^services/control-plane/internal/authoritycontract/testdata/vectors\.json$'
       - id: check-case-conflict
       - id: check-merge-conflict
       - id: check-yaml
         # Lint test fixtures named `*-malformed.yml` are intentionally
         # not valid YAML — they exercise the script-error path of the
         # workflow-lint scanners (#920 §5.1 case-05 and future siblings).
-        # case-09-yaml-error/workflows/broken.yml: intentionally malformed YAML
-        # fixture that exercises the YAML-parse-error path of
-        # lint-branch-protection.sh (#999 G2 reconciliation finding #2).
-        # These exact Compose overlays carry merge tags safe_load cannot
-        # construct. They get the syntax-only pass below and retain the
-        # semantic Compose contracts in the deployment tests.
-        exclude: '(.*-malformed\.yml$|\.github/scripts/tests/fixtures/branch-protection-lint/case-09-yaml-error/workflows/broken\.yml|^(docker-compose\.(production|staging|west-staging|selfhost|byo-s3|media-shared|redis-managed)\.yml|scripts/public-mirror/public-overlay/docker-compose\.production\.yml)$)'
-      - id: check-yaml
-        alias: check-yaml-compose-merge-tags
-        name: check yaml (syntax only — Compose merge tags, #3538, #1899)
-        args: ['--unsafe']
-        files: '^(docker-compose\.(production|staging|west-staging|selfhost|byo-s3|media-shared|redis-managed)\.yml|scripts/public-mirror/public-overlay/docker-compose\.production\.yml)$'
+        exclude: '-malformed\.yml$'
       - id: check-json
         # package-lock.json: excluded by default (large, not authored JSON).
-        # case-05-malformed/bp.json: intentionally truncated JSON fixture that
-        # exercises the script-error path (exit 2) of lint-branch-protection.sh
-        # (#999 G2 Task 6). Mirrors the check-yaml exclude pattern for
-        # malformed YAML fixtures.
-        exclude: '(package-lock\.json|\.github/scripts/tests/fixtures/branch-protection-lint/case-05-malformed/)'
+        exclude: 'package-lock\.json'
       - id: detect-private-key
         # N: the concord-bridge audit test seeds a truncated fake PEM header to prove
         # the ledger redacts it; it is not key material.
@@ -329,38 +301,18 @@ repos:
         # TypeError: Metaclasses with custom tp_new are not supported).
         # Developers must have python3.9 installed locally. On macOS this
         # ships with Command Line Tools at /Library/Developer/CommandLineTools/.
-        # Ruleset matches the blocking CI step (.github/workflows/build.yml
-        # line 77): .semgrep/ custom rules only. CI additionally runs
-        # p/security-audit + p/owasp-top-ten as non-blocking community
-        # checks (build.yml line 120) — those are intentionally excluded
-        # from pre-commit to keep local runs fast.
+        # Ruleset matches the blocking custom-rules scan in
+        # .github/workflows/semgrep.yml: .semgrep/ rules only. CI also runs
+        # the p/security-audit and p/owasp-top-ten community rulesets; they
+        # are left out here to keep local runs fast.
         language_version: python3.9
         args:
           - --config=.semgrep/
           - --error
           - --quiet
-        types_or: [javascript, ts, tsx, go]
-        # prototypes/: vendored Claude Design HTML/JS exports; the design
-        # runtime legitimately uses innerHTML templating + new Function() JSX
-        # compilation. Local-browser mock code, never production (#204).
-        exclude: '(node_modules|dist|out|coverage|\.test\.|tests/|prototypes/)'
+        types_or: [javascript, ts, tsx]
+        exclude: '(node_modules|dist|out|coverage|\.test\.|tests/)'
 
-  # ── Go (Control Plane) ────────────────────────────────────────────────────
-  # rev bumped v2.10.1 -> v2.12.2 (#1623): v2.10.1's bundled gosec emitted
-  # false-positive G704 (SSRF-via-taint) + G117 (exported-field-matches-secret)
-  # findings on pre-existing files (cfkv, feedback, config, an oauth test) that
-  # the newer gosec in v2.12.x no longer flags. rev bumped v2.12.2 -> v2.14.0
-  # for Go 1.27: v2.12.2's Staticcheck panics building IR for the Go 1.27
-  # standard library (#3656), and v2.13.2 cannot read Go 1.27.2's export data
-  # ("export data version 5 is greater than maximum supported version 4"), so
-  # every package fails typecheck. pre-commit builds this hook with the system Go,
-  # and a golangci-lint built with Go 1.26 refuses a `go 1.27` module, so the
-  # system Go must be 1.27 or newer (see docs/development.md).
-  # This `rev` is ALSO the CI version: pr-ci.yml's advisory `golangci-lint` job
-  # reads it from this file (repo URL line, then the `rev:` line directly under
-  # it — keep them adjacent; the job fails closed if it cannot parse a vX.Y.Z).
-  # No workflow ran golangci-lint from #373 (2026-03-24) until that job; an
-  # earlier version of this comment claimed CI did.
   - repo: local
     hooks:
       - id: prettier
@@ -409,15 +361,6 @@ repos:
         stages: [commit-msg]
         always_run: true
 
-  # ── CLAUDE.md counts drift (warn-only) ────────────────────────────────────
-  # Runs the counts script in dry-run mode and prints a warning if CLAUDE.md's
-  # Key Counts paragraph has drifted from the live repo. Non-blocking: this
-  # hook NEVER fails the commit — it's purely an informational nudge to run
-  # `./scripts/update-claude-md-counts.sh --apply` when convenient.
-  #
-  # Also used as a signal by Claude Code: if this hook prints a drift warning,
-  # Claude should offer to refresh counts as part of the current session
-  # rather than waiting for a manual audit.
   - repo: local
     hooks:
       - id: check-native-ioc-gate
@@ -459,13 +402,6 @@ repos:
         files: '^scripts/(check|test-check)-native-jsf-profile\.sh$'
         pass_filenames: false
 
-  # ── Test protect-sensitive.sh marker-file bypass (#1136) ──────────────────
-  # Fires when either the hook script or its test harness changes. Runs the
-  # full assertion harness; any failure blocks the commit. Catches regressions
-  # in the marker-file authorization logic, the sanitization substitution, or
-  # the existing PROTECTED_PATTERNS fall-through before they hit CI.
-  #
-  # Spec: docs/superpowers/specs/2026-05-21-1109-autonomy-framework-design.md
   - repo: local
     hooks:
       # Fires only when a manifest or lockfile moves — the moments an override
@@ -492,7 +428,7 @@ repos:
         name: Test override-range lint (#2709)
         entry: bash scripts/security/test-override-range-lint.sh
         language: system
-        files: '^(scripts/security/(override-range-lint\.mjs|test-override-range-lint\.sh)|\.pre-commit-config\.yaml|\.github/workflows/(build|worker-ci)\.yml)$'
+        files: '^(scripts/security/(override-range-lint\.mjs|test-override-range-lint\.sh)|\.pre-commit-config\.yaml|\.github/workflows/build\.yml)$'
         pass_filenames: false
       # Fires when a manifest, the dependabot config, or the register itself
       # moves — the moments a held version can appear without a written reason.

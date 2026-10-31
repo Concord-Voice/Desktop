@@ -336,6 +336,17 @@ jobs:
         working-directory: desktop
         run: npm run build:main
 
+      # GitHub's Ubuntu image restricts unprivileged user namespaces, so
+      # Chromium needs its SUID helper; same step as desktop-engine-probes.yml.
+      - name: Configure the test Electron sandbox helper
+        working-directory: desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper=$(node -e 'const fs=require("node:fs"),p=require("node:path");const dir=fs.realpathSync("node_modules/electron/dist"),helper=p.join(dir,"chrome-sandbox");if(p.dirname(fs.realpathSync(require("electron")))!==dir||fs.lstatSync(helper).isSymbolicLink()||!fs.lstatSync(helper).isFile())throw new Error("Unexpected Electron sandbox helper");process.stdout.write(helper)')
+          sudo chown root:root -- "$helper"
+          sudo chmod 4755 -- "$helper"
+
       - name: Run the Electron host probe
         working-directory: desktop
         # `--ozone-platform=headless` IS REQUIRED, and the reasoning that said
