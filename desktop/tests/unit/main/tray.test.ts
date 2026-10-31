@@ -276,14 +276,7 @@ describe('resolveTrayIconPath', () => {
 
   it('falls back to the repo-relative path in dev (unpackaged)', () => {
     expect(
-      resolveTrayIconPath(
-        'darwin',
-        false,
-        undefined,
-        '/repo/desktop',
-        'template',
-        'full.full.star'
-      )
+      resolveTrayIconPath('darwin', false, undefined, '/repo/desktop', 'template', 'full.full.star')
     ).toBe('/repo/desktop/assets/tray/template/full.full.star.png');
   });
 
