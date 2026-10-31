@@ -247,9 +247,10 @@ describe('SubscriptionSection paid plans (#2033 PR-4)', () => {
     render(<SubscriptionSection />);
     await openSubscription();
     expect(
-      await screen.findByRole('button', { name: 'Start 30-day free trial of Wing' })
+      await screen.findByRole('button', { name: 'Start 30-day free trial of Supersonic' })
     ).toBeInTheDocument();
-    expect(screen.getByText(/Your free trial lasts 30 days/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Subscribe to Wing' })).toBeInTheDocument();
+    expect(screen.getByText(/Supersonic comes with a 30-day free trial/)).toBeInTheDocument();
   });
 
   it('shows a catalog failure as an inline alert with Retry, not the footer', async () => {
@@ -307,6 +308,47 @@ describe('SubscriptionSection paid plans (#2033 PR-4)', () => {
       await screen.findByText('Update Concord to subscribe or manage billing.')
     ).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /subscribe/i })).not.toBeInTheDocument();
+  });
+
+  it('a Wing +1 sees Leave Wing, not the picker (#2033 PR-5)', async () => {
+    serve({
+      tier: 'premium',
+      status: 'active',
+      source: 'seat',
+      billing: 'available',
+      seat: { role: 'member', seat_id: 's-1', state: 'active', counterpart_user_id: 'u-2' },
+    });
+    render(<SubscriptionSection />);
+    await openSubscription();
+    expect(await screen.findByRole('button', { name: 'Leave Wing' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /subscribe/i })).not.toBeInTheDocument();
+  });
+
+  it('shows an open Wing invite above the plan card (#2033 PR-5)', async () => {
+    serve({
+      tier: 'free',
+      status: 'none',
+      billing: 'available',
+      invites: [{ invite_id: 's-1', payer_user_id: 'u-2', expires_at: '2027-01-15T12:00:00Z' }],
+    });
+    render(<SubscriptionSection />);
+    await openSubscription();
+    const region = await screen.findByRole('region', { name: 'Wing invite' });
+    expect(region).toHaveTextContent('a friend invited you to their Wing.');
+    expect(within(region).getByRole('button', { name: 'Accept' })).toBeInTheDocument();
+  });
+
+  it('shows the seat_member notice when Checkout refuses a +1 (#2033 PR-5)', async () => {
+    serve({ tier: 'free', status: 'none', billing: 'available' });
+    server.use(
+      http.post(`${API_BASE}/billing/checkout-session`, () =>
+        HttpResponse.json({ error: 'seat_member' }, { status: 409 })
+      )
+    );
+    render(<SubscriptionSection />);
+    await openSubscription();
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Subscribe to Wing' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/Leave Wing to buy your own plan/);
   });
 
   it('a subscriber sees management, not the picker', async () => {
@@ -368,6 +410,16 @@ describe('SubscriptionSection paid plans (#2033 PR-4)', () => {
       screen.getByText('Checkout closed. If you finished paying, this page updates on its own.')
     ).toHaveRole('status');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('explains how to withdraw a booked change before choosing another', async () => {
+    serve({ tier: 'free', status: 'none', billing: 'available' });
+    render(<SubscriptionSection />);
+    await openSubscription();
+    act(() => useBillingStore.setState({ notice: 'pending_plan_change' }));
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Keep your current plan first to withdraw the booked change, then choose a new one.'
+    );
   });
 
   it('does not replay a notice or the activation cue when the page is reopened', async () => {

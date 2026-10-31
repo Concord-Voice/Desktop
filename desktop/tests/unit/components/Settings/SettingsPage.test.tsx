@@ -8,6 +8,9 @@ import { resetAllStores } from '../../../helpers/store-helpers';
 import { vi } from 'vitest';
 
 const mockStopMicTest = vi.fn();
+const mockStartMicCalibration = vi.fn(async () => null);
+const mockGetMicActivityVersion = vi.fn(() => 0);
+const mockSubscribeMicActivity = vi.fn((_listener: () => void) => () => {});
 const mockStopOutputTest = vi.fn();
 const mockStopCameraTest = vi.fn();
 let mockMicTestActive = false;
@@ -26,10 +29,16 @@ vi.mock('@/renderer/hooks/device/useMicTest', async () => {
       );
       return {
         isTesting: mockMicTestActive,
+        isPending: false,
         dbfsLevel: -40,
+        inputOverloaded: false,
+        dynamicGateStatus: null,
         error: null,
         startTest: vi.fn(),
         stopTest: mockStopMicTest,
+        startCalibration: mockStartMicCalibration,
+        getActivityVersion: mockGetMicActivityVersion,
+        subscribeActivity: mockSubscribeMicActivity,
       };
     }),
   };
@@ -164,8 +173,8 @@ describe('SettingsPage', () => {
 
   it('renders theme options', () => {
     render(<SettingsPage />);
-    expect(screen.getByText('Dark')).toBeInTheDocument();
-    expect(screen.getByText('Light')).toBeInTheDocument();
+    expect(screen.getByText('Dark', { selector: '.theme-option-label' })).toBeInTheDocument();
+    expect(screen.getByText('Light', { selector: '.theme-option-label' })).toBeInTheDocument();
     expect(screen.getByText('System')).toBeInTheDocument();
   });
 
@@ -226,7 +235,7 @@ describe('SettingsPage', () => {
 
   it('changes theme on click', () => {
     render(<SettingsPage />);
-    fireEvent.click(screen.getByText('Light'));
+    fireEvent.click(screen.getByText('Light', { selector: '.theme-option-label' }));
     expect(useSettingsStore.getState().appearance.theme).toBe('light');
   });
 

@@ -44,21 +44,22 @@ on:
     types: [opened, synchronize, reopened, edited]
     branches: [main]
 
+# Every job declares its own grants; the workflow default stays read-only.
 permissions:
   contents: read
-  pull-requests: write
-  actions: read
-  checks: read
-  packages: read
-  security-events: write
   # NO `environment: production` on any job — Invariant 2: PR runners cannot
   # resolve production-scoped secrets, so dry-run deploys hit staging only.
 
 concurrency:
   # Title/body-only edits must not cancel a real run on the same head. A base
   # retarget (or an edited event with unknown changes) still gets ordinary CI.
+  # The protected group cancels too: the newest ruleset run for a PR always
+  # runs to completion and reports the current head, so a superseded head's
+  # in-flight build is waste. A ruleset run ignores event filters, so a
+  # title/body edit restarts the run for the same head rather than queueing a
+  # second full build behind it.
   group: ${{ inputs.enforcement-only && format('pr-ci-protected-{0}', github.event.pull_request.number) || (github.event.action == 'edited' && github.event.changes.base == null && (github.event.changes.title != null || github.event.changes.body != null) && format('pr-ci-metadata-{0}', github.event.pull_request.number) || format('pr-ci-ordinary-{0}', github.event.pull_request.number)) }}
-  cancel-in-progress: ${{ !inputs.enforcement-only }}
+  cancel-in-progress: true
 
 jobs:
   # ─── Supply-chain IOC gate (IOC-first invariant, ADR-0018 / #1472) ───
@@ -681,6 +682,8 @@ jobs:
   # NOTE: the former verify-openapi-coverage, verify-spa-env, and
   # verify-deploy-scripts jobs are consolidated into the single `static-guards`
   # job earlier in this file (2026-07 CI deep-dive).
+
+  # D: migration-lint (squawk on control-plane migrations) belongs to Self-Hosted.
 
   # Final protected-source API report. This job reports its actual needs
   # results; the protected wrapper adds its selected OSV job result separately.

@@ -16,6 +16,10 @@ const ME = `${API}/subscriptions/me`;
 const PLANS = `${API}/billing/plans`;
 const CHECKOUT = `${API}/billing/checkout-session`;
 const PORTAL = `${API}/billing/portal-session`;
+const PLAN_CHANGE = `${API}/billing/plan-change`;
+const PLAN_PREVIEW = `${API}/billing/plan-change/preview`;
+const PLAN_KEEP = `${API}/billing/plan-change/cancel`;
+const SUBSCRIPTION_CANCEL = `${API}/billing/subscription-cancel`;
 const ENTITLEMENTS = `${API}/entitlements`;
 const SHEET_URL = 'https://pay.concordvoice.com/c/pay/cs_test_1';
 
@@ -71,7 +75,7 @@ const CATALOG = {
   ],
 };
 
-type Bridge = { openBilling?: unknown };
+type Bridge = { openBilling?: unknown; openExternal?: unknown };
 const bridge = (): Bridge => globalThis.electron as unknown as Bridge;
 
 function mockSheet(result: string) {
@@ -95,8 +99,10 @@ afterAll(() => server.close());
 afterEach(() => {
   server.resetHandlers();
   delete bridge().openBilling;
+  delete bridge().openExternal;
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
 });
 
 beforeEach(() => {
@@ -111,6 +117,20 @@ describe('billingStore fetchMe', () => {
     expect(billing().me?.stripe?.plan).toBe('supersonic');
     expect(billing().me?.billing).toBe('available');
     expect(billing().meError).toBe(false);
+  });
+
+  it('retains an attached schedule after pending change fields clear', async () => {
+    server.use(
+      http.get(ME, () =>
+        HttpResponse.json({
+          ...ME_ACTIVE,
+          stripe: { ...STRIPE_LIVE, plan: 'supersonic', interval: 'year', schedule_attached: true },
+        })
+      )
+    );
+    await billing().fetchMe();
+    expect(billing().me?.stripe?.schedule_attached).toBe(true);
+    expect(billing().me?.stripe?.pending_plan).toBeUndefined();
   });
 
   it('reads a server that sends no billing mode as not configured', async () => {
@@ -316,7 +336,8 @@ describe('billingStore startCheckout', () => {
   it.each([
     [429, {}, 'rate_limited'],
     [503, { error: 'purchase_unavailable' }, 'checkout_failed'],
-    [409, { error: 'seat_member' }, 'checkout_failed'],
+    [409, { error: 'seat_member' }, 'seat_member'],
+    [409, { error: 'other' }, 'checkout_failed'],
     [201, { nope: true }, 'checkout_failed'],
   ])('maps HTTP %s to the %s notice', async (status, payload, notice) => {
     server.use(http.post(CHECKOUT, () => HttpResponse.json(payload, { status: status as number })));
@@ -503,6 +524,387 @@ describe('billingStore openPortal', () => {
   });
 });
 
+describe('billingStore changePlan', () => {
+  it('posts the selected price, then refreshes the subscriber amount', async () => {
+    let body: unknown;
+    server.use(
+      http.post(PLAN_PREVIEW, () =>
+        HttpResponse.json({
+          effective: 'immediate',
+          due_now: 500,
+          currency: 'usd',
+          proration_date: 1800000000,
+        })
+      ),
+      http.post(PLAN_CHANGE, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ effective: 'immediate' });
+      }),
+      http.get(ME, () =>
+        HttpResponse.json({ ...ME_ACTIVE, stripe: { ...STRIPE_LIVE, unit_amount: 749 } })
+      ),
+      http.get(ENTITLEMENTS, () => new HttpResponse(null, { status: 503 }))
+    );
+    await billing().previewPlanChange('wing', 'month');
+    const quote = billing().preview;
+    expect(quote).not.toBeNull();
+    if (!quote) throw new Error('missing quote');
+    await billing().changePlan('wing', 'month', quote);
+    expect(body).toEqual({
+      plan: 'wing',
+      interval: 'month',
+      expected_effective: 'immediate',
+      quoted_amount_due: 500,
+      proration_date: 1800000000,
+    });
+    expect(billing().notice).toBe('plan_change_saved');
+    expect(billing().me?.stripe?.unit_amount).toBe(749);
+    expect(billing().changing).toBe(false);
+  });
+
+  it('reports a stale selection without changing the stored account', async () => {
+    let previews = 0;
+    server.use(
+      http.post(PLAN_PREVIEW, () => {
+        previews += 1;
+        return HttpResponse.json({ effective: 'scheduled', due_now: 0, currency: 'usd' });
+      }),
+      http.post(PLAN_CHANGE, () =>
+        HttpResponse.json({ error: 'plan_change_conflict' }, { status: 409 })
+      )
+    );
+    await billing().previewPlanChange('wing', 'year');
+    const quote = billing().preview;
+    if (!quote) throw new Error('missing quote');
+    await billing().changePlan('wing', 'year', quote);
+    expect(billing().notice).toBe('plan_change_conflict');
+    expect(billing().changing).toBe(false);
+    expect(billing().me).toBeNull();
+    await vi.waitFor(() => expect(previews).toBe(2));
+  });
+
+  it('does not retry a conflict after the signed-in account changes during error parsing', async () => {
+    const bodyGate = deferred<void>();
+    let readingError = false;
+    let previews = 0;
+    let meReads = 0;
+    const originalJson = Response.prototype.json;
+    const jsonSpy = vi.spyOn(Response.prototype, 'json').mockImplementation(function (
+      this: Response
+    ) {
+      if (this.status === 409) {
+        readingError = true;
+        return bodyGate.promise.then(() => originalJson.call(this));
+      }
+      return originalJson.call(this);
+    });
+    server.use(
+      http.post(PLAN_PREVIEW, () => {
+        previews += 1;
+        return HttpResponse.json({
+          effective: 'immediate',
+          due_now: 500,
+          currency: 'usd',
+          proration_date: 1800000000,
+        });
+      }),
+      http.post(PLAN_CHANGE, () =>
+        HttpResponse.json({ error: 'plan_change_conflict' }, { status: 409 })
+      ),
+      http.get(ME, () => {
+        meReads += 1;
+        return HttpResponse.json(ME_ACTIVE);
+      })
+    );
+    await billing().previewPlanChange('wing', 'month');
+    const quote = billing().preview;
+    if (!quote) throw new Error('missing quote');
+    try {
+      const run = billing().changePlan('wing', 'month', quote);
+      await vi.waitFor(() => expect(readingError).toBe(true));
+      useAuthStore.getState().setAccessToken('another-account-token');
+      billing().reset();
+      bodyGate.resolve();
+      await run;
+      expect(previews).toBe(1);
+      expect(meReads).toBe(0);
+      expect(billing().notice).toBeNull();
+    } finally {
+      bodyGate.resolve();
+      jsonSpy.mockRestore();
+    }
+  });
+
+  it('sends the quoted scheduled date with confirmation', async () => {
+    let body: unknown;
+    server.use(
+      http.post(PLAN_PREVIEW, () =>
+        HttpResponse.json({
+          effective: 'scheduled',
+          due_now: 0,
+          currency: 'usd',
+          change_at: '2027-01-01T00:00:00Z',
+        })
+      ),
+      http.post(PLAN_CHANGE, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ effective: 'scheduled', change_at: '2027-01-01T00:00:00Z' });
+      }),
+      http.get(ME, () => HttpResponse.json(ME_ACTIVE)),
+      http.get(ENTITLEMENTS, () => new HttpResponse(null, { status: 503 }))
+    );
+    await billing().previewPlanChange('wing', 'year');
+    const quote = billing().preview;
+    if (!quote) throw new Error('missing quote');
+    await billing().changePlan('wing', 'year', quote);
+    expect(body).toMatchObject({
+      expected_effective: 'scheduled',
+      expected_change_at: '2027-01-01T00:00:00Z',
+    });
+  });
+
+  it('opens the hosted invoice for required payment authentication', async () => {
+    const openExternal = vi.fn().mockResolvedValue({ ok: true });
+    bridge().openExternal = openExternal;
+    server.use(
+      http.post(PLAN_PREVIEW, () =>
+        HttpResponse.json({
+          effective: 'immediate',
+          due_now: 500,
+          currency: 'usd',
+          proration_date: 1800000000,
+        })
+      ),
+      http.post(PLAN_CHANGE, () =>
+        HttpResponse.json(
+          {
+            effective: 'payment_pending',
+            payment_status: 'requires_action',
+            payment_url: 'https://invoice.stripe.com/i/test_123',
+          },
+          { status: 202 }
+        )
+      )
+    );
+    await billing().previewPlanChange('wing', 'month');
+    const quote = billing().preview;
+    if (!quote) throw new Error('missing quote');
+    await billing().changePlan('wing', 'month', quote);
+    expect(openExternal).toHaveBeenCalledWith('https://invoice.stripe.com/i/test_123');
+    expect(billing().notice).toBe('plan_change_payment_pending');
+  });
+
+  it('names a declined pending payment and refuses an untrusted invoice URL', async () => {
+    const openExternal = vi.fn().mockResolvedValue({ ok: true });
+    bridge().openExternal = openExternal;
+    server.use(
+      http.post(PLAN_PREVIEW, () =>
+        HttpResponse.json({
+          effective: 'immediate',
+          due_now: 500,
+          currency: 'usd',
+          proration_date: 1800000000,
+        })
+      ),
+      http.post(PLAN_CHANGE, () =>
+        HttpResponse.json(
+          {
+            effective: 'payment_pending',
+            payment_status: 'card_declined',
+            payment_url: 'https://invoice.stripe.com/i/test_123',
+          },
+          { status: 202 }
+        )
+      )
+    );
+    await billing().previewPlanChange('wing', 'month');
+    const quote = billing().preview;
+    if (!quote) throw new Error('missing quote');
+    await billing().changePlan('wing', 'month', quote);
+    expect(billing().notice).toBe('card_declined');
+    expect(openExternal).toHaveBeenCalledTimes(1);
+
+    server.use(
+      http.post(PLAN_CHANGE, () =>
+        HttpResponse.json(
+          {
+            effective: 'payment_pending',
+            payment_status: 'requires_action',
+            payment_url: 'https://invoice.stripe.com.attacker.example/i/x',
+          },
+          { status: 202 }
+        )
+      )
+    );
+    await billing().previewPlanChange('wing', 'month');
+    const second = billing().preview;
+    if (!second) throw new Error('missing second quote');
+    await billing().changePlan('wing', 'month', second);
+    expect(billing().notice).toBe('plan_change_payment_unavailable');
+    expect(openExternal).toHaveBeenCalledTimes(1);
+  });
+
+  it('explains that a booked change must be withdrawn before another request', async () => {
+    server.use(
+      http.post(PLAN_PREVIEW, () =>
+        HttpResponse.json({ effective: 'scheduled', due_now: 0, currency: 'usd' })
+      ),
+      http.post(PLAN_CHANGE, () =>
+        HttpResponse.json({ error: 'pending_plan_change' }, { status: 409 })
+      ),
+      http.get(ME, () =>
+        HttpResponse.json({
+          ...ME_ACTIVE,
+          stripe: {
+            ...STRIPE_LIVE,
+            pending_plan: 'wing',
+            pending_interval: 'year',
+            pending_change_at: '2027-01-01T00:00:00Z',
+          },
+        })
+      )
+    );
+    await billing().previewPlanChange('wing', 'year');
+    const quote = billing().preview;
+    if (!quote) throw new Error('missing quote');
+    await billing().changePlan('wing', 'year', quote);
+    expect(billing().notice).toBe('pending_plan_change');
+    await vi.waitFor(() => expect(billing().me?.stripe?.pending_plan).toBe('wing'));
+  });
+
+  it('refreshes a pending booking discovered while previewing a plan', async () => {
+    server.use(
+      http.post(PLAN_PREVIEW, () =>
+        HttpResponse.json({ error: 'pending_plan_change' }, { status: 409 })
+      ),
+      http.get(ME, () =>
+        HttpResponse.json({
+          ...ME_ACTIVE,
+          stripe: {
+            ...STRIPE_LIVE,
+            pending_plan: 'wing',
+            pending_interval: 'year',
+            pending_change_at: '2027-01-01T00:00:00Z',
+          },
+        })
+      )
+    );
+    await billing().previewPlanChange('wing', 'year');
+    expect(billing().notice).toBe('pending_plan_change');
+    expect(billing().previewError).toBe(false);
+    await vi.waitFor(() => expect(billing().me?.stripe?.pending_plan).toBe('wing'));
+  });
+
+  it('shows a clear notice when the card is declined', async () => {
+    server.use(
+      http.post(PLAN_PREVIEW, () =>
+        HttpResponse.json({
+          effective: 'immediate',
+          due_now: 500,
+          currency: 'usd',
+          proration_date: 1800000000,
+        })
+      ),
+      http.post(PLAN_CHANGE, () => HttpResponse.json({ error: 'card_declined' }, { status: 402 }))
+    );
+    await billing().previewPlanChange('wing', 'month');
+    const quote = billing().preview;
+    if (!quote) throw new Error('missing quote');
+    await billing().changePlan('wing', 'month', quote);
+    expect(billing().notice).toBe('card_declined');
+    expect(billing().preview).toBeNull();
+    expect(billing().previewError).toBe(true);
+    expect(billing().changing).toBe(false);
+  });
+
+  it('clears a quoted charge when Stripe already has a pending payment', async () => {
+    server.use(
+      http.post(PLAN_PREVIEW, () =>
+        HttpResponse.json({
+          effective: 'immediate',
+          due_now: 500,
+          currency: 'usd',
+          proration_date: 1800000000,
+        })
+      ),
+      http.post(PLAN_CHANGE, () => HttpResponse.json({ error: 'payment_pending' }, { status: 409 }))
+    );
+    await billing().previewPlanChange('wing', 'month');
+    const quote = billing().preview;
+    if (!quote) throw new Error('missing quote');
+    await billing().changePlan('wing', 'month', quote);
+    expect(billing().notice).toBe('plan_change_payment_pending');
+    expect(billing().preview).toBeNull();
+    expect(billing().previewError).toBe(true);
+  });
+
+  it('reports a mixed upgrade that succeeded before its later booking failed', async () => {
+    server.use(
+      http.post(PLAN_PREVIEW, () =>
+        HttpResponse.json({
+          effective: 'immediate_then_scheduled',
+          due_now: 500,
+          currency: 'usd',
+          proration_date: 1800000000,
+        })
+      ),
+      http.post(PLAN_CHANGE, () =>
+        HttpResponse.json({ effective: 'immediate', booking_failed: true })
+      ),
+      http.get(ME, () =>
+        HttpResponse.json({
+          ...ME_ACTIVE,
+          stripe: { ...STRIPE_LIVE, plan: 'wing', interval: 'year' },
+        })
+      ),
+      http.get(ENTITLEMENTS, () => new HttpResponse(null, { status: 503 }))
+    );
+    await billing().previewPlanChange('wing', 'month');
+    const quote = billing().preview;
+    if (!quote) throw new Error('missing quote');
+    await billing().changePlan('wing', 'month', quote);
+    expect(billing().notice).toBe('plan_change_partial');
+    expect(billing().me?.stripe?.interval).toBe('year');
+  });
+
+  it('withdraws a booked change and refreshes the subscription', async () => {
+    let calls = 0;
+    server.use(
+      http.post(PLAN_KEEP, () => {
+        calls += 1;
+        return HttpResponse.json({ effective: 'kept' });
+      }),
+      http.get(ME, () => HttpResponse.json(ME_ACTIVE))
+    );
+    await billing().keepCurrentPlan();
+    expect(calls).toBe(1);
+    expect(billing().notice).toBe('plan_change_kept');
+    expect(billing().me?.stripe?.pending_plan).toBeUndefined();
+    expect(billing().changing).toBe(false);
+  });
+
+  it('confirms period-end cancellation and explains a failed attempt', async () => {
+    server.use(
+      http.post(SUBSCRIPTION_CANCEL, () => HttpResponse.json({ canceling: true })),
+      http.get(ME, () =>
+        HttpResponse.json({ ...ME_ACTIVE, stripe: { ...STRIPE_LIVE, canceling: true } })
+      ),
+      http.get(ENTITLEMENTS, () => new HttpResponse(null, { status: 503 }))
+    );
+    await billing().cancelSubscription();
+    expect(billing().notice).toBe('subscription_canceling');
+    expect(billing().me?.stripe?.canceling).toBe(true);
+    server.use(
+      http.post(SUBSCRIPTION_CANCEL, () =>
+        HttpResponse.json({ error: 'billing_unavailable' }, { status: 503 })
+      )
+    );
+    await billing().cancelSubscription();
+    expect(billing().notice).toBe('subscription_cancel_failed');
+    expect(billing().changing).toBe(false);
+  });
+});
+
 describe('billingStore dismissTransient', () => {
   it('clears the activation cue and the notice, and nothing else', () => {
     useBillingStore.setState({ activated: true, notice: 'checkout_failed', pending: true });
@@ -646,5 +1048,139 @@ describe('billingStore Confirming (P6)', () => {
     expect(hydrate).not.toHaveBeenCalled();
     expect(billing().pending).toBe(false);
     expect(billing().pendingStalled).toBe(false);
+  });
+});
+
+describe('billingStore Wing seats (#2033 PR-5)', () => {
+  const SEAT = `${API}/billing/seat`;
+  const INVITE = `${API}/billing/seat/invite`;
+  const LEAVE = `${API}/billing/seat/leave`;
+  const ACCEPT = `${API}/billing/seat-invites/seat-1/accept`;
+  const DECLINE = `${API}/billing/seat-invites/seat-1/decline`;
+
+  it('reads the seat side of /me and drops an unreadable invite', async () => {
+    server.use(
+      http.get(ME, () =>
+        HttpResponse.json({
+          ...ME_FREE,
+          tier: 'premium',
+          status: 'active',
+          source: 'seat',
+          seat: { role: 'member', seat_id: 'seat-1', state: 'active', counterpart_user_id: 'u-2' },
+          invites: [
+            { invite_id: 'seat-2', payer_user_id: 'u-3', expires_at: '2026-10-31T00:00:00Z' },
+            { invite_id: 'seat-3' },
+          ],
+        })
+      )
+    );
+    await billing().fetchMe();
+    expect(billing().me?.source).toBe('seat');
+    expect(billing().me?.seat?.role).toBe('member');
+    expect(billing().me?.invites).toEqual([
+      { invite_id: 'seat-2', payer_user_id: 'u-3', expires_at: '2026-10-31T00:00:00Z' },
+    ]);
+  });
+
+  it('reads a /me with no seat side as no seat and no invites', async () => {
+    server.use(http.get(ME, () => HttpResponse.json(ME_FREE)));
+    await billing().fetchMe();
+    expect(billing().me?.seat).toBeUndefined();
+    expect(billing().me?.invites).toEqual([]);
+  });
+
+  it('sends the invite body and re-reads /me on success', async () => {
+    let body: unknown;
+    let reads = 0;
+    server.use(
+      http.post(INVITE, async ({ request }) => {
+        body = await request.json();
+        return HttpResponse.json({ seat: {} }, { status: 201 });
+      }),
+      http.get(ME, () => {
+        reads += 1;
+        return HttpResponse.json(ME_FREE);
+      })
+    );
+    expect(await billing().inviteSeat('u-2', true)).toEqual({ ok: true });
+    expect(body).toEqual({ user_id: 'u-2', replace: true });
+    await vi.waitFor(() => expect(reads).toBe(1));
+  });
+
+  it('returns the refusal code and its date', async () => {
+    server.use(
+      http.post(INVITE, () =>
+        HttpResponse.json(
+          { error: 'seat_cooldown', available_at: '2026-11-20T00:00:00Z' },
+          { status: 409 }
+        )
+      ),
+      http.post(ACCEPT, () =>
+        HttpResponse.json(
+          { error: 'own_subscription_active', current_period_end: '2026-12-01T00:00:00Z' },
+          { status: 409 }
+        )
+      ),
+      http.post(DECLINE, () => HttpResponse.json({ error: 'invite_not_found' }, { status: 404 })),
+      http.get(ME, () => HttpResponse.json(ME_FREE))
+    );
+    expect(await billing().inviteSeat('u-2', false)).toEqual({
+      ok: false,
+      error: 'seat_cooldown',
+      date: '2026-11-20T00:00:00Z',
+    });
+    expect(await billing().acceptInvite('seat-1')).toEqual({
+      ok: false,
+      error: 'own_subscription_active',
+      date: '2026-12-01T00:00:00Z',
+    });
+    expect(await billing().declineInvite('seat-1')).toEqual({
+      ok: false,
+      error: 'invite_not_found',
+    });
+  });
+
+  it('maps 429, an unreadable body and a network error', async () => {
+    server.use(
+      http.delete(SEAT, () => HttpResponse.json({}, { status: 429 })),
+      http.post(LEAVE, () => new HttpResponse('nope', { status: 500 })),
+      http.post(ACCEPT, () => HttpResponse.error()),
+      http.get(ME, () => HttpResponse.json(ME_FREE))
+    );
+    expect(await billing().removeSeat()).toEqual({ ok: false, error: 'rate_limited' });
+    expect(await billing().leaveSeat()).toEqual({ ok: false, error: 'failed' });
+    expect(await billing().acceptInvite('seat-1')).toEqual({ ok: false, error: 'failed' });
+  });
+
+  it('refuses offline without a request', async () => {
+    vi.stubGlobal('navigator', { ...navigator, onLine: false });
+    expect(await billing().removeSeat()).toEqual({ ok: false, error: 'offline' });
+  });
+
+  it('clears the seat_member notice after a successful leave', async () => {
+    server.use(
+      http.post(LEAVE, () => new HttpResponse(null, { status: 204 })),
+      http.get(ME, () => HttpResponse.json(ME_FREE))
+    );
+    useBillingStore.setState({ notice: 'seat_member' });
+    expect(await billing().leaveSeat()).toEqual({ ok: true });
+    expect(billing().notice).toBeNull();
+  });
+
+  it('re-reads the entitlement after a seat change, without the socket', async () => {
+    const hydrate = vi.spyOn(useSubscriptionStore.getState(), 'hydrate').mockResolvedValue();
+    server.use(
+      http.post(ACCEPT, () => new HttpResponse(null, { status: 204 })),
+      http.get(ME, () => HttpResponse.json(ME_FREE))
+    );
+    expect(await billing().acceptInvite('seat-1')).toEqual({ ok: true });
+    expect(hydrate).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not re-read the entitlement when offline', async () => {
+    const hydrate = vi.spyOn(useSubscriptionStore.getState(), 'hydrate').mockResolvedValue();
+    vi.stubGlobal('navigator', { ...navigator, onLine: false });
+    expect(await billing().leaveSeat()).toEqual({ ok: false, error: 'offline' });
+    expect(hydrate).not.toHaveBeenCalled();
   });
 });

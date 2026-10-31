@@ -30,6 +30,8 @@ cleanup_fixtures() {
 }
 trap cleanup_fixtures EXIT
 
+NONE_LABEL='(none)'
+
 # ── Assert helpers ────────────────────────────────────────────────────────────
 
 assert_exit() {
@@ -135,7 +137,7 @@ assert_classifier_output_bounded() {
   lines=$(wc -l < "$gho" | tr -d '[:space:]')
   out=$(cat "$gho")
   rm -f "$gho"
-  if [[ "$actual" == "0" && "$bytes" -le 8192 && "$lines" == "12" \
+  if [[ "$actual" == "0" && "$bytes" -le 8192 && "$lines" == "14" \
     && "$out" == *"old_contract=999999999"* && "$out" == *"new_contract=999999999"* \
     && "$out" == *"old_spa_min=999999999"* && "$out" == *"new_spa_min=999999999"* ]]; then
     echo "  ✓ maximal valid classifier fields emit at most 8 KiB ($bytes bytes)"
@@ -690,9 +692,11 @@ else
     else
       echo "  ✗ SHELL_FILES drifted from desktop-pr-smoke.yml desktop-shell filter" >&2
       echo "    desktop-pr-smoke.yml-only (expected '$EXPECTED_BUILD_ONLY'):" >&2
-      printf '      %s\n' "${BUILD_ONLY:-(none)}" >&2
+      # A literal `:-(none)` default stops Semgrep's bash parser (PartialParsing),
+      # which the protected community scan counts as a scanner error.
+      printf '      %s\n' "${BUILD_ONLY:-$NONE_LABEL}" >&2
       echo "    classify-release.sh-only (expected none):" >&2
-      printf '      %s\n' "${CLASSIFY_ONLY:-(none)}" >&2
+      printf '      %s\n' "${CLASSIFY_ONLY:-$NONE_LABEL}" >&2
       fail=$((fail + 1))
     fi
   fi
@@ -1047,6 +1051,142 @@ assert_exit 0 "contract-version-lockstep has no continue-on-error" awk '
 
 assert_exit 0 "contract-version-lockstep job exists" \
   grep -q "^  contract-version-lockstep:" "$CLASSIFY_RELEASE_YML"
+
+# ── Recommended bump level (release-versioning.md § Bump-level criteria) ────
+# Adds CHANGELOG.md (and optionally a desktop-v<base> tag) to a fixture's head,
+# so each level is diagnosed from what the next release would carry.
+# Args: fixture_output changelog_body [tag_contract]. Sets RB_DIR and RB_BASE.
+with_changelog() {
+  RB_DIR=$(echo "$1" | sed -n '1p')
+  RB_BASE=$(echo "$1" | sed -n '2p')
+  (
+    cd "$RB_DIR"
+    if [[ -n "${3:-}" ]]; then
+      # The tag only has to be readable, not an ancestor: the classifier reads
+      # ipcContract.ts at desktop-v<base version> and nothing else from it.
+      git checkout -q "$RB_BASE"
+      printf 'export const IPC_CONTRACT_VERSION = %s;\nexport const SPA_MIN_CONTRACT = 12;\n' "$3" \
+        > desktop/src/main/ipcContract.ts
+      git commit -qam "released shell" --allow-empty
+      git tag desktop-v0.1.57
+      git checkout -q -
+    fi
+    printf '%s\n' "# Changelog" "" "## [Prerelease]" "" "$2" "" "## [0.1.57] - 2026-01-01" "" "### Added" "" "- old" \
+      > CHANGELOG.md
+    git add CHANGELOG.md
+    git commit -qm "changelog"
+  )
+}
+
+FIXED_NOTES=$(printf '%s\n' '### Fixed' '' '- **Voice:** a fix')
+ADDED_NOTES=$(printf '%s\n' '### Added' '' '- **Voice:** a feature' '' '### Fixed' '' '- **Voice:** a fix')
+BREAKING_NOTES=$(printf '%s\n' '### Removed' '' '- **Servers:** **BREAKING** old API removed')
+
+echo ""
+echo "Recommended bump level:"
+with_changelog "$(make_fixture 12 "0.1.57" 12 "0.1.57" "shell")" "$FIXED_NOTES"
+assert_output_contains "bump_level=patch" "fixes only: patch" "$RB_DIR" "$RB_BASE"
+assert_output_contains "bump_basis=notes" "fixes only: basis notes" "$RB_DIR" "$RB_BASE"
+
+with_changelog "$(make_fixture 12 "0.1.57" 12 "0.1.57" "shell")" "$ADDED_NOTES"
+assert_output_contains "bump_level=minor" "Added entry: minor" "$RB_DIR" "$RB_BASE"
+assert_output_contains "bump_basis=added" "Added entry: basis added" "$RB_DIR" "$RB_BASE"
+
+with_changelog "$(make_fixture 12 "0.1.57" 12 "0.1.57" "shell")" "$BREAKING_NOTES"
+assert_output_contains "bump_level=major" "BREAKING entry: major" "$RB_DIR" "$RB_BASE"
+
+# Entries in an OLDER version section must not leak into the pending one.
+with_changelog "$(make_fixture 12 "0.1.57" 12 "0.1.57" "")" ""
+assert_output_contains "bump_level=none" "empty Prerelease, no shell change: none" "$RB_DIR" "$RB_BASE"
+
+with_changelog "$(make_fixture 12 "0.1.57" 12 "0.1.57" "shell")" ""
+assert_output_contains "bump_basis=shell" "shell change, no notes: patch on shell basis" "$RB_DIR" "$RB_BASE"
+
+# Contract bumped in THIS PR with only fixes noted: minor via the IPC signal.
+with_changelog "$(make_fixture 12 "0.1.57" 13 "0.1.57" "shell")" "$FIXED_NOTES"
+assert_output_contains "bump_basis=ipc" "contract ahead of base: minor on ipc basis" "$RB_DIR" "$RB_BASE"
+
+# Contract bumped by an EARLIER merge since the last release tag: still minor.
+with_changelog "$(make_fixture 12 "0.1.57" 12 "0.1.57" "shell")" "$FIXED_NOTES" 11
+assert_output_contains "bump_basis=ipc" "contract ahead of last released tag: minor on ipc basis" "$RB_DIR" "$RB_BASE"
+
+# A PR that promotes reads its own version section, not the emptied Prerelease.
+with_changelog "$(make_fixture 12 "0.1.57" 12 "0.1.58" "shell")" ""
+assert_output_contains "bump_basis=shell" "bumped PR with no 0.1.58 section falls back to shell" "$RB_DIR" "$RB_BASE"
+
+# The promoter writes DATED headings (`## [0.1.58] - <date>`); the promoted
+# section must still be found, or a cut carrying Added entries reads as patch.
+PROMOTED_NOTES=$(printf '%s\n' '## [0.1.58] - 2026-02-01' '' '### Added' '' '- **Voice:** a feature')
+with_changelog "$(make_fixture 12 "0.1.57" 12 "0.1.58" "shell")" "$PROMOTED_NOTES"
+assert_output_contains "bump_basis=added" "promoting PR reads its dated version section" "$RB_DIR" "$RB_BASE"
+
+# Writes CHANGELOG.md verbatim (no wrapper) on a fixture's head. Sets RB_DIR/RB_BASE.
+with_raw_changelog() {
+  RB_DIR=$(echo "$1" | sed -n '1p')
+  RB_BASE=$(echo "$1" | sed -n '2p')
+  ( cd "$RB_DIR" && printf '%b' "$2" > CHANGELOG.md && git add CHANGELOG.md && git commit -qm "changelog" )
+}
+SHELL_FIX=(12 "0.1.57" 12 "0.1.57" "shell")
+
+with_changelog "$(make_fixture "${SHELL_FIX[@]}")" "$(printf '%s\n' '### Deprecated' '' '- **Voice:** old knob')"
+assert_output_contains "bump_basis=added" "Deprecated-only entry: minor" "$RB_DIR" "$RB_BASE"
+with_changelog "$(make_fixture "${SHELL_FIX[@]}")" "$(printf '%s\n' '### Removed' '' '- **Voice:** old knob gone')"
+assert_output_contains "bump_basis=added" "Removed-only entry (no BREAKING): minor" "$RB_DIR" "$RB_BASE"
+with_changelog "$(make_fixture "${SHELL_FIX[@]}")" "$(printf '%s\n' '### Fixed' '' '- **Voice:** **BREAKING** wire change')"
+assert_output_contains "bump_level=major" "BREAKING under Fixed: major" "$RB_DIR" "$RB_BASE"
+
+# Released tag carries the same contract as the head: no IPC signal.
+with_changelog "$(make_fixture "${SHELL_FIX[@]}")" "$FIXED_NOTES" 12
+assert_output_contains "bump_basis=notes" "tag contract equal to head: notes, not ipc" "$RB_DIR" "$RB_BASE"
+
+with_raw_changelog "$(make_fixture "${SHELL_FIX[@]}")" '# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- **Voice:** a fix\n'
+assert_output_contains "bump_basis=notes" "legacy [Unreleased] heading reads as Prerelease" "$RB_DIR" "$RB_BASE"
+
+with_raw_changelog "$(make_fixture 12 "0.1.57" 12 "0.1.58" "shell")" '# Changelog\n\n## [Prerelease]\n\n## [0.1.58]\n\n### Added\n\n- **Voice:** a feature\n'
+assert_output_contains "bump_basis=added" "promoting PR reads an undated version heading" "$RB_DIR" "$RB_BASE"
+
+# A bump that skipped the promoter still reads what is pending.
+with_raw_changelog "$(make_fixture 12 "0.1.57" 12 "0.1.58" "shell")" '# Changelog\n\n## [Prerelease]\n\n### Added\n\n- **Voice:** a feature\n'
+assert_output_contains "bump_basis=added" "bumped PR without its section falls back to Prerelease" "$RB_DIR" "$RB_BASE"
+
+with_raw_changelog "$(make_fixture "${SHELL_FIX[@]}")" '# Changelog\r\n\r\n## [Prerelease] \r\n\r\n### Added\r\n\r\n- **Voice:** **BREAKING** a change\r\n'
+assert_output_contains "bump_level=major" "CRLF and trailing blanks still parse" "$RB_DIR" "$RB_BASE"
+
+with_raw_changelog "$(make_fixture "${SHELL_FIX[@]}")" '# Changelog\n\n## [Prerelease]\n\n### Added\n\n* **Voice:** **BREAKING** a change\n'
+assert_output_contains "bump_level=major" "star bullets count as entries" "$RB_DIR" "$RB_BASE"
+
+# A fenced sample can neither end the section nor add entries.
+with_raw_changelog "$(make_fixture "${SHELL_FIX[@]}")" '# Changelog\n\n## [Prerelease]\n\n### Fixed\n\n- **Voice:** a fix\n\n```\n## [0.0.1]\n- **X:** **BREAKING** sample\n```\n\n### Added\n\n- **Voice:** a feature\n'
+assert_output_contains "bump_basis=added" "fenced block is skipped, section continues after it" "$RB_DIR" "$RB_BASE"
+
+with_raw_changelog "$(make_fixture "${SHELL_FIX[@]}")" '# Changelog\n\n## [Prerelease]\n\n### Fixed\n\n- **Voice:** a \0fix\n'
+assert_output_contains "bump_basis=notes" "NUL byte in an entry is stripped, entry still counts" "$RB_DIR" "$RB_BASE"
+
+# Over the 1 MiB ceiling the notes signal is skipped, not trusted.
+big=$(printf '%s\n' '# Changelog' '' '## [Prerelease]' '' '### Added' '' '- **Voice:** a feature' ''; head -c 1100000 /dev/zero | tr '\0' 'x')
+with_raw_changelog "$(make_fixture "${SHELL_FIX[@]}")" "${big//\\/\\\\}"
+assert_output_contains "bump_basis=shell" "oversized CHANGELOG degrades to the shell signal" "$RB_DIR" "$RB_BASE"
+
+# ── Recommended bump cell (workflow JS between the recommend-bump markers) ───
+echo ""
+echo "Recommended bump cell:"
+CELL_JS=$(sed -n '/recommend-bump:begin/,/recommend-bump:end/p' "$CLASSIFY_COMMENT_YML")
+cell() {
+  OLD_VERSION="$1" NEW_VERSION="$2" VERSION_ACTION="$3" BUMP_LEVEL="$4" BUMP_BASIS="$5" CELL_JS="$CELL_JS" \
+    node -e 'const { OLD_VERSION, NEW_VERSION, VERSION_ACTION, BUMP_LEVEL, BUMP_BASIS } = process.env;
+      eval(process.env.CELL_JS + "\nconsole.log(recommendNext + \" | \" + recommendCell)")'
+}
+assert_cell() {
+  if cell "${@:3}" | grep -qF -- "$1"; then pass=$((pass+1)); echo "  ✓ $2"
+  else fail=$((fail+1)); echo "  ✗ $2 — got: $(cell "${@:3}")"; fi
+}
+assert_cell '✅ minor bump matches' "pre-1.0 major cut as minor matches" 0.1.57 0.2.0 bumped major breaking
+assert_cell 'criteria say minor** (`0.2.0`)' "patch cut with Added notes warns" 0.1.57 0.1.58 bumped minor added
+assert_cell 'criteria say major** (`2.0.0`)' "post-1.0 major names 2.0.0" 1.2.3 1.3.0 bumped major breaking
+assert_cell 'promote-unreleased-changelog.sh 0.2.0' "unbumped minor recommends 0.2.0" 0.1.57 0.1.57 none minor added
+assert_cell '**major** → `0.10.0`' "pre-1.0 major never recommends 1.0.0" 0.9.3 0.9.3 none major breaking
+assert_cell 'is not above' "downgrade is not a match" 0.2.48 0.2.47 bumped patch notes
+assert_cell 'is not above' "prerelease relabel is not a match" 0.2.48 0.2.48-1 bumped patch notes
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 echo ""

@@ -53,6 +53,10 @@ vi.mock('electron', () => ({
   net: { fetch: mockNetFetch },
 }));
 vi.mock('../../../src/main/machineId', () => ({ getMachineId: mockGetMachineId }));
+const mockClearAttestationToken = vi.hoisted(() => vi.fn());
+vi.mock('../../../src/main/attestationService', () => ({
+  clearAttestationToken: mockClearAttestationToken,
+}));
 vi.mock('fs', () => ({
   default: {
     writeFileSync: (...a: unknown[]) => {
@@ -1050,6 +1054,7 @@ describe('tokenManager', () => {
           previous_session_id: 'sid0',
         })
       );
+      mockClearAttestationToken.mockClear();
 
       const result = await performRefresh();
 
@@ -1067,6 +1072,21 @@ describe('tokenManager', () => {
       expect(opts.headers['X-Machine-Id']).toBe('mid');
       expect(opts.credentials).toBe('omit');
       expect(mockGetMachineId).toHaveBeenCalledWith('http://localhost:8080');
+      expect(mockClearAttestationToken).toHaveBeenCalledOnce();
+    });
+
+    it('keeps the attestation token when the refresh names no new session', async () => {
+      storeRefreshToken({
+        refreshToken: 'rt-abc',
+        rememberMe: false,
+        apiBase: 'http://localhost:8080',
+      });
+      mockClearAttestationToken.mockClear();
+      const jwt = makeJwt(Math.floor(Date.now() / 1000) + 900);
+      mockNetFetch.mockResolvedValueOnce(jsonResponse({ access_token: jwt }));
+
+      expect((await performRefresh()).status).toBe('ok');
+      expect(mockClearAttestationToken).not.toHaveBeenCalled();
     });
 
     it('returns refresh_failed on non-ok HTTP status', async () => {
@@ -1472,6 +1492,30 @@ describe('tokenManager', () => {
       mockNetFetch.mockResolvedValueOnce(jsonResponse({ access_token: jwt3 }));
       await vi.advanceTimersByTimeAsync(11_000);
       expect(cb).toHaveBeenCalledWith(jwt3, undefined, undefined);
+    });
+
+    it.each([401, 403])('stops proactive retries after an HTTP %i rejection', async (status) => {
+      vi.useFakeTimers();
+      storeRefreshToken({
+        refreshToken: 'rt-abc',
+        rememberMe: true,
+        apiBase: 'http://localhost:8080',
+      });
+
+      const exp = Math.floor(Date.now() / 1000) + 120;
+      mockNetFetch.mockResolvedValueOnce(jsonResponse({ access_token: makeJwt(exp) }));
+      await performRefresh();
+
+      const cb = vi.fn();
+      setProactiveRefreshCallback(cb);
+
+      // A revoked token: the proactive refresh is refused and must not loop.
+      mockNetFetch.mockResolvedValue(new Response('Unauthorized', { status }));
+      await vi.advanceTimersByTimeAsync(61_000);
+      const callsAfterRejection = mockNetFetch.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(mockNetFetch.mock.calls.length).toBe(callsAfterRejection);
+      expect(cb).not.toHaveBeenCalled();
     });
 
     it('rate-limits immediate refresh for near-expiry tokens', async () => {

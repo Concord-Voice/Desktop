@@ -30,10 +30,15 @@ interface PlanPickerProps {
   plans: BillingPlans;
   /** The live code row's period end: undefined without one, null when it never lapses. */
   codeExpiry?: string | null;
+  /** Account trial eligibility. Only Supersonic carries the trial; Wing starts paid. */
   trialAvailable?: boolean;
 }
 
 const PLAN_ORDER: readonly PlanId[] = ['supersonic', 'wing'];
+
+function subscribeLabel(name: string, trial: boolean): string {
+  return trial ? `Start 30-day free trial of ${name}` : `Subscribe to ${name}`;
+}
 
 const PlanPicker: React.FC<PlanPickerProps> = ({ plans, codeExpiry, trialAvailable = false }) => {
   const [billingInterval, setBillingInterval] = useState<PlanInterval>('month');
@@ -78,7 +83,7 @@ const PlanPicker: React.FC<PlanPickerProps> = ({ plans, codeExpiry, trialAvailab
             checked={billingInterval === 'month'}
             onChange={() => setBillingInterval('month')}
           />
-          Monthly
+          <span>Monthly</span>
         </label>
         <label className="subscription-interval-option">
           <input
@@ -134,9 +139,7 @@ const PlanPicker: React.FC<PlanPickerProps> = ({ plans, codeExpiry, trialAvailab
               >
                 {opening === 'checkout' && clicked === plan
                   ? BILLING_COPY.openingCheckout
-                  : trialAvailable
-                    ? `Start 30-day free trial of ${name}`
-                    : `Subscribe to ${name}`}
+                  : subscribeLabel(name, trialAvailable && plan === 'supersonic')}
               </button>
             </li>
           );

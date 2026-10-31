@@ -8,19 +8,15 @@ on:
   pull_request:
     branches: [__ruleset_only__]
 
+# Every job declares its own grants; the workflow default stays read-only.
 permissions:
   contents: read
-  pull-requests: write
-  actions: read
-  checks: read
-  packages: read
-  security-events: write
 
 jobs:
   pr-ci:
     name: Protected scan enforcement
     # Reviewed main commit keeps the reusable graph immutable in ruleset runs.
-    uses: Concord-Voice/Desktop/.github/workflows/pr-ci.yml@a5eef21525bbe77da7fde5f133fa08a1c958d58d
+    uses: Concord-Voice/Desktop/.github/workflows/pr-ci.yml@cc7c4248e21b5327b71312c90ee40c6357c4d48f
     with:
       trusted-source: true
       enforcement-only: true
@@ -39,7 +35,7 @@ jobs:
     needs: [pr-ci]
     # always() lets selected OSV run when another pr-ci scan fails; the result still verifies both.
     if: ${{ always() && contains(needs.pr-ci.outputs.report-selection, '"osv":true') }}
-    uses: Concord-Voice/Desktop/.github/workflows/osv-scanner.yml@a5eef21525bbe77da7fde5f133fa08a1c958d58d
+    uses: Concord-Voice/Desktop/.github/workflows/osv-scanner.yml@cc7c4248e21b5327b71312c90ee40c6357c4d48f
     with:
       protected-pr: true
       base-sha: ${{ fromJSON(needs.pr-ci.outputs.report-selection).base_sha }}
@@ -157,6 +153,8 @@ jobs:
               });
             }
 
+  # D: migration-lint (squawk on control-plane migrations) belongs to Self-Hosted.
+
   result:
     name: Required PR build result
     needs: [pr-ci, osv, publish-install-script-warnings]
@@ -201,7 +199,6 @@ jobs:
             exit 1
           fi
           git -C protected fetch --no-tags origin \
-            "refs/pull/${PR_NUMBER}/head:refs/scan/pr-head" \
             "refs/pull/${PR_NUMBER}/merge:refs/scan/pr-merge" "$BASE_SHA"
           git -C protected cat-file -e "${HEAD_SHA}^{commit}"
           git -C protected cat-file -e "${BASE_SHA}^{commit}"

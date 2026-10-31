@@ -23,14 +23,14 @@
 #   spa_min_action     — "raised" | "lowered" | "none" | "removed"
 #   spa_min_present    — "true" | "false" (declaration exists at HEAD)
 #   version_bump_required — "true" | "false" (SPA minimum raised without a version bump)
+#   bump_level         — "major" | "minor" | "patch" | "none" (recommended level for the next release)
+#   bump_basis         — "breaking" | "added" | "ipc" | "notes" | "shell" | "none" (why)
 #
-# The version axis says "notes-needed", NOT "needed" (#2996). A shell change
-# still obliges the author to do something, but that something is an entry
-# under `## [Unreleased]` — the version bump itself belongs to the nightly
-# promoter. The two axes deliberately no longer share a value: the contract
-# axis really does want a bump in the PR, and collapsing them back to one
-# string is how a consumer starts asking desktop PRs for a bump that
-# verify-changelog.sh Rule 3 now refuses.
+# The version axis says "notes-needed", NOT "needed" (#2996): what a shell
+# change OWES is an entry under `## [Prerelease]`. Whether to cut a release is
+# the human's call, and bump_level/bump_basis are the recommendation that call
+# is made from. A PR that cuts runs the promoter and `npm version` together,
+# which verify-changelog.sh Rules 1 and 3 accept (#3354).
 #
 # Usage:
 #   BASE_SHA=<sha> bash .github/scripts/classify-release.sh
@@ -83,7 +83,7 @@ emit() {
   local key="$1"
   local value="$2"
   case "$key" in
-    shell_changed|old_contract|new_contract|contract_action|old_version|new_version|version_action|old_spa_min|new_spa_min|spa_min_action|spa_min_present|version_bump_required) ;;
+    shell_changed|old_contract|new_contract|contract_action|old_version|new_version|version_action|old_spa_min|new_spa_min|spa_min_action|spa_min_present|version_bump_required|bump_level|bump_basis) ;;
     *) echo "ERROR: classify-release.sh input exceeds the bounded classifier contract" >&2; exit 1 ;;
   esac
   if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
@@ -119,7 +119,10 @@ MERGE_BASE=$(git merge-base "${BASE_TIP}" "${TARGET_COMMIT}" 2>/dev/null \
   || echo "${BASE_SHA}")
 
 # Classifier inputs are intentionally narrow: two fixed source files at the
-# base and target (four blobs total), plus bounded changed-path metadata.
+# base and target (four blobs total), plus bounded changed-path metadata. The
+# advisory bump level also reads CHANGELOG.md at the target (capped, reduced to
+# enums) and ipcContract.ts at the released tag; those skip read_fixed_blob so a
+# bad file degrades the recommendation instead of failing the run.
 read_fixed_blob() {
   local revision="$1" path="$2" entry mode object_type oid size stripped_size
   entry=$(git ls-tree --format='%(objectmode) %(objecttype) %(objectname)' "$revision" -- "$path" 2>/dev/null || true)
@@ -187,6 +190,9 @@ if ! git diff --name-only "${MERGE_BASE}" "${TARGET_COMMIT}" -- \
   'desktop/native/**' \
   'desktop/scripts/build-native.mjs' \
   'desktop/scripts/build-preload.mjs' \
+  'desktop/scripts/desktop-engine-probe/**' \
+  'desktop/scripts/dialog-top-layer-probe/**' \
+  'desktop/scripts/audiocap-host-probe/**' \
   'desktop/scripts/patch-electron-plist.sh' \
   'desktop/scripts/patch-rpm-sandbox-spec.mjs' \
   'desktop/scripts/verify-asar-payload.sh' \
@@ -214,7 +220,7 @@ if [[ -n "$SHELL_FILES" ]]; then
 fi
 
 # ── IPC contract version ──────────────────────────────────────────────────────
-# Read only the four fixed blobs, checking mode, type, NUL absence and size first.
+# Read the four fixed blobs, checking mode, type, NUL absence and size first.
 read_fixed_blob "$MERGE_BASE" "desktop/src/main/ipcContract.ts"
 OLD_IPC_CONTRACT_BLOB="$BLOB_CONTENT"
 OLD_SPA_CONTRACT_BLOB="$BLOB_CONTENT"
@@ -378,6 +384,89 @@ else
   VERSION_BUMP_REQUIRED="false"
 fi
 
+# ── Recommended bump level (docs/policies/release-versioning.md § Bump-level criteria) ──
+# The classifier RECOMMENDS; the human decides when to cut. #3006 dropped the
+# version recommendation and #3354 never restored it, so for two months nothing
+# said "this is worth a release, and at what level". The level is diagnosed from
+# what the next release would carry, not from this PR alone:
+#   - the pending CHANGELOG section at the target (`## [Prerelease]`, or the
+#     dated `## [<new version>] - <date>` section when this PR promotes it), and
+#   - IPC_CONTRACT_VERSION against the last released tag.
+# First match wins:
+#   major  — an entry marked **BREAKING**
+#   minor  — an Added, Deprecated or Removed entry, or the shell's IPC contract
+#            is ahead of the last release (policy: an IPC contract bump is minor)
+#   patch  — any other entry (Changed, Fixed, Security), or a shell change with
+#            no notes yet
+#   none   — nothing pending
+# The CHANGELOG is read as data only: it reduces to two enums, and a missing or
+# oversized file degrades to the IPC/shell signals instead of failing the run.
+CHANGELOG_BLOB=""
+changelog_entry=$(git ls-tree --format='%(objecttype) %(objectname)' "$TARGET_COMMIT" -- CHANGELOG.md 2>/dev/null || true)
+read -r changelog_type changelog_oid <<< "$changelog_entry"
+if [[ "${changelog_type:-}" == "blob" && "${changelog_oid:-}" =~ ^[0-9a-f]{40}$ ]]; then
+  changelog_size=$(git cat-file -s "$changelog_oid" 2>/dev/null || echo 0)
+  # ponytail: 1 MiB ceiling; the file is ~160 KB. Above it the notes signal is skipped, not trusted.
+  if [[ "$changelog_size" =~ ^[0-9]+$ ]] && (( changelog_size <= 1048576 )); then
+    CHANGELOG_BLOB="$changelog_oid"
+  fi
+fi
+# Prints one version section with CR, trailing blanks and fenced blocks
+# removed, so a code sample can neither end the section nor add entries.
+read_changelog_section() {
+  [[ -n "$CHANGELOG_BLOB" ]] || return 0
+  git cat-file blob "$CHANGELOG_BLOB" 2>/dev/null | LC_ALL=C tr -d '\000\r' \
+    | awk -v h="$1" '
+        { sub(/[ \t]+$/, "") }
+        /^[ \t]*```/ { fence = !fence; next }
+        fence { next }
+        /^## \[/ { if (f) exit; f = ($0 == "## [" h "]" || index($0, "## [" h "] - ") == 1 || (h == "Prerelease" && $0 == "## [Unreleased]")); next }
+        f' || true
+}
+CHANGELOG_SECTION=""
+if [[ "$VERSION_ACTION" == "bumped" ]]; then
+  CHANGELOG_SECTION=$(read_changelog_section "$NEW_VERSION")
+fi
+# A bump without its promoted section (verify-changelog Rule 1 fails that PR
+# too) still reads what is pending, so the recommendation is not understated.
+if [[ -z "$CHANGELOG_SECTION" ]]; then
+  CHANGELOG_SECTION=$(read_changelog_section Prerelease)
+fi
+count_category_entries() {
+  printf '%s\n' "$CHANGELOG_SECTION" | awk -v c="$1" '
+    /^### / { f = ($0 == "### " c); next }
+    f && /^[-*+] / { n++ }
+    END { print n + 0 }'
+}
+BREAKING_ENTRIES=$(printf '%s\n' "$CHANGELOG_SECTION" | grep -cE '^[-*+] .*\*\*BREAKING\*\*' || true)
+MINOR_ENTRIES=$(( $(count_category_entries Added) + $(count_category_entries Deprecated) + $(count_category_entries Removed) ))
+ANY_ENTRIES=$(printf '%s\n' "$CHANGELOG_SECTION" | grep -cE '^[-*+] ' || true)
+
+# IPC baseline: the last released tag, so a contract bump merged three PRs ago
+# still counts toward the release this PR would cut. An untagged base version
+# (bump merged, nightly not yet run) falls back to the merge-base.
+RELEASED_CONTRACT="$OLD_CONTRACT"
+if git rev-parse --verify --quiet "refs/tags/desktop-v${OLD_VERSION}^{commit}" >/dev/null 2>&1; then
+  RELEASED_CONTRACT=$(git show "refs/tags/desktop-v${OLD_VERSION}:desktop/src/main/ipcContract.ts" 2>/dev/null \
+    | sed -n 's/.*IPC_CONTRACT_VERSION[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
+    | first_line || true)
+  [[ "$RELEASED_CONTRACT" =~ ^(0|[1-9][0-9]{0,8})$ ]] || RELEASED_CONTRACT="$OLD_CONTRACT"
+fi
+
+if (( BREAKING_ENTRIES > 0 )); then
+  BUMP_LEVEL="major"; BUMP_BASIS="breaking"
+elif (( MINOR_ENTRIES > 0 )); then
+  BUMP_LEVEL="minor"; BUMP_BASIS="added"
+elif (( NEW_CONTRACT > RELEASED_CONTRACT )); then
+  BUMP_LEVEL="minor"; BUMP_BASIS="ipc"
+elif (( ANY_ENTRIES > 0 )); then
+  BUMP_LEVEL="patch"; BUMP_BASIS="notes"
+elif [[ "$SHELL_CHANGED" == "true" ]]; then
+  BUMP_LEVEL="patch"; BUMP_BASIS="shell"
+else
+  BUMP_LEVEL="none"; BUMP_BASIS="none"
+fi
+
 # ── Emit outputs ─────────────────────────────────────────────────────────────
 OUTPUT_BUFFER=$(mktemp)
 emit "shell_changed"     "${SHELL_CHANGED}"
@@ -392,13 +481,15 @@ emit "new_spa_min"       "${NEW_SPA_MIN}"
 emit "spa_min_action"    "${SPA_MIN_ACTION}"
 emit "spa_min_present"   "${SPA_MIN_PRESENT}"
 emit "version_bump_required" "${VERSION_BUMP_REQUIRED}"
+emit "bump_level"        "${BUMP_LEVEL}"
+emit "bump_basis"        "${BUMP_BASIS}"
 OUTPUT_BYTES=$(wc -c < "$OUTPUT_BUFFER" | tr -d '[:space:]')
 OUTPUT_LINES=$(wc -l < "$OUTPUT_BUFFER" | tr -d '[:space:]')
 if (( OUTPUT_BYTES > 8192 )); then
   echo "ERROR: classify-release.sh output exceeds 8 KiB" >&2
   exit 1
 fi
-if [[ "$OUTPUT_LINES" != "12" ]]; then
+if [[ "$OUTPUT_LINES" != "14" ]]; then
   echo "ERROR: classify-release.sh input exceeds the bounded classifier contract" >&2
   exit 1
 fi

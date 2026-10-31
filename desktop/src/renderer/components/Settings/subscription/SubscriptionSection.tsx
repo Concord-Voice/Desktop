@@ -4,6 +4,7 @@ import { useSubscription } from '../../../hooks/ui/useSubscription';
 import { useBillingStore } from '../../../stores/auth/billingStore';
 import { isBillingLauncherAvailable } from '../../../services/system/billingLauncher';
 import PlanCard from './PlanCard';
+import SeatInviteCard from './SeatInviteCard';
 import PlanPicker from './PlanPicker';
 import FeatureGrid from './FeatureGrid';
 import RedeemCodeForm from './RedeemCodeForm';
@@ -14,7 +15,7 @@ import { BILLING_COPY, BILLING_NOTICE_COPY } from './subscriptionCopy';
 import './subscription.css';
 
 // Settings ▸ Account ▸ Subscription (#1304; paid plans #2033 PR-4, spec §13).
-// Section order: PlanCard, then the plan picker, the benefits, the redeem form,
+// Section order: Wing invites (PR-5), PlanCard, then the plan picker, the benefits, the redeem form,
 // and the planned-options footer. Paid controls exist only where the server
 // says billing is available AND the shell has the billing launcher. With
 // purchase off, the page is the pre-billing one: plan card, benefits, redeem
@@ -41,7 +42,9 @@ const SubscriptionSection: React.FC = () => {
   useEffect(() => dismissTransient, [dismissTransient]);
 
   const bridge = isBillingLauncherAvailable();
-  const canBuy = billingAvailable && bridge && info.stripe === undefined;
+  // A +1 on a friend's Wing cannot buy (409 seat_member); Leave Wing comes first.
+  const canBuy =
+    billingAvailable && bridge && info.stripe === undefined && info.seat?.role !== 'member';
   const showPicker = canBuy && plans?.purchase_available === true;
   const showPlansAlert = canBuy && plansError;
   // The footer describes paid plans as planned, so it stays only while they
@@ -56,6 +59,14 @@ const SubscriptionSection: React.FC = () => {
     <div className="subscription-section">
       <CollapsibleSection id="section-subscription" title="Subscription">
         <div className="subscription-summary">
+          {billingAvailable &&
+            info.invites.map((invite) => (
+              <SeatInviteCard
+                key={invite.invite_id}
+                invite={invite}
+                ownPlanEnds={info.stripe?.ends_at ?? info.stripe?.current_period_end}
+              />
+            ))}
           <PlanCard info={info} />
           {notice &&
             (notice === 'checkout_closed' ? (

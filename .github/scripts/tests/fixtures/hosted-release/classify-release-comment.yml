@@ -44,6 +44,8 @@ jobs:
       spa_min_action: ${{ steps.validate.outputs.spa_min_action }}
       spa_min_present: ${{ steps.validate.outputs.spa_min_present }}
       version_bump_required: ${{ steps.validate.outputs.version_bump_required }}
+      bump_level: ${{ steps.validate.outputs.bump_level }}
+      bump_basis: ${{ steps.validate.outputs.bump_basis }}
     steps:
       # Protected base only; PR-head objects remain non-executable classifier data.
       # nosemgrep: yaml.github-actions.security.pull-request-target-code-checkout.pull-request-target-code-checkout
@@ -104,6 +106,8 @@ jobs:
           SPA_MIN_ACTION: ${{ steps.classify.outputs.spa_min_action }}
           SPA_MIN_PRESENT: ${{ steps.classify.outputs.spa_min_present }}
           VERSION_BUMP_REQUIRED: ${{ steps.classify.outputs.version_bump_required }}
+          BUMP_LEVEL: ${{ steps.classify.outputs.bump_level }}
+          BUMP_BASIS: ${{ steps.classify.outputs.bump_basis }}
         run: |
           set -euo pipefail
           if [[ "$CHECKOUT_OUTCOME" != "success" || "$FETCH_OUTCOME" != "success" || "$CLASSIFY_OUTCOME" != "success" ]]; then
@@ -125,7 +129,9 @@ jobs:
             [[ "${NEW_SPA_MIN}" =~ ^(0|[1-9][0-9]{0,8})$ ]] &&
             [[ "${SPA_MIN_ACTION}" =~ ^(none|raised|lowered|removed)$ ]] &&
             [[ "${SPA_MIN_PRESENT}" =~ ^(true|false)$ ]] &&
-            [[ "${VERSION_BUMP_REQUIRED}" =~ ^(true|false)$ ]]
+            [[ "${VERSION_BUMP_REQUIRED}" =~ ^(true|false)$ ]] &&
+            [[ "${BUMP_LEVEL}" =~ ^(none|patch|minor|major)$ ]] &&
+            [[ "${BUMP_BASIS}" =~ ^(none|breaking|added|ipc|notes|shell)$ ]]
           }
           if ! classification_is_valid; then
             echo "::notice::Release classification output failed validation; skipping the advisory comment."
@@ -133,10 +139,11 @@ jobs:
           fi
           output_file="$(mktemp)"
           trap 'rm -f "${output_file}"' EXIT
-          printf 'shell_changed=%s\nold_contract=%s\nnew_contract=%s\ncontract_action=%s\nold_version=%s\nnew_version=%s\nversion_action=%s\nold_spa_min=%s\nnew_spa_min=%s\nspa_min_action=%s\nspa_min_present=%s\nversion_bump_required=%s\n' \
+          printf 'shell_changed=%s\nold_contract=%s\nnew_contract=%s\ncontract_action=%s\nold_version=%s\nnew_version=%s\nversion_action=%s\nold_spa_min=%s\nnew_spa_min=%s\nspa_min_action=%s\nspa_min_present=%s\nversion_bump_required=%s\nbump_level=%s\nbump_basis=%s\n' \
             "${SHELL_CHANGED}" "${OLD_CONTRACT}" "${NEW_CONTRACT}" "${CONTRACT_ACTION}" \
             "${OLD_VERSION}" "${NEW_VERSION}" "${VERSION_ACTION}" "${OLD_SPA_MIN}" \
             "${NEW_SPA_MIN}" "${SPA_MIN_ACTION}" "${SPA_MIN_PRESENT}" "${VERSION_BUMP_REQUIRED}" \
+            "${BUMP_LEVEL}" "${BUMP_BASIS}" \
             > "${output_file}"
           output_bytes="$(wc -c < "${output_file}" | tr -d '[:space:]')"
           (( output_bytes <= 8192 ))
@@ -145,7 +152,7 @@ jobs:
   classify-comment:
     name: Classify release impact
     needs: classify-data
-    if: github.repository == 'Concord-Voice/Desktop' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && needs.classify-data.result == 'success' && needs.classify-data.outputs.shell_changed != '' && needs.classify-data.outputs.old_contract != '' && needs.classify-data.outputs.new_contract != '' && needs.classify-data.outputs.contract_action != '' && needs.classify-data.outputs.old_version != '' && needs.classify-data.outputs.new_version != '' && needs.classify-data.outputs.version_action != '' && needs.classify-data.outputs.old_spa_min != '' && needs.classify-data.outputs.new_spa_min != '' && needs.classify-data.outputs.spa_min_action != '' && needs.classify-data.outputs.spa_min_present != '' && needs.classify-data.outputs.version_bump_required != ''
+    if: github.repository == 'Concord-Voice/Desktop' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && needs.classify-data.result == 'success' && needs.classify-data.outputs.shell_changed != '' && needs.classify-data.outputs.old_contract != '' && needs.classify-data.outputs.new_contract != '' && needs.classify-data.outputs.contract_action != '' && needs.classify-data.outputs.old_version != '' && needs.classify-data.outputs.new_version != '' && needs.classify-data.outputs.version_action != '' && needs.classify-data.outputs.old_spa_min != '' && needs.classify-data.outputs.new_spa_min != '' && needs.classify-data.outputs.spa_min_action != '' && needs.classify-data.outputs.spa_min_present != '' && needs.classify-data.outputs.version_bump_required != '' && needs.classify-data.outputs.bump_level != '' && needs.classify-data.outputs.bump_basis != ''
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 10
     continue-on-error: true
@@ -168,6 +175,8 @@ jobs:
           SPA_MIN_ACTION: ${{ needs.classify-data.outputs.spa_min_action }}
           SPA_MIN_PRESENT: ${{ needs.classify-data.outputs.spa_min_present }}
           VERSION_BUMP_REQUIRED: ${{ needs.classify-data.outputs.version_bump_required }}
+          BUMP_LEVEL: ${{ needs.classify-data.outputs.bump_level }}
+          BUMP_BASIS: ${{ needs.classify-data.outputs.bump_basis }}
         with:
           script: |
             const marker = '<!-- classify-release -->';
@@ -177,6 +186,7 @@ jobs:
               OLD_VERSION, NEW_VERSION, VERSION_ACTION,
               OLD_SPA_MIN, NEW_SPA_MIN, SPA_MIN_ACTION, SPA_MIN_PRESENT,
               VERSION_BUMP_REQUIRED,
+              BUMP_LEVEL, BUMP_BASIS,
             } = process.env;
 
             // Revalidate the bounded output contract before using cross-job data.
@@ -192,7 +202,10 @@ jobs:
                 !integer.test(OLD_SPA_MIN) || !integer.test(NEW_SPA_MIN) ||
                 !enumValue(SPA_MIN_ACTION, ['none', 'raised', 'lowered', 'removed']) ||
                 !['true', 'false'].includes(SPA_MIN_PRESENT) ||
-                !['true', 'false'].includes(VERSION_BUMP_REQUIRED)) return;
+                !['true', 'false'].includes(VERSION_BUMP_REQUIRED) ||
+                !enumValue(BUMP_LEVEL, ['none', 'patch', 'minor', 'major']) ||
+                !enumValue(BUMP_BASIS, ['none', 'breaking', 'added', 'ipc', 'notes', 'shell']) ||
+                (BUMP_LEVEL === 'none') !== (BUMP_BASIS === 'none')) return;
 
             // ── Probe active client version (best-effort) ──────────────────
             // listReleases, NOT getLatestRelease: Concord ships PRE-releases,
@@ -294,12 +307,57 @@ jobs:
               // top-line verdict still read "action required". Wording, not
               // detection — re-implementing the trailer rule here would be a second
               // copy of it, free to drift from the one that actually gates.
-              versionBump = '⚠️ **ADD A NOTE** under `## [Unreleased]` in `CHANGELOG.md`, or a `Changelog-Exempt:` trailer (shell changed)';
+              versionBump = '⚠️ **ADD A NOTE** under `## [Prerelease]` in `CHANGELOG.md`, or a `Changelog-Exempt:` trailer (shell changed)';
             } else if (activeVersion !== NA && activeVersion !== NEW_VERSION) {
               versionBump = `✅ not needed — \`${NEW_VERSION}\` already on \`main\`, awaiting release`;
             } else {
               versionBump = '✅ not needed';
             }
+
+            // ── Recommended bump (release-versioning.md § Bump-level criteria) ──
+            // The human decides WHEN to cut; this row says at what level, from
+            // what the next release would carry. Pre-1.0, a breaking change ships
+            // as a minor (semver §4); 1.0.0 is GA, a deliberate call, never a
+            // recommendation.
+            // recommend-bump:begin (extracted and exercised by classify-release.test.sh)
+            const LEVEL_RANK = { none: 0, patch: 1, minor: 2, major: 3 };
+            const BASIS_TEXT = {
+              breaking: 'a pending note is marked **BREAKING**',
+              added: 'pending notes include Added, Deprecated or Removed entries',
+              ipc: 'the shell IPC contract is ahead of the last release',
+              notes: 'pending notes are Changed, Fixed or Security only',
+              shell: 'the shell changed, no notes yet',
+            };
+            const [vMaj, vMin, vPat] = OLD_VERSION.split(/[-+]/)[0].split('.').map(Number);
+            const nextFor = (level) => {
+              if (level === 'major') return vMaj === 0 ? `0.${vMin + 1}.0` : `${vMaj + 1}.0.0`;
+              if (level === 'minor') return `${vMaj}.${vMin + 1}.0`;
+              return `${vMaj}.${vMin}.${vPat + 1}`;
+            };
+            // A revert or a prerelease relabel is not a bump: 'none', never a match.
+            const appliedLevel = (() => {
+              const [nMaj, nMin, nPat] = NEW_VERSION.split(/[-+]/)[0].split('.').map(Number);
+              if (nMaj !== vMaj) return nMaj > vMaj ? 'major' : 'none';
+              if (nMin !== vMin) return nMin > vMin ? 'minor' : 'none';
+              return nPat > vPat ? 'patch' : 'none';
+            })();
+            let recommendCell = '—';
+            let recommendNext = '—';
+            if (VERSION_ACTION === 'bumped' && appliedLevel === 'none') {
+              recommendCell = `ℹ️ \`${NEW_VERSION}\` is not above \`${OLD_VERSION}\` (revert or prerelease relabel); no recommendation`;
+            } else if (BUMP_LEVEL !== 'none') {
+              const next = nextFor(BUMP_LEVEL);
+              const preOne = BUMP_LEVEL === 'major' && vMaj === 0 ? ' (pre-1.0: a breaking change ships as a minor)' : '';
+              recommendNext = `**${BUMP_LEVEL}** → \`${next}\``;
+              if (VERSION_ACTION === 'bumped') {
+                recommendCell = LEVEL_RANK[appliedLevel] >= LEVEL_RANK[BUMP_LEVEL] || (preOne && appliedLevel === 'minor')
+                  ? `✅ ${appliedLevel} bump matches — ${BASIS_TEXT[BUMP_BASIS]}`
+                  : `⚠️ **this PR bumps ${appliedLevel}; criteria say ${BUMP_LEVEL}** (\`${next}\`) — ${BASIS_TEXT[BUMP_BASIS]}${preOne}`;
+              } else {
+                recommendCell = `💡 ${BASIS_TEXT[BUMP_BASIS]}${preOne}. Your call when to cut: \`./.github/scripts/promote-unreleased-changelog.sh ${next}\` then \`npm version ${next} --no-git-tag-version\` in \`desktop\``;
+              }
+            }
+            // recommend-bump:end
 
             // ── Release-timing axis (#risk-hotfix) ─────────────────────────
             // The latest label state is read from the live PR immediately before
@@ -355,9 +413,10 @@ jobs:
               `| **IPC Contract** | \`not probed\` | \`${NEW_CONTRACT}\` | ${contractBump} |`,
               `| **Client Version** | \`${activeVersion}\` | \`${NEW_VERSION}\` | ${versionBump} |`,
               `| **SPA minimum** | \`${activeContract}\` | \`${NEW_SPA_MIN}\` | ${spaMinCell} |`,
+              `| **Recommended bump** | \`${activeVersion}\` | ${recommendNext} | ${recommendCell} |`,
               `| **Release timing** | — | ${timingRow} | ${hotfix ? '⚡ urgent' : '—'} |`,
               '',
-              '<sub>**IPC Contract** = what this shell IMPLEMENTS (`IPC_CONTRACT_VERSION`). Raising it is free — no client is affected. **SPA minimum** = what the deployed renderer DEMANDS (`SPA_MIN_CONTRACT`); this is the number `deploy-spa.sh` publishes and `spaLoader.ts` compares against, so every point it sits above an installed shell is a client on its bundled renderer. Raise it only when the renderer genuinely cannot degrade — guarding the call (`electron?.foo?.()`) is nearly always cheaper than the release it forces. **Client Version** (`desktop/package.json`): what a shell change OWES is an entry under `## [Unreleased]` — bumping is a separate decision about whether this PR finishes something worth shipping. Nothing cuts a release without a bump on `main`, so when the answer is yes, run the promoter and `npm version` in this PR (both commands travel together; Rules 1 and 3). **Note:** If a build-workflow edit does not alter any shipped desktop artifact across Windows, macOS, or Linux, nor the IPC contract, no bump is needed — disposition explicitly. **Live in prod** = live `/api/v1/client/config` contract probe + latest published release tag (prereleases included).</sub>',
+              '<sub>**IPC Contract** = what this shell IMPLEMENTS (`IPC_CONTRACT_VERSION`). Raising it is free — no client is affected. **SPA minimum** = what the deployed renderer DEMANDS (`SPA_MIN_CONTRACT`); this is the number `deploy-spa.sh` publishes and `spaLoader.ts` compares against, so every point it sits above an installed shell is a client on its bundled renderer. Raise it only when the renderer genuinely cannot degrade — guarding the call (`electron?.foo?.()`) is nearly always cheaper than the release it forces. **Client Version** (`desktop/package.json`): what a shell change OWES is an entry under `## [Prerelease]` — bumping is a separate decision about whether this PR finishes something worth shipping. Nothing cuts a release without a bump on `main`, so when the answer is yes, run the promoter and `npm version` in this PR (both commands travel together; Rules 1 and 3). **Recommended bump** = the level the next release carries, diagnosed from the pending CHANGELOG section and the IPC contract against the last release (`docs/policies/release-versioning.md` § Bump-level criteria); when to cut stays your call. **Note:** If a build-workflow edit does not alter any shipped desktop artifact across Windows, macOS, or Linux, nor the IPC contract, no bump is needed — disposition explicitly. **Live in prod** = live `/api/v1/client/config` contract probe + latest published release tag (prereleases included).</sub>',
             ].join('\n');
 
             // ── Find and update existing comment, or create a new one ──────

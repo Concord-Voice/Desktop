@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router';
 import { useSettingsOverlayStore } from '../../stores/ui/settingsOverlayStore';
 import { UserProfile, useUserStore } from '../../stores/auth/userStore';
 import { useMemberStore, PresenceStatus } from '../../stores/chat/memberStore';
-import { getWebSocketService } from '../../services/messaging/websocketService';
+import { setOwnPresence } from '../../services/presence/setOwnPresence';
 import { useUserThemeScope } from '../../hooks/ui/useUserThemeScope';
 import { useSettingsStore } from '../../stores/ui/settingsStore';
 import './UserPopover.css';
@@ -126,8 +126,7 @@ const UserPopover: React.FC<UserPopoverProps> = ({
 
   const handleStatusChange = (status: PresenceStatus) => {
     if (status !== 'offline') {
-      const ws = getWebSocketService();
-      ws.sendSetStatus(status);
+      setOwnPresence(status);
     }
   };
 
@@ -174,6 +173,7 @@ const UserPopover: React.FC<UserPopoverProps> = ({
             <span className="user-popover-status-text">{opt.label}</span>
             {selfStatus === opt.value && (
               <svg
+                aria-hidden="true"
                 className="user-popover-status-check"
                 width="14"
                 height="14"
@@ -216,7 +216,7 @@ const UserPopover: React.FC<UserPopoverProps> = ({
           openProfilePage();
         }}
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none">
           <circle cx="8" cy="5" r="3" stroke="currentColor" strokeWidth="1.5" />
           <path
             d="M2 14c0-2.76 2.69-5 6-5s6 2.24 6 5"
@@ -235,7 +235,7 @@ const UserPopover: React.FC<UserPopoverProps> = ({
           useSettingsOverlayStore.getState().openSettings('app');
         }}
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path
             d="M6.86 2.57a1.14 1.14 0 012.28 0 4.57 4.57 0 012.64 1.53 1.14 1.14 0 011.97 1.14 4.57 4.57 0 010 3.05 1.14 1.14 0 01-1.97 1.14 4.57 4.57 0 01-2.64 1.53 1.14 1.14 0 01-2.28 0 4.57 4.57 0 01-2.64-1.53 1.14 1.14 0 01-1.97-1.14 4.57 4.57 0 010-3.05 1.14 1.14 0 011.97-1.14A4.57 4.57 0 016.86 2.57z"
             stroke="currentColor"
@@ -250,7 +250,7 @@ const UserPopover: React.FC<UserPopoverProps> = ({
 
       {/* Logout */}
       <button className="user-popover-item user-popover-item-danger" onClick={handleLogout}>
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path
             d="M6 14H3.33A1.33 1.33 0 012 12.67V3.33A1.33 1.33 0 013.33 2H6M10.67 11.33L14 8l-3.33-3.33M14 8H6"
             stroke="currentColor"
@@ -267,7 +267,7 @@ const UserPopover: React.FC<UserPopoverProps> = ({
         className="user-popover-item user-popover-item-danger"
         onClick={() => globalThis.electron.quitApp()}
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none">
           <path
             d="M4 4l8 8M12 4l-8 8"
             stroke="currentColor"
@@ -289,7 +289,7 @@ const UserPopover: React.FC<UserPopoverProps> = ({
               onOpenFeedback();
             }}
           >
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+            <svg aria-hidden="true" width="16" height="16" viewBox="0 0 16 16" fill="none">
               {/* Speech-bubble glyph — matches the conversational tone of feedback */}
               <path
                 d="M2 4a2 2 0 012-2h8a2 2 0 012 2v6a2 2 0 01-2 2H6l-3 2v-2H4a2 2 0 01-2-2V4z"

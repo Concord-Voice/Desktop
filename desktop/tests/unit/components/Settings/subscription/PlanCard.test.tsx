@@ -219,6 +219,21 @@ describe('PlanCard (#1304, #2033 PR-4)', () => {
       expect(openPortal).toHaveBeenCalledWith(undefined);
     });
 
+    it('uses the subscriber price for the first paid charge during a trial', () => {
+      useBillingStore.setState({ plans: CATALOG });
+      render(
+        <PlanCard
+          info={subscriber({
+            status: 'trialing',
+            founders_rate: true,
+            plan: 'wing',
+            unit_amount: 681,
+          })}
+        />
+      );
+      expect(screen.getByText(/Paid billing begins/)).toHaveTextContent('at $6.81/month');
+    });
+
     it('P3: shows the plan, the founders price, the renewal and both Portal actions', async () => {
       useBillingStore.setState({ plans: CATALOG });
       const { container } = render(<PlanCard info={subscriber({ founders_rate: true })} />);
@@ -246,10 +261,164 @@ describe('PlanCard (#1304, #2033 PR-4)', () => {
       useBillingStore.setState({ plans: CATALOG });
       render(<PlanCard info={subscriber({ plan: 'wing', interval: 'year' })} />);
       expect(screen.getByRole('heading', { name: 'Wing' })).toBeInTheDocument();
+      expect(screen.getByRole('combobox', { name: 'Plan' })).toHaveValue('wing');
+      expect(screen.getByRole('combobox', { name: 'Billing' })).toHaveValue('year');
       expect(
         screen.getByText(`${formatPrice(16489, 'usd')}/year. Renews ${formatExpiry(PERIOD_END)}.`)
       ).toBeInTheDocument();
       expect(screen.queryByText('Founders rate')).not.toBeInTheDocument();
+    });
+
+    it('uses the subscriber amount even when the catalog has a different price', () => {
+      useBillingStore.setState({ plans: CATALOG });
+      render(<PlanCard info={subscriber({ unit_amount: 437, founders_rate: true })} />);
+      expect(
+        screen.getByText(`${formatPrice(437, 'usd')}/month. Renews ${formatExpiry(PERIOD_END)}.`, {
+          exact: false,
+        })
+      ).toBeInTheDocument();
+    });
+
+    it('shows the subscriber amount without a catalog', () => {
+      render(<PlanCard info={subscriber({ unit_amount: 525 })} />);
+      expect(
+        screen.getByText(`${formatPrice(525, 'usd')}/month. Renews ${formatExpiry(PERIOD_END)}.`, {
+          exact: false,
+        })
+      ).toBeInTheDocument();
+    });
+
+    it('requires withdrawing a booked change before choosing another', async () => {
+      const keepCurrentPlan = vi.fn().mockResolvedValue(undefined);
+      const previewPlanChange = vi.fn();
+      useBillingStore.setState({ plans: CATALOG, keepCurrentPlan, previewPlanChange });
+      render(
+        <PlanCard
+          info={subscriber({
+            plan: 'wing',
+            interval: 'year',
+            pending_plan: 'supersonic',
+            pending_interval: 'month',
+            pending_change_at: PERIOD_END,
+          })}
+        />
+      );
+      expect(
+        screen.getByText(`Changes to Supersonic monthly on ${formatExpiry(PERIOD_END)}.`)
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Manage subscription' })).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Update card' })).toBeInTheDocument();
+      expect(
+        screen.getByText(
+          'To choose a different plan or billing interval, keep your current plan first.'
+        )
+      ).toBeInTheDocument();
+      expect(screen.queryByRole('combobox', { name: 'Plan' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Confirm plan change' })).not.toBeInTheDocument();
+      expect(previewPlanChange).not.toHaveBeenCalled();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Keep current plan' }));
+      expect(keepCurrentPlan).toHaveBeenCalledOnce();
+    });
+
+    it('keeps a booked plan and backs out of cancellation without changing it', async () => {
+      const keepCurrentPlan = vi.fn().mockResolvedValue(undefined);
+      const cancelSubscription = vi.fn().mockResolvedValue(undefined);
+      useBillingStore.setState({ plans: CATALOG, keepCurrentPlan, cancelSubscription });
+      render(
+        <PlanCard
+          info={subscriber({
+            pending_plan: 'wing',
+            pending_interval: 'month',
+            pending_change_at: PERIOD_END,
+          })}
+        />
+      );
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Cancel subscription' }));
+      expect(screen.getByRole('button', { name: 'Confirm cancellation' })).toBeInTheDocument();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Keep subscription' }));
+      expect(cancelSubscription).not.toHaveBeenCalled();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Keep current plan' }));
+      expect(keepCurrentPlan).toHaveBeenCalledOnce();
+      expect(openPortal).not.toHaveBeenCalled();
+    });
+
+    it('cancels in-app after a booked change starts while its schedule remains attached', async () => {
+      const cancelSubscription = vi.fn().mockResolvedValue(undefined);
+      useBillingStore.setState({ cancelSubscription });
+      render(
+        <PlanCard
+          info={subscriber({
+            plan: 'supersonic',
+            interval: 'year',
+            schedule_attached: true,
+          })}
+        />
+      );
+      expect(screen.getByRole('button', { name: 'Update card' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Keep current plan' })).not.toBeInTheDocument();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Cancel subscription' }));
+      expect(
+        screen.getByText('Cancel at the end of your paid period? You’ll keep access until then.')
+      ).toBeInTheDocument();
+      expect(openPortal).not.toHaveBeenCalled();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Confirm cancellation' }));
+      expect(cancelSubscription).toHaveBeenCalledOnce();
+      expect(openPortal).not.toHaveBeenCalled();
+    });
+
+    it('shows the exact previewed charge before an immediate confirmation', async () => {
+      const quote = {
+        plan: 'wing' as const,
+        interval: 'month' as const,
+        effective: 'immediate' as const,
+        due_now: 537,
+        currency: 'usd' as const,
+        proration_date: 1800000000,
+      };
+      const previewPlanChange = vi.fn().mockImplementation(async () => {
+        useBillingStore.setState({ preview: quote, previewing: false });
+      });
+      useBillingStore.setState({ plans: CATALOG, previewPlanChange });
+      render(<PlanCard info={subscriber()} />);
+      const confirm = screen.getByRole('button', { name: 'Confirm plan change' });
+      expect(confirm).toBeDisabled();
+      await userEvent.setup().selectOptions(screen.getByRole('combobox', { name: 'Plan' }), 'wing');
+      await vi.waitFor(() =>
+        expect(screen.getByText('Due now: $5.37 (Stripe invoice preview).')).toBeInTheDocument()
+      );
+      expect(confirm).toBeEnabled();
+    });
+
+    it('expires a scheduled quote when the paid period changes', async () => {
+      const quote = {
+        plan: 'supersonic' as const,
+        interval: 'month' as const,
+        effective: 'scheduled' as const,
+        due_now: 0,
+        currency: 'usd' as const,
+        change_at: PERIOD_END,
+      };
+      const previewPlanChange = vi.fn().mockImplementation(async () => {
+        useBillingStore.setState({ preview: quote, previewing: false });
+      });
+      useBillingStore.setState({ plans: CATALOG, previewPlanChange });
+      const view = render(<PlanCard info={subscriber({ plan: 'wing', interval: 'month' })} />);
+      await userEvent
+        .setup()
+        .selectOptions(screen.getByRole('combobox', { name: 'Plan' }), 'supersonic');
+      const confirm = screen.getByRole('button', { name: 'Confirm plan change' });
+      await vi.waitFor(() => expect(confirm).toBeEnabled());
+      view.rerender(
+        <PlanCard
+          info={subscriber({
+            plan: 'wing',
+            interval: 'month',
+            current_period_end: '2027-02-15T12:00:00Z',
+          })}
+        />
+      );
+      expect(confirm).toBeDisabled();
+      expect(previewPlanChange).toHaveBeenCalledTimes(2);
     });
 
     it('P3: falls back to the tier name and the renewal date without a known price', () => {

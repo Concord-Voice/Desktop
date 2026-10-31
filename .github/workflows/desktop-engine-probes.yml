@@ -1,0 +1,81 @@
+name: Desktop Engine Probes
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "desktop/package*.json"
+      - "desktop/src/**"
+      - "desktop/scripts/desktop-engine-probe/**"
+      - "desktop/scripts/dialog-top-layer-probe/**"
+      - "desktop/scripts/audiocap-host-probe/**"
+      - "desktop/scripts/build-native.mjs"
+      - "desktop/native/**"
+      - "desktop/scripts/voice-runtime-probe/**"
+      - ".github/workflows/desktop-engine-probes.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-engine-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ioc:
+    uses: ./.github/workflows/ioc-scanning.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
+  engine:
+    name: Desktop engine / ${{ matrix.os }}
+    needs: [ioc]
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.20.0
+          package-manager-cache: false
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci
+      - name: Supply-chain post-install tripwire
+        shell: bash
+        run: scripts/security/scan-supply-chain-iocs.sh --include-node-modules --working-tree-only
+      - name: Configure the test Electron sandbox helper
+        if: runner.os == 'Linux'
+        working-directory: desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper=$(node -e 'const fs=require("node:fs"),p=require("node:path");const dir=fs.realpathSync("node_modules/electron/dist"),helper=p.join(dir,"chrome-sandbox");if(p.dirname(fs.realpathSync(require("electron")))!==dir||fs.lstatSync(helper).isSymbolicLink()||!fs.lstatSync(helper).isFile())throw new Error("Unexpected Electron sandbox helper");process.stdout.write(helper)')
+          sudo chown root:root -- "$helper"
+          sudo chmod 4755 -- "$helper"
+      - name: Build application
+        working-directory: desktop
+        run: npm run build
+      - name: Build the native audio addon on Windows
+        if: runner.os == 'Windows'
+        working-directory: desktop
+        run: npm run build:native
+      - name: Run Electron runtime probes
+        working-directory: desktop
+        timeout-minutes: 4
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            xvfb-run -a node scripts/desktop-engine-probe/run.mjs
+          else
+            node scripts/desktop-engine-probe/run.mjs
+          fi

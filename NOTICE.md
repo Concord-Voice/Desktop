@@ -1,6 +1,6 @@
 # NOTICE — Third-Party Software Used by Concord Voice
 
-**Generated:** 2026-10-24
+**Generated:** 2026-10-31
 **Concord Voice License:** [Concord Voice Source License 1.0 (CVSL 1.0)](./LICENSE) → AGPL-3.0-or-later on 2030-02-15
 
 This NOTICE file lists the third-party open-source software used by Concord
@@ -10,9 +10,9 @@ contributions of these projects to the Concord Voice platform.
 
 ## Summary
 
-Concord Voice distributes 280 third-party software components across Desktop and concord-bridge:
+Concord Voice distributes 281 third-party software components across Desktop and concord-bridge:
 
-- **188** npm packages in the desktop client production bundle (plus Electron and its bundled components)
+- **189** npm packages in the desktop client production bundle (plus Electron and its bundled components)
 - **92** npm packages in the concord-bridge production bundle
 
 Counts exclude Concord Voice's own private packages and first-party overrides.
@@ -21,7 +21,7 @@ Application-dependency license distribution:
 
 | License family | Share | Compatible with CVSL 1.0 + AGPL-3.0 |
 |---|---|---|
-| MIT | 89.3% (250) | ✓ |
+| MIT | 89.3% (251) | ✓ |
 | ISC | 8.2% (23) | ✓ |
 | BSD-3-Clause | 1.1% (3) | ✓ |
 | Apache-2.0 | 0.4% (1) | ✓ |
@@ -31,10 +31,10 @@ Application-dependency license distribution:
 | MPL-2.0 (build-time only) | not in the count above | ✓ |
 | CC-BY-3.0 / CC-BY-4.0 (build-data only) | not in the count above | ✓ (attribution required) |
 
-Shares are exact counts over the 280 components tabulated below, not estimates.
+Shares are exact counts over the 281 components tabulated below, not estimates.
 The final two rows cover build-time and build-data dependencies, which are not
-part of that 280 and therefore carry no share of it. Build tooling is
-not part of the 280-component count.
+part of that 281 and therefore carry no share of it. Build tooling is
+not part of the 281-component count.
 
 ## License Texts
 
@@ -105,6 +105,7 @@ bundle (desktop):
 | @types/hast | 3.0.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/mdast | 4.0.4 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/ms | 2.1.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
+| @types/react-dom | 19.3.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/react | 19.3.0 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/unist | 2.0.11 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
 | @types/unist | 3.0.3 | MIT | https://github.com/DefinitelyTyped/DefinitelyTyped |
@@ -135,7 +136,7 @@ bundle (desktop):
 | devlop | 1.1.0 | MIT | https://github.com/wooorm/devlop |
 | dijkstrajs | 1.0.3 | MIT | https://github.com/tcort/dijkstrajs |
 | electron-squirrel-startup | 1.0.1 | Apache-2.0 | https://github.com/mongodb-js/electron-squirrel-startup |
-| electron-updater | 6.8.9 | MIT | https://github.com/electron-userland/electron-builder |
+| electron-updater | 6.8.11 | MIT | https://github.com/electron-userland/electron-builder |
 | emoji-regex | 8.0.0 | MIT | https://github.com/mathiasbynens/emoji-regex |
 | engine.io-client | 6.6.5 | MIT | https://github.com/socketio/socket.io |
 | engine.io-parser | 5.2.3 | MIT | https://github.com/socketio/socket.io |
@@ -164,7 +165,7 @@ bundle (desktop):
 | is-fullwidth-code-point | 3.0.0 | MIT | https://github.com/sindresorhus/is-fullwidth-code-point |
 | is-hexadecimal | 2.0.1 | MIT | https://github.com/wooorm/is-hexadecimal |
 | is-plain-obj | 4.1.0 | MIT | https://github.com/sindresorhus/is-plain-obj |
-| jose | 6.2.12 | MIT | https://github.com/panva/jose |
+| jose | 6.2.13 | MIT | https://github.com/panva/jose |
 | js-yaml | 4.3.2 | MIT | https://github.com/nodeca/js-yaml |
 | jsonfile | 6.2.0 | MIT | https://github.com/jprichardson/node-jsonfile |
 | lazy-val | 1.0.5 | MIT | https://github.com/develar/lazy-val |
@@ -173,7 +174,7 @@ bundle (desktop):
 | lodash.isequal | 4.5.0 | MIT | https://github.com/lodash/lodash |
 | longest-streak | 3.1.0 | MIT | https://github.com/wooorm/longest-streak |
 | lowlight | 3.3.0 | MIT | https://github.com/wooorm/lowlight |
-| lucide-react | 1.57.0 | ISC | https://github.com/lucide-icons/lucide |
+| lucide-react | 1.64.0 | ISC | https://github.com/lucide-icons/lucide |
 | markdown-table | 3.0.4 | MIT | https://github.com/wooorm/markdown-table |
 | mdast-util-find-and-replace | 3.0.2 | MIT | https://github.com/syntax-tree/mdast-util-find-and-replace |
 | mdast-util-from-markdown | 2.0.3 | MIT | https://github.com/syntax-tree/mdast-util-from-markdown |
@@ -190,7 +191,7 @@ bundle (desktop):
 | mdast-util-to-hast | 13.2.1 | MIT | https://github.com/syntax-tree/mdast-util-to-hast |
 | mdast-util-to-markdown | 2.1.2 | MIT | https://github.com/syntax-tree/mdast-util-to-markdown |
 | mdast-util-to-string | 4.0.0 | MIT | https://github.com/syntax-tree/mdast-util-to-string |
-| mediasoup-client | 3.24.5 | ISC | https://github.com/versatica/mediasoup-client |
+| mediasoup-client | 3.25.3 | ISC | https://github.com/versatica/mediasoup-client |
 | micromark-core-commonmark | 2.0.3 | MIT | https://github.com/micromark/micromark/tree/main/packages/micromark-core-commonmark |
 | micromark-extension-gfm-autolink-literal | 2.1.0 | MIT | https://github.com/micromark/micromark-extension-gfm-autolink-literal |
 | micromark-extension-gfm-footnote | 2.1.0 | MIT | https://github.com/micromark/micromark-extension-gfm-footnote |
@@ -232,7 +233,7 @@ bundle (desktop):
 | qrcode | 1.5.4 | MIT | https://github.com/soldair/node-qrcode |
 | react-dom | 19.3.1 | MIT | https://github.com/react/react |
 | react-markdown | 10.1.0 | MIT | https://github.com/remarkjs/react-markdown |
-| react-router | 8.4.0 | MIT | https://github.com/remix-run/react-router |
+| react-router | 8.5.0 | MIT | https://github.com/remix-run/react-router |
 | react | 19.3.1 | MIT | https://github.com/react/react |
 | rehype-highlight | 7.0.2 | MIT | https://github.com/rehypejs/rehype-highlight |
 | rehype-sanitize | 6.0.0 | MIT | https://github.com/rehypejs/rehype-sanitize |
