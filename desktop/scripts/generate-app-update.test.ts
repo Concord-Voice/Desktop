@@ -18,7 +18,7 @@ describe('UPDATE_ENDPOINT_URL', () => {
 
   it('targets the public release latest/download path', () => {
     const parsed = new URL(UPDATE_ENDPOINT_URL);
-    expect(parsed.pathname).toBe('/Concord-Voice/Concord-Voice/releases/latest/download');
+    expect(parsed.pathname).toBe('/Concord-Voice/Desktop/releases/latest/download');
   });
 
   it('has no query string or fragment', () => {
