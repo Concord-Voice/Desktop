@@ -29,8 +29,8 @@ jobs:
     name: Detect desktop-shell changes (PR)
     if: github.event_name == 'pull_request'
     # ADR-0013 §2 / ADR-0005 §3: ADR-0016 measured sub-minute parity;
-    # 2-vCPU Blacksmith is the half-cost tier for detect/verify work.
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    # Detect/verify work runs on GitHub's standard runner, free for public repos.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Per-job permission grant: dorny/paths-filter calls
     # GET /repos/{owner}/{repo}/pulls/{n}/files on PR events. The default
@@ -406,8 +406,8 @@ jobs:
     if: ${{ github.event_name == 'pull_request' && always() }}
     permissions: {}
     # ADR-0013 §2 / ADR-0005 §3: ADR-0016 measured sub-minute parity;
-    # 2-vCPU Blacksmith is the half-cost tier for detect/verify work.
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    # Detect/verify work runs on GitHub's standard runner, free for public repos.
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Aggregate result

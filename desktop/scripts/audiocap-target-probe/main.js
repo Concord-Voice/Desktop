@@ -38,7 +38,7 @@
 // run by the PROBE PASS / PROBE FAIL line, never by the exit code.
 //
 // It is deliberately NOT wired to CI. `build.yml`'s `electron-host-probe` job
-// runs on `blacksmith-2vcpu-ubuntu-2404` under `--ozone-platform=headless`,
+// runs on `ubuntu-24.04` under `--ozone-platform=headless`,
 // which has no window server and no addon (`resolveNativeAddonPath` supports
 // darwin/win32 only), and #3198 spec section 8 rules out adding a macOS runner.
 // So this is a re-runnable gate a human runs, not an enforced one -- run it on

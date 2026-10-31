@@ -96,7 +96,7 @@ jobs:
   # ─── Detect which components changed ─────────────────────────────────
   changes:
     name: Detect changes
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Callers with precomputed filters skip only these detection steps. Keeping
     # the job successful is the sentinel that lets SonarCloud run when every
@@ -308,7 +308,7 @@ jobs:
     if: >-
       !failure() && !cancelled() &&
       (format('{0}', inputs.desktop-changed) == 'true' || needs.changes.outputs.desktop == 'true' || github.event_name != 'pull_request')
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -378,7 +378,7 @@ jobs:
     # that always() relaxed — both clauses are required (the #906/#910
     # cascade was caused by missing the second half of this pattern).
     if: always() && needs.desktop.result == 'success'
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Download shard 1 coverage
@@ -434,7 +434,7 @@ jobs:
     # consumers also stop on a failed build. Reads nothing from `changes`.
     outputs:
       uploaded: ${{ steps.upload.outcome == 'success' && 'true' || 'false' }}
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       # On pull_request paths-filter lists changed files through the API and
