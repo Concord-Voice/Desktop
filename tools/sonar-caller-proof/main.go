@@ -25,9 +25,10 @@ const (
 	githubIssuer = "https://token.actions.githubusercontent.com"
 	repository   = "Concord-Voice/Desktop"
 	repositoryID = "1425846887"
-	// A ruleset-loaded required workflow signs its ref as @main, not
-	// @refs/heads/main (observed on the 2026-10-30 canary).
-	workflowRef  = repository + "/.github/workflows/required-pr-build.yml@main"
+	// A ruleset-loaded required workflow signs its ref in the spelling the
+	// ruleset uses. This repository's ruleset names refs/heads/main (Alpha's
+	// names main), as a live Self-Hosted proof showed on 2026-10-31.
+	workflowRef  = repository + "/.github/workflows/required-pr-build.yml@refs/heads/main"
 	audienceBase = "concord-voice:protected-sonar:sha256:"
 	maxProofSize = 64 << 10
 	maxPayload   = 24 << 10
