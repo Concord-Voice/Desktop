@@ -136,9 +136,14 @@ jobs:
               - 'services/control-plane/internal/authoritycontract/testdata/vectors.json'
               - 'scripts/authority-vectors/**'
             control-plane:
+              - '.github/ci/docker-engine-packages.lock'
+              - 'scripts/ci/install-docker-engine.sh'
+              - 'scripts/ci/start-control-plane-services.sh'
               - 'services/control-plane/**'
               - 'scripts/test-tools/nats-server.sh'
             media-plane:
+              - '.github/ci/docker-engine-packages.lock'
+              - 'scripts/ci/install-docker-engine.sh'
               - 'services/media-plane/**'
             # Gates the media-plane TEST job only, never its Docker build. The
             # camera layer-policy parity suite lives in the media-plane test tree
@@ -174,6 +179,8 @@ jobs:
             # compose files, and this workflow itself. Keep aligned with
             # the production `--profile services` build set.
             production-docker:
+              - '.github/ci/docker-engine-packages.lock'
+              - 'scripts/ci/install-docker-engine.sh'
               - 'services/**'
               - 'client/admin/**'
               - 'infrastructure/docker/**'
@@ -218,7 +225,7 @@ jobs:
 
       - name: Verify installed Undici floors
         working-directory: desktop
-        run: node ../scripts/security/override-range-lint.mjs --dir . --verify-installed-versions --minimum-version undici=6.28.1 --minimum-version undici=7.29.1 --minimum-version undici=8.10.2
+        run: node ../scripts/security/override-range-lint.mjs --dir . --verify-installed-versions --minimum-version undici=6.29.1 --minimum-version undici=7.30.1 --minimum-version undici=8.12.2
 
       - name: Run tests with coverage (shard ${{ matrix.shard }}/2)
         working-directory: desktop

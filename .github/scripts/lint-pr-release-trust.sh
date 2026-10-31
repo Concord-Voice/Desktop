@@ -1110,6 +1110,7 @@ def check_classifier_trust_boundary() -> None:
         "shell_changed", "old_contract", "new_contract", "contract_action",
         "old_version", "new_version", "version_action", "old_spa_min",
         "new_spa_min", "spa_min_action", "spa_min_present", "version_bump_required",
+        "bump_level", "bump_basis",
     )
     expected_outputs = set(output_names)
     expected_comment_gate = (
@@ -1175,6 +1176,8 @@ def check_classifier_trust_boundary() -> None:
         '[[ "${SPA_MIN_ACTION}" =~ ^(none|raised|lowered|removed)$ ]]',
         '[[ "${SPA_MIN_PRESENT}" =~ ^(true|false)$ ]]',
         '[[ "${VERSION_BUMP_REQUIRED}" =~ ^(true|false)$ ]]',
+        '[[ "${BUMP_LEVEL}" =~ ^(none|patch|minor|major)$ ]]',
+        '[[ "${BUMP_BASIS}" =~ ^(none|breaking|added|ipc|notes|shell)$ ]]',
     )
     output_buffer_start = validator_shell.find('output_file="$(mktemp)"')
     if (
@@ -1233,6 +1236,12 @@ def check_classifier_trust_boundary() -> None:
     step_env = mapping(scripts[0].get("env"), f"{comment_path}.github-script.env") if scripts else {}
     if "enumValue(SPA_MIN_ACTION, ['none', 'raised', 'lowered', 'removed'])" not in script_body:
         fail(comment_path, "classify-comment must validate spa_min_action including removed")
+    for bump_check in (
+        "enumValue(BUMP_LEVEL, ['none', 'patch', 'minor', 'major'])",
+        "enumValue(BUMP_BASIS, ['none', 'breaking', 'added', 'ipc', 'notes', 'shell'])",
+    ):
+        if bump_check not in script_body:
+            fail(comment_path, "classify-comment must revalidate bump_level and bump_basis")
     if "<!-- classify-release -->" not in script_body:
         fail(comment_path, "classify-comment must preserve the release comment marker and check name")
     freshness = (

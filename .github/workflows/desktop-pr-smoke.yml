@@ -69,6 +69,9 @@ jobs:
               - 'desktop/native/**'
               - 'desktop/scripts/build-native.mjs'
               - 'desktop/scripts/build-preload.mjs'
+              - 'desktop/scripts/desktop-engine-probe/**'
+              - 'desktop/scripts/dialog-top-layer-probe/**'
+              - 'desktop/scripts/audiocap-host-probe/**'
               - 'desktop/scripts/patch-electron-plist.sh'
               - 'desktop/scripts/patch-rpm-sandbox-spec.mjs'
               - 'desktop/scripts/verify-asar-payload.sh'
@@ -366,6 +369,19 @@ jobs:
         working-directory: desktop
         shell: bash
         run: npx tsx scripts/verify-packaged-app.mts fuses --out out
+
+      # The tray reads its sprites from Resources/tray at runtime; a missing frame only logs, so
+      # check every manifest key and its platform sizes in the produced app. Shared between
+      # desktop-pr-smoke.yml and build-desktop.yml: change the two together.
+      - name: Verify packaged tray sprites
+        working-directory: desktop
+        shell: bash
+        run: npx tsx scripts/verify-packaged-app.mts tray-assets --out out
+
+      - name: Run packaged preload and Electron runtime probes
+        working-directory: desktop
+        timeout-minutes: 4
+        run: node scripts/desktop-engine-probe/run.mjs --packaged
 
       # The packager only WARNS when it cannot write the digest, and Electron enforces nothing
       # against an unwritten slot. This job is macOS-only, so the step has no platform guard; the

@@ -810,6 +810,8 @@ jobs:
       spa_min_action: ${{ steps.validate.outputs.spa_min_action }}
       spa_min_present: ${{ steps.validate.outputs.spa_min_present }}
       version_bump_required: ${{ steps.validate.outputs.version_bump_required }}
+      bump_level: ${{ steps.validate.outputs.bump_level }}
+      bump_basis: ${{ steps.validate.outputs.bump_basis }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         id: checkout-base
@@ -851,6 +853,8 @@ jobs:
           SPA_MIN_ACTION: ${{ steps.classify.outputs.spa_min_action }}
           SPA_MIN_PRESENT: ${{ steps.classify.outputs.spa_min_present }}
           VERSION_BUMP_REQUIRED: ${{ steps.classify.outputs.version_bump_required }}
+          BUMP_LEVEL: ${{ steps.classify.outputs.bump_level }}
+          BUMP_BASIS: ${{ steps.classify.outputs.bump_basis }}
         run: |
           set -euo pipefail
           [[ "${SHELL_CHANGED}" =~ ^(true|false)$ ]]
@@ -865,12 +869,15 @@ jobs:
           [[ "${SPA_MIN_ACTION}" =~ ^(none|raised|lowered|removed)$ ]]
           [[ "${SPA_MIN_PRESENT}" =~ ^(true|false)$ ]]
           [[ "${VERSION_BUMP_REQUIRED}" =~ ^(true|false)$ ]]
+          [[ "${BUMP_LEVEL}" =~ ^(none|patch|minor|major)$ ]]
+          [[ "${BUMP_BASIS}" =~ ^(none|breaking|added|ipc|notes|shell)$ ]]
           output_file="$(mktemp)"
           trap 'rm -f "${output_file}"' EXIT
-          printf 'shell_changed=%s\nold_contract=%s\nnew_contract=%s\ncontract_action=%s\nold_version=%s\nnew_version=%s\nversion_action=%s\nold_spa_min=%s\nnew_spa_min=%s\nspa_min_action=%s\nspa_min_present=%s\nversion_bump_required=%s\n' \
+          printf 'shell_changed=%s\nold_contract=%s\nnew_contract=%s\ncontract_action=%s\nold_version=%s\nnew_version=%s\nversion_action=%s\nold_spa_min=%s\nnew_spa_min=%s\nspa_min_action=%s\nspa_min_present=%s\nversion_bump_required=%s\nbump_level=%s\nbump_basis=%s\n' \
             "${SHELL_CHANGED}" "${OLD_CONTRACT}" "${NEW_CONTRACT}" "${CONTRACT_ACTION}" \
             "${OLD_VERSION}" "${NEW_VERSION}" "${VERSION_ACTION}" "${OLD_SPA_MIN}" \
             "${NEW_SPA_MIN}" "${SPA_MIN_ACTION}" "${SPA_MIN_PRESENT}" "${VERSION_BUMP_REQUIRED}" \
+            "${BUMP_LEVEL}" "${BUMP_BASIS}" \
             > "${output_file}"
           output_bytes="$(wc -c < "${output_file}" | tr -d '[:space:]')"
           (( output_bytes <= 8192 ))
@@ -878,7 +885,7 @@ jobs:
   classify-comment:
     name: Classify release impact
     needs: classify-data
-    if: github.repository == 'Concord-Voice/Desktop' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && needs.classify-data.result == 'success' && needs.classify-data.outputs.shell_changed != '' && needs.classify-data.outputs.old_contract != '' && needs.classify-data.outputs.new_contract != '' && needs.classify-data.outputs.contract_action != '' && needs.classify-data.outputs.old_version != '' && needs.classify-data.outputs.new_version != '' && needs.classify-data.outputs.version_action != '' && needs.classify-data.outputs.old_spa_min != '' && needs.classify-data.outputs.new_spa_min != '' && needs.classify-data.outputs.spa_min_action != '' && needs.classify-data.outputs.spa_min_present != '' && needs.classify-data.outputs.version_bump_required != ''
+    if: github.repository == 'Concord-Voice/Desktop' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && needs.classify-data.result == 'success' && needs.classify-data.outputs.shell_changed != '' && needs.classify-data.outputs.old_contract != '' && needs.classify-data.outputs.new_contract != '' && needs.classify-data.outputs.contract_action != '' && needs.classify-data.outputs.old_version != '' && needs.classify-data.outputs.new_version != '' && needs.classify-data.outputs.version_action != '' && needs.classify-data.outputs.old_spa_min != '' && needs.classify-data.outputs.new_spa_min != '' && needs.classify-data.outputs.spa_min_action != '' && needs.classify-data.outputs.spa_min_present != '' && needs.classify-data.outputs.version_bump_required != '' && needs.classify-data.outputs.bump_level != '' && needs.classify-data.outputs.bump_basis != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -899,13 +906,17 @@ jobs:
           SPA_MIN_ACTION: ${{ needs.classify-data.outputs.spa_min_action }}
           SPA_MIN_PRESENT: ${{ needs.classify-data.outputs.spa_min_present }}
           VERSION_BUMP_REQUIRED: ${{ needs.classify-data.outputs.version_bump_required }}
+          BUMP_LEVEL: ${{ needs.classify-data.outputs.bump_level }}
+          BUMP_BASIS: ${{ needs.classify-data.outputs.bump_basis }}
         with:
           script: |
             const { owner, repo } = context.repo;
-            const { SPA_MIN_ACTION } = process.env;
+            const { SPA_MIN_ACTION, BUMP_LEVEL, BUMP_BASIS } = process.env;
             const NA = 'unknown (probe failed)';
             const enumValue = (value, allowed) => allowed.includes(value);
             if (!enumValue(SPA_MIN_ACTION, ['none', 'raised', 'lowered', 'removed'])) return;
+            if (!enumValue(BUMP_LEVEL, ['none', 'patch', 'minor', 'major']) ||
+                !enumValue(BUMP_BASIS, ['none', 'breaking', 'added', 'ipc', 'notes', 'shell'])) return;
             let liveContract = NA;
             try {
               const response = await fetch('https://api.concordvoice.chat/api/v1/client/config', { signal: AbortSignal.timeout(5000) });
@@ -2770,6 +2781,11 @@ policy_case_diagnostic "classifier publisher rejects removed SPA minimum" \
   ".github/workflows/classify-release-comment.yml" \
   "enumValue(SPA_MIN_ACTION, ['none', 'raised', 'lowered', 'removed'])" \
   "enumValue(SPA_MIN_ACTION, ['none', 'raised', 'lowered'])"
+
+policy_case_diagnostic "classifier publisher drops the bump_level revalidation" \
+  "classify-comment must revalidate bump_level and bump_basis" replace_once \
+  ".github/workflows/classify-release-comment.yml" \
+  "enumValue(BUMP_LEVEL, ['none', 'patch', 'minor', 'major'])" "true"
 
 policy_case_diagnostic "classifier validator omits the old contract scalar bound" \
   "classify-data must validate every classifier output before exposing them" replace_once \

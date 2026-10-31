@@ -541,6 +541,14 @@ jobs:
         shell: bash
         run: npx tsx scripts/verify-packaged-app.mts fuses --out out
 
+      # The tray reads its sprites from Resources/tray at runtime; a missing frame only logs, so
+      # check every manifest key and its platform sizes in the produced app. Shared between
+      # desktop-pr-smoke.yml and build-desktop.yml: change the two together.
+      - name: Verify packaged tray sprites
+        working-directory: desktop
+        shell: bash
+        run: npx tsx scripts/verify-packaged-app.mts tray-assets --out out
+
       # macOS legs only: the digest slot lives in the macOS Electron Framework binary and is written
       # by the packager's macOS code path, which also requires a darwin host. Both macOS legs run on
       # macos-latest (arm64), so that holds for the x64 leg too. The packager only WARNS when it

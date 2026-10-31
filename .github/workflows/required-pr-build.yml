@@ -8,13 +8,9 @@ on:
   pull_request:
     branches: [__ruleset_only__]
 
+# Every job declares its own grants; the workflow default stays read-only.
 permissions:
   contents: read
-  pull-requests: write
-  actions: read
-  checks: read
-  packages: read
-  security-events: write
 
 jobs:
   pr-ci:
@@ -157,6 +153,8 @@ jobs:
               });
             }
 
+  # D: migration-lint (squawk on control-plane migrations) belongs to Self-Hosted.
+
   result:
     name: Required PR build result
     needs: [pr-ci, osv, publish-install-script-warnings]
@@ -201,7 +199,6 @@ jobs:
             exit 1
           fi
           git -C protected fetch --no-tags origin \
-            "refs/pull/${PR_NUMBER}/head:refs/scan/pr-head" \
             "refs/pull/${PR_NUMBER}/merge:refs/scan/pr-merge" "$BASE_SHA"
           git -C protected cat-file -e "${HEAD_SHA}^{commit}"
           git -C protected cat-file -e "${BASE_SHA}^{commit}"
