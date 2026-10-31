@@ -387,7 +387,8 @@ repos:
       - id: test-check-native-ioc-gate
         name: 'Test the native IOC-gate guard'
         entry: scripts/test-check-native-ioc-gate.sh
-        language: script
+        language: python
+        additional_dependencies: ['PyYAML==6.0.3']
         files: '^scripts/(check|test-check)-native-ioc-gate\.sh$'
         pass_filenames: false
 
