@@ -15,16 +15,20 @@ beforeEach(() => {
 
 describe('legal document repository links', () => {
   it.each([
-    ['../README.md', 'README.md'],
-    ['/docs/../%52EADME.md', 'README.md'],
-    ['legal/./commercial-license.md', 'docs/legal/commercial-license.md'],
-    ['/docs/legal/%63ommercial-license.md', 'docs/legal/commercial-license.md'],
-    ['runbooks/refresh-minio-image.md', 'docs/runbooks/refresh-minio-image.md'],
-    ['/docs/legal/../runbooks/refresh-minio-image.md', 'docs/runbooks/refresh-minio-image.md'],
-  ])('resolves the approved public path %s after normalization', (href, publicPath) => {
+    ['../README.md', 'Desktop', 'README.md'],
+    ['/docs/../%52EADME.md', 'Desktop', 'README.md'],
+    ['legal/./commercial-license.md', 'Desktop', 'docs/legal/commercial-license.md'],
+    ['/docs/legal/%63ommercial-license.md', 'Desktop', 'docs/legal/commercial-license.md'],
+    ['runbooks/refresh-minio-image.md', 'Self-Hosted', 'docs/runbooks/refresh-minio-image.md'],
+    [
+      '/docs/legal/../runbooks/refresh-minio-image.md',
+      'Self-Hosted',
+      'docs/runbooks/refresh-minio-image.md',
+    ],
+  ])('resolves the approved public path %s after normalization', (href, repo, publicPath) => {
     expect(resolveLegalLink(href, privacy)).toEqual({
       kind: 'external',
-      href: `https://github.com/Concord-Voice/Concord-Voice/blob/main/${publicPath}`,
+      href: `https://github.com/Concord-Voice/${repo}/blob/main/${publicPath}`,
     });
   });
 
@@ -58,7 +62,7 @@ describe('legal document repository links', () => {
   it('preserves a fragment on an approved public fallback', () => {
     expect(resolveLegalLink('../README.md#installation', privacy)).toEqual({
       kind: 'external',
-      href: 'https://github.com/Concord-Voice/Concord-Voice/blob/main/README.md#installation',
+      href: 'https://github.com/Concord-Voice/Desktop/blob/main/README.md#installation',
     });
   });
 

@@ -12,7 +12,7 @@ import './UpdateSecurityBanner.css';
  * concordvoice.com/download page with OS/arch detection is the scoped §11
  * follow-up; until then GitHub Releases ships all assets in one place.
  */
-const DOWNLOAD_URL = 'https://github.com/Concord-Voice/Concord-Voice/releases/latest';
+const DOWNLOAD_URL = 'https://github.com/Concord-Voice/Desktop/releases/latest';
 
 // Exhaustive map keyed on UpdateCriticalErrorSubtype so adding a new subtype
 // forces a matching copy entry (TS compile error otherwise). Per #719 review.

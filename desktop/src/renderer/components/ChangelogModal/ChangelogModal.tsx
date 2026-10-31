@@ -20,7 +20,7 @@ import { useClientConfigStore } from '../../stores/ui/clientConfigStore';
 import './ChangelogModal.css';
 
 /** Public releases page (same public-repo target as UpdateSecurityBanner). */
-const FULL_NOTES_URL = 'https://github.com/Concord-Voice/Concord-Voice/releases';
+const FULL_NOTES_URL = 'https://github.com/Concord-Voice/Desktop/releases';
 
 /**
  * Newest sections rendered in full; the rest collapse to an "earlier versions" line.

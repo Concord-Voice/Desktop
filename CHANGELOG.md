@@ -50,6 +50,7 @@ gate can learn from your voice.
 
 ### Changed
 
+- **Updates:** Desktop updates and release notes now come from the Concord-Voice/Desktop releases page. Links inside the legal documents now open the Desktop and Self-Hosted repositories. This release is also posted to the old feed once, so existing installs move over automatically.
 - **Voice:** The desktop call library handles mixed audio and video RTP header extensions with mediasoup-client 3.25.3.
 - **Voice:** Updated server voice transport dependencies.
 - **Accessibility:** The desktop app follows the system's reduced-motion setting, hides decorative icons from screen readers, and shows text while bundled fonts load ([#4181](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/4181)).
