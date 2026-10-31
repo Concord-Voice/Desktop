@@ -280,11 +280,7 @@ jobs:
       pull-requests: read
     uses: ./.github/workflows/build.yml
 
-  # Fail-stop SonarCloud (ADR-0018 §Decision 3): default success() on
-  # `needs: build` means any failed build job skips the scan — no scan on
-  # partial coverage. On push:main the scanner runs in MAIN-branch context,
-  # refreshing the main dashboard/badges (not a PR analysis).
-  # D: Sonar is deferred until Alpha #2949 closes. Removed sonar.
+  # SonarCloud's main-branch analysis runs daily from sonar-main.yml (F7).
   build-desktop:
     name: build-desktop
     needs: [changes, ioc, eslint, codeql, scorecard, build]

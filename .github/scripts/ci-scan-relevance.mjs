@@ -91,8 +91,9 @@ export function composeSelection(filters, metadata, options) {
     for (const key of Object.keys(CODEQL)) selected[key] = false;
   }
 
-  // D: Go and server coverage belong to Self-Hosted; Sonar awaits Alpha #2949.
-  for (const key of ['codeql_go', 'govulncheck', ...ANALYSIS_KEYS.filter(key => key.startsWith('sonar'))]) {
+  // D: Go and server coverage belong to Self-Hosted. Sonar covers the desktop
+  // and concord-bridge code here through the protected bridge (F7).
+  for (const key of ['codeql_go', 'govulncheck', 'sonar_control_plane', 'sonar_media_plane', 'sonar_admin']) {
     selected[key] = false;
   }
   for (const key of ['control_plane', 'media_plane', 'admin']) coverage_required[key] = false;

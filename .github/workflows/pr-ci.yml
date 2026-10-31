@@ -633,6 +633,8 @@ jobs:
           bash .github/scripts/tests/lint-pr-release-trust.test.sh
           python3 .github/scripts/tests/test_verify_unsigned_desktop.py
           python3 .github/scripts/tests/test_ci_scan_verdict.py
+          python3 -m unittest discover -s .github/scripts/tests -p test_protected_sonar_workflows.py
+          python3 -m unittest discover -s scripts/sonar/tests
           bash .github/scripts/tests/resolve-hotfix-label.test.sh
           bash .github/scripts/tests/lint-multisecret-andcheck.test.sh
           bash .github/scripts/tests/lint-always-needs-comment.test.sh
