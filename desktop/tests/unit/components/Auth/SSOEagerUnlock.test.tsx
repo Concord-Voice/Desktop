@@ -5,6 +5,7 @@ import { e2eeService } from '@/renderer/services/e2ee/e2eeService';
 import { useAuthStore } from '@/renderer/stores/auth/authStore';
 import { useE2EEStore } from '@/renderer/stores/auth/e2eeStore';
 import { resetAllStores } from '../../../helpers/store-helpers';
+import type * as ApiClient from '@/renderer/services/system/apiClient';
 
 // Mock global fetch (matches Register.test.tsx / SSOPassphraseSetup.test.tsx pattern)
 const mockFetch = vi.fn();
@@ -40,7 +41,7 @@ vi.mock('@/renderer/services/e2ee/e2eeService', () => ({
 // /users/me/keys, but stub revokeAbortedSession so we can assert it fires on a
 // teardown-abort without a real /auth/logout round-trip (PR #2337).
 vi.mock('@/renderer/services/system/apiClient', async (orig) => ({
-  ...(await orig<typeof import('@/renderer/services/system/apiClient')>()),
+  ...(await orig<typeof ApiClient>()),
   revokeAbortedSession: vi.fn().mockResolvedValue(undefined),
 }));
 

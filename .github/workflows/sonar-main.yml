@@ -1,0 +1,52 @@
+# SonarCloud main-branch analysis: the new-code baseline PR scans compare to.
+#
+# Desktop has no nightly orchestrator, and main-ci.yml runs build.yml only on
+# the hotfix release path, so this owns the daily main scan. IOC runs first
+# (ADR-0018): build installs and executes repository code.
+name: Sonar main analysis
+
+on:
+  schedule:
+    - cron: '30 7 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: sonar-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ioc:
+    name: ioc
+    uses: ./.github/workflows/ioc-scanning.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
+  build:
+    name: build
+    needs: [ioc]
+    permissions:
+      contents: read
+      pull-requests: read
+    uses: ./.github/workflows/build.yml
+
+  sonar:
+    name: sonar
+    needs: [build]
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+      checks: read
+    uses: ./.github/workflows/sonarcloud.yml
+    with:
+      reusable-analysis: true
+      desktop-coverage: ${{ needs.build.outputs.desktop-coverage == 'true' }}
+      concord-bridge-coverage: ${{ needs.build.outputs.concord-bridge-coverage == 'true' }}
+    # Secrets are not inherited through workflow_call; without this the scanner
+    # gets an empty token and fails with "Not authorized or project not found".
+    secrets:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

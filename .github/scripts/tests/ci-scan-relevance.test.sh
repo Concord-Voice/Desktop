@@ -131,7 +131,7 @@ const metadata = label === 'docs-schedule'
 const result = composeSelection(filters, metadata, { mode: 'required-relevant', policySha: 'd'.repeat(40) });
 assert.equal(result.known, true, 'matcher outputs compose as known');
 await writeFile(selectionPath, `${JSON.stringify(result, null, 2)}\n`);
-const retiredScanners = new Set(['codeql_go', 'govulncheck', 'sonar']);
+const retiredScanners = new Set(['codeql_go', 'govulncheck']);
 for (const key of retiredScanners) assert.equal(result.selected[key], false, `${key} belongs outside Desktop`);
 const expected = new Set(expectedText.split(',').filter(key => key && !retiredScanners.has(key)));
 const scanners = ['codeql_actions','codeql_go','codeql_js','eslint','govulncheck','osv','semgrep_custom','semgrep_community','semgrep_canary','sonar'];
@@ -484,7 +484,7 @@ assert.equal(hotfix.known, true);
 assert.equal(hotfix.hotfix, true, 'validated Hotfix label is carried to auxiliary consumers');
 for (const key of ANALYSIS_KEYS.slice(0, 10)) {
   const nativeCodeQL = ['codeql_actions', 'codeql_go', 'codeql_js'].includes(key);
-  assert.equal(hotfix.selected[key], !nativeCodeQL && !['govulncheck', 'sonar'].includes(key),
+  assert.equal(hotfix.selected[key], !nativeCodeQL && key !== 'govulncheck',
     `risk: hotfix PR ${nativeCodeQL ? 'leaves native ownership outside' : 'selects'} ${key}`);
 }
 const ordinary = composeSelection(outputs, await metadata(process.argv[4]), opts);
@@ -597,7 +597,7 @@ assert.equal(selected(outputs, { ...meta, head_sha: 'bad' }).known, false,
 const legacy = selected(outputs, meta, 'legacy');
 assert.equal(legacy.known, true, 'legacy metadata remains accepted');
 for (const key of ['eslint', 'govulncheck', 'osv', 'semgrep_custom', 'semgrep_community', 'semgrep_canary', 'sonar'])
-  assert.equal(legacy.selected[key], !['govulncheck', 'sonar'].includes(key), `legacy defaults to full ${key}`);
+  assert.equal(legacy.selected[key], key !== 'govulncheck', `legacy defaults to full ${key}`);
 for (const key of ['codeql_actions', 'codeql_go', 'codeql_js'])
   assert.equal(legacy.selected[key], false, `PR legacy mode leaves native CodeQL ownership to GitHub: ${key}`);
 for (const mode of ['legacy', 'required-full', 'required-relevant']) {
@@ -639,7 +639,7 @@ for (const [filename, key] of [['go-only', 'codeql_go'], ['historical-docs', 'se
   ['sonar-config', 'sonar_force_all']]) {
   const emitted = JSON.parse(fs.readFileSync(`${selectionDir}/${filename}.selection.json`, 'utf8'));
   assert.equal(emitted.known, true, `${filename} selection is known`);
-  assert.equal(emitted.selected[key], !['codeql_go', 'sonar_force_all'].includes(key), `${filename} emitted selection contains ${key}`);
+  assert.equal(emitted.selected[key], key !== 'codeql_go', `${filename} emitted selection contains ${key}`);
 }
 const emittedSonar = JSON.parse(fs.readFileSync(`${selectionDir}/sonar-config.selection.json`, 'utf8'));
 assert.deepEqual(emittedSonar.coverage_required, allCoverage, 'emitted Sonar config requires all four suites');
