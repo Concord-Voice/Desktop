@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { ALLOWED_WINDOWS_PUBLISHERS } from '../../../src/shared/allowedWindowsPublishers';
+import type * as VerifyWindowsSignature from '../../../src/main/verifyWindowsSignature';
 
 // ── Hoisted mocks ────────────────────────────────────────────────────────
 
@@ -29,7 +30,7 @@ const mockVerifyLinuxArtifact = vi.hoisted(() => vi.fn());
 const mockDiscardPreparedUpdate = vi.hoisted(() => vi.fn());
 const mockPrepareForUpdate = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 const PUBLIC_RECOVERY_FEED_URL =
-  'https://github.com/Concord-Voice/Concord-Voice/releases/latest/download';
+  'https://github.com/Concord-Voice/Desktop/releases/latest/download';
 
 vi.mock('electron-updater', () => ({
   autoUpdater: mockAutoUpdater,
@@ -515,7 +516,7 @@ describe('updater', () => {
 
       expect(mockVerifyLinuxArtifact).toHaveBeenCalledWith(
         '/tmp/cache/ConcordVoice-2.0.0-linux-x64.AppImage',
-        'https://github.com/Concord-Voice/Concord-Voice/releases/latest/download/ConcordVoice-2.0.0-linux-x64.AppImage.sig',
+        'https://github.com/Concord-Voice/Desktop/releases/latest/download/ConcordVoice-2.0.0-linux-x64.AppImage.sig',
         expect.any(Function)
       );
       expect(mockAutoUpdater.quitAndInstall).toHaveBeenCalledOnce();
@@ -618,8 +619,7 @@ describe('updater', () => {
       mockPrepareForUpdate.mockReset().mockResolvedValue(true);
       mockAutoUpdater.downloadUpdate.mockReset().mockResolvedValue([]);
       vi.doMock('../../../src/main/verifyWindowsSignature', async (importOriginal) => {
-        const actual =
-          await importOriginal<typeof import('../../../src/main/verifyWindowsSignature')>();
+        const actual = await importOriginal<typeof VerifyWindowsSignature>();
         return { ...actual, extractChain };
       });
     });

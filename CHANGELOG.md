@@ -50,6 +50,7 @@ gate can learn from your voice.
 
 ### Changed
 
+- **Updates:** Desktop updates and release notes now come from the Concord-Voice/Desktop releases page. Links inside the legal documents now open the Desktop and Self-Hosted repositories. This release is also posted to the old feed once, so existing installs move over automatically.
 - **Voice:** The desktop call library handles mixed audio and video RTP header extensions with mediasoup-client 3.25.3.
 - **Voice:** Updated server voice transport dependencies.
 - **Accessibility:** The desktop app follows the system's reduced-motion setting, hides decorative icons from screen readers, and shows text while bundled fonts load ([#4181](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/4181)).
@@ -143,6 +144,7 @@ gate can learn from your voice.
 
 ### Security
 
+- **Accounts:** Your encrypted key is only sent to a device that has just signed in, or that confirms your current password, so a stolen session can no longer download it. Changing your password asks for your current password as before.
 - **Voice:** One account can no longer fill the voice server's connection capacity with idle connections and lock other users out of voice.
 - **Accounts:** A device signed out while its account-deletion request was still processing can no longer delete the account ([#4192](https://github.com/Concord-Voice/Concord-Voice-Alpha/pull/4192)).
 - **Accounts:** Signing out a device or revoking a session cuts it off everywhere at once. Its open connection and any voice call end before the change is confirmed, and a signed-out device can no longer act on your account.

@@ -55,10 +55,6 @@ const DEPENDABOT = '.github/dependabot.yml';
 export const WORKSPACES = [
   '.github/tools/license-checker',
   'desktop',
-  'client/admin',
-  'services/media-plane',
-  'fixtures/policy/workers/workers/apple-sso-bridge',
-  'fixtures/policy/workers/workers/invite-landing',
   'tools/concord-bridge',
 ];
 const REQUIRED = ['kind', 'ecosystem', 'workspace', 'package', 'pinned', 'reason', 'review_by'];

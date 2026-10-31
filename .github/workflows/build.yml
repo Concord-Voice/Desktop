@@ -96,7 +96,7 @@ jobs:
   # ─── Detect which components changed ─────────────────────────────────
   changes:
     name: Detect changes
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     # Callers with precomputed filters skip only these detection steps. Keeping
     # the job successful is the sentinel that lets SonarCloud run when every
@@ -308,7 +308,7 @@ jobs:
     if: >-
       !failure() && !cancelled() &&
       (format('{0}', inputs.desktop-changed) == 'true' || needs.changes.outputs.desktop == 'true' || github.event_name != 'pull_request')
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -335,6 +335,17 @@ jobs:
       - name: Build the main process
         working-directory: desktop
         run: npm run build:main
+
+      # GitHub's Ubuntu image restricts unprivileged user namespaces, so
+      # Chromium needs its SUID helper; same step as desktop-engine-probes.yml.
+      - name: Configure the test Electron sandbox helper
+        working-directory: desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper=$(node -e 'const fs=require("node:fs"),p=require("node:path");const dir=fs.realpathSync("node_modules/electron/dist"),helper=p.join(dir,"chrome-sandbox");if(p.dirname(fs.realpathSync(require("electron")))!==dir||fs.lstatSync(helper).isSymbolicLink()||!fs.lstatSync(helper).isFile())throw new Error("Unexpected Electron sandbox helper");process.stdout.write(helper)')
+          sudo chown root:root -- "$helper"
+          sudo chmod 4755 -- "$helper"
 
       - name: Run the Electron host probe
         working-directory: desktop
@@ -378,7 +389,7 @@ jobs:
     # that always() relaxed — both clauses are required (the #906/#910
     # cascade was caused by missing the second half of this pattern).
     if: always() && needs.desktop.result == 'success'
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Download shard 1 coverage
@@ -434,7 +445,7 @@ jobs:
     # consumers also stop on a failed build. Reads nothing from `changes`.
     outputs:
       uploaded: ${{ steps.upload.outcome == 'success' && 'true' || 'false' }}
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       # On pull_request paths-filter lists changed files through the API and

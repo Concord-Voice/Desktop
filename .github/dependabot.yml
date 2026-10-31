@@ -1,0 +1,214 @@
+# https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+
+# Weekly runs on 2026-10-27/28 hit startup_failure (a GitHub billing problem,
+# not this file). Any merged edit here makes Dependabot re-check every entry.
+version: 2
+updates:
+  # ─── GitHub Actions ────────────────────────────────────────────────
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "05:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "chore"
+    cooldown:
+      default-days: 7
+    labels:
+      - "area: deps"
+      - "area: ci-cd"
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  # ─── CI license-checking tool ─────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/.github/tools/license-checker"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "05:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "chore"
+    cooldown:
+      default-days: 7
+    labels:
+      - "area: deps"
+      - "area: ci-cd"
+
+  # ─── Concord Bridge MCP Server ─────────────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/tools/concord-bridge"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "05:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "chore"
+    cooldown:
+      default-days: 7
+    labels:
+      - "area: deps"
+      - "area: dev-tooling"
+
+  # ─── Desktop Client (Electron + React) ─────────────────────────────
+  - package-ecosystem: "npm"
+    directory: "/desktop"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "05:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "chore"
+    cooldown:
+      default-days: 7
+    labels:
+      - "area: deps"
+      - "area: desktop"
+    open-pull-requests-limit: 10
+    groups:
+      electron-forge:
+        patterns:
+          - "@electron-forge/*"
+          - "@reforged/*"
+          # plugin-fuses peers on @electron/fuses; listed here, ahead of
+          # electron-core's "@electron/*", so a fuses major arrives with it
+          # rather than alone and failing ERESOLVE (#3165).
+          - "@electron/fuses"
+      electron-core:
+        patterns:
+          - "electron"
+          - "electron-updater"
+          - "electron-squirrel-startup"
+          - "@electron/*"
+      react:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "react-router*"
+          - "@types/react"
+          - "@types/react-dom"
+          - "use-sync-external-store"
+      state:
+        patterns:
+          - "zustand"
+      media:
+        patterns:
+          - "mediasoup-client"
+          - "socket.io-client"
+      desktop-prod:
+        patterns:
+          - "lucide-react"
+          - "minisearch"
+          - "qrcode"
+          - "@msgpack/msgpack"
+          - "hash-wasm"
+      validation:
+        # Runtime payload validators (#709 introduced zod at the WebSocket
+        # dispatch boundary). Grouped so a zod bump rolls as one PR rather
+        # than fanning out across unrelated batches.
+        patterns:
+          - "zod"
+          - "valibot"
+          - "@valibot/*"
+      dev-tooling:
+        dependency-type: "development"
+        patterns:
+          - "eslint*"
+          - "@eslint/*"
+          - "@eslint-react/*"
+          - "@typescript-eslint/*"
+          - "typescript-eslint"
+          - "eslint-config-prettier"
+          - "eslint-plugin-*"
+          - "prettier"
+          - "typescript"
+          - "globals"
+      build-tooling:
+        dependency-type: "development"
+        patterns:
+          - "vite"
+          - "@vitejs/*"
+          - "vitest"
+          - "@vitest/*"
+          - "concurrently"
+      vitest-pair-security:
+        # A group without `applies-to` does not merely DEFAULT to version
+        # updates — dependabot FILTERS by it. `dependency_group_engine.rb`
+        # (`from_job_config`) keeps only `security-updates` groups on a security
+        # run and only `version-updates` groups otherwise, so on a security run
+        # the group above does not exist at all. Raised by Codex on PR #3284.
+        #
+        # WHAT THIS DOES AND DOES NOT FIX — the narrower claim, after a Codex
+        # follow-up on the same PR corrected an overstatement that stood here. A
+        # security run is ADVISORY-DRIVEN: only dependencies carrying an advisory
+        # are eligible, and a group AGGREGATES eligible updates rather than opting
+        # a healthy package into the run. So this group covers the case where BOTH
+        # halves are vulnerable (which would otherwise be two PRs), and it does
+        # NOT rescue the case where only one half has an advisory whose patched
+        # release crosses the exact-peer boundary — that still yields a one-sided
+        # PR that fails `npm ci`, and no grouping syntax can fix it. Closing that
+        # needs automation advancing both manifest entries together, or an upstream
+        # end to the exact-peer coupling — tracked in #3293, which carries the three
+        # candidate mechanisms. Keep this group regardless: it costs nothing and it
+        # does close the co-vulnerable case.
+        #
+        # Deliberately scoped to the vitest pair and NOT mirrored for every
+        # other group: `@vitest/coverage-istanbul` declares an EXACT peer pin on
+        # `vitest`, so a split there is UNMERGEABLE. A split in a convenience
+        # group (react, electron-core, …) is merely noisy, and mirroring all of
+        # them would double this file to guard against untidiness. Add a sibling
+        # here only for a pair whose split cannot be merged.
+        #
+        # This group is REQUIRED in every npm entry that groups the pair; the
+        # other three carry a pointer back to this comment.
+        applies-to: security-updates
+        dependency-type: "development"
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+      testing:
+        dependency-type: "development"
+        patterns:
+          - "@testing-library/*"
+          - "jsdom"
+          - "msw"
+      types:
+        dependency-type: "development"
+        patterns:
+          - "@types/node"
+          - "@types/qrcode"
+    versioning-strategy: increase
+
+  # ─── Python (pre-commit / workflow tooling) ────────────────────────
+  # .github/requirements-pyyaml.txt is consumed by pr-ci.yml,
+  # workflow-validate.yml and the pin check in required-pr-build.yml, which
+  # installs it on the runner's system Python, so it
+  # carries the cp312-cp314 x86_64 wheel hashes. It is the repo's only pip manifest and appears
+  # in the CycloneDX SBOM as the sole pkg:pypi component, so it was the one
+  # ecosystem in the SBOM with no dependabot coverage at all.
+  - package-ecosystem: "pip"
+    directory: "/.github"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "05:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "chore"
+    cooldown:
+      default-days: 7
+    labels:
+      - "area: deps"
+      - "area: ci-cd"
+    open-pull-requests-limit: 5
+    groups:
+      python-tooling:
+        patterns:
+          - "*"

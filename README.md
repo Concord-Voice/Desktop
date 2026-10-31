@@ -14,6 +14,14 @@ npm run build
 ```
 
 The bridge has its own lockfile and commands under `tools/concord-bridge`.
+
+Local checks run through [pre-commit](https://pre-commit.com/) (secret scanning,
+workflow lints, Semgrep, Prettier, ESLint and tsc):
+
+```bash
+pipx install pre-commit
+pre-commit install --hook-type pre-commit --hook-type commit-msg
+```
 Root contract fixtures, legal documents and scripts are required build inputs.
 The encryption engine and event schema remain in-tree.
 
