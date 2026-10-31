@@ -1,0 +1,23 @@
+{
+  "default_branch": "main",
+  "hooks": {
+    "protected_patterns": [
+      "/crypto",
+      "/e2ee",
+      "mediaEncryption",
+      "/auth/",
+      "/mfa/",
+      "/rbac/",
+      "/password",
+      "tokenManager",
+      "/middleware/(auth|security|cors|ratelimit)",
+      "desktop/src/preload/",
+      "desktop/src/main/ipc",
+      "desktop/src/main/oauth/",
+      "\\.github/workflows/",
+      "infrastructure/",
+      "scripts/security/",
+      "CODEOWNERS$"
+    ]
+  }
+}

@@ -30,3 +30,5 @@ scripts/security/self-hosted-runner-allowlist.txt     @Concord-Voice/security
 /.github/CODEOWNERS                                  @Concord-Voice/security
 /docs/CODEOWNERS                                     @Concord-Voice/security
 /.gitar/                                            @Concord-Voice/security
+/.claude/                                           @Concord-Voice/security
+/scripts/repo-config.sh                              @Concord-Voice/security
