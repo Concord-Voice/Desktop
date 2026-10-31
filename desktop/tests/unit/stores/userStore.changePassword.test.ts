@@ -1018,6 +1018,28 @@ describe('userStore - changePassword', () => {
       expect(e2eeService.initialize).not.toHaveBeenCalled();
     });
 
+    it('does not retry the reveal with the new password on a 403 that is not a wrong password', async () => {
+      mockApiFetch.mockResolvedValueOnce(keysResponse);
+      mockApiFetch.mockRejectedValueOnce(new TypeError('network dropped'));
+      mockApiFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: 'Recent sign-in required', code: 'recent_auth_required' }),
+      } as Response);
+
+      const result = await useUserStore.getState().changePassword('oldpass', 'newpass');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/outcome is unknown/);
+      const reveals = mockApiFetch.mock.calls.filter(
+        ([url]) => url === '/api/v1/users/me/keys/reveal'
+      );
+      expect(reveals.map(([, init]) => (init as RequestInit).body)).toEqual([
+        JSON.stringify({ current_password: 'oldpass' }), // pragma: allowlist secret
+        JSON.stringify({ current_password: 'oldpass' }), // pragma: allowlist secret
+      ]);
+    });
+
     it('reports an unknown outcome when the reconcile fetch itself fails', async () => {
       mockApiFetch.mockResolvedValueOnce(keysResponse);
       mockApiFetch.mockRejectedValueOnce(new TypeError('network dropped'));
