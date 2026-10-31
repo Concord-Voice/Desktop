@@ -243,8 +243,8 @@ class GitHub:
 
 def verify_proof(proof, verified):
     try:
-        subprocess.run(["go", "run", "./cmd/verify-sonar-caller-proof",
-                        "--proof", str(proof), "--out", str(verified)], cwd=ROOT / "services/control-plane", env=GIT_ENV,
+        subprocess.run(["go", "run", ".",
+                        "--proof", str(proof), "--out", str(verified)], cwd=ROOT / "tools/sonar-caller-proof", env=GIT_ENV,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120, check=True)
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         raise Reject("signed caller proof invalid") from None
@@ -474,7 +474,7 @@ def validate_report(content, component):
             raise Reject("Go coverage empty")
         for path in records:
             safe_path(path)
-            if not (path.startswith(prefix + "/") or path.startswith("github.com/Concord-Voice/Concord-Voice-Alpha/" + prefix + "/")):
+            if not path.startswith(prefix + "/"):
                 raise Reject("Go coverage source outside component")
         return content
     found = 0

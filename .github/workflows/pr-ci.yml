@@ -625,6 +625,14 @@ jobs:
 
       # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
       # D: this guard and its suite belong to Self-Hosted / Hosted or the private Alpha tooling repository.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/sonar-caller-proof/go.mod
+          cache: false
+
+      - name: Sonar caller-proof verifier tests
+        run: go -C tools/sonar-caller-proof test ./...
+
       - name: Self-test — lint scripts pass their own test suites
         # Defense-in-depth: re-run each lint's hermetic test suite in CI
         # so a regression to the lint scripts themselves is caught even
