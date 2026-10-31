@@ -140,9 +140,9 @@ function openUnread(): void {
   const target =
     useUnreadStore
       .getState()
-      .recentUnreadTargets.filter(isStillUnread)
-      .map(withServer)
-      .find(Boolean) ?? restoredUnreadTarget();
+      // Resolve first so the mute check sees the server.
+      .recentUnreadTargets.map(withServer)
+      .find((t) => t !== undefined && isStillUnread(t)) ?? restoredUnreadTarget();
   if (!target) return;
   useNotificationNavigationStore.getState().setPendingNavigation({
     type: target.type,

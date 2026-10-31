@@ -319,6 +319,24 @@ describe('trayActionDispatcher', () => {
       });
     });
 
+    it('checks server mutes against the resolved server', () => {
+      const muted = { muted: true, mutedUntil: null, updatedAt: new Date(0) };
+      useUnreadStore.getState().incrementUnread('c-early');
+      // The snapshot owns c-early, but no bulk row names its server.
+      useUnreadStore.getState().setInitialUnreads(new Map([['c-early', 1]]), 's1');
+      useDMStore.setState({ conversations: [{ id: 'd1', unreadCount: 2 }] } as never);
+      useNotificationPrefsStore.setState({ mutedServers: new Map([['s1', muted]]) });
+      try {
+        handleTrayAction({ kind: 'open-unread' });
+        expect(useNotificationNavigationStore.getState().pendingNavigation).toEqual({
+          type: 'dm',
+          targetId: 'd1',
+        });
+      } finally {
+        useNotificationPrefsStore.setState({ mutedServers: new Map() });
+      }
+    });
+
     it('skips a target whose server is unknown and falls through', () => {
       useUnreadStore.getState().incrementUnread('c-orphan');
       useDMStore.setState({ conversations: [{ id: 'd1', unreadCount: 2 }] } as never);
