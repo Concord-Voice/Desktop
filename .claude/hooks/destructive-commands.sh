@@ -66,9 +66,11 @@ fi
 # the same reason. --force-with-lease (with or without --force-if-includes) and
 # index-only `git restore --staged` stay allowed.
 # A quoted script handed to sh/bash/zsh -c or eval is executed, so it is scanned too.
-# A quoted single word ("." or 'src') is an argument, not prose, so it is unquoted first.
-SCAN=$(printf '%s' "$COMMAND" | sed -E -e "s/'([^'[:space:]]*)'/\\1/g" -e 's/"([^"[:space:]]*)"/\1/g' \
-    -e "s/'[^']*'//g" -e 's/"[^"]*"//g')
+# Quoted spans are read left to right, so the first quote opens the span and an
+# apostrophe inside double quotes is inert. A quoted single word ("." or 'src') is an
+# argument, so it is kept. A double-quoted span holding $( or a backtick is executed
+# by the shell, so its text stays visible. Any other quoted span is prose and dropped.
+SCAN=$(printf '%s' "$COMMAND" | perl -0777 -pe 's/"((?:[^"\\]|\\.)*)"|\x27([^\x27]*)\x27/my $d = defined $1; my $t = $d ? $1 : $2; ($d && $t =~ m{\$\(|`}) ? " $t " : ($t =~ m{^\S*$} ? $t : " ")/ge')
 INNER=$(printf '%s' "$COMMAND" | grep -oE "(sh|bash|zsh)[[:space:]]+-c[[:space:]]+(\"[^\"]*\"|'[^']*')|eval[[:space:]]+(\"[^\"]*\"|'[^']*')" \
     | sed -E "s/^[^\"']*[\"']//; s/[\"']$//")
 [ -n "$INNER" ] && SCAN="$SCAN; $(printf '%s' "$INNER" | tr '\n' ';')"
@@ -84,7 +86,7 @@ restore_hits_worktree() { # --staged alone only touches the index; judged per co
     while IFS= read -r seg; do
         echo "$seg" | grep -qE "$RESTORE_RE" || continue
         echo "$seg" | grep -qE '\s(--staged|-S)(\s|$)' || return 0
-        echo "$seg" | grep -qE '\s(--worktree|-W)(\s|$)' && return 0
+        echo "$seg" | grep -qE '\s(--worktree(=[^[:space:]]*)?|-[a-zA-Z]*W[a-zA-Z]*)(\s|$)' && return 0
     done < <(printf '%s\n' "$SCAN" | tr ';&|' '\n')
     return 1
 }
