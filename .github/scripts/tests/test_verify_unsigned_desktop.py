@@ -105,6 +105,37 @@ class UnsignedDesktopTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     unsigned.verify(root)
 
+    def test_rejects_release_tag_build_capabilities(self):
+        build = lambda w: w['jobs']['release-build']
+        mutations = {
+            'branch trigger': lambda w: w['on'].update(push={'branches': ['main']}),
+            'dispatch trigger': lambda w: w['on'].update(workflow_dispatch={}),
+            'write token': lambda w: w['permissions'].update(contents='write'),
+            'release write': lambda w: build(w)['permissions'].update(contents='write'),
+            'environment': lambda w: build(w).update(environment='apple'),
+            'secret': lambda w: build(w).update(env={'KEY': '${{ secrets.SIGNING_KEY }}'}),
+            'self-hosted runs-on': lambda w: build(w).update({'runs-on': 'self-hosted'}),
+            'inherited secrets': lambda w: w['jobs']['ioc'].update(secrets='inherit'),
+            'secrets as JSON': lambda w: build(w).update(env={'ALL': '${{ toJSON(secrets) }}'}),
+            'publication': lambda w: build(w)['steps'].append({'run': 'gh release create v1.0.0'}),
+            'extra job': lambda w: w['jobs'].update(publish={'runs-on': 'ubuntu-latest', 'steps': [{'run': 'true'}]}),
+            'tag check skipped': lambda w: build(w).update(needs=['ioc']),
+            'self-hosted leg': lambda w: build(w)['strategy']['matrix']['include'][0].update(os='blacksmith-4vcpu-windows-2025'),
+            'step drift': lambda w: build(w)['steps'].pop(3),
+            'unattested upload': lambda w: build(w).update(steps=[
+                s for s in build(w)['steps'] if s.get('name') != 'Attest build provenance (Linux)']),
+        }
+        for label, mutate in mutations.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory() as directory:
+                root = pathlib.Path(directory)
+                shutil.copytree(ROOT / '.github/workflows', root / '.github/workflows')
+                path = root / '.github/workflows/release.yml'
+                workflow = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+                mutate(workflow)
+                path.write_text(yaml.safe_dump(workflow))
+                with self.assertRaises(ValueError):
+                    unsigned.verify(root)
+
     def test_smoke_aggregate_fails_closed_on_ioc_and_preserves_path_filter(self):
         workflow = yaml.load((ROOT / '.github/workflows/desktop-pr-smoke.yml').read_text(), Loader=yaml.BaseLoader)
         job = workflow['jobs']['pr-smoke-result']
