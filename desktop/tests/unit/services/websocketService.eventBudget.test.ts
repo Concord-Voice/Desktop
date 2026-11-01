@@ -191,6 +191,134 @@ describe('WebSocketService overload cooldown', () => {
     expect(BudgetSocket.instances).toHaveLength(2);
   });
 
+  it('connected token effect renews a same-generation refresh without replacing its live socket', async () => {
+    const generation = useAuthStore.getState().beginAuthLifecycle('initial-token', 'original-sid');
+    const socket = await connected();
+    expect(
+      useAuthStore.getState().rotateAuthCredentials(generation, 'refresh-token', 'original-sid')
+    ).toBe(true);
+    // The actual CONNECTED branch in useWebSocket's access-token effect.
+    service.updateToken('refresh-token');
+    service.renewToken('refresh-token');
+    await drain();
+    expect(socket.readyState).toBe(BudgetSocket.OPEN);
+    expect(service.getState()).toBe(ConnectionState.CONNECTED);
+    expect(requests).toEqual(['Bearer initial-token']);
+    expect(BudgetSocket.instances).toHaveLength(1);
+    expect(socket.sent.filter((frame) => frame.type === 'auth_renew')).toEqual([
+      { type: 'auth_renew', data: { token: 'refresh-token' } },
+    ]);
+    socket.message({ type: 'auth_renew_result', data: { ok: true } });
+    // Preserving the connected-refresh path must also preserve its next
+    // overload gate and use the newly stored token at the original boundary.
+    socket.close(1013, 'retry_after_ms=5000');
+    await expectBoundary(5000);
+    expect(requests[1]).toBe('Bearer refresh-token');
+  });
+
+  it.each(['continuation', 'token-only lifecycle'] as const)(
+    'connected token effect retires the previous generation for %s',
+    async (adoption) => {
+      const generation = useAuthStore
+        .getState()
+        .beginAuthLifecycle('initial-token', 'original-sid');
+      const socket = await connected();
+      const staleOpen = socket.onopen;
+      const staleMessage = socket.onmessage;
+      const staleError = socket.onerror;
+      const staleClose = socket.onclose;
+      // Retain a pending old renewal to prove retirement cancels its timers,
+      // while the successor token is never sent across the old generation.
+      service.renewToken('old-generation-renewal');
+      if (adoption === 'continuation') {
+        expect(
+          useAuthStore
+            .getState()
+            .beginAuthLifecycleIfCurrent(generation, 'continuation-token', 'continuation-sid')
+        ).toBe(generation + 1);
+      } else {
+        useAuthStore.getState().setAccessToken('continuation-token');
+      }
+      expect(useAuthStore.getState().authGeneration).toBe(generation + 1);
+      // Reproduce the real hook's already-CONNECTED branch, including the
+      // renewToken call made immediately after updateToken starts recovery.
+      service.updateToken('continuation-token');
+      service.renewToken('continuation-token');
+      await drain();
+      expect(socket.readyState).toBe(BudgetSocket.CLOSED);
+      expect(requests).toEqual(['Bearer initial-token', 'Bearer continuation-token']);
+      expect(BudgetSocket.instances).toHaveLength(2);
+      const replacement = BudgetSocket.instances[1];
+      replacement.open();
+      expect(service.getState()).toBe(ConnectionState.CONNECTED);
+      const oldFrames = [...socket.sent];
+      expect(oldFrames.filter((frame) => frame.type === 'auth_renew')).toEqual([
+        { type: 'auth_renew', data: { token: 'old-generation-renewal' } },
+      ]);
+      // Deliver callbacks captured before retirement rather than relying on
+      // detached handler properties to hide old events from the test.
+      staleOpen?.(new Event('open'));
+      staleMessage?.(
+        new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'connected',
+            data: {
+              client_id: '33333333-3333-4333-8333-333333333333',
+              user_id: '44444444-4444-4444-8444-444444444444',
+            },
+          }),
+        })
+      );
+      staleError?.(new Event('error'));
+      staleClose?.(new CloseEvent('close', { code: 1013, reason: 'retry_after_ms=30000' }));
+      expect(service.getState()).toBe(ConnectionState.CONNECTED);
+      expect(service.getConnectionInfo()?.userId).toBe('22222222-2222-4222-8222-222222222222');
+      await advance(30000);
+      expect(requests).toHaveLength(2);
+      expect(BudgetSocket.instances).toHaveLength(2);
+      expect(socket.sent).toEqual(oldFrames);
+      expect(replacement.sent.filter((frame) => frame.type === 'heartbeat')).toHaveLength(1);
+    }
+  );
+
+  it('connected token effect never sends successor credentials to an obsolete server', async () => {
+    const generation = useAuthStore.getState().beginAuthLifecycle('initial-token', 'original-sid');
+    const socket = await connected();
+    const staleClose = socket.onclose;
+    setRuntimeServerBase('https://successor.example');
+    useAuthStore
+      .getState()
+      .beginAuthLifecycleIfCurrent(generation, 'server-successor-token', 'successor-sid');
+    service.updateToken('server-successor-token');
+    service.renewToken('server-successor-token');
+    await drain();
+    expect(socket.sent.filter((frame) => frame.type === 'auth_renew')).toEqual([]);
+    expect(requests).toEqual(['Bearer initial-token']);
+    expect(BudgetSocket.instances).toHaveLength(1);
+    const successorRequests: string[] = [];
+    server.use(
+      http.post('https://successor.example/api/v1/auth/ws-ticket', ({ request }) => {
+        successorRequests.push(request.headers.get('Authorization') ?? '');
+        return HttpResponse.json({ ticket: 'successor-server-ticket' });
+      })
+    );
+    const successor = new WebSocketService('wss://successor.example');
+    try {
+      successor.connect('server-successor-token');
+      await drain();
+      expect(successorRequests).toEqual(['Bearer server-successor-token']);
+      expect(BudgetSocket.instances).toHaveLength(2);
+      BudgetSocket.instances[1].open();
+      staleClose?.(new CloseEvent('close', { code: 1013, reason: 'retry_after_ms=100' }));
+      await advance(30000);
+      expect(requests).toEqual(['Bearer initial-token']);
+      expect(BudgetSocket.instances).toHaveLength(2);
+      expect(successor.getState()).toBe(ConnectionState.CONNECTED);
+    } finally {
+      successor.disconnect();
+    }
+  });
+
   it('reset, aggressive changes, online and repeated token effects preserve the chosen timer and latest token', async () => {
     const socket = await connected();
     socket.close(1013, 'retry_after_ms=5000');
