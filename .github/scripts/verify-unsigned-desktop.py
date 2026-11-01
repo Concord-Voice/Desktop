@@ -64,6 +64,47 @@ def verify(root):
             raise ValueError(f'missing or non-enforcing artifact check: {name}')
     if len(job['strategy']['matrix']['include']) != 6:
         raise ValueError('all six platform/architecture packaging legs are required')
+    verify_release(workflows, job)
+
+
+RELEASE_PERMISSIONS = {'contents': 'read', 'id-token': 'write', 'attestations': 'write'}
+
+
+def verify_release(workflows, unsigned_job):
+    """D2 tag build: attests provenance, holds no credential, writes no release."""
+    release = yaml.load((workflows / 'release.yml').read_text(), Loader=yaml.BaseLoader)
+    if release.get('on') != {'push': {'tags': ['v*']}}:
+        raise ValueError('release: must run only on a v* tag push')
+    if release.get('permissions') != {'contents': 'read'}:
+        raise ValueError('release: workflow permissions must be read-only')
+    if set(release['jobs']) != {'ioc', 'check-tag', 'release-build'}:
+        raise ValueError('release: must contain only IOC, tag check and packaging jobs')
+    text = yaml.safe_dump(release)
+    if re.search(r'\bsecrets\s*(?:\.|\[)|gh\s+release|git\s+push|azure/login|apple-actions/import-codesign-certs', text):
+        raise ValueError('release: signing, secrets or publication is forbidden')
+    for name, job in release['jobs'].items():
+        if 'environment' in job:
+            raise ValueError(f'release: {name} cannot use an environment')
+        perms = job.get('permissions', {})
+        if name == 'release-build':
+            if perms != RELEASE_PERMISSIONS:
+                raise ValueError('release: packaging may only add attestation permissions')
+        elif any(v != 'read' for v in perms.values()):
+            raise ValueError(f'release: {name} must be read-only')
+    job = release['jobs']['release-build']
+    if job.get('needs') != ['check-tag', 'ioc']:
+        raise ValueError('release: packaging must follow the IOC gate and tag check')
+    if any('blacksmith' in leg['os'] or 'self-hosted' in leg['os'] for leg in job['strategy']['matrix']['include']):
+        raise ValueError('release: legs must run on GitHub-hosted runners (Release-Ops refuses others)')
+    build_steps = [s.get('name') for s in job['steps'] if 'attest-build-provenance@' not in s.get('uses', '')]
+    if build_steps != [s.get('name') for s in unsigned_job['steps']]:
+        raise ValueError('release: packaging steps drifted from build-desktop.yml release-build')
+    attests = [s for s in job['steps'] if 'attest-build-provenance@' in s.get('uses', '')]
+    uploads = [s for s in job['steps'] if 'actions/upload-artifact@' in s.get('uses', '')]
+    attested = sorted(p for s in attests for p in s['with']['subject-path'].split())
+    uploaded = sorted(p for s in uploads for p in s['with']['path'].split())
+    if not attests or attested != uploaded:
+        raise ValueError('release: attested paths must equal uploaded paths')
 
 
 def main():
