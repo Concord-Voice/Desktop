@@ -94,6 +94,8 @@ def verify_release(workflows, unsigned_job):
     job = release['jobs']['release-build']
     if job.get('needs') != ['check-tag', 'ioc']:
         raise ValueError('release: packaging must follow the IOC gate and tag check')
+    if job.get('runs-on') != '${{ matrix.os }}':
+        raise ValueError('release: packaging must run on the matrix runner')
     if any('blacksmith' in leg['os'] or 'self-hosted' in leg['os'] for leg in job['strategy']['matrix']['include']):
         raise ValueError('release: legs must run on GitHub-hosted runners (Release-Ops refuses others)')
     build_steps = [s.get('name') for s in job['steps'] if 'attest-build-provenance@' not in s.get('uses', '')]
