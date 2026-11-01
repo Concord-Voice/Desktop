@@ -20,6 +20,13 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
+Automatic connection recovery now respects the server's requested pause when it is overloaded.
+
+### Fixed
+
+- **Connections:** Automatic recovery waits for the server's overload retry delay, including when connectivity returns or your sign-in token refreshes.
+- **Connections:** Chat reconnects with the new session after a password change instead of remaining stuck as connected.
+
 ## [0.3.0] - 2026-11-01
 
 Paid plans are ready: Supersonic and Wing subscriptions, a 30-day Supersonic
