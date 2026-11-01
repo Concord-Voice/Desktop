@@ -55,6 +55,8 @@ const DEPENDABOT = '.github/dependabot.yml';
 export const WORKSPACES = [
   '.github/tools/license-checker',
   'desktop',
+  'desktop/tools/glob-compat',
+  'desktop/tools/minimatch-compat',
   'tools/concord-bridge',
 ];
 const REQUIRED = ['kind', 'ecosystem', 'workspace', 'package', 'pinned', 'reason', 'review_by'];

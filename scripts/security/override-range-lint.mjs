@@ -124,6 +124,9 @@ export function resolveFrom(packages, fromPath, dep) {
 export function isNonSemverResolution(entry, semver) {
   if (!entry) return true;
   if (entry.link === true) return true;
+  // Packed local replacements still have a semver version of their own;
+  // it does not describe compatibility with the registry package replaced.
+  if (typeof entry.resolved === 'string' && /^(file|link|git|github):/i.test(entry.resolved)) return true;
   if (typeof entry.version !== 'string') return true;
   if (/^(file|link|git|github|https?):/i.test(entry.version)) return true;
   return semver.valid(entry.version) === null;
@@ -584,7 +587,12 @@ export function collectOverriddenNames(overrides) {
       // A nested override block is keyed by the PARENT package name; its own
       // keys are the packages actually being forced. Record both — a top-level
       // key is always a forced package, and a nested key is too.
-      if (!k.startsWith('.')) names.add(k);
+      if (!k.startsWith('.')) {
+        // npm also accepts version selectors (glob@<14, @scope/pkg@^1).
+        // Match the dependency name, preserving an initial scope marker.
+        const selector = k.indexOf('@', 1);
+        names.add(selector === -1 ? k : k.slice(0, selector));
+      }
       if (v && typeof v === 'object') walk(v);
     }
   };

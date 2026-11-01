@@ -619,6 +619,31 @@ D=$(mkfixture nestedscoped \
 }}')
 run "no false positive when a parent-scoped override leaves a consumer alone" "$D" 0 "no new consumer forced"
 
+# Version-qualified override keys must not hide the resulting consumer skew.
+D=$(mkfixture versionselector \
+'{"name":"f","version":"1.0.0","overrides":{"glob@>=9 <14.0.2":"^14.0.2"}}' \
+'{"lockfileVersion":3,"packages":{
+  "node_modules/consumer":{"version":"1.0.0","dependencies":{"glob":"^13.0.2"}},
+  "node_modules/glob":{"version":"14.0.2"}
+}}')
+run "checks an unscoped package with a version selector" "$D" 1 "glob"
+
+D=$(mkfixture scopedversionselector \
+'{"name":"f","version":"1.0.0","overrides":{"@scope/pkg@^1":"^2.0.0"}}' \
+'{"lockfileVersion":3,"packages":{
+  "node_modules/consumer":{"version":"1.0.0","dependencies":{"@scope/pkg":"^1.0.0"}},
+  "node_modules/@scope/pkg":{"version":"2.0.0"}
+}}')
+run "preserves the scope when removing a version selector" "$D" 1 "@scope/pkg"
+
+D=$(mkfixture packedlocal \
+'{"name":"f","version":"1.0.0","overrides":{"glob@<9":"file:./tools/glob-compat"}}' \
+'{"lockfileVersion":3,"packages":{
+  "node_modules/consumer":{"version":"1.0.0","dependencies":{"glob":"^7.2.3"}},
+  "node_modules/glob":{"name":"@concordvoice/glob-compat","version":"1.0.0","resolved":"file:tools/glob-compat"}
+}}')
+run "recognizes a packed local replacement despite its own semver version" "$D" 0 "no new consumer forced"
+
 # ── 12..14. BASELINE — the property that matters most.
 D=$(mkfixture baseline \
 '{"name":"f","version":"1.0.0","overrides":{"undici":"^7.29.0"}}' \

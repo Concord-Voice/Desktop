@@ -1,0 +1,11 @@
+{
+  "name": "@concordvoice/glob-compat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Audited legacy packaging callbacks backed by patched glob",
+  "license": "UNLICENSED",
+  "main": "index.cjs",
+  "dependencies": {
+    "glob-modern": "npm:glob@^14.0.3"
+  }
+}

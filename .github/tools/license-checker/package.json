@@ -4,6 +4,14 @@
   "private": true,
   "description": "Pinned license checker used by CI",
   "devDependencies": {
-    "license-checker": "25.0.1"
-  }
+    "license-checker": "25.0.1",
+    "glob": "file:../../../desktop/tools/glob-compat"
+  },
+  "scripts": {
+    "test": "node --test compatibility.test.mjs"
+  },
+  "overrides": {
+    "glob": "$glob"
+  },
+  "//overrides_security": "Replace only the legacy glob 7 callback API using Desktop's private glob-compat adapter, backed by patched glob 14/minimatch 11. Retain license-checker 25.0.1 and its existing metadata normalization so NOTICE repository URLs remain byte-for-byte stable. Compatibility tests preserve production/private filtering, npm aliases, optional dependencies, inferred licenses, CSV output and policy rejection."
 }

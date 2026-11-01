@@ -2,52 +2,40 @@
   "//": "Accepted override-range skews — see scripts/security/override-range-lint.mjs. Each row is a consumer that resolves OUTSIDE the range it declares, because an `overrides` entry forces it there. Rows are matched on the full tuple, so a new consumer or a changed range/resolution is reported even for a package already listed here. Prune a row when the lint reports it as no longer occurring. Regenerate: node scripts/security/override-range-lint.mjs --dir <pkg> --update-baseline",
   "accepted": [
     {
-      "consumer": "node_modules/@eslint/eslintrc",
-      "dep": "minimatch",
-      "range": "^3.1.2",
-      "resolved": "10.2.6"
+      "consumer": "node_modules/@electron/asar",
+      "dep": "glob",
+      "range": "^13.0.2",
+      "resolved": "14.0.3"
     },
     {
-      "consumer": "node_modules/@humanwhocodes/config-array",
+      "consumer": "node_modules/@electron/asar",
       "dep": "minimatch",
-      "range": "^3.0.5",
-      "resolved": "10.2.6"
+      "range": "^10.0.1",
+      "resolved": "11.0.3"
     },
     {
-      "consumer": "node_modules/@microsoft/eslint-formatter-sarif/node_modules/eslint",
+      "consumer": "node_modules/@eslint/config-array",
       "dep": "minimatch",
-      "range": "^3.1.2",
-      "resolved": "10.2.6"
+      "range": "^10.2.4",
+      "resolved": "11.0.3"
     },
     {
-      "consumer": "node_modules/app-builder-lib/node_modules/@electron/asar",
+      "consumer": "node_modules/@typescript-eslint/typescript-estree",
       "dep": "minimatch",
-      "range": "^3.0.4",
-      "resolved": "10.2.6"
+      "range": "^10.2.2",
+      "resolved": "11.0.3"
+    },
+    {
+      "consumer": "node_modules/app-builder-lib",
+      "dep": "minimatch",
+      "range": "^10.2.5",
+      "resolved": "11.0.3"
     },
     {
       "consumer": "node_modules/app-builder-lib/node_modules/@electron/universal",
       "dep": "minimatch",
       "range": "^9.0.3",
-      "resolved": "10.2.6"
-    },
-    {
-      "consumer": "node_modules/dir-compare",
-      "dep": "minimatch",
-      "range": "^3.0.5",
-      "resolved": "10.2.6"
-    },
-    {
-      "consumer": "node_modules/electron-installer-common/node_modules/@electron/asar",
-      "dep": "minimatch",
-      "range": "^3.0.4",
-      "resolved": "10.2.6"
-    },
-    {
-      "consumer": "node_modules/electron-winstaller/node_modules/@electron/asar",
-      "dep": "minimatch",
-      "range": "^3.0.4",
-      "resolved": "10.2.6"
+      "resolved": "11.0.3"
     },
     {
       "consumer": "node_modules/engine.io-client",
@@ -56,16 +44,10 @@
       "resolved": "8.21.3"
     },
     {
-      "consumer": "node_modules/filelist",
+      "consumer": "node_modules/eslint",
       "dep": "minimatch",
-      "range": "^5.0.1",
-      "resolved": "10.2.6"
-    },
-    {
-      "consumer": "node_modules/glob",
-      "dep": "minimatch",
-      "range": "^3.1.1",
-      "resolved": "10.2.6"
+      "range": "^10.2.5",
+      "resolved": "11.0.3"
     },
     {
       "consumer": "node_modules/global-agent",

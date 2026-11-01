@@ -429,4 +429,21 @@ export default [
       '@eslint-community/eslint-comments/require-description': 'off',
     },
   },
+  // Plain Node tooling has no TS project; keep syntax/rule lint without
+  // adding default TS projects (which also slows down application lint).
+  {
+    ...tseslint.configs.disableTypeChecked,
+    files: ['tools/**/*.cjs', 'tools/**/*.mjs'],
+    rules: {
+      ...tseslint.configs.disableTypeChecked.rules,
+      ...eslintReact.configs['disable-type-checked'].rules,
+    },
+  },
+  {
+    files: ['tools/*/index.cjs'],
+    rules: {
+      // Legacy consumers require callable CommonJS exports.
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
 ];

@@ -700,6 +700,9 @@ license_desktop:
   - 'scripts/test-update-notice-md.sh'
   - 'desktop/package.json'
   - 'desktop/package-lock.json'
+  - 'desktop/tools/glob-compat/**'
+  - '.github/tools/license-checker/.npmrc'
+  - '.github/tools/license-checker/compatibility.test.mjs'
   - '.github/tools/license-checker/package.json'
   - '.github/tools/license-checker/package-lock.json'
 license_media:
@@ -712,6 +715,9 @@ license_media:
   - 'scripts/test-update-notice-md.sh'
   - 'services/media-plane/package.json'
   - 'services/media-plane/package-lock.json'
+  - 'desktop/tools/glob-compat/**'
+  - '.github/tools/license-checker/.npmrc'
+  - '.github/tools/license-checker/compatibility.test.mjs'
   - '.github/tools/license-checker/package.json'
   - '.github/tools/license-checker/package-lock.json'
 license_admin:
@@ -724,6 +730,9 @@ license_admin:
   - 'scripts/test-update-notice-md.sh'
   - 'client/admin/package.json'
   - 'client/admin/package-lock.json'
+  - 'desktop/tools/glob-compat/**'
+  - '.github/tools/license-checker/.npmrc'
+  - '.github/tools/license-checker/compatibility.test.mjs'
   - '.github/tools/license-checker/package.json'
   - '.github/tools/license-checker/package-lock.json'
 license_go:
