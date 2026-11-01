@@ -166,6 +166,7 @@ export class WebSocketService {
   private lifecycle = 0;
   private connectionAttempt = 0;
   private ownerIsCurrent: (() => boolean) | null = null;
+  private ownerServerSelection: ReturnType<typeof captureRuntimeServerSelection> | null = null;
   // Separate from ordinary backoff: resets and same-login token rotation must
   // neither shorten nor restart the chosen overload delay.
   private overloadTimer: ReturnType<typeof setTimeout> | null = null;
@@ -224,6 +225,7 @@ export class WebSocketService {
   connect(token: string): void {
     if (this.ownerIsCurrent && !this.ownerIsCurrent()) this.disconnect();
     this.ownerIsCurrent = this.captureLifecycleGuard();
+    this.ownerServerSelection = captureRuntimeServerSelection();
     if (this.overloadTimer) {
       this.token = token;
       return;
@@ -323,12 +325,19 @@ export class WebSocketService {
   }
 
   /**
-   * Update the stored JWT token without a full disconnect/connect cycle.
-   * Used when the main process refreshes the token proactively or during
-   * manual retry so the next ws-ticket fetch uses the fresh token.
+   * Refresh the stored JWT in place for the same auth lifecycle. A successor
+   * lifecycle retires an obsolete connected socket and reconnects on the same
+   * server; a superseded server instance must never receive the new credential.
    */
   updateToken(token: string): void {
     this.token = token;
+    if (this.state === ConnectionState.CONNECTED && this.ownerIsCurrent?.() === false) {
+      if (this.ownerServerSelection && runtimeServerSelectionIsCurrent(this.ownerServerSelection)) {
+        this.connect(token);
+      } else {
+        this.disconnect();
+      }
+    }
   }
 
   /**

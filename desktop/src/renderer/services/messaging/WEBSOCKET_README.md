@@ -104,6 +104,13 @@ the gate; stale socket/timer callbacks and obsolete auth/server lifecycles canno
 affect a successor connection. Offline handling resumes after the gate, retaining
 the existing bounded online fallback.
 
+A token update that starts a new auth generation (including password-change
+continuation adoption) retires an obsolete connected socket and starts a fresh
+connection with the latest token on the same selected server. An instance whose
+server selection is obsolete disconnects without sending that token to its old
+server. Ordinary same-generation refresh keeps the live socket and its renewal
+behavior.
+
 The local `../../types/ws-events.ts` error schema ports the reviewed canonical
 Self-Hosted `packages/protocol/src/renderer/types/ws-events.ts` event-budget hunk
 from commit `eb29e9702d8f07d9919992803c35ca5a9d507fca`, published in
