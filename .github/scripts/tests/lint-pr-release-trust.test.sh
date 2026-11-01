@@ -1280,7 +1280,7 @@ if not match:
 next_job = re.search(r"(?m)^  [-A-Za-z0-9_]+:\n", text[match.end():])
 end = match.end() + next_job.start() if next_job else len(text)
 section = text[match.start():end]
-section = section.replace("    runs-on: macos-latest\n", "", 1)
+section = re.sub(r"(?m)^    runs-on: .*\n", "", section, count=1)
 steps = section.index("    steps:\n")
 section = section[:steps] + "    uses: ./.github/workflows/smoke-reusable.yml\n\n"
 path.write_text(text[:match.start()] + section + text[end:])

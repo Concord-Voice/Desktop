@@ -90,7 +90,9 @@ jobs:
     if: github.event_name == 'pull_request' && needs.ioc.result == 'success' && needs.pr-paths-filter.outputs.desktop-shell == 'true'
     permissions:
       contents: read
-    runs-on: macos-latest
+    # ponytail: pinned off macos-latest (macOS 26) until the audio probe
+    # passes there (#118). Unpin when it does.
+    runs-on: macos-15
     timeout-minutes: 60
     steps:
       - name: Checkout
@@ -153,7 +155,7 @@ jobs:
           path: ~/.npm
           # `macOS-arm64` is hardcoded where setup-node computes it from
           # RUNNER_OS + os.arch(). That is what makes the key match the writer
-          # today, but it means an arch change on `macos-latest` would make
+          # today, but it means an arch change on the runner label would make
           # this restore permanently and SILENTLY cold — a miss looks the same
           # as a cold start. Re-check this literal whenever the runner label
           # or image changes.
