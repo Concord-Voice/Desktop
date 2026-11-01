@@ -114,6 +114,8 @@ class UnsignedDesktopTest(unittest.TestCase):
             'release write': lambda w: build(w)['permissions'].update(contents='write'),
             'environment': lambda w: build(w).update(environment='apple'),
             'secret': lambda w: build(w).update(env={'KEY': '${{ secrets.SIGNING_KEY }}'}),
+            'inherited secrets': lambda w: w['jobs']['ioc'].update(secrets='inherit'),
+            'secrets as JSON': lambda w: build(w).update(env={'ALL': '${{ toJSON(secrets) }}'}),
             'publication': lambda w: build(w)['steps'].append({'run': 'gh release create v1.0.0'}),
             'extra job': lambda w: w['jobs'].update(publish={'runs-on': 'ubuntu-latest', 'steps': [{'run': 'true'}]}),
             'tag check skipped': lambda w: build(w).update(needs=['ioc']),

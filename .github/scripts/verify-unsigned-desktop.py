@@ -20,7 +20,7 @@ def verify(root):
             if name != 'desktop-pr-smoke' or workflow.get('permissions') != {'contents': 'read', 'pull-requests': 'read'}:
                 raise ValueError(f'{name}: workflow permissions must be read-only')
         text = yaml.safe_dump(workflow)
-        if re.search(r'\bsecrets\s*(?:\.|\[)|gh\s+release|git\s+push|azure/login|attest-build-provenance|apple-actions/import-codesign-certs', text):
+        if re.search(r'\bsecrets\b|gh\s+release|git\s+push|azure/login|attest-build-provenance|apple-actions/import-codesign-certs', text):
             raise ValueError(f'{name}: signing, secrets or publication is forbidden')
         for job in workflow['jobs'].values():
             if 'environment' in job or any(v != 'read' for v in job.get('permissions', {}).values()):
@@ -80,7 +80,7 @@ def verify_release(workflows, unsigned_job):
     if set(release['jobs']) != {'ioc', 'check-tag', 'release-build'}:
         raise ValueError('release: must contain only IOC, tag check and packaging jobs')
     text = yaml.safe_dump(release)
-    if re.search(r'\bsecrets\s*(?:\.|\[)|gh\s+release|git\s+push|azure/login|apple-actions/import-codesign-certs', text):
+    if re.search(r'\bsecrets\b|gh\s+release|git\s+push|azure/login|apple-actions/import-codesign-certs', text):
         raise ValueError('release: signing, secrets or publication is forbidden')
     for name, job in release['jobs'].items():
         if 'environment' in job:
