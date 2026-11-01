@@ -149,8 +149,11 @@ jobs:
           - {os: windows-latest, platform: win32, arch: arm64, label: windows-arm64}
           - {os: macos-latest, platform: darwin, arch: arm64, label: macos-arm64}
           - {os: macos-latest, platform: darwin, arch: x64, label: macos-x64}
-          - {os: ubuntu-latest, platform: linux, arch: x64, label: linux-x64}
-          - {os: ubuntu-latest, platform: linux, arch: arm64, label: linux-arm64}
+          # ponytail: pinned to 24.04. ubuntu-latest moved to 26.04, whose rpmbuild builds in
+          # BUILD/<name>-<version>-build, and electron-installer-redhat's spec then fails `cp -r usr/*`.
+          # Unpin once the spec template handles the new build directory.
+          - {os: ubuntu-24.04, platform: linux, arch: x64, label: linux-x64}
+          - {os: ubuntu-24.04, platform: linux, arch: arm64, label: linux-arm64}
 
     steps:
       - name: Checkout trusted commit
