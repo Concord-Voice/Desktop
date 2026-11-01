@@ -24,6 +24,7 @@ import { useConnectionStore } from '../../stores/ui/connectionStore';
 import { errorMessage, errorName } from '../../utils/runtime/redactError';
 import { getDesktopClientVersion } from '../../utils/runtime/clientVersion';
 import { summarizeWsDiagnostic, summarizeWsServerError } from '../../utils/runtime/wsDiagnostics';
+import { parseWsRetryAfterMs } from './wsEventBudget';
 import {
   WebSocketEventSchema,
   scrubZodIssues,
@@ -162,6 +163,12 @@ export class WebSocketService {
   private pingInterval: NodeJS.Timeout | null = null;
   private aggressiveReconnect = false;
   private connectAbort: AbortController | null = null;
+  private lifecycle = 0;
+  private connectionAttempt = 0;
+  private ownerIsCurrent: (() => boolean) | null = null;
+  // Separate from ordinary backoff: resets and same-login token rotation must
+  // neither shorten nor restart the chosen overload delay.
+  private overloadTimer: ReturnType<typeof setTimeout> | null = null;
   // 'online' event listener armed while a connect is deferred because the
   // client is known-offline (navigator.onLine === false). Cleared on the
   // open/disconnect paths and when it fires.
@@ -215,6 +222,12 @@ export class WebSocketService {
    * Connect to WebSocket server with JWT token
    */
   connect(token: string): void {
+    if (this.ownerIsCurrent && !this.ownerIsCurrent()) this.disconnect();
+    this.ownerIsCurrent = this.captureLifecycleGuard();
+    if (this.overloadTimer) {
+      this.token = token;
+      return;
+    }
     if (this.state === ConnectionState.CONNECTED) return;
     if (this.state === ConnectionState.CONNECTING && this.token === token) return;
 
@@ -234,15 +247,20 @@ export class WebSocketService {
 
     this.token = token;
     this.connectAbort?.abort();
-    this.connectAbort = new AbortController();
+    const controller = new AbortController();
+    this.connectAbort = controller;
     this.setState(ConnectionState.CONNECTING);
-    this.createConnection(this.connectAbort.signal);
+    this.createConnection(controller.signal);
   }
 
   /**
    * Disconnect from WebSocket server
    */
   disconnect(): void {
+    this.lifecycle++;
+    this.connectionAttempt++;
+    if (this.overloadTimer) clearTimeout(this.overloadTimer);
+    this.overloadTimer = null;
     this.connectAbort?.abort();
     this.connectAbort = null;
     this.clearReconnectTimer();
@@ -336,6 +354,7 @@ export class WebSocketService {
       r !== null &&
       r.ws === this.ws &&
       this.state === ConnectionState.CONNECTED &&
+      this.ownerIsCurrent?.() !== false &&
       useAuthStore.getState().authGeneration === this.socketGeneration
     );
   }
@@ -355,7 +374,9 @@ export class WebSocketService {
       return;
     }
     r.awaitingAck = true;
-    r.timer = setTimeout(() => this.renewalFailed(), this.RENEW_ACK_TIMEOUT_MS);
+    r.timer = setTimeout(() => {
+      if (this.renewal === r && this.renewalIsCurrent()) this.renewalFailed();
+    }, this.RENEW_ACK_TIMEOUT_MS);
   }
 
   private renewalFailed(): void {
@@ -735,6 +756,16 @@ export class WebSocketService {
 
   // Private methods
 
+  private captureLifecycleGuard(): () => boolean {
+    const lifecycle = this.lifecycle;
+    const authGeneration = useAuthStore.getState().authGeneration;
+    const serverSelection = captureRuntimeServerSelection();
+    return () =>
+      this.lifecycle === lifecycle &&
+      useAuthStore.getState().authGeneration === authGeneration &&
+      runtimeServerSelectionIsCurrent(serverSelection);
+  }
+
   /**
    * Consume a cached ticket if present and within TTL.
    * Single-use: always clears the cache entry, even if expired.
@@ -777,7 +808,11 @@ export class WebSocketService {
    * cognitive complexity under the S3776 ceiling (the offline-gate branch tipped
    * it over). Caller must guarantee this.token is non-null before invoking.
    */
-  private async acquireTicket(wsBaseUrl: URL, signal?: AbortSignal): Promise<string> {
+  private async acquireTicket(
+    wsBaseUrl: URL,
+    attemptIsCurrent: () => boolean,
+    signal?: AbortSignal
+  ): Promise<string | null> {
     const cached = this.consumeCachedTicket();
     if (cached) return cached;
 
@@ -796,6 +831,7 @@ export class WebSocketService {
     const sessionId = useAuthStore.getState().sessionId ?? null;
     if (sessionId) ticketHeaders['X-Session-ID'] = sessionId;
     const clientVersion = await getDesktopClientVersion();
+    if (!attemptIsCurrent()) return null;
     if (clientVersion) ticketHeaders['X-Concord-Client-Version'] = clientVersion;
 
     const ticketRes = await fetch(ticketUrl.href, {
@@ -833,12 +869,15 @@ export class WebSocketService {
   }
 
   private async createConnection(signal?: AbortSignal, forceDespiteOffline = false): Promise<void> {
-    const serverSelection = captureRuntimeServerSelection();
+    if (signal?.aborted || this.overloadTimer || this.ownerIsCurrent?.() === false) return;
+    const lifecycleIsCurrent = this.captureLifecycleGuard();
+    const attempt = ++this.connectionAttempt;
     const authGeneration = useAuthStore.getState().authGeneration;
     const attemptIsCurrent = () =>
       !signal?.aborted &&
-      runtimeServerSelectionIsCurrent(serverSelection) &&
-      useAuthStore.getState().authGeneration === authGeneration;
+      lifecycleIsCurrent() &&
+      this.connectionAttempt === attempt &&
+      this.overloadTimer === null;
 
     if (!this.token) {
       console.error('Cannot connect: No JWT token provided');
@@ -871,7 +910,7 @@ export class WebSocketService {
     if (this.isKnownOffline() && !forceDespiteOffline) {
       console.debug('[WebSocket] offline — deferring connect until the online event');
       this.setState(ConnectionState.RECONNECTING);
-      this.armOnlineRetry();
+      if (attemptIsCurrent()) this.armOnlineRetry();
       return;
     }
 
@@ -879,7 +918,7 @@ export class WebSocketService {
     // against it. Read before the await, as acquireTicket does.
     const ticketToken = this.token;
     try {
-      const ticket = await this.acquireTicket(wsBaseUrl, signal);
+      const ticket = await this.acquireTicket(wsBaseUrl, attemptIsCurrent, signal);
 
       // If this attempt was superseded while awaiting the ticket, discard it.
       // The replacement attempt may be using a different token/session.
@@ -891,7 +930,7 @@ export class WebSocketService {
         // client recovers automatically rather than parking in ERROR forever.
         console.error('[WebSocket] refused to connect: ticket failed shape validation');
         this.setState(ConnectionState.ERROR);
-        this.scheduleReconnect();
+        if (attemptIsCurrent()) this.scheduleReconnect();
         return;
       }
 
@@ -906,15 +945,28 @@ export class WebSocketService {
       if (clientVersion) finalUrl.searchParams.set('client_version', clientVersion);
       if (!attemptIsCurrent()) return;
 
-      this.ws = new WebSocket(finalUrl.href);
+      const socket = new WebSocket(finalUrl.href);
+      this.ws = socket;
       this.socketToken = ticketToken;
       this.socketGeneration = authGeneration;
 
-      this.ws.onopen = this.handleOpen.bind(this);
-      this.ws.onmessage = this.handleMessage.bind(this);
-      this.ws.onerror = this.handleError.bind(this);
-      this.ws.onclose = this.handleClose.bind(this);
+      // Socket ownership outlives an individual ticket attempt. A stale event
+      // cannot change a replacement socket, renewal, or reconnect gate.
+      const socketIsCurrent = () => lifecycleIsCurrent() && this.ws === socket;
+      socket.onopen = () => {
+        if (socketIsCurrent()) this.handleOpen();
+      };
+      socket.onmessage = (event) => {
+        if (socketIsCurrent()) this.handleMessage(event);
+      };
+      socket.onerror = (event) => {
+        if (socketIsCurrent()) this.handleError(event);
+      };
+      socket.onclose = (event) => {
+        if (socketIsCurrent()) this.handleClose(event);
+      };
     } catch (error) {
+      if (!attemptIsCurrent()) return;
       // AbortError is expected when disconnect() cancels an in-flight ticket fetch
       if (error instanceof DOMException && error.name === 'AbortError') return;
       if (error instanceof ClientVersionTooOldTicketError) {
@@ -928,7 +980,7 @@ export class WebSocketService {
       // single-use auth bearer.
       console.error('[WebSocket] failed to create connection:', errorName(error));
       this.setState(ConnectionState.ERROR);
-      this.scheduleReconnect();
+      if (attemptIsCurrent()) this.scheduleReconnect();
     }
   }
 
@@ -1074,8 +1126,10 @@ export class WebSocketService {
   }
 
   private handleClose(event: CloseEvent): void {
-    console.debug(`[WebSocket] closed (code: ${event.code}, reason: ${event.reason || 'none'})`);
+    console.debug('[WebSocket] closed:', summarizeWsDiagnostic(event));
 
+    this.connectionAttempt++;
+    this.connectAbort?.abort();
     this.clearPingInterval();
     this.cancelRenewal();
     this.ws = null;
@@ -1086,15 +1140,43 @@ export class WebSocketService {
     // Only reconnect if not manually disconnected
     if (event.code === 1000) {
       this.setState(ConnectionState.DISCONNECTED);
-    } else {
+    } else if (event.code === 1013) {
+      // Arm before notifying recovery listeners, which can synchronously call
+      // reset/connect or enable aggressive reconnect.
+      this.scheduleReconnect(parseWsRetryAfterMs(event.reason));
       this.setState(ConnectionState.RECONNECTING);
-      this.scheduleReconnect();
+    } else {
+      const lifecycleIsCurrent = this.captureLifecycleGuard();
+      const attempt = this.connectionAttempt;
+      this.setState(ConnectionState.RECONNECTING);
+      if (lifecycleIsCurrent() && this.connectionAttempt === attempt) this.scheduleReconnect();
     }
   }
 
-  private scheduleReconnect(): void {
+  private scheduleReconnect(retryAfterMs?: number): void {
+    if (this.overloadTimer) return;
     this.clearReconnectTimer();
+    const delay = Math.max(this.computeReconnectDelay(), retryAfterMs ?? 0);
+    const lifecycleIsCurrent = this.captureLifecycleGuard();
+    console.debug(
+      `[WebSocket] reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}${this.aggressiveReconnect ? ', aggressive' : ''})`
+    );
+    const isOverload = retryAfterMs !== undefined;
+    const timer = setTimeout(() => {
+      const pendingTimer = isOverload ? this.overloadTimer : this.reconnectTimer;
+      if (pendingTimer !== timer || !lifecycleIsCurrent()) return;
+      if (isOverload) this.overloadTimer = null;
+      else this.reconnectTimer = null;
+      this.reconnectAttempts++;
+      this.connectAbort?.abort();
+      this.connectAbort = new AbortController();
+      this.createConnection(this.connectAbort.signal);
+    }, delay);
+    if (isOverload) this.overloadTimer = timer;
+    else this.reconnectTimer = timer;
+  }
 
+  private computeReconnectDelay(): number {
     // Aggressive cap: after MAX_AGGRESSIVE_ATTEMPTS, drop to normal exponential.
     if (this.aggressiveReconnect && this.reconnectAttempts >= this.MAX_AGGRESSIVE_ATTEMPTS) {
       this.aggressiveReconnect = false;
@@ -1126,16 +1208,7 @@ export class WebSocketService {
       delay = fullJitter(base);
     }
 
-    console.debug(
-      `[WebSocket] reconnecting in ${delay}ms (attempt ${this.reconnectAttempts + 1}${this.aggressiveReconnect ? ', aggressive' : ''})`
-    );
-
-    this.reconnectTimer = setTimeout(() => {
-      this.reconnectAttempts++;
-      this.connectAbort?.abort();
-      this.connectAbort = new AbortController();
-      this.createConnection(this.connectAbort.signal);
-    }, delay);
+    return delay;
   }
 
   private clearReconnectTimer(): void {
@@ -1164,7 +1237,9 @@ export class WebSocketService {
     // Shared by both the 'online' fast-path and the bounded fallback timer: do a
     // real reconnect attempt that BYPASSES the offline gate (forceDespiteOffline)
     // — otherwise the retry would re-hit isKnownOffline() and re-defer forever.
+    const lifecycleIsCurrent = this.captureLifecycleGuard();
     const reconnectNow = () => {
+      if (this.onlineListener !== listener || !lifecycleIsCurrent()) return;
       this.clearOnlineRetry();
       this.resetReconnectState();
       this.connectAbort?.abort();
@@ -1191,6 +1266,8 @@ export class WebSocketService {
 
   private startPingInterval(): void {
     this.clearPingInterval();
+    const socket = this.ws;
+    const lifecycleIsCurrent = this.captureLifecycleGuard();
 
     // Send a heartbeat every 30 seconds.
     //
@@ -1201,7 +1278,7 @@ export class WebSocketService {
     // renderer is alive and producing valid work, which a protocol pong -- which
     // Chromium's network service answers without any renderer JS -- does not.
     this.pingInterval = setInterval(() => {
-      if (this.state === ConnectionState.CONNECTED && this.ws) {
+      if (lifecycleIsCurrent() && this.ws === socket && this.state === ConnectionState.CONNECTED) {
         this.sendHeartbeat();
       }
     }, 30000);
@@ -1229,13 +1306,16 @@ export class WebSocketService {
     // see the rejection via their own .then()/.catch() chain — Promise
     // rejections propagate to all attached handlers, not just the first.
     this.connectionReadyPromise.catch(() => {});
-    this.connectionReadyTimer = setTimeout(() => {
+    const lifecycleIsCurrent = this.captureLifecycleGuard();
+    const timer = setTimeout(() => {
+      if (this.connectionReadyTimer !== timer || !lifecycleIsCurrent()) return;
       // Funnel through rejectConnectionReady so timer + resolve/reject refs are
       // cleared consistently (avoids stale-ref state after timeout).
       this.rejectConnectionReady(
         new Error('connection_ready timeout after 5s — proceeding best-effort')
       );
     }, this.CONNECTION_READY_TIMEOUT_MS);
+    this.connectionReadyTimer = timer;
   }
 
   private resolveConnectionReady(): void {
