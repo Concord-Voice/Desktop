@@ -20,12 +20,14 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
+## [0.3.0] - 2026-11-01
+
 Paid plans are ready: Supersonic and Wing subscriptions, a 30-day Supersonic
 trial, plan changes, and code credit. Servers can require MFA for dangerous
 actions, purges and message timers can keep pinned messages, and the microphone
 gate can learn from your voice.
 
-**109 Total Changes** | 14 Added | 23 Changed | 50 Fixed | 22 Security
+**137 Total Changes** | 18 Added | 31 Changed | 58 Fixed | 30 Security
 
 ### Added
 
