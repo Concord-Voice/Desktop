@@ -86,6 +86,7 @@ gate can learn from your voice.
 
 ### Fixed
 
+- **Sign-in:** The unlock prompt now offers Sign in again only when the server asks for a fresh sign-in, and shows an error instead of hanging if signing out fails. A password change whose result was lost in transit is now recognised once it committed ([#115](https://github.com/Concord-Voice/Desktop/pull/115)).
 - **Sign-in:** When a remembered SSO session can't unlock your encryption key, the unlock prompt now offers Sign in again instead of asking for your passphrase forever ([#111](https://github.com/Concord-Voice/Desktop/pull/111)).
 - **Billing:** Settings ▸ Subscription now loads your friend list before deciding you have none. A Wing payer who opens Settings right after launch sees the invite button instead of "Add a friend first", and a retry if the list fails to load ([#5](https://github.com/Concord-Voice/Desktop/issues/5)).
 - **Tray:** The tray's unread shortcut no longer does nothing when the newest unread channel arrived before its server's unread counts loaded ([#6](https://github.com/Concord-Voice/Desktop/issues/6)).

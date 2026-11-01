@@ -504,6 +504,19 @@ function revealMyKeys(currentPassword: string, signal: AbortSignal): Promise<Res
 }
 
 /**
+ * Whether a reveal 403 is the wrong-password refusal (not a ban or other 403).
+ * Consumes the body: a 403 is never read again (the caller retries or gives up).
+ */
+async function isInvalidCurrentPassword(res: Response): Promise<boolean> {
+  try {
+    const body: unknown = await res.json();
+    return asRecord(body).code === 'invalid_current_password';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Ambiguous-commit reconciliation (#2200): a transport failure on the password
  * POST proves nothing. The submitted KDF salt is unique per attempt, so
  * comparing the server's persisted salt decides commit-vs-not before reporting
@@ -512,10 +525,17 @@ function revealMyKeys(currentPassword: string, signal: AbortSignal): Promise<Res
 async function reconcileAmbiguousPasswordCommit(
   submittedSaltBase64: string,
   currentPassword: string,
+  newPassword: string,
   signal: AbortSignal
 ): Promise<'committed' | 'not-committed' | 'unknown'> {
   try {
-    const res = await revealMyKeys(currentPassword, signal);
+    let res = await revealMyKeys(currentPassword, signal);
+    // A committed change makes the old password wrong (403
+    // invalid_current_password), so the reveal can only see the new salt by
+    // proving the new password. Any other 403 sends no second credential.
+    if (res.status === 403 && (await isInvalidCurrentPassword(res))) {
+      res = await revealMyKeys(newPassword, signal);
+    }
     if (!res.ok) return 'unknown';
     const raw: unknown = await res.json();
     const persistedSalt = asRecord(asRecord(raw).e2ee_keys).key_derivation_salt;
@@ -587,6 +607,7 @@ async function reconcileAfterTransportFailure(
   const outcome = await reconcileAmbiguousPasswordCommit(
     ctx.newSaltBase64,
     ctx.currentPassword,
+    ctx.newPassword,
     ctx.signal
   );
   assertPasswordChangeCurrent(ctx.isCurrent);
