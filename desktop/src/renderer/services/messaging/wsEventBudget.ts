@@ -1,8 +1,8 @@
 /** Whole-reason parsing for the event-budget 1013 close contract. */
 function validRetryAfterMs(reason: string): number | null {
-  const match = /^retry_after_ms=([1-9][0-9]{2,4})$/.exec(reason);
+  const match = /^retry_after_ms=([1-9]\d{2,4})$/.exec(reason);
   // JavaScript's $ also matches before a final newline; require the whole input.
-  if (!match || match[0].length !== reason.length) return null;
+  if (match?.[0].length !== reason.length) return null;
   const delay = Number(match[1]);
   return delay >= 100 && delay <= 30000 ? delay : null;
 }

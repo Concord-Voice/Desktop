@@ -868,6 +868,46 @@ export class WebSocketService {
     if (attemptIsCurrent()) this.setState(ConnectionState.ERROR);
   }
 
+  private deferOfflineConnection(
+    forceDespiteOffline: boolean,
+    attemptIsCurrent: () => boolean
+  ): boolean {
+    // Known-offline short-circuit: skip the ws-ticket POST that is guaranteed to
+    // fail (it would just emit a TypeError and burn a backoff cycle) and wait
+    // for the browser 'online' event instead. navigator.onLine === false is a
+    // reliable "definitely offline" signal; navigator.onLine === true is NOT
+    // reliable (it only means a route exists), which is why this deliberately
+    // does nothing for the origin-502 case — there the client IS online.
+    if (this.isKnownOffline() && !forceDespiteOffline) {
+      console.debug('[WebSocket] offline — deferring connect until the online event');
+      this.setState(ConnectionState.RECONNECTING);
+      if (attemptIsCurrent()) this.armOnlineRetry();
+      return true;
+    }
+    return false;
+  }
+
+  private async handleConnectionFailure(
+    error: unknown,
+    attemptIsCurrent: () => boolean
+  ): Promise<void> {
+    if (!attemptIsCurrent()) return;
+    // AbortError is expected when disconnect() cancels an in-flight ticket fetch
+    if (error instanceof DOMException && error.name === 'AbortError') return;
+    if (error instanceof ClientVersionTooOldTicketError) {
+      await this.handleClientVersionTicketDenial(error, attemptIsCurrent);
+      return;
+    }
+    // Log error.name (e.g. "SyntaxError"), NOT the raw error or its message.
+    // `new WebSocket(url)` throws synchronously with a SyntaxError whose
+    // message includes the full URL — including the `?ticket=<hex>` query
+    // param. Logging .name preserves triage signal without leaking the
+    // single-use auth bearer.
+    console.error('[WebSocket] failed to create connection:', errorName(error));
+    this.setState(ConnectionState.ERROR);
+    if (attemptIsCurrent()) this.scheduleReconnect();
+  }
+
   private async createConnection(signal?: AbortSignal, forceDespiteOffline = false): Promise<void> {
     if (signal?.aborted || this.overloadTimer || this.ownerIsCurrent?.() === false) return;
     const lifecycleIsCurrent = this.captureLifecycleGuard();
@@ -901,18 +941,7 @@ export class WebSocketService {
       return;
     }
 
-    // Known-offline short-circuit: skip the ws-ticket POST that is guaranteed to
-    // fail (it would just emit a TypeError and burn a backoff cycle) and wait
-    // for the browser 'online' event instead. navigator.onLine === false is a
-    // reliable "definitely offline" signal; navigator.onLine === true is NOT
-    // reliable (it only means a route exists), which is why this deliberately
-    // does nothing for the origin-502 case — there the client IS online.
-    if (this.isKnownOffline() && !forceDespiteOffline) {
-      console.debug('[WebSocket] offline — deferring connect until the online event');
-      this.setState(ConnectionState.RECONNECTING);
-      if (attemptIsCurrent()) this.armOnlineRetry();
-      return;
-    }
+    if (this.deferOfflineConnection(forceDespiteOffline, attemptIsCurrent)) return;
 
     // The token this socket's ticket is fetched with; renewal compares
     // against it. Read before the await, as acquireTicket does.
@@ -966,21 +995,7 @@ export class WebSocketService {
         if (socketIsCurrent()) this.handleClose(event);
       };
     } catch (error) {
-      if (!attemptIsCurrent()) return;
-      // AbortError is expected when disconnect() cancels an in-flight ticket fetch
-      if (error instanceof DOMException && error.name === 'AbortError') return;
-      if (error instanceof ClientVersionTooOldTicketError) {
-        await this.handleClientVersionTicketDenial(error, attemptIsCurrent);
-        return;
-      }
-      // Log error.name (e.g. "SyntaxError"), NOT the raw error or its message.
-      // `new WebSocket(url)` throws synchronously with a SyntaxError whose
-      // message includes the full URL — including the `?ticket=<hex>` query
-      // param. Logging .name preserves triage signal without leaking the
-      // single-use auth bearer.
-      console.error('[WebSocket] failed to create connection:', errorName(error));
-      this.setState(ConnectionState.ERROR);
-      if (attemptIsCurrent()) this.scheduleReconnect();
+      await this.handleConnectionFailure(error, attemptIsCurrent);
     }
   }
 
