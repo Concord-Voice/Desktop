@@ -15,10 +15,12 @@ const require = createRequire(path.join(desktop, 'package.json'));
 const legacyRequire = process.env.DEPENDENCY_COMPAT_ROOT
   ? require
   : createRequire(require.resolve('app-builder-lib/package.json'));
-const asar3 = legacyRequire(process.env.DEPENDENCY_COMPAT_ROOT ? 'asar3' : '@electron/asar');
+const legacyAsarName = process.env.DEPENDENCY_COMPAT_ROOT ? 'asar3' : '@electron/asar';
+const asar3 = legacyRequire(legacyAsarName);
 const asar4 = require(process.env.DEPENDENCY_COMPAT_ROOT ? 'asar4' : '@electron/asar');
-const installerRequire = createRequire(require.resolve('electron-installer-common/package.json'));
-const glob = installerRequire('glob');
+// ASAR is installed on every supported platform. Unix installer parents omit
+// electron-installer-common on Windows, so it cannot anchor shared glob tests.
+const glob = createRequire(legacyRequire.resolve(legacyAsarName))('glob');
 const minimatch = createRequire(require.resolve('dir-compare/package.json'))('minimatch');
 const globAsync = promisify(glob);
 
@@ -214,16 +216,25 @@ test('actual legacy cleanup removes only matches through callback and sync APIs'
   }
 });
 
-test('installer resource discovery reads package metadata using its real callback glob', async () => {
-  await fixture(async (dir) => {
-    const resources = path.join(dir, 'Fixture.app/Contents/Resources/app');
-    await mkdir(resources, { recursive: true });
-    const manifest = { name: 'fixture', version: '1.0.0' };
-    await writeFile(path.join(resources, 'package.json'), JSON.stringify(manifest));
-    const readMetadata = installerRequire('./src/readmetadata.js');
-    assert.deepEqual(await readMetadata({ src: dir, logger() {} }), manifest);
-  });
-});
+test(
+  'installer resource discovery reads package metadata using its real callback glob',
+  {
+    skip: process.platform === 'win32' && 'Debian/RPM installer parents support only darwin/linux',
+  },
+  async () => {
+    const installerRequire = createRequire(
+      require.resolve('electron-installer-common/package.json')
+    );
+    await fixture(async (dir) => {
+      const resources = path.join(dir, 'Fixture.app/Contents/Resources/app');
+      await mkdir(resources, { recursive: true });
+      const manifest = { name: 'fixture', version: '1.0.0' };
+      await writeFile(path.join(resources, 'package.json'), JSON.stringify(manifest));
+      const readMetadata = installerRequire('./src/readmetadata.js');
+      assert.deepEqual(await readMetadata({ src: dir, logger() {} }), manifest);
+    });
+  }
+);
 
 test('dir-compare filters use the legacy callable matcher correctly', () => {
   const {

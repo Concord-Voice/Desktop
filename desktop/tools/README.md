@@ -40,6 +40,9 @@ The dependency-compat workflow runs these consumer and license fixtures on
 native Windows and Linux from the PR revision. The protected build workflow
 runs its definition from main, so it cannot validate newly added jobs before merge. Windows filesystem coverage is required;
 the virtual Win32 fixtures on other hosts do not replace that job.
+The Unix-installer discovery case runs on Linux/macOS only because its optional
+Debian/RPM parents are not installed on Windows. Shared glob tests resolve through
+ASAR on every platform; the remaining Windows consumer tests must run normally.
 
 Keep `install-links=true` in both workspaces: the adapters must be packed, not
 symlinked. npm can accept an incorrectly hoisted graph after override changes;
