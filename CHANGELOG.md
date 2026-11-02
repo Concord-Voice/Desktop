@@ -22,6 +22,10 @@ belongs in it, and write it if the section has none. Do not edit the
 
 Automatic connection recovery now respects the server's requested pause when it is overloaded.
 
+### Added
+
+- **Desktop:** Added dormant signed metadata and separate SPA caches for Stable and Pre-Release. Channel-aware execution remains held pending integration and publication checks.
+
 ### Fixed
 
 - **Connections:** Automatic recovery waits for the server's overload retry delay, including when connectivity returns or your sign-in token refreshes.

@@ -19,9 +19,12 @@
  */
 
 import { app } from 'electron';
+import { isUpdateChannel, type RemoteSpaChannel } from '../../shared/updateChannel';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  SPA_CHANNEL_MANIFEST_FILENAME,
+  SPA_CHANNEL_MANIFEST_SIG_FILENAME,
   SPA_MANIFEST_FILENAME,
   SPA_MANIFEST_MAX_BYTES,
   SPA_MANIFEST_SIG_FILENAME,
@@ -57,9 +60,16 @@ export interface LiveManifestBytes {
  * the caller cleanly falls back to remote/bundled.
  */
 export function readLiveManifest(): LiveManifestBytes | null {
-  const liveDir = getLiveDir();
-  const manifestPath = path.join(liveDir, SPA_MANIFEST_FILENAME);
-  const sigPath = path.join(liveDir, SPA_MANIFEST_SIG_FILENAME);
+  return readManifestAt(getLiveDir(), SPA_MANIFEST_FILENAME, SPA_MANIFEST_SIG_FILENAME);
+}
+
+function readManifestAt(
+  liveDir: string,
+  manifestName: string,
+  signatureName: string
+): LiveManifestBytes | null {
+  const manifestPath = path.join(liveDir, manifestName);
+  const sigPath = path.join(liveDir, signatureName);
   try {
     // Open ONCE and stat + read through the SAME file descriptor so the size
     // check and the read operate on one inode — no path-based time-of-check /
@@ -130,7 +140,7 @@ export function resetStaging(): void {
  * staging root. Throws on any rejection — the caller treats that as a populate
  * abort (never promote).
  */
-function resolveStagedPath(relPath: string): string {
+function resolveStagedPath(relPath: string, stagingDir: string): string {
   if (relPath.length === 0) {
     throw new Error('staged path is empty');
   }
@@ -140,7 +150,6 @@ function resolveStagedPath(relPath: string): string {
   if (relPath.split('/').some((seg) => seg === '..' || seg === '.' || seg === '')) {
     throw new Error('staged path must not contain traversal, empty, or dot segments');
   }
-  const stagingDir = getStagingDir();
   const absolutePath = path.resolve(stagingDir, relPath);
   const insideStaging =
     absolutePath.startsWith(stagingDir + path.sep) || absolutePath === stagingDir;
@@ -157,7 +166,11 @@ function resolveStagedPath(relPath: string): string {
  * created fresh by resetStaging, there are no pre-existing symlinks to follow.
  */
 export function writeStagedFile(relPath: string, bytes: Buffer): void {
-  const absolutePath = resolveStagedPath(relPath);
+  writeStagedFileAt(getStagingDir(), relPath, bytes);
+}
+
+function writeStagedFileAt(stagingDir: string, relPath: string, bytes: Buffer): void {
+  const absolutePath = resolveStagedPath(relPath, stagingDir);
   fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
   fs.writeFileSync(absolutePath, bytes);
 }
@@ -170,6 +183,10 @@ export function writeStagedFile(relPath: string, bytes: Buffer): void {
  * the serve path treat null as "reject" (403/404), so this does NOT throw.
  */
 export function resolveLivePath(relPath: string): string | null {
+  return resolveLivePathAt(getLiveDir(), relPath);
+}
+
+function resolveLivePathAt(liveDir: string, relPath: string): string | null {
   if (relPath.length === 0) {
     return null;
   }
@@ -179,7 +196,6 @@ export function resolveLivePath(relPath: string): string | null {
   if (relPath.split('/').some((seg) => seg === '..' || seg === '.' || seg === '')) {
     return null;
   }
-  const liveDir = getLiveDir();
   const absolutePath = path.resolve(liveDir, relPath);
   const insideLive = absolutePath.startsWith(liveDir + path.sep) || absolutePath === liveDir;
   if (!insideLive) {
@@ -204,7 +220,10 @@ export function resolveLivePath(relPath: string): string | null {
  * cacheIntegrity.ts).
  */
 export function readLiveFile(relPath: string, expectedSize: number): Buffer | null {
-  const absolutePath = resolveLivePath(relPath);
+  return readFileAt(resolveLivePath(relPath), expectedSize);
+}
+
+function readFileAt(absolutePath: string | null, expectedSize: number): Buffer | null {
   if (absolutePath === null) {
     return null;
   }
@@ -234,3 +253,43 @@ export function readLiveFile(relPath: string, expectedSize: number): Buffer | nu
     return null;
   }
 }
+
+/** Validate before consulting userData; Pilot has no remote cache namespace. */
+export function isRemoteCacheChannel(channel: unknown): channel is RemoteSpaChannel {
+  return isUpdateChannel(channel) && channel !== 'pilot';
+}
+
+/**
+ * Capture a single validated namespace for the entire operation. In particular,
+ * an asynchronous populate must not switch roots if userData changes mid-flight.
+ * No caller-supplied filesystem root is accepted.
+ */
+export function createChannelCacheStore(channel: RemoteSpaChannel) {
+  if (!isRemoteCacheChannel(channel)) throw new Error('invalid remote cache channel');
+  const root = path.join(getCacheRoot(), 'v2', channel);
+  const liveDir = path.join(root, 'live');
+  const stagingDir = path.join(root, 'staging');
+  return {
+    channel,
+    getLiveDir: () => liveDir,
+    getStagingDir: () => stagingDir,
+    readLiveManifest: () =>
+      readManifestAt(liveDir, SPA_CHANNEL_MANIFEST_FILENAME, SPA_CHANNEL_MANIFEST_SIG_FILENAME),
+    resetStaging: () => {
+      fs.rmSync(stagingDir, { recursive: true, force: true });
+      fs.mkdirSync(stagingDir, { recursive: true });
+    },
+    writeStagedFile: (relPath: string, bytes: Buffer) =>
+      writeStagedFileAt(stagingDir, relPath, bytes),
+    promoteStagingToLive: () => {
+      fs.mkdirSync(root, { recursive: true });
+      fs.rmSync(liveDir, { recursive: true, force: true });
+      fs.renameSync(stagingDir, liveDir);
+    },
+    resolveLivePath: (relPath: string) => resolveLivePathAt(liveDir, relPath),
+    readLiveFile: (relPath: string, expectedSize: number) =>
+      readFileAt(resolveLivePathAt(liveDir, relPath), expectedSize),
+  };
+}
+
+export type ChannelCacheStore = ReturnType<typeof createChannelCacheStore>;

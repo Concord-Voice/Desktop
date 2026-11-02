@@ -14,19 +14,29 @@
  *     Any mismatch / oversize / fetch failure aborts WITHOUT promoting, so the
  *     previous live cache (if any) is left untouched.
  *
- * Logging is PII/secret-safe per internal-reference — never the raw
+ * Logging is PII/secret-safe — never the raw
  * `err`, never file bytes, never the manifest payload.
  */
 
 import { net } from 'electron';
 import { createHash } from 'node:crypto';
-import { verifyManifest } from './verifyManifest';
-import { promoteStagingToLive, resetStaging, writeStagedFile } from './cacheStore';
+import { verifyManifest, verifyChannelManifest } from './verifyManifest';
+import type { RemoteSpaChannel } from '../../shared/updateChannel';
+import {
+  promoteStagingToLive,
+  resetStaging,
+  writeStagedFile,
+  createChannelCacheStore,
+  isRemoteCacheChannel,
+  type ChannelCacheStore,
+} from './cacheStore';
 import { SPA_MANIFEST_PUBLIC_KEYS_PEM, isSpaManifestKeyConfigured } from './spaManifestPublicKey';
 import { IPC_CONTRACT_VERSION } from '../ipcContract';
 import {
   SPA_CACHE_MAX_FILE_BYTES,
   SPA_CACHE_MAX_TOTAL_BYTES,
+  SPA_CHANNEL_MANIFEST_FILENAME,
+  SPA_CHANNEL_MANIFEST_SIG_FILENAME,
   SPA_MANIFEST_FILENAME,
   SPA_MANIFEST_MAX_BYTES,
   SPA_MANIFEST_SIG_FILENAME,
@@ -127,7 +137,15 @@ async function fetchBytes(url: string, maxBytes: number): Promise<Buffer> {
   return buf;
 }
 
-async function doPopulate(remoteBaseUrl: string): Promise<PopulateResult> {
+async function doPopulate(
+  remoteBaseUrl: string,
+  channelStore?: ChannelCacheStore
+): Promise<PopulateResult> {
+  const store = channelStore ?? { resetStaging, writeStagedFile, promoteStagingToLive };
+  const manifestName = channelStore ? SPA_CHANNEL_MANIFEST_FILENAME : SPA_MANIFEST_FILENAME;
+  const signatureName = channelStore
+    ? SPA_CHANNEL_MANIFEST_SIG_FILENAME
+    : SPA_MANIFEST_SIG_FILENAME;
   // 0. Fast-skip if no key is configured — verifyManifest would reject anyway,
   //    but skipping avoids a pointless fetch round-trip when the cache is
   //    dormant (placeholder public key).
@@ -139,8 +157,8 @@ async function doPopulate(remoteBaseUrl: string): Promise<PopulateResult> {
   let manifestBytes: Buffer;
   let signatureBase64: string;
   try {
-    const manifestUrl = new URL(SPA_MANIFEST_FILENAME, remoteBaseUrl).href;
-    const sigUrl = new URL(SPA_MANIFEST_SIG_FILENAME, remoteBaseUrl).href;
+    const manifestUrl = new URL(manifestName, remoteBaseUrl).href;
+    const sigUrl = new URL(signatureName, remoteBaseUrl).href;
     manifestBytes = await fetchBytes(manifestUrl, SPA_MANIFEST_MAX_BYTES);
     if (manifestBytes.length > SPA_MANIFEST_MAX_BYTES) {
       return { populated: false, reason: 'manifest exceeds size cap' };
@@ -154,13 +172,19 @@ async function doPopulate(remoteBaseUrl: string): Promise<PopulateResult> {
   }
 
   // 2. Verify the manifest BEFORE fetching any asset bytes.
-  const verified = verifyManifest({
-    manifestBytes,
-    signatureBase64,
-    publicKeyPems: SPA_MANIFEST_PUBLIC_KEYS_PEM,
-    shellIpcContract: IPC_CONTRACT_VERSION,
-    nowMs: Date.now(),
-  });
+  const verify = () => {
+    const params = {
+      manifestBytes,
+      signatureBase64,
+      publicKeyPems: SPA_MANIFEST_PUBLIC_KEYS_PEM,
+      shellIpcContract: IPC_CONTRACT_VERSION,
+      nowMs: Date.now(),
+    };
+    return channelStore
+      ? verifyChannelManifest({ ...params, expectedChannel: channelStore.channel })
+      : verifyManifest(params);
+  };
+  const verified = verify();
   if (!verified.ok) {
     return { populated: false, reason: `manifest rejected: ${verified.reason}` };
   }
@@ -168,23 +192,30 @@ async function doPopulate(remoteBaseUrl: string): Promise<PopulateResult> {
 
   // 3. Download + verify every file into a fresh staging tree.
   try {
-    resetStaging();
-    const downloaded = await downloadAndStageAll(manifest, remoteBaseUrl);
+    store.resetStaging();
+    const downloaded = await downloadAndStageAll(manifest, remoteBaseUrl, store.writeStagedFile);
     if (!downloaded.ok) {
       // Staging stays (never promoted); previous live cache is untouched.
       return { populated: false, reason: downloaded.reason };
     }
     // Persist the manifest + signature so readLiveManifest works post-promote
     // and the serve-time gate can re-verify the cache.
-    writeStagedFile(SPA_MANIFEST_FILENAME, manifestBytes);
-    writeStagedFile(SPA_MANIFEST_SIG_FILENAME, Buffer.from(signatureBase64, 'utf8'));
+    store.writeStagedFile(manifestName, manifestBytes);
+    store.writeStagedFile(signatureName, Buffer.from(signatureBase64, 'utf8'));
   } catch (err) {
     return { populated: false, reason: `staging failed: ${(err as Error).message}` };
   }
 
+  // A long download may cross the freshness window or IPC policy boundary.
+  // Reauthenticate against the captured channel immediately before promotion.
+  if (channelStore) {
+    const current = verify();
+    if (!current.ok) return { populated: false, reason: `manifest rejected: ${current.reason}` };
+  }
+
   // 4. All files verified — atomically promote.
   try {
-    promoteStagingToLive();
+    store.promoteStagingToLive();
   } catch (err) {
     return { populated: false, reason: `promote failed: ${(err as Error).message}` };
   }
@@ -197,8 +228,9 @@ interface DownloadOutcome {
 }
 
 async function downloadAndStageAll(
-  manifest: SpaManifest,
-  remoteBaseUrl: string
+  manifest: Pick<SpaManifest, 'entry' | 'assets'>,
+  remoteBaseUrl: string,
+  writeFile: typeof writeStagedFile
 ): Promise<DownloadOutcome> {
   const files: SpaManifestFile[] = [manifest.entry, ...manifest.assets];
   let runningTotal = 0;
@@ -236,7 +268,7 @@ async function downloadAndStageAll(
     }
 
     try {
-      writeStagedFile(file.path, bytes);
+      writeFile(file.path, bytes);
     } catch (err) {
       return { ok: false, reason: `staged write failed: ${(err as Error).message}` };
     }
@@ -248,4 +280,32 @@ async function downloadAndStageAll(
 /** Test-only: reset the single-flight guard between cases. */
 export function __resetInFlightForTests(): void {
   inFlight = null;
+  channelInFlight.clear();
+}
+
+// One writer per captured root/channel; another channel never shares its result.
+const channelInFlight = new Map<string, Promise<PopulateResult>>();
+
+/** Authenticate and populate bytes only; this does not authorize live navigation. */
+export function populateChannelCacheFromRemote(
+  remoteBaseUrl: string,
+  channel: RemoteSpaChannel
+): Promise<PopulateResult> {
+  if (!isRemoteCacheChannel(channel)) {
+    return Promise.resolve({ populated: false, reason: 'invalid remote cache channel' });
+  }
+  let store: ChannelCacheStore;
+  try {
+    store = createChannelCacheStore(channel);
+  } catch {
+    return Promise.resolve({ populated: false, reason: 'cache root unavailable' });
+  }
+  const key = JSON.stringify([store.getLiveDir(), channel]);
+  const pending = channelInFlight.get(key);
+  if (pending) return pending;
+  const operation = doPopulate(remoteBaseUrl, store).finally(() => {
+    if (channelInFlight.get(key) === operation) channelInFlight.delete(key);
+  });
+  channelInFlight.set(key, operation);
+  return operation;
 }

@@ -107,7 +107,44 @@ Current Phase 1 behavior:
 - session-only users likewise keep their E2EE key material in main-process memory only (never disk), wiped on logout/`clearTokens`, so a soft reload restores decryptable content; post-login state (servers/profile/preferences) is re-hydrated on every successful restore, not only when E2EE keys are present;
 - auto-apply is deferred during active voice, screen share, and DM call states.
 
-Persistent cached SPA execution is not enabled. A future last-known-good SPA cache must verify a signed manifest with a public key shipped in the desktop binary before any cached remote bytes can execute. The cache must verify the complete Vite asset graph, reject traversal/symlink/partial/stale/incompatible entries, and fall back to the signed bundled `app://concord` renderer when verification fails.
+Main can serve the signed last-known-good SPA cache at `spa-cache://concord`
+when a remote navigation fails or discovery reports a transient fetch failure.
+Before returning a cache URL, `resolveCachedSpa()` re-verifies the manifest
+signature against public keys shipped in the binary, its schema, freshness and
+IPC compatibility, and every listed file's size and hash. An absent or invalid
+cache, or a failed cache navigation, falls back to the bundled `app://concord`
+renderer. Expected bundled decisions and IPC mismatches do not consult the cache.
+
+### Signed channel cache foundation (not activated)
+
+The channel cache APIs require the caller to select `stable` or `prerelease`.
+They accept only a schema-v2 manifest whose signed `channel` matches that
+selection. Pilot has no remote cache namespace. The legacy schema-v1 manifest
+has no channel identity and cannot satisfy the v2 verifier.
+
+Publication uses separate `spa-manifest.v2.json` and
+`spa-manifest.v2.json.sig` files. The signer accepts an explicit
+`--channel stable|prerelease` and signs both v1 and v2 envelopes over the same
+asset set, preserving the legacy filenames for existing clients. Explicit
+channel signing fails without a signing key; legacy CLI signing retains its
+no-key skip behavior. Generated manifest and signature files are excluded from
+the asset set when signing a dist again.
+
+Each channel has its own `spa-cache/v2/<channel>/staging` and `live` directories
+under the application's userData directory. Population captures that namespace,
+verifies the signed channel before downloading assets, checks every file, and
+re-verifies the manifest before promotion. Resolution verifies the complete
+cache again. The channel protocol handler binds its verification memo to the
+cache root, channel, manifest bytes and signature, checks freshness and IPC
+compatibility on every request, and verifies each file's bytes before serving.
+A missing or rejected channel cache returns no cache decision; it does not
+consult another channel or the legacy cache.
+
+These APIs are dormant. Production startup, fallback, population and protocol
+registration still use the legacy v1 cache. This foundation adds no channel
+picker, preference migration or publication workflow. Activating channel-aware
+execution requires separate integration and publication evidence; adding signed
+metadata alone does not change the renderer users load.
 
 ## CI integrity gates
 

@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
+import { beforeAll, describe, it, expect } from 'vitest';
 import { createPublicKey } from 'node:crypto';
-import { verifyManifest } from '@/main/spaCache/verifyManifest';
+import { verifyChannelManifest, verifyManifest } from '@/main/spaCache/verifyManifest';
 import { SPA_CACHE_MAX_STALENESS_MS, SPA_MANIFEST_MAX_BYTES } from '@/main/spaCache/manifestSchema';
 // REAL public-key module (NO vi.mock) — this file never mocks it, so importing
 // the genuine values here asserts the committed trust-root state.
@@ -426,5 +426,131 @@ describe('verifyManifest dual trust (#2958)', () => {
     const result = verify(tampered, [a.publicKeyPem, b.publicKeyPem]);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toMatch(/signature does not verify/);
+  });
+});
+
+// Signed channel identity must be checked in addition to signature authenticity.
+// Each invalid object is re-signed so the named policy, not bad crypto, refuses it.
+describe('verifyChannelManifest (channel-bound trust root)', () => {
+  const nowMs = Date.parse('2026-10-25T12:00:00.000Z');
+  let kp: ReturnType<typeof makeKeypair>;
+  beforeAll(() => {
+    kp = makeKeypair();
+  });
+
+  function fixture(overrides: Record<string, unknown> = {}) {
+    const legacy = buildSignedManifest(kp, {
+      entry: entryFixture(),
+      generatedAt: new Date(nowMs).toISOString(),
+    });
+    const object = { ...legacy.manifestObject, schemaVersion: 2, channel: 'stable', ...overrides };
+    const manifestBytes = Buffer.from(JSON.stringify(object));
+    return { manifestBytes, signatureBase64: signBytes(manifestBytes, kp.privateKeyPem) };
+  }
+
+  function check(signed: ReturnType<typeof fixture>, expectedChannel: 'stable' | 'prerelease') {
+    return verifyChannelManifest({
+      ...signed,
+      expectedChannel,
+      publicKeyPems: [kp.publicKeyPem],
+      shellIpcContract: SHELL_IPC,
+      nowMs,
+    });
+  }
+
+  it.each(['stable', 'prerelease'] as const)(
+    'accepts RSA-4096 signed %s only for that expected channel',
+    (channel) => {
+      const signed = fixture({ channel });
+      const accepted = check(signed, channel);
+      expect(accepted.ok).toBe(true);
+      if (accepted.ok) {
+        expect(accepted.manifest.channel).toBe(channel);
+        expect(accepted.manifest.schemaVersion).toBe(2);
+      }
+      const refused = check(signed, channel === 'stable' ? 'prerelease' : 'stable');
+      expect(refused.ok).toBe(false);
+      if (!refused.ok) expect(refused.reason).toMatch(/channel/i);
+    }
+  );
+
+  it.each([
+    ['missing channel', { channel: undefined }, /schema|channel/i],
+    ['unknown channel', { channel: 'nightly' }, /schema|channel/i],
+    ['Pilot channel', { channel: 'pilot' }, /schema|channel/i],
+    ['v1 envelope', { schemaVersion: 1, channel: undefined }, /schema/i],
+    ['future schema', { schemaVersion: 3 }, /schema/i],
+    ['future timestamp', { generatedAt: '2026-10-26T12:00:00.001Z' }, /future/i],
+    ['stale timestamp', { generatedAt: '2026-09-25T11:59:59.999Z' }, /stale|freshness/i],
+    ['newer IPC contract', { spaIpcContract: SHELL_IPC + 1 }, /IPC|contract/i],
+    ['incorrect byte total', { totalSize: 1 }, /totalSize|sum/i],
+  ])('rejects a valid signature with %s', (_name, overrides, reason) => {
+    const result = check(fixture(overrides as Record<string, unknown>), 'stable');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(reason as RegExp);
+  });
+
+  it.each([
+    {},
+    { expectedChannel: undefined },
+    { expectedChannel: null },
+    { expectedChannel: 'pilot' },
+    { expectedChannel: 'Stable' },
+    { expectedChannel: '' },
+  ])('refuses absent or invalid runtime expectedChannel %j', (boundaryInput) => {
+    // Simulate untyped callers without weakening the production parameter type.
+    const params = {
+      ...fixture(),
+      publicKeyPems: [kp.publicKeyPem],
+      shellIpcContract: SHELL_IPC,
+      nowMs,
+      ...boundaryInput,
+    };
+    const result = verifyChannelManifest(
+      params as unknown as Parameters<typeof verifyChannelManifest>[0]
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/channel/i);
+  });
+
+  it.each([NaN, Infinity, -Infinity])('refuses non-finite clock %s', (invalidNowMs) => {
+    const result = verifyChannelManifest({
+      ...fixture(),
+      expectedChannel: 'stable',
+      publicKeyPems: [kp.publicKeyPem],
+      shellIpcContract: SHELL_IPC,
+      nowMs: invalidNowMs,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/clock|time|finite/i);
+  });
+
+  it('rejects unsigned metadata', () => {
+    const result = check({ ...fixture(), signatureBase64: '' }, 'stable');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/signature/i);
+  });
+
+  it('does not authenticate reserialized or channel-substituted bytes with the original signature', () => {
+    const signed = fixture();
+    for (const manifestBytes of [
+      Buffer.from(JSON.stringify(JSON.parse(signed.manifestBytes.toString()), null, 2)),
+      Buffer.from(signed.manifestBytes.toString().replace('"stable"', '"prerelease"')),
+    ]) {
+      const result = check({ ...signed, manifestBytes }, 'prerelease');
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toMatch(/signature/i);
+    }
+  });
+
+  it('keeps the legacy v1 verifier strict and rejects v2 metadata', () => {
+    const result = verifyManifest({
+      ...fixture(),
+      publicKeyPems: [kp.publicKeyPem],
+      shellIpcContract: SHELL_IPC,
+      nowMs,
+    });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/schema/i);
   });
 });

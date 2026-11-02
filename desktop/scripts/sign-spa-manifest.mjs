@@ -16,15 +16,14 @@
  * build step and no third-party deps (Node built-ins only).
  *
  * FAIL-SAFE: the CLI skips signing (exit 0) when `SPA_MANIFEST_SIGNING_KEY` is
- * unset/empty — the SPA still deploys and the client cache stays dormant
+ * unset/empty in legacy mode — the SPA still deploys and the client cache stays dormant
  * (remote → bundled exactly as before this feature shipped). The private key is
- * NEVER logged.
+ * NEVER logged. Explicit --channel publication requires a key and writes v2 too.
  *
- * Spec: internal-reference — "Signed LKG Cache"; runbook:
- * internal-reference
+ * Contract and activation status: docs/policies/update-trust-model.md.
  */
 
-import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, lstatSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { constants as cryptoConstants, createHash, sign as cryptoSign } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
@@ -33,6 +32,14 @@ import { pathToFileURL } from 'node:url';
 const SPA_MANIFEST_SCHEMA_VERSION = 1;
 const SPA_MANIFEST_FILENAME = 'spa-manifest.json';
 const SPA_MANIFEST_SIG_FILENAME = 'spa-manifest.json.sig';
+const SPA_CHANNEL_MANIFEST_FILENAME = 'spa-manifest.v2.json';
+const SPA_CHANNEL_MANIFEST_SIG_FILENAME = 'spa-manifest.v2.json.sig';
+const METADATA_FILENAMES = new Set([
+  SPA_MANIFEST_FILENAME,
+  SPA_MANIFEST_SIG_FILENAME,
+  SPA_CHANNEL_MANIFEST_FILENAME,
+  SPA_CHANNEL_MANIFEST_SIG_FILENAME,
+]);
 const SPA_MANIFEST_SIGN_ALGORITHM = 'sha256';
 const SPA_MANIFEST_SIGN_SALT_LENGTH = 32;
 /** The dist-root entry HTML treated as the manifest `entry` (all else = assets). */
@@ -47,21 +54,22 @@ function sha256HexOfFile(filePath) {
 
 /**
  * Recursively walk `distDir` and return every file as a relative POSIX path
- * from distDir. Symlinks are followed by statSync; the published Vite dist is a
- * plain file tree, so this is the complete asset graph.
+ * from distDir. Reject symlinks before filtering metadata or hashing any assets.
  */
 function walkFiles(distDir) {
   const out = [];
   function walk(absDir) {
+    if (lstatSync(absDir).isSymbolicLink()) throw new Error('symlink directory is not allowed');
     for (const entry of readdirSync(absDir)) {
       const abs = path.join(absDir, entry);
-      const st = statSync(abs);
+      const st = lstatSync(abs);
+      if (st.isSymbolicLink()) throw new Error('symlink input is not allowed');
       if (st.isDirectory()) {
         walk(abs);
       } else if (st.isFile()) {
         // Relative POSIX path from distDir (forward slashes on every platform).
         const rel = path.relative(distDir, abs).split(path.sep).join('/');
-        out.push(rel);
+        if (!METADATA_FILENAMES.has(rel)) out.push(rel);
       }
     }
   }
@@ -80,10 +88,11 @@ function walkFiles(distDir) {
  */
 export function buildManifest(distDir, { buildId, spaIpcContract, generatedAt }) {
   const resolvedDist = path.resolve(distDir);
+  const files = walkFiles(resolvedDist);
   const entryAbs = path.join(resolvedDist, ENTRY_FILENAME);
   let entryStat;
   try {
-    entryStat = statSync(entryAbs);
+    entryStat = lstatSync(entryAbs);
   } catch {
     throw new Error(`${ENTRY_FILENAME} not found at dist root: ${resolvedDist}`);
   }
@@ -97,12 +106,12 @@ export function buildManifest(distDir, { buildId, spaIpcContract, generatedAt })
     size: entryStat.size,
   };
 
-  const assets = walkFiles(resolvedDist)
+  const assets = files
     .filter((rel) => rel !== ENTRY_FILENAME)
     .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
     .map((rel) => {
       const abs = path.join(resolvedDist, rel);
-      return { path: rel, sha256: sha256HexOfFile(abs), size: statSync(abs).size };
+      return { path: rel, sha256: sha256HexOfFile(abs), size: lstatSync(abs).size };
     });
 
   const totalSize = entry.size + assets.reduce((acc, a) => acc + a.size, 0);
@@ -137,12 +146,18 @@ export function signManifestBytes(manifestBytes, privateKeyPem) {
 
 /**
  * Build + sign + write `spa-manifest.json` (the signed bytes) and
- * `spa-manifest.json.sig` (base64 signature) into distDir.
+ * `spa-manifest.json.sig` (base64 signature) into distDir. An explicit channel
+ * additionally writes the separately signed v2 envelope over the same asset set.
  *
  * @returns {{ manifestPath: string, signaturePath: string, manifest: object }}
  */
 export async function signSpaDist(distDir, privateKeyPem, opts) {
-  const { buildId, spaIpcContract, generatedAt } = opts;
+  const { buildId, spaIpcContract, generatedAt, channel } = opts;
+  if (channel !== undefined) {
+    assertChannel(channel);
+    if (!privateKeyPem?.trim())
+      throw new Error('channel signing requires SPA_MANIFEST_SIGNING_KEY');
+  }
   const { manifest, manifestBytes } = buildManifest(distDir, {
     buildId,
     spaIpcContract,
@@ -150,6 +165,16 @@ export async function signSpaDist(distDir, privateKeyPem, opts) {
   });
   const signatureBase64 = signManifestBytes(manifestBytes, privateKeyPem);
 
+  // Sign both envelopes before writing either; a failed signature never publishes v2.
+  const channelBytes =
+    channel === undefined
+      ? null
+      : Buffer.from(
+          `${JSON.stringify({ ...manifest, schemaVersion: 2, channel }, null, 2)}\n`,
+          'utf8'
+        );
+  const channelSignature =
+    channelBytes === null ? null : signManifestBytes(channelBytes, privateKeyPem);
   const resolvedDist = path.resolve(distDir);
   const manifestPath = path.join(resolvedDist, SPA_MANIFEST_FILENAME);
   const signaturePath = path.join(resolvedDist, SPA_MANIFEST_SIG_FILENAME);
@@ -158,10 +183,24 @@ export async function signSpaDist(distDir, privateKeyPem, opts) {
   writeFileSync(manifestPath, manifestBytes);
   writeFileSync(signaturePath, `${signatureBase64}\n`, 'utf8');
 
+  if (channelBytes !== null && channelSignature !== null) {
+    writeFileSync(path.join(resolvedDist, SPA_CHANNEL_MANIFEST_FILENAME), channelBytes);
+    writeFileSync(
+      path.join(resolvedDist, SPA_CHANNEL_MANIFEST_SIG_FILENAME),
+      `${channelSignature}\n`,
+      'utf8'
+    );
+  }
   return { manifestPath, signaturePath, manifest };
 }
 
 // ── CLI ────────────────────────────────────────────────────────────────────
+function assertChannel(channel) {
+  if (channel !== 'stable' && channel !== 'prerelease') {
+    throw new Error('invalid channel: must be stable or prerelease');
+  }
+}
+
 function parseArgs(argv) {
   const opts = { dist: '', buildId: '', ipcContract: '' };
   for (let i = 0; i < argv.length; i += 1) {
@@ -170,6 +209,8 @@ function parseArgs(argv) {
     else if (arg.startsWith('--dist=')) opts.dist = arg.slice('--dist='.length);
     else if (arg === '--build-id') opts.buildId = argv[(i += 1)] ?? '';
     else if (arg.startsWith('--build-id=')) opts.buildId = arg.slice('--build-id='.length);
+    else if (arg === '--channel') opts.channel = argv[(i += 1)] ?? '';
+    else if (arg.startsWith('--channel=')) opts.channel = arg.slice('--channel='.length);
     else if (arg === '--ipc-contract') opts.ipcContract = argv[(i += 1)] ?? '';
     else if (arg.startsWith('--ipc-contract='))
       opts.ipcContract = arg.slice('--ipc-contract='.length);
@@ -182,11 +223,13 @@ function parseArgs(argv) {
 }
 
 async function main() {
-  const { dist, buildId, ipcContract } = parseArgs(process.argv.slice(2));
+  const { dist, buildId, ipcContract, channel } = parseArgs(process.argv.slice(2));
+
+  if (channel !== undefined) assertChannel(channel);
 
   if (!dist || !buildId || !ipcContract) {
     console.error(
-      `${LOG_PREFIX} usage: sign-spa-manifest.mjs --dist <dir> --build-id <id> --ipc-contract <n>`
+      `${LOG_PREFIX} usage: sign-spa-manifest.mjs --dist <dir> --build-id <id> --ipc-contract <n> [--channel stable|prerelease]`
     );
     process.exit(2);
   }
@@ -197,10 +240,10 @@ async function main() {
     process.exit(2);
   }
 
-  // FAIL-SAFE: no key ⇒ skip signing, exit 0. The SPA still deploys; the client
-  // cache stays dormant (remote → bundled as before).
+  // Legacy mode remains dormant without a key; channel publication must fail closed.
   const privateKeyPem = process.env.SPA_MANIFEST_SIGNING_KEY ?? '';
   if (privateKeyPem.trim().length === 0) {
+    if (channel !== undefined) throw new Error('channel signing requires SPA_MANIFEST_SIGNING_KEY');
     console.error(
       `${LOG_PREFIX} no SPA_MANIFEST_SIGNING_KEY; skipping manifest signing (cache stays dormant)`
     );
@@ -212,6 +255,7 @@ async function main() {
     buildId,
     spaIpcContract,
     generatedAt,
+    channel,
   });
 
   // NEVER log the key or its bytes. Log only the non-secret manifest summary.

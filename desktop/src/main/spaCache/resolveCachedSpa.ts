@@ -19,8 +19,9 @@
  * through to the bundled `app://concord` path.
  */
 
-import { readLiveManifest } from './cacheStore';
-import { verifyManifest } from './verifyManifest';
+import { readLiveManifest, createChannelCacheStore, isRemoteCacheChannel } from './cacheStore';
+import type { RemoteSpaChannel } from '../../shared/updateChannel';
+import { verifyManifest, verifyChannelManifest } from './verifyManifest';
 import { verifyAllLiveAssets } from './cacheIntegrity';
 import { SPA_CACHE_HOST, SPA_CACHE_SCHEME } from './manifestSchema';
 import { SPA_MANIFEST_PUBLIC_KEYS_PEM } from './spaManifestPublicKey';
@@ -60,4 +61,28 @@ export function resolveCachedSpa(nowMs: number = Date.now()): CachedSpaDecision 
   }
 
   return { url: `${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/index.html` };
+}
+
+/** Resolve authenticated same-channel bytes; production activation remains held. */
+export function resolveChannelCachedSpa(
+  channel: RemoteSpaChannel,
+  nowMs: number = Date.now()
+): (CachedSpaDecision & { channel: RemoteSpaChannel }) | null {
+  if (!isRemoteCacheChannel(channel)) return null;
+  try {
+    const store = createChannelCacheStore(channel);
+    const live = store.readLiveManifest();
+    if (!live) return null;
+    const verified = verifyChannelManifest({
+      ...live,
+      expectedChannel: channel,
+      publicKeyPems: SPA_MANIFEST_PUBLIC_KEYS_PEM,
+      shellIpcContract: IPC_CONTRACT_VERSION,
+      nowMs,
+    });
+    if (!verified.ok || !verifyAllLiveAssets(verified.manifest, store.readLiveFile)) return null;
+    return { url: `${SPA_CACHE_SCHEME}://${SPA_CACHE_HOST}/index.html`, channel };
+  } catch {
+    return null;
+  }
 }

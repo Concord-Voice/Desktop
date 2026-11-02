@@ -14,7 +14,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { generateKeyPairSync } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -27,7 +27,7 @@ import {
   SPA_MANIFEST_FILENAME,
   SPA_MANIFEST_SIG_FILENAME,
 } from '../../../../scripts/sign-spa-manifest.mjs';
-import { verifyManifest } from '@/main/spaCache/verifyManifest';
+import { verifyChannelManifest, verifyManifest } from '@/main/spaCache/verifyManifest';
 
 // Absolute path to the signer CLI, resolved relative to THIS test file (no cwd
 // assumptions) so the subprocess fail-safe tests below work from any runner cwd.
@@ -263,4 +263,185 @@ describe('sign-spa-manifest.mjs CLI fail-safe (#1870 Finding E2)', () => {
     expect(fs.existsSync(path.join(cliDistDir, SPA_MANIFEST_FILENAME))).toBe(true);
     expect(fs.existsSync(path.join(cliDistDir, SPA_MANIFEST_SIG_FILENAME))).toBe(true);
   });
+});
+
+const CHANNEL_METADATA = [
+  'spa-manifest.json',
+  'spa-manifest.json.sig',
+  'spa-manifest.v2.json',
+  'spa-manifest.v2.json.sig',
+];
+
+describe('channel signer contract', () => {
+  const options = {
+    buildId: 'channel-fixture',
+    spaIpcContract: IPC_CONTRACT,
+    generatedAt: '2026-10-25T12:00:00.000Z',
+  };
+
+  function runChannelSigner(channel: string, key = privateKeyPem) {
+    return spawnSync(
+      process.execPath,
+      [
+        SIGNER_SCRIPT,
+        '--dist',
+        distDir,
+        '--build-id',
+        options.buildId,
+        '--ipc-contract',
+        String(IPC_CONTRACT),
+        '--channel',
+        channel,
+      ],
+      { env: { ...process.env, SPA_MANIFEST_SIGNING_KEY: key }, encoding: 'utf8' }
+    );
+  }
+  function readSigned(filename: string) {
+    return {
+      manifestBytes: fs.readFileSync(path.join(distDir, filename)),
+      signatureBase64: fs.readFileSync(path.join(distDir, filename + '.sig'), 'utf8').trim(),
+    };
+  }
+
+  it.each(['stable', 'prerelease'] as const)(
+    'CLI emits verifiable v1 and %s v2 artifacts',
+    (channel) => {
+      const result = runChannelSigner(channel);
+      expect(result.status, result.stderr).toBe(0);
+      for (const filename of CHANNEL_METADATA)
+        expect(fs.existsSync(path.join(distDir, filename))).toBe(true);
+      const legacy = readSigned('spa-manifest.json');
+      const signed = readSigned('spa-manifest.v2.json');
+      const legacyObject = JSON.parse(legacy.manifestBytes.toString());
+      expect(legacyObject.schemaVersion).toBe(1);
+      expect(legacyObject).not.toHaveProperty('channel');
+      expect(JSON.parse(signed.manifestBytes.toString())).toEqual({
+        ...legacyObject,
+        schemaVersion: 2,
+        channel,
+      });
+      const params = {
+        publicKeyPems: [publicKeyPem],
+        shellIpcContract: IPC_CONTRACT,
+        nowMs: Date.parse(legacyObject.generatedAt),
+      };
+      expect(verifyManifest({ ...legacy, ...params }).ok).toBe(true);
+      expect(verifyChannelManifest({ ...signed, ...params, expectedChannel: channel }).ok).toBe(
+        true
+      );
+      const opposite = verifyChannelManifest({
+        ...signed,
+        ...params,
+        expectedChannel: channel === 'stable' ? 'prerelease' : 'stable',
+      });
+      expect(opposite.ok).toBe(false);
+      if (!opposite.ok) expect(opposite.reason).toMatch(/channel/i);
+      const swapped = verifyChannelManifest({
+        ...signed,
+        ...params,
+        signatureBase64: legacy.signatureBase64,
+        expectedChannel: channel,
+      });
+      expect(swapped.ok).toBe(false);
+      if (!swapped.ok) expect(swapped.reason).toMatch(/signature/i);
+    }
+  );
+
+  it.each(['pilot', 'nightly', 'Stable', '../stable', ''])(
+    'rejects invalid channel %j before changing artifacts',
+    (channel) => {
+      for (const filename of CHANNEL_METADATA)
+        fs.writeFileSync(path.join(distDir, filename), 'previous-generation');
+      const result = runChannelSigner(channel);
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toMatch(/invalid.*channel|channel.*(stable|prerelease|required)/i);
+      for (const filename of CHANNEL_METADATA) {
+        expect(fs.readFileSync(path.join(distDir, filename), 'utf8')).toBe('previous-generation');
+      }
+    }
+  );
+
+  it('programmatic signing refuses an unknown channel before writing artifacts', async () => {
+    await expect(
+      signSpaDist(distDir, privateKeyPem, { ...options, channel: 'pilot' })
+    ).rejects.toThrow(/channel/i);
+    for (const filename of CHANNEL_METADATA)
+      expect(fs.existsSync(path.join(distDir, filename))).toBe(false);
+  });
+
+  it.each([undefined, '', '   '])(
+    'programmatic channel signing refuses missing key %j without output',
+    async (key) => {
+      await expect(signSpaDist(distDir, key, { ...options, channel: 'stable' })).rejects.toThrow(
+        /key|signing/i
+      );
+      for (const filename of CHANNEL_METADATA)
+        expect(fs.existsSync(path.join(distDir, filename))).toBe(false);
+    }
+  );
+
+  it('requires a signing key for explicit channel publication', () => {
+    const result = runChannelSigner('stable', '');
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/key|signing/i);
+    for (const filename of CHANNEL_METADATA)
+      expect(fs.existsSync(path.join(distDir, filename))).toBe(false);
+  });
+
+  it('excludes all four metadata files from the legacy asset enumerator', () => {
+    for (const filename of CHANNEL_METADATA)
+      fs.writeFileSync(path.join(distDir, filename), 'old-metadata');
+    const { manifest } = buildManifest(distDir, options);
+    expect(manifest.assets.map((asset: { path: string }) => asset.path)).toEqual([
+      'assets/x-abc123.js',
+      'assets/x-def456.css',
+    ]);
+    expect(manifest.totalSize).toBe(Buffer.byteLength(ENTRY_HTML + ASSET_JS + ASSET_CSS));
+  });
+
+  it('repeat channel signing preserves both asset sets without self-inclusion', async () => {
+    await signSpaDist(distDir, privateKeyPem, { ...options, channel: 'stable' });
+    for (const filename of CHANNEL_METADATA)
+      expect(fs.existsSync(path.join(distDir, filename))).toBe(true);
+    const beforeV1 = readSigned('spa-manifest.json').manifestBytes;
+    const beforeV2 = readSigned('spa-manifest.v2.json').manifestBytes;
+    await signSpaDist(distDir, privateKeyPem, { ...options, channel: 'stable' });
+    expect(readSigned('spa-manifest.json').manifestBytes).toEqual(beforeV1);
+    expect(readSigned('spa-manifest.v2.json').manifestBytes).toEqual(beforeV2);
+    for (const filename of ['spa-manifest.json', 'spa-manifest.v2.json']) {
+      const manifest = JSON.parse(readSigned(filename).manifestBytes.toString());
+      expect(manifest.assets.map((asset: { path: string }) => asset.path)).toEqual([
+        'assets/x-abc123.js',
+        'assets/x-def456.css',
+      ]);
+    }
+  });
+
+  it.each(['entry', 'asset', 'directory', 'metadata'] as const)(
+    'rejects a %s symlink in legacy and channel signing',
+    async (kind) => {
+      if (kind === 'entry') {
+        fs.unlinkSync(path.join(distDir, 'index.html'));
+        fs.symlinkSync('assets/x-abc123.js', path.join(distDir, 'index.html'));
+      } else if (kind === 'asset') {
+        fs.symlinkSync('x-abc123.js', path.join(distDir, 'assets', 'linked.js'));
+      } else if (kind === 'directory') {
+        fs.symlinkSync('assets', path.join(distDir, 'linked-assets'), 'dir');
+      } else {
+        fs.symlinkSync('index.html', path.join(distDir, 'spa-manifest.v2.json'));
+      }
+      expect(() => buildManifest(distDir, options)).toThrow(/symlink|symbolic/i);
+      await expect(
+        signSpaDist(distDir, privateKeyPem, { ...options, channel: 'stable' })
+      ).rejects.toThrow(/symlink|symbolic/i);
+      expect(fs.readFileSync(path.join(distDir, 'assets', 'x-abc123.js'), 'utf8')).toBe(ASSET_JS);
+      if (kind === 'metadata') {
+        expect(fs.readFileSync(path.join(distDir, 'index.html'), 'utf8')).toBe(ENTRY_HTML);
+        expect(fs.existsSync(path.join(distDir, 'spa-manifest.json'))).toBe(false);
+        expect(fs.lstatSync(path.join(distDir, 'spa-manifest.v2.json')).isSymbolicLink()).toBe(
+          true
+        );
+      }
+    }
+  );
 });

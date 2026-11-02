@@ -103,3 +103,13 @@ export const SpaManifestSchema = z
 
 export type SpaManifest = z.infer<typeof SpaManifestSchema>;
 export type SpaManifestFile = z.infer<typeof ManifestFile>;
+
+/** Channel-bound metadata is published separately; v1 stays strict and unbound. */
+export const SPA_CHANNEL_MANIFEST_SCHEMA_VERSION = 2;
+export const SPA_CHANNEL_MANIFEST_FILENAME = 'spa-manifest.v2.json';
+export const SPA_CHANNEL_MANIFEST_SIG_FILENAME = 'spa-manifest.v2.json.sig';
+export const SpaChannelManifestSchema = SpaManifestSchema.extend({
+  schemaVersion: z.literal(SPA_CHANNEL_MANIFEST_SCHEMA_VERSION),
+  channel: z.enum(['stable', 'prerelease']),
+}).strict();
+export type SpaChannelManifest = z.infer<typeof SpaChannelManifestSchema>;
