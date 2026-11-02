@@ -1,13 +1,18 @@
 'use strict';
 
-const modern = require('minimatch-modern');
+// Legacy minimatch treats native Windows backslashes as separators unless
+// allowWindowsEscape is explicitly enabled. Apply that default to every helper
+// and Minimatch constructor through upstream's own defaults implementation.
+const modern = require('minimatch-modern').defaults(
+  process.platform === 'win32' ? { allowWindowsEscape: false } : {}
+);
 
 // ASAR 3 and dir-compare call the default export. filelist and eslintrc use
 // its helpers/Minimatch class. All matching remains in patched upstream code.
 // In particular, do not restore makeRe() or turn Matcher objects back into
 // regular expressions. glob 7's consumers use glob-compat instead.
 function minimatch(path, pattern, options) {
-  return modern.minimatch(path, pattern, options);
+  return modern(path, pattern, options);
 }
 
 Object.assign(minimatch, modern);

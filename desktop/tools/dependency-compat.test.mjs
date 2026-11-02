@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 
 // An isolated fixture graph can run these same consumer tests before the full
 // Desktop install. Normal CI resolves the actual Desktop dependency graph.
@@ -244,6 +245,49 @@ test('dir-compare filters use the legacy callable matcher correctly', () => {
   assert.equal(defaultFilterHandler(file('a.txt'), '/nested', { includeFilter: '*.txt' }), true);
   assert.equal(defaultFilterHandler(file('a.log'), '/nested', { includeFilter: '*.txt' }), false);
   assert.equal(defaultFilterHandler(file('.hidden'), '/nested', { excludeFilter: '.*' }), false);
+});
+
+test('legacy matcher preserves Windows separator defaults across its public APIs', async () => {
+  const adapterRequire = createRequire(require.resolve('dir-compare/package.json'));
+  const adapterPath = adapterRequire.resolve('minimatch');
+  const upstream = createRequire(adapterPath)('minimatch-modern');
+  const source = await readFile(adapterPath, 'utf8');
+  for (const platform of ['win32', 'linux']) {
+    const module = { exports: {} };
+    runInNewContext(source, {
+      module,
+      process: { platform },
+      require: (name) => {
+        assert.equal(name, 'minimatch-modern');
+        return upstream.defaults({ platform });
+      },
+    });
+    const mm = module.exports;
+    const pattern = String.raw`C:\fixture\**\*.txt`;
+    const files = ['C:/fixture/a.txt', 'C:/fixture/nested/b.txt', 'C:/fixture/a.log'];
+    const expected = platform === 'win32' ? files.slice(0, 2) : [];
+    for (const matcher of [mm, mm.defaults({ dot: true })]) {
+      assert.deepEqual(matcher.match(files, pattern), expected);
+      assert.deepEqual(files.filter(matcher.filter(pattern)), expected);
+      assert.deepEqual(
+        files.filter((file) => matcher(file, pattern)),
+        expected
+      );
+      const instance = new matcher.Minimatch(pattern);
+      assert.deepEqual(
+        files.filter((file) => instance.match(file)),
+        expected
+      );
+      assert.equal(
+        matcher('literal*.txt', String.raw`literal\*.txt`, { allowWindowsEscape: true }),
+        true
+      );
+      assert.equal(
+        matcher('literalX.txt', String.raw`literal\*.txt`, { allowWindowsEscape: true }),
+        false
+      );
+    }
+  }
 });
 
 test('filelist and ESLint legacy overrides retain selection and exclusion semantics', async () => {

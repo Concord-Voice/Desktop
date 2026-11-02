@@ -16,7 +16,10 @@ must not recreate minimatch's removed regular-expression internals.
   eslintrc/filelist also access helpers or the `Minimatch` class. The class is the
   upstream implementation, including its `Matcher` entries in `set`. `makeRe`
   and the old RegExp representation are deliberately absent. Legacy glob must
-  never be paired with this adapter.
+  never be paired with this adapter. On Windows, upstream defaults preserve
+  legacy backslash-as-separator patterns across the callable, helpers and class;
+  an explicit `allowWindowsEscape: true` still opts into pattern escaping.
+  POSIX escaping defaults remain unchanged.
 
 Only legacy version ranges should resolve to these packages. Modern callers
 must resolve directly to patched upstream packages. All adapters are development
