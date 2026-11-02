@@ -7,7 +7,7 @@
  *
  * Decision flow:
  * 1. Read persisted API base from token metadata (requires prior login)
- * 2. Fetch GET /api/v1/client/config?ipc={contract} with a short timeout
+ * 2. Fetch GET /api/v1/client/config?channel={channel}&ipc={contract} with a short timeout
  * 3. If server returns a spaUrl and our contract version is compatible → loadURL(spaUrl)
  * 4. Otherwise → loadFile(bundled index.html)
  *
@@ -26,6 +26,12 @@ import { setSpaHash, setSpaVersion } from './spaState';
 import { getBuildSha7 } from './buildInfo';
 import type { SpaFallbackKind } from '../shared/spaIpcTypes';
 import { CONFIG_TIMEOUT_MS } from './spaTiming';
+import { clientConfigPath, SPA_DISCOVERY_CHANNEL } from '../shared/clientConfigDiscovery';
+import type { UpdateChannel } from '../shared/updateChannel';
+
+// Capture once for every production caller, including self-heal and soft reloads.
+// Binary updater preferences do not control the active renderer channel.
+const launchSpaChannel = SPA_DISCOVERY_CHANNEL;
 
 const SPA_NO_CACHE_HEADERS = {
   'Cache-Control': 'no-cache',
@@ -51,14 +57,20 @@ export interface SpaLoadDecision {
  * Determine whether to load the renderer from a remote SPA or the bundled file.
  * This runs in the main process before the BrowserWindow loads any content.
  */
-export async function resolveSpaSource(): Promise<SpaLoadDecision> {
+export async function resolveSpaSource(
+  channel: UpdateChannel = launchSpaChannel
+): Promise<SpaLoadDecision> {
+  if (channel === 'pilot') {
+    return { mode: 'bundled', reason: 'pilot channel uses bundled renderer' };
+  }
+
   const apiBase = getPersistedApiBase();
   if (!apiBase) {
     return { mode: 'bundled', reason: 'no persisted API base (first launch or logged out)' };
   }
 
   try {
-    const configUrl = `${apiBase}/api/v1/client/config?ipc=${IPC_CONTRACT_VERSION}`;
+    const configUrl = `${apiBase}${clientConfigPath(channel, IPC_CONTRACT_VERSION)}`;
     const result = await fetchJsonWithTimeout<ClientConfigResponse>(configUrl, CONFIG_TIMEOUT_MS);
 
     if (!result.ok) {
@@ -187,6 +199,7 @@ async function fetchJsonWithTimeout<T>(
  * we'd rather surface it than silently swallow it.
  */
 const EXPECTED_BUNDLED_REASON_PREFIXES = [
+  'pilot channel uses bundled renderer',
   'no persisted API base',
   'server has no spaUrl configured',
   'server spaIpcContract is zero or absent',
