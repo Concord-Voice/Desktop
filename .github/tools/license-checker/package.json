@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "Pinned license checker used by CI",
+  "engines": {
+    "npm": ">=11.10.0"
+  },
   "devDependencies": {
     "license-checker": "25.0.1",
     "glob": "file:../../../desktop/tools/glob-compat"

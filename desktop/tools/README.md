@@ -54,4 +54,7 @@ pass after any lockfile regeneration. Preserve unrelated locked versions.
 
 Both npm workspaces retain a seven-day minimum release age for newly resolved
 registry versions. Keep the locked patched versions and the existing install-links
-setting when refreshing dependencies.
+setting when refreshing dependencies. Use npm 11.10 or newer in both workspaces:
+[npm 11.10 introduced `min-release-age`](https://github.com/npm/cli/releases/tag/v11.10.0),
+so older clients cannot apply this policy. The manifests record this minimum;
+`npm ci` still installs the versions already selected in the lockfile.
