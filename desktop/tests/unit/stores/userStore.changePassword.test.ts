@@ -710,6 +710,25 @@ describe('userStore - changePassword', () => {
     expect(useAuthStore.getState().accessToken).toBe('mock-access');
   });
 
+  it('reports a wrong current password from the reveal without touching the session', async () => {
+    // The reveal refuses a wrong password with 403, not 401, so apiFetch never
+    // treats the typo as an expired token.
+    mockApiFetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({
+        error: 'Current password is incorrect',
+        code: 'invalid_current_password',
+      }),
+    } as Response);
+
+    const result = await useUserStore.getState().changePassword('wrongpass', 'newpass');
+
+    expect(result).toEqual({ success: false, error: 'Current password is incorrect' });
+    expect(useAuthStore.getState().accessToken).toBe('mock-access');
+    expect(mockApiFetch).toHaveBeenCalledTimes(1);
+  });
+
   it('clears auth and returns session expired for generic 401', async () => {
     // Mock POST /api/v1/users/me/keys/reveal - succeeds
     mockApiFetch.mockResolvedValueOnce({
@@ -926,6 +945,16 @@ describe('userStore - changePassword', () => {
       });
       mockApiFetch.mockResolvedValueOnce(keysResponse);
       mockApiFetch.mockRejectedValueOnce(new TypeError('network dropped'));
+      // Reconcile: the commit made the old password wrong, so the reveal refuses
+      // it (403) and only the new password can read the persisted salt.
+      mockApiFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: async () => ({
+          error: 'Current password is incorrect',
+          code: 'invalid_current_password',
+        }),
+      } as Response);
       // Reconcile fetch: server already persisted the salt this attempt submitted
       // (arrayBufferToBase64 is mocked to a constant, so the submitted salt is 'mock-base64-string').
       mockApiFetch.mockResolvedValueOnce({
@@ -945,6 +974,14 @@ describe('userStore - changePassword', () => {
       expect(result.error).toContain('sign in again with your new password');
       expect(useAuthStore.getState().loginNotice).toContain('sign in again with your new password');
       expect(mockNuclearReset).toHaveBeenCalledTimes(1);
+      const reveals = mockApiFetch.mock.calls.filter(
+        ([url]) => url === '/api/v1/users/me/keys/reveal'
+      );
+      expect(reveals.map(([, init]) => (init as RequestInit).body)).toEqual([
+        JSON.stringify({ current_password: 'oldpass' }), // pragma: allowlist secret
+        JSON.stringify({ current_password: 'oldpass' }), // pragma: allowlist secret
+        JSON.stringify({ current_password: 'newpass' }), // pragma: allowlist secret
+      ]);
       // Nothing sequenced after adoption may run on the fenced old token: no
       // reinit, no presence refetch.
       expect(e2eeService.initialize).not.toHaveBeenCalled();
@@ -979,6 +1016,28 @@ describe('userStore - changePassword', () => {
       expect(result.success).toBe(false);
       expect(result.error).toMatch(/did not complete/);
       expect(e2eeService.initialize).not.toHaveBeenCalled();
+    });
+
+    it('does not retry the reveal with the new password on a 403 that is not a wrong password', async () => {
+      mockApiFetch.mockResolvedValueOnce(keysResponse);
+      mockApiFetch.mockRejectedValueOnce(new TypeError('network dropped'));
+      mockApiFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: async () => ({ error: 'Recent sign-in required', code: 'recent_auth_required' }),
+      } as Response);
+
+      const result = await useUserStore.getState().changePassword('oldpass', 'newpass');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/outcome is unknown/);
+      const reveals = mockApiFetch.mock.calls.filter(
+        ([url]) => url === '/api/v1/users/me/keys/reveal'
+      );
+      expect(reveals.map(([, init]) => (init as RequestInit).body)).toEqual([
+        JSON.stringify({ current_password: 'oldpass' }), // pragma: allowlist secret
+        JSON.stringify({ current_password: 'oldpass' }), // pragma: allowlist secret
+      ]);
     });
 
     it('reports an unknown outcome when the reconcile fetch itself fails', async () => {

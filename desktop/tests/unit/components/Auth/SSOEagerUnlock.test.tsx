@@ -367,6 +367,44 @@ describe('SSOEagerUnlock', () => {
     expect(screen.getByRole('button', { name: /sign in again/i })).toBeDisabled();
   });
 
+  it('keeps a sign-in failure retryable when logout rejects', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: 'Recent sign-in required', code: 'recent_auth_required' }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+    render(<SSOEagerUnlock onUnlock={vi.fn()} onSocialRecovery={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText(/passphrase/i), {
+      target: { value: 'CorrectPassphrase!12' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /unlock/i }));
+    await screen.findByRole('button', { name: /sign in again/i });
+
+    useUserStore.setState({ logout: vi.fn().mockRejectedValue(new Error('ipc down')) });
+    fireEvent.click(screen.getByRole('button', { name: /sign in again/i }));
+
+    expect(await screen.findByText(/couldn't sign you out/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /sign in again/i })).toBeEnabled();
+  });
+
+  it('does not offer a fresh sign-in for an unrelated 403', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'Account suspended' }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    render(<SSOEagerUnlock onUnlock={vi.fn()} onSocialRecovery={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText(/passphrase/i), {
+      target: { value: 'CorrectPassphrase!12' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /unlock/i }));
+
+    expect(await screen.findByText(/couldn't load your encrypted keys/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /sign in again/i })).not.toBeInTheDocument();
+  });
+
   it('after 3 wrong attempts, offers Social Recovery', async () => {
     // The component fetches keys lazily on each submit so the failing unwrap
     // can re-fetch — three rounds of /users/me/keys then a unwrap rejection.
