@@ -5,9 +5,16 @@
 // phase command; posting a MessagePort command is not an acknowledgement.
 function createCalibrationPhaseProbe(recordEvent, timeoutMs = 2000) {
   let pending = null;
+  let pendingCompletion = null;
+  const completed = new Set();
   return {
     onEvent(event) {
       recordEvent(event);
+      if (event.type === 'calibrationComplete') {
+        const key = `${event.epoch}:${event.phase}:${event.frames}`;
+        completed.add(key);
+        if (pendingCompletion?.key === key) pendingCompletion.finish();
+      }
       if (
         pending &&
         event.type === 'calibrationAck' &&
@@ -16,6 +23,30 @@ function createCalibrationPhaseProbe(recordEvent, timeoutMs = 2000) {
       ) {
         pending.finish();
       }
+    },
+    waitForCompletion(epoch, phase, frames) {
+      const key = `${epoch}:${phase}:${frames}`;
+      if (completed.has(key)) return Promise.resolve();
+      if (pendingCompletion)
+        return Promise.reject(new Error('Calibration completion wait already pending'));
+      return new Promise((resolve, reject) => {
+        const finish = (error) => {
+          clearTimeout(timer);
+          pendingCompletion = null;
+          if (error) reject(error);
+          else resolve();
+        };
+        const timer = setTimeout(
+          () =>
+            finish(
+              new Error(
+                `Calibration completion deadline: epoch=${epoch} phase=${phase} frames=${frames}`
+              )
+            ),
+          timeoutMs
+        );
+        pendingCompletion = { key, finish };
+      });
     },
     setPhase(handle, epoch, phase) {
       if (pending) return Promise.reject(new Error('Calibration phase command already pending'));
@@ -76,15 +107,13 @@ async function probeCalibration(context, createProcessor, createPhaseProbe, onEr
     await phases.setPhase(calibration, 2, 'quiet');
     await context.resume();
     await speech;
+    // A suspended render thread may still have host MessagePort events queued.
+    // Changing the host epoch now would discard the last quiet window/completion.
+    await phases.waitForCompletion(2, 'quiet', 480000);
     await phases.setPhase(calibration, 3, 'speech');
     await context.resume();
     const calibrated = await rendering;
-    const deadline = performance.now() + 2000;
-    while (
-      !events.some((event) => event.type === 'calibrationComplete' && event.epoch === 3) &&
-      performance.now() < deadline
-    )
-      await new Promise((resolve) => setTimeout(resolve, 10));
+    await phases.waitForCompletion(3, 'speech', 960000);
     const quiet = events.filter((event) => event.type === 'calibrationWindow' && event.epoch === 2);
     const spoken = events.filter(
       (event) => event.type === 'calibrationWindow' && event.epoch === 3

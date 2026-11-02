@@ -90,6 +90,43 @@ describe('calibration phase synchronization in the engine probe', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it('remembers an exact completion delivered before waiter registration', async () => {
+    vi.useFakeTimers();
+    const probe = createCalibrationPhaseProbe(() => {});
+    probe.onEvent({ type: 'calibrationComplete', epoch: 2, phase: 'quiet', frames: 480000 });
+    await probe.waitForCompletion(2, 'quiet', 480000);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('rejects missing or wrong completions after a bounded deadline', async () => {
+    vi.useFakeTimers();
+    const probe = createCalibrationPhaseProbe(() => {});
+    const pending = probe.waitForCompletion(2, 'quiet', 480000);
+    const outcome = pending.then(
+      () => null,
+      (error: Error) => error
+    );
+    probe.onEvent({ type: 'calibrationAck', epoch: 2, phase: 'quiet', frames: 480000 });
+    probe.onEvent({ type: 'calibrationComplete', epoch: 1, phase: 'quiet', frames: 480000 });
+    probe.onEvent({ type: 'calibrationComplete', epoch: 2, phase: 'speech', frames: 480000 });
+    probe.onEvent({ type: 'calibrationComplete', epoch: 2, phase: 'quiet', frames: 479040 });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(await outcome).toEqual(
+      new Error('Calibration completion deadline: epoch=2 phase=quiet frames=480000')
+    );
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('does not replace an outstanding completion observer', async () => {
+    vi.useFakeTimers();
+    const probe = createCalibrationPhaseProbe(() => {});
+    const pending = probe.waitForCompletion(2, 'quiet', 480000);
+    await expect(probe.waitForCompletion(3, 'speech', 960000)).rejects.toThrow('already pending');
+    probe.onEvent({ type: 'calibrationComplete', epoch: 2, phase: 'quiet', frames: 480000 });
+    await pending;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('runs self-contained when serialized into the renderer probe', async () => {
     const create = runInNewContext(`(${createCalibrationPhaseProbe.toString()})`, {
       setTimeout,
@@ -103,7 +140,7 @@ describe('calibration phase synchronization in the engine probe', () => {
 });
 
 // Contract model for scheduling, not a substitute for the real Electron worklet probe.
-function calibrationSequenceFixture() {
+function calibrationSequenceFixture(deferTails = false) {
   type Event = {
     type: string;
     epoch: number;
@@ -130,10 +167,16 @@ function calibrationSequenceFixture() {
   const node = { connect: vi.fn(() => gain) };
   const source = { buffer: null, connect: vi.fn(() => node), start: vi.fn() };
   const handle = { node, setCalibrationPhase: vi.fn(), close: vi.fn() };
-  const emitWindows = (epoch: number, phase: string, count: number, peak: number) => {
+  const emitWindows = (
+    epoch: number,
+    phase: string,
+    count: number,
+    peak: number,
+    complete = true
+  ) => {
     for (let i = 0; i < count; i++)
       emit({ type: 'calibrationWindow', epoch, phase, frames: 960, valid: true, peak });
-    emit({ type: 'calibrationComplete', epoch, phase, frames: count * 960 });
+    if (complete) emit({ type: 'calibrationComplete', epoch, phase, frames: count * 960 });
   };
   const context = {
     destination: {},
@@ -147,10 +190,10 @@ function calibrationSequenceFixture() {
     }),
     resume: vi.fn(async () => {
       if (context.resume.mock.calls.length === 1) {
-        emitWindows(2, 'quiet', 500, Math.fround(0.001));
+        emitWindows(2, 'quiet', deferTails ? 499 : 500, Math.fround(0.001), !deferTails);
         speech.resolve();
       } else {
-        emitWindows(3, 'speech', 1000, Math.fround(0.01));
+        emitWindows(3, 'speech', deferTails ? 999 : 1000, Math.fround(0.01), !deferTails);
         rendering.resolve(output);
       }
     }),
@@ -221,6 +264,119 @@ it('the actual calibration sequence gates initial start and both resumes on matc
     },
   });
   expect(fixture.context.resume).toHaveBeenCalledTimes(2);
+  expect(fixture.handle.close).toHaveBeenCalledTimes(1);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('the actual sequence drains phase completion before fencing quiet events or closing speech', async () => {
+  vi.useFakeTimers();
+  const { probeCalibration } = require('./calibration-phase-probe.js');
+  const run = runInNewContext(`(${probeCalibration.toString()})`, { performance, setTimeout });
+  const fixture = calibrationSequenceFixture(true);
+  const pending = run(
+    fixture.context,
+    fixture.createProcessor,
+    createCalibrationPhaseProbe,
+    vi.fn()
+  );
+  let settled = false;
+  const outcome = pending.then(
+    (value: unknown) => {
+      settled = true;
+      return { value };
+    },
+    (error: Error) => {
+      settled = true;
+      return { error };
+    }
+  );
+  await flushSequence();
+  fixture.emit({ type: 'calibrationAck', epoch: 1, phase: 'quiet' });
+  await flushSequence();
+  fixture.emit({ type: 'calibrationAck', epoch: 2, phase: 'quiet' });
+  await flushSequence();
+  // The context has reached the speech suspension, but the quiet tail is queued.
+  expect(fixture.context.resume).toHaveBeenCalledTimes(1);
+  expect(fixture.handle.setCalibrationPhase).not.toHaveBeenCalledWith(3, 'speech');
+  for (const wrong of [
+    { type: 'calibrationComplete', epoch: 1, phase: 'quiet', frames: 480000 },
+    { type: 'calibrationComplete', epoch: 2, phase: 'speech', frames: 480000 },
+    { type: 'calibrationComplete', epoch: 2, phase: 'quiet', frames: 479040 },
+  ])
+    fixture.emit(wrong);
+  await flushSequence();
+  expect(fixture.handle.setCalibrationPhase).not.toHaveBeenCalledWith(3, 'speech');
+  fixture.emit({
+    type: 'calibrationWindow',
+    epoch: 2,
+    phase: 'quiet',
+    frames: 960,
+    valid: true,
+    peak: Math.fround(0.001),
+  });
+  fixture.emit({ type: 'calibrationComplete', epoch: 2, phase: 'quiet', frames: 480000 });
+  await flushSequence();
+  expect(fixture.handle.setCalibrationPhase).toHaveBeenLastCalledWith(3, 'speech');
+  fixture.emit({ type: 'calibrationAck', epoch: 3, phase: 'speech' });
+  await flushSequence();
+  // Rendering has resolved, but the final speech window is still queued.
+  expect(fixture.context.resume).toHaveBeenCalledTimes(2);
+  expect(fixture.handle.close).not.toHaveBeenCalled();
+  expect(settled).toBe(false);
+  fixture.emit({ type: 'calibrationComplete', epoch: 3, phase: 'speech', frames: 959040 });
+  await flushSequence();
+  expect(fixture.handle.close).not.toHaveBeenCalled();
+  fixture.emit({
+    type: 'calibrationWindow',
+    epoch: 3,
+    phase: 'speech',
+    frames: 960,
+    valid: true,
+    peak: Math.fround(0.01),
+  });
+  fixture.emit({ type: 'calibrationComplete', epoch: 3, phase: 'speech', frames: 960000 });
+  expect(await outcome).toEqual({
+    value: {
+      quietWindows: 500,
+      speechWindows: 1000,
+      quietFrames: 480000,
+      speechFrames: 960000,
+      quietComplete: true,
+      speechComplete: true,
+      silentOutput: true,
+      allWindowsComplete: true,
+      speechPeak: Math.fround(0.01),
+    },
+  });
+  expect(fixture.handle.close).toHaveBeenCalledTimes(1);
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it('the actual sequence fails closed if suspended quiet completion never arrives', async () => {
+  vi.useFakeTimers();
+  const { probeCalibration } = require('./calibration-phase-probe.js');
+  const fixture = calibrationSequenceFixture(true);
+  const pending = probeCalibration(
+    fixture.context,
+    fixture.createProcessor,
+    createCalibrationPhaseProbe,
+    vi.fn()
+  );
+  const outcome = pending.then(
+    () => null,
+    (error: Error) => error
+  );
+  await flushSequence();
+  fixture.emit({ type: 'calibrationAck', epoch: 1, phase: 'quiet' });
+  await flushSequence();
+  fixture.emit({ type: 'calibrationAck', epoch: 2, phase: 'quiet' });
+  await flushSequence();
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(await outcome).toEqual(
+    new Error('Calibration completion deadline: epoch=2 phase=quiet frames=480000')
+  );
+  expect(fixture.handle.setCalibrationPhase).not.toHaveBeenCalledWith(3, 'speech');
+  expect(fixture.context.resume).toHaveBeenCalledTimes(1);
   expect(fixture.handle.close).toHaveBeenCalledTimes(1);
   expect(vi.getTimerCount()).toBe(0);
 });
