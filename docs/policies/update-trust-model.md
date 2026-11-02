@@ -107,7 +107,44 @@ Current Phase 1 behavior:
 - session-only users likewise keep their E2EE key material in main-process memory only (never disk), wiped on logout/`clearTokens`, so a soft reload restores decryptable content; post-login state (servers/profile/preferences) is re-hydrated on every successful restore, not only when E2EE keys are present;
 - auto-apply is deferred during active voice, screen share, and DM call states.
 
-Persistent cached SPA execution is not enabled. A future last-known-good SPA cache must verify a signed manifest with a public key shipped in the desktop binary before any cached remote bytes can execute. The cache must verify the complete Vite asset graph, reject traversal/symlink/partial/stale/incompatible entries, and fall back to the signed bundled `app://concord` renderer when verification fails.
+Main can serve the signed last-known-good SPA cache at `spa-cache://concord`
+when a remote navigation fails or discovery reports a transient fetch failure.
+Before returning a cache URL, `resolveCachedSpa()` re-verifies the manifest
+signature against public keys shipped in the binary, its schema, freshness and
+IPC compatibility, and every listed file's size and hash. An absent or invalid
+cache, or a failed cache navigation, falls back to the bundled `app://concord`
+renderer. Expected bundled decisions and IPC mismatches do not consult the cache.
+
+The existing cache selection does not bind a cached manifest to an expected
+update channel. Channel-aware signed metadata and cache selection are still
+required before activating non-Stable discovery; this plumbing does not change
+cache eligibility or verification.
+
+### Channel discovery and activation hold
+
+SPA discovery uses one immutable policy value held on `stable`. The main resolver
+and renderer configuration-service instance capture that value once; they do not
+read the binary updater's `allowPrerelease` preference or accept a renderer-supplied
+channel. Startup, retry, update-check, soft-reload and self-heal resolution therefore
+use the same held policy throughout a launch.
+
+The shared query builder selects `/api/v1/client/config?channel=stable` or
+`?channel=prerelease`; main retains its `ipc` query parameter. Missing SPA fields
+mean bundled rendering. An unavailable Pre-Release stream does not trigger a
+Stable discovery retry. Channel selection is metadata routing, not publisher
+verification or permission to execute remote code.
+
+The Pilot policy path returns bundled in main before reading the persisted API
+base or fetching discovery configuration. That is an expected, non-transient
+result. Renderer polling can still obtain generic configuration such as feature
+flags and minimum version, but ignores returned SPA fields and skips SPA
+update-check and reload IPC for Pilot.
+
+This plumbing does not expose a channel picker, migrate saved update preferences,
+or change binary auto-update behavior. Non-Stable activation remains held until
+signed channel metadata and channel-aware cache selection are integrated with
+publication evidence. Changing the discovery query alone is insufficient to
+activate another renderer channel.
 
 ## CI integrity gates
 

@@ -1,9 +1,13 @@
 import { errorMessage } from './redactError';
+import { ErrorSchema } from '../../types/ws-events';
+import { summarizeWsClose } from '../../services/messaging/wsEventBudget';
 
 type ServerErrorPayload = {
   code?: unknown;
   channel_id?: unknown;
   current_epoch?: unknown;
+  event_class?: unknown;
+  retry_after_ms?: unknown;
 };
 
 export type WsDiagnosticSummary = {
@@ -14,6 +18,8 @@ export type WsDiagnosticSummary = {
   message?: string;
   channelId?: string;
   currentEpoch?: number;
+  eventClass?: string;
+  retryAfterMs?: number;
 };
 
 export function summarizeWsDiagnostic(value: unknown): WsDiagnosticSummary {
@@ -21,8 +27,7 @@ export function summarizeWsDiagnostic(value: unknown): WsDiagnosticSummary {
     return {
       type: 'CloseEvent',
       event: value.type,
-      code: value.code,
-      ...(value.reason ? { reason: value.reason } : {}),
+      ...summarizeWsClose(value.code, value.reason),
     };
   }
 
@@ -47,6 +52,24 @@ export function summarizeWsDiagnostic(value: unknown): WsDiagnosticSummary {
 
 export function summarizeWsServerError(data: ServerErrorPayload): WsDiagnosticSummary {
   const code = typeof data.code === 'string' && data.code ? data.code : 'unknown';
+  if (code === 'ws_rate_limited') {
+    // This helper also has callers outside the validated dispatch boundary.
+    // Validate only the bounded pair; no arbitrary fields reach this summary.
+    const parsed = ErrorSchema.safeParse({
+      type: 'error',
+      data: { code, event_class: data.event_class, retry_after_ms: data.retry_after_ms },
+    });
+    return {
+      type: 'server_error',
+      code,
+      ...(parsed.success
+        ? {
+            eventClass: parsed.data.data.event_class,
+            retryAfterMs: parsed.data.data.retry_after_ms,
+          }
+        : {}),
+    };
+  }
   return {
     type: 'server_error',
     code,

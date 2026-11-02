@@ -20,6 +20,17 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
+Automatic connection recovery now respects the server's requested pause when it is overloaded.
+
+### Changed
+
+- **Desktop:** SPA discovery now explicitly requests the Stable stream throughout a launch, preparing channel-aware discovery without enabling a channel picker or non-Stable updates.
+
+### Fixed
+
+- **Connections:** Automatic recovery waits for the server's overload retry delay, including when connectivity returns or your sign-in token refreshes.
+- **Connections:** Chat reconnects with the new session after a password change instead of remaining stuck as connected.
+
 ## [0.3.0] - 2026-11-01
 
 Paid plans are ready: Supersonic and Wing subscriptions, a 30-day Supersonic
@@ -86,6 +97,7 @@ gate can learn from your voice.
 
 ### Fixed
 
+- **Sign-in:** The unlock prompt now offers Sign in again only when the server asks for a fresh sign-in, and shows an error instead of hanging if signing out fails. A password change whose result was lost in transit is now recognised once it committed ([#115](https://github.com/Concord-Voice/Desktop/pull/115)).
 - **Sign-in:** When a remembered SSO session can't unlock your encryption key, the unlock prompt now offers Sign in again instead of asking for your passphrase forever ([#111](https://github.com/Concord-Voice/Desktop/pull/111)).
 - **Billing:** Settings ▸ Subscription now loads your friend list before deciding you have none. A Wing payer who opens Settings right after launch sees the invite button instead of "Add a friend first", and a retry if the list fails to load ([#5](https://github.com/Concord-Voice/Desktop/issues/5)).
 - **Tray:** The tray's unread shortcut no longer does nothing when the newest unread channel arrived before its server's unread counts loaded ([#6](https://github.com/Concord-Voice/Desktop/issues/6)).

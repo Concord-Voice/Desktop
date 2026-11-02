@@ -152,7 +152,7 @@ describe('spaLoader — defensive /api/v1/spa/ sentinel', () => {
     expect(result.mode).toBe('remote');
     expect(result.url).toBe('https://api.concordvoice.chat/spa/abc1234/index.html');
     expect(mockNet.fetch).toHaveBeenCalledWith(
-      'https://api.concordvoice.chat/api/v1/client/config?ipc=7',
+      'https://api.concordvoice.chat/api/v1/client/config?channel=stable&ipc=7',
       expect.objectContaining({
         cache: 'no-store',
         headers: expect.objectContaining({ 'Cache-Control': 'no-cache', Pragma: 'no-cache' }),
@@ -506,5 +506,56 @@ describe('authenticated PiP rollout safety', () => {
       actual.SPA_MIN_CONTRACT,
       'raising the floor strands contract-25 shells on their legacy unauthenticated PiP bundle'
     ).toBe(19);
+  });
+});
+
+describe('SPA discovery channel selection', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetApiBase.mockReturnValue('https://api.concordvoice.chat');
+  });
+
+  it('requests Pre-Release explicitly without changing the held default', async () => {
+    mockConfigResponse('https://preview.example.test/', 7);
+    expect(await resolveSpaSource('prerelease')).toMatchObject({
+      mode: 'remote',
+      url: 'https://preview.example.test/',
+    });
+    expect(mockNet.fetch).toHaveBeenLastCalledWith(
+      'https://api.concordvoice.chat/api/v1/client/config?channel=prerelease&ipc=7',
+      expect.any(Object)
+    );
+    await resolveSpaSource();
+    expect(mockNet.fetch).toHaveBeenLastCalledWith(
+      'https://api.concordvoice.chat/api/v1/client/config?channel=stable&ipc=7',
+      expect.any(Object)
+    );
+  });
+
+  it('keeps unavailable Pre-Release bundled without retrying Stable', async () => {
+    mockConfigResponse(undefined, undefined);
+    const result = await resolveSpaSource('prerelease');
+    expect(result.mode).toBe('bundled');
+    expect(isUnexpectedBundled(result.reason)).toBe(false);
+    expect(isTransientRemoteFailure(result.reason)).toBe(false);
+    expect(mockNet.fetch).toHaveBeenCalledTimes(1);
+    expect(mockNet.fetch).toHaveBeenCalledWith(
+      'https://api.concordvoice.chat/api/v1/client/config?channel=prerelease&ipc=7',
+      expect.any(Object)
+    );
+  });
+
+  it('keeps Pilot bundled without even reading the API base or fetching config', async () => {
+    mockConfigResponse('https://stable.example.test/', 7);
+    const result = await resolveSpaSource('pilot');
+    expect(result.mode).toBe('bundled');
+    expect(isUnexpectedBundled(result.reason)).toBe(false);
+    expect(isTransientRemoteFailure(result.reason)).toBe(false);
+    expect(mockGetApiBase).not.toHaveBeenCalled();
+    expect(mockNet.fetch).not.toHaveBeenCalled();
+    // Positive control: the same fixture can reach the network for Stable.
+    expect((await resolveSpaSource('stable')).mode).toBe('remote');
+    expect(mockGetApiBase).toHaveBeenCalledTimes(1);
+    expect(mockNet.fetch).toHaveBeenCalledTimes(1);
   });
 });

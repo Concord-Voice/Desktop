@@ -65,6 +65,24 @@ interface KeysResponse {
 const MAX_ATTEMPTS = 3;
 
 /**
+ * Whether a 403 is the fresh-sign-in refusal. Other 403s (a suspended account,
+ * an attestation refusal) must not send the user round a sign-in that cannot
+ * help them.
+ */
+async function isRecentAuthRequired(res: Response): Promise<boolean> {
+  try {
+    const body: unknown = await res.json();
+    return (
+      typeof body === 'object' &&
+      body !== null &&
+      (body as { code?: unknown }).code === 'recent_auth_required'
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Wipe main-process/disk credentials that a pending persist IPC re-wrote
  * AFTER a teardown wiped them — but ONLY for a nuclear-class (!rememberMe)
  * teardown and only when no successor session owns the store: a rememberMe
@@ -162,7 +180,7 @@ const SSOEagerUnlock: React.FC<Props> = ({ onUnlock, onSocialRecovery }) => {
     if (!res.ok) {
       if (res.status === 401) {
         setError('Your session expired. Please sign in again.');
-      } else if (res.status === 403) {
+      } else if (res.status === 403 && (await isRecentAuthRequired(res))) {
         // The server releases the wrapped key only to a fresh sign-in; a token
         // renewed by refresh gets recent_auth_required.
         setError('For your security, please sign in again to unlock your messages.');
@@ -306,7 +324,12 @@ const SSOEagerUnlock: React.FC<Props> = ({ onUnlock, onSocialRecovery }) => {
   const handleSignInAgain = async () => {
     if (submitting) return;
     setSubmitting(true);
-    await useUserStore.getState().logout();
+    try {
+      await useUserStore.getState().logout();
+    } catch {
+      setError("Couldn't sign you out. Please try again.");
+      setSubmitting(false);
+    }
   };
 
   if (attemptCount >= MAX_ATTEMPTS) {

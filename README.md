@@ -15,6 +15,7 @@
 [![security](https://img.shields.io/badge/security-policy-green)](https://github.com/Concord-Voice/.github/blob/main/SECURITY.md)
 [![E2EE](https://img.shields.io/badge/E2EE-AES--256--GCM%20%2F%20RSA--OAEP%204096-success)](https://github.com/Concord-Voice/Self-Hosted/blob/main/docs/architecture.md)
 [![platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/Concord-Voice/Desktop/releases/latest)
+
 [![SonarQube Cloud](https://sonarcloud.io/images/project_badges/sonarcloud-dark.svg)](https://sonarcloud.io/summary/new_code?id=Concord-Voice_Desktop)
 
 The Concord Voice desktop app for Windows, macOS, and Linux.
@@ -25,7 +26,7 @@ The Concord Voice desktop app for Windows, macOS, and Linux.
 
 ## Introduction
 
-Concord Voice is a privacy-first place to talk with your friends, your community, or your team. It gives you voice calls, video, screen sharing, and chat. Your device encrypts each message before it leaves, so our servers hold only scrambled data that we cannot read. You can use our hosted service, or you can run the same software on your own hardware.
+Concord Voice is a privacy-first place to talk with your friends, your community, or your team. It gives you voice calls, video, screen sharing, and chat. Your device encrypts each message before it leaves, so our servers store your messages only as scrambled data that we cannot read. You can use our hosted service, or you can run the same software on your own hardware.
 
 This repository holds the desktop app. It is the program you install on your computer to join servers, talk, and chat.
 It works with the hosted service and with servers that people run themselves.
@@ -88,7 +89,7 @@ We welcome help. Read the [contributing guide](https://github.com/Concord-Voice/
 
 ## License
 
-This repository uses the Concord Voice Source License 1.0 (CVSL 1.0). Anyone can read the source. Personal and non-profit use is free. Commercial self-hosted use by a for-profit or government entity needs a commercial license. On 2030-02-15 the license converts to AGPL-3.0-or-later.
+This repository uses the Concord Voice Source License 1.0 (CVSL 1.0). Anyone can read the source. Personal and non-profit use is free. Any use by a for-profit company or a government body needs a commercial license. Each version converts to AGPL-3.0-or-later on 2030-02-15 at the latest.
 
 See [LICENSE](./LICENSE) for the full terms.
 

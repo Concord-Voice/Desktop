@@ -10,6 +10,7 @@ const { app, BrowserWindow, protocol, session, safeStorage } = require('electron
 const { build } = require('esbuild');
 const { assertPreloadEnvironment, runRendererProbe } = require('./renderer-probe.js');
 const { probeNativeProcessorError } = require('./processor-error-probe.js');
+const { createCalibrationPhaseProbe, probeCalibration } = require('./calibration-phase-probe.js');
 
 const root = path.resolve(__dirname, '../..');
 const bundleRoot = process.argv[2] ? path.resolve(process.argv[2]) : root;
@@ -190,47 +191,12 @@ async function main() {
       const badContext = new OfflineAudioContext(2, 4800, 48000);
       const processorFailure = await (${probeNativeProcessorError.toString()})(badContext, MicFaultProbe.createMicProcessor);
       const calibrationContext = new OfflineAudioContext(1, 31 * 48000, 48000);
-      const events = [];
-      const calibration = await MicProbe.createMicProcessor(calibrationContext,
-        { protectAgcPeaks: true, gate: { kind: 'fixed', thresholdDbfs: -40 } },
-        () => {}, () => errors++, undefined, event => events.push(event));
-      const calibrationBuffer = calibrationContext.createBuffer(1, 31 * 48000, 48000);
-      calibrationBuffer.getChannelData(0).fill(0.001);
-      calibrationBuffer.getChannelData(0).fill(0.01, Math.round(10.08 * 48000));
-      const calibrationSource = calibrationContext.createBufferSource();
-      calibrationSource.buffer = calibrationBuffer;
-      const silent = calibrationContext.createGain(); silent.gain.value = 0;
-      calibrationSource.connect(calibration.node).connect(silent).connect(calibrationContext.destination);
-      calibration.setCalibrationPhase(1, 'quiet');
-      const partial = calibrationContext.suspend(0.03);
-      const speech = calibrationContext.suspend(10.08);
-      calibrationSource.start(); const rendering = calibrationContext.startRendering();
-      await partial;
-      // Supersede a partially captured window through the production host API.
-      calibration.setCalibrationPhase(2, 'quiet');
-      await calibrationContext.resume();
-      await speech;
-      calibration.setCalibrationPhase(3, 'speech');
-      await calibrationContext.resume();
-      const calibrated = await rendering;
-      const deadline = performance.now() + 2000;
-      while (!events.some(event => event.type === 'calibrationComplete' && event.epoch === 3) && performance.now() < deadline)
-        await new Promise(resolve => setTimeout(resolve, 10));
-      calibration.close();
-      const quiet = events.filter(event => event.type === 'calibrationWindow' && event.epoch === 2);
-      const spoken = events.filter(event => event.type === 'calibrationWindow' && event.epoch === 3);
-      const complete = events.filter(event => event.type === 'calibrationComplete');
+      const calibration = await (${probeCalibration.toString()})(calibrationContext,
+        MicProbe.createMicProcessor, ${createCalibrationPhaseProbe.toString()}, () => errors++);
       return { peak, stereoRatio: right[frame] / peak, delayFrames: frame,
         processorFailureCallbacks: processorFailure.callbacks, unexpectedProcessorErrors: errors,
         processorFailure: { injection: 'synthetic process() throw; unchanged production host', ...processorFailure },
-        calibration: { quietWindows: quiet.length, speechWindows: spoken.length,
-          quietFrames: quiet.reduce((sum, event) => sum + event.frames, 0),
-          speechFrames: spoken.reduce((sum, event) => sum + event.frames, 0),
-          quietComplete: complete.some(event => event.epoch === 2 && event.frames === 480000),
-          speechComplete: complete.some(event => event.epoch === 3 && event.frames === 960000),
-          silentOutput: calibrated.getChannelData(0).every(value => value === 0),
-          allWindowsComplete: [...quiet, ...spoken].every(event => event.valid && event.frames === 960),
-          speechPeak: spoken.length ? spoken[spoken.length - 1].peak : null } };
+        calibration };
     })()`,
       true
     );

@@ -88,6 +88,45 @@ src/renderer/
 
 ## Core Components
 
+### Event-budget reconnect and advisory contract
+
+For a current socket's 1013 close, the entire reason must be
+`retry_after_ms=<decimal>` with canonical ASCII digits and an integer between
+100 and 30000 inclusive. Malformed, missing, or out-of-range reasons use 1000ms.
+The selected delay is the maximum of that value and one computation of the
+existing normal/aggressive jitter. An instance-owned timer enforces the result
+before ticket acquisition and after asynchronous ticket/version work.
+
+Automatic online/fallback recovery, backoff reset, aggressive mode changes and
+same-login token refresh cannot shorten or extend a pending gate. Token refresh
+keeps the newest token for the permitted attempt. Explicit disconnect invalidates
+the gate; stale socket/timer callbacks and obsolete auth/server lifecycles cannot
+affect a successor connection. Offline handling resumes after the gate, retaining
+the existing bounded online fallback.
+
+A token update that starts a new auth generation (including password-change
+continuation adoption) retires an obsolete connected socket and starts a fresh
+connection with the latest token on the same selected server. An instance whose
+server selection is obsolete disconnects without sending that token to its old
+server. Ordinary same-generation refresh keeps the live socket and its renewal
+behavior.
+
+The local `../../types/ws-events.ts` error schema ports the reviewed canonical
+Self-Hosted `packages/protocol/src/renderer/types/ws-events.ts` event-budget hunk
+from commit `eb29e9702d8f07d9919992803c35ca5a9d507fca`, published in
+[Self-Hosted #144](https://github.com/Concord-Voice/Self-Hosted/pull/144)
+(unit E of Hosted #2270).
+The actual local union retains the eight-class `event_class` and integer
+`retry_after_ms` pair, required for `ws_rate_limited`. Legacy errors retain their
+existing behavior. Diagnostic summaries for this advisory contain only its fixed
+code, validated class and bounded delay; close reasons use fixed classifications.
+
+Reconnect restores desired channel/server/DM subscriptions and the version-2
+ready probe only. It does not replay previously sent content or mutations.
+The five-second ready wait and renewal acknowledgment wait, with one eleven-second
+renewal retry, remain unchanged. These source changes do not establish supported
+client release/adoption or authorize server activation; those remain delivery gates.
+
 ### 1. WebSocketService (`services/messaging/websocketService.ts`)
 
 Singleton service that manages the WebSocket connection lifecycle.

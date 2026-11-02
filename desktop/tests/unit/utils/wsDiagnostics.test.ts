@@ -12,15 +12,16 @@ describe('summarizeWsDiagnostic', () => {
       type: 'CloseEvent',
       event: 'close',
       code: 1006,
-      reason: 'abnormal',
+      reason: 'unspecified',
     });
   });
 
-  it('omits blank CloseEvent reasons', () => {
+  it('classifies blank CloseEvent reasons', () => {
     expect(summarizeWsDiagnostic(new CloseEvent('close', { code: 1005 }))).toEqual({
       type: 'CloseEvent',
       event: 'close',
       code: 1005,
+      reason: 'unspecified',
     });
   });
 
@@ -68,6 +69,51 @@ describe('summarizeWsServerError', () => {
     expect(summarizeWsServerError({ code: 401 })).toEqual({
       type: 'server_error',
       code: 'unknown',
+    });
+  });
+});
+
+describe('bounded event-budget diagnostics at direct boundary', () => {
+  it('retains only validated class and retry for the special advisory', () => {
+    const data = {
+      code: 'ws_rate_limited',
+      event_class: 'profile',
+      retry_after_ms: 5000,
+      channel_id: 'private-channel',
+      current_epoch: 8,
+      payload: 'private-payload',
+    };
+    expect(summarizeWsServerError(data)).toEqual({
+      type: 'server_error',
+      code: 'ws_rate_limited',
+      eventClass: 'profile',
+      retryAfterMs: 5000,
+    });
+  });
+  it.each([
+    { event_class: 'attacker-SENTINEL', retry_after_ms: 5000 },
+    { event_class: 'profile', retry_after_ms: '5000' },
+    { event_class: 'profile', retry_after_ms: 99 },
+    { event_class: 'profile', retry_after_ms: 30001 },
+    { event_class: 'profile', retry_after_ms: 100.5 },
+    { event_class: 'profile', retry_after_ms: NaN },
+    { event_class: 'profile', retry_after_ms: Infinity },
+    { event_class: 'profile' },
+    { retry_after_ms: 5000 },
+    {},
+  ])('drops unvalidated advisory values %j', (fields) => {
+    const data = { code: 'ws_rate_limited', channel_id: 'private-SENTINEL', ...fields };
+    expect(summarizeWsServerError(data)).toEqual({ type: 'server_error', code: 'ws_rate_limited' });
+  });
+  it('never emits an attacker close reason', () => {
+    expect(
+      summarizeWsDiagnostic(new CloseEvent('close', { code: 1013, reason: 'secret-SENTINEL' }))
+    ).toEqual({
+      type: 'CloseEvent',
+      event: 'close',
+      code: 1013,
+      reason: 'retry_after_fallback',
+      retryAfterMs: 1000,
     });
   });
 });

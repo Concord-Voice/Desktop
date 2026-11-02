@@ -1403,7 +1403,7 @@ describe('handleError log level', () => {
       type: 'CloseEvent',
       event: 'close',
       code: 1006,
-      reason: 'abnormal',
+      reason: 'unspecified',
     });
   });
 
