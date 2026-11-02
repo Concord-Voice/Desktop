@@ -263,7 +263,9 @@ const config: ForgeConfig = {
       // dist/renderer by Vite, and `assets/tray` reaches <Resources>/tray via
       // extraResource (resolveTrayIconPath reads process.resourcesPath when
       // packaged, and cwd/assets only in dev).
-      /^\/(src|tests|docs|scripts|schemas|functions|public|assets|coverage|playwright-report|test-results|spikes)($|\/)/,
+      /^\/(src|tests|docs|scripts|tools|schemas|functions|public|assets|coverage|playwright-report|test-results|spikes)($|\/)/,
+      // Private dependency adapters under tools/ are packaging inputs only;
+      // their source and fixtures must never become application payload.
       // `spikes` was added by the payload-boundary guard's own finding on PR
       // #3155: it was shipping its full source into app.asar. It is a throwaway
       // Windows measurement probe (s2probe.cpp and its WAV output) that has no

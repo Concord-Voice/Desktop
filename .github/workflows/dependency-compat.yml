@@ -1,0 +1,73 @@
+# PR-source tests must run before merge. The protected build workflow uses
+# main's definition, so adding this job only to build.yml cannot validate it
+# on the PR that introduces it. No secrets, signing, or release permissions.
+name: Packaging Dependency Compatibility
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'desktop/package.json'
+      - 'desktop/package-lock.json'
+      - 'desktop/.npmrc'
+      - 'desktop/tools/**'
+      - '.github/tools/license-checker/**'
+      - '.github/workflows/dependency-compat.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/package.json'
+      - 'desktop/package-lock.json'
+      - 'desktop/.npmrc'
+      - 'desktop/tools/**'
+      - '.github/tools/license-checker/**'
+      - '.github/workflows/dependency-compat.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-compat-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ioc:
+    uses: ./.github/workflows/ioc-scanning.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
+  compatibility:
+    name: Dependency compatibility (${{ matrix.os }})
+    needs: [ioc]
+    if: needs.ioc.result == 'success'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Install Desktop dependencies without lifecycle scripts
+        working-directory: desktop
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install the isolated license checker
+        working-directory: .github/tools/license-checker
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Supply-chain post-install tripwire
+        run: scripts/security/scan-supply-chain-iocs.sh --include-node-modules --working-tree-only
+      - name: Verify packaging dependency compatibility
+        working-directory: desktop
+        run: npm run test:dependency-compat
+      - name: Verify license attribution
+        working-directory: .github/tools/license-checker
+        run: npm test
