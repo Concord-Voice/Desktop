@@ -227,6 +227,10 @@ jobs:
         working-directory: desktop
         run: node ../scripts/security/override-range-lint.mjs --dir . --verify-installed-versions --minimum-version undici=6.29.1 --minimum-version undici=7.30.1 --minimum-version undici=8.12.2
 
+      - name: Verify packaging dependency compatibility
+        working-directory: desktop
+        run: npm run test:dependency-compat
+
       - name: Run tests with coverage (shard ${{ matrix.shard }}/2)
         working-directory: desktop
         env:

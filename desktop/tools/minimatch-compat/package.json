@@ -1,0 +1,11 @@
+{
+  "name": "@concordvoice/minimatch-compat",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Legacy callable export backed by patched minimatch",
+  "license": "UNLICENSED",
+  "main": "index.cjs",
+  "dependencies": {
+    "minimatch-modern": "npm:minimatch@^11.0.3"
+  }
+}

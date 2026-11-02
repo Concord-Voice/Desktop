@@ -295,13 +295,17 @@ run "names the unwatched workspace"             "$D" 1 "tools/concord-bridge"
 #     `directory:`. The docker blocks use the list form, so a parser that handled
 #     only the scalar would report every listed npm directory as uncovered the
 #     first time someone groups npm directories that way.
-DRIFT_LIST='version: 2
+# Derive each syntax variant from the real workspace set too. These raw
+# coverage fixtures deliberately do not append fallback npm_blocks.
+WS_BLOCK="$(while IFS= read -r ws; do printf '      - "/%s"\n' "$ws"; done <<<"$ALL_WS")"
+WS_QUOTED="$(while IFS= read -r ws; do printf "      - '/%s'\n" "$ws"; done <<<"$ALL_WS")"
+WS_FLOW="$(node --input-type=module -e "import { WORKSPACES } from '$LINT'; console.log(JSON.stringify(WORKSPACES.map(w => '/' + w)))")"
+WS_FLOW_ML="$(node --input-type=module -e "import { WORKSPACES } from '$LINT'; console.log(JSON.stringify(WORKSPACES.map(w => '/' + w), null, 2).replaceAll('\\n', '\\n    '))")"
+DRIFT_LIST="version: 2
 updates:
-  - package-ecosystem: "npm"
+  - package-ecosystem: npm
     directories:
-      - "/desktop"
-      - "/.github/tools/license-checker"
-      - "/tools/concord-bridge"'
+$WS_BLOCK"
 D=$(mkroot_raw driftlist "$EMPTY_REG" "$DRIFT_LIST")
 run "accepts a directories: list as coverage"   "$D" 0 "accounted for"
 
@@ -330,23 +334,19 @@ run "fails closed when dependabot.yml is absent" "$D" 2 "dependabot config not f
 #     absent — not as an error — and every watched directory reported as drift.
 #     A false exit 1 here blocks commits, which is why this is a case and not a
 #     note (CodeRabbit, PR #3325).
-DRIFT_FLOW='version: 2
+DRIFT_FLOW="version: 2
 updates:
-  - package-ecosystem: "npm"
-    directories: ["/desktop", "/.github/tools/license-checker", "/tools/concord-bridge"]'
+  - package-ecosystem: npm
+    directories: $WS_FLOW"
 D=$(mkroot_raw driftflow "$EMPTY_REG" "$DRIFT_FLOW")
 run "accepts a flow-style directories list"    "$D" 0 "accounted for"
 
 # ── 19. …and the same list spread over several lines, which is equally valid YAML
 #     and is what a formatter produces once the single line grows too long.
-DRIFT_FLOW_ML='version: 2
+DRIFT_FLOW_ML="version: 2
 updates:
-  - package-ecosystem: "npm"
-    directories: [
-      "/desktop",
-      "/.github/tools/license-checker",
-      "/tools/concord-bridge"
-    ]'
+  - package-ecosystem: npm
+    directories: $WS_FLOW_ML"
 D=$(mkroot_raw driftflowml "$EMPTY_REG" "$DRIFT_FLOW_ML")
 run "accepts a multi-line flow sequence"       "$D" 0 "accounted for"
 
@@ -372,16 +372,14 @@ DRIFT_QUOTED="version: 2
 updates:
   - 'package-ecosystem': 'npm'
     'directories':
-      - '/desktop'
-      - '/.github/tools/license-checker'
-      - '/tools/concord-bridge'"
+$WS_QUOTED"
 D=$(mkroot_raw driftquoted "$EMPTY_REG" "$DRIFT_QUOTED")
 run "quoted mapping keys are read"             "$D" 0 "accounted for"
 
 # ── 22. The same update written as a flow mapping.
-DRIFT_FLOWMAP='version: 2
+DRIFT_FLOWMAP="version: 2
 updates:
-  - { package-ecosystem: npm, directories: ["/desktop", "/.github/tools/license-checker", "/tools/concord-bridge"] }'
+  - { package-ecosystem: npm, directories: $WS_FLOW }"
 D=$(mkroot_raw driftflowmap "$EMPTY_REG" "$DRIFT_FLOWMAP")
 run "a flow mapping update block is read"      "$D" 0 "accounted for"
 
