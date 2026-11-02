@@ -189,6 +189,40 @@ jobs:
               - '.github/workflows/build.yml'
 
   # ─── Desktop Client (TypeScript/React) ────────────────────────────────
+  desktop-dependency-windows:
+    name: Desktop / Windows dependency compatibility
+    needs: [changes]
+    # Inherits the orchestrator's IOC prerequisite, like the desktop shards.
+    if: >-
+      !failure() && !cancelled() &&
+      (inputs.force-coverage || format('{0}', inputs.desktop-changed) == 'true' || needs.changes.outputs.desktop == 'true' || github.event_name != 'pull_request')
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Install Desktop dependencies without lifecycle scripts
+        working-directory: desktop
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Install the isolated license checker
+        working-directory: .github/tools/license-checker
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Supply-chain post-install tripwire
+        run: scripts/security/scan-supply-chain-iocs.sh --include-node-modules --working-tree-only
+      - name: Verify native Windows packaging dependency compatibility
+        working-directory: desktop
+        run: npm run test:dependency-compat
+      - name: Verify native Windows license attribution
+        working-directory: .github/tools/license-checker
+        run: npm test
+
   desktop:
     name: Desktop / Test + Coverage (shard ${{ matrix.shard }})
     needs: [changes]

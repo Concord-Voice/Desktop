@@ -34,6 +34,10 @@ filelist, ESLint overrides and builder filters. Run `npm ci && npm test` from
 repository-URL regression coverage. These fixtures do not replace the platform
 packaging matrix or release review.
 
+The build workflow runs these consumer and license fixtures on native Windows
+as well as the existing Linux checks. Windows filesystem coverage is required;
+the virtual Win32 fixtures on other hosts do not replace that job.
+
 Keep `install-links=true` in both workspaces: the adapters must be packed, not
 symlinked. npm can accept an incorrectly hoisted graph after override changes;
 a successful install alone is insufficient. The consumer-resolution test must
