@@ -1102,7 +1102,7 @@ The Beta release. Sign in with Google or Apple, add two-step verification or a
 passkey, and recover a locked account. Roles and permissions arrive with GIFs,
 server moderation, and end-to-end encrypted attachments.
 
-**79 Total Changes** | 30 Added | 7 Changed | 2 Removed | 26 Fixed | 14 Security
+**71 Total Changes** | 30 Added | 7 Changed | 2 Removed | 26 Fixed | 6 Security
 
 ### Added
 
