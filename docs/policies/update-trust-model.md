@@ -120,7 +120,8 @@ than the verified live cache's, so whoever controls the SPA origin cannot replay
 an older signed build within the freshness window. An expired or invalid live
 cache does not block replacement. Promotion renames `live/` aside, renames
 `staging/` into place, then deletes the old tree; a crash between the renames
-leaves no live cache, which fails closed. Freshness checks trust the local wall
+leaves no live cache, which fails closed, and the next population restores the
+previous tree before its rollback check. Freshness checks trust the local wall
 clock; a user who turns the clock back can keep an expired cache servable, which
 is outside this threat model.
 

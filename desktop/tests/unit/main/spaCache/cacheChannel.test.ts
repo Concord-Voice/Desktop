@@ -538,6 +538,19 @@ describe('channel cache population', () => {
 });
 
 describe('channel cache promotion', () => {
+  it('restores a crash-interrupted promotion before the rollback check', async () => {
+    const current = fixture('stable');
+    const cache = install('stable', current);
+    fs.renameSync(cache.getLiveDir(), `${cache.getLiveDir()}.old`);
+    const older = fixture('stable', { text: '<html>older</html>', generatedAtMs: NOW - DAY });
+    serveRoutes(routes(BASE, older));
+    expect(await populateChannelCacheFromRemote(BASE, 'stable')).toEqual({
+      populated: false,
+      reason: 'manifest rejected: older than the live cache',
+    });
+    await expectServed('stable', current.entry.bytes);
+  });
+
   it('restores the previous live tree when the final rename fails', () => {
     const original = fixture('stable');
     const cache = install('stable', original);

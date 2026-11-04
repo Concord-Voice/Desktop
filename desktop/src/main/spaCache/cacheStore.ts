@@ -12,7 +12,8 @@
  * Promotion renames live/ → live.old/, staging/ → live/, then removes live.old/.
  * Each `rename(2)` is atomic on the same filesystem and every directory is a
  * sibling under the same userData dir, so no rename crosses a mount point. A
- * crash between the two renames leaves no live/ (fails closed: no cache).
+ * crash between the two renames leaves no live/ (fails closed: no cache) until
+ * the next populate restores live.old/ before its rollback check.
  *
  * This module performs filesystem I/O only — no network, no crypto. The trust
  * decisions (signature, hashes, size caps) live in verifyManifest.ts and
@@ -119,6 +120,21 @@ function readManifestAt(
  */
 export function promoteStagingToLive(): void {
   promoteAt(getCacheRoot(), getStagingDir(), getLiveDir());
+}
+
+/** Restore the legacy live tree if a crash interrupted promotion (see recoverAt). */
+export function recoverInterruptedPromotion(): void {
+  recoverAt(getLiveDir());
+}
+
+/**
+ * A crash between promoteAt's two renames leaves `live.old/` and no `live/`.
+ * Put the previous tree back so the rollback guard compares against it instead
+ * of seeing no live cache. Serving still re-verifies every byte.
+ */
+function recoverAt(liveDir: string): void {
+  const oldDir = `${liveDir}.old`;
+  if (!fs.existsSync(liveDir) && fs.existsSync(oldDir)) fs.renameSync(oldDir, liveDir);
 }
 
 /**
@@ -302,6 +318,7 @@ export function createChannelCacheStore(channel: RemoteSpaChannel) {
     writeStagedFile: (relPath: string, bytes: Buffer) =>
       writeStagedFileAt(stagingDir, relPath, bytes),
     promoteStagingToLive: () => promoteAt(root, stagingDir, liveDir),
+    recoverInterruptedPromotion: () => recoverAt(liveDir),
     resolveLivePath: (relPath: string) => resolveLivePathAt(liveDir, relPath),
     readLiveFile: (relPath: string, expectedSize: number) =>
       readFileAt(resolveLivePathAt(liveDir, relPath), expectedSize),

@@ -28,6 +28,7 @@ import type { RemoteSpaChannel } from '../../shared/updateChannel';
 import {
   promoteStagingToLive,
   readLiveManifest,
+  recoverInterruptedPromotion,
   resetStaging,
   writeStagedFile,
   createChannelCacheStore,
@@ -150,6 +151,7 @@ async function doPopulate(
     writeStagedFile,
     promoteStagingToLive,
     readLiveManifest,
+    recoverInterruptedPromotion,
   };
   const manifestName = channelStore ? SPA_CHANNEL_MANIFEST_FILENAME : SPA_MANIFEST_FILENAME;
   const signatureName = channelStore
@@ -201,6 +203,12 @@ async function doPopulate(
   // 2b. Rollback guard: a signed but older manifest (e.g. replayed by whoever
   //     controls the origin, within the freshness window) must not replace a
   //     newer verified live cache. An unverifiable live cache does not block.
+  //     First undo a crash-interrupted promotion so the guard sees that tree.
+  try {
+    store.recoverInterruptedPromotion();
+  } catch (err) {
+    return { populated: false, reason: `live recovery failed: ${(err as Error).message}` };
+  }
   const live = store.readLiveManifest();
   const liveVerified = live ? verify(live) : null;
   if (
