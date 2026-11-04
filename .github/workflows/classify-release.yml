@@ -52,7 +52,7 @@ jobs:
   # fails closed on its own.
   contract-version-lockstep:
     name: SPA minimum ships with its client
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -108,7 +108,7 @@ jobs:
           drops any shell below it to its BUNDLED renderer. Raising it declares that
           older clients cannot run this renderer, so a client that satisfies
           ${NEW_SPA_MIN} has to ship with it. Nothing treats the contract as a release
-          trigger: the release is armed by package.json vs the desktop-v<version>
+          trigger: the release is armed by package.json vs the v<version>
           tag, which is why raising the minimum alone blocks every SPA deploy and why
           'risk: hotfix' on this PR would do nothing -- main-ci would have no version
           to cut.

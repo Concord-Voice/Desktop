@@ -80,10 +80,12 @@ if not 1 <= noop_exit_code <= 255:
 
 IOC_PATH = "scripts/security/iocs/shai-hulud-2.0.txt"
 ALLOWLIST = Path("scripts/security/iocs/false-positive-allowlist.txt")
+# Every tracked npm lockfile in this repository, so the list cannot go stale.
 LOCKFILES = [
-    Path("desktop/package-lock.json"),
-    Path("services/media-plane/package-lock.json"),
-    Path(".github/tools/license-checker/package-lock.json"),
+    Path(p)
+    for p in subprocess.run(
+        ["git", "ls-files", "*package-lock.json"], capture_output=True, text=True, check=True
+    ).stdout.split()
 ]
 CSV_RELATIVE = "shai-hulud-2.0/shai-hulud-2.0.csv"
 RAW_URL = "https://raw.githubusercontent.com/DataDog/indicators-of-compromise/{commit}/" + CSV_RELATIVE

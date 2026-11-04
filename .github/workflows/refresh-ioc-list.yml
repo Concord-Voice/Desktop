@@ -1,11 +1,10 @@
 name: Refresh IOC list (Shai-Hulud 2.0)
 
 # Daily threat-intel refresh with guarded auto-merge for clean small deltas.
-# See internal-reference Spec: #715, systemic fix: #1490.
 
 on:
   schedule:
-    # Daily (#1436): threat-intel cadence beats the old Dependabot-aligned
+    # Daily: threat-intel cadence beats the old Dependabot-aligned
     # Tuesday slot — IOC freshness is an active-defense posture, not a
     # weekly-deps convenience.
     - cron: "0 9 * * *"
@@ -30,23 +29,20 @@ concurrency:
 jobs:
   refresh:
     if: github.event_name != 'pull_request'
-    # trust-boundary (ADR-0016): production App-token mint stays GitHub-hosted.
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: production
     permissions:
       contents: read
     steps:
-      # ADR-0014: mint a short-lived installation token as Concord CI Bot so
-      # refresh PR pushes are App-authored, not GITHUB_TOKEN-authored. That is
-      # the structural fix for the pull_request anti-recursion gap. SHA-pinned
-      # to the same reviewed action version used by main-cd.yml.
+      # Mint a short-lived org App installation token so the refresh PR is
+      # App-authored: a GITHUB_TOKEN-authored PR starts no workflows, so its
+      # required checks would never run. Same org App as sync-tooling.yml.
       - name: Mint refresh App token
         id: app-token
         uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
-          client-id: ${{ vars.CI_DEPLOY_APP_CLIENT_ID }}
-          private-key: ${{ secrets.CI_DEPLOY_APP_PRIVATE_KEY }}
+          client-id: ${{ vars.PUBLIC_MIRROR_APP_CLIENT_ID }}
+          private-key: ${{ secrets.PUBLIC_MIRROR_APP_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: write
 
@@ -199,7 +195,7 @@ jobs:
 
   guard:
     if: github.event_name == 'pull_request'
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read

@@ -704,9 +704,9 @@ fi
 
 # ── Workflow trigger guard ────────────────────────────────────────────────────
 echo ""
-echo "Hosted classification contract fixtures (publication remains outside Desktop):"
-CLASSIFY_RELEASE_YML="${REPO_ROOT}/.github/scripts/tests/fixtures/hosted-release/classify-release.yml"
-CLASSIFY_COMMENT_YML="${REPO_ROOT}/.github/scripts/tests/fixtures/hosted-release/classify-release-comment.yml"
+echo "Release classifier workflow triggers:"
+CLASSIFY_RELEASE_YML="${REPO_ROOT}/.github/workflows/classify-release.yml"
+CLASSIFY_COMMENT_YML="${REPO_ROOT}/.github/workflows/classify-release-comment.yml"
 assert_exit 0 "build-desktop.yml is included in pull_request.paths" awk '
   /^  pull_request:/ { in_pr=1; next }
   in_pr && /^[^ ]/ { in_pr=0; in_paths=0 }
@@ -1068,7 +1068,7 @@ with_changelog() {
       printf 'export const IPC_CONTRACT_VERSION = %s;\nexport const SPA_MIN_CONTRACT = 12;\n' "$3" \
         > desktop/src/main/ipcContract.ts
       git commit -qam "released shell" --allow-empty
-      git tag desktop-v0.1.57
+      git tag "${RB_TAG_PREFIX:-desktop-v}0.1.57"
       git checkout -q -
     fi
     printf '%s\n' "# Changelog" "" "## [Prerelease]" "" "$2" "" "## [0.1.57] - 2026-01-01" "" "### Added" "" "- old" \
@@ -1109,6 +1109,10 @@ assert_output_contains "bump_basis=ipc" "contract ahead of base: minor on ipc ba
 # Contract bumped by an EARLIER merge since the last release tag: still minor.
 with_changelog "$(make_fixture 12 "0.1.57" 12 "0.1.57" "shell")" "$FIXED_NOTES" 11
 assert_output_contains "bump_basis=ipc" "contract ahead of last released tag: minor on ipc basis" "$RB_DIR" "$RB_BASE"
+
+# Desktop tags are `v<version>` from v0.3.0 on; the released contract must be read from them too.
+RB_TAG_PREFIX=v with_changelog "$(make_fixture 12 "0.1.57" 12 "0.1.57" "shell")" "$FIXED_NOTES" 11
+assert_output_contains "bump_basis=ipc" "contract ahead of last v<version> tag: minor on ipc basis" "$RB_DIR" "$RB_BASE"
 
 # A PR that promotes reads its own version section, not the emptied Prerelease.
 with_changelog "$(make_fixture 12 "0.1.57" 12 "0.1.58" "shell")" ""
