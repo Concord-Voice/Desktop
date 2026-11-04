@@ -704,9 +704,9 @@ fi
 
 # ── Workflow trigger guard ────────────────────────────────────────────────────
 echo ""
-echo "Hosted classification contract fixtures (publication remains outside Desktop):"
-CLASSIFY_RELEASE_YML="${REPO_ROOT}/.github/scripts/tests/fixtures/hosted-release/classify-release.yml"
-CLASSIFY_COMMENT_YML="${REPO_ROOT}/.github/scripts/tests/fixtures/hosted-release/classify-release-comment.yml"
+echo "Release classifier workflow triggers:"
+CLASSIFY_RELEASE_YML="${REPO_ROOT}/.github/workflows/classify-release.yml"
+CLASSIFY_COMMENT_YML="${REPO_ROOT}/.github/workflows/classify-release-comment.yml"
 assert_exit 0 "build-desktop.yml is included in pull_request.paths" awk '
   /^  pull_request:/ { in_pr=1; next }
   in_pr && /^[^ ]/ { in_pr=0; in_paths=0 }

@@ -27,7 +27,7 @@ jobs:
   classify-data:
     name: Collect release classification data
     if: github.repository == 'Concord-Voice/Desktop' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -153,7 +153,7 @@ jobs:
     name: Classify release impact
     needs: classify-data
     if: github.repository == 'Concord-Voice/Desktop' && github.event.pull_request.base.ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository && needs.classify-data.result == 'success' && needs.classify-data.outputs.shell_changed != '' && needs.classify-data.outputs.old_contract != '' && needs.classify-data.outputs.new_contract != '' && needs.classify-data.outputs.contract_action != '' && needs.classify-data.outputs.old_version != '' && needs.classify-data.outputs.new_version != '' && needs.classify-data.outputs.version_action != '' && needs.classify-data.outputs.old_spa_min != '' && needs.classify-data.outputs.new_spa_min != '' && needs.classify-data.outputs.spa_min_action != '' && needs.classify-data.outputs.spa_min_present != '' && needs.classify-data.outputs.version_bump_required != '' && needs.classify-data.outputs.bump_level != '' && needs.classify-data.outputs.bump_basis != ''
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     continue-on-error: true
     permissions:
