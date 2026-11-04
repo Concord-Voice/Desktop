@@ -41,7 +41,10 @@ const NOW = Date.parse('2026-10-25T12:00:00Z');
 const DAY = 24 * 60 * 60 * 1000;
 const BASE = 'https://spa.concordvoice.chat/';
 const PRE_BASE = 'https://prerelease.example.test/';
-function fixture(channel: RemoteSpaChannel, opts: { text?: string; legacy?: boolean } = {}) {
+function fixture(
+  channel: RemoteSpaChannel,
+  opts: { text?: string; legacy?: boolean; generatedAtMs?: number } = {}
+) {
   const entry = { path: 'index.html', bytes: Buffer.from(opts.text ?? `<html>${channel}</html>`) };
   const asset = {
     path: 'assets/app.js',
@@ -50,7 +53,7 @@ function fixture(channel: RemoteSpaChannel, opts: { text?: string; legacy?: bool
   const legacy = buildSignedManifest(KP, {
     entry,
     assets: [asset],
-    generatedAt: new Date(NOW).toISOString(),
+    generatedAt: new Date(opts.generatedAtMs ?? NOW).toISOString(),
     spaIpcContract: 16,
   });
   const manifestBytes = opts.legacy
@@ -468,5 +471,108 @@ describe('channel cache population', () => {
       releaseStable();
       await pendingStable;
     }
+  });
+
+  it('refuses a signed but older manifest so the cache cannot be rolled back', async () => {
+    const current = fixture('stable');
+    install('stable', current);
+    const older = fixture('stable', { text: '<html>older</html>', generatedAtMs: NOW - DAY });
+    serveRoutes(routes(BASE, older));
+    const result = await populateChannelCacheFromRemote(BASE, 'stable');
+    expect(result).toEqual({
+      populated: false,
+      reason: 'manifest rejected: older than the live cache',
+    });
+    expect(fetchMock.mock.calls.map(([url]) => url)).not.toContain(
+      new URL(older.entry.path, BASE).href
+    );
+    await expectServed('stable', current.entry.bytes);
+  });
+
+  it('accepts a newer manifest and replaces an unverifiable live cache', async () => {
+    const stale = fixture('stable', { generatedAtMs: NOW - 40 * DAY });
+    install('stable', stale);
+    const newer = fixture('stable', { text: '<html>newer</html>' });
+    serveRoutes(routes(BASE, newer));
+    expect((await populateChannelCacheFromRemote(BASE, 'stable')).populated).toBe(true);
+    await expectServed('stable', newer.entry.bytes);
+    const liveDir = store.createChannelCacheStore('stable').getLiveDir();
+    expect(fs.existsSync(`${liveDir}.old`)).toBe(false);
+  });
+
+  it('tells a caller for another origin that a population is already in flight', async () => {
+    const stable = fixture('stable');
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const map = routes(BASE, stable);
+    fetchMock.mockImplementation(async (url: string) => {
+      await gate;
+      const bytes = map[url];
+      return new Response(bytes ? new Uint8Array(bytes) : null, { status: bytes ? 200 : 404 });
+    });
+    const first = populateChannelCacheFromRemote(BASE, 'stable');
+    try {
+      expect(await populateChannelCacheFromRemote(PRE_BASE, 'stable')).toEqual({
+        populated: false,
+        reason: 'populate in flight for another origin',
+      });
+    } finally {
+      release();
+    }
+    expect((await first).populated).toBe(true);
+  });
+
+  it('reports an unavailable cache root instead of throwing', async () => {
+    getPathMock.mockImplementation(() => {
+      throw new Error('userData unavailable');
+    });
+    expect(await populateChannelCacheFromRemote(BASE, 'stable')).toEqual({
+      populated: false,
+      reason: 'cache root unavailable',
+    });
+    expect(resolveChannelCachedSpa('stable', NOW)).toBeNull();
+    expect((await request('stable')).status).toBe(404);
+  });
+});
+
+describe('channel cache promotion', () => {
+  it('restores the previous live tree when the final rename fails', () => {
+    const original = fixture('stable');
+    const cache = install('stable', original);
+    cache.resetStaging();
+    cache.writeStagedFile('index.html', Buffer.from('<html>next</html>'));
+    const realRename = fs.renameSync;
+    vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+      if (String(from) === cache.getStagingDir()) throw new Error('rename failed');
+      return realRename(from, to);
+    });
+    expect(() => cache.promoteStagingToLive()).toThrow('rename failed');
+    expect(fs.readFileSync(path.join(cache.getLiveDir(), 'index.html'))).toEqual(
+      original.entry.bytes
+    );
+    expect(fs.existsSync(`${cache.getLiveDir()}.old`)).toBe(false);
+  });
+});
+
+describe('channel protocol request routing', () => {
+  it.each(['app://concord/index.html', 'https://concord/index.html'])(
+    'returns 404 for non-cache URL %s even with a valid channel cache',
+    async (url) => {
+      install('stable');
+      const response = await handleChannelCacheProtocolRequest(new Request(url), 'stable', NOW);
+      expect(response.status).toBe(404);
+    }
+  );
+
+  it('returns 404 for a path the manifest does not list', async () => {
+    install('stable');
+    expect((await request('stable', 'assets/unlisted.js')).status).toBe(404);
+  });
+
+  it('refuses an encoded traversal path', async () => {
+    install('stable');
+    expect((await request('stable', 'assets/..%2f..%2fsecret')).status).toBe(403);
   });
 });

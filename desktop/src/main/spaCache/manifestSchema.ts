@@ -58,6 +58,8 @@ export const SPA_CACHE_MAX_TOTAL_BYTES = 100_000_000; // 100 MB
 export const SPA_CACHE_MAX_ASSETS = 2_000;
 /** Bounded staleness: reject a manifest older than this (do not run ancient bytes). */
 export const SPA_CACHE_MAX_STALENESS_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+/** Reject a manifest whose generatedAt is further than this ahead of the local clock. */
+export const SPA_MANIFEST_MAX_FUTURE_SKEW_MS = 24 * 60 * 60 * 1000; // 1 day
 
 const SHA256_HEX = /^[a-f0-9]{64}$/;
 

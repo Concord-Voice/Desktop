@@ -122,6 +122,31 @@ describe('populateCacheFromRemote (#1870)', () => {
     expect(fs.existsSync(path.join(getLiveDir(), 'assets', 'app-abc.js'))).toBe(true);
   });
 
+  it('refuses a signed but older manifest and keeps the newer live cache', async () => {
+    const files = defaultFiles();
+    const routesFor = (signed: { manifestBytes: Buffer; signatureBase64: string }) => ({
+      [new URL(SPA_MANIFEST_FILENAME, BASE).href]: signed.manifestBytes,
+      [new URL(SPA_MANIFEST_SIG_FILENAME, BASE).href]: Buffer.from(signed.signatureBase64, 'utf8'),
+      [new URL(files.entry.path, BASE).href]: files.entry.bytes,
+      [new URL(files.assets[0].path, BASE).href]: files.assets[0].bytes,
+      [new URL(files.assets[1].path, BASE).href]: files.assets[1].bytes,
+    });
+    const newer = buildSignedManifest(KP, files);
+    routeFetch(routesFor(newer));
+    expect((await populateCacheFromRemote(BASE)).populated).toBe(true);
+
+    const older = buildSignedManifest(KP, {
+      ...files,
+      generatedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    });
+    routeFetch(routesFor(older));
+    expect(await populateCacheFromRemote(BASE)).toEqual({
+      populated: false,
+      reason: 'manifest rejected: older than the live cache',
+    });
+    expect(readLiveManifest()?.manifestBytes.equals(newer.manifestBytes)).toBe(true);
+  });
+
   it('does NOT promote when a single asset hash mismatches; live is unchanged', async () => {
     const files = defaultFiles();
     const { manifestBytes, signatureBase64 } = buildSignedManifest(KP, files);

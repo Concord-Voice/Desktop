@@ -4,7 +4,14 @@
  *
  * Walks the built renderer dist, builds a `spa-manifest.json` describing every
  * file (sha256 + size), and writes a DETACHED RSA-PSS signature over the EXACT
- * bytes of that manifest to a sibling `spa-manifest.json.sig`. The Electron
+ * bytes of that manifest to a sibling `spa-manifest.json.sig`. With
+ * `--channel stable|prerelease` it also writes a channel-bound schema-v2
+ * `spa-manifest.v2.json` (+ `.sig`) over the same asset set. Stable keeps the v1
+ * pair for existing clients; Pre-Release writes v2 ONLY, because v1 carries no
+ * channel and a v1 client must never cache Pre-Release bytes. Each mode deletes
+ * the metadata files it does not write, so a dist re-signed in another mode
+ * never publishes a stale manifest. The `--dist` root may be a symlink (it is
+ * resolved first); symlinks inside it are rejected. The Electron
  * verifier (`src/main/spaCache/verifyManifest.ts`) checks the signature over the
  * bytes it fetched VERBATIM before parsing the JSON, so there is no
  * canonicalization to drift between this signer and the verifier.
@@ -23,7 +30,7 @@
  * Contract and activation status: docs/policies/update-trust-model.md.
  */
 
-import { readFileSync, readdirSync, lstatSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, lstatSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { constants as cryptoConstants, createHash, sign as cryptoSign } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
@@ -87,7 +94,7 @@ function walkFiles(distDir) {
  * @returns {{ manifest: object, manifestBytes: Buffer }}
  */
 export function buildManifest(distDir, { buildId, spaIpcContract, generatedAt }) {
-  const resolvedDist = path.resolve(distDir);
+  const resolvedDist = resolveDist(distDir);
   const files = walkFiles(resolvedDist);
   const entryAbs = path.join(resolvedDist, ENTRY_FILENAME);
   let entryStat;
@@ -130,6 +137,11 @@ export function buildManifest(distDir, { buildId, spaIpcContract, generatedAt })
   return { manifest, manifestBytes };
 }
 
+/** Resolve the dist root itself (a symlinked --dist is fine); contents are walked with lstat. */
+function resolveDist(distDir) {
+  return realpathSync(path.resolve(distDir));
+}
+
 /**
  * Sign the exact manifest bytes with RSA-PSS / SHA-256 / saltLength 32 and
  * return the signature as base64. Mirrors `crypto.verify(...)` in
@@ -145,11 +157,14 @@ export function signManifestBytes(manifestBytes, privateKeyPem) {
 }
 
 /**
- * Build + sign + write `spa-manifest.json` (the signed bytes) and
- * `spa-manifest.json.sig` (base64 signature) into distDir. An explicit channel
- * additionally writes the separately signed v2 envelope over the same asset set.
+ * Build + sign + write the manifest envelopes for the selected mode into distDir:
+ *   - legacy (no channel): v1 `spa-manifest.json` + `.sig`
+ *   - stable:              v1 pair + v2 `spa-manifest.v2.json` + `.sig`
+ *   - prerelease:          v2 pair only
+ * Metadata files the mode does not write are deleted. Every envelope is signed
+ * before any file is written, so a failed signature publishes nothing.
  *
- * @returns {{ manifestPath: string, signaturePath: string, manifest: object }}
+ * @returns {{ manifest: object, written: string[] }}
  */
 export async function signSpaDist(distDir, privateKeyPem, opts) {
   const { buildId, spaIpcContract, generatedAt, channel } = opts;
@@ -163,35 +178,42 @@ export async function signSpaDist(distDir, privateKeyPem, opts) {
     spaIpcContract,
     generatedAt,
   });
-  const signatureBase64 = signManifestBytes(manifestBytes, privateKeyPem);
 
-  // Sign both envelopes before writing either; a failed signature never publishes v2.
-  const channelBytes =
-    channel === undefined
-      ? null
-      : Buffer.from(
-          `${JSON.stringify({ ...manifest, schemaVersion: 2, channel }, null, 2)}\n`,
-          'utf8'
-        );
-  const channelSignature =
-    channelBytes === null ? null : signManifestBytes(channelBytes, privateKeyPem);
-  const resolvedDist = path.resolve(distDir);
-  const manifestPath = path.join(resolvedDist, SPA_MANIFEST_FILENAME);
-  const signaturePath = path.join(resolvedDist, SPA_MANIFEST_SIG_FILENAME);
-
-  // Write the EXACT bytes that were signed (no re-serialization).
-  writeFileSync(manifestPath, manifestBytes);
-  writeFileSync(signaturePath, `${signatureBase64}\n`, 'utf8');
-
-  if (channelBytes !== null && channelSignature !== null) {
-    writeFileSync(path.join(resolvedDist, SPA_CHANNEL_MANIFEST_FILENAME), channelBytes);
-    writeFileSync(
-      path.join(resolvedDist, SPA_CHANNEL_MANIFEST_SIG_FILENAME),
-      `${channelSignature}\n`,
+  const envelopes = [];
+  if (channel !== 'prerelease') {
+    envelopes.push([SPA_MANIFEST_FILENAME, SPA_MANIFEST_SIG_FILENAME, manifestBytes]);
+  }
+  if (channel !== undefined) {
+    const channelBytes = Buffer.from(
+      `${JSON.stringify({ ...manifest, schemaVersion: 2, channel }, null, 2)}\n`,
       'utf8'
     );
+    envelopes.push([
+      SPA_CHANNEL_MANIFEST_FILENAME,
+      SPA_CHANNEL_MANIFEST_SIG_FILENAME,
+      channelBytes,
+    ]);
   }
-  return { manifestPath, signaturePath, manifest };
+  const signed = envelopes.map(([name, sigName, bytes]) => ({
+    name,
+    sigName,
+    bytes,
+    signature: signManifestBytes(bytes, privateKeyPem),
+  }));
+
+  const resolvedDist = resolveDist(distDir);
+  const keep = new Set(signed.flatMap(({ name, sigName }) => [name, sigName]));
+  for (const name of METADATA_FILENAMES) {
+    if (!keep.has(name)) rmSync(path.join(resolvedDist, name), { force: true });
+  }
+  const written = [];
+  for (const { name, sigName, bytes, signature } of signed) {
+    // Write the EXACT bytes that were signed (no re-serialization).
+    writeFileSync(path.join(resolvedDist, name), bytes);
+    writeFileSync(path.join(resolvedDist, sigName), `${signature}\n`, 'utf8');
+    written.push(path.join(resolvedDist, name), path.join(resolvedDist, sigName));
+  }
+  return { manifest, written };
 }
 
 // ── CLI ────────────────────────────────────────────────────────────────────
@@ -251,7 +273,7 @@ async function main() {
   }
 
   const generatedAt = new Date().toISOString();
-  const { manifestPath, signaturePath, manifest } = await signSpaDist(dist, privateKeyPem, {
+  const { manifest, written } = await signSpaDist(dist, privateKeyPem, {
     buildId,
     spaIpcContract,
     generatedAt,
@@ -263,8 +285,7 @@ async function main() {
     `${LOG_PREFIX} signed SPA manifest: buildId=${manifest.buildId} ipc=${manifest.spaIpcContract} ` +
       `assets=${manifest.assets.length} totalSize=${manifest.totalSize}`
   );
-  console.log(`${LOG_PREFIX} wrote ${manifestPath}`);
-  console.log(`${LOG_PREFIX} wrote ${signaturePath}`);
+  for (const file of written) console.log(`${LOG_PREFIX} wrote ${file}`);
 }
 
 /* istanbul ignore next -- thin CLI entry shim; the exported core is unit-tested. */

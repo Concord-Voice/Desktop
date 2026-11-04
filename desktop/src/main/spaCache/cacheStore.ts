@@ -1,15 +1,18 @@
 /**
- * SPA LKG cache — on-disk store + atomic promotion (#1870).
+ * SPA LKG cache — on-disk store + rename-based promotion (#1870).
  *
  * Filesystem layout (all under `app.getPath('userData')/spa-cache/`):
- *   live/     — the verified cache currently served by the `spa-cache://` handler
+ *   live/     — the verified legacy (v1) cache served by the `spa-cache://` handler
  *   staging/  — the download target for an in-progress populate; promoted to
  *               live/ ONLY after every file has been hash-verified against a
  *               signature-verified manifest.
+ *   v2/<channel>/{live,staging}/ — the dormant per-channel caches (stable,
+ *               prerelease), with the same lifecycle and no shared files.
  *
- * Promotion is atomic: the old `live/` is removed and `staging/` is renamed onto
- * it. `rename(2)` is atomic on the same filesystem, and staging is a sibling of
- * live under the same userData dir, so the rename never crosses a mount point.
+ * Promotion renames live/ → live.old/, staging/ → live/, then removes live.old/.
+ * Each `rename(2)` is atomic on the same filesystem and every directory is a
+ * sibling under the same userData dir, so no rename crosses a mount point. A
+ * crash between the two renames leaves no live/ (fails closed: no cache).
  *
  * This module performs filesystem I/O only — no network, no crypto. The trust
  * decisions (signature, hashes, size caps) live in verifyManifest.ts and
@@ -109,17 +112,34 @@ function readManifestAt(
 }
 
 /**
- * Atomically promote the staged cache to live: remove the old live tree, then
- * rename staging → live. Creates the cache root if needed. The caller is
+ * Promote the staged cache to live by renaming live → live.old, staging → live,
+ * then removing live.old. Creates the cache root if needed. The caller is
  * responsible for having fully populated + verified staging first; this function
  * performs no validation.
  */
 export function promoteStagingToLive(): void {
-  const liveDir = getLiveDir();
-  const stagingDir = getStagingDir();
-  fs.mkdirSync(getCacheRoot(), { recursive: true });
-  fs.rmSync(liveDir, { recursive: true, force: true });
-  fs.renameSync(stagingDir, liveDir);
+  promoteAt(getCacheRoot(), getStagingDir(), getLiveDir());
+}
+
+/**
+ * Swap staging into live with renames only, so live/ is never deleted before
+ * its replacement exists. If the final rename fails, the previous live tree is
+ * restored. A crash between the two renames leaves `live.old/` and no `live/`,
+ * which fails closed (no cache) and is cleaned up by the next promotion.
+ */
+function promoteAt(root: string, stagingDir: string, liveDir: string): void {
+  const oldDir = `${liveDir}.old`;
+  fs.mkdirSync(root, { recursive: true });
+  fs.rmSync(oldDir, { recursive: true, force: true });
+  const hadLive = fs.existsSync(liveDir);
+  if (hadLive) fs.renameSync(liveDir, oldDir);
+  try {
+    fs.renameSync(stagingDir, liveDir);
+  } catch (err) {
+    if (hadLive) fs.renameSync(oldDir, liveDir);
+    throw err;
+  }
+  fs.rmSync(oldDir, { recursive: true, force: true });
 }
 
 /**
@@ -281,11 +301,7 @@ export function createChannelCacheStore(channel: RemoteSpaChannel) {
     },
     writeStagedFile: (relPath: string, bytes: Buffer) =>
       writeStagedFileAt(stagingDir, relPath, bytes),
-    promoteStagingToLive: () => {
-      fs.mkdirSync(root, { recursive: true });
-      fs.rmSync(liveDir, { recursive: true, force: true });
-      fs.renameSync(stagingDir, liveDir);
-    },
+    promoteStagingToLive: () => promoteAt(root, stagingDir, liveDir),
     resolveLivePath: (relPath: string) => resolveLivePathAt(liveDir, relPath),
     readLiveFile: (relPath: string, expectedSize: number) =>
       readFileAt(resolveLivePathAt(liveDir, relPath), expectedSize),

@@ -13,6 +13,9 @@
  *     signed manifest; staging is promoted to live ONLY after ALL files verify.
  *     Any mismatch / oversize / fetch failure aborts WITHOUT promoting, so the
  *     previous live cache (if any) is left untouched.
+ *   - Monotonic: a verified manifest whose generatedAt is older than the
+ *     verified live cache's is rejected, so a replayed older signed build
+ *     cannot roll the cache back.
  *
  * Logging is PII/secret-safe — never the raw
  * `err`, never file bytes, never the manifest payload.
@@ -24,6 +27,7 @@ import { verifyManifest, verifyChannelManifest } from './verifyManifest';
 import type { RemoteSpaChannel } from '../../shared/updateChannel';
 import {
   promoteStagingToLive,
+  readLiveManifest,
   resetStaging,
   writeStagedFile,
   createChannelCacheStore,
@@ -141,7 +145,12 @@ async function doPopulate(
   remoteBaseUrl: string,
   channelStore?: ChannelCacheStore
 ): Promise<PopulateResult> {
-  const store = channelStore ?? { resetStaging, writeStagedFile, promoteStagingToLive };
+  const store = channelStore ?? {
+    resetStaging,
+    writeStagedFile,
+    promoteStagingToLive,
+    readLiveManifest,
+  };
   const manifestName = channelStore ? SPA_CHANNEL_MANIFEST_FILENAME : SPA_MANIFEST_FILENAME;
   const signatureName = channelStore
     ? SPA_CHANNEL_MANIFEST_SIG_FILENAME
@@ -172,10 +181,9 @@ async function doPopulate(
   }
 
   // 2. Verify the manifest BEFORE fetching any asset bytes.
-  const verify = () => {
+  const verify = (signed = { manifestBytes, signatureBase64 }) => {
     const params = {
-      manifestBytes,
-      signatureBase64,
+      ...signed,
       publicKeyPems: SPA_MANIFEST_PUBLIC_KEYS_PEM,
       shellIpcContract: IPC_CONTRACT_VERSION,
       nowMs: Date.now(),
@@ -189,6 +197,18 @@ async function doPopulate(
     return { populated: false, reason: `manifest rejected: ${verified.reason}` };
   }
   const manifest = verified.manifest;
+
+  // 2b. Rollback guard: a signed but older manifest (e.g. replayed by whoever
+  //     controls the origin, within the freshness window) must not replace a
+  //     newer verified live cache. An unverifiable live cache does not block.
+  const live = store.readLiveManifest();
+  const liveVerified = live ? verify(live) : null;
+  if (
+    liveVerified?.ok &&
+    Date.parse(manifest.generatedAt) < Date.parse(liveVerified.manifest.generatedAt)
+  ) {
+    return { populated: false, reason: 'manifest rejected: older than the live cache' };
+  }
 
   // 3. Download + verify every file into a fresh staging tree.
   try {
@@ -283,8 +303,13 @@ export function __resetInFlightForTests(): void {
   channelInFlight.clear();
 }
 
-// One writer per captured root/channel; another channel never shares its result.
-const channelInFlight = new Map<string, Promise<PopulateResult>>();
+// One writer per captured root/channel; another channel never shares its result,
+// and a caller asking for a different origin is told so rather than handed the
+// in-flight origin's outcome.
+const channelInFlight = new Map<
+  string,
+  { remoteBaseUrl: string; operation: Promise<PopulateResult> }
+>();
 
 /** Authenticate and populate bytes only; this does not authorize live navigation. */
 export function populateChannelCacheFromRemote(
@@ -302,10 +327,14 @@ export function populateChannelCacheFromRemote(
   }
   const key = JSON.stringify([store.getLiveDir(), channel]);
   const pending = channelInFlight.get(key);
-  if (pending) return pending;
+  if (pending) {
+    return pending.remoteBaseUrl === remoteBaseUrl
+      ? pending.operation
+      : Promise.resolve({ populated: false, reason: 'populate in flight for another origin' });
+  }
   const operation = doPopulate(remoteBaseUrl, store).finally(() => {
-    if (channelInFlight.get(key) === operation) channelInFlight.delete(key);
+    if (channelInFlight.get(key)?.operation === operation) channelInFlight.delete(key);
   });
-  channelInFlight.set(key, operation);
+  channelInFlight.set(key, { remoteBaseUrl, operation });
   return operation;
 }

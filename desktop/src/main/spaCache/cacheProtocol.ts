@@ -34,14 +34,13 @@ import {
   type ChannelCacheStore,
 } from './cacheStore';
 import type { RemoteSpaChannel } from '../../shared/updateChannel';
-import { verifyManifest, verifyChannelManifest } from './verifyManifest';
+import { verifyManifest, verifyChannelManifest, manifestPolicyFailure } from './verifyManifest';
 import { readVerifiedLiveFile } from './cacheIntegrity';
 import { SPA_MANIFEST_PUBLIC_KEYS_PEM } from './spaManifestPublicKey';
 import { IPC_CONTRACT_VERSION } from '../ipcContract';
 import {
   SPA_CACHE_HOST,
   SPA_CACHE_SCHEME,
-  SPA_CACHE_MAX_STALENESS_MS,
   type SpaManifest,
   type SpaChannelManifest,
   type SpaManifestFile,
@@ -302,14 +301,10 @@ function getChannelFileMap(
       fileMap: buildFileMap(verified.manifest),
     };
   }
-  // Authentication is memoized; time and shell policy are not. These are the
-  // same freshness/IPC bounds as verifyChannelManifest, evaluated on every hit.
-  const generatedMs = Date.parse(channelMemo.manifest.generatedAt);
+  // Authentication is memoized; time and shell policy are not. Reuse the
+  // verifier's own policy function so the two can never drift.
   if (
-    !Number.isFinite(nowMs) ||
-    channelMemo.manifest.spaIpcContract > IPC_CONTRACT_VERSION ||
-    generatedMs > nowMs + 24 * 60 * 60 * 1000 ||
-    nowMs - generatedMs > SPA_CACHE_MAX_STALENESS_MS
+    manifestPolicyFailure(channelMemo.manifest, { shellIpcContract: IPC_CONTRACT_VERSION, nowMs })
   ) {
     return null;
   }

@@ -303,9 +303,9 @@ describe('channel signer contract', () => {
     };
   }
 
-  it.each(['stable', 'prerelease'] as const)(
-    'CLI emits verifiable v1 and %s v2 artifacts',
-    (channel) => {
+  it('CLI emits verifiable v1 and stable v2 artifacts', () => {
+    {
+      const channel = 'stable' as const;
       const result = runChannelSigner(channel);
       expect(result.status, result.stderr).toBe(0);
       for (const filename of CHANNEL_METADATA)
@@ -345,7 +345,60 @@ describe('channel signer contract', () => {
       expect(swapped.ok).toBe(false);
       if (!swapped.ok) expect(swapped.reason).toMatch(/signature/i);
     }
-  );
+  });
+
+  it('CLI emits only the prerelease v2 artifacts (no channel-less v1)', () => {
+    const result = runChannelSigner('prerelease');
+    expect(result.status, result.stderr).toBe(0);
+    expect(fs.existsSync(path.join(distDir, 'spa-manifest.json'))).toBe(false);
+    expect(fs.existsSync(path.join(distDir, 'spa-manifest.json.sig'))).toBe(false);
+    expect(result.stdout).toContain('spa-manifest.v2.json.sig');
+    const signed = readSigned('spa-manifest.v2.json');
+    const object = JSON.parse(signed.manifestBytes.toString());
+    expect(object).toMatchObject({ schemaVersion: 2, channel: 'prerelease' });
+    const params = {
+      publicKeyPems: [publicKeyPem],
+      shellIpcContract: IPC_CONTRACT,
+      nowMs: Date.parse(object.generatedAt),
+    };
+    expect(verifyChannelManifest({ ...signed, ...params, expectedChannel: 'prerelease' }).ok).toBe(
+      true
+    );
+    expect(verifyChannelManifest({ ...signed, ...params, expectedChannel: 'stable' }).ok).toBe(
+      false
+    );
+  });
+
+  it('deletes metadata the selected mode does not write', async () => {
+    await signSpaDist(distDir, privateKeyPem, { ...options, channel: 'stable' });
+    await signSpaDist(distDir, privateKeyPem, options);
+    expect(fs.existsSync(path.join(distDir, 'spa-manifest.json'))).toBe(true);
+    expect(fs.existsSync(path.join(distDir, 'spa-manifest.v2.json'))).toBe(false);
+    expect(fs.existsSync(path.join(distDir, 'spa-manifest.v2.json.sig'))).toBe(false);
+
+    await signSpaDist(distDir, privateKeyPem, { ...options, channel: 'stable' });
+    const { written } = await signSpaDist(distDir, privateKeyPem, {
+      ...options,
+      channel: 'prerelease',
+    });
+    expect(fs.existsSync(path.join(distDir, 'spa-manifest.json'))).toBe(false);
+    expect(fs.existsSync(path.join(distDir, 'spa-manifest.json.sig'))).toBe(false);
+    expect(written.map((file: string) => path.basename(file))).toEqual([
+      'spa-manifest.v2.json',
+      'spa-manifest.v2.json.sig',
+    ]);
+  });
+
+  it('accepts a symlinked dist root and writes into its target', async () => {
+    const link = `${distDir}-link`;
+    fs.symlinkSync(distDir, link, 'dir');
+    try {
+      await signSpaDist(link, privateKeyPem, options);
+      expect(fs.existsSync(path.join(distDir, 'spa-manifest.json'))).toBe(true);
+    } finally {
+      fs.unlinkSync(link);
+    }
+  });
 
   it.each(['pilot', 'nightly', 'Stable', '../stable', ''])(
     'rejects invalid channel %j before changing artifacts',

@@ -12,7 +12,9 @@
  *   - manifest larger than the byte cap        → reject (DoS guard)
  *   - signature does not verify over RAW bytes → reject
  *   - JSON parse / zod schema failure          → reject
- *   - schemaVersion mismatch                   → reject
+ *   - schemaVersion mismatch (zod literal)     → reject
+ *   - v2 only: signed channel != expected      → reject
+ *   - non-finite verification time             → reject
  *   - spaIpcContract > shell contract          → reject (needs a binary update)
  *   - generatedAt older than the staleness cap → reject (do not run ancient bytes)
  *   - totalSize != sum(entry,assets) or > cap  → reject
@@ -34,6 +36,7 @@ import {
   SPA_MANIFEST_SIGN_ALGORITHM,
   SPA_MANIFEST_SIGN_SALT_LENGTH,
   SPA_CACHE_MAX_STALENESS_MS,
+  SPA_MANIFEST_MAX_FUTURE_SKEW_MS,
   SpaManifestSchema,
   SpaChannelManifestSchema,
   type SpaChannelManifest,
@@ -220,10 +223,18 @@ export function verifyChannelManifest(
   return reason ? { ok: false, reason } : { ok: true, manifest: result.data };
 }
 
-function manifestPolicyFailure(
+/**
+ * Time and shell policy shared by both verifiers and by the channel protocol
+ * handler's memo hits, so a memoized authentication can never outlive a policy
+ * the fresh verifier would apply.
+ */
+export function manifestPolicyFailure(
   manifest: SpaManifest | SpaChannelManifest,
-  { shellIpcContract, nowMs }: VerifyParams
+  { shellIpcContract, nowMs }: Pick<VerifyParams, 'shellIpcContract' | 'nowMs'>
 ): string | null {
+  if (!Number.isFinite(nowMs)) {
+    return 'invalid verification time';
+  }
   // 6. IPC contract: the cache must NOT bypass a required binary update.
   if (manifest.spaIpcContract > shellIpcContract) {
     return `manifest IPC contract ${manifest.spaIpcContract} > shell ${shellIpcContract} (binary update required)`;
@@ -234,7 +245,7 @@ function manifestPolicyFailure(
   if (Number.isNaN(generatedMs)) {
     return 'generatedAt is not parseable';
   }
-  if (generatedMs > nowMs + 24 * 60 * 60 * 1000) {
+  if (generatedMs > nowMs + SPA_MANIFEST_MAX_FUTURE_SKEW_MS) {
     // More than a day in the future — clock skew or forged timestamp.
     return 'generatedAt is implausibly in the future';
   }
