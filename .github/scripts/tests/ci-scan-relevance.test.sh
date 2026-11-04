@@ -175,7 +175,7 @@ if (label === 'apple-worker')
 if (label === 'admin-lock')
   assert.deepEqual(result.npm_workspaces, [], 'admin lockfile selects only its license workspace');
 if (label === 'admin-lock') assert.equal(result.license_go, false, 'npm manifest does not run Go attribution');
-if (label === 'license-tool-manifest' || label === 'license-tool-lock') {
+if (label.startsWith('license-tool-')) {
   assert.deepEqual(result.npm_workspaces, ['desktop', 'tools/concord-bridge'],
     `${label}: license tool inputs select every npm license workspace`);
   assert.equal(result.license_go, false, `${label}: tool dependency changes do not select Go attribution`);
@@ -326,6 +326,11 @@ run_policy_case admin-lock codeql_js,semgrep_community,sonar,osv client/admin/pa
 tool_input_failures=0
 run_policy_case license-tool-manifest codeql_js,osv,semgrep_community .github/tools/license-checker/package.json || tool_input_failures=1
 run_policy_case license-tool-lock codeql_js,osv,semgrep_community .github/tools/license-checker/package-lock.json || tool_input_failures=1
+# Exercise license selection for shared adapter source and tool-local config/tests;
+# scanner selection is orthogonal to these attribution assertions.
+run_policy_case license-tool-adapter dev-counts-only desktop/tools/glob-compat/index.cjs || tool_input_failures=1
+run_policy_case license-tool-config dev-counts-only .github/tools/license-checker/.npmrc || tool_input_failures=1
+run_policy_case license-tool-fixture dev-counts-only .github/tools/license-checker/compatibility.test.mjs || tool_input_failures=1
 [[ "$tool_input_failures" -eq 0 ]] || exit 1
 run_policy_case notice semgrep_community NOTICE.md
 run_policy_case go-import-reachability codeql_go,govulncheck,osv,semgrep_custom,semgrep_community,sonar services/control-plane/internal/example/example.go

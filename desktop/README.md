@@ -15,7 +15,7 @@ Electron-based desktop application for Concord voice communication platform.
 ### Prerequisites
 
 - Node.js 24.15+ (see `engines` in `package.json`)
-- npm 10+
+- npm 11.10+ (required for the configured minimum package release age)
 
 ### Setup
 

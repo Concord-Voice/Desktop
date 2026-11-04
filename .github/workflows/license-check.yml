@@ -36,6 +36,9 @@ on:
       - 'desktop/package-lock.json'
       - 'tools/concord-bridge/package.json'
       - 'tools/concord-bridge/package-lock.json'
+      - 'desktop/tools/glob-compat/**'
+      - '.github/tools/license-checker/.npmrc'
+      - '.github/tools/license-checker/compatibility.test.mjs'
       - '.github/tools/license-checker/package.json'
       - '.github/tools/license-checker/package-lock.json'
       - 'NOTICE.md'
@@ -52,6 +55,9 @@ on:
       - 'desktop/package-lock.json'
       - 'tools/concord-bridge/package.json'
       - 'tools/concord-bridge/package-lock.json'
+      - 'desktop/tools/glob-compat/**'
+      - '.github/tools/license-checker/.npmrc'
+      - '.github/tools/license-checker/compatibility.test.mjs'
       - '.github/tools/license-checker/package.json'
       - '.github/tools/license-checker/package-lock.json'
       # Kept identical to the pull_request list above. These three were missing,
@@ -189,6 +195,9 @@ jobs:
       - name: Install license-checker
         working-directory: .github/tools/license-checker
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify license-checker compatibility
+        working-directory: .github/tools/license-checker
+        run: npm test
       - name: Check selected npm workspaces and NOTICE tables
         run: |
           set -euo pipefail

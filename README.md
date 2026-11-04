@@ -15,6 +15,7 @@
 [![security](https://img.shields.io/badge/security-policy-green)](https://github.com/Concord-Voice/.github/blob/main/SECURITY.md)
 [![E2EE](https://img.shields.io/badge/E2EE-AES--256--GCM%20%2F%20RSA--OAEP%204096-success)](https://github.com/Concord-Voice/Self-Hosted/blob/main/docs/architecture.md)
 [![platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-blue)](https://github.com/Concord-Voice/Desktop/releases/latest)
+
 [![SonarQube Cloud](https://sonarcloud.io/images/project_badges/sonarcloud-dark.svg)](https://sonarcloud.io/summary/new_code?id=Concord-Voice_Desktop)
 
 The Concord Voice desktop app for Windows, macOS, and Linux.

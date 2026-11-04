@@ -40,6 +40,22 @@ updates:
       - "area: deps"
       - "area: ci-cd"
 
+  # ─── Sonar caller-proof CI tool ───────────────────────────────────
+  - package-ecosystem: "gomod"
+    directory: "/tools/sonar-caller-proof"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "05:00"
+      timezone: "Etc/UTC"
+    commit-message:
+      prefix: "chore"
+    cooldown:
+      default-days: 7
+    labels:
+      - "area: deps"
+      - "area: ci-cd"
+
   # ─── Concord Bridge MCP Server ─────────────────────────────────────
   - package-ecosystem: "npm"
     directory: "/tools/concord-bridge"
@@ -58,7 +74,10 @@ updates:
 
   # ─── Desktop Client (Electron + React) ─────────────────────────────
   - package-ecosystem: "npm"
-    directory: "/desktop"
+    directories:
+      - "/desktop"
+      - "/desktop/tools/glob-compat"
+      - "/desktop/tools/minimatch-compat"
     schedule:
       interval: "weekly"
       day: "tuesday"

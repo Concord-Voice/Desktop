@@ -50,7 +50,10 @@ async function flushFetchPath(): Promise<void> {
 }
 
 // Import after mocking
-import { clientConfigService } from '@/renderer/services/system/clientConfigService';
+import {
+  ClientConfigService,
+  clientConfigService,
+} from '@/renderer/services/system/clientConfigService';
 import { deferred } from '../../helpers/deferred';
 
 beforeEach(() => {
@@ -148,7 +151,7 @@ describe('clientConfigService', () => {
 
       expect(mockApiFetch).toHaveBeenNthCalledWith(
         1,
-        '/api/v1/client/config',
+        '/api/v1/client/config?channel=stable',
         expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
       expect(mockApiFetch).toHaveBeenNthCalledWith(
@@ -192,7 +195,7 @@ describe('clientConfigService', () => {
       mockApiFetch.mockImplementation((path) =>
         Promise.resolve(
           jsonResponse(
-            path === '/api/v1/client/config'
+            path === '/api/v1/client/config?channel=stable'
               ? {
                   featureFlags: {},
                   mediaPlaneUrl: 'https://media.test/',
@@ -217,7 +220,7 @@ describe('clientConfigService', () => {
       mockApiFetch.mockImplementation((path) =>
         Promise.resolve(
           jsonResponse(
-            path === '/api/v1/client/config'
+            path === '/api/v1/client/config?channel=stable'
               ? {
                   ...validConfig,
                   futureRoot: 'discard',
@@ -265,7 +268,9 @@ describe('clientConfigService', () => {
         mockApiFetch.mockImplementation((path) =>
           Promise.resolve(
             jsonResponse(
-              path === '/api/v1/client/config' ? payload : serverCapabilitiesPayload(true)
+              path === '/api/v1/client/config?channel=stable'
+                ? payload
+                : serverCapabilitiesPayload(true)
             )
           )
         );
@@ -290,7 +295,9 @@ describe('clientConfigService', () => {
       let payload: unknown = validConfig;
       mockApiFetch.mockImplementation((path) =>
         Promise.resolve(
-          jsonResponse(path === '/api/v1/client/config' ? payload : serverCapabilitiesPayload())
+          jsonResponse(
+            path === '/api/v1/client/config?channel=stable' ? payload : serverCapabilitiesPayload()
+          )
         )
       );
       await clientConfigService.fetch();
@@ -316,14 +323,16 @@ describe('clientConfigService', () => {
       async (failure) => {
         let fail = false;
         mockApiFetch.mockImplementation((path) => {
-          if (path === '/api/v1/client/config' && fail) {
+          if (path === '/api/v1/client/config?channel=stable' && fail) {
             return failure === 'non-2xx'
               ? Promise.resolve({ ok: false, status: 503 } as Response)
               : Promise.reject(new Error('secret-sentinel'));
           }
           return Promise.resolve(
             jsonResponse(
-              path === '/api/v1/client/config' ? validConfig : serverCapabilitiesPayload()
+              path === '/api/v1/client/config?channel=stable'
+                ? validConfig
+                : serverCapabilitiesPayload()
             )
           );
         });
@@ -348,7 +357,9 @@ describe('clientConfigService', () => {
       let payload: unknown = validConfig;
       mockApiFetch.mockImplementation((path) =>
         Promise.resolve(
-          jsonResponse(path === '/api/v1/client/config' ? payload : serverCapabilitiesPayload())
+          jsonResponse(
+            path === '/api/v1/client/config?channel=stable' ? payload : serverCapabilitiesPayload()
+          )
         )
       );
       await clientConfigService.fetch();
@@ -371,7 +382,7 @@ describe('clientConfigService', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       mockApiFetch.mockImplementation((path) =>
         Promise.resolve(
-          path === '/api/v1/client/config'
+          path === '/api/v1/client/config?channel=stable'
             ? ({
                 ok: true,
                 json: () => Promise.reject(new SyntaxError('secret-sentinel')),
@@ -714,7 +725,7 @@ describe('clientConfigService', () => {
       });
       expect(mockApiFetch).toHaveBeenNthCalledWith(
         3,
-        '/api/v1/client/config',
+        '/api/v1/client/config?channel=stable',
         expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
       expect(mockApiFetch).toHaveBeenNthCalledWith(
@@ -976,7 +987,7 @@ describe('clientConfigService', () => {
       expect(mockApiFetch).toHaveBeenCalledTimes(2);
       expect(mockApiFetch).toHaveBeenNthCalledWith(
         1,
-        '/api/v1/client/config',
+        '/api/v1/client/config?channel=stable',
         expect.objectContaining({ signal: expect.any(AbortSignal) })
       );
       expect(mockApiFetch).toHaveBeenNthCalledWith(
@@ -1478,5 +1489,92 @@ describe('mfaEnforcedDangerousActions capability — THROUGH THE PARSER', () => 
     await clientConfigService.refreshServerCapabilities();
 
     expect(capability()).toEqual({ status: 'error' });
+  });
+});
+
+describe('captured renderer discovery channel', () => {
+  const genericConfig = {
+    minVersion: '0.2.0',
+    featureFlags: { gifsEnabled: true },
+    mediaPlaneUrl: 'https://media.test/',
+    turn: { host: 'turn.test' },
+  };
+
+  it('keeps Pre-Release polling on its captured channel and clears omitted SPA fields', async () => {
+    const service = new ClientConfigService('prerelease');
+    let config = {
+      ...genericConfig,
+      spaUrl: 'https://preview.example.test/',
+      spaIpcContract: 7,
+    } as typeof genericConfig & { spaUrl?: string; spaIpcContract?: number };
+    mockApiFetch.mockImplementation((path) =>
+      Promise.resolve(
+        jsonResponse(path === '/api/v1/server/capabilities' ? serverCapabilitiesPayload() : config)
+      )
+    );
+    try {
+      service.start();
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(useClientConfigStore.getState().spaUrl).toBe('https://preview.example.test/');
+      config = genericConfig;
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(useClientConfigStore.getState()).toMatchObject({
+        spaUrl: '',
+        spaIpcContract: 0,
+        minVersion: '0.2.0',
+      });
+      const paths = mockApiFetch.mock.calls
+        .map(([path]) => path)
+        .filter((path) => path !== '/api/v1/server/capabilities');
+      expect(paths).toEqual([
+        '/api/v1/client/config?channel=prerelease',
+        '/api/v1/client/config?channel=prerelease',
+      ]);
+    } finally {
+      service.stop();
+    }
+  });
+
+  it('lets Pilot poll generic settings but discards SPA fields and skips update IPC', async () => {
+    const service = new ClientConfigService('pilot');
+    mockApiFetch.mockImplementation((path) =>
+      Promise.resolve(
+        jsonResponse(
+          path === '/api/v1/server/capabilities'
+            ? serverCapabilitiesPayload()
+            : {
+                ...genericConfig,
+                spaUrl: 'https://stable.example.test/',
+                spaIpcContract: 7,
+              }
+        )
+      )
+    );
+    mockSpaCheckForUpdate.mockResolvedValue({ currentMode: 'bundled', remoteAvailable: true });
+    try {
+      service.start();
+      await vi.advanceTimersByTimeAsync(2_000);
+      globalThis.dispatchEvent(new Event('focus'));
+      await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+      expect(useClientConfigStore.getState()).toMatchObject({
+        minVersion: '0.2.0',
+        featureFlags: { gifsEnabled: true },
+        mediaPlaneUrl: 'https://media.test/',
+        spaUrl: '',
+        spaIpcContract: 0,
+      });
+      const paths = mockApiFetch.mock.calls
+        .map(([path]) => path)
+        .filter((path) => path !== '/api/v1/server/capabilities');
+      expect(paths).toEqual(['/api/v1/client/config', '/api/v1/client/config']);
+      expect(mockSpaCheckForUpdate).not.toHaveBeenCalled();
+      expect(mockSpaReloadLatest).not.toHaveBeenCalled();
+    } finally {
+      service.stop();
+    }
+    // The same response/IPC fixture does apply an update through the held Stable singleton.
+    await clientConfigService.fetch();
+    expect(mockSpaCheckForUpdate).toHaveBeenCalledTimes(1);
+    expect(mockSpaReloadLatest).toHaveBeenCalledTimes(1);
   });
 });

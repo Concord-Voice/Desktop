@@ -7,6 +7,8 @@
  */
 
 import { z } from 'zod';
+import { clientConfigPath, SPA_DISCOVERY_CHANNEL } from '../../../shared/clientConfigDiscovery';
+import type { UpdateChannel } from '../../../shared/updateChannel';
 import { apiFetch } from './apiClient';
 import {
   useClientConfigStore,
@@ -29,7 +31,10 @@ const ServerConfigSchema = z.object({
   spaIpcContract: z.number().int().nonnegative().optional(),
 });
 
-class ClientConfigService {
+export class ClientConfigService {
+  // Captured once: changing binary update preferences must not switch a live renderer.
+  constructor(private readonly discoveryChannel: UpdateChannel = SPA_DISCOVERY_CHANNEL) {}
+
   private pollTimer: ReturnType<typeof setInterval> | null = null;
   private startupTimer: ReturnType<typeof setTimeout> | null = null;
   private configAbortController: AbortController | null = null;
@@ -59,6 +64,7 @@ class ClientConfigService {
   }
 
   private checkAndApplySpaUpdate(): Promise<boolean> {
+    if (this.discoveryChannel === 'pilot') return Promise.resolve(false);
     const spaUpdate = globalThis.electron?.spaUpdate;
     if (!spaUpdate) return Promise.resolve(false);
 
@@ -130,7 +136,7 @@ class ClientConfigService {
     const generation = this.runtimeServerGeneration;
 
     try {
-      const res = await apiFetch('/api/v1/client/config', {
+      const res = await apiFetch(clientConfigPath(this.discoveryChannel), {
         signal: controller.signal,
       });
       if (!this.isCurrentConfigRequest(controller, generation)) return;
@@ -156,9 +162,9 @@ class ClientConfigService {
       // differs.
       const prevState = useClientConfigStore.getState();
       const prevSpaUrl = prevState.spaUrl;
-      const nextSpaUrl = data.spaUrl || '';
+      const nextSpaUrl = this.discoveryChannel === 'pilot' ? '' : data.spaUrl || '';
       const nextTurn = { host: data.turn?.host ?? '', realm: data.turn?.realm ?? '' };
-      const nextSpaIpcContract = data.spaIpcContract || 0;
+      const nextSpaIpcContract = this.discoveryChannel === 'pilot' ? 0 : data.spaIpcContract || 0;
 
       const isFirstFetch = !prevState.lastFetchedAt;
       const changed =

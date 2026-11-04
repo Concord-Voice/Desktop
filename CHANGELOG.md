@@ -26,6 +26,10 @@ Automatic connection recovery now respects the server's requested pause when it 
 
 - **Desktop:** Added dormant signed metadata and separate SPA caches for Stable and Pre-Release. Channel-aware execution remains held pending integration and publication checks.
 
+### Changed
+
+- **Desktop:** SPA discovery now explicitly requests the Stable stream throughout a launch, preparing channel-aware discovery without enabling a channel picker or non-Stable updates.
+
 ### Fixed
 
 - **Connections:** Automatic recovery waits for the server's overload retry delay, including when connectivity returns or your sign-in token refreshes.
