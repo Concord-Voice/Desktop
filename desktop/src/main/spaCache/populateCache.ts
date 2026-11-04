@@ -183,7 +183,8 @@ async function doPopulate(
   }
 
   // 2. Verify the manifest BEFORE fetching any asset bytes.
-  const verify = (signed = { manifestBytes, signatureBase64 }) => {
+  const fetched: SignedManifest = { manifestBytes, signatureBase64 };
+  const verify = (signed: SignedManifest) => {
     const params = {
       ...signed,
       publicKeyPems: SPA_MANIFEST_PUBLIC_KEYS_PEM,
@@ -194,29 +195,15 @@ async function doPopulate(
       ? verifyChannelManifest({ ...params, expectedChannel: channelStore.channel })
       : verifyManifest(params);
   };
-  const verified = verify();
+  const verified = verify(fetched);
   if (!verified.ok) {
     return { populated: false, reason: `manifest rejected: ${verified.reason}` };
   }
   const manifest = verified.manifest;
 
-  // 2b. Rollback guard: a signed but older manifest (e.g. replayed by whoever
-  //     controls the origin, within the freshness window) must not replace a
-  //     newer verified live cache. An unverifiable live cache does not block.
-  //     First undo a crash-interrupted promotion so the guard sees that tree.
-  try {
-    store.recoverInterruptedPromotion();
-  } catch (err) {
-    return { populated: false, reason: `live recovery failed: ${(err as Error).message}` };
-  }
-  const live = store.readLiveManifest();
-  const liveVerified = live ? verify(live) : null;
-  if (
-    liveVerified?.ok &&
-    Date.parse(manifest.generatedAt) < Date.parse(liveVerified.manifest.generatedAt)
-  ) {
-    return { populated: false, reason: 'manifest rejected: older than the live cache' };
-  }
+  // 2b. Rollback guard (see rollbackFailure).
+  const rollback = rollbackFailure(store, manifest.generatedAt, verify);
+  if (rollback) return { populated: false, reason: rollback };
 
   // 3. Download + verify every file into a fresh staging tree.
   try {
@@ -237,7 +224,7 @@ async function doPopulate(
   // A long download may cross the freshness window or IPC policy boundary.
   // Reauthenticate against the captured channel immediately before promotion.
   if (channelStore) {
-    const current = verify();
+    const current = verify(fetched);
     if (!current.ok) return { populated: false, reason: `manifest rejected: ${current.reason}` };
   }
 
@@ -248,6 +235,40 @@ async function doPopulate(
     return { populated: false, reason: `promote failed: ${(err as Error).message}` };
   }
   return { populated: true, reason: 'ok' };
+}
+
+interface SignedManifest {
+  manifestBytes: Buffer;
+  signatureBase64: string;
+}
+
+/**
+ * A signed but older manifest (e.g. replayed by whoever controls the origin,
+ * within the freshness window) must not replace a newer verified live cache.
+ * An unverifiable live cache does not block. A crash-interrupted promotion is
+ * undone first so the comparison sees that tree. Returns a rejection reason.
+ */
+function rollbackFailure(
+  store: Pick<ChannelCacheStore, 'recoverInterruptedPromotion' | 'readLiveManifest'>,
+  candidateGeneratedAt: string,
+  verify: (
+    signed: SignedManifest
+  ) => { ok: true; manifest: { generatedAt: string } } | { ok: false }
+): string | null {
+  try {
+    store.recoverInterruptedPromotion();
+  } catch (err) {
+    return `live recovery failed: ${(err as Error).message}`;
+  }
+  const live = store.readLiveManifest();
+  const liveVerified = live ? verify(live) : null;
+  if (
+    liveVerified?.ok &&
+    Date.parse(candidateGeneratedAt) < Date.parse(liveVerified.manifest.generatedAt)
+  ) {
+    return 'manifest rejected: older than the live cache';
+  }
+  return null;
 }
 
 interface DownloadOutcome {
