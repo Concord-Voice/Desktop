@@ -115,9 +115,19 @@ IPC compatibility, and every listed file's size and hash. An absent or invalid
 cache, or a failed cache navigation, falls back to the bundled `app://concord`
 renderer. Expected bundled decisions and IPC mismatches do not consult the cache.
 
-The existing cache selection does not bind a cached manifest to an expected
-update channel. Channel-aware signed metadata and cache selection are still
-required before activating non-Stable discovery; this plumbing does not change
+Population refuses a correctly signed manifest whose `generatedAt` is older
+than the verified live cache's, so whoever controls the SPA origin cannot replay
+an older signed build within the freshness window. An expired or invalid live
+cache does not block replacement. Promotion renames `live/` aside, renames
+`staging/` into place, then deletes the old tree; a crash between the renames
+leaves no live cache, which fails closed, and the next population restores the
+previous tree before its rollback check. Freshness checks trust the local wall
+clock; a user who turns the clock back can keep an expired cache servable, which
+is outside this threat model.
+
+The legacy cache selection does not bind a cached manifest to an expected
+update channel. The dormant channel cache foundation below adds that binding
+but is not yet wired into production; the channel discovery plumbing below does not change
 cache eligibility or verification.
 
 ### Channel discovery and activation hold
@@ -145,6 +155,51 @@ or change binary auto-update behavior. Non-Stable activation remains held until
 signed channel metadata and channel-aware cache selection are integrated with
 publication evidence. Changing the discovery query alone is insufficient to
 activate another renderer channel.
+
+### Signed channel cache foundation (not activated)
+
+The channel cache APIs require the caller to select `stable` or `prerelease`.
+They accept only a schema-v2 manifest whose signed `channel` matches that
+selection. Pilot has no remote cache namespace. The legacy schema-v1 manifest
+has no channel identity and cannot satisfy the v2 verifier.
+
+Publication uses separate `spa-manifest.v2.json` and
+`spa-manifest.v2.json.sig` files. The signer accepts an explicit
+`--channel stable|prerelease`. Stable signs both v1 and v2 envelopes over the
+same asset set, preserving the legacy filenames for existing clients.
+Pre-Release signs the v2 envelope only: v1 has no channel identity, so a v1
+client must never be able to cache Pre-Release bytes. Each mode deletes the
+metadata files it does not write, so re-signing a dist in another mode never
+publishes a stale manifest. Explicit channel signing fails without a signing
+key; legacy CLI signing retains its no-key skip behavior. Generated manifest and
+signature files are excluded from the asset set when signing a dist again. The
+`--dist` root may itself be a symlink; any symlink inside it is rejected.
+
+Each channel has its own `spa-cache/v2/<channel>/staging` and `live` directories
+under the application's userData directory. Population captures that namespace,
+verifies the signed channel before downloading assets, checks every file, and
+re-verifies the manifest before promotion. Resolution verifies the complete
+cache again. The channel protocol handler binds its verification memo to the
+cache root, channel, manifest bytes and signature, checks freshness and IPC
+compatibility on every request, and verifies each file's bytes before serving.
+A missing or rejected channel cache returns no cache decision; it does not
+consult another channel or the legacy cache.
+
+These APIs are dormant. Production startup, fallback, population and protocol
+registration still use the legacy v1 cache. This foundation adds no channel
+picker, preference migration or publication workflow. Activating channel-aware
+execution requires separate integration and publication evidence; adding signed
+metadata alone does not change the renderer users load.
+
+Activation must also bind the served origin to the channel. Today both channels
+and the legacy cache resolve to the same `spa-cache://concord` URL, and the
+channel handler takes its channel from the caller on every request. Before
+activation, the channel must appear in the URL (for example a per-channel host),
+the handler must reject a request whose URL channel differs from the launch
+channel captured at registration, and it must never read the channel from
+mutable settings per request. Otherwise a mid-session channel change could
+assemble one page from two channels, and Stable and Pre-Release renderers would
+share one origin's storage.
 
 ## CI integrity gates
 

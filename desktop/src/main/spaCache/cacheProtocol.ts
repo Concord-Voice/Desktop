@@ -27,12 +27,24 @@
 
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { readLiveManifest } from './cacheStore';
-import { verifyManifest } from './verifyManifest';
+import {
+  readLiveManifest,
+  createChannelCacheStore,
+  isRemoteCacheChannel,
+  type ChannelCacheStore,
+} from './cacheStore';
+import type { RemoteSpaChannel } from '../../shared/updateChannel';
+import { verifyManifest, verifyChannelManifest, manifestPolicyFailure } from './verifyManifest';
 import { readVerifiedLiveFile } from './cacheIntegrity';
 import { SPA_MANIFEST_PUBLIC_KEYS_PEM } from './spaManifestPublicKey';
 import { IPC_CONTRACT_VERSION } from '../ipcContract';
-import { SPA_CACHE_HOST, type SpaManifest, type SpaManifestFile } from './manifestSchema';
+import {
+  SPA_CACHE_HOST,
+  SPA_CACHE_SCHEME,
+  type SpaManifest,
+  type SpaChannelManifest,
+  type SpaManifestFile,
+} from './manifestSchema';
 
 export type CachePathResolveResult =
   { ok: true; absolutePath: string } | { ok: false; status: 403 | 404 };
@@ -104,7 +116,9 @@ interface MemoEntry {
 }
 let memo: MemoEntry | null = null;
 
-function buildFileMap(manifest: SpaManifest): Map<string, SpaManifestFile> {
+function buildFileMap(
+  manifest: Pick<SpaManifest, 'entry' | 'assets'>
+): Map<string, SpaManifestFile> {
   const map = new Map<string, SpaManifestFile>();
   map.set(manifest.entry.path, manifest.entry);
   for (const asset of manifest.assets) {
@@ -196,8 +210,16 @@ export async function handleCacheProtocolRequest(
     return new Response(null, { status: 404 });
   }
 
+  return serveVerifiedFile(request, getLiveRoot(), fileMap, readVerifiedLiveFile);
+}
+
+function serveVerifiedFile(
+  request: Request,
+  liveRoot: string,
+  fileMap: Map<string, SpaManifestFile>,
+  readFile: (entry: SpaManifestFile) => Buffer | null
+): Response {
   // 2. Path-safety resolve (keeps the existing traversal/escape rejection).
-  const liveRoot = getLiveRoot();
   const result = resolveCachePath(request.url, liveRoot);
   if (!result.ok) {
     return new Response(null, { status: result.status });
@@ -212,7 +234,7 @@ export async function handleCacheProtocolRequest(
   }
 
   // 4. Read + verify (size + sha256) against the signed manifest entry.
-  const bytes = readVerifiedLiveFile(entry);
+  const bytes = readFile(entry);
   if (bytes === null) {
     return new Response(null, { status: 403 });
   }
@@ -230,4 +252,83 @@ export async function handleCacheProtocolRequest(
 /** Test-only: reset the verified-manifest memo between cases. */
 export function __resetCacheProtocolMemoForTests(): void {
   memo = null;
+  channelMemo = null;
+}
+
+interface ChannelMemoEntry extends MemoEntry {
+  liveRoot: string;
+  channel: RemoteSpaChannel;
+  manifest: SpaChannelManifest;
+}
+let channelMemo: ChannelMemoEntry | null = null;
+
+function getChannelFileMap(
+  store: ChannelCacheStore,
+  nowMs: number
+): Map<string, SpaManifestFile> | null {
+  const live = store.readLiveManifest();
+  if (!live) {
+    channelMemo = null;
+    return null;
+  }
+  const liveRoot = store.getLiveDir();
+  const manifestHash = createHash('sha256').update(live.manifestBytes).digest('hex');
+  const signatureHash = createHash('sha256').update(live.signatureBase64).digest('hex');
+  if (
+    !channelMemo ||
+    channelMemo.liveRoot !== liveRoot ||
+    channelMemo.channel !== store.channel ||
+    channelMemo.manifestHash !== manifestHash ||
+    channelMemo.signatureHash !== signatureHash
+  ) {
+    const verified = verifyChannelManifest({
+      ...live,
+      expectedChannel: store.channel,
+      publicKeyPems: SPA_MANIFEST_PUBLIC_KEYS_PEM,
+      shellIpcContract: IPC_CONTRACT_VERSION,
+      nowMs,
+    });
+    if (!verified.ok) {
+      channelMemo = null;
+      return null;
+    }
+    channelMemo = {
+      liveRoot,
+      channel: store.channel,
+      manifestHash,
+      signatureHash,
+      manifest: verified.manifest,
+      fileMap: buildFileMap(verified.manifest),
+    };
+  }
+  // Authentication is memoized; time and shell policy are not. Reuse the
+  // verifier's own policy function so the two can never drift.
+  if (
+    manifestPolicyFailure(channelMemo.manifest, { shellIpcContract: IPC_CONTRACT_VERSION, nowMs })
+  ) {
+    return null;
+  }
+  return channelMemo.fileMap;
+}
+
+/** The launch channel must be supplied by the caller, never inferred from a URL. */
+export async function handleChannelCacheProtocolRequest(
+  request: Request,
+  channel: RemoteSpaChannel,
+  nowMs: number = Date.now()
+): Promise<Response> {
+  if (!isRemoteCacheChannel(channel)) return new Response(null, { status: 404 });
+  try {
+    if (new URL(request.url).protocol !== `${SPA_CACHE_SCHEME}:`) {
+      return new Response(null, { status: 404 });
+    }
+    const store = createChannelCacheStore(channel);
+    const fileMap = getChannelFileMap(store, nowMs);
+    if (!fileMap) return new Response(null, { status: 404 });
+    return serveVerifiedFile(request, store.getLiveDir(), fileMap, (entry) =>
+      readVerifiedLiveFile(entry, store.readLiveFile)
+    );
+  } catch {
+    return new Response(null, { status: 404 });
+  }
 }

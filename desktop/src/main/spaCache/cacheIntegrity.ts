@@ -24,8 +24,11 @@ import type { SpaManifest, SpaManifestFile } from './manifestSchema';
  * not a regular file). The sha256 compare is a plain string equality — this is
  * an integrity hash, not a secret, so constant-time comparison is not required.
  */
-export function readVerifiedLiveFile(entry: SpaManifestFile): Buffer | null {
-  const bytes = readLiveFile(entry.path, entry.size);
+export function readVerifiedLiveFile(
+  entry: SpaManifestFile,
+  readFile: typeof readLiveFile = readLiveFile
+): Buffer | null {
+  const bytes = readFile(entry.path, entry.size);
   if (bytes === null) {
     return null;
   }
@@ -44,12 +47,15 @@ export function readVerifiedLiveFile(entry: SpaManifestFile): Buffer | null {
  * This is the decision-time gate consumed by resolveCachedSpa: if it returns
  * false, the cache is not trustworthy and the caller falls back to bundled.
  */
-export function verifyAllLiveAssets(manifest: SpaManifest): boolean {
-  if (readVerifiedLiveFile(manifest.entry) === null) {
+export function verifyAllLiveAssets(
+  manifest: Pick<SpaManifest, 'entry' | 'assets'>,
+  readFile: typeof readLiveFile = readLiveFile
+): boolean {
+  if (readVerifiedLiveFile(manifest.entry, readFile) === null) {
     return false;
   }
   for (const asset of manifest.assets) {
-    if (readVerifiedLiveFile(asset) === null) {
+    if (readVerifiedLiveFile(asset, readFile) === null) {
       return false;
     }
   }

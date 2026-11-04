@@ -58,6 +58,8 @@ export const SPA_CACHE_MAX_TOTAL_BYTES = 100_000_000; // 100 MB
 export const SPA_CACHE_MAX_ASSETS = 2_000;
 /** Bounded staleness: reject a manifest older than this (do not run ancient bytes). */
 export const SPA_CACHE_MAX_STALENESS_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+/** Reject a manifest whose generatedAt is further than this ahead of the local clock. */
+export const SPA_MANIFEST_MAX_FUTURE_SKEW_MS = 24 * 60 * 60 * 1000; // 1 day
 
 const SHA256_HEX = /^[a-f0-9]{64}$/;
 
@@ -103,3 +105,13 @@ export const SpaManifestSchema = z
 
 export type SpaManifest = z.infer<typeof SpaManifestSchema>;
 export type SpaManifestFile = z.infer<typeof ManifestFile>;
+
+/** Channel-bound metadata is published separately; v1 stays strict and unbound. */
+export const SPA_CHANNEL_MANIFEST_SCHEMA_VERSION = 2;
+export const SPA_CHANNEL_MANIFEST_FILENAME = 'spa-manifest.v2.json';
+export const SPA_CHANNEL_MANIFEST_SIG_FILENAME = 'spa-manifest.v2.json.sig';
+export const SpaChannelManifestSchema = SpaManifestSchema.extend({
+  schemaVersion: z.literal(SPA_CHANNEL_MANIFEST_SCHEMA_VERSION),
+  channel: z.enum(['stable', 'prerelease']),
+}).strict();
+export type SpaChannelManifest = z.infer<typeof SpaChannelManifestSchema>;

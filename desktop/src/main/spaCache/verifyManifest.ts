@@ -12,7 +12,9 @@
  *   - manifest larger than the byte cap        → reject (DoS guard)
  *   - signature does not verify over RAW bytes → reject
  *   - JSON parse / zod schema failure          → reject
- *   - schemaVersion mismatch                   → reject
+ *   - schemaVersion mismatch (zod literal)     → reject
+ *   - v2 only: signed channel != expected      → reject
+ *   - non-finite verification time             → reject
  *   - spaIpcContract > shell contract          → reject (needs a binary update)
  *   - generatedAt older than the staleness cap → reject (do not run ancient bytes)
  *   - totalSize != sum(entry,assets) or > cap  → reject
@@ -31,13 +33,20 @@
 import { constants as cryptoConstants, createPublicKey, verify as cryptoVerify } from 'node:crypto';
 import {
   SPA_MANIFEST_MAX_BYTES,
-  SPA_MANIFEST_SCHEMA_VERSION,
   SPA_MANIFEST_SIGN_ALGORITHM,
   SPA_MANIFEST_SIGN_SALT_LENGTH,
   SPA_CACHE_MAX_STALENESS_MS,
+  SPA_MANIFEST_MAX_FUTURE_SKEW_MS,
   SpaManifestSchema,
+  SpaChannelManifestSchema,
+  type SpaChannelManifest,
   type SpaManifest,
 } from './manifestSchema';
+
+import type { RemoteSpaChannel } from '../../shared/updateChannel';
+
+export type ChannelManifestVerifyResult =
+  { ok: true; manifest: SpaChannelManifest } | { ok: false; reason: string };
 
 export type ManifestVerifyResult =
   { ok: true; manifest: SpaManifest } | { ok: false; reason: string };
@@ -123,14 +132,18 @@ function verifyDetachedSignature(params: {
  * Verify a fetched SPA manifest. `nowMs` is injected (not read from the clock)
  * so callers/tests are deterministic.
  */
-export function verifyManifest(params: {
+interface VerifyParams {
   manifestBytes: Buffer;
   signatureBase64: string;
   publicKeyPems: readonly string[];
   shellIpcContract: number;
   nowMs: number;
-}): ManifestVerifyResult {
-  const { manifestBytes, signatureBase64, publicKeyPems, shellIpcContract, nowMs } = params;
+}
+
+function authenticateManifest(
+  params: VerifyParams
+): { ok: true; parsed: unknown } | { ok: false; reason: string } {
+  const { manifestBytes, signatureBase64, publicKeyPems } = params;
 
   // 1. Fail closed if no real key is configured (pre-activation placeholder).
   //    Blanks are filtered BEFORE the emptiness test: a list of only
@@ -167,46 +180,84 @@ export function verifyManifest(params: {
     return { ok: false, reason: 'manifest is not valid JSON' };
   }
 
-  const result = SpaManifestSchema.safeParse(parsed);
+  return { ok: true, parsed };
+}
+
+export function verifyManifest(params: VerifyParams): ManifestVerifyResult {
+  const authenticated = authenticateManifest(params);
+  if (!authenticated.ok) return authenticated;
+  const result = SpaManifestSchema.safeParse(authenticated.parsed);
   if (!result.success) {
     return {
       ok: false,
       reason: `manifest schema invalid: ${result.error.issues[0]?.message ?? 'unknown'}`,
     };
   }
-  const manifest = result.data;
+  const reason = manifestPolicyFailure(result.data, params);
+  return reason ? { ok: false, reason } : { ok: true, manifest: result.data };
+}
 
-  // 5. Schema version must match exactly (defense in depth; zod literal already enforces).
-  if (manifest.schemaVersion !== SPA_MANIFEST_SCHEMA_VERSION) {
-    return { ok: false, reason: `unsupported schemaVersion ${manifest.schemaVersion}` };
+/** No default channel: callers must bind authenticated bytes to their selected stream. */
+export function verifyChannelManifest(
+  params: VerifyParams & { expectedChannel: RemoteSpaChannel }
+): ChannelManifestVerifyResult {
+  if (!Number.isFinite(params.nowMs)) {
+    return { ok: false, reason: 'invalid verification time' };
   }
-
-  // 6. IPC contract: the cache must NOT bypass a required binary update.
-  if (manifest.spaIpcContract > shellIpcContract) {
+  if (params.expectedChannel !== 'stable' && params.expectedChannel !== 'prerelease') {
+    return { ok: false, reason: 'invalid expected channel' };
+  }
+  const authenticated = authenticateManifest(params);
+  if (!authenticated.ok) return authenticated;
+  const result = SpaChannelManifestSchema.safeParse(authenticated.parsed);
+  if (!result.success) {
     return {
       ok: false,
-      reason: `manifest IPC contract ${manifest.spaIpcContract} > shell ${shellIpcContract} (binary update required)`,
+      reason: `manifest schema invalid: ${result.error.issues[0]?.message ?? 'unknown'}`,
     };
+  }
+  if (result.data.channel !== params.expectedChannel) {
+    return { ok: false, reason: 'manifest channel does not match expected channel' };
+  }
+  const reason = manifestPolicyFailure(result.data, params);
+  return reason ? { ok: false, reason } : { ok: true, manifest: result.data };
+}
+
+/**
+ * Time and shell policy shared by both verifiers and by the channel protocol
+ * handler's memo hits, so a memoized authentication can never outlive a policy
+ * the fresh verifier would apply.
+ */
+export function manifestPolicyFailure(
+  manifest: SpaManifest | SpaChannelManifest,
+  { shellIpcContract, nowMs }: Pick<VerifyParams, 'shellIpcContract' | 'nowMs'>
+): string | null {
+  if (!Number.isFinite(nowMs)) {
+    return 'invalid verification time';
+  }
+  // 6. IPC contract: the cache must NOT bypass a required binary update.
+  if (manifest.spaIpcContract > shellIpcContract) {
+    return `manifest IPC contract ${manifest.spaIpcContract} > shell ${shellIpcContract} (binary update required)`;
   }
 
   // 7. Bounded staleness: do not run ancient cached bytes.
   const generatedMs = Date.parse(manifest.generatedAt);
   if (Number.isNaN(generatedMs)) {
-    return { ok: false, reason: 'generatedAt is not parseable' };
+    return 'generatedAt is not parseable';
   }
-  if (generatedMs > nowMs + 24 * 60 * 60 * 1000) {
+  if (generatedMs > nowMs + SPA_MANIFEST_MAX_FUTURE_SKEW_MS) {
     // More than a day in the future — clock skew or forged timestamp.
-    return { ok: false, reason: 'generatedAt is implausibly in the future' };
+    return 'generatedAt is implausibly in the future';
   }
   if (nowMs - generatedMs > SPA_CACHE_MAX_STALENESS_MS) {
-    return { ok: false, reason: 'manifest is stale beyond the freshness window' };
+    return 'manifest is stale beyond the freshness window';
   }
 
   // 8. totalSize must equal the actual sum and stay within the cap (zod bounded the cap).
   const computedTotal = manifest.entry.size + manifest.assets.reduce((acc, a) => acc + a.size, 0);
   if (computedTotal !== manifest.totalSize) {
-    return { ok: false, reason: 'totalSize does not match entry+assets sum' };
+    return 'totalSize does not match entry+assets sum';
   }
 
-  return { ok: true, manifest };
+  return null;
 }

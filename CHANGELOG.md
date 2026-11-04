@@ -22,6 +22,10 @@ belongs in it, and write it if the section has none. Do not edit the
 
 Automatic connection recovery now respects the server's requested pause when it is overloaded.
 
+### Added
+
+- **Desktop:** Added dormant signed metadata and separate SPA caches for Stable and Pre-Release. Channel-aware execution remains held pending integration and publication checks.
+
 ### Changed
 
 - **Desktop:** SPA discovery now explicitly requests the Stable stream throughout a launch, preparing channel-aware discovery without enabling a channel picker or non-Stable updates.
