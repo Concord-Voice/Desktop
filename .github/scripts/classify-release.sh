@@ -366,7 +366,7 @@ fi
 # drops any shell below it to its bundled renderer with a bare `<`. Raising it is
 # therefore the act of saying "shells older than this cannot run this renderer" —
 # and a shell only reaches users inside a build, which is armed by the VERSION
-# bump (package.json vs the desktop-v<version> tag). Nothing treats either
+# bump (package.json vs the release tag). Nothing treats either
 # contract number as a release trigger.
 #
 # So a raised minimum travelling alone strands every client below it until some
@@ -445,13 +445,16 @@ ANY_ENTRIES=$(printf '%s\n' "$CHANGELOG_SECTION" | grep -cE '^[-*+] ' || true)
 # IPC baseline: the last released tag, so a contract bump merged three PRs ago
 # still counts toward the release this PR would cut. An untagged base version
 # (bump merged, nightly not yet run) falls back to the merge-base.
+# Tags are `v<version>` from v0.3.0 on and `desktop-v<version>` before it.
 RELEASED_CONTRACT="$OLD_CONTRACT"
-if git rev-parse --verify --quiet "refs/tags/desktop-v${OLD_VERSION}^{commit}" >/dev/null 2>&1; then
-  RELEASED_CONTRACT=$(git show "refs/tags/desktop-v${OLD_VERSION}:desktop/src/main/ipcContract.ts" 2>/dev/null \
+for released_tag in "v${OLD_VERSION}" "desktop-v${OLD_VERSION}"; do
+  git rev-parse --verify --quiet "refs/tags/${released_tag}^{commit}" >/dev/null 2>&1 || continue
+  RELEASED_CONTRACT=$(git show "refs/tags/${released_tag}:desktop/src/main/ipcContract.ts" 2>/dev/null \
     | sed -n 's/.*IPC_CONTRACT_VERSION[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' \
     | first_line || true)
   [[ "$RELEASED_CONTRACT" =~ ^(0|[1-9][0-9]{0,8})$ ]] || RELEASED_CONTRACT="$OLD_CONTRACT"
-fi
+  break
+done
 
 if (( BREAKING_ENTRIES > 0 )); then
   BUMP_LEVEL="major"; BUMP_BASIS="breaking"
