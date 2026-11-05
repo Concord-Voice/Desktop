@@ -1,5 +1,15 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Download, FileText, Film, Music, File, Loader2, Maximize2, Pause } from 'lucide-react';
+import {
+  Download,
+  FileText,
+  Film,
+  Music,
+  File,
+  ImageOff,
+  Loader2,
+  Maximize2,
+  Pause,
+} from 'lucide-react';
 import { apiFetch } from '../../services/system/apiClient';
 import { e2eeService } from '../../services/e2ee/e2eeService';
 import {
@@ -18,6 +28,7 @@ import {
 import { MAX_DECRYPTABLE_ATTACHMENT_BYTES } from '../../utils/policy/entitlementLimits';
 import type { AttachmentSummary } from '../../types/chat';
 import { useSettingsStore } from '../../stores/ui/settingsStore';
+import { usePrivacyStore } from '../../stores/ui/privacyStore';
 import { useWindowFocus } from '../../hooks/ui/useWindowFocus';
 import { resolveGifPlayback } from '../../utils/ui/gifPlayback';
 import { detectAnimatedImage, ANIMATION_SNIFF_BYTES } from '../../utils/ui/animatedImage';
@@ -25,6 +36,7 @@ import OverflowMarkdownAttachment from './OverflowMarkdownAttachment';
 import ThemedMediaPlayer from './ThemedMediaPlayer';
 import ImageLightbox from './ImageLightbox';
 import ContextMenu from '../ui/ContextMenu';
+import './GifEmbed.css';
 import './AttachmentDisplay.css';
 
 interface AttachmentDisplayProps {
@@ -412,6 +424,10 @@ function FileIcon({ fileType }: { readonly fileType: string }) {
   }
 }
 
+/** 256 MiB: the largest video Desktop preloads without asking. Mobile's cap is
+ *  64 MiB; both come from the attachment display policy (2026-11-05). */
+export const VIDEO_PRELOAD_MAX_BYTES = 256 * 1024 * 1024;
+
 // Display constraints for image attachments — must match AttachmentDisplay.css
 // (.attachment-image-container max-width / .attachment-image max-height).
 // Kept in sync with the CSS so the JS clamp matches what the browser paints.
@@ -443,6 +459,51 @@ const IMAGE_EXT: Readonly<Record<string, string>> = {
 /** Returns the extension for an image MIME type, or '' when unmapped/absent. */
 export function extFromMime(mime: string | undefined): string {
   return (mime && IMAGE_EXT[mime]) || '';
+}
+
+/**
+ * First frame of an animated image as its own small object url, so a paused
+ * attachment shows a still exactly like a paused KLIPY GIF instead of a blank
+ * box. `createImageBitmap` decodes only the first frame. Returns null until the
+ * still exists, and whenever the platform cannot make one (jsdom), which keeps
+ * the blank-box fallback.
+ */
+function useStillFrame(url: string | null, enabled: boolean): string | null {
+  const [still, setStill] = useState<{ readonly from: string; readonly url: string } | null>(null);
+  useEffect(() => {
+    if (!url || !enabled || typeof createImageBitmap !== 'function') return;
+    let cancelled = false;
+    let made: string | null = null;
+    // A fresh element decodes from frame one; no fetch of the blob url needed.
+    const img = new Image();
+    img.src = url;
+    img
+      .decode()
+      .then(() => createImageBitmap(img))
+      .then(
+        (bitmap) =>
+          new Promise<Blob | null>((resolve) => {
+            const canvas = document.createElement('canvas');
+            canvas.width = bitmap.width;
+            canvas.height = bitmap.height;
+            canvas.getContext('2d')?.drawImage(bitmap, 0, 0);
+            bitmap.close();
+            canvas.toBlob(resolve);
+          })
+      )
+      .then((frame) => {
+        if (cancelled || !frame) return;
+        made = URL.createObjectURL(frame);
+        setStill({ from: url, url: made });
+      })
+      .catch(() => undefined); // No still: the paused box falls back to the hint.
+    return () => {
+      cancelled = true;
+      if (made) URL.revokeObjectURL(made);
+    };
+  }, [url, enabled]);
+  // Ignore a still made for an earlier url; its object url is already revoked.
+  return still?.from === url ? still.url : null;
 }
 
 function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
@@ -482,6 +543,15 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
     windowFocused,
   });
   const [url, setUrl] = useState<string | null>(blobUrlCache.get(attachment.id)?.url ?? null);
+  // Same gate as a KLIPY GIF: with "load GIFs automatically" off, an attachment
+  // declared animated waits for a click. An APNG or animated WebP stored as
+  // `photo` is only known after download, so only the declared type can wait.
+  const loadGifsAutomatically = usePrivacyStore((s) => s.settings.loadGifsAutomatically);
+  const [userClicked, setUserClicked] = useState(false);
+  const awaitingClick =
+    attachment.file_type === 'animated' && !loadGifsAutomatically && !userClicked && url === null;
+  const awaitingClickRef = useRef(awaitingClick);
+  awaitingClickRef.current = awaitingClick;
   const [loading, setLoading] = useState(!url);
   const [error, setError] = useState<AttachmentFailure>(null);
   // Byte count of a refusal, or null when the attachment was never refused.
@@ -524,7 +594,7 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   }, [url, attachment.id, attachment.mime_type]);
 
   const load = useCallback(async () => {
-    if (loadingRef.current || urlRef.current) return;
+    if (loadingRef.current || urlRef.current || awaitingClickRef.current) return;
     loadingRef.current = true;
     try {
       setError(null);
@@ -609,7 +679,10 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   // skeleton for the very first paint of a dim-less attachment.
   const clamped = clampAttachmentSize(attachment.width, attachment.height);
   let containerStyle: React.CSSProperties | undefined;
-  if (clamped) {
+  // The click-to-load chip sizes itself, like GifEmbed's placeholder.
+  if (awaitingClick) {
+    containerStyle = undefined;
+  } else if (clamped) {
     containerStyle = { width: `${clamped.width}px`, height: `${clamped.height}px` };
   } else if (naturalRatio) {
     containerStyle = { aspectRatio: String(naturalRatio), maxWidth: `${ATTACHMENT_MAX_W}px` };
@@ -624,12 +697,15 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   // `HTMLMediaElement.pause()`. The browser restarts the animation on every
   // mount; §5 residual 1 records that as accepted and unfixable here.
   const showLiveImage = url !== null && (!isAnimated || verdict.playing);
+  const stillUrl = useStillFrame(url, isAnimated);
   // The two copies are never merged: one names an action available right now,
   // the other names a cause hovering cannot fix. Unfocus wins when both hold,
   // because moving the pointer onto a background window does nothing.
   const pausedByPlayback = isAnimated && url !== null && !verdict.playing;
   const pausedCause: 'unfocused' | 'hover' = windowFocused ? 'hover' : 'unfocused';
-  const pausedReason: 'unfocused' | 'hover' | null = pausedByPlayback ? pausedCause : null;
+  // A still frame needs no hint, exactly like a paused KLIPY GIF with a still.
+  const pausedReason: 'unfocused' | 'hover' | null =
+    pausedByPlayback && stillUrl === null ? pausedCause : null;
   // Tracked UNCONDITIONALLY, not only while the hover gate is active. Attaching
   // them conditionally means a pointer or focus that leaves during an inactive spell
   // never fires its matching leave handler, so the flag stays stuck true and the
@@ -655,11 +731,30 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   return (
     <div
       ref={containerRef}
-      className="attachment-image-container"
+      className={
+        awaitingClick
+          ? 'attachment-image-container attachment-image-container--click-to-load'
+          : 'attachment-image-container'
+      }
       style={containerStyle}
       {...hoverHandlers}
     >
-      {loading && (
+      {awaitingClick && (
+        <button
+          type="button"
+          className="gif-embed-placeholder"
+          aria-label="Click to load GIF"
+          onClick={() => {
+            awaitingClickRef.current = false;
+            setUserClicked(true);
+            loadRef.current();
+          }}
+        >
+          <ImageOff size={24} />
+          <span>Click to load GIF</span>
+        </button>
+      )}
+      {loading && !awaitingClick && (
         <div className="attachment-loading">
           <Loader2 size={20} className="spinner" />
         </div>
@@ -689,7 +784,17 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
             setMenuPos({ x: e.clientX, y: e.clientY });
           }}
         >
-          {!showLiveImage && <div className="attachment-image-placeholder" aria-hidden="true" />}
+          {!showLiveImage && stillUrl !== null && (
+            <img
+              src={stillUrl}
+              alt={`Attachment ${attachment.id}`}
+              className="attachment-image"
+              draggable={false}
+            />
+          )}
+          {!showLiveImage && stillUrl === null && (
+            <div className="attachment-image-placeholder" aria-hidden="true" />
+          )}
           {showLiveImage && (
             <img
               src={url}
@@ -755,10 +860,13 @@ function MediaAttachment({ attachment, channelId }: AttachmentItemProps) {
   const [error, setError] = useState<AttachmentFailure>(null);
   const [tooLarge, setTooLarge] = useState<{ bytes: number; truncated: boolean } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  // Videos auto-lazy-load so the browser can render the first frame as a natural
-  // poster — no separate thumbnail pipeline needed. Audio stays click-to-load
-  // because there's nothing visual to gain from prefetching the bytes.
-  const autoLoad = attachment.file_type === 'video';
+  // Videos up to VIDEO_PRELOAD_MAX_BYTES auto-lazy-load so the browser can
+  // render the first frame as a natural poster — no separate thumbnail pipeline
+  // needed. A larger video waits for the user to confirm the download
+  // (attachment display policy, 2026-11-05). Audio stays click-to-load because
+  // there's nothing visual to gain from prefetching the bytes.
+  const isVideo = attachment.file_type === 'video';
+  const autoLoad = isVideo && attachment.file_size <= VIDEO_PRELOAD_MAX_BYTES;
   const [inView, setInView] = useState(false);
   const [focused, setFocused] = useState(false);
   const [playing, setPlaying] = useState(false);
@@ -887,7 +995,7 @@ function MediaAttachment({ attachment, channelId }: AttachmentItemProps) {
   // TERMINAL: retrying re-fetches the same bytes and fails the same way. Only a
   // generic failure (a dropped fetch, a transient 5xx) is worth another go.
   const terminal = error !== null && error !== 'generic';
-  let loadTitle = `Load ${label}`;
+  let loadTitle = isVideo && !autoLoad ? `Large video — download ${sizeLabel}?` : `Load ${label}`;
   if (error === 'generic') loadTitle = `Failed to load ${label} — retry`;
   else if (loading) loadTitle = `Loading ${label}…`;
 
@@ -1026,6 +1134,13 @@ function FileAttachment({ attachment, channelId }: AttachmentItemProps) {
   );
 }
 
+/** Text MIME types that preload into the collapsible text space (attachment
+ *  display policy, 2026-11-05). Anything else waits for a Download click. */
+const TEXT_FORMATS: Readonly<Record<string, 'markdown' | 'text' | undefined>> = {
+  'text/markdown': 'markdown',
+  'text/plain': 'text',
+};
+
 const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
   attachments,
   channelId,
@@ -1036,13 +1151,16 @@ const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
   return (
     <div className="attachment-display">
       {attachments.map((attachment) => {
-        if (attachment.file_type === 'file' && attachment.mime_type === 'text/markdown') {
+        const textFormat = attachment.file_type === 'file' && TEXT_FORMATS[attachment.mime_type];
+        if (textFormat) {
           return (
             <OverflowMarkdownAttachment
               key={attachment.id}
               attachment={attachment}
-              previewBody={messageBody ?? ''}
+              previewBody={textFormat === 'markdown' ? (messageBody ?? '') : ''}
               channelId={channelId}
+              format={textFormat}
+              downloadSlot={<FileAttachment attachment={attachment} channelId={channelId} />}
             />
           );
         }

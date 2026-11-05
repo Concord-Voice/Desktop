@@ -37,6 +37,8 @@ Automatic connection recovery now respects the server's requested pause when it 
 
 ### Changed
 
+- **Chat:** Attachments now download only when you ask, except photos, GIFs, videos up to 256 MiB, and text and Markdown files. A larger video asks before it downloads. Text and Markdown files load into a collapsed preview that you can expand.
+- **Chat:** GIF attachments follow the same rules as searched GIFs. They wait for a click when Load GIFs automatically is off, and they show their first frame while paused.
 - **Desktop:** SPA discovery now explicitly requests the Stable stream throughout a launch, preparing channel-aware discovery without enabling a channel picker or non-Stable updates.
 
 ### Fixed

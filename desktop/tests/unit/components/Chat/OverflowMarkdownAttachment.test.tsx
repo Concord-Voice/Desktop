@@ -430,3 +430,92 @@ describe('OverflowMarkdownAttachment', () => {
     await waitFor(() => expect(collapseButton).toHaveFocus());
   });
 });
+
+// ---------------------------------------------------------------------------
+// Attachment display policy (2026-11-05): text and Markdown PRELOAD into a
+// collapsible space instead of waiting for Expand.
+// ---------------------------------------------------------------------------
+describe('OverflowMarkdownAttachment preload', () => {
+  const OriginalIO = globalThis.IntersectionObserver;
+  let requests = 0;
+
+  beforeEach(() => {
+    resetAllStores();
+    vi.clearAllMocks();
+    requests = 0;
+    (globalThis as unknown as Record<string, unknown>).IntersectionObserver = class {
+      constructor(private readonly cb: IntersectionObserverCallback) {}
+      observe() {
+        this.cb(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          this as unknown as IntersectionObserver
+        );
+      }
+      disconnect = vi.fn();
+      unobserve = vi.fn();
+    };
+    server.use(
+      http.get('http://localhost:8080/api/v1/media/attachments/att-1', () => {
+        requests += 1;
+        return new HttpResponse(enc.encode('mock').buffer, { status: 200 });
+      })
+    );
+  });
+
+  afterEach(() => {
+    (globalThis as unknown as Record<string, unknown>).IntersectionObserver = OriginalIO;
+  });
+
+  it('loads on view and shows the file collapsed, without moving focus', async () => {
+    await setupDecryptFile('# Loaded heading');
+    render(
+      <OverflowMarkdownAttachment attachment={sampleAttachment} previewBody="" channelId="ch-1" />
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('markdown-content')).toHaveTextContent('# Loaded heading')
+    );
+    expect(document.querySelector('.overflow-md-attachment__clip')).not.toBeNull();
+    const expand = screen.getByRole('button', { name: /expand/i });
+    expect(expand).not.toHaveFocus();
+
+    fireEvent.click(expand);
+    expect(await screen.findByRole('button', { name: /collapse/i })).toBeInTheDocument();
+    expect(document.querySelector('.overflow-md-attachment__clip')).toBeNull();
+    expect(requests).toBe(1);
+  });
+
+  it('renders plain text verbatim in a <pre>, never through Markdown', async () => {
+    await setupDecryptFile('<b>not bold</b>\n# not a heading');
+    render(
+      <OverflowMarkdownAttachment
+        attachment={{ ...sampleAttachment, mime_type: 'text/plain' }}
+        channelId="ch-1"
+        format="text"
+      />
+    );
+
+    await waitFor(() => expect(document.querySelector('pre')).not.toBeNull());
+    expect(document.querySelector('pre')?.textContent).toBe('<b>not bold</b>\n# not a heading');
+    expect(document.querySelector('b')).toBeNull();
+    expect(screen.queryByTestId('markdown-content')).toBeNull();
+  });
+
+  it('offers the download slot when the preview is unavailable', async () => {
+    await setupDecryptFile('bad\u0000bytes');
+    render(
+      <OverflowMarkdownAttachment
+        attachment={sampleAttachment}
+        channelId="ch-1"
+        format="text"
+        downloadSlot={<button type="button">Download attachment</button>}
+      />
+    );
+
+    expect(await screen.findByText(/Preview unavailable/)).toBeInTheDocument();
+    expect(screen.getByText('Text file')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download attachment' })).toBeInTheDocument();
+    // A preload refusal is static copy, not an alert the user never asked for.
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
