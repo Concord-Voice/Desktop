@@ -5,8 +5,12 @@ import { apiFetch } from '../../services/system/apiClient';
 import { e2eeService } from '../../services/e2ee/e2eeService';
 import { formatFileSize } from '../../utils/crypto/attachmentCrypto';
 import {
+  CHUNK_OVERHEAD_BYTES,
   decryptAttachmentBlob,
+  ENVELOPE_HEADER_BYTES,
+  ENVELOPE_VERSION_V3,
   parseKeyVersionHeader,
+  totalChunksFor,
 } from '../../utils/crypto/attachmentChunkedCrypto';
 import {
   AttachmentTooLargeError,
@@ -36,6 +40,19 @@ interface OverflowMarkdownAttachmentProps {
   /** Download control shown beside a "download to view" fallback. */
   downloadSlot?: React.ReactNode;
 }
+
+/** Largest ciphertext that can still decrypt to a previewable file: the
+ *  256 KiB render cap plus envelope overhead, computed the same way as
+ *  MAX_DECRYPTABLE_ATTACHMENT_BYTES. Preloading runs without a click, so a
+ *  larger file is never fetched just to say "too large to preview". */
+export const MAX_PREVIEWABLE_CIPHERTEXT_BYTES =
+  MAX_RENDERABLE_MD_BYTES +
+  ENVELOPE_HEADER_BYTES +
+  CHUNK_OVERHEAD_BYTES * totalChunksFor(MAX_RENDERABLE_MD_BYTES, ENVELOPE_VERSION_V3);
+
+/** How much of a loaded file the collapsed view renders. The clip shows about
+ *  9em, so this is well past what is visible. */
+const COLLAPSED_PREVIEW_CHARS = 2000;
 
 /** Stable empty lookup so MarkdownContent memoization doesn't bust on every render. */
 const EMPTY_MENTION_LOOKUP: MentionLookup = {
@@ -70,19 +87,23 @@ type LoadOutcome =
  * AttachmentTooLargeError raised anywhere in the chain now reports as
  * `too-large-to-open` rather than only the one raised by readBoundedBody.
  */
+/** A fetch or decrypt that may succeed on retry (dropped connection, 5xx, a
+ *  key not loaded yet), as opposed to bytes that can never be shown. */
+type LoadResult = LoadOutcome | { kind: 'transient' };
+
 async function loadOverflowMarkdown(
   fileId: string,
   channelId: string,
   format: 'markdown' | 'text'
-): Promise<LoadOutcome> {
+): Promise<LoadResult> {
   try {
     const response = await apiFetch(`/api/v1/media/attachments/${fileId}`);
-    if (!response.ok) return { kind: 'preview-unavailable' };
+    if (!response.ok) return { kind: 'transient' };
 
     // Measure the body as it arrives rather than trusting either declared size:
     // `file_size` is server-supplied metadata, and Content-Length is absent
     // under chunked transfer encoding and understates a gzipped body.
-    const ciphertext = await readBoundedBody(response, MAX_DECRYPTABLE_ATTACHMENT_BYTES);
+    const ciphertext = await readBoundedBody(response, MAX_PREVIEWABLE_CIPHERTEXT_BYTES);
     // Same epoch selection as AttachmentDisplay: a CSK rotation must not orphan
     // an overflow document that is otherwise perfectly readable.
     const keyVersion = parseKeyVersionHeader(response.headers.get('X-File-Key-Version'));
@@ -118,9 +139,14 @@ async function loadOverflowMarkdown(
     return { kind: 'rendered', content: new TextDecoder('utf-8').decode(decrypted) };
   } catch (err) {
     if (err instanceof AttachmentTooLargeError) {
-      return { kind: 'too-large-to-open', bytes: err.byteLength, truncated: err.truncated };
+      // Above the download ceiling nothing can open it; between the preview
+      // and download ceilings it is merely too large to preview.
+      if (err.byteLength > MAX_DECRYPTABLE_ATTACHMENT_BYTES) {
+        return { kind: 'too-large-to-open', bytes: err.byteLength, truncated: err.truncated };
+      }
+      return { kind: 'too-large' };
     }
-    return { kind: 'preview-unavailable' };
+    return { kind: 'transient' };
   }
 }
 
@@ -216,6 +242,8 @@ const OverflowMarkdownAttachment: React.FC<OverflowMarkdownAttachmentProps> = ({
   // True only after the user pressed Expand — preloading must not steal focus.
   const [userExpanded, setUserExpanded] = useState(false);
   const startedRef = useRef(false);
+  const userExpandedRef = useRef(false);
+  const mountedRef = useRef(true);
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Ref for the Collapse button — used to restore keyboard focus after the
@@ -233,12 +261,25 @@ const OverflowMarkdownAttachment: React.FC<OverflowMarkdownAttachmentProps> = ({
       setOutcome({ kind: 'too-large-to-open', bytes: attachment.file_size });
       return;
     }
+    // `file_size` is the server-measured ciphertext size, so a file that can
+    // never be previewed costs no network either; Download stays offered.
+    if (attachment.file_size > MAX_PREVIEWABLE_CIPHERTEXT_BYTES) {
+      setOutcome({ kind: 'too-large' });
+      return;
+    }
     setLoading(true);
     void loadOverflowMarkdown(attachment.id, channelId, format).then((result) => {
-      // The ref doubles as the unmount guard: cleanup clears it.
-      if (!startedRef.current) return;
-      setOutcome(result);
+      if (!mountedRef.current) return;
       setLoading(false);
+      if (result.kind !== 'transient') {
+        setOutcome(result);
+        return;
+      }
+      // A preload nobody asked for must not end in a dead chip: keep the
+      // collapsed view and let Expand retry. A failure after Expand is shown.
+      startedRef.current = false;
+      if (userExpandedRef.current) setOutcome({ kind: 'preview-unavailable' });
+      else setExpanded(false);
     });
   }, [attachment.id, attachment.file_size, channelId, format]);
 
@@ -260,12 +301,12 @@ const OverflowMarkdownAttachment: React.FC<OverflowMarkdownAttachmentProps> = ({
   }, [startLoad]);
 
   // An in-flight load must not set state after unmount.
-  useEffect(
-    () => () => {
-      startedRef.current = false;
-    },
-    []
-  );
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const rendered = outcome?.kind === 'rendered' ? outcome.content : null;
   const showFull = expanded && rendered !== null;
@@ -279,6 +320,7 @@ const OverflowMarkdownAttachment: React.FC<OverflowMarkdownAttachmentProps> = ({
   const handleExpand = useCallback((): void => {
     setExpanded(true);
     setUserExpanded(true);
+    userExpandedRef.current = true;
     startLoad();
   }, [startLoad]);
 
@@ -286,6 +328,7 @@ const OverflowMarkdownAttachment: React.FC<OverflowMarkdownAttachmentProps> = ({
     // Return to collapsed without evicting the loaded content.
     setExpanded(false);
     setUserExpanded(false);
+    userExpandedRef.current = false;
   }, []);
 
   const renderBody = (content: string, id: string): React.ReactNode => (
@@ -335,8 +378,14 @@ const OverflowMarkdownAttachment: React.FC<OverflowMarkdownAttachmentProps> = ({
       className={`overflow-md-attachment overflow-md-attachment--${stateClass}`}
     >
       {rendered !== null ? (
-        <div className="overflow-md-attachment__clip">
-          {renderBody(rendered, `overflow-preview-${attachment.id}`)}
+        // `inert`: clipped content must not take Tab stops or be read aloud as
+        // if expanded; Expand is the way in. Only a slice is rendered, so a
+        // long channel does not pay full render cost for unexpanded files.
+        <div className="overflow-md-attachment__clip" inert>
+          {renderBody(
+            rendered.slice(0, COLLAPSED_PREVIEW_CHARS),
+            `overflow-preview-${attachment.id}`
+          )}
         </div>
       ) : (
         previewBody !== '' && renderBody(previewBody, `overflow-preview-${attachment.id}`)

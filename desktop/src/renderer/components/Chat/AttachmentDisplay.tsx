@@ -481,7 +481,21 @@ function useStillFrame(url: string | null, enabled: boolean): string | null {
     img.src = url;
     img
       .decode()
-      .then(() => createImageBitmap(img))
+      // Decoded at display size: a huge declared GIF must not cost a
+      // full-resolution bitmap and canvas just to show a 400px still.
+      .then(() => {
+        const dpr = globalThis.devicePixelRatio || 1;
+        const scale = Math.min(
+          (ATTACHMENT_MAX_W * dpr) / img.naturalWidth,
+          (ATTACHMENT_MAX_H * dpr) / img.naturalHeight,
+          1
+        );
+        return createImageBitmap(img, {
+          resizeWidth: Math.max(1, Math.round(img.naturalWidth * scale)),
+          resizeHeight: Math.max(1, Math.round(img.naturalHeight * scale)),
+          resizeQuality: 'low',
+        });
+      })
       .then(
         (bitmap) =>
           new Promise<Blob | null>((resolve) => {
@@ -502,6 +516,12 @@ function useStillFrame(url: string | null, enabled: boolean): string | null {
       cancelled = true;
     };
   }, [url, enabled, hasStill]);
+  // A still for a url that is gone (scrolled out, replaced) is dropped now,
+  // not held until the next pause.
+  useEffect(() => {
+    // eslint-disable-next-line @eslint-react/set-state-in-effect -- intentional: releases a still whose url no longer exists; the next render sees null and does not loop
+    if (still && still.from !== url) setStill(null);
+  }, [still, url]);
   // The one revoker: a replaced still, or the last one at unmount.
   useEffect(
     () => () => {
@@ -631,6 +651,12 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   }, [attachment.id, attachment.file_size, channelId]);
   loadRef.current = load;
 
+  // Turning "Load GIFs automatically" on lifts the gate while the image is
+  // already on screen; the observer only reports changes, so load here.
+  useEffect(() => {
+    if (!awaitingClick && visibleRef.current) loadRef.current();
+  }, [awaitingClick]);
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -754,6 +780,10 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
           aria-label="Click to load GIF"
           onClick={() => {
             awaitingClickRef.current = false;
+            // This button unmounts while focused, and an unmounted element
+            // never fires blur: clear the flag here or the GIF stays "hovered"
+            // and pinned after the pointer leaves.
+            setFocusWithin(false);
             setUserClicked(true);
             loadRef.current();
           }}
@@ -1144,10 +1174,12 @@ function FileAttachment({ attachment, channelId }: AttachmentItemProps) {
 
 /** Text MIME types that preload into the collapsible text space (attachment
  *  display policy, 2026-11-05). Anything else waits for a Download click. */
-const TEXT_FORMATS: Readonly<Record<string, 'markdown' | 'text' | undefined>> = {
-  'text/markdown': 'markdown',
-  'text/plain': 'text',
-};
+// A Map, not an object literal: `mime_type` is sender-chosen, and an object
+// lookup would answer `constructor` or `__proto__` from the prototype.
+const TEXT_FORMATS: ReadonlyMap<string, 'markdown' | 'text'> = new Map([
+  ['text/markdown', 'markdown'],
+  ['text/plain', 'text'],
+]);
 
 const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
   attachments,
@@ -1159,7 +1191,8 @@ const AttachmentDisplay: React.FC<AttachmentDisplayProps> = ({
   return (
     <div className="attachment-display">
       {attachments.map((attachment) => {
-        const textFormat = attachment.file_type === 'file' && TEXT_FORMATS[attachment.mime_type];
+        const textFormat =
+          attachment.file_type === 'file' && TEXT_FORMATS.get(attachment.mime_type);
         if (textFormat) {
           return (
             <OverflowMarkdownAttachment

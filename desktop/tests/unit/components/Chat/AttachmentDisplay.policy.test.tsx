@@ -4,7 +4,7 @@
  * to 256 MiB on Desktop, and text/Markdown, which preload.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent } from '../../../test-utils';
+import { render, screen, waitFor, fireEvent, act } from '../../../test-utils';
 import AttachmentDisplay, {
   VIDEO_PRELOAD_MAX_BYTES,
   __resetBlobCacheForTests,
@@ -144,6 +144,23 @@ describe('animated attachments follow the KLIPY GIF rules', () => {
     expect(mockApiFetch).toHaveBeenCalledTimes(1);
   });
 
+  it('loads once the setting is switched on while a GIF waits for a click', async () => {
+    usePrivacyStore.setState((s) => ({
+      settings: { ...s.settings, loadGifsAutomatically: false },
+    }));
+    mockFetchSuccess('image/gif');
+    render(<AttachmentDisplay attachments={[gif]} channelId="c" />);
+    expect(screen.getByRole('button', { name: 'Click to load GIF' })).toBeInTheDocument();
+
+    act(() => {
+      usePrivacyStore.setState((s) => ({
+        settings: { ...s.settings, loadGifsAutomatically: true },
+      }));
+    });
+    await waitFor(() => expect(document.querySelector('img.attachment-image')).not.toBeNull());
+    expect(mockApiFetch).toHaveBeenCalledTimes(1);
+  });
+
   it('loads without a click when the setting is on', async () => {
     mockFetchSuccess('image/gif');
     render(<AttachmentDisplay attachments={[gif]} channelId="c" />);
@@ -197,6 +214,25 @@ describe('animated attachments follow the KLIPY GIF rules', () => {
       expect(screen.queryByText('Hover to play')).toBeNull();
       expect(document.querySelector('.attachment-image-placeholder')).toBeNull();
     });
+
+    it('does not keep a clicked GIF playing on focus the chip took with it', async () => {
+      useSettingsStore.setState((s) => ({
+        appearance: { ...s.appearance, reduceAnimations: false, gifPlayback: 'hover' },
+      }));
+      usePrivacyStore.setState((s) => ({
+        settings: { ...s.settings, loadGifsAutomatically: false },
+      }));
+      mockFetchSuccess('image/gif');
+      render(<AttachmentDisplay attachments={[gif]} channelId="c" />);
+
+      const chip = screen.getByRole('button', { name: 'Click to load GIF' });
+      fireEvent.focus(chip);
+      fireEvent.click(chip);
+      // Paused on hover mode once the pointer is gone, so a still frame is made.
+      await waitFor(() =>
+        expect((globalThis as Record<string, unknown>).createImageBitmap).toHaveBeenCalled()
+      );
+    });
   });
 });
 
@@ -217,6 +253,20 @@ describe('text attachments preload into the collapsible text space', () => {
     // The message body is only a stand-in for overflow Markdown, never for text.
     expect(el.textContent).toBe(preview);
   });
+
+  it.each(['constructor', '__proto__', 'toString'])(
+    'never routes a prototype key (%s) as a text format',
+    (mime) => {
+      render(
+        <AttachmentDisplay
+          attachments={[{ id: `p-${mime}`, file_type: 'file', mime_type: mime, file_size: 10 }]}
+          channelId="c"
+        />
+      );
+      expect(screen.queryByTestId('text-attachment')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Download attachment' })).toBeInTheDocument();
+    }
+  );
 
   it('leaves any other file as a download card that fetches nothing', () => {
     render(
