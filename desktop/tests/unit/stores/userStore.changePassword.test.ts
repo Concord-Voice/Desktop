@@ -1040,6 +1040,39 @@ describe('userStore - changePassword', () => {
       ]);
     });
 
+    // Production path after a real commit: the credential-epoch fence answers the
+    // old token's reveal with 401, and apiFetch's refresh cannot revive it, so the
+    // 401 reaches the reconcile. The outcome is unknown, and the new password is
+    // never sent on a fenced token.
+    it.each([
+      [401, { error: 'Unauthorized' }],
+      [423, { error: 'Account locked', code: 'account_locked' }],
+    ])(
+      'reports an unknown outcome without a second reveal when the reconcile gets %i',
+      async (status, body) => {
+        mockApiFetch.mockResolvedValueOnce(keysResponse);
+        mockApiFetch.mockRejectedValueOnce(new TypeError('network dropped'));
+        mockApiFetch.mockResolvedValueOnce({
+          ok: false,
+          status,
+          json: async () => body,
+        } as Response);
+
+        const result = await useUserStore.getState().changePassword('oldpass', 'newpass');
+
+        expect(result.success).toBe(false);
+        expect(result.error).toMatch(/outcome is unknown/);
+        expect(e2eeService.initialize).not.toHaveBeenCalled();
+        const reveals = mockApiFetch.mock.calls.filter(
+          ([url]) => url === '/api/v1/users/me/keys/reveal'
+        );
+        expect(reveals.map(([, init]) => (init as RequestInit).body)).toEqual([
+          JSON.stringify({ current_password: 'oldpass' }), // pragma: allowlist secret
+          JSON.stringify({ current_password: 'oldpass' }), // pragma: allowlist secret
+        ]);
+      }
+    );
+
     it('reports an unknown outcome when the reconcile fetch itself fails', async () => {
       mockApiFetch.mockResolvedValueOnce(keysResponse);
       mockApiFetch.mockRejectedValueOnce(new TypeError('network dropped'));

@@ -427,9 +427,14 @@ fail-closed state:
   the rotated rows; the forced disconnect + re-login rehydration converges
   cross-device state instead. A transport failure on the password POST
   reconciles against persisted key material (the per-attempt KDF salt) before
-  reporting success or retryability, and both the version-skew and
-  ambiguous-commit outcomes re-push the fetched plaintexts under the NEW key
-  with repair failures surfaced, never swallowed.
+  reporting success or retryability. The reconcile reveal retries with the
+  NEW password only on 403 `invalid_current_password`; any other refusal
+  (401 from the credential-epoch fence after a real commit, 423
+  `account_locked`, any other 403) reports an unknown outcome. A
+  `committed-ambiguous` result carries no plaintexts and fails closed to
+  re-auth (#2415); only the version-skew outcome re-pushes the fetched
+  plaintexts under the NEW key, with repair failures surfaced, never
+  swallowed.
 - A fulfilled **2xx is commit evidence** even when its body is unreadable
   (#2422). `classifyPasswordChangeResponse` classifies `response.ok` BEFORE
   parsing and guards the 2xx body; a truncated JSON, an invalid
