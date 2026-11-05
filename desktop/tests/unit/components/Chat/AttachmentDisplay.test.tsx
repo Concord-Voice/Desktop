@@ -1040,12 +1040,13 @@ describe('AttachmentDisplay download size guard (#2157)', () => {
 
     render(<AttachmentDisplay attachments={[video]} channelId="ch-1" />);
 
-    await user.click(screen.getByText('Load video'));
+    // Above the 256 MiB preload cap the button asks first (display policy).
+    await user.click(screen.getByText(/^Large video — download /));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       /too large to open in this version of Concord/
     );
-    expect(screen.queryByText('Load video')).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Large video/)).not.toBeInTheDocument();
     expect(mockApiFetch).not.toHaveBeenCalled();
   });
 });

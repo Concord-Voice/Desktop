@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach, beforeAll, afterEach, afterAll } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '../../../test-utils';
 import { resetAllStores } from '../../../helpers/store-helpers';
-import OverflowMarkdownAttachment from '@/renderer/components/Chat/OverflowMarkdownAttachment';
+import OverflowMarkdownAttachment, {
+  MAX_PREVIEWABLE_CIPHERTEXT_BYTES,
+} from '@/renderer/components/Chat/OverflowMarkdownAttachment';
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import type { AttachmentSummary } from '@/renderer/types/chat';
@@ -428,5 +430,155 @@ describe('OverflowMarkdownAttachment', () => {
     // Wait for rendered state — Collapse button should receive focus
     const collapseButton = await screen.findByRole('button', { name: /collapse/i });
     await waitFor(() => expect(collapseButton).toHaveFocus());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Attachment display policy (2026-11-05): text and Markdown PRELOAD into a
+// collapsible space instead of waiting for Expand.
+// ---------------------------------------------------------------------------
+describe('OverflowMarkdownAttachment preload', () => {
+  const OriginalIO = globalThis.IntersectionObserver;
+  let requests = 0;
+
+  beforeEach(() => {
+    resetAllStores();
+    vi.clearAllMocks();
+    requests = 0;
+    (globalThis as unknown as Record<string, unknown>).IntersectionObserver = class {
+      constructor(private readonly cb: IntersectionObserverCallback) {}
+      observe() {
+        this.cb(
+          [{ isIntersecting: true } as IntersectionObserverEntry],
+          this as unknown as IntersectionObserver
+        );
+      }
+      disconnect = vi.fn();
+      unobserve = vi.fn();
+    };
+    server.use(
+      http.get('http://localhost:8080/api/v1/media/attachments/att-1', () => {
+        requests += 1;
+        return new HttpResponse(enc.encode('mock').buffer, { status: 200 });
+      })
+    );
+  });
+
+  afterEach(() => {
+    (globalThis as unknown as Record<string, unknown>).IntersectionObserver = OriginalIO;
+  });
+
+  it('loads on view and shows the file collapsed, without moving focus', async () => {
+    await setupDecryptFile('# Loaded heading');
+    render(
+      <OverflowMarkdownAttachment attachment={sampleAttachment} previewBody="" channelId="ch-1" />
+    );
+
+    await waitFor(() =>
+      expect(screen.getByTestId('markdown-content')).toHaveTextContent('# Loaded heading')
+    );
+    expect(document.querySelector('.overflow-md-attachment__clip')).not.toBeNull();
+    const expand = screen.getByRole('button', { name: /expand/i });
+    expect(expand).not.toHaveFocus();
+
+    fireEvent.click(expand);
+    expect(await screen.findByRole('button', { name: /collapse/i })).toBeInTheDocument();
+    expect(document.querySelector('.overflow-md-attachment__clip')).toBeNull();
+    expect(requests).toBe(1);
+  });
+
+  it('renders plain text verbatim in a <pre>, never through Markdown', async () => {
+    await setupDecryptFile('<b>not bold</b>\n# not a heading');
+    render(
+      <OverflowMarkdownAttachment
+        attachment={{ ...sampleAttachment, mime_type: 'text/plain' }}
+        channelId="ch-1"
+        format="text"
+      />
+    );
+
+    await waitFor(() => expect(document.querySelector('pre')).not.toBeNull());
+    expect(document.querySelector('pre')?.textContent).toBe('<b>not bold</b>\n# not a heading');
+    expect(document.querySelector('b')).toBeNull();
+    expect(screen.queryByTestId('markdown-content')).toBeNull();
+  });
+
+  it('never fetches a file too large to preview, and offers the download', async () => {
+    render(
+      <OverflowMarkdownAttachment
+        attachment={{
+          ...sampleAttachment,
+          mime_type: 'text/plain',
+          file_size: MAX_PREVIEWABLE_CIPHERTEXT_BYTES + 1,
+        }}
+        channelId="ch-1"
+        format="text"
+        downloadSlot={<button type="button">Download attachment</button>}
+      />
+    );
+
+    expect(await screen.findByText(/too large to preview/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download attachment' })).toBeInTheDocument();
+    expect(requests).toBe(0);
+  });
+
+  it('offers the download slot when the preview is unavailable', async () => {
+    await setupDecryptFile('bad\u0000bytes');
+    render(
+      <OverflowMarkdownAttachment
+        attachment={sampleAttachment}
+        channelId="ch-1"
+        format="text"
+        downloadSlot={<button type="button">Download attachment</button>}
+      />
+    );
+
+    expect(await screen.findByText(/Preview unavailable/)).toBeInTheDocument();
+    expect(screen.getByText('Text file')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download attachment' })).toBeInTheDocument();
+  });
+
+  it('refuses a file too large to open without an alert the user never asked for', async () => {
+    render(
+      <OverflowMarkdownAttachment
+        attachment={{ ...sampleAttachment, file_size: MAX_DECRYPTABLE_ATTACHMENT_BYTES + 1 }}
+        channelId="ch-1"
+        format="text"
+        downloadSlot={<button type="button">Download attachment</button>}
+      />
+    );
+
+    expect(await screen.findByText('Text file')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Download attachment' })).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(requests).toBe(0);
+  });
+
+  it('keeps Expand after a transient preload failure, and Expand retries', async () => {
+    await setupDecryptFile('# Second try');
+    let failNext = true;
+    server.use(
+      http.get('http://localhost:8080/api/v1/media/attachments/att-1', () => {
+        requests += 1;
+        if (failNext) {
+          failNext = false;
+          return new HttpResponse(null, { status: 503 });
+        }
+        return new HttpResponse(enc.encode('mock').buffer, { status: 200 });
+      })
+    );
+    render(
+      <OverflowMarkdownAttachment attachment={sampleAttachment} previewBody="" channelId="ch-1" />
+    );
+
+    await waitFor(() => expect(requests).toBe(1));
+    const expand = await screen.findByRole('button', { name: /expand/i });
+    expect(screen.queryByText(/Preview unavailable/)).toBeNull();
+
+    fireEvent.click(expand);
+    await waitFor(() =>
+      expect(screen.getByTestId('markdown-content')).toHaveTextContent('# Second try')
+    );
+    expect(requests).toBe(2);
   });
 });

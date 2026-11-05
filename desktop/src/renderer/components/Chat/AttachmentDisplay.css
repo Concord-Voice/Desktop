@@ -18,6 +18,13 @@
   position: relative;
 }
 
+/* Click-to-load GIF chip: the chip is the whole surface, like GifEmbed's. */
+.attachment-image-container--click-to-load {
+  width: fit-content;
+  min-height: 0;
+  background: transparent;
+}
+
 /* #1729 — the image is wrapped in a real <button> so click/right-click carry no
    a11y smell and the open affordance is keyboard-operable natively. */
 .attachment-image-btn {
