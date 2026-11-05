@@ -124,6 +124,82 @@ async function loadOverflowMarkdown(
   }
 }
 
+/** Plain text verbatim in a <pre>, or Markdown through the shared renderer. */
+function TextBody({
+  format,
+  content,
+  id,
+}: Readonly<{ format: 'markdown' | 'text'; content: string; id: string }>) {
+  if (format === 'text') {
+    return (
+      <pre id={id} className="overflow-md-attachment__text">
+        {content}
+      </pre>
+    );
+  }
+  return (
+    <MarkdownContent
+      id={id}
+      content={content}
+      editedAt={null}
+      mentionLookup={EMPTY_MENTION_LOOKUP}
+    />
+  );
+}
+
+function fallbackCopy(
+  outcome: Exclude<LoadOutcome, { kind: 'rendered' }>,
+  typeLabel: string,
+  fileSize: number
+): string {
+  // Shared with AttachmentDisplay so the wording cannot drift between the two
+  // refusal surfaces (two test files assert it).
+  if (outcome.kind === 'too-large-to-open') {
+    return tooLargeMessage(outcome.bytes, outcome.truncated, formatFileSize);
+  }
+  if (outcome.kind === 'too-large') {
+    return `${typeLabel} (${formatFileSize(fileSize)}) — too large to preview, download to view.`;
+  }
+  return 'Preview unavailable — download to view.';
+}
+
+/** Fallback states: preview-unavailable, too-large, or too-large-to-open. */
+function TextFallback({
+  outcome,
+  format,
+  fileSize,
+  announce,
+  downloadSlot,
+}: Readonly<{
+  outcome: Exclude<LoadOutcome, { kind: 'rendered' }>;
+  format: 'markdown' | 'text';
+  fileSize: number;
+  /** True when the user asked for the content; a preload refusal stays quiet. */
+  announce: boolean;
+  downloadSlot?: React.ReactNode;
+}>) {
+  const typeLabel = format === 'text' ? 'Text file' : 'Markdown file';
+  const refused = outcome.kind === 'too-large-to-open';
+  return (
+    <div
+      className="overflow-md-attachment overflow-md-attachment--fallback"
+      role={refused && announce ? 'alert' : undefined}
+    >
+      <FileText size={16} aria-hidden="true" />
+      {/* AttachmentSummary carries no filename field; "message.md" is the
+          conventional display name for overflow markdown attachments. */}
+      <span className="overflow-md-attachment__filename">
+        {format === 'text' ? 'Text file' : 'message.md'}
+      </span>
+      <span className="overflow-md-attachment__message">
+        {fallbackCopy(outcome, typeLabel, fileSize)}
+      </span>
+      {/* "download to view" must name something the reader can press. */}
+      {!refused && downloadSlot}
+    </div>
+  );
+}
+
 const OverflowMarkdownAttachment: React.FC<OverflowMarkdownAttachmentProps> = ({
   attachment,
   previewBody = '',
@@ -212,52 +288,19 @@ const OverflowMarkdownAttachment: React.FC<OverflowMarkdownAttachmentProps> = ({
     setUserExpanded(false);
   }, []);
 
-  const renderBody = (content: string, id: string): React.ReactNode =>
-    format === 'text' ? (
-      <pre id={id} className="overflow-md-attachment__text">
-        {content}
-      </pre>
-    ) : (
-      <MarkdownContent
-        id={id}
-        content={content}
-        editedAt={null}
-        mentionLookup={EMPTY_MENTION_LOOKUP}
-      />
-    );
+  const renderBody = (content: string, id: string): React.ReactNode => (
+    <TextBody format={format} content={content} id={id} />
+  );
 
-  // ------------------------------------------------------------------
-  // Fallback states: preview-unavailable, too-large, or too-large-to-open
-  // ------------------------------------------------------------------
   if (outcome !== null && outcome.kind !== 'rendered') {
-    const typeLabel = format === 'text' ? 'Text file' : 'Markdown file';
-    let fallbackMessage: string;
-    if (outcome.kind === 'too-large-to-open') {
-      // Shared with AttachmentDisplay so the wording cannot drift between the
-      // two refusal surfaces (two test files assert it).
-      fallbackMessage = tooLargeMessage(outcome.bytes, outcome.truncated, formatFileSize);
-    } else if (outcome.kind === 'too-large') {
-      fallbackMessage = `${typeLabel} (${formatFileSize(attachment.file_size)}) — too large to preview, download to view.`;
-    } else {
-      fallbackMessage = 'Preview unavailable — download to view.';
-    }
-
-    // The refusal is announced only when the user asked for the content; a
-    // preload that hits the refusal is static chip copy like the others.
-    const fallbackRole = outcome.kind === 'too-large-to-open' && userExpanded ? 'alert' : undefined;
-
     return (
-      <div className="overflow-md-attachment overflow-md-attachment--fallback" role={fallbackRole}>
-        <FileText size={16} aria-hidden="true" />
-        {/* AttachmentSummary carries no filename field; "message.md" is the
-            conventional display name for overflow markdown attachments. */}
-        <span className="overflow-md-attachment__filename">
-          {format === 'text' ? 'Text file' : 'message.md'}
-        </span>
-        <span className="overflow-md-attachment__message">{fallbackMessage}</span>
-        {/* "download to view" must name something the reader can press. */}
-        {outcome.kind !== 'too-large-to-open' && downloadSlot}
-      </div>
+      <TextFallback
+        outcome={outcome}
+        format={format}
+        fileSize={attachment.file_size}
+        announce={userExpanded}
+        downloadSlot={downloadSlot}
+      />
     );
   }
 
