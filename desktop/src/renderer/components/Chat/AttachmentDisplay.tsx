@@ -470,10 +470,12 @@ export function extFromMime(mime: string | undefined): string {
  */
 function useStillFrame(url: string | null, enabled: boolean): string | null {
   const [still, setStill] = useState<{ readonly from: string; readonly url: string } | null>(null);
+  // Made the first time the image pauses, then kept across play/pause until
+  // the url changes or the surface unmounts, so toggling never re-decodes.
+  const hasStill = still?.from === url;
   useEffect(() => {
-    if (!url || !enabled || typeof createImageBitmap !== 'function') return;
+    if (!url || !enabled || hasStill || typeof createImageBitmap !== 'function') return;
     let cancelled = false;
-    let made: string | null = null;
     // A fresh element decodes from frame one; no fetch of the blob url needed.
     const img = new Image();
     img.src = url;
@@ -493,17 +495,22 @@ function useStillFrame(url: string | null, enabled: boolean): string | null {
       )
       .then((frame) => {
         if (cancelled || !frame) return;
-        made = URL.createObjectURL(frame);
-        setStill({ from: url, url: made });
+        setStill({ from: url, url: URL.createObjectURL(frame) });
       })
       .catch(() => undefined); // No still: the paused box falls back to the hint.
     return () => {
       cancelled = true;
-      if (made) URL.revokeObjectURL(made);
     };
-  }, [url, enabled]);
-  // Ignore a still made for an earlier url; its object url is already revoked.
-  return still?.from === url ? still.url : null;
+  }, [url, enabled, hasStill]);
+  // The one revoker: a replaced still, or the last one at unmount.
+  useEffect(
+    () => () => {
+      if (still) URL.revokeObjectURL(still.url);
+    },
+    [still]
+  );
+  // A still made for an earlier url is never shown for the current one.
+  return hasStill ? still.url : null;
 }
 
 function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
@@ -697,7 +704,8 @@ function ImageAttachment({ attachment, channelId }: AttachmentItemProps) {
   // `HTMLMediaElement.pause()`. The browser restarts the animation on every
   // mount; §5 residual 1 records that as accepted and unfixable here.
   const showLiveImage = url !== null && (!isAnimated || verdict.playing);
-  const stillUrl = useStillFrame(url, isAnimated);
+  // Only a paused image shows its still, so only a paused image makes one.
+  const stillUrl = useStillFrame(url, isAnimated && url !== null && !verdict.playing);
   // The two copies are never merged: one names an action available right now,
   // the other names a cause hovering cannot fix. Unfocus wins when both hold,
   // because moving the pointer onto a background window does nothing.

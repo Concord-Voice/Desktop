@@ -175,6 +175,17 @@ describe('animated attachments follow the KLIPY GIF rules', () => {
       (globalThis as Record<string, unknown>).createImageBitmap = originalBitmap;
     });
 
+    it('makes no still while the image is playing', async () => {
+      useSettingsStore.setState((s) => ({
+        appearance: { ...s.appearance, reduceAnimations: false, gifPlayback: 'always' },
+      }));
+      mockFetchSuccess('image/gif');
+      render(<AttachmentDisplay attachments={[gif]} channelId="c" />);
+
+      await waitFor(() => expect(document.querySelector('img.attachment-image')).not.toBeNull());
+      expect((globalThis as Record<string, unknown>).createImageBitmap).not.toHaveBeenCalled();
+    });
+
     it('shows the first frame instead of a blank box while hover-gated', async () => {
       useSettingsStore.setState((s) => ({
         appearance: { ...s.appearance, reduceAnimations: false, gifPlayback: 'hover' },
