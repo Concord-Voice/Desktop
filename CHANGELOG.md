@@ -29,6 +29,12 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
+This release adds groundwork for verifying account keys. Nothing uses it yet.
+
+### Added
+
+- **Encryption:** Added a dormant codec and primitives for account-key authority messages, checked against the shared test vectors. Nothing uses them yet.
+
 ## [0.3.1] - 2026-11-06
 
 This update closes a security gap: only the Concord Voice service can now
