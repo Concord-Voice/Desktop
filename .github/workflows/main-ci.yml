@@ -136,15 +136,15 @@ jobs:
           if GIT_CONFIG_COUNT=1 \
             GIT_CONFIG_KEY_0='http.https://github.com/.extraheader' \
             GIT_CONFIG_VALUE_0="AUTHORIZATION: basic ${AUTH_HEADER}" \
-            git ls-remote --exit-code origin "refs/tags/desktop-v${VERSION}" >/dev/null; then
+            git ls-remote --exit-code origin "refs/tags/v${VERSION}" >/dev/null; then
             echo "pending=false" >> "$GITHUB_OUTPUT"
           else
             status=$?
             if [[ "$status" -ne 2 ]]; then
-              echo "::error::Failed to query desktop-v${VERSION} release tag (git ls-remote exit ${status})"
+              echo "::error::Failed to query v${VERSION} release tag (git ls-remote exit ${status})"
               exit "$status"
             fi
-            echo "::notice::desktop-v${VERSION} is untagged — release path stays armed"
+            echo "::notice::v${VERSION} is untagged — release path stays armed"
             echo "pending=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -281,6 +281,10 @@ jobs:
     uses: ./.github/workflows/build.yml
 
   # SonarCloud's main-branch analysis runs daily from sonar-main.yml (F7).
+  # Release trigger: when this job succeeds, the Release-Ops bridge sees this
+  # run complete and its tag-release.yml creates v<version> with the Publisher
+  # App, which starts release.yml. Keep the job ID `build-desktop`; tag-release
+  # checks for it by name.
   build-desktop:
     name: build-desktop
     needs: [changes, ioc, eslint, codeql, scorecard, build]
