@@ -6,12 +6,21 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { b64d, b64e, equalBytes, toHex } from '@/main/authority/bytes';
+import { b64d, b64e, equalBytes, fromHex, toHex } from '@/main/authority/bytes';
 import { decode, encode, LAYOUTS, Malformed, type Values } from '@/main/authority/codec';
 import * as prim from '@/main/authority/primitives';
-import { verifyBundle, verifyChain } from '@/main/authority/chain';
-import { chainHeadBytes, headFits, parseChainHead } from '@/main/authority/heads';
+import { STATE_REASONS, verifyBundle, verifyChain } from '@/main/authority/chain';
+import {
+  chainHeadBytes,
+  deviceHeadBytes,
+  headFits,
+  parseChainHead,
+  parseDeviceHead,
+} from '@/main/authority/heads';
+import { verifyDeviceLedger } from '@/main/authority/ledger';
+import { verifyDeviceWrap } from '@/main/authority/wrap';
 import { decodeAs } from '@/main/authority/messages';
+import { applyDeviceOp, normalizeDeviceSet } from '@/main/authority/devicerules';
 import { checkRelayRecover, recoveryBindForKind } from '@/main/authority/patterns';
 import { intentForOp } from '@/main/authority/post';
 import { REASONS, verdictOf } from '@/main/authority/reason';
@@ -276,9 +285,7 @@ async function verificationVector(v: Vec): Promise<void> {
 
 for (const t of A2_TYPES) PRIM[t] = A2_HANDLERS[t] = verificationVector;
 
-// ── Verdict parity (§2.12): the port's Reason for every published-chain vector ──
-// The private device ledger (device-ledger, device-wrap-open, apply-device-op,
-// normalize) comes in a later PR; those types stay codec-only above.
+// ── Verdict parity (§2.12): the port's Reason for every verification vector ──
 
 const exercised: Record<string, number> = {};
 const count = (v: Vec): void => {
@@ -324,6 +331,19 @@ function expectHead(v: Vec, head: Parameters<typeof chainHeadBytes>[0]): void {
   if (!v.expect.head_b64) return;
   const b = chainHeadBytes(head);
   expect(b && b64e(b), 'the persisted head (D-269)').toBe(v.expect.head_b64);
+}
+
+// A P-384 PKCS#8 holding only the scalar d (no public key: the runtime derives
+// it), as the recipient's ECDH key pair.
+const P384_D_PKCS8 = '304e020100301006072a8648ce3d020106052b81040022043730350201010430';
+async function dkxPair(d: Uint8Array): Promise<CryptoKeyPair> {
+  const { subtle } = globalThis.crypto;
+  const alg = { name: 'ECDH', namedCurve: 'P-384' };
+  const der = new Uint8Array([...fromHex(P384_D_PKCS8), ...d]);
+  const privateKey = await subtle.importKey('pkcs8', der, alg, true, ['deriveBits']);
+  const { x, y } = await subtle.exportKey('jwk', privateKey);
+  const publicKey = await subtle.importKey('jwk', { kty: 'EC', crv: 'P-384', x, y }, alg, true, []);
+  return { privateKey, publicKey };
 }
 
 const VERDICT_CHECKS: Record<string, (v: Vec) => Promise<void>> = {
@@ -392,6 +412,105 @@ const VERDICT_CHECKS: Record<string, (v: Vec) => Promise<void>> = {
     if (refusal === '') expect(v.expect.reason).toBe('ok');
     else expect(contexts).toContain(v.expect.reason);
     expect(verdictOf(v.expect.reason)).toBe(v.expect.verdict);
+  },
+  // §2.12: the device ledger's Reason; on a vector that names the persisted
+  // heads, the chain-head, its pairing and the device-head byte for byte.
+  'device-ledger': async (v) => {
+    const t = await trustOf(v);
+    expect(t, 'device-ledger anchors are valid').not.toBeNull();
+    const from = await parseDeviceHead(b64d(v.prev_device_head), b64d(v.prev_head));
+    expect(from, 'prev_device_head pairs with prev_head').not.toBeNull();
+    expect(['new-secret', 'history']).toContain(v.use);
+    const out = await verifyDeviceLedger(
+      t as Trust,
+      hwOf(v.hw),
+      from!,
+      {
+        chainBundles: (v.bundles as string[]).map(b64d),
+        deviceBundles: (v.device_bundles as string[]).map(b64d),
+        status: b64d(v.bytes_b64!),
+        deviceStatus: b64d(v.device_status),
+      },
+      memOf(v.mem),
+      v.now_ms,
+      v.use as Use
+    );
+    expectReason(v, out.reason);
+    if (!STATE_REASONS.has(out.reason)) {
+      expect(out.device, 'a refusal returns from unchanged').toBe(from);
+      expect(out.chain).toBe(from!.chain);
+    }
+    if (!v.expect.device_head_b64) return;
+    const bytes = await deviceHeadBytes(out.device);
+    expect(b64e(chainHeadBytes(out.chain)!), 'the persisted chain-head (D-269)').toBe(
+      v.expect.head_b64
+    );
+    expect(bytes && b64e(bytes[1]), "the device-head's paired chain-head").toBe(v.expect.head_b64);
+    expect(bytes && b64e(bytes[0]), 'the persisted device-head (D-269)').toBe(
+      v.expect.device_head_b64
+    );
+  },
+  // §2.5 checks 1–4: the Reason and, on ok, the use and an EK; a refusal
+  // returns no secrets and no use.
+  'device-wrap-open': async (v) => {
+    const h = await parseDeviceHead(b64d(v.prev_device_head), b64d(v.prev_head));
+    expect(h, 'prev_device_head pairs with prev_head').not.toBeNull();
+    const dkx = await dkxPair(b64d(v.recipient_dkx_d));
+    const out = await verifyDeviceWrap(h!, b64d(v.bytes_b64!), dkx);
+    expectReason(v, out.reason);
+    if (out.reason !== 'ok') {
+      expect(out.secrets).toBeNull();
+      return expect(out.use).toBeNull();
+    }
+    expect(out.use).toBe(v.expect.wrap_use);
+    expect(out.secrets!.ek_pkcs8.length).toBeGreaterThan(0);
+  },
+  // D-270: the shared device rules give the generator's set or refusal. A
+  // refusal reads as device_rule on own devices; an admitted call is ok.
+  'apply-device-op': async (v) => {
+    const i = v.input!;
+    const h = i.head;
+    const [set, refusal] = await applyDeviceOp(
+      b64d(v.bytes_b64!),
+      {
+        op: i.op,
+        actor: i.actor,
+        new: i.new_dev ? await prim.parseDev(i.new_dev) : null,
+        removed: i.removed,
+        bind: b64OrEmpty(i.bind_b64),
+        bindWait: i.bind_wait,
+        priorSig: i.prior_sig,
+        rootForm: i.root_form,
+        head: {
+          state: h.state,
+          seq: h.seq,
+          entryDigest: b64OrEmpty(h.entry_digest_b64),
+          rootDigest: b64OrEmpty(h.root_digest_b64),
+          forceUnverified: h.force_unverified,
+        },
+        outcome: i.outcome,
+        proposingAnbMs: i.proposing_anb_ms,
+      },
+      i.issued_at_ms,
+      i.delta_ms
+    );
+    expect(refusal).toBe(v.expect.refusal);
+    expect(v.expect.reason).toBe(refusal === '' ? 'ok' : 'device_rule');
+    expect(verdictOf(v.expect.reason)).toBe(v.expect.verdict);
+    if (refusal !== '') return expect(set, 'a refused op returns no set').toBeNull();
+    expect(b64e(set!)).toBe(v.expect.set_b64);
+  },
+  normalize: async (v) => {
+    expect(v.expect.reason, 'normalize cannot refuse').toBe('ok');
+    const i = v.input!;
+    const got = await normalizeDeviceSet(b64d(v.bytes_b64!), {
+      activate: i.activate,
+      burnRecovery: i.burn_recovery,
+      completeSlot: i.complete_slot,
+      clearPending: i.clear_pending,
+      emptySlot: i.empty_slot,
+    });
+    expect(got && b64e(got)).toBe(v.expect.set_b64);
   },
   pattern: async (v) => {
     expect(v.input!.tag).toBe('relay-recover');

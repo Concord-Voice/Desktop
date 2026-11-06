@@ -3,7 +3,7 @@
 // an earlier verification; `canonicalHead` refuses any other before a record is
 // read, so every index lookup below may assume EN3 order.
 
-import { b64d, b64e } from './bytes';
+import { b64d, b64e, equalBytes } from './bytes';
 import { capOf, itemLen } from './codec';
 import { decodeAs, encodeAs, type ChainHead } from './messages';
 import { sha384 } from './primitives';
@@ -45,6 +45,49 @@ export const rootRecord = (rootDigest: Uint8Array, root: Uint8Array, seg: string
   `${b64e(rootDigest)}.${b64e(root)}.${seg}`;
 export const recoverRecord = (seq: number, keyDigest: Uint8Array): string =>
   `${seq}.${b64e(keyDigest)}`;
+/** device-head #9: the device and the actor that admitted it ("" for none). */
+export const admittedRecord = (deviceId: string, admittedBy: string): string =>
+  `${deviceId}.${admittedBy}`;
+/** device-head #10: one of self's secrets entries, its op, its root (or "") and its EK SPKI. */
+export const secretsRecord = (
+  entry: Uint8Array,
+  op: string,
+  root: Uint8Array,
+  ekSpki: Uint8Array
+): string => `${b64e(entry)}.${op}.${root.length > 0 ? b64e(root) : ''}.${b64e(ekSpki)}`;
+
+/** The persisted `device-head` paired with its chain-head (D-269). */
+export interface DeviceHead {
+  realm_id: string;
+  account_id: string;
+  self_device_id: string; // "" for the CP monitor
+  last_device_result: Uint8Array;
+  device_set: Uint8Array;
+  admitted_by: string[];
+  secrets: string[];
+  chain: ChainHead;
+}
+
+/** The device-head and its paired chain-head as bytes, or null when either does not encode. */
+export async function deviceHeadBytes(h: DeviceHead): Promise<[Uint8Array, Uint8Array] | null> {
+  const ch = chainHeadBytes(h.chain);
+  if (!ch) return null;
+  const { chain: _chain, ...rest } = h;
+  const dh = encodeAs('device-head', { ...rest, chain_head_digest: await sha384(ch) });
+  return dh ? [dh, ch] : null;
+}
+
+/** EN5 over both blobs; null when either is malformed or chain_head_digest does not pair them. */
+export async function parseDeviceHead(
+  deviceHead: Uint8Array,
+  chainHead: Uint8Array
+): Promise<DeviceHead | null> {
+  const chain = await parseChainHead(chainHead);
+  const w = await decodeAs('device-head', deviceHead);
+  if (!chain || !w || !equalBytes(w.chain_head_digest, await sha384(chainHead))) return null;
+  const { chain_head_digest: _digest, ...rest } = w;
+  return { ...rest, chain };
+}
 
 const ascending = (xs: readonly string[]): boolean => xs.every((x, i) => i === 0 || xs[i - 1] < x);
 
