@@ -1006,7 +1006,7 @@ assert_exit 0 "next-version computation falls back instead of raising" \
 
 # ── PR comment: "on merge" is a hotfix-only claim ─────────────────────────────
 # main-ci.yml:179 gates the release dispatch on `risk: hotfix`; an ordinary
-# version bump defers to nightly-ci.yml. Claiming "on merge" unconditionally
+# version bump waits for an operator (no nightly since the Desktop split). Claiming "on merge" unconditionally
 # made the Client Version cell contradict the Release timing row three lines
 # below it on every non-hotfix release PR. CodeRabbit caught it on PR 3013.
 echo ""
@@ -1024,8 +1024,8 @@ assert_exit 0 "versionBump branches on hotfix" \
 assert_exit 0 "verdict branches on hotfix" \
   grep -q 'verdictTitle = hotfix' "$CLASSIFY_COMMENT_YML"
 
-assert_exit 0 "non-hotfix path names the nightly as the dispatcher" \
-  grep -q 'at the next nightly' "$CLASSIFY_COMMENT_YML"
+assert_exit 0 "non-hotfix path says an operator cuts the release" \
+  grep -q 'when an operator cuts it' "$CLASSIFY_COMMENT_YML"
 
 # ORDERING, not just presence: `const hotfix` is in the temporal dead zone
 # until declared, so using it above its declaration is a ReferenceError at
