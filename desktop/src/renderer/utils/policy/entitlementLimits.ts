@@ -53,6 +53,15 @@ export const LEGACY_UPLOAD_PATH_CEILING_BYTES = 134_217_728;
  *  This is the rollback lever if the §7 harness finds the bound optimistic. */
 export const IMAGE_STRIP_MAX_BYTES = 134_217_728;
 
+/** 1 GiB — the largest plaintext this build opens: the top per-file cap on
+ *  every axis (Supersonic and Mach 3, decided 2026-11-06).
+ *
+ *  Was the 256 MiB premium entitlement, where measurement put the renderer's
+ *  memory ceiling while the whole ciphertext was buffered. Downloads now decrypt
+ *  straight off the stream (`decryptAttachmentStream`), holding one chunk at a
+ *  time, so the ceiling is the product cap rather than renderer memory. */
+export const MAX_STREAMED_ATTACHMENT_BYTES = 1_073_741_824;
+
 /** Download-side guard.
  *
  *  Derived, never a magic number. It must admit a maximum-size envelope of the
@@ -60,12 +69,13 @@ export const IMAGE_STRIP_MAX_BYTES = 134_217_728;
  *  (IV + tag) per chunk.
  *
  *  DERIVED FROM v3, AND THE VERSION IS LOAD-BEARING. v3 gives 28 bytes of chunk
- *  0's plaintext to the header, and the premium ceiling is an exact multiple of
- *  the chunk size -- so those 28 bytes spill into a whole extra chunk: 33 chunks
- *  (952 bytes of overhead) where v2 needs 32 (924). Sized to v2 this guard is 28
- *  bytes short, and `readBoundedBody` CANCELS the transfer the moment the body
- *  passes it, so a maximum-size premium attachment becomes undownloadable. Both
- *  counts are pinned server-side by TestPremiumCeilingChunkCountsPerVersion.
+ *  0's plaintext to the header, and the ceiling is an exact multiple of the
+ *  chunk size -- so those 28 bytes spill into a whole extra chunk: 129 chunks
+ *  at 1 GiB where v2 needs 128. Sized to v2 this guard is 28
+ *  bytes short, and the download path refuses any declared length above it, so
+ *  a maximum-size attachment becomes undownloadable. Both
+ *  counts at 256 MiB (33 vs 32) are pinned server-side by
+ *  TestPremiumCeilingChunkCountsPerVersion.
  *
  *  The previous value was PREMIUM + 4096, with a comment claiming the 4096
  *  mirrored the server's multipart-header allowance. That derivation is wrong
@@ -73,14 +83,15 @@ export const IMAGE_STRIP_MAX_BYTES = 134_217_728;
  *  being correct. Expressing the arithmetic means a future chunk-size change
  *  moves this with it instead of silently outgrowing it.
  *
- *  Sized to the PREMIUM entitlement rather than the legacy upload ceiling on
- *  purpose: the download path faces bytes the server already holds, and the
+ *  Sized to MAX_STREAMED_ATTACHMENT_BYTES rather than the legacy upload ceiling
+ *  on purpose: the download path faces bytes the server already holds, and the
  *  chunked upload path produces files above that ceiling which this build must
- *  still open. Invariant: upload ceiling <= download capability. */
+ *  still open. Invariant: upload ceiling <= download capability, so a 1 GiB
+ *  grant never uploads a file its author cannot open. */
 export const MAX_DECRYPTABLE_ATTACHMENT_BYTES =
-  PREMIUM_ATTACHMENT_BYTES +
+  MAX_STREAMED_ATTACHMENT_BYTES +
   ENVELOPE_HEADER_BYTES +
-  CHUNK_OVERHEAD_BYTES * totalChunksFor(PREMIUM_ATTACHMENT_BYTES, ENVELOPE_VERSION_V3);
+  CHUNK_OVERHEAD_BYTES * totalChunksFor(MAX_STREAMED_ATTACHMENT_BYTES, ENVELOPE_VERSION_V3);
 
 export function clampMessageCharsForTier(tier: string, value: number): number {
   const ceiling = tier === 'premium' ? PREMIUM_MESSAGE_CHARS : FREE_MESSAGE_CHARS;
@@ -197,20 +208,13 @@ export function resolveAttachmentLimit(input: AttachmentLimitInput): AttachmentL
 
   // 4. Clamp DOWN to what this build can DECRYPT, on every path.
   //
-  //    The server-wide Mach grant lifts a member to 512 MiB, but
-  //    MAX_DECRYPTABLE_ATTACHMENT_BYTES is derived from the 256 MiB premium
-  //    entitlement -- and it is not arbitrary, it is where measurement put the
-  //    renderer's memory ceiling. So a 512 MiB attachment could be uploaded and
-  //    then opened by nobody, including its own author.
+  //    A grant above MAX_DECRYPTABLE_ATTACHMENT_BYTES (1 GiB plus envelope
+  //    overhead, the streaming-decrypt ceiling) would let a file be uploaded
+  //    and then opened by nobody, including its own author. This keeps the
+  //    invariant the constant claims: upload ceiling <= download capability.
   //
-  //    That mismatch was latent while the legacy ceiling capped uploads at
-  //    128 MiB. The chunked path is what makes 512 MiB reachable, so it is this
-  //    change's job to keep the invariant the constant already claims:
-  //    upload ceiling <= download capability.
-  //
-  //    Deliberately CLIENT-SIDE only. The server tier stays as sold, because a
-  //    client that can produce and consume 512 MiB should still get it; this
-  //    build reports its own capability rather than redefining the product.
+  //    Deliberately CLIENT-SIDE only. The server tier stays as sold; this build
+  //    reports its own capability rather than redefining the product.
   const limitBytes = Math.min(pathCeiling, MAX_DECRYPTABLE_ATTACHMENT_BYTES);
 
   // Four-way, and none of the clamped cases are interchangeable: the caller

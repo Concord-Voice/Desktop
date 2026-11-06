@@ -15,14 +15,14 @@ import { e2eeService } from '../../services/e2ee/e2eeService';
 import {
   parseKeyVersionHeader,
   AttachmentKeyEpochError,
-  decryptAttachmentBlob,
+  decryptAttachmentStream,
   UnsupportedAttachmentFormatError,
   AttachmentIntegrityError,
 } from '../../utils/crypto/attachmentChunkedCrypto';
 import { formatFileSize } from '../../utils/crypto/attachmentCrypto';
 import {
   AttachmentTooLargeError,
-  readBoundedBody,
+  parseContentLength,
   tooLargeMessage,
 } from '../../utils/runtime/boundedResponseBody';
 import { MAX_DECRYPTABLE_ATTACHMENT_BYTES } from '../../utils/policy/entitlementLimits';
@@ -73,7 +73,7 @@ const BLOB_CACHE_MAX_BYTES = 268_435_456;
  *  everything else exactly once.
  *
  *  Chunked uploads make this reachable: before them the upload ceiling held
- *  attachments to 128 MiB, and a 256 MiB file is now a normal premium upload.
+ *  attachments to 128 MiB, and files up to 1 GiB are now normal uploads.
  *
  *  A QUARTER was tried first and rejected on evidence. At 64 MiB the existing
  *  100 MiB eviction fixtures stopped being cached at all, which broke one test
@@ -295,23 +295,31 @@ const FAILURE_COPY: Record<Exclude<AttachmentFailure, null>, string> = {
   client: 'Concord could not decrypt this attachment on this device.',
 };
 
-async function loadAndCache(
-  fileId: string,
+/** The ciphertext length to frame against: the stored `file_size`, else a
+ *  Content-Length that describes the bytes we will read. A compressed response
+ *  reports its COMPRESSED length, which would misframe the envelope, so that
+ *  header is ignored unless the response is uncompressed. */
+function attachmentLength(response: Response, declaredSize: number): number {
+  const encoding = (response.headers.get('Content-Encoding') ?? 'identity').trim().toLowerCase();
+  const transport =
+    encoding === 'identity'
+      ? parseContentLength(response.headers.get('Content-Length'))
+      : undefined;
+  const length = declaredSize > 0 ? declaredSize : (transport ?? 0);
+  // Either claim above the guard refuses before a byte of the body is read.
+  const largest = Math.max(length, transport ?? 0);
+  if (largest > MAX_DECRYPTABLE_ATTACHMENT_BYTES) throw new AttachmentTooLargeError(largest);
+  return length;
+}
+
+async function decryptResponse(
+  response: Response,
   channelId: string,
-  declaredSize: number
-): Promise<LoadedAttachment> {
-  // Guards run BEFORE the allocating operation, not between two of them.
-  // `file_size` rides on the summary, so an oversized attachment costs no
-  // network at all. It is server-supplied metadata though, so it is a fast
-  // path, never the real bound — readBoundedBody measures the actual bytes.
-  if (declaredSize > MAX_DECRYPTABLE_ATTACHMENT_BYTES) {
-    throw new AttachmentTooLargeError(declaredSize);
-  }
-
-  const response = await apiFetch(`/api/v1/media/attachments/${fileId}`);
+  declaredSize: number,
+  mimeType: string
+): Promise<Blob> {
   if (!response.ok) throw new Error(`Failed to fetch attachment (${response.status})`);
-
-  const mimeType = response.headers.get('X-File-Mime-Type') || 'application/octet-stream';
+  const length = attachmentLength(response, declaredSize);
   // SELECT THE KEY BY EPOCH, not "whatever is current".
   //
   // Every revocation rotates the CSK, so decrypting with the latest key
@@ -321,24 +329,51 @@ async function loadAndCache(
   // client. Absent header = a row predating the attestation, where the current
   // key IS the right one.
   const keyVersion = parseKeyVersionHeader(response.headers.get('X-File-Key-Version'));
-  const data = await readBoundedBody(response, MAX_DECRYPTABLE_ATTACHMENT_BYTES);
-
   const channelKey =
     keyVersion === null
       ? await e2eeService.getChannelKey(channelId)
       : await e2eeService.getChannelKeyByVersion(channelId, keyVersion);
-  // Handles BOTH formats. Dispatch is deterministic and decided before any key
-  // is used, so a v2 blob and a legacy one each take exactly one path -- see
-  // classifyEnvelope. A Blob rather than an ArrayBuffer is the point on this
-  // path: chunk plaintexts are appended as separate parts, so no single
-  // contiguous copy of a 256 MiB file is ever built.
-  const blob = await decryptAttachmentBlob(new Uint8Array(data), channelKey, mimeType);
+  // Handles BOTH formats, straight off the stream. Dispatch is deterministic and
+  // decided before any key is used -- see classifyEnvelope. Neither the
+  // ciphertext nor the plaintext is ever held whole: one sealed chunk at a time
+  // is decrypted into its own Blob part, which is what lets a 1 GiB file open.
+  // decryptAttachmentStream refuses a body that does not end at exactly
+  // `length` bytes, so it bounds the transfer too. Electron always supplies a
+  // body; a response without one is a transport failure, not tampering.
+  if (!response.body) throw new Error('Attachment response has no body');
+  return decryptAttachmentStream(response.body, length, channelKey, mimeType);
+}
+
+async function loadAndCache(
+  fileId: string,
+  channelId: string,
+  declaredSize: number
+): Promise<LoadedAttachment> {
+  // Guards run BEFORE the allocating operation, not between two of them.
+  // `file_size` rides on the summary, so an oversized attachment costs no
+  // network at all. It is server-supplied metadata though, so it is a fast
+  // path, never the real bound — decryptAttachmentStream measures the actual bytes.
+  if (declaredSize > MAX_DECRYPTABLE_ATTACHMENT_BYTES) {
+    throw new AttachmentTooLargeError(declaredSize);
+  }
+
+  const response = await apiFetch(`/api/v1/media/attachments/${fileId}`);
+  const mimeType = response.headers.get('X-File-Mime-Type') || 'application/octet-stream';
+  let blob: Blob;
+  try {
+    blob = await decryptResponse(response, channelId, declaredSize, mimeType);
+  } catch (err) {
+    // Release the connection on every early exit (a locked body rejects the
+    // cancel, which is fine: decryptAttachmentStream already released it).
+    await response.body?.cancel().catch(() => undefined);
+    throw err;
+  }
 
   // Decide from the BYTES whether this actually animates, because `file_type`
   // cannot: it is MIME-derived and persisted at upload, so an animated WebP or
   // an APNG sent as `image/png` is stored as `photo` forever. Reads a bounded
   // prefix via `slice`, never the whole blob — holding a Blob rather than an
-  // ArrayBuffer on this path is deliberate (a 256 MiB attachment must never be
+  // ArrayBuffer on this path is deliberate (a 1 GiB attachment must never be
   // materialised contiguously) and sniffing must not undo that.
   // Images only: a prefix read of a video buys nothing.
   let animated: boolean | null = null;
@@ -1118,7 +1153,7 @@ function FileAttachment({ attachment, channelId }: AttachmentItemProps) {
   // eviction can interleave because there is no `await` between the load
   // resolving and `a.click()`. That covers the interval BEFORE the click and
   // not the one after it: `a.click()` starts an asynchronous browser download
-  // that reads the blob over time, and for an attachment near the 256 MiB guard
+  // that reads the blob over time, and for an attachment near the 1 GiB guard
   // that read is long-lived. Another attachment loading during it would evict
   // and revoke the url mid-read (#2837 review, row 1).
   const [downloadedUrl, setDownloadedUrl] = useState<string | null>(null);
