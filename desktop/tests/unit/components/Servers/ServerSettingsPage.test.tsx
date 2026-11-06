@@ -534,6 +534,22 @@ describe('ServerSettingsPage', () => {
       expect(await screen.findByRole('button', { name: 'Copied!' })).toBeInTheDocument();
     });
 
+    it('copies through the Electron clipboard when it is available', async () => {
+      const electron = globalThis as unknown as { electron?: { writeClipboard?: unknown } };
+      const original = electron.electron;
+      const writeClipboard = vi.fn().mockResolvedValue(undefined);
+      electron.electron = { ...original, writeClipboard };
+      try {
+        render(<ServerSettingsPage serverId="server-1" />);
+        fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+        expect(await screen.findByRole('button', { name: 'Copied!' })).toBeInTheDocument();
+        expect(writeClipboard).toHaveBeenCalledWith('TESTCODE');
+        expect(navigator.clipboard.writeText).not.toHaveBeenCalled();
+      } finally {
+        electron.electron = original;
+      }
+    });
+
     it('keeps Copy and warns when the clipboard write fails', async () => {
       vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'));
       const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});

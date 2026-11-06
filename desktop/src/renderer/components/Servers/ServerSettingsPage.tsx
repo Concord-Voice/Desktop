@@ -42,6 +42,7 @@ import {
 } from '../../services/system/serverUpdateApi';
 import { formatFileSize } from '../../utils/crypto/attachmentCrypto';
 import { openVerificationSetup } from '../../utils/ui/openVerificationSetup';
+import { copyText } from '../../utils/ui/clipboard';
 import type { ServerInviteWithCreator, Role } from '../../types/server';
 import './ServerSettingsPage.css';
 
@@ -519,14 +520,16 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({ serverId }) => 
                 type="button"
                 className="invite-copy-btn"
                 onClick={() => {
-                  // Show "Copied!" only once the write succeeds.
-                  navigator.clipboard.writeText(activeInvite.code).then(
-                    () => {
+                  // Show "Copied!" only once the write succeeds. copyText uses the
+                  // Electron IPC clipboard; navigator.clipboard is blocked there.
+                  void copyText(activeInvite.code).then((result) => {
+                    if (result.success) {
                       setInviteCopied(true);
                       setTimeout(() => setInviteCopied(false), 2000);
-                    },
-                    () => console.warn('Invite code copy failed')
-                  );
+                    } else {
+                      console.warn('Invite code copy failed');
+                    }
+                  });
                 }}
               >
                 {inviteCopied ? 'Copied!' : 'Copy'}

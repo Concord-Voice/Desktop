@@ -543,7 +543,11 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   const hasElectronPip = !!globalThis.electron?.openPipWindow;
 
   const handleToggleMute = async () => {
-    await (await getVoiceService()).toggleMute();
+    try {
+      await (await getVoiceService()).toggleMute();
+    } catch {
+      console.error('Toggling mute failed');
+    }
   };
 
   const handleToggleDeafen = async () => {
