@@ -67,7 +67,7 @@ const SubmitSuccessLink: React.FC<{ url: string }> = ({ url }) => (
 );
 
 /** Public Known Issues tracker — the pinned issue in the public repo. */
-const KNOWN_ISSUES_URL = 'https://github.com/Concord-Voice/Concord-Voice/issues/39';
+const KNOWN_ISSUES_URL = 'https://github.com/Concord-Voice/Feedback/issues/39';
 
 /**
  * Pre-submit "before you file" notice linking the public Known Issues tracker.
