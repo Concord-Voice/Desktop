@@ -833,6 +833,42 @@ class ExactReader {
 }
 
 /**
+ * The single-shot format needs the whole blob for its one GCM open. It is
+ * capped at the legacy upload ceiling, so buffering it is bounded. `null` when
+ * the body is shorter or longer than `declaredLength`.
+ */
+async function readLegacyWhole(
+  reader: ExactReader,
+  head: CryptoBytes,
+  declaredLength: number
+): Promise<CryptoBytes | null> {
+  const rest = await reader.read(declaredLength - head.byteLength);
+  if (rest === null || !(await reader.atEnd())) return null;
+  const whole = new Uint8Array(declaredLength);
+  whole.set(head, 0);
+  whole.set(rest, head.byteLength);
+  return whole;
+}
+
+/**
+ * IV + sealed body of chunk `i`, framed as decryptChunkedEnvelope does: the
+ * last chunk takes whatever `remaining` bytes are left. `null` when truncated.
+ */
+async function readSealedChunk(
+  reader: ExactReader,
+  header: { version: number; chunkSize: number; totalChunks: number },
+  i: number,
+  remaining: number
+): Promise<CryptoBytes | null> {
+  const sealedLen =
+    i === header.totalChunks - 1
+      ? remaining - AES_GCM_IV_LENGTH
+      : chunkPlaintextBudget(header.version, header.chunkSize, i) + GCM_TAG_BYTES;
+  if (sealedLen < 1) return null;
+  return reader.read(AES_GCM_IV_LENGTH + sealedLen);
+}
+
+/**
  * Decrypt either format straight off a response stream (#1612 / 1 GiB caps).
  *
  * The whole-buffer path holds the entire ciphertext, which is what put the
@@ -878,15 +914,10 @@ export async function decryptAttachmentStream(
   }
 
   if (classified.kind === 'legacy') {
-    // The single-shot format needs the whole blob for its one GCM open. It is
-    // capped at the legacy upload ceiling, so buffering it is bounded.
-    const rest = await reader.read(declaredLength - headLength);
-    if (rest === null || !(await reader.atEnd())) {
+    const whole = await readLegacyWhole(reader, head, declaredLength);
+    if (whole === null) {
       return fail(new AttachmentIntegrityError('attachment length does not match its size'));
     }
-    const whole = new Uint8Array(declaredLength);
-    whole.set(head, 0);
-    whole.set(rest, headLength);
     return decryptAttachmentBlob(whole, key, mimeType);
   }
 
@@ -896,17 +927,7 @@ export async function decryptAttachmentStream(
   let consumed = ENVELOPE_HEADER_BYTES;
 
   for (let i = 0; i < header.totalChunks; i++) {
-    const isLast = i === header.totalChunks - 1;
-    // Same framing as decryptChunkedEnvelope: the last chunk takes the rest.
-    const sealedLen = isLast
-      ? declaredLength - consumed - AES_GCM_IV_LENGTH
-      : chunkPlaintextBudget(header.version, header.chunkSize, i) + GCM_TAG_BYTES;
-    if (sealedLen < 1) {
-      return fail(
-        new AttachmentIntegrityError(`attachment chunk ${i} of ${header.totalChunks} is truncated`)
-      );
-    }
-    const sealed = await reader.read(AES_GCM_IV_LENGTH + sealedLen);
+    const sealed = await readSealedChunk(reader, header, i, declaredLength - consumed);
     if (sealed === null) {
       return fail(
         new AttachmentIntegrityError(`attachment chunk ${i} of ${header.totalChunks} is truncated`)
