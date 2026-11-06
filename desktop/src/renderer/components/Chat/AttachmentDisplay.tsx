@@ -15,14 +15,14 @@ import { e2eeService } from '../../services/e2ee/e2eeService';
 import {
   parseKeyVersionHeader,
   AttachmentKeyEpochError,
-  decryptAttachmentBlob,
+  decryptAttachmentStream,
   UnsupportedAttachmentFormatError,
   AttachmentIntegrityError,
 } from '../../utils/crypto/attachmentChunkedCrypto';
 import { formatFileSize } from '../../utils/crypto/attachmentCrypto';
 import {
   AttachmentTooLargeError,
-  readBoundedBody,
+  parseContentLength,
   tooLargeMessage,
 } from '../../utils/runtime/boundedResponseBody';
 import { MAX_DECRYPTABLE_ATTACHMENT_BYTES } from '../../utils/policy/entitlementLimits';
@@ -303,7 +303,7 @@ async function loadAndCache(
   // Guards run BEFORE the allocating operation, not between two of them.
   // `file_size` rides on the summary, so an oversized attachment costs no
   // network at all. It is server-supplied metadata though, so it is a fast
-  // path, never the real bound — readBoundedBody measures the actual bytes.
+  // path, never the real bound — decryptAttachmentStream measures the actual bytes.
   if (declaredSize > MAX_DECRYPTABLE_ATTACHMENT_BYTES) {
     throw new AttachmentTooLargeError(declaredSize);
   }
@@ -321,18 +321,25 @@ async function loadAndCache(
   // client. Absent header = a row predating the attestation, where the current
   // key IS the right one.
   const keyVersion = parseKeyVersionHeader(response.headers.get('X-File-Key-Version'));
-  const data = await readBoundedBody(response, MAX_DECRYPTABLE_ATTACHMENT_BYTES);
 
   const channelKey =
     keyVersion === null
       ? await e2eeService.getChannelKey(channelId)
       : await e2eeService.getChannelKeyByVersion(channelId, keyVersion);
-  // Handles BOTH formats. Dispatch is deterministic and decided before any key
-  // is used, so a v2 blob and a legacy one each take exactly one path -- see
-  // classifyEnvelope. A Blob rather than an ArrayBuffer is the point on this
-  // path: chunk plaintexts are appended as separate parts, so no single
-  // contiguous copy of a 256 MiB file is ever built.
-  const blob = await decryptAttachmentBlob(new Uint8Array(data), channelKey, mimeType);
+  // Handles BOTH formats, straight off the stream. Dispatch is deterministic and
+  // decided before any key is used -- see classifyEnvelope. Neither the
+  // ciphertext nor the plaintext is ever held whole: one sealed chunk at a time
+  // is decrypted into its own Blob part, which is what lets a 1 GiB file open.
+  // `declaredSize` is the stored ciphertext size (the column the server also
+  // sends as Content-Length); decryptAttachmentStream refuses a body that does
+  // not end at exactly that many bytes, so it bounds the transfer too.
+  if (!response.body) throw new Error('Attachment response has no body');
+  const transportLength = parseContentLength(response.headers.get('Content-Length'));
+  const length = declaredSize > 0 ? declaredSize : (transportLength ?? 0);
+  // Either claim above the guard refuses before a byte of the body is read.
+  const largest = Math.max(length, transportLength ?? 0);
+  if (largest > MAX_DECRYPTABLE_ATTACHMENT_BYTES) throw new AttachmentTooLargeError(largest);
+  const blob = await decryptAttachmentStream(response.body, length, channelKey, mimeType);
 
   // Decide from the BYTES whether this actually animates, because `file_type`
   // cannot: it is MIME-derived and persisted at upload, so an animated WebP or

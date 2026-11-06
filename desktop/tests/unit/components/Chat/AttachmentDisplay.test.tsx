@@ -66,9 +66,42 @@ vi.mock('@/renderer/utils/crypto/attachmentChunkedCrypto', async () => {
   >('@/renderer/utils/crypto/attachmentChunkedCrypto');
   return {
     ...actual,
-    decryptAttachmentBlob: (...args: unknown[]) => mockDecryptAttachmentBlob(...args),
+    // The component streams now; drain the fake body and hand the bytes to the
+    // same mock so every test keeps steering decryption through one function.
+    decryptAttachmentStream: async (
+      body: ReadableStream<Uint8Array>,
+      _len: number,
+      ...rest: unknown[]
+    ) => mockDecryptAttachmentBlob(await drainForTest(body), ...rest),
   };
 });
+
+async function drainForTest(body: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const parts: Uint8Array[] = [];
+  const reader = body.getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parts.push(value);
+  }
+  const out = new Uint8Array(parts.reduce((n, p) => n + p.byteLength, 0));
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.byteLength;
+  }
+  return out;
+}
+
+/** A fake response body carrying `data`, for the streaming decrypt path. */
+function bodyOf(data: ArrayBuffer): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array(data));
+      controller.close();
+    },
+  });
+}
 
 import { BLOB_CACHE_RETAIN_MAX_BYTES } from '@/renderer/components/Chat/AttachmentDisplay';
 import {
@@ -91,7 +124,9 @@ vi.mock('@/renderer/utils/crypto/attachmentCrypto', async () => {
 function mockFetchSuccess(data = new ArrayBuffer(100), mimeType = 'image/png') {
   mockApiFetch.mockResolvedValue({
     ok: true,
-    arrayBuffer: () => Promise.resolve(data),
+    get body() {
+      return bodyOf(data);
+    },
     headers: new Headers({ 'X-File-Mime-Type': mimeType }),
   });
 }
@@ -193,7 +228,9 @@ describe('AttachmentDisplay', () => {
   it('clears a transient image error when viewport re-entry reloads it', async () => {
     mockApiFetch.mockResolvedValueOnce({ ok: false, status: 503 }).mockResolvedValue({
       ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+      get body() {
+        return bodyOf(new ArrayBuffer(8));
+      },
       headers: new Headers({ 'X-File-Mime-Type': 'image/png' }),
     });
     let observer: { callback: IntersectionObserverCallback; target: Element | null } | null = null;
@@ -865,7 +902,9 @@ describe('AttachmentDisplay typed format failures (#2157 PR 2)', () => {
     mockGetChannelKey.mockResolvedValue({} as CryptoKey);
     mockApiFetch.mockResolvedValue({
       ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(64)),
+      get body() {
+        return bodyOf(new ArrayBuffer(64));
+      },
       headers: new Headers({ 'X-File-Mime-Type': 'image/png' }),
     });
     installImmediateIO();
@@ -907,7 +946,9 @@ describe('AttachmentDisplay typed format failures (#2157 PR 2)', () => {
     mockGetChannelKey.mockResolvedValue({} as CryptoKey);
     mockApiFetch.mockResolvedValue({
       ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(64)),
+      get body() {
+        return bodyOf(new ArrayBuffer(64));
+      },
       headers: new Headers({ 'X-File-Mime-Type': 'image/png' }),
     });
     const integrity = await renderFailingWith(
@@ -976,17 +1017,18 @@ describe('AttachmentDisplay download size guard (#2157)', () => {
     );
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'This file is 256.0 MB and is too large to open in this version of Concord.'
+      'This file is 1024.0 MB and is too large to open in this version of Concord.'
     );
     // The whole point of gating on the summary: no bytes are ever requested.
     expect(mockApiFetch).not.toHaveBeenCalled();
   });
 
   it('treats a Content-Length above the guard as a rejection and never reads the body', async () => {
-    const arrayBuffer = vi.fn(() => Promise.resolve(new ArrayBuffer(8)));
+    const body = new ReadableStream<Uint8Array>();
+    const getReader = vi.spyOn(body, 'getReader');
     mockApiFetch.mockResolvedValue({
       ok: true,
-      arrayBuffer,
+      body,
       headers: new Headers({
         'X-File-Mime-Type': 'image/png',
         'Content-Length': String(MAX_DECRYPTABLE_ATTACHMENT_BYTES + 1),
@@ -1001,7 +1043,7 @@ describe('AttachmentDisplay download size guard (#2157)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       /too large to open in this version of Concord/
     );
-    expect(arrayBuffer).not.toHaveBeenCalled();
+    expect(getReader).not.toHaveBeenCalled();
     expect(mockDecryptFile).not.toHaveBeenCalled();
   });
 
@@ -1095,7 +1137,9 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
       const bytes = sizes[i];
       mockApiFetch.mockResolvedValue({
         ok: true,
-        arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+        get body() {
+          return bodyOf(new ArrayBuffer(8));
+        },
         headers: new Headers({ 'X-File-Mime-Type': 'image/png' }),
       });
       mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(bytes));
@@ -1138,7 +1182,9 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
     // it forever unless the retention hook takes over. This is that path.
     mockApiFetch.mockResolvedValue({
       ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+      get body() {
+        return bodyOf(new ArrayBuffer(8));
+      },
       headers: new Headers({ 'X-File-Mime-Type': 'image/png' }),
     });
     mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(BLOB_CACHE_RETAIN_MAX_BYTES + 1));
@@ -1165,7 +1211,9 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
   it('shares an uncached huge url across sequential same-file surfaces', async () => {
     mockApiFetch.mockResolvedValue({
       ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+      get body() {
+        return bodyOf(new ArrayBuffer(8));
+      },
       headers: new Headers({ 'X-File-Mime-Type': 'image/png' }),
     });
     mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(150 * 1024 * 1024));
@@ -1232,7 +1280,9 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
     // here, and should not be assumed to (#2837 review, row 10).
     mockApiFetch.mockResolvedValue({
       ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+      get body() {
+        return bodyOf(new ArrayBuffer(8));
+      },
       headers: new Headers({ 'X-File-Mime-Type': 'image/png' }),
     });
     mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(104_857_600));
@@ -1270,7 +1320,9 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
   it('coalesces concurrent loads of one attachment onto a single fetch and url', async () => {
     mockApiFetch.mockResolvedValue({
       ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+      get body() {
+        return bodyOf(new ArrayBuffer(8));
+      },
       headers: new Headers({ 'X-File-Mime-Type': 'image/png' }),
     });
     mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(104_857_600));
@@ -1307,7 +1359,9 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
   it('never revokes a url while a surface is still rendering it', async () => {
     mockApiFetch.mockResolvedValue({
       ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+      get body() {
+        return bodyOf(new ArrayBuffer(8));
+      },
       headers: new Headers({ 'X-File-Mime-Type': 'image/png' }),
     });
     mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(104_857_600));
@@ -1354,7 +1408,9 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
     );
     mockApiFetch.mockResolvedValue({
       ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+      get body() {
+        return bodyOf(new ArrayBuffer(8));
+      },
       headers: new Headers({ 'X-File-Mime-Type': 'image/png' }),
     });
     mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(104_857_600));
@@ -1441,7 +1497,9 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
   it('reclaims an auto-loaded video after it scrolls out of view', async () => {
     mockApiFetch.mockResolvedValue({
       ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+      get body() {
+        return bodyOf(new ArrayBuffer(8));
+      },
       headers: new Headers({ 'X-File-Mime-Type': 'video/mp4' }),
     });
     mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(104_857_600));
@@ -1499,7 +1557,9 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
   it('keeps a paused picture-in-picture video alive offscreen until picture-in-picture ends', async () => {
     mockApiFetch.mockResolvedValue({
       ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+      get body() {
+        return bodyOf(new ArrayBuffer(8));
+      },
       headers: new Headers({ 'X-File-Mime-Type': 'video/mp4' }),
     });
     mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(104_857_600));
@@ -1566,7 +1626,9 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
   it('reclaims manually loaded audio after it scrolls away without auto-loading on return', async () => {
     mockApiFetch.mockResolvedValue({
       ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+      get body() {
+        return bodyOf(new ArrayBuffer(8));
+      },
       headers: new Headers({ 'X-File-Mime-Type': 'audio/mpeg' }),
     });
     mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(150_000_000));
@@ -1639,7 +1701,9 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
       );
       mockApiFetch.mockResolvedValue({
         ok: true,
-        arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+        get body() {
+          return bodyOf(new ArrayBuffer(8));
+        },
         headers: new Headers({ 'X-File-Mime-Type': mimeType }),
       });
       mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(104_857_600));
@@ -1714,7 +1778,9 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
   it("keeps a downloading file card's url alive while other attachments load", async () => {
     mockApiFetch.mockResolvedValue({
       ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(8)),
+      get body() {
+        return bodyOf(new ArrayBuffer(8));
+      },
       headers: new Headers({ 'X-File-Mime-Type': 'application/pdf' }),
     });
     mockDecryptFile.mockResolvedValue(bufferOfDeclaredSize(104_857_600));
@@ -1800,7 +1866,7 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
     );
     const alert = await screen.findByRole('alert');
     // Refused on file_size before any fetch, so the count is the real size.
-    expect(alert.textContent).toMatch(/^This file is 256\.0 MB/);
+    expect(alert.textContent).toMatch(/^This file is 1024\.0 MB/);
     expect(alert.textContent).not.toMatch(/is over /);
     expect(mockApiFetch).not.toHaveBeenCalled();
   });
@@ -1847,7 +1913,9 @@ describe('AttachmentDisplay decrypts under the epoch the file was sealed with', 
     if (keyVersionHeader !== null) headers.set('X-File-Key-Version', keyVersionHeader);
     mockApiFetch.mockResolvedValue({
       ok: true,
-      arrayBuffer: () => Promise.resolve(new ArrayBuffer(64)),
+      get body() {
+        return bodyOf(new ArrayBuffer(64));
+      },
       headers,
     });
     const { container } = render(

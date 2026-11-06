@@ -778,3 +778,164 @@ async function decryptChunk(
     );
   }
 }
+
+/**
+ * Pulls exact byte counts off a stream, holding only what the current request
+ * needs. Network reads arrive in arbitrary sizes; the decrypt loop needs exactly
+ * one sealed chunk at a time, so this is the only buffer on the streaming path.
+ */
+class ExactReader {
+  private pending: Uint8Array[] = [];
+  private pendingBytes = 0;
+  private done = false;
+
+  constructor(private readonly reader: ReadableStreamDefaultReader<Uint8Array>) {}
+
+  /** Exactly `n` bytes, or `null` if the stream ends first. */
+  async read(n: number): Promise<CryptoBytes | null> {
+    while (this.pendingBytes < n && !this.done) {
+      const { done, value } = await this.reader.read();
+      if (done) this.done = true;
+      else if (value && value.byteLength > 0) {
+        this.pending.push(value);
+        this.pendingBytes += value.byteLength;
+      }
+    }
+    if (this.pendingBytes < n) return null;
+
+    const out = new Uint8Array(n);
+    let filled = 0;
+    while (filled < n) {
+      const head = this.pending[0];
+      const take = Math.min(head.byteLength, n - filled);
+      out.set(head.subarray(0, take), filled);
+      filled += take;
+      if (take === head.byteLength) this.pending.shift();
+      else this.pending[0] = head.subarray(take);
+    }
+    this.pendingBytes -= n;
+    return out;
+  }
+
+  /** True when nothing is buffered and the stream has ended. */
+  async atEnd(): Promise<boolean> {
+    if (this.pendingBytes > 0) return false;
+    if (this.done) return true;
+    const next = await this.read(1);
+    return next === null;
+  }
+
+  cancel(): Promise<void> {
+    this.pending = [];
+    this.pendingBytes = 0;
+    return this.reader.cancel().catch(() => undefined);
+  }
+}
+
+/**
+ * Decrypt either format straight off a response stream (#1612 / 1 GiB caps).
+ *
+ * The whole-buffer path holds the entire ciphertext, which is what put the
+ * renderer's ceiling near 256 MiB. Here the JS heap holds one sealed chunk and
+ * one plaintext chunk at a time; plaintext still goes into Blob parts, which the
+ * browser may spill to disk.
+ *
+ * `declaredLength` is the stored ciphertext size (`file_size`, the same column
+ * the server sends as Content-Length). It is a PARSE HINT WITH ZERO TRUST, the
+ * same footing as the header: it only lets classifyEnvelope run its arithmetic
+ * before the body has arrived. It cannot weaken the check, because:
+ *   - the stream must end at exactly `declaredLength` bytes, or the attachment
+ *     fails as an integrity error before any Blob is returned;
+ *   - each chunk's AAD binds totalChunks, so a lie that reframes the body still
+ *     fails a tag.
+ * A server that lies about the length therefore gets the same outcome as one
+ * that rewrites the bytes: denial of that one attachment.
+ */
+export async function decryptAttachmentStream(
+  body: ReadableStream<Uint8Array>,
+  declaredLength: number,
+  key: CryptoKey,
+  mimeType: string,
+  maxPlaintextBytes?: number
+): Promise<Blob> {
+  const reader = new ExactReader(body.getReader());
+  const fail = async (err: Error): Promise<never> => {
+    await reader.cancel();
+    throw err;
+  };
+
+  if (!Number.isSafeInteger(declaredLength) || declaredLength < 1) {
+    return fail(new AttachmentIntegrityError('attachment has no usable declared length'));
+  }
+
+  const headLength = Math.min(ENVELOPE_HEADER_BYTES, declaredLength);
+  const head = await reader.read(headLength);
+  if (head === null) return fail(new AttachmentIntegrityError('attachment is truncated'));
+
+  const classified = classifyEnvelope(head, declaredLength);
+  if (classified.kind === 'unsupported') {
+    return fail(new UnsupportedAttachmentFormatError(classified.reason));
+  }
+
+  if (classified.kind === 'legacy') {
+    // The single-shot format needs the whole blob for its one GCM open. It is
+    // capped at the legacy upload ceiling, so buffering it is bounded.
+    const rest = await reader.read(declaredLength - headLength);
+    if (rest === null || !(await reader.atEnd())) {
+      return fail(new AttachmentIntegrityError('attachment length does not match its size'));
+    }
+    const whole = new Uint8Array(declaredLength);
+    whole.set(head, 0);
+    whole.set(rest, headLength);
+    return decryptAttachmentBlob(whole, key, mimeType);
+  }
+
+  const header = classified.header;
+  const parts: Blob[] = [];
+  let plaintextBytes = 0;
+  let consumed = ENVELOPE_HEADER_BYTES;
+
+  for (let i = 0; i < header.totalChunks; i++) {
+    const isLast = i === header.totalChunks - 1;
+    // Same framing as decryptChunkedEnvelope: the last chunk takes the rest.
+    const sealedLen = isLast
+      ? declaredLength - consumed - AES_GCM_IV_LENGTH
+      : chunkPlaintextBudget(header.version, header.chunkSize, i) + GCM_TAG_BYTES;
+    if (sealedLen < 1) {
+      return fail(
+        new AttachmentIntegrityError(`attachment chunk ${i} of ${header.totalChunks} is truncated`)
+      );
+    }
+    const sealed = await reader.read(AES_GCM_IV_LENGTH + sealedLen);
+    if (sealed === null) {
+      return fail(
+        new AttachmentIntegrityError(`attachment chunk ${i} of ${header.totalChunks} is truncated`)
+      );
+    }
+    consumed += sealed.byteLength;
+
+    const iv = sealed.subarray(0, AES_GCM_IV_LENGTH);
+    const sealedBody = sealed.subarray(AES_GCM_IV_LENGTH);
+    let plaintext: ArrayBuffer;
+    try {
+      plaintext = await decryptChunk(sealedBody, iv, key, header, i);
+    } catch (err) {
+      await reader.cancel();
+      throw err;
+    }
+    plaintextBytes += plaintext.byteLength;
+    parts.push(new Blob([plaintext]));
+
+    if (maxPlaintextBytes !== undefined && plaintextBytes > maxPlaintextBytes) {
+      await reader.cancel();
+      return new Blob(parts, { type: mimeType });
+    }
+  }
+
+  // Bytes past the declared end are not ours to ignore: the envelope is
+  // complete, so anything more means the length or the body was rewritten.
+  if (!(await reader.atEnd())) {
+    return fail(new AttachmentIntegrityError('attachment has bytes past its declared end'));
+  }
+  return new Blob(parts, { type: mimeType });
+}
