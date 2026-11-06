@@ -17,30 +17,34 @@ export interface ServerTierEntitlements {
   readonly maxStickers: number;
   readonly maxSoundboards: number;
   readonly maxUploadBytes: number; // per-file, server-wide
-  readonly allowAnimatedBanner: boolean; // animated GIF server BANNER, Mach 1+ (#1302); icons stay static
+  readonly allowAnimatedBanner: boolean; // animated GIF server BANNER, Mach 1+ (#1302)
+  readonly allowAnimatedIcon: boolean; // animated GIF server ICON, Mach 1+
 }
 
 export const SERVER_TIER_ENTITLEMENTS: Record<string, ServerTierEntitlements> = Object.freeze({
   groundspeed: Object.freeze({
-    maxCustomEmoji: 75,
+    maxCustomEmoji: 100,
     maxStickers: 10,
     maxSoundboards: 15,
     maxUploadBytes: 33_554_432,
     allowAnimatedBanner: false,
+    allowAnimatedIcon: false,
   }),
   mach1: Object.freeze({
     maxCustomEmoji: 250,
     maxStickers: 75,
     maxSoundboards: 30,
-    maxUploadBytes: 134_217_728,
+    maxUploadBytes: 268_435_456,
     allowAnimatedBanner: true,
+    allowAnimatedIcon: true,
   }),
   mach2: Object.freeze({
     maxCustomEmoji: 350,
     maxStickers: 100,
     maxSoundboards: 40,
-    maxUploadBytes: 268_435_456,
+    maxUploadBytes: 536_870_912,
     allowAnimatedBanner: true,
+    allowAnimatedIcon: true,
   }),
   mach3: Object.freeze({
     maxCustomEmoji: 500,
@@ -48,6 +52,7 @@ export const SERVER_TIER_ENTITLEMENTS: Record<string, ServerTierEntitlements> = 
     maxSoundboards: 55,
     maxUploadBytes: 536_870_912,
     allowAnimatedBanner: true,
+    allowAnimatedIcon: true,
   }),
   selfhost: Object.freeze({
     maxCustomEmoji: -1,
@@ -55,6 +60,7 @@ export const SERVER_TIER_ENTITLEMENTS: Record<string, ServerTierEntitlements> = 
     maxSoundboards: -1,
     maxUploadBytes: -1,
     allowAnimatedBanner: true,
+    allowAnimatedIcon: true,
   }),
 });
 

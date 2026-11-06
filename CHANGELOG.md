@@ -35,6 +35,10 @@ This release adds groundwork for verifying account keys. Nothing uses it yet.
 
 - **Encryption:** Added a dormant codec and primitives for account-key authority messages, checked against the shared test vectors. Nothing uses them yet.
 
+### Changed
+
+- **Servers:** The app's copy of the server boost limits now matches the server: 100 custom emoji on unboosted servers, 256 MiB and 512 MiB uploads on Mach 1 and Mach 2, and animated server icons from Mach 1.
+
 ## [0.3.1] - 2026-11-06
 
 This update closes a security gap: only the Concord Voice service can now
