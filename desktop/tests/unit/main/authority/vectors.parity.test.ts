@@ -7,21 +7,12 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { b64d, b64e, equalBytes, toHex } from '@/main/authority/bytes';
-import {
-  decode,
-  encode,
-  LAYOUTS,
-  Malformed,
-  type Values,
-} from '@/main/authority/codec';
+import { decode, encode, LAYOUTS, Malformed, type Values } from '@/main/authority/codec';
 import * as prim from '@/main/authority/primitives';
 import { verifyBundle, verifyChain } from '@/main/authority/chain';
 import { chainHeadBytes, parseChainHead } from '@/main/authority/heads';
 import { decodeAs } from '@/main/authority/messages';
-import {
-  checkRelayRecover,
-  recoveryBindForKind,
-} from '@/main/authority/patterns';
+import { checkRelayRecover, recoveryBindForKind } from '@/main/authority/patterns';
 import { intentForOp } from '@/main/authority/post';
 import { REASONS, verdictOf } from '@/main/authority/reason';
 import type { AccountMemory, Use } from '@/main/authority/status';

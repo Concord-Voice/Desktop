@@ -3,14 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { b64d, b64e, utf8 } from '@/main/authority/bytes';
-import {
-  CAPS,
-  capOf,
-  decode,
-  encode,
-  LAYOUTS,
-  Malformed,
-} from '@/main/authority/codec';
+import { CAPS, capOf, decode, encode, LAYOUTS, Malformed } from '@/main/authority/codec';
 import {
   checkEkSpkiWebCrypto,
   checkPoint,

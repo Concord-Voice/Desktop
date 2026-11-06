@@ -21,23 +21,14 @@ import {
 } from '@/main/authority/heads';
 import { formHypothesis } from '@/main/authority/headmove';
 import { decodeAs, encodeAs, sigMsg } from '@/main/authority/messages';
-import {
-  checkRelayRecover,
-  recoveryBindForKind,
-} from '@/main/authority/patterns';
+import { checkRelayRecover, recoveryBindForKind } from '@/main/authority/patterns';
 import { intentForOp } from '@/main/authority/post';
 import { activate, classify, genesisPub } from '@/main/authority/pub';
 import { noticeOf, verdictOf } from '@/main/authority/reason';
 import { fixAllows, fixStatus, pickMatch } from '@/main/authority/replay';
 import { verifyStatus, type AccountMemory } from '@/main/authority/status';
 import { rowByN, rowsFor } from '@/main/authority/table';
-import {
-  checkTrustEnvelope,
-  maxHW,
-  newTrust,
-  ZERO_HW,
-  type Trust,
-} from '@/main/authority/trust';
+import { checkTrustEnvelope, maxHW, newTrust, ZERO_HW, type Trust } from '@/main/authority/trust';
 
 type Json = Record<string, unknown>;
 interface Vec extends Json {
