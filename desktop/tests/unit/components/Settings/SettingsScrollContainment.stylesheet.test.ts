@@ -13,11 +13,14 @@ import { describe, expect, it } from 'vitest';
 // position below the fold. Focusing one scrolled the `overflow: hidden` dialog,
 // shifting the whole page up and leaving a blank band at the bottom.
 function ruleBody(file: string, selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const css = readFileSync(
     resolve(__dirname, '../../../../src/renderer/components/Settings', file),
     'utf-8'
   ).replace(/\/\*[\s\S]*?\*\//g, '');
-  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // One rule only, so a later override (e.g. inside @media) cannot silently win.
+  const all = css.match(new RegExp(`(^|\\n)\\s*${escaped}\\s*\\{`, 'g')) ?? [];
+  if (all.length !== 1) throw new Error(`expected exactly one ${selector} rule in ${file}`);
   const m = new RegExp(`(^|\\n)${escaped}\\s*\\{([^}]*)\\}`).exec(css);
   if (!m) throw new Error(`selector ${selector} not found in ${file}`);
   return m[2];
@@ -33,6 +36,6 @@ describe('Settings scroll containment', () => {
   it('clips the overlay dialog instead of leaving it programmatically scrollable', () => {
     const body = ruleBody('SettingsOverlayHost.css', '.settings-overlay-host');
     expect(body).toMatch(/overflow:\s*clip\s*;/);
-    expect(body).not.toMatch(/overflow:\s*hidden/);
+    expect(body).not.toMatch(/overflow(-[xy])?:\s*(hidden|auto|scroll)/);
   });
 });
