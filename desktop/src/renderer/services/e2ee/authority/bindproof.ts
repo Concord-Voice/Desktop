@@ -59,7 +59,9 @@ export async function checkBindingProof(c: BundleCtx): Promise<Reason> {
     return 'realm_mismatch'; // 6, realm clause
   const root = bindingRoot(c, b);
   if (!root) return 'transition_invalid';
-  if (!(await verifyOver(root, sigMsg('current-root', c.pb.bindDigest), c.pb.raw.recovery_bind_sig)))
+  if (
+    !(await verifyOver(root, sigMsg('current-root', c.pb.bindDigest), c.pb.raw.recovery_bind_sig))
+  )
     return 'bad_signature'; // 4
   const r6 = await checkRecoverIndex(c.head, b); // 6
   if (r6 !== 'ok') return r6;

@@ -11,7 +11,12 @@ import { b64e } from './bytes';
 import {
   insertSorted,
   lowerBound,
-  recoverRecord, rootRecord, rootRecordOf, seqRecord, type ChainHead } from './heads';
+  recoverRecord,
+  rootRecord,
+  rootRecordOf,
+  seqRecord,
+  type ChainHead,
+} from './heads';
 import type { EkBinding, RecoveryBind, Result } from './messages';
 import { sha384 } from './primitives';
 import type { Pub } from './pub';
@@ -62,7 +67,8 @@ export async function recordActivation(h0: ChainHead, prev: Result, act: Pub): P
   let h = h0;
   let bad = false;
   if (prev.pending_root.length > 0) {
-    if (act.state === 'active') ({ head: h, bad } = await bindRecord(h, prev.seq, prev.pending_root));
+    if (act.state === 'active')
+      ({ head: h, bad } = await bindRecord(h, prev.seq, prev.pending_root));
     h = await addRoot(h, prev.pending_root, prev.assurance);
     h = { ...h, active_ek_spki: h.pending_ek_spki, active_ek_generation: h.pending_ek_generation };
     if (prev.op === 'recover') {

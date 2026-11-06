@@ -18,7 +18,10 @@ import * as prim from '@/renderer/services/e2ee/authority/primitives';
 import { verifyBundle, verifyChain } from '@/renderer/services/e2ee/authority/chain';
 import { chainHeadBytes, parseChainHead } from '@/renderer/services/e2ee/authority/heads';
 import { decodeAs } from '@/renderer/services/e2ee/authority/messages';
-import { checkRelayRecover, recoveryBindForKind } from '@/renderer/services/e2ee/authority/patterns';
+import {
+  checkRelayRecover,
+  recoveryBindForKind,
+} from '@/renderer/services/e2ee/authority/patterns';
 import { intentForOp } from '@/renderer/services/e2ee/authority/post';
 import { REASONS, verdictOf } from '@/renderer/services/e2ee/authority/reason';
 import type { AccountMemory, Use } from '@/renderer/services/e2ee/authority/status';
@@ -349,7 +352,13 @@ const VERDICT_CHECKS: Record<string, (v: Vec) => Promise<void>> = {
     const t = await trustOf(v);
     expect(t, 'bundle-verify anchors are valid').not.toBeNull();
     const fix = v.fix ? b64d(v.fix) : undefined;
-    const out = await verifyBundle(t as Trust, hwOf(v.hw), await prevHeadOf(v), b64d(v.bytes_b64!), fix);
+    const out = await verifyBundle(
+      t as Trust,
+      hwOf(v.hw),
+      await prevHeadOf(v),
+      b64d(v.bytes_b64!),
+      fix
+    );
     expectReason(v, out.reason);
     expectHead(v, out.head);
   },

@@ -128,5 +128,8 @@ export async function headPub(h: ChainHead): Promise<[Pub, Reason]> {
   }
   const r = await decodeAs('result', h.head_result);
   if (r?.seq !== h.seq_index.length) return [genesisPub(), 'malformed'];
-  return [await pubOfResult(r, h.head_result, h.active_ek_generation, h.pending_ek_generation), 'ok'];
+  return [
+    await pubOfResult(r, h.head_result, h.active_ek_generation, h.pending_ek_generation),
+    'ok',
+  ];
 }

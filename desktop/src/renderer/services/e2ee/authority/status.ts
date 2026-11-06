@@ -68,7 +68,15 @@ export async function signedStatus(
   if (sg?.type !== 'status') return [null, hw, 'malformed']; // a device-status here is malformed (P1-e)
   const st = await decodeAs('status', sg.msg);
   if (!st) return [null, hw, 'malformed'];
-  const [hw2, r] = await checkT6(t, hw, sg.msg, sg.sig_a, st.delegation_gen, st.delegation_serial, st.as_of_ms);
+  const [hw2, r] = await checkT6(
+    t,
+    hw,
+    sg.msg,
+    sg.sig_a,
+    st.delegation_gen,
+    st.delegation_serial,
+    st.as_of_ms
+  );
   return [st, hw2, r];
 }
 
@@ -94,7 +102,8 @@ export async function authenticStatus(
   if (!d) return 'delegation_unknown';
   if (st.realm_id !== t.realm || st.realm_id !== head.realm_id || st.account_id !== head.account_id)
     return 'realm_mismatch'; // B-SF1
-  if (st.valid_until_ms <= st.as_of_ms || st.valid_until_ms - st.as_of_ms > V_MAX_MS) return 'malformed';
+  if (st.valid_until_ms <= st.as_of_ms || st.valid_until_ms - st.as_of_ms > V_MAX_MS)
+    return 'malformed';
   const [hp, hr] = await headPub(head);
   if (hr !== 'ok') return hr;
   if (st.seq > hp.seq) return 'chain_behind';
@@ -105,7 +114,8 @@ export async function authenticStatus(
 
 function freshness(st: Status, d: Delegation, nowMs: number, use: Use): Reason {
   if (st.as_of_ms > nowMs && st.as_of_ms - nowMs > EPSILON_MS) return 'status_future';
-  if (use === 'new-secret') return sumBelow(st.as_of_ms, d.tau_ms, nowMs) ? 'status_stale_tau' : 'ok';
+  if (use === 'new-secret')
+    return sumBelow(st.as_of_ms, d.tau_ms, nowMs) ? 'status_stale_tau' : 'ok';
   if (use === 'history') return nowMs > st.valid_until_ms ? 'status_expired' : 'ok';
   return 'malformed';
 }
@@ -178,13 +188,25 @@ export async function verifyStatusAt(
   // R4 on a status (N-2): once the retained fix shows the raw pending head
   // activated, a status that shows it pending again (not held) does not undo it.
   const fix = await fixStatus(head.fix);
-  if (fix !== 'malformed' && fixNames(fix, hp) && !effectivePending(hp, fix) && st.held === 0 && effectivePending(hp, st))
+  if (
+    fix !== 'malformed' &&
+    fixNames(fix, hp) &&
+    !effectivePending(hp, fix) &&
+    st.held === 0 &&
+    effectivePending(hp, st)
+  )
     eff = activate(hp);
   let segment = await segmentOf(head, eff.root);
   if (segment === '' && hp.state === 'pending' && eff.state !== 'pending') segment = hp.assurance; // recorded only by the next result
   const reason = stateVerdict(eff, st, mem, a.d, use);
   return [
-    { reason, status: st, pin: st.legacy_ek_digest, segment, acceptedPin: reason === 'ok_accepted_pin' },
+    {
+      reason,
+      status: st,
+      pin: st.legacy_ek_digest,
+      segment,
+      acceptedPin: reason === 'ok_accepted_pin',
+    },
     a.hw,
   ];
 }

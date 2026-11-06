@@ -13,7 +13,11 @@ import { maxHW, type HighWater, type Trust } from './trust';
 export const covers = (d: Delegation, x: number): boolean =>
   d.not_before_ms <= x && x < d.not_after_ms;
 
-async function anyVerifies(keys: Uint8Array[], msg: Uint8Array | null, sig: Uint8Array): Promise<boolean> {
+async function anyVerifies(
+  keys: Uint8Array[],
+  msg: Uint8Array | null,
+  sig: Uint8Array
+): Promise<boolean> {
   for (const k of keys) if (await verifyOver(k, msg, sig)) return true;
   return false;
 }

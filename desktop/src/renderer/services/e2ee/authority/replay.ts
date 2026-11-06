@@ -8,7 +8,14 @@
 // as_of, valid_until, held and the extension part of anb.
 
 import { equalBytes } from './bytes';
-import { addMs, ANB_NEVER, CANCEL_SLACK_MS, EPSILON_MS, INTENT_WINDOW_MS, sumBelow } from './constants';
+import {
+  addMs,
+  ANB_NEVER,
+  CANCEL_SLACK_MS,
+  EPSILON_MS,
+  INTENT_WINDOW_MS,
+  sumBelow,
+} from './constants';
 import {
   decodeAs,
   digestOrEmpty,
@@ -91,7 +98,10 @@ export const effectiveOf = (head: Pub, s: Status): Pub =>
 
 /** A retained fix names p: same seq and head entry, p raw pending (R4). */
 export const fixNames = (fix: Status | null, p: Pub): fix is Status =>
-  fix !== null && p.state === 'pending' && fix.seq === p.seq && equalBytes(fix.head_entry_digest, p.entry);
+  fix !== null &&
+  p.state === 'pending' &&
+  fix.seq === p.seq &&
+  equalBytes(fix.head_entry_digest, p.entry);
 
 /**
  * R4: a fix showing prev pending at T admits only H_pend for issued ≤ T; one

@@ -6,7 +6,8 @@ import { sha384 } from './primitives';
 import type { Result } from './messages';
 
 /** A §2.9 from-state code. In the From column P excludes Pr and Pe unless a row names them. */
-export type FromCode = 'A0' | 'Ap' | 'Apr' | 'Ac' | 'Su' | 'So' | 'Sor' | 'P' | 'D' | 'Pr' | 'Pe' | 'E';
+export type FromCode =
+  'A0' | 'Ap' | 'Apr' | 'Ac' | 'Su' | 'So' | 'Sor' | 'P' | 'D' | 'Pr' | 'Pe' | 'E';
 
 const EMPTY = new Uint8Array(0);
 
@@ -114,7 +115,8 @@ export function withSet(set: readonly string[], v: string): string[] {
 }
 
 /** set \ {v}. */
-export const withoutSet = (set: readonly string[], v: string): string[] => set.filter((s) => s !== v);
+export const withoutSet = (set: readonly string[], v: string): string[] =>
+  set.filter((s) => s !== v);
 
 /** Two sorted sets are equal. */
 export const sameSet = (a: readonly string[], b: readonly string[]): boolean =>

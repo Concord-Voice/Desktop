@@ -23,7 +23,15 @@
 import { equalBytes } from './bytes';
 import { checkBindingProof, checkPendingRecoveryKey } from './bindproof';
 import { appendResult, formHypothesis } from './headmove';
-import { canonicalHead, chainHeadBytes, ekIndexHas, headPub, rootRecordOf, segmentOf, type ChainHead } from './heads';
+import {
+  canonicalHead,
+  chainHeadBytes,
+  ekIndexHas,
+  headPub,
+  rootRecordOf,
+  segmentOf,
+  type ChainHead,
+} from './heads';
 import {
   decodeAs,
   digestOrEmpty,
@@ -137,7 +145,8 @@ export async function parseBundle(b: Uint8Array): Promise<ParsedBundle | null> {
     pb.bindDigest = await sha384(raw.recovery_bind);
   }
   const restore = authz.actor === 'restore';
-  if (restore !== (raw.cp_authz_sig.length === 0) || restore !== raw.held_status.length > 0) return null;
+  if (restore !== (raw.cp_authz_sig.length === 0) || restore !== raw.held_status.length > 0)
+    return null;
   if (!restore) return pb;
   pb.heldSigned = await decodeAs('signed', raw.held_status);
   if (pb.heldSigned?.type !== 'status') return null;
@@ -146,7 +155,12 @@ export async function parseBundle(b: Uint8Array): Promise<ParsedBundle | null> {
 }
 
 /** Realm/account and request/digest identity: the part of the link check that reads no head. */
-function identityCheck(pb: ParsedBundle, realm: string, account: string, trustRealm: string): Reason {
+function identityCheck(
+  pb: ParsedBundle,
+  realm: string,
+  account: string,
+  trustRealm: string
+): Reason {
   const parts = [pb.intent, pb.authz, pb.res];
   if (realm !== trustRealm || parts.some((x) => x.realm_id !== realm || x.account_id !== account))
     return 'realm_mismatch';
@@ -204,7 +218,11 @@ async function independentSigs(t: Trust, pb: ParsedBundle): Promise<Reason> {
     inp.op === 'recover' &&
     pb.bind?.kind === 'bind' &&
     b.sig_recovery.length > 0 &&
-    !(await verifyOver(pb.bind.recovery_key, sigMsg('recovery-key', pb.intentDigest), b.sig_recovery))
+    !(await verifyOver(
+      pb.bind.recovery_key,
+      sigMsg('recovery-key', pb.intentDigest),
+      b.sig_recovery
+    ))
   ) {
     return 'bad_signature';
   }
@@ -224,16 +242,24 @@ async function ekChecks(c: BundleCtx, row: Row): Promise<Reason> {
   ) {
     return 'transition_invalid';
   }
-  if (!(await verifyOver(signer, c.pb.raw.ek_binding, c.pb.raw.ek_binding_sig))) return 'bad_signature';
+  if (!(await verifyOver(signer, c.pb.raw.ek_binding, c.pb.raw.ek_binding_sig)))
+    return 'bad_signature';
   const spki = await sha384(e.ek_public_key);
-  if (equalBytes(spki, c.f.pin) || equalBytes(spki, c.pb.res.legacy_ek_digest) || ekIndexHas(c.head, spki))
+  if (
+    equalBytes(spki, c.f.pin) ||
+    equalBytes(spki, c.pb.res.legacy_ek_digest) ||
+    ekIndexHas(c.head, spki)
+  )
     return 'transition_invalid';
   return 'ok';
 }
 
 /** Rows 1, 2, 3, 5, 11 and 20 install the intent's candidate root. */
 const installsCandidate = (row: Row): boolean =>
-  row.to === 'enrollActive' || row.to === 'pendOrDisp' || row.to === 'rotateRoot' || row.to === 'pr';
+  row.to === 'enrollActive' ||
+  row.to === 'pendOrDisp' ||
+  row.to === 'rotateRoot' ||
+  row.to === 'pr';
 
 /** The row-specific client checks: §2.22's binding proof (20), the pending recovery key (21), restore-cancel (22). */
 const ROW_CHECKS: Readonly<Record<number, (c: BundleCtx) => Promise<Reason>>> = Object.freeze({
@@ -254,7 +280,11 @@ async function match(c: BundleCtx): Promise<Reason> {
   if (iv !== 'ok') return iv;
   if (
     (row.sigs & SIG.current) !== 0 &&
-    !(await verifyOver(c.f.root, sigMsg('current-root', c.pb.intentDigest), c.pb.raw.sig_current_root))
+    !(await verifyOver(
+      c.f.root,
+      sigMsg('current-root', c.pb.intentDigest),
+      c.pb.raw.sig_current_root
+    ))
   ) {
     return 'bad_signature';
   }
@@ -330,7 +360,17 @@ async function pickHypothesis(
       continue;
     }
     const moved = await formHypothesis(prev, prevRes, h);
-    const c: BundleCtx = { t, head: moved.head, pb, f: h.p, act: h.act, row: null, del, bindingSegment: '', fix };
+    const c: BundleCtx = {
+      t,
+      head: moved.head,
+      pb,
+      f: h.p,
+      act: h.act,
+      row: null,
+      del,
+      bindingSegment: '',
+      fix,
+    };
     cs.push(c);
     bad.push(moved.bad);
     rs.push(await match(c));
@@ -358,7 +398,8 @@ async function underSigningDelegation(
   let first: Reason | null = null;
   const res = pb.res;
   for (const d of t.delegations(res.delegation_gen, res.delegation_serial)) {
-    if ((await rskRule(d, pb.resBytes, pb.raw.result_sig, res.issued_at_ms, res.op)) !== 'ok') continue;
+    if ((await rskRule(d, pb.resBytes, pb.raw.result_sig, res.issued_at_ms, res.op)) !== 'ok')
+      continue;
     let r: ChainHead | Reason = await pre(t, pb, pp, d);
     if (r === 'ok') r = await pickHypothesis(t, prev, pp, pb, d);
     if (typeof r !== 'string') return r;
@@ -417,7 +458,12 @@ async function verifyBundleStep(
 async function keepsFix(old: Uint8Array, st: Status, hp: Pub): Promise<boolean> {
   if (hp.state !== 'pending') return false;
   const o = await fixStatus(old);
-  if (o === null || o === 'malformed' || o.seq !== hp.seq || !equalBytes(o.head_entry_digest, hp.entry))
+  if (
+    o === null ||
+    o === 'malformed' ||
+    o.seq !== hp.seq ||
+    !equalBytes(o.head_entry_digest, hp.entry)
+  )
     return false;
   const oldAct = !effectivePending(hp, o);
   const newAct = !effectivePending(hp, st);
@@ -523,7 +569,12 @@ export async function verifyChain(
   nowMs: number,
   use: Use
 ): Promise<ChainOutcome> {
-  const fail = (reason: Reason): ChainOutcome => ({ head: from, status: refused(reason), hw, reason });
+  const fail = (reason: Reason): ChainOutcome => ({
+    head: from,
+    status: refused(reason),
+    hw,
+    reason,
+  });
   try {
     const halt = t.haltReason();
     if (halt !== 'ok') return fail(halt);

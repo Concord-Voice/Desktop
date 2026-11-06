@@ -266,9 +266,25 @@ function expected(row: Row, f: Pub, c: RowCtx): Want {
     case 'restore':
       return { ...base, state: f.prior, susp: f.prior === 'suspended' ? f.susp : [] };
     case 'ap':
-      return { ...base, state: 'absent', susp: [], root: NONE, ek: NONE, rootRevoked: 0, pinRevoked: 0 };
+      return {
+        ...base,
+        state: 'absent',
+        susp: [],
+        root: NONE,
+        ek: NONE,
+        rootRevoked: 0,
+        pinRevoked: 0,
+      };
     case 'apr':
-      return { ...base, state: 'absent', susp: [], root: NONE, ek: NONE, rootRevoked: 0, pinRevoked: 1 };
+      return {
+        ...base,
+        state: 'absent',
+        susp: [],
+        root: NONE,
+        ek: NONE,
+        rootRevoked: 0,
+        pinRevoked: 1,
+      };
     case 'sor':
       return { ...base, state: 'suspended', susp: withSet(setOfX(f), 'operator'), rootRevoked: 1 };
     case 'pendErase':

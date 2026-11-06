@@ -8,7 +8,13 @@
 // set after every admission, so neither depends on arrival order.
 
 import { b64e, equalBytes, toHex } from './bytes';
-import { DELEGATION_LIFETIME_MAX_MS, DELTA_MAX_MS, EPSILON_MS, INTENT_WINDOW_MS, V_MAX_MS } from './constants';
+import {
+  DELEGATION_LIFETIME_MAX_MS,
+  DELTA_MAX_MS,
+  EPSILON_MS,
+  INTENT_WINDOW_MS,
+  V_MAX_MS,
+} from './constants';
 import {
   decodeAs,
   encodeAs,
@@ -106,9 +112,18 @@ export class Trust {
   readonly #seen = new Set<string>(); // SHA-384(msg) of every accepted object (D-222)
   #halt: string | null = null;
 
-  constructor(realm: string, anchors: Gen) {
+  private constructor(realm: string, anchors: Gen) {
     this.realm = realm;
     this.#gens = [anchors];
+  }
+
+  /** T1, the only constructor: the anchors' four keys must be pairwise distinct (LD-3). */
+  static async fromAnchors(anchors: Uint8Array): Promise<Trust | null> {
+    const a = await decodeAs('anchors', anchors);
+    if (!a || !encodeAs('anchors', a)) return null;
+    const g: Gen = [a.primary_a, a.primary_b, a.recovery_a, a.recovery_b];
+    if (!pairwiseDistinct(g)) return null;
+    return new Trust(a.realm_id, [g[0].slice(), g[1].slice(), g[2].slice(), g[3].slice()]);
   }
 
   /** The top of the contiguous succession chain (T2). */
@@ -260,9 +275,10 @@ export class Trust {
 
   /** The retained (gen, serial) keys, highest first. */
   sortedKeys(): [number, number][] {
-    const ks = [...this.#dels.values()].map(
-      (recs): [number, number] => [recs[0].d.product_root_gen, recs[0].d.serial]
-    );
+    const ks = [...this.#dels.values()].map((recs): [number, number] => [
+      recs[0].d.product_root_gen,
+      recs[0].d.serial,
+    ]);
     return ks.sort((a, b) => b[0] - a[0] || b[1] - a[1]);
   }
 
@@ -302,14 +318,8 @@ export class Trust {
   }
 }
 
-/** T1: a trust over the anchors, whose four keys must be pairwise distinct (LD-3). */
-export async function newTrust(anchors: Uint8Array): Promise<Trust | null> {
-  const a = await decodeAs('anchors', anchors);
-  if (!a || !encodeAs('anchors', a)) return null;
-  const g: Gen = [a.primary_a, a.primary_b, a.recovery_a, a.recovery_b];
-  if (!pairwiseDistinct(g)) return null;
-  return new Trust(a.realm_id, [g[0].slice(), g[1].slice(), g[2].slice(), g[3].slice()]);
-}
+/** T1: a trust over the anchors (`anchors` bytes), or null when they are malformed. */
+export const newTrust = (anchors: Uint8Array): Promise<Trust | null> => Trust.fromAnchors(anchors);
 
 /**
  * §2.6's `trust` rule: successions by new_root_gen strictly ascending, then
@@ -341,4 +351,3 @@ export async function checkTrustEnvelope(b: Uint8Array): Promise<TrustEnvelope |
 }
 
 const cmpPair = (a: [number, number], b: [number, number]): number => a[0] - b[0] || a[1] - b[1];
-
