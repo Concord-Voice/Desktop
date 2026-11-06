@@ -1049,6 +1049,34 @@ async function viewOf(
   };
 }
 
+/**
+ * D-S2: r is active, with exactly that dkx, in h's effective set. That is the
+ * persisted set, unless h's retained fix shows the raw pending head's new-root
+ * activation and the set stops before it (device-head #7): then it is the set
+ * that activation leaves (DR8), so a device the activation dropped gets no
+ * wrap. A head that does not read has no active device. Never throws.
+ */
+export async function activeRecipient(h: DeviceHead, r: DevRecord): Promise<boolean> {
+  try {
+    let set: Uint8Array | null = h.device_set;
+    const [raw, rr] = await headPub(h.chain);
+    const fix = await fixStatus(h.chain.fix);
+    if (
+      rr === 'ok' &&
+      fix !== 'malformed' &&
+      installsRoot(raw) &&
+      fixNames(fix, raw) &&
+      !effectivePending(raw, fix)
+    )
+      set = await normalizeDeviceSet(set, { activate: true });
+    if (!set) return false;
+    const v = await viewOf(set, 0, 0, h.admitted_by);
+    return v.active.some((e) => e.id === r.id && equalBytes(e.dkx, r.dkx));
+  } catch {
+    return false;
+  }
+}
+
 // ── VerifyDeviceLedger ───────────────────────────────────────────────────────
 
 /** What the server serves for one verifyDeviceLedger call. */

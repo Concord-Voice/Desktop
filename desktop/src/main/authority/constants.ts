@@ -25,3 +25,11 @@ export const sumBelow = (a: number, b: number, c: number): boolean =>
 
 export const MAX_DEVICES = 10;
 export const RECOVERY_REPLACE_MS = 2_592_000_000;
+
+/**
+ * A client constant (§2.3, D-278): after this long with no Pr head carrying a
+ * relayed `recover`'s intent digest, or no `cancel_recovery_bind` entry for a
+ * sheet cancel, a client advises that it has not been confirmed. Twice the
+ * relay's 30-s send window (V3-11).
+ */
+export const RECOVER_CONFIRM_MS = 60_000;

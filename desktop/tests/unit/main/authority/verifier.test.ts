@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { b64d, utf8 } from '@/main/authority/bytes';
+import { b64d, equalBytes, fromHex, utf8 } from '@/main/authority/bytes';
 import { capAt, knownSegment, segmentRule } from '@/main/authority/assurance';
 import { verifyBundle, verifyChain } from '@/main/authority/chain';
 import { capOf, encode, itemLen } from '@/main/authority/codec';
@@ -35,7 +35,8 @@ import { intentForOp } from '@/main/authority/post';
 import { activate, classify, genesisPub } from '@/main/authority/pub';
 import { noticeOf, verdictOf } from '@/main/authority/reason';
 import { fixAllows, fixStatus, pickMatch } from '@/main/authority/replay';
-import { verifyStatus, type AccountMemory } from '@/main/authority/status';
+import { verifyStatus, wrapKey, type AccountMemory } from '@/main/authority/status';
+import { sha384 } from '@/main/authority/primitives';
 import { rowByN, rowsFor } from '@/main/authority/table';
 import { checkTrustEnvelope, maxHW, newTrust, ZERO_HW, type Trust } from '@/main/authority/trust';
 
@@ -483,5 +484,106 @@ describe('heads and messages', () => {
     expect(addMs(-1)).toBeNull();
     expect(sumBelow(Number.MAX_SAFE_INTEGER, 120_000, Number.MAX_SAFE_INTEGER)).toBe(false);
     expect(sumBelow(1, 1, 3)).toBe(true);
+  });
+});
+
+/** Every EK SPKI the vectors carry, found by its fixed 33-byte header. */
+async function vectorSpkis(): Promise<Uint8Array[]> {
+  const hdr = fromHex('30820222300d06092a864886f70d01010105000382020f003082020a0282020100');
+  const out: Uint8Array[] = [];
+  const scan = (x: unknown): void => {
+    if (Array.isArray(x)) x.forEach(scan);
+    else if (x && typeof x === 'object') Object.values(x).forEach(scan);
+    else if (typeof x === 'string')
+      for (const seg of [x, ...x.split('.')]) {
+        let b: Uint8Array;
+        try {
+          b = b64d(seg);
+        } catch {
+          continue;
+        }
+        for (let i = 0; i + 550 <= b.length; i++)
+          if (equalBytes(b.subarray(i, i + 33), hdr)) out.push(b.slice(i, i + 550));
+      }
+  };
+  scan(VECTORS);
+  return out;
+}
+
+async function chainOf(name: string, use: 'new-secret' | 'history' = 'new-secret') {
+  const v = byName(name) as Vec & { mem: Record<string, string | number>; hw: Json; use: string };
+  const t = await trustOf(v);
+  const pin = (s: string | number) => (s ? b64d(String(s)) : new Uint8Array(0));
+  const mem: AccountMemory = {
+    pin: pin(v.mem.pin),
+    everEnrolled: v.mem.everEnrolled === 1,
+    acceptedPin: pin(v.mem.acceptedPin),
+  };
+  const hw = v.hw as { gen: number; serial: number; min_valid: number };
+  return verifyChain(
+    t,
+    { gen: hw.gen, serial: hw.serial, minValid: hw.min_valid },
+    await headOf(v.prev_head),
+    { bundles: (v.bundles ?? []).map(b64d), status: b64d(v.bytes_b64) },
+    mem,
+    v.now_ms,
+    use
+  );
+}
+
+describe('wrapKey (R6, E-S1)', () => {
+  it('wraps an active account to its verified EK, as a copy, for new-secret use only', async () => {
+    const out = await chainOf('head/after-rotations');
+    expect(out.reason).toBe('ok');
+    const ek = (await wrapKey(out.status, new Uint8Array(0)))!;
+    expect(ek).toEqual(out.head.active_ek_spki);
+    ek[0] ^= 0xff;
+    expect(await wrapKey(out.status, new Uint8Array(0))).toEqual(out.head.active_ek_spki);
+    // A literal or an edited copy carries no seal; a history verdict wraps nothing.
+    expect(await wrapKey({ ...out.status }, new Uint8Array(0))).toBeNull();
+    const hist = await chainOf('head/after-rotations', 'history');
+    expect(hist.reason).toBe('ok');
+    expect(await wrapKey(hist.status, new Uint8Array(0))).toBeNull();
+  });
+
+  it('wraps to the activated EK when the fix shows the raw pending head activated (N-2)', async () => {
+    const out = await chainOf('r4/status/pending-after-a-shown-activation');
+    expect(out.reason).toBe('ok');
+    const ek = await wrapKey(out.status, new Uint8Array(0));
+    expect(ek).toEqual(out.head.pending_ek_spki);
+    expect(out.head.pending_ek_spki.length).toBe(550);
+  });
+
+  it('wraps an absent or continuity-pending account only to a served SPKI that hashes to the pin', async () => {
+    const spkis = await vectorSpkis();
+    for (const name of ['pin/accepted', 'row/02/pop-pending']) {
+      const out = await chainOf(name);
+      expect(['ok', 'ok_accepted_pin'], name).toContain(out.reason);
+      const pin = out.status.pin;
+      const matches = await Promise.all(spkis.map(async (s) => equalBytes(await sha384(s), pin)));
+      const served = spkis[matches.indexOf(true)];
+      expect(served, name).toBeDefined();
+      expect(await wrapKey(out.status, served), name).toEqual(served);
+      const other = spkis.find((s) => !equalBytes(s, served))!;
+      expect(await wrapKey(out.status, other), name).toBeNull();
+      expect(await wrapKey(out.status, new Uint8Array(0)), name).toBeNull();
+    }
+  });
+
+  it('wraps nothing for a withheld verdict, whatever its fields are edited to', async () => {
+    const v = byName('pin/unchanged');
+    const t = await trustOf(v);
+    const out = await verifyChain(
+      t,
+      ZERO_HW,
+      await headOf(v.prev_head),
+      { bundles: (v.bundles ?? []).map(b64d), status: b64d(v.bytes_b64) },
+      { ...NO_MEM, pin: new Uint8Array(48).fill(7) },
+      v.now_ms,
+      'new-secret'
+    );
+    expect(out.reason).toBe('pin_changed');
+    out.status.reason = 'ok';
+    expect(await wrapKey(out.status, new Uint8Array(0))).toBeNull();
   });
 });

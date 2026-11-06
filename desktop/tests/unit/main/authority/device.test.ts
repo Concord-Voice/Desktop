@@ -25,6 +25,7 @@ import {
   type DeviceHead,
 } from '@/main/authority/heads';
 import {
+  activeRecipient,
   AFTER_EVENT,
   floorHolds,
   sharedReason,
@@ -36,7 +37,7 @@ import { attachedOp, deviceIntentForOp } from '@/main/authority/patterns';
 import { deviceId, sha384, type DevRecord } from '@/main/authority/primitives';
 import type { AccountMemory } from '@/main/authority/status';
 import { newTrust, type HighWater, type Trust } from '@/main/authority/trust';
-import { verifyDeviceWrap, type DkxPair } from '@/main/authority/wrap';
+import { sealDeviceWrap, verifyDeviceWrap, type DkxPair } from '@/main/authority/wrap';
 
 const { subtle } = globalThis.crypto;
 const REALM = '11111111-1111-4111-8111-111111111111';
@@ -697,5 +698,74 @@ describe('verifyDeviceWrap', () => {
     expect((await open(h, dkx, utf8Bytes('x'))).reason).toBe('wrap_invalid');
     const refused = await open(h, { privateKey: null, publicKey: null } as unknown as DkxPair);
     expect([refused.reason, refused.secrets, refused.use]).toEqual(['wrap_invalid', null, null]);
+  });
+});
+
+describe('sealDeviceWrap', () => {
+  const fixture = async () => {
+    const v = vec('wrap/current');
+    const h = (await parseDeviceHead(b64d(v.prev_device_head), b64d(v.prev_head)))!;
+    const dkx = await dkxPair(b64d(v.recipient_dkx_d));
+    const w = (await decodeAs('device-wrap', b64d(v.bytes_b64)))!;
+    const opened = await verifyDeviceWrap(h, b64d(v.bytes_b64), dkx);
+    expect(opened.reason).toBe('ok');
+    const self = (await parseSet(h.device_set))!.act.find((e) => e.id === h.self_device_id)!;
+    return { h, dkx, w, secrets: opened.secrets!, self };
+  };
+
+  it('seals what verifyDeviceWrap opens, under a fresh epk and nonce, and refuses any tamper', async () => {
+    const { h, dkx, w, secrets, self } = await fixture();
+    const sealed = (await sealDeviceWrap(h, self, w.device_entry_digest, secrets))!;
+    const back = await verifyDeviceWrap(h, sealed, dkx);
+    expect([back.reason, back.use]).toEqual(['ok', 'current']);
+    expect(back.secrets).toEqual(secrets);
+    const x = (await decodeAs('device-wrap', sealed))!;
+    expect(x.epk).not.toEqual(w.epk);
+    expect(x.nonce).not.toEqual(w.nonce);
+    const flip = (b: Uint8Array, i: number) => {
+      const c = b.slice();
+      c[i < 0 ? c.length + i : i] ^= 1;
+      return c;
+    };
+    for (const [name, t] of [
+      ['ct', { ...x, ct: flip(x.ct, 3) }],
+      ['tag', { ...x, ct: flip(x.ct, -1) }],
+      ['nonce', { ...x, nonce: flip(x.nonce, 0) }],
+      ['epk', { ...x, epk: await point() }],
+    ] as const) {
+      const b = encodeAs('device-wrap', t);
+      expect(b, name).not.toBeNull();
+      expect((await verifyDeviceWrap(h, b!, dkx)).reason, name).toBe('wrap_invalid');
+    }
+  });
+
+  it('seals only to an active member with its own dkx, under a 48-byte entry, a valid secrets', async () => {
+    const { h, w, secrets, self } = await fixture();
+    const entry = w.device_entry_digest;
+    for (const [name, head, to, e, s] of [
+      ['not in the set', h, { ...self, id: crypto.randomUUID() }, entry, secrets],
+      ['another dkx', h, { ...self, dkx: await point() }, entry, secrets],
+      ['short entry', h, self, entry.subarray(0, 47), secrets],
+      ['no ek', h, self, entry, { ...secrets, ek_pkcs8: new Uint8Array(0) }],
+      ['empty set', { ...h, device_set: new Uint8Array(0) }, self, entry, secrets],
+      ['malformed realm', { ...h, realm_id: 'x' }, self, entry, secrets],
+      ['malformed admitted', { ...h, admitted_by: ['x'] }, self, entry, secrets],
+    ] as const) {
+      expect(await sealDeviceWrap(head, to, e, s), name).toBeNull();
+    }
+  });
+
+  it('follows a new-root activation the fix shows and the set has not recorded (D-S2)', async () => {
+    const v = vec('ledger/status-shows-activation-before-completion');
+    const h = (await parseDeviceHead(b64d(v.expect.device_head_b64), b64d(v.expect.head_b64)))!;
+    const set = (await parseSet(h.device_set))!;
+    expect(set.pend).not.toBeNull();
+    expect(set.act).toHaveLength(1);
+    const [old, next] = [set.act[0], set.pend!];
+    expect(await activeRecipient(h, old)).toBe(false);
+    expect(await activeRecipient(h, next)).toBe(true);
+    const noFix = { ...h, chain: { ...h.chain, fix: new Uint8Array(0) } };
+    expect(await activeRecipient(noFix, old)).toBe(true);
+    expect(await activeRecipient(noFix, next)).toBe(false);
   });
 });

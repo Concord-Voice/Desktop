@@ -1,5 +1,5 @@
-// Opening a device wrap (design of record §2.5 `device-wrap` and
-// `device-secrets` checks 1–4, D-244). A port of the open half of
+// Sealing and opening a device wrap (design of record §2.5 `device-wrap` and
+// `device-secrets` checks 1–4, D-244). A port of
 // Concord-Voice/Self-Hosted services/control-plane/internal/authoritycontract/wrap.go.
 //
 // Mechanism: Z = ECDH P-384 (self's dkx, epk), its 48-byte x-coordinate;
@@ -18,8 +18,9 @@
 
 import { b64d, buf, concat, equalBytes, utf8 } from './bytes';
 import type { DeviceHead } from './heads';
-import { decodeAs, type DeviceSecrets, type DeviceWrap } from './messages';
-import { checkEkSpkiTemplate, verifyP384 } from './primitives';
+import { activeRecipient } from './ledger';
+import { decodeAs, encodeAs, type DeviceSecrets, type DeviceWrap } from './messages';
+import { checkEkSpkiTemplate, verifyP384, type DevRecord } from './primitives';
 import type { Reason } from './reason';
 
 const { subtle } = globalThis.crypto;
@@ -29,7 +30,9 @@ const WRAP_INFO = utf8('concord-device-wrap/v1\0');
 /** "concord-device-secrets-check/v1" ‖ 0x00: check 3's signed prefix. */
 const ROOT_CHECK = utf8('concord-device-secrets-check/v1\0');
 const ENTRY_LEN = 48;
+const NONCE_LEN = 12;
 const PROBE_LEN = 32;
+const P384_ECDH = { name: 'ECDH', namedCurve: 'P-384' };
 const SECRETS_OPS = new Set(['add_device', 'rotate_ek', 'rotate_root']);
 
 /** Check 4: the wrap names self's latest secrets entry (current) or an earlier one (history). */
@@ -54,7 +57,7 @@ export interface DkxPair {
   publicKey: CryptoKey;
 }
 
-type Usage = 'sign' | 'decrypt' | 'deriveKey';
+type Usage = 'sign' | 'decrypt' | 'encrypt' | 'deriveKey';
 type ImportAlg = string | { name: string; namedCurve?: string; hash?: string };
 
 const REFUSED: WrapOpened = Object.freeze({ secrets: null, use: null, reason: 'wrap_invalid' });
@@ -211,33 +214,88 @@ async function secretsAccepted(
   return ekCorresponds(s.ek_pkcs8, e.spki);
 }
 
+/** The wrap's ids, its HKDF info half and its AAD, all byte-exact to §2.5. */
+interface WrapFrame {
+  realm_id: string;
+  account_id: string;
+  recipient_device_id: string;
+  device_entry_digest: Uint8Array;
+  epk: Uint8Array;
+  nonce: Uint8Array;
+}
+
+const idsOf = (w: WrapFrame): Uint8Array[] =>
+  [w.realm_id, w.account_id, w.recipient_device_id].map(utf8);
+
+const aadOf = (w: WrapFrame): Uint8Array =>
+  concat(...idsOf(w), w.device_entry_digest, w.epk, w.nonce);
+
+/** K = HKDF-SHA-384(Z, salt entry digest, info ‖ ids ‖ epk ‖ recipient dkx, 32) as a non-extractable AES-256-GCM key. */
+async function wrapAesKey(
+  z: Uint8Array,
+  w: WrapFrame,
+  dkxPub: Uint8Array,
+  usage: Usage
+): Promise<CryptoKey> {
+  const info = concat(WRAP_INFO, ...idsOf(w), w.epk, dkxPub);
+  const hk = await importSecret('raw', z, 'HKDF', false, ['deriveKey']);
+  return subtle.deriveKey(
+    { name: 'HKDF', hash: 'SHA-384', salt: buf(w.device_entry_digest), info: buf(info) },
+    hk,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    [usage]
+  );
+}
+
+const gcm = (w: WrapFrame) => ({
+  name: 'AES-GCM',
+  iv: buf(w.nonce),
+  additionalData: buf(aadOf(w)),
+  tagLength: 128,
+});
+
 /** Z = ECDH(dkx, epk), K by HKDF-SHA-384, then AES-256-GCM open under the 265-byte AAD; null on any failure. */
 async function decryptWrap(w: DeviceWrap, dkx: DkxPair): Promise<Uint8Array | null> {
   let z = new Uint8Array(0);
   try {
-    const curve = { name: 'ECDH', namedCurve: 'P-384' };
-    const epk = await subtle.importKey('raw', buf(w.epk), curve, false, []);
+    const epk = await subtle.importKey('raw', buf(w.epk), P384_ECDH, false, []);
     z = new Uint8Array(await subtle.deriveBits({ name: 'ECDH', public: epk }, dkx.privateKey, 384));
     const dkxPub = new Uint8Array(await subtle.exportKey('raw', dkx.publicKey));
-    const ids = [w.realm_id, w.account_id, w.recipient_device_id].map(utf8);
-    const info = concat(WRAP_INFO, ...ids, w.epk, dkxPub);
-    const hk = await importSecret('raw', z, 'HKDF', false, ['deriveKey']);
-    const k = await subtle.deriveKey(
-      { name: 'HKDF', hash: 'SHA-384', salt: buf(w.device_entry_digest), info: buf(info) },
-      hk,
-      { name: 'AES-GCM', length: 256 },
-      false,
-      ['decrypt']
-    );
-    const aad = concat(...ids, w.device_entry_digest, w.epk, w.nonce);
-    const pt = await subtle.decrypt(
-      { name: 'AES-GCM', iv: buf(w.nonce), additionalData: buf(aad), tagLength: 128 },
-      k,
-      buf(w.ct)
-    );
-    return new Uint8Array(pt);
+    const k = await wrapAesKey(z, w, dkxPub, 'decrypt');
+    return new Uint8Array(await subtle.decrypt(gcm(w), k, buf(w.ct)));
   } catch {
     return null;
+  } finally {
+    z.fill(0);
+  }
+}
+
+/** A fresh ephemeral key, Z its x-coordinate with the recipient's dkx, a fresh nonce, then AES-256-GCM. */
+async function encryptWrap(
+  h: DeviceHead,
+  r: DevRecord,
+  entry: Uint8Array,
+  pt: Uint8Array
+): Promise<Uint8Array | null> {
+  let z = new Uint8Array(0);
+  try {
+    const peer = await subtle.importKey('raw', buf(r.dkx), P384_ECDH, false, []);
+    const eph = (await subtle.generateKey(P384_ECDH, false, ['deriveBits'])) as DkxPair;
+    z = new Uint8Array(
+      await subtle.deriveBits({ name: 'ECDH', public: peer }, eph.privateKey, 384)
+    );
+    const frame: WrapFrame = {
+      realm_id: h.realm_id,
+      account_id: h.account_id,
+      recipient_device_id: r.id,
+      device_entry_digest: entry,
+      epk: new Uint8Array(await subtle.exportKey('raw', eph.publicKey)),
+      nonce: globalThis.crypto.getRandomValues(new Uint8Array(NONCE_LEN)),
+    };
+    const k = await wrapAesKey(z, frame, r.dkx, 'encrypt');
+    const ct = new Uint8Array(await subtle.encrypt(gcm(frame), k, buf(pt)));
+    return encodeAs('device-wrap', { ...frame, ct });
   } finally {
     z.fill(0);
   }
@@ -291,5 +349,34 @@ export async function verifyDeviceWrap(
     return w ? await openWrap(h, w, dkx) : REFUSED;
   } catch {
     return REFUSED;
+  }
+}
+
+/**
+ * Wraps s to recipient under self's secrets entry entryDigest (§2.5, D-244).
+ * recipient must be an active device of h's effective set with the dkx that
+ * set records (activeRecipient): a removed device never receives a later wrap
+ * (AC20 P3). h must be the DeviceHead verifyDeviceLedger returned just before
+ * this call: this one reads no clock, so an older head can wrap the root to a
+ * device whose removal the server is withholding. Null on any refusal; the
+ * encoded plaintext is zeroed on every path. Never throws.
+ */
+export async function sealDeviceWrap(
+  h: DeviceHead,
+  recipient: DevRecord,
+  entryDigest: Uint8Array,
+  s: DeviceSecrets
+): Promise<Uint8Array | null> {
+  try {
+    if (entryDigest.length !== ENTRY_LEN || !(await activeRecipient(h, recipient))) return null;
+    const pt = encodeAs('device-secrets', s);
+    if (!pt) return null;
+    try {
+      return await encryptWrap(h, recipient, entryDigest, pt);
+    } finally {
+      pt.fill(0);
+    }
+  } catch {
+    return null;
   }
 }
