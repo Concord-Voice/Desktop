@@ -507,6 +507,44 @@ describe('ServerSettingsPage', () => {
     expect(screen.getByText('TESTCODE')).toBeInTheDocument();
   });
 
+  describe('invite copy button', () => {
+    const invite = {
+      id: 'inv-1',
+      server_id: 'server-1',
+      code: 'TESTCODE',
+      created_by: 'user-1',
+      max_uses: 0,
+      uses: 0,
+      expires_at: null,
+      created_at: '2025-01-01T00:00:00Z',
+    };
+
+    beforeEach(() => {
+      useInviteStore.setState({
+        invites: { 'server-1': [invite] },
+        fetchInvites: vi.fn().mockResolvedValue(undefined),
+        createInvite: vi.fn().mockResolvedValue(null),
+      });
+    });
+
+    it('shows Copied! once the clipboard write succeeds', async () => {
+      render(<ServerSettingsPage serverId="server-1" />);
+      fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith('TESTCODE');
+      expect(await screen.findByRole('button', { name: 'Copied!' })).toBeInTheDocument();
+    });
+
+    it('keeps Copy and warns when the clipboard write fails', async () => {
+      vi.mocked(navigator.clipboard.writeText).mockRejectedValueOnce(new Error('denied'));
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      render(<ServerSettingsPage serverId="server-1" />);
+      fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+      await vi.waitFor(() => expect(warn).toHaveBeenCalledWith('Invite code copy failed'));
+      expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+      warn.mockRestore();
+    });
+  });
+
   it('shows subsection nav items for general section', () => {
     render(<ServerSettingsPage serverId="server-1" />);
     // Each subsection label appears in both the nav tree and the section heading

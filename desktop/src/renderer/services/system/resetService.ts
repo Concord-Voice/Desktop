@@ -338,5 +338,8 @@ export function nuclearReset(): void {
   // so the second falls through to the DEFAULT profile and deletes a remembered
   // SaaS session's credentials this logout never touched. Doubling the call is not
   // idempotent; it changes WHICH profile is cleared (CODEX P2).
-  void globalThis.electron?.clearTokens?.();
+  // Promise.resolve: never let a non-promise return throw out of the reset.
+  Promise.resolve(globalThis.electron?.clearTokens?.()).catch(() => {
+    console.error('nuclearReset: clearing stored tokens failed');
+  });
 }

@@ -11,9 +11,15 @@ describe('draftSettingsStore apply: hardware acceleration', () => {
     vi.useFakeTimers();
   });
 
+  const { setHardwareAcceleration: origSetHw, relaunchApp: origRelaunch } = globalThis.electron;
+
   afterEach(() => {
     useDraftSettingsStore.getState().teardown();
     vi.useRealTimers();
+    Object.assign(globalThis.electron, {
+      setHardwareAcceleration: origSetHw,
+      relaunchApp: origRelaunch,
+    });
   });
 
   it('saves the hardware acceleration draft, then relaunches', async () => {

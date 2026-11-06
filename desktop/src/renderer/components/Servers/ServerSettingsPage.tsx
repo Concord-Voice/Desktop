@@ -519,9 +519,14 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({ serverId }) => 
                 type="button"
                 className="invite-copy-btn"
                 onClick={() => {
-                  void navigator.clipboard.writeText(activeInvite.code);
-                  setInviteCopied(true);
-                  setTimeout(() => setInviteCopied(false), 2000);
+                  // Show "Copied!" only once the write succeeds.
+                  navigator.clipboard.writeText(activeInvite.code).then(
+                    () => {
+                      setInviteCopied(true);
+                      setTimeout(() => setInviteCopied(false), 2000);
+                    },
+                    () => console.warn('Invite code copy failed')
+                  );
                 }}
               >
                 {inviteCopied ? 'Copied!' : 'Copy'}

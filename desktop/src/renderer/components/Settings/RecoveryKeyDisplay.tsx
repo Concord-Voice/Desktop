@@ -18,7 +18,7 @@ const RecoveryKeyDisplay: React.FC<RecoveryKeyDisplayProps> = ({
 
   const handleCopy = async () => {
     if (globalThis.electron?.writeClipboard) {
-      void globalThis.electron.writeClipboard(recoveryKey);
+      await globalThis.electron.writeClipboard(recoveryKey);
     } else {
       await navigator.clipboard.writeText(recoveryKey);
     }
