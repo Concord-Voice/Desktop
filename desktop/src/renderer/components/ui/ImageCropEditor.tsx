@@ -150,6 +150,44 @@ async function resendUpload(
   return { kind: 'uploaded', url };
 }
 
+/**
+ * Whether the picked file is sent whole to keep its animation (#1302). Only a GIF on a route
+ * that allows animation is probed, in its own effect, so an entitlement that changes while the
+ * editor is open never resets the crop or an open verification. The probe's answer and a
+ * refused send are both keyed by the file, so a new pick never inherits the last one's.
+ */
+function useGifPassThrough(
+  isOpen: boolean,
+  imageFile: File | null,
+  allowAnimated: boolean
+): { keepsAnimation: boolean; probing: boolean; refuse: (file: File) => void } {
+  const [probe, setProbe] = useState<{ file: File; animated: boolean } | null>(null);
+  const [refusedFile, setRefusedFile] = useState<File | null>(null);
+  const probes = allowAnimated && imageFile?.type === 'image/gif';
+
+  useEffect(() => {
+    if (!isOpen || !imageFile || !probes) return;
+    let stale = false;
+    const answer = (animated: boolean) => {
+      if (!stale) setProbe({ file: imageFile, animated });
+    };
+    imageFile
+      .arrayBuffer()
+      .then((buf) => answer(isUploadableAnimatedGif(new Uint8Array(buf))))
+      .catch(() => answer(false)); // unreadable: a still crop
+    return () => {
+      stale = true;
+    };
+  }, [isOpen, imageFile, probes]);
+
+  const answered = probe !== null && probe.file === imageFile;
+  return {
+    keepsAnimation: probes && answered && probe.animated && refusedFile !== imageFile,
+    probing: probes && !answered,
+    refuse: setRefusedFile,
+  };
+}
+
 export interface ImageCropEditorProps {
   isOpen: boolean;
   onClose: () => void;
@@ -194,22 +232,13 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isSmallImage, setIsSmallImage] = useState(false);
   const [stepUp, setStepUp] = useState<PendingUpload | null>(null);
-  // The GIF probe's answer for one file, and a file whose whole-file send was refused.
-  // Both are keyed by the file, so a new pick never inherits the last one's answer.
-  const [gifProbe, setGifProbe] = useState<{ file: File; animated: boolean } | null>(null);
-  const [stillFallbackFor, setStillFallbackFor] = useState<File | null>(null);
   const applyRef = useRef<HTMLButtonElement>(null);
   const uploadedUrlRef = useRef<string | null>(null);
-  const allowAnimated = upload?.allowAnimated === true;
-  // Only a GIF on a route that allows animation is probed; anything else is cropped.
-  const probesGif = allowAnimated && imageFile?.type === 'image/gif';
-  const probingGif = probesGif && gifProbe?.file !== imageFile;
-  // The picked file is an animated GIF the server will keep: it is sent as is, uncropped.
-  const keepsAnimation =
-    probesGif &&
-    gifProbe?.file === imageFile &&
-    gifProbe.animated &&
-    stillFallbackFor !== imageFile;
+  const {
+    keepsAnimation,
+    probing: probingGif,
+    refuse: refuseAnimation,
+  } = useGifPassThrough(isOpen, imageFile, upload?.allowAnimated === true);
 
   // Drag state stored in ref to avoid re-renders during drag
   const dragRef = useRef({
@@ -301,23 +330,6 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
       imageRef.current = null;
     };
   }, [isOpen, imageFile, cropDisplayWidth, cropDisplayHeight, output.width, output.height]);
-
-  // Probe a GIF on a route that allows animation. Its own effect, so an entitlement that
-  // changes while the editor is open never resets the crop or an open verification.
-  useEffect(() => {
-    if (!isOpen || !imageFile || !probesGif) return;
-    let stale = false;
-    const answer = (animated: boolean) => {
-      if (!stale) setGifProbe({ file: imageFile, animated });
-    };
-    imageFile
-      .arrayBuffer()
-      .then((buf) => answer(isUploadableAnimatedGif(new Uint8Array(buf))))
-      .catch(() => answer(false)); // unreadable: a still crop
-    return () => {
-      stale = true;
-    };
-  }, [isOpen, imageFile, probesGif]);
 
   // Size the canvas once when image loads or dimensions change (avoids resetting on every drag/zoom)
   useEffect(() => {
@@ -585,7 +597,7 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
       const message = error instanceof Error ? error.message : UPLOAD_FAILED;
       if (keepsAnimation && imageFile) {
         // The server refused the animation (a plan that changed, a limit): offer a still.
-        setStillFallbackFor(imageFile);
+        refuseAnimation(imageFile);
         setUploadError(`${message} Apply again to upload a still image instead.`);
       } else {
         setUploadError(message);
@@ -593,7 +605,16 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
     } finally {
       setIsUploading(false);
     }
-  }, [keepsAnimation, imageFile, getCroppedBlob, upload, uploadBlob, blobToDataUrl, onConfirm]);
+  }, [
+    keepsAnimation,
+    refuseAnimation,
+    imageFile,
+    getCroppedBlob,
+    upload,
+    uploadBlob,
+    blobToDataUrl,
+    onConfirm,
+  ]);
 
   const closeStepUp = () => setStepUp(null);
 
@@ -648,11 +669,11 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
             <canvas ref={canvasRef} className="image-crop-canvas" />
           </button>
 
-          <div id="image-crop-hint" className="image-crop-hint" role="status">
+          <output id="image-crop-hint" className="image-crop-hint">
             {keepsAnimation
               ? "This GIF keeps its animation, so it uploads as it is: crop and zoom don't apply."
               : 'Drag to reposition, scroll to zoom'}
-          </div>
+          </output>
 
           {isSmallImage && !keepsAnimation && (
             <div className="image-crop-warning">
