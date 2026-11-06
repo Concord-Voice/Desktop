@@ -2,6 +2,9 @@
 description: End-to-end encryption and cryptographic code constraints
 paths:
   - "desktop/src/renderer/services/e2ee/**"
+  # The account-key authority verifier runs in the main process (trust decisions
+  # stay out of the renderer), so it is outside services/e2ee and named here.
+  - "desktop/src/main/authority/**"
   - "desktop/src/renderer/services/e2ee/crypto*"
   # The services/e2ee/crypto* glob covers a future E2EE crypto module, while the attachment
   # crypto modules -- which hold the AES-GCM envelope, the AAD construction, and

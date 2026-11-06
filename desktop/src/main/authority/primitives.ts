@@ -63,7 +63,10 @@ export async function checkEkSpkiWebCrypto(b: Uint8Array): Promise<void> {
   } catch {
     throw new Malformed('ek spki parse');
   }
-  const alg = key.algorithm as RsaHashedKeyAlgorithm;
+  const alg = key.algorithm as typeof key.algorithm & {
+    modulusLength: number;
+    publicExponent: Uint8Array;
+  };
   if (alg.modulusLength !== 4096) throw new Malformed('ek modulus');
   if (!equalBytes(alg.publicExponent, new Uint8Array([1, 0, 1])))
     throw new Malformed('ek exponent');

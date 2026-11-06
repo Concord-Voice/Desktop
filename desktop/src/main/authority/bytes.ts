@@ -1,5 +1,5 @@
 // Byte helpers for the account-key authority contract (design of record §2.3).
-// Renderer-safe: no Buffer. Base64 is the strict RFC 4648 §3.5 form plus the
+// Runtime-neutral: no Buffer. Base64 is the strict RFC 4648 §3.5 form plus the
 // EN5 rule that a value must re-encode to the identical string.
 
 import { Malformed } from './errors';
