@@ -741,6 +741,26 @@ describe('draftSettingsStore', () => {
       // Mode stashes should survive apply
       expect(useDraftSettingsStore.getState().audioBasicStash).toEqual(basicStash);
     });
+
+    it('saves the hardware acceleration draft, then relaunches', async () => {
+      vi.useFakeTimers();
+      const setHardwareAcceleration = vi.fn().mockResolvedValue(undefined);
+      const relaunchApp = vi.fn().mockResolvedValue(undefined);
+      Object.assign(globalThis.electron, { setHardwareAcceleration, relaunchApp });
+      try {
+        useDraftSettingsStore.getState().initialize();
+        const next = !useDraftSettingsStore.getState().snapshot!.video.hardwareAcceleration;
+        useDraftSettingsStore.getState().setVideoDraft('hardwareAcceleration', next);
+        await useDraftSettingsStore.getState().apply();
+        expect(relaunchApp).not.toHaveBeenCalled();
+
+        vi.advanceTimersByTime(150);
+        expect(setHardwareAcceleration).toHaveBeenCalledWith(next);
+        expect(relaunchApp).toHaveBeenCalledTimes(1);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   // ── revert ────────────────────────────────────────────────────────────
