@@ -35,6 +35,9 @@ import type { UpdateChannel } from '../shared/updateChannel';
 // Binary updater preferences do not control the active renderer channel.
 const launchSpaChannel = SPA_DISCOVERY_CHANNEL;
 
+/** The only origin a remote renderer may load from. */
+const HOSTED_SPA_ORIGIN = 'https://spa.concordvoice.chat';
+
 const SPA_NO_CACHE_HEADERS = {
   'Cache-Control': 'no-cache',
   Pragma: 'no-cache',
@@ -81,7 +84,9 @@ export async function resolveSpaSource(
   }
 
   try {
-    const configUrl = `${apiBase}${clientConfigPath(channel, IPC_CONTRACT_VERSION)}`;
+    // Built from the constant, not the persisted string: the guard compares
+    // origins only, and a persisted base may carry a path or query.
+    const configUrl = `${PRODUCTION_API_BASE}${clientConfigPath(channel, IPC_CONTRACT_VERSION)}`;
     const result = await fetchJsonWithTimeout<ClientConfigResponse>(configUrl, CONFIG_TIMEOUT_MS);
 
     if (!result.ok) {
@@ -102,6 +107,13 @@ export async function resolveSpaSource(
           mode: 'bundled',
           reason: `spaUrl rejected: non-HTTPS protocol ${spaOrigin.protocol}`,
         };
+      }
+
+      // Pin the renderer to the hosted SPA origin, so a tampered hosted config
+      // alone cannot hand the full IPC surface to another host.
+      // ponytail: constant pin; #3594 replaces remote navigation with verified local bytes.
+      if (spaOrigin.origin !== HOSTED_SPA_ORIGIN) {
+        return { mode: 'bundled', reason: 'spaUrl rejected: not the hosted SPA origin' };
       }
 
       // Defensive sentinel: reject the legacy /api/v1/spa/ prefix. PR #726 moved
@@ -210,8 +222,8 @@ async function fetchJsonWithTimeout<T>(
  *
  * Used by main.ts to decide whether to surface the Option C overlay
  * (#830) — only unexpected fallbacks should trigger it. Expected
- * fallbacks are normal operation (e.g., a self-hosted server with no
- * spaUrl configured, or a logged-out user on a fresh launch).
+ * fallbacks are normal operation (e.g., any non-hosted server, the hosted
+ * service with no spaUrl configured, or a logged-out user on a fresh launch).
  *
  * Unknown reasons are treated as unexpected (fail-loud principle):
  * if a future code path adds a new reason string we didn't anticipate,
@@ -237,7 +249,8 @@ export function isUnexpectedBundled(reason: string): boolean {
  * bridge the gap.
  *
  * Deliberately NARROW. It must NOT match:
- *   - expected bundled reasons (no apiBase, no spaUrl, contract zero) — those
+ *   - expected bundled reasons (no apiBase, non-hosted server, no spaUrl,
+ *     contract zero) — those
  *     are normal operation, not an outage; serving a cache there would mask a
  *     legitimately-bundled posture.
  *   - IPC-contract mismatch or a rejected spaUrl — a stale cache must not bypass
