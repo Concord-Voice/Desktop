@@ -19,6 +19,7 @@ import {
 } from '../../services/system/requestContext';
 import { serverErrorText } from '../../services/system/stepUpRouteAdapters';
 import { stepUpSeed } from '../../services/system/stepUpSeed';
+import { isUploadableAnimatedGif } from '../../utils/ui/animatedImage';
 import './ImageCropEditor.css';
 
 /** The server image uploads the control plane gates (#3454): one purpose per route. */
@@ -44,6 +45,15 @@ export interface CropUploadConfig {
    * the dialog. Only the page that owns the surrounding form knows what leaving would discard.
    */
   onSetUpVerification?: (closeHost: () => void) => void;
+  /**
+   * The account or server may store an animated image on this route (#1302). An animated GIF
+   * the server will keep (`isUploadableAnimatedGif`) is then sent as picked; the server
+   * re-encodes it, which is also what strips its metadata, and scales it to fit the route's
+   * box without cropping. Only GIF: the upload routes flatten every other format. Otherwise,
+   * or after the server refuses the animation, the crop is drawn to a still, as before.
+   * Apply waits for the GIF check, so a quick click cannot send a still by accident.
+   */
+  allowAnimated?: boolean;
 }
 
 /** Where an upload went and what rode with it: what the re-send repeats, not the live prop. */
@@ -84,7 +94,7 @@ const IMAGE_NOUN: Record<ServerImagePurpose, string> = {
 /** The multipart body for one upload of `blob`. `mfaCode` is only on the re-send. */
 function uploadForm(blob: Blob, cfg: FrozenUploadTarget, mfaCode?: string): FormData {
   const formData = new FormData();
-  const ext = blob.type === 'image/png' ? 'png' : 'jpg';
+  const ext = { 'image/png': 'png', 'image/gif': 'gif' }[blob.type] ?? 'jpg';
   formData.append('file', blob, `cropped.${ext}`);
 
   if (cfg.extraFields) {
@@ -140,6 +150,44 @@ async function resendUpload(
   return { kind: 'uploaded', url };
 }
 
+/**
+ * Whether the picked file is sent whole to keep its animation (#1302). Only a GIF on a route
+ * that allows animation is probed, in its own effect, so an entitlement that changes while the
+ * editor is open never resets the crop or an open verification. The probe's answer and a
+ * refused send are both keyed by the file, so a new pick never inherits the last one's.
+ */
+function useGifPassThrough(
+  isOpen: boolean,
+  imageFile: File | null,
+  allowAnimated: boolean
+): { keepsAnimation: boolean; probing: boolean; refuse: (file: File) => void } {
+  const [probe, setProbe] = useState<{ file: File; animated: boolean } | null>(null);
+  const [refusedFile, setRefusedFile] = useState<File | null>(null);
+  const probes = allowAnimated && imageFile?.type === 'image/gif';
+
+  useEffect(() => {
+    if (!isOpen || !imageFile || !probes) return;
+    let stale = false;
+    const answer = (animated: boolean) => {
+      if (!stale) setProbe({ file: imageFile, animated });
+    };
+    imageFile
+      .arrayBuffer()
+      .then((buf) => answer(isUploadableAnimatedGif(new Uint8Array(buf))))
+      .catch(() => answer(false)); // unreadable: a still crop
+    return () => {
+      stale = true;
+    };
+  }, [isOpen, imageFile, probes]);
+
+  const answered = probe !== null && probe.file === imageFile;
+  return {
+    keepsAnimation: probes && answered && probe.animated && refusedFile !== imageFile,
+    probing: probes && !answered,
+    refuse: setRefusedFile,
+  };
+}
+
 export interface ImageCropEditorProps {
   isOpen: boolean;
   onClose: () => void;
@@ -186,6 +234,11 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
   const [stepUp, setStepUp] = useState<PendingUpload | null>(null);
   const applyRef = useRef<HTMLButtonElement>(null);
   const uploadedUrlRef = useRef<string | null>(null);
+  const {
+    keepsAnimation,
+    probing: probingGif,
+    refuse: refuseAnimation,
+  } = useGifPassThrough(isOpen, imageFile, upload?.allowAnimated === true);
 
   // Drag state stored in ref to avoid re-renders during drag
   const dragRef = useRef({
@@ -521,7 +574,7 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
 
   // Generate cropped output and optionally upload
   const handleConfirm = useCallback(async () => {
-    const blob = await getCroppedBlob();
+    const blob = keepsAnimation && imageFile ? imageFile : await getCroppedBlob();
     if (!blob) return;
 
     setIsUploading(true);
@@ -541,11 +594,27 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
         setStepUp({ blob, refusal, target, context });
       }
     } catch (error) {
-      setUploadError(error instanceof Error ? error.message : UPLOAD_FAILED);
+      const message = error instanceof Error ? error.message : UPLOAD_FAILED;
+      if (keepsAnimation && imageFile) {
+        // The server refused the animation (a plan that changed, a limit): offer a still.
+        refuseAnimation(imageFile);
+        setUploadError(`${message} Apply again to upload a still image instead.`);
+      } else {
+        setUploadError(message);
+      }
     } finally {
       setIsUploading(false);
     }
-  }, [getCroppedBlob, upload, uploadBlob, blobToDataUrl, onConfirm]);
+  }, [
+    keepsAnimation,
+    refuseAnimation,
+    imageFile,
+    getCroppedBlob,
+    upload,
+    uploadBlob,
+    blobToDataUrl,
+    onConfirm,
+  ]);
 
   const closeStepUp = () => setStepUp(null);
 
@@ -585,9 +654,14 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
           <button
             type="button"
             className="image-crop-preview"
-            aria-label="Image crop editor — drag to reposition, scroll to zoom"
-            onWheel={handleWheel}
-            onMouseDown={handleMouseDown}
+            aria-label={
+              keepsAnimation
+                ? 'Animated GIF preview — uploaded as is'
+                : 'Image crop editor — drag to reposition, scroll to zoom'
+            }
+            aria-describedby="image-crop-hint"
+            onWheel={keepsAnimation ? undefined : handleWheel}
+            onMouseDown={keepsAnimation ? undefined : handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
             onMouseLeave={handleMouseUp}
@@ -595,9 +669,13 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
             <canvas ref={canvasRef} className="image-crop-canvas" />
           </button>
 
-          <div className="image-crop-hint">Drag to reposition, scroll to zoom</div>
+          <output id="image-crop-hint" className="image-crop-hint">
+            {keepsAnimation
+              ? "This GIF keeps its animation, so it uploads as it is: crop and zoom don't apply."
+              : 'Drag to reposition, scroll to zoom'}
+          </output>
 
-          {isSmallImage && (
+          {isSmallImage && !keepsAnimation && (
             <div className="image-crop-warning">
               Image is smaller than recommended ({output.width}&times;{output.height}). Quality may
               be reduced.
@@ -617,7 +695,7 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
               value={zoom}
               onChange={handleZoomSlider}
               aria-label="Zoom level"
-              disabled={isUploading}
+              disabled={isUploading || keepsAnimation}
             />
           </div>
 
@@ -635,7 +713,7 @@ const ImageCropEditor: React.FC<ImageCropEditorProps> = ({
               type="button"
               className="profile-save-btn"
               onClick={handleConfirm}
-              disabled={isUploading || !imageRef.current}
+              disabled={isUploading || probingGif || !imageRef.current}
             >
               {isUploading ? (
                 <>

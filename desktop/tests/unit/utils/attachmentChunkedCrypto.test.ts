@@ -16,12 +16,15 @@ import {
   type AttachmentEnvelopeHeader,
   classifyEnvelope,
   decryptAttachmentBlob,
+  decryptAttachmentStream,
+  LEGACY_MAX_ENVELOPE_BYTES,
   AttachmentIntegrityError,
   parseKeyVersionHeader,
   AttachmentKeyEpochError,
   type ChunkSource,
 } from '@/renderer/utils/crypto/attachmentChunkedCrypto';
 import { encryptFile } from '@/renderer/utils/crypto/attachmentCrypto';
+import { LEGACY_UPLOAD_PATH_CEILING_BYTES } from '@/renderer/utils/policy/entitlementLimits';
 
 const nonce = (fill: number) => new Uint8Array(16).fill(fill);
 
@@ -744,5 +747,165 @@ describe('parseKeyVersionHeader', () => {
     // There is no epoch 0 in the schema, and past 2^53 the parse stops being
     // exact -- an epoch that cannot be compared reliably must not select a key.
     expect(() => parseKeyVersionHeader(raw)).toThrow(AttachmentKeyEpochError);
+  });
+});
+
+/** A body delivered in uneven network-sized pieces, so chunk framing never
+ *  lines up with read boundaries. */
+const streamOf = (bytes: Uint8Array, piece = 777_777): ReadableStream<Uint8Array> => {
+  let at = 0;
+  return new ReadableStream<Uint8Array>({
+    pull(controller) {
+      if (at >= bytes.byteLength) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(bytes.slice(at, at + piece));
+      at += piece;
+    },
+  });
+};
+
+describe('decryptAttachmentStream', () => {
+  it('round-trips a multi-chunk v3 blob read in uneven pieces', async () => {
+    const key = await aesKey();
+    const pt = filled(CHUNK_PLAINTEXT_BYTES * 2 + 4321);
+    const { blob } = await sealEnvelope(key, pt, 3);
+    const out = await bytesOf(
+      await decryptAttachmentStream(streamOf(blob), blob.byteLength, key, 'video/mp4')
+    );
+    expect(out.byteLength).toBe(pt.byteLength);
+    expect(Array.from(out.slice(0, 64))).toEqual(Array.from(pt.slice(0, 64)));
+    expect(Array.from(out.slice(-64))).toEqual(Array.from(pt.slice(-64)));
+  }, 30000);
+
+  it('round-trips v2 and legacy blobs, and keeps the mime type', async () => {
+    const key = await aesKey();
+    const pt = filled(5000);
+    const { blob } = await sealEnvelope(key, pt, 2);
+    const v2 = await decryptAttachmentStream(streamOf(blob, 13), blob.byteLength, key, 'image/png');
+    expect(v2.type).toBe('image/png');
+    expect(Array.from(await bytesOf(v2))).toEqual(Array.from(pt));
+
+    const legacy = new Uint8Array(await encryptFile(pt.slice().buffer, key));
+    const out = await decryptAttachmentStream(streamOf(legacy, 5), legacy.byteLength, key, 'x/y');
+    expect(Array.from(await bytesOf(out))).toEqual(Array.from(pt));
+  });
+
+  it('refuses a legacy body declared above the single-shot ceiling before buffering it', async () => {
+    const key = await aesKey();
+    const head = new Uint8Array(ENVELOPE_HEADER_BYTES).fill(7); // not "CV": classifies legacy
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        controller.enqueue(head);
+      },
+    });
+    await expect(
+      decryptAttachmentStream(body, LEGACY_MAX_ENVELOPE_BYTES + 1, key, 'x/y')
+    ).rejects.toThrow(AttachmentIntegrityError);
+    expect(pulled).toBeLessThanOrEqual(2); // the header, never the declared gigabyte
+  });
+
+  it('fails closed when the body ends before the declared length', async () => {
+    const key = await aesKey();
+    const { blob } = await sealEnvelope(key, filled(CHUNK_PLAINTEXT_BYTES + 10), 3);
+    const short = blob.subarray(0, blob.byteLength - 100);
+    await expect(
+      decryptAttachmentStream(streamOf(short), blob.byteLength, key, 'x/y')
+    ).rejects.toThrow(AttachmentIntegrityError);
+  }, 20000);
+
+  it('fails closed on bytes past the declared end', async () => {
+    const key = await aesKey();
+    const { blob } = await sealEnvelope(key, filled(4096), 3);
+    const long = new Uint8Array(blob.byteLength + 1);
+    long.set(blob);
+    await expect(
+      decryptAttachmentStream(streamOf(long), blob.byteLength, key, 'x/y')
+    ).rejects.toThrow(AttachmentIntegrityError);
+  });
+
+  it('fails closed when the declared length is a lie', async () => {
+    const key = await aesKey();
+    const { blob } = await sealEnvelope(key, filled(4096), 3);
+    await expect(
+      decryptAttachmentStream(streamOf(blob), blob.byteLength - 1, key, 'x/y')
+    ).rejects.toThrow(AttachmentIntegrityError);
+  });
+
+  it('treats a missing length as a retryable transport failure, not tampering', async () => {
+    const key = await aesKey();
+    const { blob } = await sealEnvelope(key, filled(4096), 3);
+    const err = await decryptAttachmentStream(streamOf(blob), 0, key, 'x/y').catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(AttachmentIntegrityError);
+  });
+
+  it('rejects reordered chunks', async () => {
+    const key = await aesKey();
+    const { blob } = await sealEnvelope(key, filled(CHUNK_PLAINTEXT_BYTES * 3), 2);
+    const sealed = CHUNK_PLAINTEXT_BYTES + CHUNK_OVERHEAD_BYTES;
+    const a = ENVELOPE_HEADER_BYTES;
+    const swapped = blob.slice();
+    swapped.set(blob.subarray(a + sealed, a + 2 * sealed), a);
+    swapped.set(blob.subarray(a, a + sealed), a + sealed);
+    await expect(
+      decryptAttachmentStream(streamOf(swapped), swapped.byteLength, key, 'x/y')
+    ).rejects.toThrow(/chunk 0 of 3 failed authentication/);
+  }, 30000);
+
+  it('releases the stream on every failure, including a network error mid-body', async () => {
+    const key = await aesKey();
+    // Two full chunks, so a chunk-0 failure leaves a whole chunk unread.
+    const { blob } = await sealEnvelope(key, filled(CHUNK_PLAINTEXT_BYTES * 2 + 10), 3);
+    const tracked = (bytes: Uint8Array, failAfter?: number) => {
+      let at = 0;
+      const state = { cancelled: false };
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (failAfter !== undefined && at >= failAfter) {
+            controller.error(new TypeError('network reset'));
+            return;
+          }
+          if (at >= bytes.byteLength) return controller.close();
+          controller.enqueue(bytes.slice(at, at + 4096));
+          at += 4096;
+        },
+        cancel() {
+          state.cancelled = true;
+        },
+      });
+      return { stream, state };
+    };
+
+    // Tamper with chunk 0 so it fails while most of the body is still unread.
+    const tampered = blob.slice();
+    tampered[ENVELOPE_HEADER_BYTES + 20] ^= 1;
+    const auth = tracked(tampered);
+    await expect(decryptAttachmentStream(auth.stream, blob.byteLength, key, 'x/y')).rejects.toThrow(
+      AttachmentIntegrityError
+    );
+    expect(auth.state.cancelled).toBe(true);
+
+    const { stream } = tracked(blob, 8192);
+    const err = await decryptAttachmentStream(stream, blob.byteLength, key, 'x/y').catch((e) => e);
+    expect(err).toBeInstanceOf(TypeError);
+    expect(err).not.toBeInstanceOf(AttachmentIntegrityError);
+  }, 30000);
+
+  it('keeps the legacy envelope ceiling in step with the legacy upload ceiling', () => {
+    expect(LEGACY_MAX_ENVELOPE_BYTES).toBe(LEGACY_UPLOAD_PATH_CEILING_BYTES + CHUNK_OVERHEAD_BYTES);
+  });
+
+  it('reports an unsupported version without decrypting', async () => {
+    const key = await aesKey();
+    const { blob } = await sealEnvelope(key, filled(4096), 3);
+    const future = blob.slice();
+    future[2] = 9;
+    await expect(
+      decryptAttachmentStream(streamOf(future), future.byteLength, key, 'x/y')
+    ).rejects.toThrow(UnsupportedAttachmentFormatError);
   });
 });

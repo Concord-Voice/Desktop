@@ -1161,8 +1161,8 @@ async function tryCacheLoad(window: BrowserWindow): Promise<'cache' | null> {
  * Fallback order on a remote failure:
  *   1. signed LKG cache (#1870) — ONLY when the remote `loadURL` threw, or the
  *      decision is bundled for a TRANSIENT remote reason (config fetch failed /
- *      5xx). NOT for expected-bundled reasons (no apiBase / no spaUrl / contract
- *      zero) or an IPC-mismatch — those must not be masked by a stale cache.
+ *      5xx). NOT for expected-bundled reasons (no apiBase / non-hosted server /
+ *      no spaUrl / contract zero) or an IPC-mismatch — those must not be masked by a stale cache.
  *   2. bundled app://concord (terminal).
  *
  * On a successful remote load, fires a best-effort cache refresh (fire-and-
@@ -1241,8 +1241,8 @@ async function applySpaDecisionCarryingDeepLink(
 // config-fetch timeout (spaLoader CONFIG_TIMEOUT_MS) and no retry. A cold-start
 // network (DNS/TLS/CF edge not yet warm) loses that race and strands the client
 // on the bundled SPA for the whole session. When the bundled fallback was
-// UNEXPECTED (config fetch failed — not a logged-out / no-spaUrl / contract
-// case), retry resolveSpaSource a few seconds later, on a now-warm network, and
+// UNEXPECTED (config fetch failed — not a logged-out / non-hosted server /
+// no-spaUrl / contract case), retry resolveSpaSource a few seconds later, on a now-warm network, and
 // switch to the remote SPA if it resolves. Bounded; stops on success or once
 // the delays are exhausted. The manual "Load latest UI" button (spa:reloadLatest)
 // remains the fallback. Mirrors the WebSocket onlineFallbackTimer pattern (#1768).
@@ -1285,8 +1285,8 @@ async function loadPackagedRenderer(window: BrowserWindow, _bundledPath: string)
 
   // #830 Option C: surface a non-blocking diagnostic event if the bundled
   // fallback fired for an unexpected reason (config fetch failed, network
-  // issue, spaUrl rejected, etc.). Expected fallbacks (first launch, no
-  // spaUrl, contract zero) do NOT trigger it.
+  // issue, spaUrl rejected, etc.). Expected fallbacks (first launch, a
+  // non-hosted server, no spaUrl, contract zero) do NOT trigger it.
   // Delay 2000ms to ensure renderer listeners are registered.
   //
   // The payload carries a CLASS, not just prose (#2401). Six distinct reasons

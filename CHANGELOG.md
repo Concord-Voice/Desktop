@@ -29,7 +29,35 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
-Automatic connection recovery now respects the server's requested pause when it is overloaded.
+This release adds groundwork for verifying account keys. Nothing uses it yet.
+
+### Added
+
+- **Encryption:** Added a dormant codec and primitives for account-key authority messages, checked against the shared test vectors. Nothing uses them yet.
+- **Encryption:** Added a dormant verifier for published account-key chains, trust and statuses. It returns the same verdict as the reference for every published-chain test vector. Nothing uses it yet.
+- **Encryption:** Added a dormant verifier for the account's private device list, the device rules and device key wraps. It returns the same result as the reference for every device test vector. Nothing uses it yet.
+- **Encryption:** Added dormant code that encrypts the account keys held on this device to another of the account's devices, but only to a device the verified device list shows as active. It also chooses the only key a new secret may be encrypted to after the account's status is verified. Nothing uses it yet.
+
+### Fixed
+
+- **Profiles:** Animated GIF avatars and profile banners now stay animated when your plan allows it. The GIF uploads as it is instead of being cropped to a still.
+- **Servers:** Animated GIF server icons and banners now stay animated when the server's tier allows it.
+
+### Changed
+
+- **Servers:** The app's copy of the server boost limits now matches the server: 100 custom emoji on unboosted servers, 256 MiB and 512 MiB uploads on Mach 1 and Mach 2, and animated server icons from Mach 1.
+
+### Changed
+
+- **Chat:** Attachments up to 1 GiB now open. The app decrypts a file as it downloads, a piece at a time, instead of holding the whole download in memory first.
+
+## [0.3.1] - 2026-11-06
+
+This update closes a security gap: only the Concord Voice service can now
+update the app's interface remotely. Automatic connection recovery also
+respects the server's requested pause when it is overloaded.
+
+**8 Total Changes** | 1 Added | 3 Changed | 3 Fixed | 1 Security
 
 ### Added
 
@@ -46,6 +74,10 @@ Automatic connection recovery now respects the server's requested pause when it 
 - **Connections:** Automatic recovery waits for the server's overload retry delay, including when connectivity returns or your sign-in token refreshes.
 - **Connections:** Chat reconnects with the new session after a password change instead of remaining stuck as connected.
 - **Servers:** The invite code Copy button in Server Settings now copies the code. It used to show Copied! without copying anything.
+
+### Security
+
+- **Desktop:** Only the Concord Voice service can update the app's interface remotely. When you sign in to a self-hosted server, the app always runs the interface built into it.
 
 ## [0.3.0] - 2026-11-01
 

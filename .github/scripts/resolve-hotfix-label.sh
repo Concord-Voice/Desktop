@@ -6,8 +6,10 @@
 # logic is unit-testable without a live runner, following the precedent set by
 # classify-release.sh.
 #
-# WHY THE SHAPE CHANGED. main-ci.yml dispatches the desktop release ONLY on a
-# `risk: hotfix` merge; everything else defers to nightly-ci.yml. The old
+# WHY THE SHAPE CHANGED. main-ci.yml arms the desktop release ONLY on a
+# `risk: hotfix` merge (Release-Ops then tags v<version>); everything else
+# waits for an operator to cut the release. (nightly-ci.yml stayed in Hosted
+# when Desktop split out, so there is no nightly path here.) The old
 # implementation answered that with `GET /repos/{owner}/{repo}/commits/{sha}/pulls`
 # alone — an EVENTUALLY CONSISTENT endpoint. The commit->PR association is not
 # written atomically with the merge, and main-ci starts on the push immediately.

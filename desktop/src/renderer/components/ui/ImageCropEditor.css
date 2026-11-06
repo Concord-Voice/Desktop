@@ -77,6 +77,7 @@
 }
 
 .image-crop-hint {
+  display: block;
   font-size: calc(12px * var(--font-scale, 1));
   color: var(--text-secondary);
   margin-top: 8px;

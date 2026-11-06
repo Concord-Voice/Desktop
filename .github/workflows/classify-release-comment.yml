@@ -291,7 +291,7 @@ jobs:
             if (VERSION_ACTION === 'bumped') {
               versionBump = hotfix
                 ? `✅ bumped \`${OLD_VERSION}\`→\`${NEW_VERSION}\` → release **v${NEW_VERSION}** on merge`
-                : `✅ bumped \`${OLD_VERSION}\`→\`${NEW_VERSION}\` → release **v${NEW_VERSION}** at the next nightly`;
+                : `✅ bumped \`${OLD_VERSION}\`→\`${NEW_VERSION}\` → release **v${NEW_VERSION}** when an operator cuts it`;
             } else if (VERSION_ACTION === 'notes-needed') {
               // Deliberately does NOT ask for a version bump (#2996). What a
               // shell change OWES is the note; bumping is a separate decision
@@ -363,8 +363,8 @@ jobs:
             // The latest label state is read from the live PR immediately before
             // publishing; main-ci still makes the authoritative merge-time decision.
             const timingRow = hotfix
-              ? '`risk: hotfix` — releases on merge, bypassing the nightly (and its blocking-red gate)'
-              : 'standard — releases in the 07:00 UTC nightly consolidation run';
+              ? '`risk: hotfix` — tagged, signed and published automatically on merge'
+              : 'standard — waits for an operator to cut the release';
 
             // ── Top-line verdict (the at-a-glance answer) ──────────────────
             const needs = CONTRACT_ACTION === 'needed' || VERSION_ACTION === 'notes-needed';
@@ -382,10 +382,10 @@ jobs:
             } else if (VERSION_ACTION === 'bumped') {
               verdictTitle = hotfix
                 ? `✅ Ready — desktop release v${NEW_VERSION} on merge`
-                : `✅ Ready — desktop release v${NEW_VERSION} at the next nightly`;
+                : `✅ Ready — desktop release v${NEW_VERSION} when an operator cuts it`;
               verdictLine = hotfix
-                ? 'The `risk: hotfix` label makes `main-ci.yml` dispatch the signed build on merge.'
-                : 'Merging arms the release; `nightly-ci.yml` dispatches the signed build on its next run. Add `risk: hotfix` to cut it on merge instead.';
+                ? 'The `risk: hotfix` label makes the merge tag, build, sign and publish the release automatically.'
+                : 'Merging arms the release; an operator cuts it later. Add `risk: hotfix` to release it automatically on merge instead.';
             } else if (CONTRACT_ACTION === 'bumped') {
               verdictTitle = '✅ Ready — IPC contract bumped';
               verdictLine = 'Contract bump present; no client release needed.';

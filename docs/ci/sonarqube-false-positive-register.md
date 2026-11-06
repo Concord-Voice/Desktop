@@ -283,6 +283,10 @@ Marked `FALSE_POSITIVE` on 2026-11-06 with Mark's explicit approval, each with a
 |---|---|---|---|---|---|---|
 | 1 | 2026-11-06 | `AaGqr_YDSr9UwsDcq8hH` | `tssecurity:S5144` | `desktop/src/main/ipc/openExternal.ts:68` | Claude (#129) | `shell.openExternal` behind the sender check and protocol allowlist; no request is made. Note `tssecurity:S5144` above. |
 | 2 | 2026-11-06 | `AaGRKm8DWV1cgC4sffo2` | `typescript:S2245` | `desktop/src/renderer/hooks/messaging/useWebSocket.ts:356` | Claude (#129) | 0–2 s key-rotation jitter, a `setTimeout` delay only. Note `typescript:S2245` above. |
+| 3 | 2026-11-06 | `AaGRKm66WV1cgC4sffod` | `typescript:S1082` | `desktop/src/renderer/components/Voice/ScreenSharePicker.tsx:620` | Claude | Overlay backdrop click-to-dismiss; Escape is a document keydown handler (line 335). `S6848` sub-pattern C. |
+| 4 | 2026-11-06 | `AaGRKm7AWV1cgC4sffog` | `typescript:S1082` | `desktop/src/renderer/components/Voice/ParticipantVolumeRow.tsx:34` | Claude | Handlers only stop propagation and the default menu; the controls inside are the real targets. `S6848` sub-pattern A. |
+| 5 | 2026-11-06 | `AaGRKm7hWV1cgC4sffot` | `typescript:S1082` | `desktop/src/renderer/components/Members/UserProfileModal.tsx:151` | Claude | Overlay backdrop click-to-dismiss; Escape is a document keydown handler (line 87). `S6848` sub-pattern C. |
+| 6 | 2026-11-06 | `AaGRKm59WV1cgC4sffoJ` | `typescript:S1082` | `desktop/src/renderer/components/ui/Modal.tsx:153` | Claude | Overlay backdrop click-to-dismiss; Escape is a capture-phase document keydown handler (line 78). `S6848` sub-pattern C. |
 
 ## Recreation-recovery / drift-guard (ADR-0017 narrowed profile)
 

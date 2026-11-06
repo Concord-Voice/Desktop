@@ -33,6 +33,7 @@ import {
 } from '../../stores/chat/permissionStore';
 import { useMemberStore } from '../../stores/chat/memberStore';
 import { Permissions } from '../../utils/policy/permissions';
+import { serverEntitlementsFor } from '../../utils/policy/serverEntitlements';
 import {
   buildServerUpdateBody,
   hasUnsavedChanges,
@@ -574,6 +575,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({ serverId }) => 
           extraFields: { server_id: server.id },
           stepUpPurpose: 'media.server_icon_upload',
           onSetUpVerification: setUpVerification,
+          allowAnimated: serverEntitlementsFor(server.server_tier).allowAnimatedIcon,
         }}
       />
 
@@ -591,6 +593,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({ serverId }) => 
           extraFields: { server_id: server.id },
           stepUpPurpose: 'media.server_banner_upload',
           onSetUpVerification: setUpVerification,
+          allowAnimated: serverEntitlementsFor(server.server_tier).allowAnimatedBanner,
         }}
       />
     </form>

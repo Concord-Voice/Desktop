@@ -407,6 +407,38 @@ export default [
     },
   },
 
+  // Account-key trust decisions run in the main process only. Code that ships
+  // to the renderer or preload must not import the authority module; it asks
+  // for a verdict over IPC. tests/unit/main/authority/boundary.test.ts also
+  // resolves imports transitively.
+  {
+    files: [
+      'src/renderer/**/*.{ts,tsx}',
+      'src/preload/**/*.{ts,tsx}',
+      'src/shared/**/*.{ts,tsx}',
+      'src/constants/**/*.{ts,tsx}',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '**/main/authority',
+                '**/main/authority/**',
+                '@/main/authority',
+                '@/main/authority/**',
+              ],
+              message:
+                'The account-key authority module runs in the main process only. Ask for a verdict over IPC instead.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // Test files: relaxed rules for mocks, partial fixtures, and scaffolding imports.
   // Production-code discipline (src/) still runs at error severity for all
   // three typing rules below. Test files get different posture because:

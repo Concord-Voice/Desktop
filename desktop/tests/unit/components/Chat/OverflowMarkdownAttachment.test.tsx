@@ -356,7 +356,7 @@ describe('OverflowMarkdownAttachment', () => {
     fireEvent.click(screen.getByRole('button', { name: /expand/i }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'This file is 256.0 MB and is too large to open in this version of Concord.'
+      'This file is 1024.0 MB and is too large to open in this version of Concord.'
     );
     // Gating on the summary is the whole point: no bytes are ever requested.
     expect(handler).not.toHaveBeenCalled();

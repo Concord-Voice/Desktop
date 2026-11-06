@@ -19,9 +19,14 @@
  *
  * WHAT THIS IS NOT. It does not replace `file_type`; it OVERRIDES it only when
  * it can actually decide. `null` means "no opinion", and the caller keeps the
- * persisted value — which is why GIF is deliberately absent below: `image/gif`
- * already classifies as `animated`, and walking LZW blocks to find a second
- * frame would buy nothing.
+ * persisted value — which is why GIF is deliberately absent from
+ * `detectAnimatedImage`: `image/gif` already classifies as `animated`, and
+ * walking LZW blocks to find a second frame would buy nothing there.
+ *
+ * `isUploadableAnimatedGif` serves a different caller: the avatar, banner and
+ * server-image upload path (#1302), where it decides whether a picked GIF is
+ * sent whole to keep its animation. It answers only true or false, and fails
+ * toward false so the caller crops a still the server will accept.
  */
 
 /** Head bytes to read. A WebP decides inside 21; a PNG needs to walk chunks
@@ -86,4 +91,96 @@ export function detectAnimatedImage(head: Uint8Array, mimeType: string): boolean
   if (mime === 'image/webp') return webpAnimates(head);
   if (mime === 'image/png' || mime === 'image/apng') return pngAnimates(head);
   return null;
+}
+
+// Upload-path limits the control plane enforces before it keeps an animation
+// (services/control-plane/internal/media/processing.go: maxDecodeDim,
+// maxDecodePixels, maxGifFrames, maxGifTotalPixels). Mirrored so a GIF the
+// server would refuse is cropped to a still here instead.
+const GIF_MAX_DIM = 10_000;
+const GIF_MAX_PIXELS = 50_000_000;
+const GIF_MAX_FRAMES = 120;
+
+/** Skip a run of GIF data sub-blocks (length byte, then that many bytes, until
+ *  a zero length). Returns the offset after the terminator, or -1 if truncated. */
+function skipGifSubBlocks(b: Uint8Array, at: number): number {
+  while (at < b.length) {
+    const len = b[at];
+    at += 1 + len;
+    if (len === 0) return at;
+  }
+  return -1;
+}
+
+/** Bytes in the colour table a GIF packed-fields byte announces (bit 7 set). */
+function gifColourTableBytes(packed: number): number {
+  return (packed & 0x80) === 0 ? 0 : 3 * (2 << (packed & 0x07));
+}
+
+const u16le = (b: Uint8Array, at: number): number => b[at] | (b[at + 1] << 8);
+
+/** Offset after the extension at `at` (introducer 0x21), or -1 when it is
+ *  truncated or has a size the server refuses: a graphic control block must be
+ *  4 bytes and a plain text block 12. */
+function skipGifExtension(b: Uint8Array, at: number): number {
+  if (at + 2 >= b.length) return -1;
+  const label = b[at + 1];
+  const size = b[at + 2];
+  if ((label === 0xf9 && size !== 4) || (label === 0x01 && size !== 12)) return -1;
+  return skipGifSubBlocks(b, at + 2);
+}
+
+/** The image descriptor block at `at`: where it ends (-1 if truncated) and its area. */
+function scanGifImage(b: Uint8Array, at: number): { next: number; area: number } {
+  if (at + 10 > b.length) return { next: -1, area: 0 };
+  const area = u16le(b, at + 5) * u16le(b, at + 7);
+  const lzwAt = at + 10 + gifColourTableBytes(b[at + 9]);
+  if (lzwAt >= b.length) return { next: -1, area };
+  return { next: skipGifSubBlocks(b, lzwAt + 1), area };
+}
+
+/** The logical screen's pixel area, or 0 when `b` is not a GIF or its screen
+ *  is empty or over the server's dimension or pixel limit. */
+function gifScreenArea(b: Uint8Array): number {
+  if (b.length < 13) return 0;
+  const sig = ascii(b, 0, 6);
+  if (sig !== 'GIF87a' && sig !== 'GIF89a') return 0;
+  const w = u16le(b, 6);
+  const h = u16le(b, 8);
+  if (w > GIF_MAX_DIM || h > GIF_MAX_DIM || w * h > GIF_MAX_PIXELS) return 0;
+  return w * h;
+}
+
+/**
+ * Whether a whole GIF file is one the control plane will keep animated (#1302):
+ * well formed through its trailer, more than one frame, and within the server's
+ * screen, frame-count and pixel budgets. Anything else answers `false`, so the
+ * caller crops it to a still, which the server accepts, rather than sending a
+ * file it would refuse.
+ */
+export function isUploadableAnimatedGif(b: Uint8Array): boolean {
+  const screen = gifScreenArea(b);
+  if (screen === 0) return false;
+
+  let at = 13 + gifColourTableBytes(b[10]);
+  let frames = 0;
+  let area = 0;
+  while (at >= 0 && at < b.length) {
+    const block = b[at];
+    if (block === 0x3b) {
+      // Trailer. The server also bounds frames × screen after decoding.
+      return frames > 1 && frames * screen <= GIF_MAX_PIXELS;
+    }
+    if (block === 0x21) {
+      at = skipGifExtension(b, at);
+    } else if (block === 0x2c) {
+      const image = scanGifImage(b, at);
+      at = image.next; // a truncated frame is malformed, not animated
+      area += image.area;
+      if (++frames > GIF_MAX_FRAMES || area > GIF_MAX_PIXELS) return false;
+    } else {
+      return false;
+    }
+  }
+  return false; // truncated, or no trailer
 }

@@ -49,7 +49,7 @@ vi.mock('@/renderer/utils/crypto/attachmentChunkedCrypto', async () => {
   >('@/renderer/utils/crypto/attachmentChunkedCrypto');
   return {
     ...actual,
-    decryptAttachmentBlob: (_bytes: Uint8Array, _key: unknown, mime: string) =>
+    decryptAttachmentStream: (_body: unknown, _len: number, _key: unknown, mime: string) =>
       Promise.resolve(new Blob([new Uint8Array(16)], { type: mime })),
   };
 });
@@ -72,7 +72,7 @@ function installImmediateIO() {
 function mockFetchSuccess(mimeType: string) {
   mockApiFetch.mockResolvedValue({
     ok: true,
-    arrayBuffer: () => Promise.resolve(new ArrayBuffer(16)),
+    body: new ReadableStream<Uint8Array>(),
     headers: new Headers({ 'X-File-Mime-Type': mimeType }),
   });
 }

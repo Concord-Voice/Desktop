@@ -25,14 +25,14 @@ describe('attachment limit constants', () => {
     // Was PREMIUM + 4096, with a comment claiming the 4096 mirrored the server's
     // multipart-header allowance. That derivation is wrong for this format: the
     // guard must admit a maximum-size v3 blob, whose overhead is the 28-byte
-    // header plus 28 bytes for each of its 33 chunks.
-    expect(MAX_DECRYPTABLE_ATTACHMENT_BYTES).toBe(268_435_456 + 28 + 28 * 33);
-    expect(MAX_DECRYPTABLE_ATTACHMENT_BYTES).toBe(268_436_408);
+    // header plus 28 bytes for each of its 129 chunks (1 GiB streaming ceiling).
+    expect(MAX_DECRYPTABLE_ATTACHMENT_BYTES).toBe(1_073_741_824 + 28 + 28 * 129);
+    expect(MAX_DECRYPTABLE_ATTACHMENT_BYTES).toBe(1_073_745_464);
   });
 
   it('still admits a maximum-size LEGACY blob', () => {
     // Existing attachments are [IV:12][ct+tag:16] = plaintext + 28.
-    expect(MAX_DECRYPTABLE_ATTACHMENT_BYTES).toBeGreaterThanOrEqual(268_435_456 + 28);
+    expect(MAX_DECRYPTABLE_ATTACHMENT_BYTES).toBeGreaterThanOrEqual(1_073_741_824 + 28);
   });
 
   // The invariant that makes PR 1 forward-compatible with PR 2's larger files.
@@ -275,23 +275,35 @@ describe('the desktop never offers an upload it cannot open', () => {
   // The chunked path is what makes 512 MiB reachable, which is why it is this
   // change's job to hold the invariant the constant already claims.
   const MACH3_SERVER_BYTES = 536_870_912; // 512 MiB
+  const OVERSIZE_GRANT_BYTES = 2_147_483_648; // 2 GiB, above the streaming ceiling
 
-  it('clamps a 512 MiB server grant to what this build can decrypt', () => {
+  it('clamps a server grant above 1 GiB to what this build can decrypt', () => {
+    const limit = resolveAttachmentLimit({
+      tier: 'premium',
+      userMaxAttachmentBytes: PREMIUM_ATTACHMENT_BYTES,
+      serverMaxUploadBytes: OVERSIZE_GRANT_BYTES,
+      chunkedUploadSupported: true,
+    });
+
+    expect(limit.limitBytes).toBe(MAX_DECRYPTABLE_ATTACHMENT_BYTES);
+    expect(limit.limitBytes).toBeLessThan(OVERSIZE_GRANT_BYTES);
+    // The REASON has to survive, not just the number: the notice tells the user
+    // it is this build refusing, not their plan and not the server.
+    expect(limit.source).toBe('decryptable-ceiling');
+    // The entitlement is still reported honestly — the clamp does not rewrite
+    // what the user is entitled to, only what this client will attempt.
+    expect(limit.entitlementBytes).toBe(OVERSIZE_GRANT_BYTES);
+  });
+
+  it('a 512 MiB Mach 3 grant is no longer clamped now that downloads stream', () => {
     const limit = resolveAttachmentLimit({
       tier: 'premium',
       userMaxAttachmentBytes: PREMIUM_ATTACHMENT_BYTES,
       serverMaxUploadBytes: MACH3_SERVER_BYTES,
       chunkedUploadSupported: true,
     });
-
-    expect(limit.limitBytes).toBe(MAX_DECRYPTABLE_ATTACHMENT_BYTES);
-    expect(limit.limitBytes).toBeLessThan(MACH3_SERVER_BYTES);
-    // The REASON has to survive, not just the number: the notice tells the user
-    // it is this build refusing, not their plan and not the server.
-    expect(limit.source).toBe('decryptable-ceiling');
-    // The entitlement is still reported honestly — the clamp does not rewrite
-    // what the user is entitled to, only what this client will attempt.
-    expect(limit.entitlementBytes).toBe(MACH3_SERVER_BYTES);
+    expect(limit.limitBytes).toBe(MACH3_SERVER_BYTES);
+    expect(limit.source).toBe('entitlement');
   });
 
   it('POSITIVE CONTROL: a 256 MiB grant is NOT clamped', () => {
