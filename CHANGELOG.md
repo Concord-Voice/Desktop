@@ -29,7 +29,9 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
-Automatic connection recovery now respects the server's requested pause when it is overloaded.
+## [0.3.1] - 2026-11-06
+
+This update closes a security gap: only the Concord Voice service can now update the app's interface remotely. Automatic connection recovery also respects the server's requested pause when it is overloaded.
 
 ### Added
 
