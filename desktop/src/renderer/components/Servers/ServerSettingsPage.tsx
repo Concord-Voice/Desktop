@@ -575,6 +575,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({ serverId }) => 
           extraFields: { server_id: server.id },
           stepUpPurpose: 'media.server_icon_upload',
           onSetUpVerification: setUpVerification,
+          allowAnimated: serverEntitlementsFor(server.server_tier).allowAnimatedIcon,
         }}
       />
 
