@@ -394,7 +394,7 @@ describe('FeedbackModal', () => {
   });
 
   describe('Known Issues notice', () => {
-    const KNOWN_ISSUES_URL = 'https://github.com/Concord-Voice/Concord-Voice/issues/39';
+    const KNOWN_ISSUES_URL = 'https://github.com/Concord-Voice/Feedback/issues/39';
 
     it('renders a link to the public Known Issues tracker', () => {
       render(<FeedbackModal isOpen={true} onClose={vi.fn()} />);
