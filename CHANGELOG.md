@@ -35,6 +35,7 @@ This release adds groundwork for verifying account keys. Nothing uses it yet.
 
 - **Encryption:** Added a dormant codec and primitives for account-key authority messages, checked against the shared test vectors. Nothing uses them yet.
 - **Encryption:** Added a dormant verifier for published account-key chains, trust and statuses. It returns the same verdict as the reference for every published-chain test vector. Nothing uses it yet.
+- **Encryption:** Added a dormant verifier for this device's private device list, the device rules and device key wraps. It returns the same result as the reference for every device test vector. Nothing uses it yet.
 
 ## [0.3.1] - 2026-11-06
 

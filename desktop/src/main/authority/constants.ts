@@ -22,3 +22,6 @@ export function addMs(...xs: number[]): number | null {
 /** a + b < c over u values, exact above 2^53 (no rounded sum is compared). */
 export const sumBelow = (a: number, b: number, c: number): boolean =>
   BigInt(a) + BigInt(b) < BigInt(c);
+
+export const MAX_DEVICES = 10;
+export const RECOVERY_REPLACE_MS = 2_592_000_000;

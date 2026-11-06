@@ -332,9 +332,43 @@ async function pre(t: Trust, pb: ParsedBundle, pp: Pub, d: Delegation): Promise<
   return r2 === 'ok' ? independentSigs(t, pb) : r2;
 }
 
+/** A head's active and pending EK: the part of a head the device ledger reads. */
+export interface EkSlots {
+  active: Uint8Array;
+  pending: Uint8Array;
+  activeGen: number;
+  pendingGen: number;
+}
+
+export const slotsOf = (h: ChainHead): EkSlots => ({
+  active: h.active_ek_spki,
+  pending: h.pending_ek_spki,
+  activeGen: h.active_ek_generation,
+  pendingGen: h.pending_ek_generation,
+});
+
+/**
+ * One verified result, kept for the device ledger: the §2.9 row it matched,
+ * the hypothesis it matched under (from, act) and the after-head's EK slots.
+ * It keeps no head: a chain keeps every step (CWE-400).
+ */
+export interface ChainStep {
+  row: number;
+  res: Result;
+  pb: ParsedBundle;
+  from: Pub;
+  act: boolean;
+  ek: EkSlots;
+}
+
+interface Moved {
+  head: ChainHead;
+  step: ChainStep;
+}
+
 /**
  * R3 under R4: every hypothesis the fix leaves standing is matched, and
- * exactly one must match. Returns the head after the step.
+ * exactly one must match. Returns the head after the step and the step.
  */
 async function pickHypothesis(
   t: Trust,
@@ -342,7 +376,7 @@ async function pickHypothesis(
   pp: Pub,
   pb: ParsedBundle,
   del: Delegation
-): Promise<ChainHead | Reason> {
+): Promise<Moved | Reason> {
   const fix = await fixStatus(prev.fix);
   if (fix === 'malformed') return 'malformed';
   let prevRes: Result | null = null;
@@ -379,14 +413,15 @@ async function pickHypothesis(
   }
   const [i, r] = pickMatch(rs);
   const c = cs[i];
-  if (r !== 'ok' || !c) return r === 'ok' ? 'malformed' : r;
+  if (r !== 'ok' || !c?.row) return r === 'ok' ? 'malformed' : r;
   if (bad[i]) return 'malformed';
   const { head: after, undo } = await appendResult(c.head, pb, await segmentOf(c.head, c.f.root));
   if (!headFits(after)) {
     undo(); // the next signing delegation retries from the same prev
     return 'malformed'; // E3-08: never produce a head parse refuses
   }
-  return after;
+  const step = { row: c.row.n, res: pb.res, pb, from: c.f, act: c.act, ek: slotsOf(after) };
+  return { head: after, step };
 }
 
 /**
@@ -400,13 +435,13 @@ async function underSigningDelegation(
   prev: ChainHead,
   pp: Pub,
   pb: ParsedBundle
-): Promise<ChainHead | Reason> {
+): Promise<Moved | Reason> {
   let first: Reason | null = null;
   const res = pb.res;
   for (const d of t.delegations(res.delegation_gen, res.delegation_serial)) {
     if ((await rskRule(d, pb.resBytes, pb.raw.result_sig, res.issued_at_ms, res.op)) !== 'ok')
       continue;
-    let r: ChainHead | Reason = await pre(t, pb, pp, d);
+    let r: Moved | Reason = await pre(t, pb, pp, d);
     if (r === 'ok') r = await pickHypothesis(t, prev, pp, pb, d);
     if (typeof r !== 'string') return r;
     first ??= r;
@@ -415,7 +450,7 @@ async function underSigningDelegation(
 }
 
 interface Step {
-  after: ChainHead | null;
+  moved: Moved | null;
   superseded: boolean;
   reason: Reason;
 }
@@ -428,7 +463,7 @@ async function verifyBundleStep(
   raw: Uint8Array,
   seq0Pin: Uint8Array
 ): Promise<Step> {
-  const fail = (reason: Reason): Step => ({ after: null, superseded: false, reason });
+  const fail = (reason: Reason): Step => ({ moved: null, superseded: false, reason });
   const pb = await parseBundle(raw);
   if (!pb) return fail('malformed');
   const [pp0, hr] = await headPub(prev);
@@ -441,9 +476,9 @@ async function verifyBundleStep(
   const res = pb.res;
   const [sup, r7] = await checkT7(t, hw, res, pb.resBytes, pb.raw.result_sig);
   if (r7 !== 'ok') return fail(r7);
-  const after = await underSigningDelegation(t, prev, pp, pb);
-  if (typeof after === 'string') return fail(after);
-  return { after, superseded: sup, reason: 'ok' };
+  const moved = await underSigningDelegation(t, prev, pp, pb);
+  if (typeof moved === 'string') return fail(moved);
+  return { moved, superseded: sup, reason: 'ok' };
 }
 
 /**
@@ -508,9 +543,9 @@ export async function verifyBundle(
       if (!(await keepsFix(prev.fix, a.st, a.hp))) input = { ...input, fix: fix.slice() };
     }
     const st = await verifyBundleStep(t, hw, input, bundle, NONE);
-    if (st.reason !== 'ok' || !st.after) return { head: prev, reason: st.reason };
+    if (st.reason !== 'ok' || !st.moved) return { head: prev, reason: st.reason };
     if (st.superseded) return { head: prev, reason: 'superseded_uncovered' };
-    return { head: st.after, reason: 'ok' };
+    return { head: st.moved.head, reason: 'ok' };
   } catch {
     return { head: prev, reason: 'malformed' };
   }
@@ -531,7 +566,7 @@ export interface ChainOutcome {
 }
 
 /** The verdicts of a status that verified: the chain they describe may be persisted. */
-const STATE_REASONS: ReadonlySet<Reason> = new Set<Reason>([
+export const STATE_REASONS: ReadonlySet<Reason> = new Set<Reason>([
   'ok',
   'ok_accepted_pin',
   'suspended',
@@ -549,6 +584,62 @@ const STATE_REASONS: ReadonlySet<Reason> = new Set<Reason>([
   'absent_after_cutover',
   'absent_after_enrolled',
 ]);
+
+/** verifyChain's outcome plus every verified step, for the device ledger. */
+export interface ChainSteps extends ChainOutcome {
+  steps: ChainStep[];
+}
+
+/**
+ * verifyChain with its steps (verifyChainSteps in the reference): the status's
+ * T6 first, then every bundle, then head equality, R5, freshness and the state
+ * verdict. On any Reason outside the state verdicts it returns `from` and no
+ * step. The caller catches a throw.
+ */
+export async function verifyChainSteps(
+  t: Trust,
+  hw: HighWater,
+  from: ChainHead,
+  input: ChainInput,
+  mem: AccountMemory,
+  nowMs: number,
+  use: Use
+): Promise<ChainSteps> {
+  const fail = (reason: Reason): ChainSteps => ({
+    head: from,
+    status: refused(reason),
+    hw,
+    reason,
+    steps: [],
+  });
+  const halt = t.haltReason();
+  if (halt !== 'ok') return fail(halt);
+  if (!validNow(nowMs)) return fail('malformed');
+  const [seen, , sr] = await signedStatus(t, hw, input.status);
+  if (!seen || sr !== 'ok') return fail(sr);
+  // chainSeq0Pin: AccountMemory's first-sight pin, or the pin of the status seen for the first time.
+  const seq0Pin =
+    input.bundles.length === 0 || from.head_result.length !== 0 || mem.pin.length > 0
+      ? mem.pin
+      : seen.legacy_ek_digest;
+  if (!canonicalHead(from)) return fail('malformed');
+  let head = ownedHead(from); // the steps extend its seq_index in place; `from` is never written
+  let superseded = false;
+  const steps: ChainStep[] = [];
+  for (const b of input.bundles) {
+    const st = await verifyBundleStep(t, hw, head, b, seq0Pin);
+    if (st.reason !== 'ok' || !st.moved) return fail(st.reason);
+    superseded ||= st.superseded;
+    head = st.moved.head;
+    steps.push(st.moved.step);
+  }
+  const [vs, hw2] = await verifyStatusAt(t, hw, head, input.status, mem, nowMs, use);
+  if (!STATE_REASONS.has(vs.reason) || !vs.status) return fail(vs.reason);
+  if (superseded && nowMs > vs.status.valid_until_ms) return fail('superseded_uncovered'); // T7
+  head = await retainFix(head, input.status, vs.status);
+  if (chainHeadBytes(head) === null) return fail('malformed');
+  return { head, status: vs, hw: hw2, reason: vs.reason, steps };
+}
 
 /**
  * Verifies input.bundles from `from`, then input.status naming the resulting
@@ -573,31 +664,13 @@ export async function verifyChain(
     reason,
   });
   try {
-    const halt = t.haltReason();
-    if (halt !== 'ok') return fail(halt);
-    if (!validNow(nowMs)) return fail('malformed');
-    const [seen, , sr] = await signedStatus(t, hw, input.status);
-    if (!seen || sr !== 'ok') return fail(sr);
-    // chainSeq0Pin: AccountMemory's first-sight pin, or the pin of the status seen for the first time.
-    const seq0Pin =
-      input.bundles.length === 0 || from.head_result.length !== 0 || mem.pin.length > 0
-        ? mem.pin
-        : seen.legacy_ek_digest;
-    if (!canonicalHead(from)) return fail('malformed');
-    let head = ownedHead(from); // the steps extend its seq_index in place; `from` is never written
-    let superseded = false;
-    for (const b of input.bundles) {
-      const st = await verifyBundleStep(t, hw, head, b, seq0Pin);
-      if (st.reason !== 'ok' || !st.after) return fail(st.reason);
-      superseded ||= st.superseded;
-      head = st.after;
-    }
-    const [vs, hw2] = await verifyStatusAt(t, hw, head, input.status, mem, nowMs, use);
-    if (!STATE_REASONS.has(vs.reason) || !vs.status) return fail(vs.reason);
-    if (superseded && nowMs > vs.status.valid_until_ms) return fail('superseded_uncovered'); // T7
-    head = await retainFix(head, input.status, vs.status);
-    if (chainHeadBytes(head) === null) return fail('malformed');
-    return { head, status: vs, hw: hw2, reason: vs.reason };
+    const {
+      head,
+      status,
+      hw: hw2,
+      reason,
+    } = await verifyChainSteps(t, hw, from, input, mem, nowMs, use);
+    return { head, status, hw: hw2, reason };
   } catch {
     return fail('malformed');
   }

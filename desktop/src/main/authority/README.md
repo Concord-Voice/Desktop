@@ -8,11 +8,12 @@ signed binary. The renderer is hot-updated, so it must never import this
 module, hold the realm anchors, or decide account-key trust. It asks for a
 verdict over one IPC channel instead, which the first caller PR adds (with
 sender validation and an `IPC_CONTRACT_VERSION` bump). The key-pin store lives
-here too. The verifier only handles public data (signatures, public keys,
-anchors, digests), so it can later move into a dedicated crypto process
-without changing that channel. The codec can also decode `device-secrets`,
-which holds private keys; no verifier path does, and where private key
-material is handled is decided separately.
+here too. The chain and ledger verifiers only handle public data
+(signatures, public keys, anchors, digests), so they can later move into a
+dedicated crypto process without changing that channel. `verifyDeviceWrap` is
+the exception: it takes this device's ECDH private key and returns the
+device's private keys. Where that key material lives is decided by the PR that
+first calls it.
 
 | File | Ports | Design of record |
 |---|---|---|
@@ -27,6 +28,9 @@ material is handled is decided separately.
 | `heads.ts`, `headmove.ts` | the persisted chain-head and how a verified result moves it | §2.12 |
 | `bindproof.ts`, `restore.ts`, `patterns.ts` | rows 20–22 checks; recovery-bind and relay-recover patterns | §2.9, §2.22 |
 | `chain.ts`, `status.ts` | `verifyBundle`, `verifyChain`, `verifyStatus` | §2.12, §2.13 |
+| `devicerules.ts` | D-270 device rules DR1–DR9 (`applyDeviceOp`, `normalizeDeviceSet`) | §2.12, §2.22 |
+| `ledger.ts` | the private device ledger (`verifyDeviceLedger`, `DeviceView`) | §2.12 |
+| `wrap.ts` | opening a device wrap and its device-secrets checks 1–4 | §2.5 |
 
 The codec and primitives port `scripts/authority-vectors/gen.mjs` §1–3 in
 Concord-Voice/Self-Hosted; the verifier ports the Go reference in
@@ -39,7 +43,9 @@ Entry points: `encode`, `decode`, `capOf` and `LAYOUTS` (codec); `sha384`,
 `deviceId`, `parseDev`, `safetyNumber` and `tlsPin` (primitives); `newTrust`
 and `Trust` (trust); `parseChainHead`, `chainHeadBytes` and `genesisHead`
 (heads); `verifyBundle` and `verifyChain` (chain); `verifyStatus` (status);
-`verdictOf` and `noticeOf` (reason).
+`parseDeviceHead` and `deviceHeadBytes` (heads); `applyDeviceOp` and
+`normalizeDeviceSet` (devicerules); `verifyDeviceLedger` (ledger);
+`verifyDeviceWrap` (wrap); `verdictOf` and `noticeOf` (reason).
 
 **Rules for callers:**
 
@@ -68,23 +74,32 @@ and `Trust` (trust); `parseChainHead`, `chainHeadBytes` and `genesisHead`
   hold on every call.
 - After an `ok` verdict on an account with no first-sight pin, store
   `VerifiedStatus.pin` as that pin (D-149).
+- Pass `verifyDeviceLedger` only a device head from `parseDeviceHead` or an
+  earlier ledger verification, and `verifyDeviceWrap` only the device head that
+  `verifyDeviceLedger` returned. Persist both heads the ledger returns together.
+- `verifyDeviceWrap` zeroes every copy of key material it makes. The secrets it
+  returns on `ok` are the caller's to zero after use.
 
-**Verified now:** the published chain. The parity test checks the port's Reason
+**Verified now:** the published chain and the private device ledger. The parity test checks the port's Reason
 and verdict against every `chain` (92), `bundle-verify` (145) and `pattern` (7)
 vector. It also checks the persisted head for the 44 vectors that carry one. For
 `for-op` (123) it checks the refusal code and its reason context, as the
 reference harness does. For `p1` (2) it checks that the published status is
 unchanged.
 
-**Pending (later PRs):** the private device ledger, device rules and device
-wraps. Their vector types (`device-ledger`, `device-wrap-open`,
-`apply-device-op`, `normalize`) are checked at the codec layer only. Also
-pending: R6's wrap target (`WrapKey`), verified-recipient handles, pin-store
-persistence and the distribution gate.
+It also checks the private device ledger: the Reason and both persisted heads
+for every `device-ledger` vector (48), the refusal and resulting set for every
+`apply-device-op` vector (103), the set for every `normalize` vector (35), and
+the Reason and use for every `device-wrap-open` vector (20).
+
+**Pending (later PRs):** sealing a device wrap (`SealDeviceWrap`), R6's wrap
+target (`WrapKey`), verified-recipient handles, pin-store persistence, the
+anchors, IPC and the distribution gate.
 
 **Not ported:** `Floor` and `DeriveAssurance`, which only the authority
-evaluates (§2.8, §2.12). The authority-only columns of the §2.9 table are also
-not ported.
+evaluates (§2.8, §2.12). The authority-only columns of the §2.9 table,
+`AuthenticateDeviceBundle`, `BindTier` and the authority's device timing
+helpers (`VisibleInstant`, `CompletionFirst`) are also not ported.
 
 **Cost:** a step does not re-encode the head to check `HEAD_BLOB_MAX`. As in
 the reference, every index edit records the bytes it adds (`headFits` in

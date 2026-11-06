@@ -44,6 +44,10 @@ const RSK_ORDER: readonly Reason[] = Object.freeze([
   'ok',
 ] as const);
 
+/** An RSK of d (at most MAX_RSKS tried, LD-2) signed msg. */
+export const rskVerifies = (d: Delegation, msg: Uint8Array, sig: Uint8Array): Promise<boolean> =>
+  anyVerifies(d.rsk_public_keys.slice(0, MAX_RSKS), msg, sig);
+
 /** T6/T7's per-delegation part: an RSK of d (at most MAX_RSKS tried) signed msg, d covers x, scope ∈ d.scope. */
 export async function rskRule(
   d: Delegation,
@@ -52,7 +56,7 @@ export async function rskRule(
   x: number,
   scope: string
 ): Promise<Reason> {
-  if (!(await anyVerifies(d.rsk_public_keys.slice(0, MAX_RSKS), msg, sig))) return 'bad_signature';
+  if (!(await rskVerifies(d, msg, sig))) return 'bad_signature';
   if (!covers(d, x)) return 'delegation_window';
   if (!d.scope.includes(scope)) return 'out_of_scope';
   return 'ok';

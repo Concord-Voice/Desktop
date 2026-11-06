@@ -1,4 +1,4 @@
-// Typed views of the PR 1 codec layouts the published-chain verifier reads
+// Typed views of the codec layouts the chain and device-ledger verifiers read
 // (design of record §2.5, §2.6, §2.12). Field names are the layout position
 // names, so a value decodes and re-encodes through the codec unchanged.
 
@@ -216,6 +216,110 @@ export interface ChainHead {
   recover_index: string[];
 }
 
+export interface DeviceSet {
+  realm_id: string;
+  account_id: string;
+  active: string[];
+  pending: string;
+  recovery_key: Bytes;
+  recovery_bind_digest: Bytes;
+  replacement_key: Bytes;
+  replacement_bind_digest: Bytes;
+  replacement_nb_ms: number;
+}
+
+export interface DeviceIntent {
+  realm_id: string;
+  account_id: string;
+  request_id: string;
+  op: string;
+  salt: Bytes;
+  expires_at_ms: number;
+  expected_seq: number;
+  expected_head_digest: Bytes;
+  expected_dseq: number;
+  expected_device_head: Bytes;
+  actor_device_id: string;
+  new_device_id: string;
+  new_device_dsk: Bytes;
+  new_device_dkx: Bytes;
+  removed_device_ids: string[];
+  recovery_bind_digest: Bytes;
+  bind_wait: string;
+}
+
+export interface DeviceResult {
+  realm_id: string;
+  account_id: string;
+  request_id: string;
+  device_intent_digest: Bytes;
+  cp_authz_digest: Bytes;
+  op: string;
+  dseq: number;
+  prev_device_entry_digest: Bytes;
+  chain_seq: number;
+  chain_entry_digest: Bytes;
+  device_set_digest: Bytes;
+  issued_at_ms: number;
+  delegation_gen: number;
+  delegation_serial: number;
+}
+
+export interface DeviceStatus {
+  realm_id: string;
+  account_id: string;
+  chain_seq: number;
+  chain_head_digest: Bytes;
+  dseq: number;
+  device_head_digest: Bytes;
+  device_set_digest: Bytes;
+  as_of_ms: number;
+  valid_until_ms: number;
+  delegation_gen: number;
+  delegation_serial: number;
+}
+
+export interface DeviceBundle {
+  device_intent: Bytes;
+  sig_root: Bytes;
+  sig_actor: Bytes;
+  sig_new_device: Bytes;
+  recovery_bind: Bytes;
+  sig_recovery: Bytes;
+  sig_recovery_prior: Bytes;
+  cp_authz: Bytes;
+  cp_authz_sig: Bytes;
+  device_result: Bytes;
+  device_result_sig: Bytes;
+}
+
+export interface DeviceWrap {
+  realm_id: string;
+  account_id: string;
+  recipient_device_id: string;
+  device_entry_digest: Bytes;
+  epk: Bytes;
+  nonce: Bytes;
+  ct: Bytes;
+}
+
+export interface DeviceSecrets {
+  root_pkcs8: Bytes;
+  ek_pkcs8: Bytes;
+}
+
+/** The `device-head` layout; chain_head_digest pairs it with its chain-head (D-269). */
+export interface DeviceHeadWire {
+  realm_id: string;
+  account_id: string;
+  self_device_id: string;
+  last_device_result: Bytes;
+  device_set: Bytes;
+  chain_head_digest: Bytes;
+  admitted_by: string[];
+  secrets: string[];
+}
+
 interface Layouts {
   intent: Intent;
   sig: Sig;
@@ -233,6 +337,14 @@ interface Layouts {
   'recovery-bind': RecoveryBind;
   'relay-recover': RelayRecover;
   'chain-head': ChainHead;
+  'device-set': DeviceSet;
+  'device-intent': DeviceIntent;
+  'device-result': DeviceResult;
+  'device-status': DeviceStatus;
+  'device-bundle': DeviceBundle;
+  'device-wrap': DeviceWrap;
+  'device-secrets': DeviceSecrets;
+  'device-head': DeviceHeadWire;
 }
 
 /** EN5 decode as a typed view; null for any refusal (the caller's `malformed`). */
