@@ -87,3 +87,48 @@ export function detectAnimatedImage(head: Uint8Array, mimeType: string): boolean
   if (mime === 'image/png' || mime === 'image/apng') return pngAnimates(head);
   return null;
 }
+
+/** Skip a run of GIF data sub-blocks (length byte, then that many bytes, until
+ *  a zero length). Returns the offset after the terminator, or -1 if truncated. */
+function skipGifSubBlocks(b: Uint8Array, at: number): number {
+  while (at < b.length) {
+    const len = b[at];
+    at += 1 + len;
+    if (len === 0) return at;
+  }
+  return -1;
+}
+
+/**
+ * Whether a whole GIF file holds more than one frame — the same test the
+ * control plane uses to decide an upload animates (#1302). A file that is not
+ * a GIF, is truncated, or is malformed answers `false`: the caller then crops
+ * it to a still, which is what it did before animation was possible.
+ */
+export function gifHasMultipleFrames(b: Uint8Array): boolean {
+  if (b.length < 13) return false;
+  const sig = ascii(b, 0, 6);
+  if (sig !== 'GIF87a' && sig !== 'GIF89a') return false;
+  // Logical screen descriptor: a global colour table follows when bit 7 is set.
+  let at = 13 + ((b[10] & 0x80) === 0 ? 0 : 3 * (2 << (b[10] & 0x07)));
+  let frames = 0;
+  while (at < b.length) {
+    const block = b[at];
+    if (block === 0x3b) return false; // trailer
+    if (block === 0x21) {
+      // Extension: introducer, label, then sub-blocks.
+      at = skipGifSubBlocks(b, at + 2);
+    } else if (block === 0x2c) {
+      if (++frames > 1) return true;
+      if (at + 10 > b.length) return false;
+      const packed = b[at + 9];
+      at += 10 + ((packed & 0x80) === 0 ? 0 : 3 * (2 << (packed & 0x07)));
+      // LZW minimum code size, then the image data sub-blocks.
+      at = skipGifSubBlocks(b, at + 1);
+    } else {
+      return false;
+    }
+    if (at < 0) return false;
+  }
+  return false;
+}

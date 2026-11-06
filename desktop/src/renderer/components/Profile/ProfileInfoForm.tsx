@@ -65,6 +65,7 @@ const ProfileInfoForm: React.FC = () => {
   const usernameChangeIntervalMonths = useEntitlement((e) => e.usernameChangeIntervalMonths);
   const legacyUsernameIntervalSeconds = useEntitlement((e) => e.usernameChangeIntervalSeconds);
   const entitlementHydrated = useSubscriptionStore((s) => s.hydrated);
+  const allowAnimatedProfile = useSubscriptionStore((s) => s.entitlement.allowAnimatedProfile);
   const maxAvatarBytes = useEntitlement((e) => e.maxAvatarBytes);
   const maxBannerBytes = useEntitlement((e) => e.maxBannerBytes);
   // L9: a non-modal inline upsell banner for an over-limit avatar/banner pick.
@@ -733,7 +734,7 @@ const ProfileInfoForm: React.FC = () => {
         title="Crop Avatar"
         cropShape={{ type: 'circle' }}
         output={{ width: 512, height: 512, quality: 0.9 }}
-        upload={{ endpoint: '/api/v1/media/upload/avatar' }}
+        upload={{ endpoint: '/api/v1/media/upload/avatar', allowAnimated: allowAnimatedProfile }}
       />
 
       {/* Banner Crop Editor */}
@@ -745,7 +746,7 @@ const ProfileInfoForm: React.FC = () => {
         title="Crop Banner"
         cropShape={{ type: 'rectangle' }}
         output={{ width: 1200, height: 240, quality: 0.9 }}
-        upload={{ endpoint: '/api/v1/media/upload/banner' }}
+        upload={{ endpoint: '/api/v1/media/upload/banner', allowAnimated: allowAnimatedProfile }}
       />
     </form>
   );

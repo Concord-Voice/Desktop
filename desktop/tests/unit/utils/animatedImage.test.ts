@@ -1,7 +1,11 @@
 // Byte-level detection of animated WebP / APNG (#2369, PR #3291).
 // Fixtures are built from the real container layouts, not from mocks — the
 // whole point of this module is that it reads actual bytes correctly.
-import { detectAnimatedImage, ANIMATION_SNIFF_BYTES } from '@/renderer/utils/ui/animatedImage';
+import {
+  detectAnimatedImage,
+  gifHasMultipleFrames,
+  ANIMATION_SNIFF_BYTES,
+} from '@/renderer/utils/ui/animatedImage';
 
 function bytes(...parts: (number[] | string)[]): Uint8Array {
   const flat: number[] = [];
@@ -153,5 +157,41 @@ describe('detectAnimatedImage', () => {
 
   it('the sniff window is large enough for a PNG carrying an embedded colour profile', () => {
     expect(ANIMATION_SNIFF_BYTES).toBeGreaterThanOrEqual(64 * 1024);
+  });
+});
+
+describe('gifHasMultipleFrames', () => {
+  // 1×1 GIF89a with a 2-colour global table.
+  const header = bytes('GIF89a', [1, 0, 1, 0, 0x80, 0, 0], [0, 0, 0, 255, 255, 255]);
+  const loop = bytes([0x21, 0xff, 0x0b], 'NETSCAPE2.0', [3, 1, 0, 0, 0]);
+  const gce = bytes([0x21, 0xf9, 4, 0, 10, 0, 0, 0]);
+  // Image descriptor, then LZW min code size and one data sub-block.
+  const frame = bytes([0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0], [2, 2, 0x4c, 0x01, 0]);
+  // A frame with a 2-colour local table (packed bit 7).
+  const framelct = bytes(
+    [0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0x80],
+    [1, 2, 3, 4, 5, 6],
+    [2, 2, 0x4c, 0x01, 0]
+  );
+  const gif = (...parts: Uint8Array[]): Uint8Array =>
+    bytes(...parts.map((p) => Array.from(p)), [0x3b]);
+
+  it('says yes for two frames', () => {
+    expect(gifHasMultipleFrames(gif(header, loop, gce, frame, gce, frame))).toBe(true);
+  });
+
+  it('walks local colour tables', () => {
+    expect(gifHasMultipleFrames(gif(header, framelct, gce, framelct))).toBe(true);
+  });
+
+  it('says no for one frame, even with a loop extension', () => {
+    expect(gifHasMultipleFrames(gif(header, loop, gce, frame))).toBe(false);
+  });
+
+  it('says no for non-GIF, truncated or malformed bytes', () => {
+    expect(gifHasMultipleFrames(bytes('PNG'))).toBe(false);
+    const two = gif(header, frame, frame);
+    expect(gifHasMultipleFrames(two.subarray(0, two.length - frame.length - 2))).toBe(false);
+    expect(gifHasMultipleFrames(gif(header, bytes([0x99]), frame, frame))).toBe(false);
   });
 });

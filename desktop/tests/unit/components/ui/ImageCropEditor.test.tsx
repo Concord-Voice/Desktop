@@ -209,6 +209,94 @@ describe('ImageCropEditor', () => {
     global.Image = originalImage;
   });
 
+  describe('animated GIF (#1302)', () => {
+    // A 1×1 two-frame GIF89a, and the same with one frame.
+    const frame = [0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0, 2, 2, 0x4c, 0x01, 0];
+    const gifBytes = (frames: number): Uint8Array =>
+      new Uint8Array([
+        ...Array.from('GIF89a', (c) => c.charCodeAt(0)),
+        1,
+        0,
+        1,
+        0,
+        0x80,
+        0,
+        0,
+        0,
+        0,
+        0,
+        255,
+        255,
+        255,
+        ...Array.from({ length: frames }, () => frame).flat(),
+        0x3b,
+      ]);
+    const gifFile = (frames: number): File =>
+      new File([gifBytes(frames)], 'party.gif', { type: 'image/gif' });
+
+    let originalImage: typeof Image;
+    beforeEach(async () => {
+      const { apiFetch } = await import('@/renderer/services/system/apiClient');
+      (apiFetch as Mock).mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ url: '/api/v1/media/avatars/123' }),
+      });
+      originalImage = global.Image;
+      global.Image = class MockImage {
+        naturalWidth = 1024;
+        naturalHeight = 1024;
+        onload: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        set src(_: string) {
+          setTimeout(() => this.onload?.(), 0);
+        }
+      } as unknown as typeof Image;
+    });
+    afterEach(() => {
+      global.Image = originalImage;
+    });
+
+    async function sentFile(imageFile: File, allowAnimated: boolean): Promise<File> {
+      const { apiFetch } = await import('@/renderer/services/system/apiClient');
+      const user = userEvent.setup();
+      render(
+        <ImageCropEditor
+          {...defaultProps}
+          imageFile={imageFile}
+          upload={{ endpoint: '/api/v1/media/upload/avatar', allowAnimated }}
+        />
+      );
+      await screen.findByText('Apply');
+      if (allowAnimated && imageFile.name === 'party.gif') {
+        await screen.findByText(/keeps its animation/);
+      }
+      await user.click(screen.getByText('Apply'));
+      await vi.waitFor(() => expect(onConfirm).toHaveBeenCalled());
+      const body = (apiFetch as Mock).mock.calls[0][1].body as FormData;
+      return body.get('file') as File;
+    }
+
+    it('sends an animated GIF whole where animation is allowed', async () => {
+      const original = gifFile(2);
+      const sent = await sentFile(original, true);
+      expect(sent.name).toBe('cropped.gif');
+      expect(sent.type).toBe('image/gif');
+      expect(new Uint8Array(await sent.arrayBuffer())).toEqual(gifBytes(2));
+    });
+
+    it('crops an animated GIF to a still where animation is not allowed', async () => {
+      const sent = await sentFile(gifFile(2), false);
+      expect(sent.type).not.toBe('image/gif');
+      expect(screen.getByText('Drag to reposition, scroll to zoom')).toBeInTheDocument();
+    });
+
+    it('crops a single-frame GIF even where animation is allowed', async () => {
+      const single = new File([gifBytes(1)], 'still.gif', { type: 'image/gif' });
+      const sent = await sentFile(single, true);
+      expect(sent.type).not.toBe('image/gif');
+    });
+  });
+
   // ── ARIA / a11y attributes ───────────────────────────────────────────
 
   it('renders canvas element inside crop button', async () => {

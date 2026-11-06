@@ -35,6 +35,10 @@ This release adds groundwork for verifying account keys. Nothing uses it yet.
 
 - **Encryption:** Added a dormant codec and primitives for account-key authority messages, checked against the shared test vectors. Nothing uses them yet.
 
+### Fixed
+
+- **Profiles:** Animated GIF avatars, profile banners and server banners now stay animated when your plan or the server's boost allows it. The GIF is uploaded whole instead of cropped to a still.
+
 ## [0.3.1] - 2026-11-06
 
 This update closes a security gap: only the Concord Voice service can now
