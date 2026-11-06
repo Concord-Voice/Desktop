@@ -5,11 +5,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { b64d, utf8 } from '@/renderer/services/e2ee/authority/bytes';
-import { capAt, knownSegment, segmentRule } from '@/renderer/services/e2ee/authority/assurance';
-import { verifyBundle, verifyChain } from '@/renderer/services/e2ee/authority/chain';
-import { encode } from '@/renderer/services/e2ee/authority/codec';
-import { addMs, sumBelow } from '@/renderer/services/e2ee/authority/constants';
+import { b64d, utf8 } from '@/main/authority/bytes';
+import { capAt, knownSegment, segmentRule } from '@/main/authority/assurance';
+import { verifyBundle, verifyChain } from '@/main/authority/chain';
+import { encode } from '@/main/authority/codec';
+import { addMs, sumBelow } from '@/main/authority/constants';
 import {
   canonicalHead,
   chainHeadBytes,
@@ -18,26 +18,26 @@ import {
   parseChainHead,
   rootByDigest,
   type ChainHead,
-} from '@/renderer/services/e2ee/authority/heads';
-import { formHypothesis } from '@/renderer/services/e2ee/authority/headmove';
-import { decodeAs, encodeAs, sigMsg } from '@/renderer/services/e2ee/authority/messages';
+} from '@/main/authority/heads';
+import { formHypothesis } from '@/main/authority/headmove';
+import { decodeAs, encodeAs, sigMsg } from '@/main/authority/messages';
 import {
   checkRelayRecover,
   recoveryBindForKind,
-} from '@/renderer/services/e2ee/authority/patterns';
-import { intentForOp } from '@/renderer/services/e2ee/authority/post';
-import { activate, classify, genesisPub } from '@/renderer/services/e2ee/authority/pub';
-import { noticeOf, verdictOf } from '@/renderer/services/e2ee/authority/reason';
-import { fixAllows, fixStatus, pickMatch } from '@/renderer/services/e2ee/authority/replay';
-import { verifyStatus, type AccountMemory } from '@/renderer/services/e2ee/authority/status';
-import { rowByN, rowsFor } from '@/renderer/services/e2ee/authority/table';
+} from '@/main/authority/patterns';
+import { intentForOp } from '@/main/authority/post';
+import { activate, classify, genesisPub } from '@/main/authority/pub';
+import { noticeOf, verdictOf } from '@/main/authority/reason';
+import { fixAllows, fixStatus, pickMatch } from '@/main/authority/replay';
+import { verifyStatus, type AccountMemory } from '@/main/authority/status';
+import { rowByN, rowsFor } from '@/main/authority/table';
 import {
   checkTrustEnvelope,
   maxHW,
   newTrust,
   ZERO_HW,
   type Trust,
-} from '@/renderer/services/e2ee/authority/trust';
+} from '@/main/authority/trust';
 
 type Json = Record<string, unknown>;
 interface Vec extends Json {
@@ -54,7 +54,7 @@ interface Vec extends Json {
 
 const VECTORS: Vec[] = JSON.parse(
   readFileSync(
-    resolve(__dirname, '../../../../../../docs/design/account-key-authority-vectors.json'),
+    resolve(__dirname, '../../../../../docs/design/account-key-authority-vectors.json'),
     'utf8'
   )
 ).vectors;

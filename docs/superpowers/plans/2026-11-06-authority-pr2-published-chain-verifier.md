@@ -10,7 +10,7 @@ account-key authority design of record.
 unexpected input is a refusal Reason; the public verifiers never throw. Tables
 are frozen. `Floor` and `DeriveAssurance` stay unported (authority-only).
 
-## Files (all under `desktop/src/renderer/services/e2ee/authority/`)
+## Files (all under `desktop/src/main/authority/`)
 
 | File | Ports (Go) | Exports |
 |---|---|---|

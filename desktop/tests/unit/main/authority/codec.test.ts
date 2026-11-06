@@ -2,7 +2,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { b64d, b64e, utf8 } from '@/renderer/services/e2ee/authority/bytes';
+import { b64d, b64e, utf8 } from '@/main/authority/bytes';
 import {
   CAPS,
   capOf,
@@ -10,7 +10,7 @@ import {
   encode,
   LAYOUTS,
   Malformed,
-} from '@/renderer/services/e2ee/authority/codec';
+} from '@/main/authority/codec';
 import {
   checkEkSpkiWebCrypto,
   checkPoint,
@@ -19,7 +19,7 @@ import {
   populationDigest,
   verifyLegacyPSS,
   verifyP384,
-} from '@/renderer/services/e2ee/authority/primitives';
+} from '@/main/authority/primitives';
 
 const ID = '11111111-1111-4111-8111-111111111111';
 
@@ -92,7 +92,7 @@ describe('authority codec edge inputs', () => {
 describe('authority primitives error paths', () => {
   const vectors = JSON.parse(
     readFileSync(
-      resolve(__dirname, '../../../../../../docs/design/account-key-authority-vectors.json'),
+      resolve(__dirname, '../../../../../docs/design/account-key-authority-vectors.json'),
       'utf8'
     )
   ) as { vectors: { name: string; input?: { spki_b64?: string } }[] };

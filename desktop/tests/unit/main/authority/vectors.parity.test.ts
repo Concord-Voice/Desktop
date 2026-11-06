@@ -6,26 +6,26 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { b64d, b64e, equalBytes, toHex } from '@/renderer/services/e2ee/authority/bytes';
+import { b64d, b64e, equalBytes, toHex } from '@/main/authority/bytes';
 import {
   decode,
   encode,
   LAYOUTS,
   Malformed,
   type Values,
-} from '@/renderer/services/e2ee/authority/codec';
-import * as prim from '@/renderer/services/e2ee/authority/primitives';
-import { verifyBundle, verifyChain } from '@/renderer/services/e2ee/authority/chain';
-import { chainHeadBytes, parseChainHead } from '@/renderer/services/e2ee/authority/heads';
-import { decodeAs } from '@/renderer/services/e2ee/authority/messages';
+} from '@/main/authority/codec';
+import * as prim from '@/main/authority/primitives';
+import { verifyBundle, verifyChain } from '@/main/authority/chain';
+import { chainHeadBytes, parseChainHead } from '@/main/authority/heads';
+import { decodeAs } from '@/main/authority/messages';
 import {
   checkRelayRecover,
   recoveryBindForKind,
-} from '@/renderer/services/e2ee/authority/patterns';
-import { intentForOp } from '@/renderer/services/e2ee/authority/post';
-import { REASONS, verdictOf } from '@/renderer/services/e2ee/authority/reason';
-import type { AccountMemory, Use } from '@/renderer/services/e2ee/authority/status';
-import { newTrust, type HighWater, type Trust } from '@/renderer/services/e2ee/authority/trust';
+} from '@/main/authority/patterns';
+import { intentForOp } from '@/main/authority/post';
+import { REASONS, verdictOf } from '@/main/authority/reason';
+import type { AccountMemory, Use } from '@/main/authority/status';
+import { newTrust, type HighWater, type Trust } from '@/main/authority/trust';
 
 // Concord-Voice/Self-Hosted services/control-plane/internal/authoritycontract/testdata/vectors.json
 // @ 2ddd583. Re-vendor (and update this pin) only when the vectors are regenerated.
@@ -35,7 +35,7 @@ const HEADER_LINE =
   /^\{"generator_sha384":"[0-9a-f]{96}","vectors_sha384":"[0-9a-f]{96}","vectors":\[$/;
 const VECTORS_PATH = resolve(
   __dirname,
-  '../../../../../../docs/design/account-key-authority-vectors.json'
+  '../../../../../docs/design/account-key-authority-vectors.json'
 );
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- vector inputs are heterogeneous JSON fixtures

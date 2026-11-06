@@ -1,7 +1,16 @@
-# Account-key authority contract (renderer port)
+# Account-key authority contract (main-process port)
 
 A TypeScript port of the account-key authority contract, protocol v1. Section
 numbers (§) in this module refer to the account-key authority design of record.
+
+**Where it runs.** This module runs in the **main process only**, inside the
+signed binary. The renderer is hot-updated, so it must never import this
+module, hold the realm anchors, or decide account-key trust. It asks for a
+verdict over one IPC channel instead, which the first caller PR adds (with
+sender validation and an `IPC_CONTRACT_VERSION` bump). The key-pin store lives
+here too. The module only handles public data (signatures, public keys,
+anchors, digests), so it can later move into a dedicated crypto process
+without changing that channel.
 
 | File | Ports | Design of record |
 |---|---|---|
@@ -92,8 +101,7 @@ To re-vendor: copy the file from the Self-Hosted path above, set
 `VECTORS_SHA384` in the parity test to the new header value, update the commit
 here, and run the authority tests.
 
-**Chromium gate:** the unit tests run on Node's Web Crypto. The renderer uses
-Chromium's. A one-off run of the 36 Web Crypto vectors (`ek-spki`, `pss-sig`,
-`p384-point`, `p384-sig`, `tls-pin`, `device-id`, `safety-number`) in headless
-Chromium 153 passed all 36 on 2026-11-06. The PR that adds the first caller
-must add a Chromium test for these vectors to CI.
+**Runtime:** the unit tests run on Node's Web Crypto, which is the
+implementation the Electron main process uses. An earlier one-off run of the
+36 Web Crypto vectors in headless Chromium 153 also passed. The first caller
+PR adds an Electron main-process smoke test for these vectors.
