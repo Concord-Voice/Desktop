@@ -295,6 +295,55 @@ const FAILURE_COPY: Record<Exclude<AttachmentFailure, null>, string> = {
   client: 'Concord could not decrypt this attachment on this device.',
 };
 
+/** The ciphertext length to frame against: the stored `file_size`, else a
+ *  Content-Length that describes the bytes we will read. A compressed response
+ *  reports its COMPRESSED length, which would misframe the envelope, so that
+ *  header is ignored unless the response is uncompressed. */
+function attachmentLength(response: Response, declaredSize: number): number {
+  const encoding = (response.headers.get('Content-Encoding') ?? 'identity').trim().toLowerCase();
+  const transport =
+    encoding === 'identity'
+      ? parseContentLength(response.headers.get('Content-Length'))
+      : undefined;
+  const length = declaredSize > 0 ? declaredSize : (transport ?? 0);
+  // Either claim above the guard refuses before a byte of the body is read.
+  const largest = Math.max(length, transport ?? 0);
+  if (largest > MAX_DECRYPTABLE_ATTACHMENT_BYTES) throw new AttachmentTooLargeError(largest);
+  return length;
+}
+
+async function decryptResponse(
+  response: Response,
+  channelId: string,
+  declaredSize: number,
+  mimeType: string
+): Promise<Blob> {
+  if (!response.ok) throw new Error(`Failed to fetch attachment (${response.status})`);
+  const length = attachmentLength(response, declaredSize);
+  // SELECT THE KEY BY EPOCH, not "whatever is current".
+  //
+  // Every revocation rotates the CSK, so decrypting with the latest key
+  // permanently orphaned every attachment uploaded before the most recent
+  // rotation -- and reported it as "damaged or altered", i.e. tampering. The
+  // upload has attested this epoch since #2832; it just never reached the
+  // client. Absent header = a row predating the attestation, where the current
+  // key IS the right one.
+  const keyVersion = parseKeyVersionHeader(response.headers.get('X-File-Key-Version'));
+  const channelKey =
+    keyVersion === null
+      ? await e2eeService.getChannelKey(channelId)
+      : await e2eeService.getChannelKeyByVersion(channelId, keyVersion);
+  // Handles BOTH formats, straight off the stream. Dispatch is deterministic and
+  // decided before any key is used -- see classifyEnvelope. Neither the
+  // ciphertext nor the plaintext is ever held whole: one sealed chunk at a time
+  // is decrypted into its own Blob part, which is what lets a 1 GiB file open.
+  // decryptAttachmentStream refuses a body that does not end at exactly
+  // `length` bytes, so it bounds the transfer too. Electron always supplies a
+  // body; a response without one is a transport failure, not tampering.
+  if (!response.body) throw new Error('Attachment response has no body');
+  return decryptAttachmentStream(response.body, length, channelKey, mimeType);
+}
+
 async function loadAndCache(
   fileId: string,
   channelId: string,
@@ -309,37 +358,16 @@ async function loadAndCache(
   }
 
   const response = await apiFetch(`/api/v1/media/attachments/${fileId}`);
-  if (!response.ok) throw new Error(`Failed to fetch attachment (${response.status})`);
-
   const mimeType = response.headers.get('X-File-Mime-Type') || 'application/octet-stream';
-  // SELECT THE KEY BY EPOCH, not "whatever is current".
-  //
-  // Every revocation rotates the CSK, so decrypting with the latest key
-  // permanently orphaned every attachment uploaded before the most recent
-  // rotation -- and reported it as "damaged or altered", i.e. tampering. The
-  // upload has attested this epoch since #2832; it just never reached the
-  // client. Absent header = a row predating the attestation, where the current
-  // key IS the right one.
-  const keyVersion = parseKeyVersionHeader(response.headers.get('X-File-Key-Version'));
-
-  const channelKey =
-    keyVersion === null
-      ? await e2eeService.getChannelKey(channelId)
-      : await e2eeService.getChannelKeyByVersion(channelId, keyVersion);
-  // Handles BOTH formats, straight off the stream. Dispatch is deterministic and
-  // decided before any key is used -- see classifyEnvelope. Neither the
-  // ciphertext nor the plaintext is ever held whole: one sealed chunk at a time
-  // is decrypted into its own Blob part, which is what lets a 1 GiB file open.
-  // `declaredSize` is the stored ciphertext size (the column the server also
-  // sends as Content-Length); decryptAttachmentStream refuses a body that does
-  // not end at exactly that many bytes, so it bounds the transfer too.
-  if (!response.body) throw new Error('Attachment response has no body');
-  const transportLength = parseContentLength(response.headers.get('Content-Length'));
-  const length = declaredSize > 0 ? declaredSize : (transportLength ?? 0);
-  // Either claim above the guard refuses before a byte of the body is read.
-  const largest = Math.max(length, transportLength ?? 0);
-  if (largest > MAX_DECRYPTABLE_ATTACHMENT_BYTES) throw new AttachmentTooLargeError(largest);
-  const blob = await decryptAttachmentStream(response.body, length, channelKey, mimeType);
+  let blob: Blob;
+  try {
+    blob = await decryptResponse(response, channelId, declaredSize, mimeType);
+  } catch (err) {
+    // Release the connection on every early exit (a locked body rejects the
+    // cancel, which is fine: decryptAttachmentStream already released it).
+    await response.body?.cancel().catch(() => undefined);
+    throw err;
+  }
 
   // Decide from the BYTES whether this actually animates, because `file_type`
   // cannot: it is MIME-derived and persisted at upload, so an animated WebP or

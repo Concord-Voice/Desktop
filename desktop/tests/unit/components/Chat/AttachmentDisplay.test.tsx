@@ -60,6 +60,8 @@ vi.mock('@/renderer/services/e2ee/e2eeService', () => ({
  *  bytes the fake actually holds rather than the size under test. Real format
  *  dispatch is covered at the unit level in attachmentChunkedCrypto.test.ts. */
 const mockDecryptAttachmentBlob = vi.fn();
+/** The length the component framed each stream against, in call order. */
+const streamLengths: number[] = [];
 vi.mock('@/renderer/utils/crypto/attachmentChunkedCrypto', async () => {
   const actual = await vi.importActual<
     typeof import('@/renderer/utils/crypto/attachmentChunkedCrypto')
@@ -70,9 +72,12 @@ vi.mock('@/renderer/utils/crypto/attachmentChunkedCrypto', async () => {
     // same mock so every test keeps steering decryption through one function.
     decryptAttachmentStream: async (
       body: ReadableStream<Uint8Array>,
-      _len: number,
+      len: number,
       ...rest: unknown[]
-    ) => mockDecryptAttachmentBlob(await drainForTest(body), ...rest),
+    ) => {
+      streamLengths.push(len);
+      return mockDecryptAttachmentBlob(await drainForTest(body), ...rest);
+    },
   };
 });
 
@@ -1047,6 +1052,52 @@ describe('AttachmentDisplay download size guard (#2157)', () => {
     expect(mockDecryptFile).not.toHaveBeenCalled();
   });
 
+  // Review finding: file_size is authoritative; Content-Length is only a
+  // fallback, and only when it measures the bytes the reader will see. A
+  // compressed body's Content-Length counts wire bytes, so it must not frame
+  // the stream.
+  it.each([
+    ['identity', '4096', 4096],
+    ['gzip', '4096', 0],
+  ])(
+    'with no file_size, frames a %s body with Content-Length %s against %d',
+    async (encoding, contentLength, expected) => {
+      streamLengths.length = 0;
+      mockApiFetch.mockResolvedValue({
+        ok: true,
+        get body() {
+          return bodyOf(new ArrayBuffer(8));
+        },
+        headers: new Headers({
+          'X-File-Mime-Type': 'image/png',
+          'Content-Encoding': encoding,
+          'Content-Length': contentLength,
+        }),
+      });
+      installImmediateIO();
+
+      render(<AttachmentDisplay attachments={[photoOf(`len-${encoding}`, 0)]} channelId="ch-1" />);
+
+      await waitFor(() => expect(streamLengths).toEqual([expected]));
+    }
+  );
+
+  it('frames against file_size even when Content-Length disagrees', async () => {
+    streamLengths.length = 0;
+    mockApiFetch.mockResolvedValue({
+      ok: true,
+      get body() {
+        return bodyOf(new ArrayBuffer(8));
+      },
+      headers: new Headers({ 'X-File-Mime-Type': 'image/png', 'Content-Length': '9999' }),
+    });
+    installImmediateIO();
+
+    render(<AttachmentDisplay attachments={[photoOf('len-declared', 2048)]} channelId="ch-1" />);
+
+    await waitFor(() => expect(streamLengths).toEqual([2048]));
+  });
+
   it('refuses an oversized file-card download in the chip footprint', async () => {
     const user = userEvent.setup();
 
@@ -1838,10 +1889,9 @@ describe('AttachmentDisplay blob cache byte budget (#2157 A1)', () => {
   // stated its partial byte count as the file's real size.
   //
   // The component's contract is PROPAGATING the flag, not producing it — a
-  // genuine cancellation needs a >256 MiB body, which is not something to
-  // stream inside jsdom. readBoundedBody's own truncated behaviour is covered
-  // in tests/unit/utils/boundedResponseBody.test.ts; here the error is thrown
-  // directly so the copy branch is what is under test.
+  // genuine refusal needs a body over the 1 GiB guard, which is not something
+  // to stream inside jsdom. Here the error is thrown directly so the copy
+  // branch is what is under test.
   it('says "over N" when the refusal was truncated mid-stream', async () => {
     mockApiFetch.mockImplementation(() => {
       const err = new AttachmentTooLargeError(268_435_456, true);

@@ -630,7 +630,7 @@ function envelopeGeometryHolds(
  * Decrypt either format into a Blob.
  *
  * A Blob rather than an ArrayBuffer is deliberate: the browser may page a Blob
- * out, where one 256 MiB ArrayBuffer must stay resident. Chunk plaintexts are
+ * out, where one large ArrayBuffer must stay resident. Chunk plaintexts are
  * appended as separate parts, so no single contiguous copy of the whole file is
  * ever built.
  */
@@ -641,7 +641,7 @@ export async function decryptAttachmentBlob(
   /** Stop decrypting once the accumulated plaintext exceeds this. For callers
    *  whose render ceiling sits far below the download ceiling -- the markdown
    *  overflow path renders at most a few hundred KiB of a file that may be
-   *  256 MiB. The returned Blob is then a PREFIX, and the caller must treat a
+   *  1 GiB. The returned Blob is then a PREFIX, and the caller must treat a
    *  .size above its limit as "too large" rather than as content. */
   maxPlaintextBytes?: number
 ): Promise<Blob> {
@@ -692,19 +692,15 @@ async function decryptChunkedEnvelope(
 ): Promise<Blob> {
   // Blob parts, NOT ArrayBuffer parts. Each authenticated chunk is handed to the
   // browser's blob store immediately and its plaintext reference dropped, so the
-  // JS heap holds ONE chunk of plaintext at a time instead of all of them. On a
-  // 256 MiB attachment that is ~8 MiB resident rather than ~256 MiB, and the
-  // blob store is free to spill to disk where a JS array never can.
+  // JS heap holds ONE chunk of plaintext at a time instead of all of them, and
+  // the blob store is free to spill to disk where a JS array never can.
   //
-  // WHY THE CIPHERTEXT IS STILL BUFFERED WHOLE, deliberately: classifyEnvelope
-  // needs the TOTAL length, because the discriminator between a chunked envelope
-  // and a legacy blob is the ARITHMETIC, not the magic -- roughly 1 in 65,536 legacy
-  // blobs begin with "CV" by chance. A stream cannot supply that length before
-  // it has been consumed. Streaming would therefore force either trusting a
-  // server-declared length (demoting the discriminator from a computation to a
-  // claim) or falling back to magic alone (misrouting those legacy blobs). Both
-  // are worse than holding the ciphertext, so the ciphertext bound stays where
-  // it is enforced today: readBoundedBody, which measures actual bytes.
+  // This path takes the ciphertext whole; downloads use decryptAttachmentStream
+  // instead. classifyEnvelope needs the TOTAL length, because the discriminator
+  // between a chunked envelope and a legacy blob is the ARITHMETIC, not the
+  // magic -- roughly 1 in 65,536 legacy blobs begin with "CV" by chance. The
+  // stream path gets that length from the server as a claim, and keeps it a
+  // measurement by refusing any body that does not end at exactly that length.
   const parts: Blob[] = [];
   let plaintextBytes = 0;
   let offset = ENVELOPE_HEADER_BYTES;
@@ -793,28 +789,45 @@ class ExactReader {
 
   /** Exactly `n` bytes, or `null` if the stream ends first. */
   async read(n: number): Promise<CryptoBytes | null> {
-    while (this.pendingBytes < n && !this.done) {
-      const { done, value } = await this.reader.read();
-      if (done) this.done = true;
-      else if (value && value.byteLength > 0) {
-        this.pending.push(value);
-        this.pendingBytes += value.byteLength;
-      }
-    }
-    if (this.pendingBytes < n) return null;
-
     const out = new Uint8Array(n);
+    return (await this.readInto(out, 0, n)) ? out : null;
+  }
+
+  /**
+   * Copies exactly `n` bytes into `target` at `offset` as they arrive, so a
+   * large read never holds the network pieces and the target at once. `false`
+   * if the stream ends first (the reader is then spent; callers fail closed).
+   */
+  async readInto(target: Uint8Array, offset: number, n: number): Promise<boolean> {
     let filled = 0;
     while (filled < n) {
+      if (this.pending.length === 0) {
+        if (this.done || !(await this.pull())) return false;
+        continue;
+      }
       const head = this.pending[0];
       const take = Math.min(head.byteLength, n - filled);
-      out.set(head.subarray(0, take), filled);
+      target.set(head.subarray(0, take), offset + filled);
       filled += take;
+      this.pendingBytes -= take;
       if (take === head.byteLength) this.pending.shift();
       else this.pending[0] = head.subarray(take);
     }
-    this.pendingBytes -= n;
-    return out;
+    return true;
+  }
+
+  /** One network read into `pending`; `false` once the stream has ended. */
+  private async pull(): Promise<boolean> {
+    const { done, value } = await this.reader.read();
+    if (done) {
+      this.done = true;
+      return false;
+    }
+    if (value && value.byteLength > 0) {
+      this.pending.push(value);
+      this.pendingBytes += value.byteLength;
+    }
+    return true;
   }
 
   /** True when nothing is buffered and the stream has ended. */
@@ -853,13 +866,12 @@ async function readLegacyWhole(
   if (declaredLength > LEGACY_MAX_ENVELOPE_BYTES) {
     throw new AttachmentIntegrityError('attachment is too large for the single-shot format');
   }
-  const rest = await reader.read(declaredLength - head.byteLength);
-  if (rest === null || !(await reader.atEnd())) {
-    throw new AttachmentIntegrityError('attachment length does not match its size');
-  }
   const whole = new Uint8Array(declaredLength);
   whole.set(head, 0);
-  whole.set(rest, head.byteLength);
+  const complete = await reader.readInto(whole, head.byteLength, declaredLength - head.byteLength);
+  if (!complete || !(await reader.atEnd())) {
+    throw new AttachmentIntegrityError('attachment length does not match its size');
+  }
   return whole;
 }
 
@@ -904,69 +916,63 @@ export async function decryptAttachmentStream(
   body: ReadableStream<Uint8Array>,
   declaredLength: number,
   key: CryptoKey,
-  mimeType: string,
-  maxPlaintextBytes?: number
+  mimeType: string
 ): Promise<Blob> {
+  if (!Number.isSafeInteger(declaredLength) || declaredLength < 1) {
+    // No length is a transport problem (a stripped header), not tampering, so
+    // this is a plain Error the caller may retry -- never an integrity failure.
+    await body.cancel().catch(() => undefined);
+    throw new Error('attachment response has no usable length');
+  }
   const reader = new ExactReader(body.getReader());
-  const fail = async (err: Error): Promise<never> => {
+  try {
+    return await decryptFromReader(reader, declaredLength, key, mimeType);
+  } catch (err) {
+    // Every failure, including a network error mid-body, releases the stream.
     await reader.cancel();
     throw err;
-  };
-
-  if (!Number.isSafeInteger(declaredLength) || declaredLength < 1) {
-    return fail(new AttachmentIntegrityError('attachment has no usable declared length'));
   }
+}
 
-  const headLength = Math.min(ENVELOPE_HEADER_BYTES, declaredLength);
-  const head = await reader.read(headLength);
-  if (head === null) return fail(new AttachmentIntegrityError('attachment is truncated'));
+async function decryptFromReader(
+  reader: ExactReader,
+  declaredLength: number,
+  key: CryptoKey,
+  mimeType: string
+): Promise<Blob> {
+  const head = await reader.read(Math.min(ENVELOPE_HEADER_BYTES, declaredLength));
+  if (head === null) throw new AttachmentIntegrityError('attachment is truncated');
 
   const classified = classifyEnvelope(head, declaredLength);
   if (classified.kind === 'unsupported') {
-    return fail(new UnsupportedAttachmentFormatError(classified.reason));
+    throw new UnsupportedAttachmentFormatError(classified.reason);
   }
-
   if (classified.kind === 'legacy') {
-    const whole = await readLegacyWhole(reader, head, declaredLength).catch(fail);
+    const whole = await readLegacyWhole(reader, head, declaredLength);
     return decryptAttachmentBlob(whole, key, mimeType);
   }
 
   const header = classified.header;
   const parts: Blob[] = [];
-  let plaintextBytes = 0;
   let consumed = ENVELOPE_HEADER_BYTES;
-
   for (let i = 0; i < header.totalChunks; i++) {
     const sealed = await readSealedChunk(reader, header, i, declaredLength - consumed);
     if (sealed === null) {
-      return fail(
-        new AttachmentIntegrityError(`attachment chunk ${i} of ${header.totalChunks} is truncated`)
+      throw new AttachmentIntegrityError(
+        `attachment chunk ${i} of ${header.totalChunks} is truncated`
       );
     }
     consumed += sealed.byteLength;
-
     const iv = sealed.subarray(0, AES_GCM_IV_LENGTH);
-    const sealedBody = sealed.subarray(AES_GCM_IV_LENGTH);
-    let plaintext: ArrayBuffer;
-    try {
-      plaintext = await decryptChunk(sealedBody, iv, key, header, i);
-    } catch (err) {
-      await reader.cancel();
-      throw err;
-    }
-    plaintextBytes += plaintext.byteLength;
-    parts.push(new Blob([plaintext]));
-
-    if (maxPlaintextBytes !== undefined && plaintextBytes > maxPlaintextBytes) {
-      await reader.cancel();
-      return new Blob(parts, { type: mimeType });
-    }
+    parts.push(
+      new Blob([await decryptChunk(sealed.subarray(AES_GCM_IV_LENGTH), iv, key, header, i)])
+    );
   }
 
   // Bytes past the declared end are not ours to ignore: the envelope is
   // complete, so anything more means the length or the body was rewritten.
   if (!(await reader.atEnd())) {
-    return fail(new AttachmentIntegrityError('attachment has bytes past its declared end'));
+    throw new AttachmentIntegrityError('attachment has bytes past its declared end');
   }
   return new Blob(parts, { type: mimeType });
 }
