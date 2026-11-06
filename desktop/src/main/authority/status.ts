@@ -13,13 +13,14 @@
 // every state (RT-2): only that comparison stops a forged row-1 chain of a
 // pinned account.
 //
-// Not ported here: R6's wrap target (`WrapKey`), which comes with the
-// verified-recipient handle.
+// R6's wrap target (`wrapKey`) reads only what verifyStatusAt sealed for an
+// ok or ok_accepted_pin verdict judged for new-secret use (E-S1).
 
 import { equalBytes } from './bytes';
 import { EPSILON_MS, sumBelow, V_MAX_MS } from './constants';
 import { headPub, segmentOf, type ChainHead } from './heads';
 import { decodeAs, type Delegation, type Status } from './messages';
+import { pinnedEk } from './primitives';
 import { activate, type Pub } from './pub';
 import type { Reason } from './reason';
 import { effectiveOf, effectivePending, fixNames, fixStatus, checkR5 } from './replay';
@@ -46,6 +47,21 @@ export interface VerifiedStatus {
 }
 
 const NONE = new Uint8Array(0);
+
+/** R6's target as verifyStatusAt sealed it: the use, the active EK, and the pin a served SPKI must hash to. */
+interface WrapTarget {
+  use: Use;
+  ek: Uint8Array;
+  pin: Uint8Array;
+  served: boolean; // an absent account, or a continuity change pending from absent
+}
+
+/**
+ * The seals, keyed by the VerifiedStatus object verifyStatusAt returned. A
+ * literal, a refused verdict and an edit to a returned value's fields reach no
+ * seal, so they reach no wrap.
+ */
+const SEALS = new WeakMap<VerifiedStatus, WrapTarget>();
 
 export const refused = (reason: Reason): VerifiedStatus => ({
   reason,
@@ -199,16 +215,47 @@ export async function verifyStatusAt(
   let segment = await segmentOf(head, eff.root);
   if (segment === '' && hp.state === 'pending' && eff.state !== 'pending') segment = hp.assurance; // recorded only by the next result
   const reason = stateVerdict(eff, st, mem, a.d, use);
-  return [
-    {
-      reason,
-      status: st,
-      pin: st.legacy_ek_digest,
-      segment,
-      acceptedPin: reason === 'ok_accepted_pin',
-    },
-    a.hw,
-  ];
+  const vs: VerifiedStatus = {
+    reason,
+    status: st,
+    pin: st.legacy_ek_digest,
+    segment,
+    acceptedPin: reason === 'ok_accepted_pin',
+  };
+  if (reason === 'ok' || reason === 'ok_accepted_pin') {
+    // An effective active state wraps to the verified chain's active EK: the
+    // pending one when R4 activated the raw pending head (N-2). Pending with an
+    // ok verdict is only the continuity change pending from absent.
+    let ek: Uint8Array = NONE;
+    if (eff.state === 'active')
+      ek = hp.state === 'pending' ? head.pending_ek_spki : head.active_ek_spki;
+    SEALS.set(vs, {
+      use,
+      ek: ek.slice(),
+      pin: st.legacy_ek_digest.slice(),
+      served: eff.state === 'pending' || st.state === 'absent',
+    });
+  }
+  return [vs, a.hw];
+}
+
+/**
+ * R6: the only bytes a secret may be wrapped to, or null. An effective active
+ * state wraps to the verified chain's active EK. A continuity change pending
+ * from absent, or an absent account (first-sight or accepted pin), wraps to
+ * servedSpki when it is a valid EK (§2.4) whose SHA-384 is the status pin.
+ * vs must be a value verifyStatus or verifyChain returned for new-secret use
+ * (τ freshness); anything else wraps to nothing. The bytes returned are a
+ * copy. No clock is read: re-verify a status before each wrap. Never throws.
+ */
+export async function wrapKey(
+  vs: VerifiedStatus,
+  servedSpki: Uint8Array
+): Promise<Uint8Array | null> {
+  const w = SEALS.get(vs);
+  if (w?.use !== 'new-secret') return null;
+  if (w.ek.length > 0) return w.ek.slice();
+  return w.served ? pinnedEk(w.pin, servedSpki) : null;
 }
 
 /**

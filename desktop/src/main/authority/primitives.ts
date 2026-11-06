@@ -78,6 +78,23 @@ export async function checkEkSpkiWebCrypto(b: Uint8Array): Promise<void> {
 export const sha384 = async (b: Uint8Array): Promise<Uint8Array> =>
   new Uint8Array(await subtle.digest('SHA-384', buf(b)));
 
+/**
+ * A copy of spki when it is a valid EK (§2.4) whose SHA-384 is pin, else null.
+ * The copy is taken first, so every check and the result read the same bytes.
+ * An empty pin matches nothing. Never throws.
+ */
+export async function pinnedEk(pin: Uint8Array, spki: Uint8Array): Promise<Uint8Array | null> {
+  const b = spki.slice();
+  try {
+    if (pin.length === 0 || !equalBytes(await sha384(b), pin)) return null;
+    checkEkSpkiTemplate(b);
+    await checkEkSpkiWebCrypto(b);
+    return b;
+  } catch {
+    return null;
+  }
+}
+
 /** Checks length and the 0x04 prefix BEFORE importKey: some runtimes accept 0x06/0x07 hybrid points. */
 export async function importP384(b: Uint8Array): Promise<CryptoKey> {
   if (b.length !== 97 || b[0] !== 0x04) throw new Malformed('point_prefix');

@@ -10,10 +10,11 @@ verdict over one IPC channel instead, which the first caller PR adds (with
 sender validation and an `IPC_CONTRACT_VERSION` bump). The key-pin store lives
 here too. The chain and ledger verifiers only handle public data
 (signatures, public keys, anchors, digests), so they can later move into a
-dedicated crypto process without changing that channel. `verifyDeviceWrap` is
-the exception: it takes this device's ECDH private key and returns the
-device's private keys. Where that key material lives is decided by the PR that
-first calls it.
+dedicated crypto process without changing that channel. `verifyDeviceWrap` and
+`sealDeviceWrap` are the exception: one takes this device's ECDH private key
+and returns the device's private keys, the other encrypts those keys to
+another device. Where that key material lives is decided by the PR that first
+calls them.
 
 | File | Ports | Design of record |
 |---|---|---|
@@ -27,10 +28,10 @@ first calls it.
 | `replay.ts` | R1–R5 | §2.11 |
 | `heads.ts`, `headmove.ts` | the persisted chain-head and how a verified result moves it | §2.12 |
 | `bindproof.ts`, `restore.ts`, `patterns.ts` | rows 20–22 checks; recovery-bind and relay-recover patterns | §2.9, §2.22 |
-| `chain.ts`, `status.ts` | `verifyBundle`, `verifyChain`, `verifyStatus` | §2.12, §2.13 |
+| `chain.ts`, `status.ts` | `verifyBundle`, `verifyChain`, `verifyStatus`, R6's `wrapKey` | §2.12, §2.13 |
 | `devicerules.ts` | D-270 device rules DR1–DR9 (`applyDeviceOp`, `normalizeDeviceSet`) | §2.12, §2.22 |
 | `ledger.ts` | the private device ledger (`verifyDeviceLedger`, `DeviceView`) | §2.12 |
-| `wrap.ts` | opening a device wrap and its device-secrets checks 1–4 | §2.5 |
+| `wrap.ts` | sealing and opening a device wrap, and its device-secrets checks 1–4 | §2.5 |
 
 The codec and primitives port `scripts/authority-vectors/gen.mjs` §1–3 in
 Concord-Voice/Self-Hosted; the verifier ports the Go reference in
@@ -42,10 +43,14 @@ Entry points: `encode`, `decode`, `capOf` and `LAYOUTS` (codec); `sha384`,
 `importP384`, `verifyP384`, `verifyLegacyPSS`, `checkEkSpkiWebCrypto`,
 `deviceId`, `parseDev`, `safetyNumber` and `tlsPin` (primitives); `newTrust`
 and `Trust` (trust); `parseChainHead`, `chainHeadBytes` and `genesisHead`
-(heads); `verifyBundle` and `verifyChain` (chain); `verifyStatus` (status);
+(heads); `verifyBundle` and `verifyChain` (chain); `verifyStatus` and
+`wrapKey` (status);
 `parseDeviceHead` and `deviceHeadBytes` (heads); `applyDeviceOp` and
 `normalizeDeviceSet` (devicerules); `verifyDeviceLedger` (ledger);
-`verifyDeviceWrap` (wrap); `verdictOf` and `noticeOf` (reason).
+`sealDeviceWrap` and `verifyDeviceWrap` (wrap); `pinnedEk` (primitives);
+`verdictOf` and `noticeOf` (reason); `RECOVER_CONFIRM_MS` (constants).
+`activeRecipient` (ledger) is exported only for tests: call `sealDeviceWrap`,
+which applies it.
 
 **Rules for callers:**
 
@@ -81,6 +86,16 @@ and `Trust` (trust); `parseChainHead`, `chainHeadBytes` and `genesisHead`
   path. That is best effort: strings inside the codec and the internals of
   every `CryptoKey` stay until garbage collection. The secrets it returns on
   `ok` are the caller's to zero after use.
+- Wrap a secret only to the bytes `wrapKey` returns, never to a head's EK
+  fields. Pass it a `VerifiedStatus` that `verifyStatus` or `verifyChain`
+  just returned for `new-secret` use; a copy, a literal, an edited verdict or a
+  `history` status wraps to nothing. It reads no clock: re-verify the status
+  before each wrap.
+- Pass `sealDeviceWrap` only the device head that `verifyDeviceLedger` just
+  returned. It reads no clock, so an older head could wrap the root to a
+  device whose removal the server is withholding. It seals only to an active
+  device of that head with the dkx the head records. It copies the recipient
+  and entry digest before the check, so the wrap uses the checked bytes.
 - Pass `verifyDeviceWrap` a dkx key pair generated together: a non-extractable
   private key with the `deriveBits` usage only, and its own extractable public
   key.
@@ -103,9 +118,12 @@ for every `device-ledger` vector (48), the refusal and resulting set for every
 `apply-device-op` vector (103), the set for every `normalize` vector (35), and
 the Reason and use for every `device-wrap-open` vector (20).
 
-**Pending (later PRs):** sealing a device wrap (`SealDeviceWrap`), R6's wrap
-target (`WrapKey`), verified-recipient handles, pin-store persistence, the
-anchors, IPC and the distribution gate.
+It also round-trips `sealDeviceWrap` through `verifyDeviceWrap`, and checks
+`wrapKey` on active, activated (R4), absent and continuity-pending vectors.
+
+**Pending (later PRs):** verified-recipient handles, pin-store persistence,
+the anchors, IPC, the distribution gate, the form-R and form-B confirmation
+watches and the UI.
 
 **Not ported:** `Floor` and `DeriveAssurance`, which only the authority
 evaluates (§2.8, §2.12). The authority-only columns of the §2.9 table,
