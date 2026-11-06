@@ -1,9 +1,10 @@
-// Byte-level detection of animated WebP / APNG (#2369, PR #3291).
+// Byte-level detection of animated WebP / APNG (#2369, PR #3291), and the
+// upload-path GIF check that decides whether a GIF keeps its animation (#1302).
 // Fixtures are built from the real container layouts, not from mocks — the
 // whole point of this module is that it reads actual bytes correctly.
 import {
   detectAnimatedImage,
-  gifHasMultipleFrames,
+  isUploadableAnimatedGif,
   ANIMATION_SNIFF_BYTES,
 } from '@/renderer/utils/ui/animatedImage';
 
@@ -160,38 +161,79 @@ describe('detectAnimatedImage', () => {
   });
 });
 
-describe('gifHasMultipleFrames', () => {
+describe('isUploadableAnimatedGif (#1302)', () => {
+  const lsd = (w: number, h: number, packed = 0x80): number[] => [
+    w & 255,
+    w >> 8,
+    h & 255,
+    h >> 8,
+    packed,
+    0,
+    0,
+  ];
   // 1×1 GIF89a with a 2-colour global table.
-  const header = bytes('GIF89a', [1, 0, 1, 0, 0x80, 0, 0], [0, 0, 0, 255, 255, 255]);
+  const header = bytes('GIF89a', lsd(1, 1), [0, 0, 0, 255, 255, 255]);
   const loop = bytes([0x21, 0xff, 0x0b], 'NETSCAPE2.0', [3, 1, 0, 0, 0]);
   const gce = bytes([0x21, 0xf9, 4, 0, 10, 0, 0, 0]);
-  // Image descriptor, then LZW min code size and one data sub-block.
-  const frame = bytes([0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0], [2, 2, 0x4c, 0x01, 0]);
-  // A frame with a 2-colour local table (packed bit 7).
-  const framelct = bytes(
-    [0x2c, 0, 0, 0, 0, 1, 0, 1, 0, 0x80],
-    [1, 2, 3, 4, 5, 6],
-    [2, 2, 0x4c, 0x01, 0]
-  );
+  /** Image descriptor (w×h, optional local table), LZW min code size, one data sub-block. */
+  const frameOf = (w = 1, h = 1, lct: number[] = []): Uint8Array =>
+    bytes(
+      [0x2c, 0, 0, 0, 0, w & 255, w >> 8, h & 255, h >> 8, lct.length ? 0x80 : 0],
+      lct,
+      [2, 2, 0x4c, 0x01, 0]
+    );
+  const frame = frameOf();
   const gif = (...parts: Uint8Array[]): Uint8Array =>
     bytes(...parts.map((p) => Array.from(p)), [0x3b]);
+  const yes = (b: Uint8Array) => expect(isUploadableAnimatedGif(b)).toBe(true);
+  const no = (b: Uint8Array) => expect(isUploadableAnimatedGif(b)).toBe(false);
 
   it('says yes for two frames', () => {
-    expect(gifHasMultipleFrames(gif(header, loop, gce, frame, gce, frame))).toBe(true);
+    yes(gif(header, loop, gce, frame, gce, frame));
   });
 
-  it('walks local colour tables', () => {
-    expect(gifHasMultipleFrames(gif(header, framelct, gce, framelct))).toBe(true);
+  it('walks local colour tables and GIF87a', () => {
+    yes(gif(header, frameOf(1, 1, [1, 2, 3, 4, 5, 6]), gce, frameOf(1, 1, [1, 2, 3, 4, 5, 6])));
+    yes(gif(bytes('GIF87a', Array.from(header.subarray(6))), frame, frame));
+  });
+
+  it('walks extensions with several sub-blocks', () => {
+    const comment = bytes([0x21, 0xfe, 3], 'abc', [2], 'de', [0]);
+    yes(gif(header, comment, frame, comment, frame));
   });
 
   it('says no for one frame, even with a loop extension', () => {
-    expect(gifHasMultipleFrames(gif(header, loop, gce, frame))).toBe(false);
+    no(gif(header, loop, gce, frame));
   });
 
-  it('says no for non-GIF, truncated or malformed bytes', () => {
-    expect(gifHasMultipleFrames(bytes('PNG'))).toBe(false);
+  it('says no for non-GIF bytes or an unknown block', () => {
+    no(bytes('PNG'));
+    no(gif(header, bytes([0x99]), frame, frame));
+  });
+
+  it('says no for a truncated second frame or a missing trailer', () => {
     const two = gif(header, frame, frame);
-    expect(gifHasMultipleFrames(two.subarray(0, two.length - frame.length - 2))).toBe(false);
-    expect(gifHasMultipleFrames(gif(header, bytes([0x99]), frame, frame))).toBe(false);
+    no(two.subarray(0, two.length - 3)); // cut inside the second frame's data
+    no(two.subarray(0, two.length - 1)); // no trailer
+    no(bytes(...[header, frame, bytes([0x2c, 0, 0])].map((p) => Array.from(p))));
+  });
+
+  it('says no where the server refuses the block sizes', () => {
+    no(gif(header, bytes([0x21, 0xf9, 5, 0, 0, 0, 0, 0, 0]), frame, frame));
+    no(gif(header, bytes([0x21, 0x01, 4, 0, 0, 0, 0, 0]), frame, frame));
+  });
+
+  it('says no past the server frame and pixel budgets', () => {
+    yes(gif(header, ...Array.from({ length: 120 }, () => frame)));
+    no(gif(header, ...Array.from({ length: 121 }, () => frame)));
+    // 5000×5000 screen: 2 frames are 50M pixels (allowed), 3 are over.
+    const big = bytes('GIF89a', lsd(5000, 5000), [0, 0, 0, 255, 255, 255]);
+    yes(gif(big, frame, frame));
+    no(gif(big, frame, frame, frame));
+    // Summed descriptor area over 50M, even on a small screen.
+    no(gif(header, frameOf(10_000, 3000), frameOf(10_000, 3000)));
+    // Screen over a side limit or empty.
+    no(gif(bytes('GIF89a', lsd(10_001, 1), [0, 0, 0, 255, 255, 255]), frame, frame));
+    no(gif(bytes('GIF89a', lsd(0, 0), [0, 0, 0, 255, 255, 255]), frame, frame));
   });
 });

@@ -65,7 +65,7 @@ const ProfileInfoForm: React.FC = () => {
   const usernameChangeIntervalMonths = useEntitlement((e) => e.usernameChangeIntervalMonths);
   const legacyUsernameIntervalSeconds = useEntitlement((e) => e.usernameChangeIntervalSeconds);
   const entitlementHydrated = useSubscriptionStore((s) => s.hydrated);
-  const allowAnimatedProfile = useSubscriptionStore((s) => s.entitlement.allowAnimatedProfile);
+  const allowAnimatedProfile = useEntitlement((e) => e.allowAnimatedProfile);
   const maxAvatarBytes = useEntitlement((e) => e.maxAvatarBytes);
   const maxBannerBytes = useEntitlement((e) => e.maxBannerBytes);
   // L9: a non-modal inline upsell banner for an over-limit avatar/banner pick.

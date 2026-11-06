@@ -2,7 +2,8 @@
 // services/control-plane/internal/entitlements/server_entitlements.go
 // (ADR-0028; founder entitlement matrix docs/design/entitlements/
 // entitlement-matrix.md, 2026-06-18). Values are public marketing numbers,
-// mirrored for lock-affordance UX only — the control-plane is authoritative
+// mirrored for lock-affordance UX and client upload shaping (allowAnimatedBanner
+// decides whether ImageCropEditor sends a GIF whole) — the control-plane is authoritative
 // and hard-enforces at the (future) create boundaries.
 // -1 = unlimited (selfhost). Same mirror-comment discipline as
 // AUDIO_QUALITY_TIERS in stores/voice/voiceStore.ts.

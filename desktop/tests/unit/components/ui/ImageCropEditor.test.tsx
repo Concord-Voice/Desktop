@@ -270,6 +270,8 @@ describe('ImageCropEditor', () => {
       if (allowAnimated && imageFile.name === 'party.gif') {
         await screen.findByText(/keeps its animation/);
       }
+      // Apply waits for the GIF probe; once it is enabled the probe has answered.
+      await vi.waitFor(() => expect(screen.getByText('Apply')).toBeEnabled());
       await user.click(screen.getByText('Apply'));
       await vi.waitFor(() => expect(onConfirm).toHaveBeenCalled());
       const body = (apiFetch as Mock).mock.calls[0][1].body as FormData;
@@ -282,6 +284,61 @@ describe('ImageCropEditor', () => {
       expect(sent.name).toBe('cropped.gif');
       expect(sent.type).toBe('image/gif');
       expect(new Uint8Array(await sent.arrayBuffer())).toEqual(gifBytes(2));
+    });
+
+    it('holds Apply until the GIF probe answers, and makes the crop controls inert', async () => {
+      let release: (b: ArrayBuffer) => void = () => {};
+      const slow = gifFile(2);
+      slow.arrayBuffer = () =>
+        new Promise<ArrayBuffer>((resolve) => {
+          release = resolve;
+        });
+      render(
+        <ImageCropEditor
+          {...defaultProps}
+          imageFile={slow}
+          upload={{ endpoint: '/api/v1/media/upload/avatar', allowAnimated: true }}
+        />
+      );
+      await screen.findByText('Apply');
+      expect(screen.getByText('Apply')).toBeDisabled();
+      release(gifBytes(2).buffer as ArrayBuffer);
+      await screen.findByText(/keeps its animation/);
+      expect(screen.getByText('Apply')).toBeEnabled();
+      expect(screen.getByLabelText('Zoom level')).toBeDisabled();
+      expect(screen.getByRole('status')).toHaveTextContent(/crop and zoom don't apply/);
+      expect(screen.getByLabelText(/Animated GIF preview/)).toBeInTheDocument();
+    });
+
+    it('falls back to a still crop after the server refuses the animation', async () => {
+      const { apiFetch } = await import('@/renderer/services/system/apiClient');
+      (apiFetch as Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        json: () =>
+          Promise.resolve({
+            error: 'Animated avatars and banners require a premium subscription',
+            code: 'animated_profile_premium',
+          }),
+      });
+      const user = userEvent.setup();
+      render(
+        <ImageCropEditor
+          {...defaultProps}
+          imageFile={gifFile(2)}
+          upload={{ endpoint: '/api/v1/media/upload/avatar', allowAnimated: true }}
+        />
+      );
+      await screen.findByText(/keeps its animation/);
+      await user.click(screen.getByText('Apply'));
+      expect(await screen.findByText(/upload a still image instead/)).toBeInTheDocument();
+      expect(screen.getByText('Drag to reposition, scroll to zoom')).toBeInTheDocument();
+
+      await user.click(screen.getByText('Apply'));
+      await vi.waitFor(() => expect(onConfirm).toHaveBeenCalled());
+      const calls = (apiFetch as Mock).mock.calls;
+      const second = (calls[1][1].body as FormData).get('file') as File;
+      expect(second.type).not.toBe('image/gif');
     });
 
     it('crops an animated GIF to a still where animation is not allowed', async () => {
