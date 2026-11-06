@@ -764,6 +764,10 @@ describe('sealDeviceWrap', () => {
     const [old, next] = [set.act[0], set.pend!];
     expect(await activeRecipient(h, old)).toBe(false);
     expect(await activeRecipient(h, next)).toBe(true);
+    // The seal itself refuses the device the shown activation dropped.
+    const { secrets } = await fixture();
+    expect(await sealDeviceWrap(h, old, new Uint8Array(48), secrets)).toBeNull();
+    expect(await sealDeviceWrap(h, next, new Uint8Array(48), secrets)).not.toBeNull();
     const noFix = { ...h, chain: { ...h.chain, fix: new Uint8Array(0) } };
     expect(await activeRecipient(noFix, old)).toBe(true);
     expect(await activeRecipient(noFix, next)).toBe(false);
