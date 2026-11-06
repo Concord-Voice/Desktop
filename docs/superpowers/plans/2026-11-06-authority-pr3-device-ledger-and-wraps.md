@@ -31,7 +31,8 @@ persisted chain-head and device-head bytes, and an unchanged `from` on a
 refusal. `device-wrap-open` (20): Reason, and on `ok` the wrap's use. The
 layout types `device-set` (25) and `device-wrap` (6) and the `device-id` (2)
 primitive were already checked by PR 1. The coverage assertion now requires
-every vector type to be exercised.
+every vector of every verdict-checked type to be exercised (the layout and
+primitive types stay with PR 1's codec tests).
 
 ## Review focus
 

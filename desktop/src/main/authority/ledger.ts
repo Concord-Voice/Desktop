@@ -268,7 +268,7 @@ const installsRoot = (p: Pub): boolean => p.state === 'pending' && p.pendRoot.le
  * at or before `after` (RT6-9), or, when the fix shows a new-root activation
  * this set stops before, never completed before that activation (C4-4).
  */
-interface SlotFloor {
+export interface SlotFloor {
   digest: Uint8Array; // the slot's replacement_bind_digest; empty when nothing is proven
   after: number;
   never: boolean;
@@ -285,7 +285,12 @@ function slotFloorOf(set: DeviceSet, raw: Pub, fix: Status | null, taken: boolea
   };
 }
 
-const floorHolds = (f: SlotFloor, digest: Uint8Array, x: number): boolean =>
+/**
+ * RT6-9 and C4-4: the slot named digest is held pending for an event at x when
+ * the fix showed it pending at or after x, or it never completes before the
+ * activation that came first. Exported for its boundary test.
+ */
+export const floorHolds = (f: SlotFloor, digest: Uint8Array, x: number): boolean =>
   equalBytes(f.digest, digest) && (f.never || x <= f.after);
 
 /** The chain one call reads, shared by every hypothesis. */
@@ -688,14 +693,25 @@ function preEntry(c: Shared, w: Walk, p: ParsedDevice, step: ChainStep | null): 
   return 'ok';
 }
 
-/** The entry-less change after a published result: DR8's clearPending and row 22's emptied slot. */
+const CLEAR_PENDING: Readonly<Normalize> = Object.freeze({ clearPending: true });
+
+/** The entry-less change after a published result, by §2.9 row: DR8's clearPending and row 22's emptied slot. */
+export const AFTER_EVENT: Readonly<Record<number, Readonly<Normalize>>> = Object.freeze({
+  13: CLEAR_PENDING,
+  14: CLEAR_PENDING,
+  16: CLEAR_PENDING,
+  17: CLEAR_PENDING,
+  21: CLEAR_PENDING,
+  22: Object.freeze({ clearPending: true, emptySlot: true }),
+});
+
 async function afterEvent(w: Walk, s: ChainStep): Promise<void> {
-  if ([13, 14, 16, 17, 21].includes(s.row)) w.set = await normalize(w.set, { clearPending: true });
-  else if (s.row === 22) w.set = await normalize(w.set, { clearPending: true, emptySlot: true });
+  const f = AFTER_EVENT[s.row];
+  if (f) w.set = await normalize(w.set, f);
 }
 
-/** The Reason no hypothesis admits an entry under: the one they share, else device_rule (DR9 (c)). */
-const sharedReason = (why: Reason[]): Reason =>
+/** The Reason no hypothesis admits an entry under: the one they share, else device_rule (DR9 (c)). Exported for its test. */
+export const sharedReason = (why: Reason[]): Reason =>
   why.every((r) => r === why[0]) ? why[0] : 'device_rule';
 
 // ── The ledger: every hypothesis of one call ─────────────────────────────────
@@ -999,7 +1015,10 @@ const emptyView = (dseq: number, asOfMs: number): DeviceView => ({
   admitted: new Map(),
 });
 
-/** A DeviceView of a set; a malformed set or admitted_by record yields the empty view. */
+/**
+ * A DeviceView of a set. A malformed admitted_by record yields the empty view;
+ * a malformed set keeps the admitted records, as the reference's viewOf does.
+ */
 async function viewOf(
   set: Uint8Array,
   dseq: number,
@@ -1008,11 +1027,15 @@ async function viewOf(
 ): Promise<DeviceView> {
   const v = emptyView(dseq, asOf);
   if (!admitted.every(admittedOK)) return v;
+  const withAdmitted: DeviceView = {
+    ...v,
+    admitted: new Map(admitted.map((r) => r.split('.') as [string, string])),
+  };
   const s = await parseSet(set);
-  if (!s) return v;
+  if (!s) return withAdmitted;
   const { v: d } = s;
   return {
-    ...v,
+    ...withAdmitted,
     active: s.act,
     pending: s.pend,
     recovery: {
@@ -1023,7 +1046,6 @@ async function viewOf(
       replacementNbMs: d.replacement_nb_ms,
       unresolved: asOf !== 0 && d.replacement_bind_digest.length > 0 && asOf >= d.replacement_nb_ms,
     },
-    admitted: new Map(admitted.map((r) => r.split('.') as [string, string])),
   };
 }
 
@@ -1097,7 +1119,8 @@ async function walkLedger(
     use
   );
   const st = chain.status.status;
-  if (!STATE_REASONS.has(chain.reason) || !st) return chain.reason;
+  if (!STATE_REASONS.has(chain.reason)) return chain.reason;
+  if (!st) return 'malformed';
   const [ds, dr] = await verifyDeviceStatus(t, inp.deviceStatus, st);
   if (!ds || dr !== 'ok') return dr;
   // A device-status older than τ is stale for every Use: history relaxes the

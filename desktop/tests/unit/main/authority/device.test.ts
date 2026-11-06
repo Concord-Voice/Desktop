@@ -24,7 +24,13 @@ import {
   parseDeviceHead,
   type DeviceHead,
 } from '@/main/authority/heads';
-import { verifyDeviceLedger, type DeviceLedgerInput } from '@/main/authority/ledger';
+import {
+  AFTER_EVENT,
+  floorHolds,
+  sharedReason,
+  verifyDeviceLedger,
+  type DeviceLedgerInput,
+} from '@/main/authority/ledger';
 import { decodeAs, encodeAs, type DeviceSet, type RecoveryBind } from '@/main/authority/messages';
 import { attachedOp, deviceIntentForOp } from '@/main/authority/patterns';
 import { deviceId, sha384, type DevRecord } from '@/main/authority/primitives';
@@ -427,6 +433,45 @@ describe('normalizeDeviceSet (DR8, DR9 (c))', () => {
     ))!;
     expect([cleared.pend, cleared.v.replacement_bind_digest.length]).toEqual([null, 0]);
     expect(await deviceSetDigest(utf8Bytes('x'))).toBeNull();
+  });
+});
+
+describe('the ledger internals the vectors do not pin', () => {
+  it('maps each published row to its entry-less change, and only row 22 empties the slot', async () => {
+    expect(Object.keys(AFTER_EVENT).map(Number)).toEqual([13, 14, 16, 17, 21, 22]);
+    const slotted = setOf({
+      act: [a],
+      pend: n,
+      recovery_key: key1,
+      recovery_bind_digest: D48(3),
+      replacement_key: key2,
+      replacement_bind_digest: D48(4),
+      replacement_nb_ms: 50,
+    });
+    const after = async (row: number) =>
+      (await parseSet((await normalizeDeviceSet(slotted, AFTER_EVENT[row]))!))!;
+    for (const row of [13, 14, 16, 17, 21]) {
+      const kept = await after(row);
+      expect([kept.pend, kept.v.replacement_bind_digest], `row ${row}`).toEqual([null, D48(4)]);
+    }
+    const emptied = await after(22);
+    expect([emptied.pend, emptied.v.replacement_bind_digest.length]).toEqual([null, 0]);
+    expect(AFTER_EVENT[15]).toBeUndefined();
+  });
+
+  it('holds the slot floor at its as_of and not one ms after (RT6-9), and always under C4-4', () => {
+    const f = { digest: D48(4), after: 30_000, never: false };
+    expect(floorHolds(f, D48(4), 29_999)).toBe(true);
+    expect(floorHolds(f, D48(4), 30_000)).toBe(true);
+    expect(floorHolds(f, D48(4), 30_001)).toBe(false);
+    expect(floorHolds(f, D48(5), 30_000)).toBe(false);
+    expect(floorHolds({ ...f, never: true }, D48(4), 1e12)).toBe(true);
+    expect(floorHolds({ ...f, never: true }, D48(5), 0)).toBe(false);
+  });
+
+  it('refuses with the one Reason every hypothesis shares, else device_rule (DR9 (c))', () => {
+    expect(sharedReason(['wrong_state', 'wrong_state'])).toBe('wrong_state');
+    expect(sharedReason(['wrong_state', 'malformed'])).toBe('device_rule');
   });
 });
 

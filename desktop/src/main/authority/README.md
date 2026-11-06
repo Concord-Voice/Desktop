@@ -77,8 +77,19 @@ and `Trust` (trust); `parseChainHead`, `chainHeadBytes` and `genesisHead`
 - Pass `verifyDeviceLedger` only a device head from `parseDeviceHead` or an
   earlier ledger verification, and `verifyDeviceWrap` only the device head that
   `verifyDeviceLedger` returned. Persist both heads the ledger returns together.
-- `verifyDeviceWrap` zeroes every copy of key material it makes. The secrets it
-  returns on `ok` are the caller's to zero after use.
+- `verifyDeviceWrap` zeroes the byte arrays of key material it holds, on every
+  path. That is best effort: strings inside the codec and the internals of
+  every `CryptoKey` stay until garbage collection. The secrets it returns on
+  `ok` are the caller's to zero after use.
+- Pass `verifyDeviceWrap` a dkx key pair generated together: a non-extractable
+  private key with the `deriveBits` usage only, and its own extractable public
+  key.
+- Pass `verifyDeviceLedger` device bundles only from a decoded `query-resp`
+  (which caps them at 16), never from another source.
+- Store the persisted heads where only the main process can write them, with
+  integrity protection. A verifier trusts the head it is given.
+- Before the first caller ships, run the wrap and ledger vectors in the
+  Electron main process (see Runtime below).
 
 **Verified now:** the published chain and the private device ledger. The parity test checks the port's Reason
 and verdict against every `chain` (92), `bundle-verify` (145) and `pattern` (7)
@@ -99,7 +110,9 @@ anchors, IPC and the distribution gate.
 **Not ported:** `Floor` and `DeriveAssurance`, which only the authority
 evaluates (§2.8, §2.12). The authority-only columns of the §2.9 table,
 `AuthenticateDeviceBundle`, `BindTier` and the authority's device timing
-helpers (`VisibleInstant`, `CompletionFirst`) are also not ported.
+helpers (`VisibleInstant`, `CompletionFirst`) are also not ported, nor are the
+read-only `DeviceHead` helpers `View`, `HasActiveDSK`, `AdmittedBy` and
+`BoundRecovery` (the ledger's outcome carries the view).
 
 **Cost:** a step does not re-encode the head to check `HEAD_BLOB_MAX`. As in
 the reference, every index edit records the bytes it adds (`headFits` in

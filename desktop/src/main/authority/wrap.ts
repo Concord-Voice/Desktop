@@ -7,11 +7,14 @@
 // non-extractable CryptoKey; AES-256-GCM under the wrap's 12-byte nonce and the
 // 265-byte AAD.
 //
-// Key-material hygiene: the byte arrays this file holds (Z, the plaintext, the
-// decoded keys of a refused wrap, every copy handed to importKey or returned by
-// exportKey, the probe and its decryption) are zeroed before the function that
-// holds them returns. CryptoKey internals are out of reach. The accepted
-// secrets are the caller's to zero. No Reason carries key material.
+// Key-material hygiene, best effort: the byte arrays this file holds (Z, the
+// plaintext, the decoded keys of a refused wrap, every copy handed to importKey
+// or returned by exportKey, the probe and its decryption) are zeroed before the
+// function that holds them returns, on every path. JavaScript cannot zero
+// everything: strings and intermediate buffers inside the codec, and the
+// internals of every CryptoKey (including the extractable ones the canonical
+// PKCS#8 check imports), stay until the garbage collector frees them. The
+// accepted secrets are the caller's to zero. No Reason carries key material.
 
 import { b64d, buf, concat, equalBytes, utf8 } from './bytes';
 import type { DeviceHead } from './heads';
@@ -39,7 +42,13 @@ export interface WrapOpened {
   reason: Reason;
 }
 
-/** Self's dkx: an ECDH P-384 key pair (the shape of Web Crypto's CryptoKeyPair). */
+/**
+ * Self's dkx: an ECDH P-384 key pair (the shape of Web Crypto's CryptoKeyPair),
+ * generated together. publicKey must be the private key's own public half and
+ * extractable (its raw point is in HKDF's info); a mismatched one only makes
+ * every wrap wrap_invalid. privateKey should be non-extractable with the
+ * deriveBits usage only.
+ */
 export interface DkxPair {
   privateKey: CryptoKey;
   publicKey: CryptoKey;
@@ -247,15 +256,23 @@ async function openWrap(h: DeviceHead, w: DeviceWrap, dkx: DkxPair): Promise<Wra
   if (!e) return REFUSED;
   const pt = await decryptWrap(w, dkx);
   if (!pt) return REFUSED;
-  const s = await decodeAs('device-secrets', pt);
-  pt.fill(0);
-  if (!s) return REFUSED;
-  if (!(await secretsAccepted(e, s, w.device_entry_digest))) {
-    s.root_pkcs8.fill(0);
-    s.ek_pkcs8.fill(0);
-    return REFUSED;
+  let s: DeviceSecrets | null;
+  try {
+    s = await decodeAs('device-secrets', pt);
+  } finally {
+    pt.fill(0);
   }
-  return { secrets: s, use: e.latest ? 'current' : 'history', reason: 'ok' }; // check 4
+  if (!s) return REFUSED;
+  let ok = false;
+  try {
+    ok = await secretsAccepted(e, s, w.device_entry_digest);
+  } finally {
+    if (!ok) {
+      s.root_pkcs8.fill(0);
+      s.ek_pkcs8.fill(0);
+    }
+  }
+  return ok ? { secrets: s, use: e.latest ? 'current' : 'history', reason: 'ok' } : REFUSED; // check 4
 }
 
 /**
