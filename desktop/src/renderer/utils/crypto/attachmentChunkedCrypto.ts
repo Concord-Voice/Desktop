@@ -832,9 +832,15 @@ class ExactReader {
   }
 }
 
+/** Largest single-shot (legacy) envelope: the 128 MiB legacy upload ceiling
+ *  plus its IV and tag. ponytail: mirrors LEGACY_UPLOAD_PATH_CEILING_BYTES in
+ *  entitlementLimits.ts, which imports this module, so it cannot import back. */
+export const LEGACY_MAX_ENVELOPE_BYTES = 134_217_728 + CHUNK_OVERHEAD_BYTES;
+
 /**
- * The single-shot format needs the whole blob for its one GCM open. It is
- * capped at the legacy upload ceiling, so buffering it is bounded. `null` when
+ * The single-shot format needs the whole blob for its one GCM open. The caller
+ * rejects anything above LEGACY_MAX_ENVELOPE_BYTES first, so buffering it is
+ * bounded. `null` when
  * the body is shorter or longer than `declaredLength`.
  */
 async function readLegacyWhole(
@@ -914,6 +920,11 @@ export async function decryptAttachmentStream(
   }
 
   if (classified.kind === 'legacy') {
+    // Checked BEFORE buffering: declaredLength is server-supplied, so the
+    // legacy ceiling has to be enforced here, not assumed from honest uploads.
+    if (declaredLength > LEGACY_MAX_ENVELOPE_BYTES) {
+      return fail(new AttachmentIntegrityError('attachment is too large for the single-shot format'));
+    }
     const whole = await readLegacyWhole(reader, head, declaredLength);
     if (whole === null) {
       return fail(new AttachmentIntegrityError('attachment length does not match its size'));

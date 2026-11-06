@@ -73,7 +73,7 @@ const BLOB_CACHE_MAX_BYTES = 268_435_456;
  *  everything else exactly once.
  *
  *  Chunked uploads make this reachable: before them the upload ceiling held
- *  attachments to 128 MiB, and a 256 MiB file is now a normal premium upload.
+ *  attachments to 128 MiB, and files up to 1 GiB are now normal uploads.
  *
  *  A QUARTER was tried first and rejected on evidence. At 64 MiB the existing
  *  100 MiB eviction fixtures stopped being cached at all, which broke one test
@@ -345,7 +345,7 @@ async function loadAndCache(
   // cannot: it is MIME-derived and persisted at upload, so an animated WebP or
   // an APNG sent as `image/png` is stored as `photo` forever. Reads a bounded
   // prefix via `slice`, never the whole blob — holding a Blob rather than an
-  // ArrayBuffer on this path is deliberate (a 256 MiB attachment must never be
+  // ArrayBuffer on this path is deliberate (a 1 GiB attachment must never be
   // materialised contiguously) and sniffing must not undo that.
   // Images only: a prefix read of a video buys nothing.
   let animated: boolean | null = null;
@@ -1125,7 +1125,7 @@ function FileAttachment({ attachment, channelId }: AttachmentItemProps) {
   // eviction can interleave because there is no `await` between the load
   // resolving and `a.click()`. That covers the interval BEFORE the click and
   // not the one after it: `a.click()` starts an asynchronous browser download
-  // that reads the blob over time, and for an attachment near the 256 MiB guard
+  // that reads the blob over time, and for an attachment near the 1 GiB guard
   // that read is long-lived. Another attachment loading during it would evict
   // and revoke the url mid-read (#2837 review, row 1).
   const [downloadedUrl, setDownloadedUrl] = useState<string | null>(null);

@@ -17,6 +17,7 @@ import {
   classifyEnvelope,
   decryptAttachmentBlob,
   decryptAttachmentStream,
+  LEGACY_MAX_ENVELOPE_BYTES,
   AttachmentIntegrityError,
   parseKeyVersionHeader,
   AttachmentKeyEpochError,
@@ -788,6 +789,22 @@ describe('decryptAttachmentStream', () => {
     const legacy = new Uint8Array(await encryptFile(pt.slice().buffer, key));
     const out = await decryptAttachmentStream(streamOf(legacy, 5), legacy.byteLength, key, 'x/y');
     expect(Array.from(await bytesOf(out))).toEqual(Array.from(pt));
+  });
+
+  it('refuses a legacy body declared above the single-shot ceiling before buffering it', async () => {
+    const key = await aesKey();
+    const head = new Uint8Array(ENVELOPE_HEADER_BYTES).fill(7); // not "CV": classifies legacy
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled += 1;
+        controller.enqueue(head);
+      },
+    });
+    await expect(
+      decryptAttachmentStream(body, LEGACY_MAX_ENVELOPE_BYTES + 1, key, 'x/y')
+    ).rejects.toThrow(AttachmentIntegrityError);
+    expect(pulled).toBeLessThanOrEqual(2); // the header, never the declared gigabyte
   });
 
   it('fails closed when the body ends before the declared length', async () => {
