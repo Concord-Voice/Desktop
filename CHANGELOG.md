@@ -40,7 +40,11 @@ This release adds groundwork for verifying account keys. Nothing uses it yet.
 ### Fixed
 
 - **Profiles:** Animated GIF avatars and profile banners now stay animated when your plan allows it. The GIF uploads as it is instead of being cropped to a still.
-- **Servers:** Animated GIF server banners now stay animated when the server's tier allows it.
+- **Servers:** Animated GIF server icons and banners now stay animated when the server's tier allows it.
+
+### Changed
+
+- **Servers:** The app's copy of the server boost limits now matches the server: 100 custom emoji on unboosted servers, 256 MiB and 512 MiB uploads on Mach 1 and Mach 2, and animated server icons from Mach 1.
 
 ### Changed
 

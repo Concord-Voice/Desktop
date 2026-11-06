@@ -7,25 +7,28 @@ import {
 describe('serverEntitlementsFor', () => {
   it('mirrors the Go ladder values (server_entitlements.go is source of truth)', () => {
     expect(SERVER_TIER_ENTITLEMENTS.groundspeed).toEqual({
-      maxCustomEmoji: 75,
+      maxCustomEmoji: 100,
       maxStickers: 10,
       maxSoundboards: 15, // founder entitlement matrix baseline; public page omits the line item
       maxUploadBytes: 33_554_432,
       allowAnimatedBanner: false, // animated GIF server banner is Mach 1+ (#1302)
+      allowAnimatedIcon: false, // animated GIF server icon is Mach 1+
     });
     expect(SERVER_TIER_ENTITLEMENTS.mach1).toEqual({
       maxCustomEmoji: 250,
       maxStickers: 75,
       maxSoundboards: 30,
-      maxUploadBytes: 134_217_728,
+      maxUploadBytes: 268_435_456,
       allowAnimatedBanner: true,
+      allowAnimatedIcon: true,
     });
     expect(SERVER_TIER_ENTITLEMENTS.mach2).toEqual({
       maxCustomEmoji: 350,
       maxStickers: 100,
       maxSoundboards: 40,
-      maxUploadBytes: 268_435_456,
+      maxUploadBytes: 536_870_912,
       allowAnimatedBanner: true,
+      allowAnimatedIcon: true,
     });
     expect(SERVER_TIER_ENTITLEMENTS.mach3).toEqual({
       maxCustomEmoji: 500,
@@ -33,6 +36,7 @@ describe('serverEntitlementsFor', () => {
       maxSoundboards: 55,
       maxUploadBytes: 536_870_912,
       allowAnimatedBanner: true,
+      allowAnimatedIcon: true,
     });
     expect(SERVER_TIER_ENTITLEMENTS.selfhost).toEqual({
       maxCustomEmoji: -1,
@@ -40,6 +44,7 @@ describe('serverEntitlementsFor', () => {
       maxSoundboards: -1,
       maxUploadBytes: -1,
       allowAnimatedBanner: true,
+      allowAnimatedIcon: true,
     });
   });
 
