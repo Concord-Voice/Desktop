@@ -259,11 +259,30 @@ High-level stances on SonarQube rules whose mismatch with this project's idiomat
 
 ### Rule-Calibration Notes
 
-_None yet._
+#### `tssecurity:S5144` — `shell.openExternal` read as a server-side request
+
+| Field | Value |
+|---|---|
+| First recorded | 2026-11-06 (default-profile sweep) |
+| Rationale | The taint rule treats any URL that reaches a network-capable sink as SSRF. `shell.openExternal` hands the URL to the user's OS browser or protocol handler; the app makes no request of its own. The handler in `desktop/src/main/ipc/openExternal.ts` checks the IPC sender first, requires a string, and passes only URLs whose protocol is in `ALLOWED_PROTOCOLS`. |
+| Disposition | Per-instance `FALSE_POSITIVE` only where the sink is `shell.openExternal` behind the sender check and protocol allowlist. A URL that reaches `net`, `fetch` or `http` in the main process is a real finding. Rule-level disable is prohibited by project SonarQube AI-Code Assurance policy. |
+
+#### `typescript:S2245` — `Math.random` for timer jitter
+
+| Field | Value |
+|---|---|
+| First recorded | 2026-11-06 (default-profile sweep; same pattern as the legacy H12/H13 rows) |
+| Rationale | The value only spreads a `setTimeout` delay so clients do not race. It never becomes key material, a token, a nonce or a session id. |
+| Disposition | Per-instance `FALSE_POSITIVE` when the value is only a delay or ordering spread. Any security-relevant random value must use `crypto.getRandomValues`. Rule-level disable is prohibited by project SonarQube AI-Code Assurance policy. |
 
 ### Instance-Specific Entries
 
-_None yet._
+Marked `FALSE_POSITIVE` on 2026-11-06 with Mark's explicit approval, each with a comment pointing here.
+
+| # | Date | Issue key | Rule | Location | Marker | Justification |
+|---|---|---|---|---|---|---|
+| 1 | 2026-11-06 | `AaGqr_YDSr9UwsDcq8hH` | `tssecurity:S5144` | `desktop/src/main/ipc/openExternal.ts:68` | Claude (#129) | `shell.openExternal` behind the sender check and protocol allowlist; no request is made. Note `tssecurity:S5144` above. |
+| 2 | 2026-11-06 | `AaGRKm8DWV1cgC4sffo2` | `typescript:S2245` | `desktop/src/renderer/hooks/messaging/useWebSocket.ts:356` | Claude (#129) | 0–2 s key-rotation jitter, a `setTimeout` delay only. Note `typescript:S2245` above. |
 
 ## Recreation-recovery / drift-guard (ADR-0017 narrowed profile)
 
