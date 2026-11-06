@@ -52,6 +52,71 @@ function mockConfigResponse(spaUrl: string | undefined, spaIpcContract: number |
   } as unknown as Response);
 }
 
+describe('resolveSpaSource — only the hosted service selects a remote renderer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    ['the hosted base', 'https://api.concordvoice.chat'],
+    ['a trailing slash', 'https://api.concordvoice.chat/'],
+    ['an upper-case host', 'https://API.ConcordVoice.chat'],
+    ['the explicit default port', 'https://api.concordvoice.chat:443'],
+    ['userinfo before the hosted host', 'https://x@api.concordvoice.chat'],
+  ])('loads the remote SPA the hosted service names, given %s', async (_label, apiBase) => {
+    mockGetApiBase.mockReturnValue(apiBase);
+    mockConfigResponse('https://spa.concordvoice.chat/spa/abc1234/index.html', 7);
+    const result = await resolveSpaSource('stable');
+    expect(result.mode).toBe('remote');
+  });
+
+  it('fetches client config from the hosted constant, not the persisted string', async () => {
+    mockGetApiBase.mockReturnValue(
+      'https://api.concordvoice.chat/redirect?u=https://evil.example/'
+    );
+    mockConfigResponse('https://spa.concordvoice.chat/index.html', 7);
+    await resolveSpaSource('stable');
+    const fetched = String(mockNet.fetch.mock.calls[0][0]);
+    expect(fetched.startsWith('https://api.concordvoice.chat/api/v1/client/config')).toBe(true);
+    expect(fetched).not.toContain('evil');
+  });
+
+  it('rejects a hosted config that names another SPA origin', async () => {
+    mockGetApiBase.mockReturnValue('https://api.concordvoice.chat');
+    mockConfigResponse('https://evil.example/index.html', 7);
+    const result = await resolveSpaSource('stable');
+    expect(result).toEqual({
+      mode: 'bundled',
+      reason: 'spaUrl rejected: not the hosted SPA origin',
+    });
+    // A server-side misconfiguration signal: surfaced, never bridged by the cache.
+    expect(isUnexpectedBundled(result.reason)).toBe(true);
+    expect(isTransientRemoteFailure(result.reason)).toBe(false);
+  });
+
+  it.each([
+    ['a self-hosted server', 'https://chat.example.org'],
+    ['a trailing-dot hosted host', 'https://api.concordvoice.chat.'],
+    ['userinfo that moves the host', 'https://api.concordvoice.chat:443@evil.example'],
+    ['a look-alike host', 'https://api.concordvoice.chat.evil.example'],
+    ['the hosted host on another port', 'https://api.concordvoice.chat:8443'],
+    ['the hosted host over http', 'http://api.concordvoice.chat'],
+    ['a malformed base', 'not a url'],
+  ])('runs bundled for %s and never asks it for client config', async (_label, apiBase) => {
+    mockGetApiBase.mockReturnValue(apiBase);
+    mockConfigResponse('https://evil.example/index.html', 1);
+    const result = await resolveSpaSource('stable');
+    expect(result).toEqual({
+      mode: 'bundled',
+      reason: 'self-hosted server uses bundled renderer',
+    });
+    expect(mockNet.fetch).not.toHaveBeenCalled();
+    // Normal operation, not an outage: no fallback banner, no cache bridge.
+    expect(isUnexpectedBundled(result.reason)).toBe(false);
+    expect(isTransientRemoteFailure(result.reason)).toBe(false);
+  });
+});
+
 describe('spaLoader — defensive /api/v1/spa/ sentinel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -130,7 +195,7 @@ describe('spaLoader — defensive /api/v1/spa/ sentinel', () => {
   });
 
   it('rejects spaUrl with /api/v1/spa/ pathname as poisoned sentinel', async () => {
-    mockConfigResponse('https://api.concordvoice.chat/api/v1/spa/abc1234/index.html', 7);
+    mockConfigResponse('https://spa.concordvoice.chat/api/v1/spa/abc1234/index.html', 7);
     const result = await resolveSpaSource();
     expect(result.mode).toBe('bundled');
     expect(result.reason).toMatch(/poisoned sentinel|legacy \/api\/v1\/spa\//);
@@ -139,7 +204,7 @@ describe('spaLoader — defensive /api/v1/spa/ sentinel', () => {
   it('does NOT reject adjacent /api/v1/client/config paths (narrow match)', async () => {
     // /api/v1/client/config would never be a legitimate spaUrl, but this confirms
     // the sentinel matches narrowly on /api/v1/spa/ and not on the broader /api/.
-    mockConfigResponse('https://api.concordvoice.chat/api/v1/client/config', 7);
+    mockConfigResponse('https://spa.concordvoice.chat/api/v1/client/config', 7);
     const result = await resolveSpaSource();
     // Not rejected by the sentinel. (Will still fall back to bundled for other
     // reasons, but the reason string must NOT mention the sentinel.)
@@ -147,10 +212,10 @@ describe('spaLoader — defensive /api/v1/spa/ sentinel', () => {
   });
 
   it('allows legitimate /spa/ pathname past the sentinel', async () => {
-    mockConfigResponse('https://api.concordvoice.chat/spa/abc1234/index.html', 7);
+    mockConfigResponse('https://spa.concordvoice.chat/spa/abc1234/index.html', 7);
     const result = await resolveSpaSource();
     expect(result.mode).toBe('remote');
-    expect(result.url).toBe('https://api.concordvoice.chat/spa/abc1234/index.html');
+    expect(result.url).toBe('https://spa.concordvoice.chat/spa/abc1234/index.html');
     expect(mockNet.fetch).toHaveBeenCalledWith(
       'https://api.concordvoice.chat/api/v1/client/config?channel=stable&ipc=7',
       expect.objectContaining({
@@ -161,8 +226,8 @@ describe('spaLoader — defensive /api/v1/spa/ sentinel', () => {
   });
 
   // T4a (#976): SPA bundle moved to Cloudflare Pages at a constant host.
-  // spaLoader validates https + contract only (no host allowlist by design —
-  // spec §8 defers host pinning; see internal-reference "Auto-Updater").
+  // There is no allowlist of SPA hosts; the server that may name one is pinned
+  // instead (only the hosted service, see the describe block above).
   it('accepts the Cloudflare Pages SPA URL (T4a, #976)', async () => {
     mockConfigResponse('https://spa.concordvoice.chat/index.html', 7);
     const result = await resolveSpaSource();
@@ -516,10 +581,10 @@ describe('SPA discovery channel selection', () => {
   });
 
   it('requests Pre-Release explicitly without changing the held default', async () => {
-    mockConfigResponse('https://preview.example.test/', 7);
+    mockConfigResponse('https://spa.concordvoice.chat/preview/', 7);
     expect(await resolveSpaSource('prerelease')).toMatchObject({
       mode: 'remote',
-      url: 'https://preview.example.test/',
+      url: 'https://spa.concordvoice.chat/preview/',
     });
     expect(mockNet.fetch).toHaveBeenLastCalledWith(
       'https://api.concordvoice.chat/api/v1/client/config?channel=prerelease&ipc=7',
@@ -546,7 +611,7 @@ describe('SPA discovery channel selection', () => {
   });
 
   it('keeps Pilot bundled without even reading the API base or fetching config', async () => {
-    mockConfigResponse('https://stable.example.test/', 7);
+    mockConfigResponse('https://spa.concordvoice.chat/', 7);
     const result = await resolveSpaSource('pilot');
     expect(result.mode).toBe('bundled');
     expect(isUnexpectedBundled(result.reason)).toBe(false);
