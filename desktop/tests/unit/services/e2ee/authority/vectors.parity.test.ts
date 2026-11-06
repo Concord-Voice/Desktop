@@ -15,6 +15,14 @@ import {
   type Values,
 } from '@/renderer/services/e2ee/authority/codec';
 import * as prim from '@/renderer/services/e2ee/authority/primitives';
+import { verifyBundle, verifyChain } from '@/renderer/services/e2ee/authority/chain';
+import { chainHeadBytes, parseChainHead } from '@/renderer/services/e2ee/authority/heads';
+import { decodeAs } from '@/renderer/services/e2ee/authority/messages';
+import { checkRelayRecover, recoveryBindForKind } from '@/renderer/services/e2ee/authority/patterns';
+import { intentForOp } from '@/renderer/services/e2ee/authority/post';
+import { REASONS, verdictOf } from '@/renderer/services/e2ee/authority/reason';
+import type { AccountMemory, Use } from '@/renderer/services/e2ee/authority/status';
+import { newTrust, type HighWater, type Trust } from '@/renderer/services/e2ee/authority/trust';
 
 // Concord-Voice/Self-Hosted services/control-plane/internal/authoritycontract/testdata/vectors.json
 // @ 2ddd583. Re-vendor (and update this pin) only when the vectors are regenerated.
@@ -226,6 +234,8 @@ async function deviceBundleParts(s: string): Promise<void> {
   }
 }
 
+const A2_HANDLERS: Record<string, (v: Vec) => Promise<void>> = {};
+
 const PRIMARY_TAG: Record<string, string> = {
   chain: 'signed',
   'device-ledger': 'signed',
@@ -270,7 +280,128 @@ async function verificationVector(v: Vec): Promise<void> {
   await decodes(PRIMARY_TAG[v.type] ?? v.input!.tag, v.bytes_b64);
 }
 
-for (const t of A2_TYPES) PRIM[t] = verificationVector;
+for (const t of A2_TYPES) PRIM[t] = A2_HANDLERS[t] = verificationVector;
+
+// ── Verdict parity (§2.12): the port's Reason for every published-chain vector ──
+// The private device ledger (device-ledger, device-wrap-open, apply-device-op,
+// normalize) comes in a later PR; those types stay codec-only above.
+
+const exercised: Record<string, number> = {};
+const count = (v: Vec): void => {
+  exercised[v.type] = (exercised[v.type] ?? 0) + 1;
+};
+
+const b64OrEmpty = (s?: string): Uint8Array => (s ? b64d(s) : new Uint8Array(0));
+const hwOf = (h: Json): HighWater => ({ gen: h.gen, serial: h.serial, minValid: h.min_valid });
+function memOf(m: Json): AccountMemory {
+  expect([0, 1]).toContain(m.everEnrolled); // u01: any other value is a broken vector
+  return {
+    pin: b64OrEmpty(m.pin),
+    everEnrolled: m.everEnrolled === 1,
+    acceptedPin: b64OrEmpty(m.acceptedPin),
+  };
+}
+
+// NewTrust over `anchors` (a T1 failure is malformed), then every `trust`
+// item in order, admitting each even after a halt (T4 is a property of the set).
+async function trustOf(v: Vec): Promise<Trust | null> {
+  const t = await newTrust(b64d(v.anchors));
+  for (const s of v.trust ?? []) await t?.addSigned(b64d(s));
+  return t;
+}
+
+async function prevHeadOf(v: Vec) {
+  const h = await parseChainHead(b64d(v.prev_head));
+  expect(h, 'prev_head parses').not.toBeNull();
+  return h as NonNullable<typeof h>;
+}
+
+function expectReason(v: Vec, reason: string): void {
+  expect(reason).toBe(v.expect.reason);
+  expect(verdictOf(reason)).toBe(v.expect.verdict);
+}
+
+function expectHead(v: Vec, head: Parameters<typeof chainHeadBytes>[0]): void {
+  if (!v.expect.head_b64) return;
+  const b = chainHeadBytes(head);
+  expect(b && b64e(b), 'the persisted head (D-269)').toBe(v.expect.head_b64);
+}
+
+const VERDICT_CHECKS: Record<string, (v: Vec) => Promise<void>> = {
+  chain: async (v) => {
+    const t = await trustOf(v);
+    if (!t) return expectReason(v, 'malformed');
+    expect(['new-secret', 'history']).toContain(v.use);
+    const out = await verifyChain(
+      t,
+      hwOf(v.hw),
+      await prevHeadOf(v),
+      { bundles: (v.bundles as string[]).map(b64d), status: b64d(v.bytes_b64!) },
+      memOf(v.mem),
+      v.now_ms,
+      v.use as Use
+    );
+    expectReason(v, out.reason);
+    expect(out.status.reason).toBe(out.reason);
+    expectHead(v, out.head);
+  },
+  'bundle-verify': async (v) => {
+    const t = await trustOf(v);
+    expect(t, 'bundle-verify anchors are valid').not.toBeNull();
+    const fix = v.fix ? b64d(v.fix) : undefined;
+    const out = await verifyBundle(t as Trust, hwOf(v.hw), await prevHeadOf(v), b64d(v.bytes_b64!), fix);
+    expectReason(v, out.reason);
+    expectHead(v, out.head);
+  },
+  'for-op': async (v) => {
+    const b = b64d(v.bytes_b64!);
+    let refusal: string;
+    let contexts: string[];
+    if (v.input!.tag === 'intent') {
+      const x = await decodeAs('intent', b);
+      expect(x).not.toBeNull();
+      refusal = intentForOp(x!, v.input!.actor, v.input!.pop, v.input!.root_cancels);
+      contexts = ['transition_invalid'];
+    } else {
+      expect(v.input!.tag).toBe('recovery-bind');
+      const x = await decodeAs('recovery-bind', b);
+      expect(x).not.toBeNull();
+      refusal = recoveryBindForKind(x!);
+      contexts = ['device_rule', 'malformed'];
+    }
+    // As the reference harness checks it: the refusal code, and a reason the
+    // refusal's context allows (an admitted call is ok).
+    expect(refusal).toBe(v.expect.refusal);
+    if (refusal === '') expect(v.expect.reason).toBe('ok');
+    else expect(contexts).toContain(v.expect.reason);
+    expect(verdictOf(v.expect.reason)).toBe(v.expect.verdict);
+  },
+  pattern: async (v) => {
+    expect(v.input!.tag).toBe('relay-recover');
+    expectReason(v, await checkRelayRecover(b64d(v.bytes_b64!)));
+  },
+  p1: async (v) => {
+    expect(v.input!.mode).toBe('status');
+    const msgOf = async (s: string): Promise<Uint8Array> => {
+      const sg = await decodeAs('signed', b64d(s));
+      expect(sg?.type).toBe('status');
+      return sg!.msg;
+    };
+    const after = await msgOf(v.bytes_b64!);
+    const before = await msgOf(v.input!.other_b64);
+    expect(equalBytes(before, after), 'a private op moved the published status').toBe(true);
+    expect(b64e(after)).toBe(v.expect.reencoded_b64);
+    expectReason(v, 'ok');
+  },
+};
+
+for (const [t, check] of Object.entries(VERDICT_CHECKS)) {
+  PRIM[t] = async (v) => {
+    if (Object.hasOwn(A2_HANDLERS, t)) await A2_HANDLERS[t](v);
+    await check(v);
+    count(v);
+  };
+}
 
 // A vector type with no PRIM handler is a layout vector. An unregistered type
 // must fail here: decode() refuses an unknown layout as Malformed, which a
@@ -313,4 +444,20 @@ describe('authority vectors verify under the TypeScript port', () => {
       30_000
     );
   }
+});
+
+describe('verdict parity coverage', () => {
+  it('exercised every verdict-checked vector type, every vector of it', () => {
+    for (const t of Object.keys(VERDICT_CHECKS)) {
+      const n = vectors.filter((v) => v.type === t).length;
+      expect(n, `${t} has vectors`).toBeGreaterThan(0);
+      expect(exercised[t] ?? 0, `${t} verdict-checked`).toBe(n);
+    }
+  });
+
+  it('keeps the Reason table of the contract', () => {
+    expect(Object.keys(REASONS).sort()).toEqual(Object.keys(VERDICT).sort());
+    for (const [r, verdict] of Object.entries(VERDICT)) expect(verdictOf(r), r).toBe(verdict);
+    expect(verdictOf('no-such-reason')).toBe('withhold');
+  });
 });
