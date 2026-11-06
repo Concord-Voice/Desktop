@@ -15,13 +15,15 @@
  * - First-time users (no stored token) → always bundled
  * - Server unreachable → always bundled
  * - IPC contract mismatch → bundled (shell needs a native update)
- * - Self-hosted servers (no spaUrl) → always bundled
+ * - Any server other than the hosted service → always bundled. A self-hosted
+ *   server never selects renderer code, whatever its client config says.
  */
 
 import { net } from 'electron';
 import { createHash } from 'node:crypto';
 import { IPC_CONTRACT_VERSION } from './ipcContract';
 import { getPersistedApiBase } from './tokenManager';
+import { PRODUCTION_API_BASE } from './apiBaseUrl';
 import { setSpaHash, setSpaVersion } from './spaState';
 import { getBuildSha7 } from './buildInfo';
 import type { SpaFallbackKind } from '../shared/spaIpcTypes';
@@ -67,6 +69,15 @@ export async function resolveSpaSource(
   const apiBase = getPersistedApiBase();
   if (!apiBase) {
     return { mode: 'bundled', reason: 'no persisted API base (first launch or logged out)' };
+  }
+
+  // Only the hosted service may select a remote renderer. The remote SPA gets
+  // the full preload IPC surface (frameValidation trusts the active remote
+  // origin), so letting any signed-in server name it would let that server run
+  // its own code as the app. Checked BEFORE the config fetch, so a self-hosted
+  // server is never even asked.
+  if (!isHostedApiBase(apiBase)) {
+    return { mode: 'bundled', reason: 'self-hosted server uses bundled renderer' };
   }
 
   try {
@@ -129,6 +140,14 @@ export async function resolveSpaSource(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { mode: 'bundled', reason: `config fetch failed: ${message}` };
+  }
+}
+
+function isHostedApiBase(apiBase: string): boolean {
+  try {
+    return new URL(apiBase).origin === new URL(PRODUCTION_API_BASE).origin;
+  } catch {
+    return false;
   }
 }
 
@@ -201,6 +220,7 @@ async function fetchJsonWithTimeout<T>(
 const EXPECTED_BUNDLED_REASON_PREFIXES = [
   'pilot channel uses bundled renderer',
   'no persisted API base',
+  'self-hosted server uses bundled renderer',
   'server has no spaUrl configured',
   'server spaIpcContract is zero or absent',
 ];

@@ -52,6 +52,39 @@ function mockConfigResponse(spaUrl: string | undefined, spaIpcContract: number |
   } as unknown as Response);
 }
 
+describe('resolveSpaSource — only the hosted service selects a remote renderer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('loads the remote SPA the hosted service names', async () => {
+    mockGetApiBase.mockReturnValue('https://api.concordvoice.chat');
+    mockConfigResponse('https://spa.concordvoice.chat/spa/abc1234/index.html', 7);
+    const result = await resolveSpaSource('stable');
+    expect(result.mode).toBe('remote');
+  });
+
+  it.each([
+    ['a self-hosted server', 'https://chat.example.org'],
+    ['a look-alike host', 'https://api.concordvoice.chat.evil.example'],
+    ['the hosted host on another port', 'https://api.concordvoice.chat:8443'],
+    ['the hosted host over http', 'http://api.concordvoice.chat'],
+    ['a malformed base', 'not a url'],
+  ])('runs bundled for %s and never asks it for client config', async (_label, apiBase) => {
+    mockGetApiBase.mockReturnValue(apiBase);
+    mockConfigResponse('https://evil.example/index.html', 1);
+    const result = await resolveSpaSource('stable');
+    expect(result).toEqual({
+      mode: 'bundled',
+      reason: 'self-hosted server uses bundled renderer',
+    });
+    expect(mockNet.fetch).not.toHaveBeenCalled();
+    // Normal operation, not an outage: no fallback banner, no cache bridge.
+    expect(isUnexpectedBundled(result.reason)).toBe(false);
+    expect(isTransientRemoteFailure(result.reason)).toBe(false);
+  });
+});
+
 describe('spaLoader — defensive /api/v1/spa/ sentinel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -161,8 +194,8 @@ describe('spaLoader — defensive /api/v1/spa/ sentinel', () => {
   });
 
   // T4a (#976): SPA bundle moved to Cloudflare Pages at a constant host.
-  // spaLoader validates https + contract only (no host allowlist by design —
-  // spec §8 defers host pinning; see internal-reference "Auto-Updater").
+  // There is no allowlist of SPA hosts; the server that may name one is pinned
+  // instead (only the hosted service, see the describe block above).
   it('accepts the Cloudflare Pages SPA URL (T4a, #976)', async () => {
     mockConfigResponse('https://spa.concordvoice.chat/index.html', 7);
     const result = await resolveSpaSource();

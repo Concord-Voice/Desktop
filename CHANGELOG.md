@@ -47,6 +47,10 @@ Automatic connection recovery now respects the server's requested pause when it 
 - **Connections:** Chat reconnects with the new session after a password change instead of remaining stuck as connected.
 - **Servers:** The invite code Copy button in Server Settings now copies the code. It used to show Copied! without copying anything.
 
+### Security
+
+- **Desktop:** Only the Concord Voice service can update the app's interface remotely. When you sign in to a self-hosted server, the app always runs the interface built into it.
+
 ## [0.3.0] - 2026-11-01
 
 Paid plans are ready: Supersonic and Wing subscriptions, a 30-day Supersonic
