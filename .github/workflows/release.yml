@@ -2,8 +2,8 @@
 # builds the six unsigned release artifacts and attests their build
 # provenance. It holds no credential and never creates or writes a release:
 # the Release Trigger App reports this run to Release-Ops, whose verify.yml
-# checks the attestations and makes the draft, and an operator dispatches the
-# signing there. Release-Ops lists this file in release-sources.json, and
+# checks the attestations and makes the draft; the bridge then dispatches
+# Sign Desktop there automatically. Release-Ops lists this file in release-sources.json, and
 # verify-release.sh pins attestations to it at the tag, so renaming it breaks
 # the lane.
 #

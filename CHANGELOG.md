@@ -34,6 +34,12 @@ This release adds groundwork for verifying account keys. Nothing uses it yet.
 ### Added
 
 - **Encryption:** Added a dormant codec and primitives for account-key authority messages, checked against the shared test vectors. Nothing uses them yet.
+- **Encryption:** Added a dormant verifier for published account-key chains, trust and statuses. It returns the same verdict as the reference for every published-chain test vector. Nothing uses it yet.
+
+### Fixed
+
+- **Profiles:** Animated GIF avatars and profile banners now stay animated when your plan allows it. The GIF uploads as it is instead of being cropped to a still.
+- **Servers:** Animated GIF server banners now stay animated when the server's tier allows it.
 
 ### Changed
 

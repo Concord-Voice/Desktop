@@ -907,6 +907,22 @@ function layoutOf(tag: string): readonly (readonly [string, Kind])[] {
   return LAYOUTS[tag];
 }
 
+/**
+ * The bytes one record of list position `name` of layout `tag` takes in the
+ * encoding (`"…"`, without a separator), as the writer above emits it, or -1
+ * when the writer refuses the record. Lets a caller size a growing list without
+ * re-encoding it.
+ */
+export function itemLen(tag: string, name: string, it: string | Uint8Array): number {
+  const k = layoutOf(tag).find(([n]) => n === name)?.[1];
+  if (k?.t !== 'a' && k?.t !== 'l') return -1;
+  try {
+    return writeItem(k.elem, it, name).length + 2;
+  } catch {
+    return -1;
+  }
+}
+
 /** EN6: validate every position (the `dev` shape only) and write the canonical bytes. */
 export function encode(tag: string, v: Values): Uint8Array {
   const fields = layoutOf(tag);

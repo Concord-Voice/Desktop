@@ -88,7 +88,7 @@ jobs:
           VERSION=$(node -p "JSON.parse(require('node:fs').readFileSync('./desktop/package.json', 'utf8')).version")
           echo "Package version: ${VERSION}"
 
-          TAG_NAME="desktop-v${VERSION}"
+          TAG_NAME="v${VERSION}"
           echo "Expected tag: ${TAG_NAME}"
 
           MAJOR=$(echo "$VERSION" | cut -d. -f1)
