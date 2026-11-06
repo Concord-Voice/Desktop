@@ -838,18 +838,25 @@ class ExactReader {
 export const LEGACY_MAX_ENVELOPE_BYTES = 134_217_728 + CHUNK_OVERHEAD_BYTES;
 
 /**
- * The single-shot format needs the whole blob for its one GCM open. The caller
- * rejects anything above LEGACY_MAX_ENVELOPE_BYTES first, so buffering it is
- * bounded. `null` when
- * the body is shorter or longer than `declaredLength`.
+ * The single-shot format needs the whole blob for its one GCM open. Anything
+ * declared above LEGACY_MAX_ENVELOPE_BYTES is refused before reading, so
+ * buffering it is bounded. Throws AttachmentIntegrityError when the body is
+ * oversized, or shorter or longer than `declaredLength`.
  */
 async function readLegacyWhole(
   reader: ExactReader,
   head: CryptoBytes,
   declaredLength: number
-): Promise<CryptoBytes | null> {
+): Promise<CryptoBytes> {
+  // Checked BEFORE buffering: declaredLength is server-supplied, so the legacy
+  // ceiling has to be enforced here, not assumed from honest uploads.
+  if (declaredLength > LEGACY_MAX_ENVELOPE_BYTES) {
+    throw new AttachmentIntegrityError('attachment is too large for the single-shot format');
+  }
   const rest = await reader.read(declaredLength - head.byteLength);
-  if (rest === null || !(await reader.atEnd())) return null;
+  if (rest === null || !(await reader.atEnd())) {
+    throw new AttachmentIntegrityError('attachment length does not match its size');
+  }
   const whole = new Uint8Array(declaredLength);
   whole.set(head, 0);
   whole.set(rest, head.byteLength);
@@ -920,17 +927,7 @@ export async function decryptAttachmentStream(
   }
 
   if (classified.kind === 'legacy') {
-    // Checked BEFORE buffering: declaredLength is server-supplied, so the
-    // legacy ceiling has to be enforced here, not assumed from honest uploads.
-    if (declaredLength > LEGACY_MAX_ENVELOPE_BYTES) {
-      return fail(
-        new AttachmentIntegrityError('attachment is too large for the single-shot format')
-      );
-    }
-    const whole = await readLegacyWhole(reader, head, declaredLength);
-    if (whole === null) {
-      return fail(new AttachmentIntegrityError('attachment length does not match its size'));
-    }
+    const whole = await readLegacyWhole(reader, head, declaredLength).catch(fail);
     return decryptAttachmentBlob(whole, key, mimeType);
   }
 
