@@ -27,7 +27,7 @@ const WRAP_INFO = utf8('concord-device-wrap/v1\0');
 const ROOT_CHECK = utf8('concord-device-secrets-check/v1\0');
 const ENTRY_LEN = 48;
 const PROBE_LEN = 32;
-const SECRETS_OPS = ['add_device', 'rotate_ek', 'rotate_root'];
+const SECRETS_OPS = new Set(['add_device', 'rotate_ek', 'rotate_root']);
 
 /** Check 4: the wrap names self's latest secrets entry (current) or an earlier one (history). */
 export type WrapUse = 'current' | 'history';
@@ -72,8 +72,7 @@ const b64 = (s: string): Uint8Array | null => {
 /** `<entry b64>.<op>.<root point b64, or empty>.<EK SPKI b64>`; null when it does not read. */
 function parseSecretsRecord(rec: string): [Uint8Array, SecretsEntry] | null {
   const p = rec.split('.');
-  if (p.length !== 4 || !SECRETS_OPS.includes(p[1]) || (p[2] !== '') !== carriesRoot(p[1]))
-    return null;
+  if (p.length !== 4 || !SECRETS_OPS.has(p[1]) || (p[2] !== '') !== carriesRoot(p[1])) return null;
   const entry = b64(p[0]);
   const root = p[2] === '' ? new Uint8Array(0) : b64(p[2]);
   const spki = b64(p[3]);

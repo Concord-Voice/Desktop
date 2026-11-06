@@ -190,36 +190,50 @@ async function bind(
   const nb = wait === null ? null : addMs(issued, wait);
   if (nb === null) return 'wrong_state';
   const h = await sha384(inp.bind);
-  const bound = s.v.recovery_key.length > 0;
-  const slot = s.v.replacement_bind_digest.length > 0;
-  const now = inp.bindWait === 'now';
-  const pendingSlot = (key: Uint8Array): void => {
-    s.v = { ...s.v, replacement_key: key, replacement_bind_digest: h, replacement_nb_ms: nb };
-  };
-  if (b.kind === 'unbind') {
-    if (!bound) return 'wrong_state';
-    if (inp.priorSig) {
-      unbindKey(s);
-      clearSlot(s);
-    } else if (slot) {
-      return 'wrong_state';
-    } else if (now) {
-      unbindKey(s);
-    } else {
-      pendingSlot(NONE);
-    }
-    return '';
-  }
+  const t: BindTarget = { s, inp, h, nb };
+  return b.kind === 'unbind' ? unbindStep(t) : bindStep(t, b.recovery_key);
+}
+
+/** What a bind or unbind step writes into: the set, the op, H(B) and the slot's not-before. */
+interface BindTarget {
+  s: DevSet;
+  inp: DeviceOpInput;
+  h: Uint8Array;
+  nb: number;
+}
+
+const pendingSlot = ({ s, h, nb }: BindTarget, key: Uint8Array): void => {
+  s.v = { ...s.v, replacement_key: key, replacement_bind_digest: h, replacement_nb_ms: nb };
+};
+
+function unbindStep(t: BindTarget): Refusal {
+  const { s, inp } = t;
+  if (s.v.recovery_key.length === 0) return 'wrong_state';
   if (inp.priorSig) {
-    if (!bound) return 'wrong_state';
-    s.v = { ...s.v, recovery_key: b.recovery_key, recovery_bind_digest: h };
+    unbindKey(s);
     clearSlot(s);
-  } else if (slot) {
+  } else if (s.v.replacement_bind_digest.length > 0) {
     return 'wrong_state';
-  } else if (now) {
-    s.v = { ...s.v, recovery_key: b.recovery_key, recovery_bind_digest: h };
+  } else if (inp.bindWait === 'now') {
+    unbindKey(s);
   } else {
-    pendingSlot(b.recovery_key);
+    pendingSlot(t, NONE);
+  }
+  return '';
+}
+
+function bindStep(t: BindTarget, key: Uint8Array): Refusal {
+  const { s, inp, h } = t;
+  if (inp.priorSig) {
+    if (s.v.recovery_key.length === 0) return 'wrong_state';
+    s.v = { ...s.v, recovery_key: key, recovery_bind_digest: h };
+    clearSlot(s);
+  } else if (s.v.replacement_bind_digest.length > 0) {
+    return 'wrong_state';
+  } else if (inp.bindWait === 'now') {
+    s.v = { ...s.v, recovery_key: key, recovery_bind_digest: h };
+  } else {
+    pendingSlot(t, key);
   }
   return '';
 }

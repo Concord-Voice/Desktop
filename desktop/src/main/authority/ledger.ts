@@ -28,7 +28,7 @@
 // event where either may have happened and keeps every history the chain's own
 // verdicts leave open (DR9 (c), R3, A6, A11), at most MAX_LEDGER_HYPOTHESES.
 
-import { equalBytes } from './bytes';
+import { cmp, equalBytes } from './bytes';
 import { EPSILON_MS, INTENT_WINDOW_MS, CANCEL_SLACK_MS, addMs, sumBelow } from './constants';
 import { slotsOf, STATE_REASONS, verifyChainSteps, type ChainStep, type EkSlots } from './chain';
 import {
@@ -327,13 +327,13 @@ function sameMap(a: Map<string, string>, b: Map<string, string>): boolean {
 }
 
 /** An equal hypothesis: the set and the activation taken, and with full the records a live one persists. */
-function same(w: Walk, o: Walk, full: boolean): boolean {
-  if (w.actDone !== o.actDone || !equalBytes(w.set, o.set)) return false;
+function same(a: Walk, b: Walk, full: boolean): boolean {
+  if (a.actDone !== b.actDone || !equalBytes(a.set, b.set)) return false;
   return (
     !full ||
-    (sameMap(w.admitted, o.admitted) &&
-      w.secrets.length === o.secrets.length &&
-      w.secrets.every((s, i) => s === o.secrets[i]))
+    (sameMap(a.admitted, b.admitted) &&
+      a.secrets.length === b.secrets.length &&
+      a.secrets.every((s, i) => s === b.secrets[i]))
   );
 }
 
@@ -872,7 +872,7 @@ async function admittedRecords(w: Walk): Promise<string[]> {
   return [...w.admitted]
     .filter(([id]) => live.has(id))
     .map(([id, by]) => admittedRecord(id, by))
-    .sort();
+    .sort(cmp);
 }
 
 async function deviceHeadOf(w: Walk, from: DeviceHead, head: ChainHead): Promise<DeviceHead> {

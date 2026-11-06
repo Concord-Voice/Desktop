@@ -231,7 +231,7 @@ describe('applyDeviceOp refusals (DR1, DR2, DR4–DR6, DR9)', () => {
       { op: 'rotate_root', actor: a.id, removed: [b.id] }
     );
     expect(rotated.act.map((e) => e.id)).toEqual([a.id]);
-    expect(rotated.v.replacement_bind_digest.length).toBe(0);
+    expect(rotated.v.replacement_bind_digest).toHaveLength(0);
     expect(rotated.v.recovery_key).toEqual(key1);
 
     expect(await refusal(set, { op: 'add_device', actor: a.id })).toBe('malformed_for_op');
@@ -264,7 +264,7 @@ describe('applyDeviceOp refusals (DR1, DR2, DR4–DR6, DR9)', () => {
     expect(await refusal(setOf(bound), { ...rec, outcome: 'D' })).toBe('wrong_state');
     const out = await after(setOf(bound), rec);
     expect(out.pend?.id).toBe(n.id);
-    expect(out.v.replacement_bind_digest.length).toBe(0);
+    expect(out.v.replacement_bind_digest).toHaveLength(0);
     expect(out.v.recovery_key).toEqual(key1);
   });
 });
@@ -320,7 +320,7 @@ describe('applyDeviceOp bind_recovery and cancel_recovery_bind (DR9 (a), (b), (e
     expect([now.v.recovery_key, now.v.recovery_bind_digest]).toEqual([key2, h]);
     const later = await after(setOf({ act: [a] }), bindOp(bnd, { bindWait: 'replace' }), 100);
     expect(later.v.replacement_nb_ms).toBe(100 + RECOVERY_REPLACE_MS);
-    expect(later.v.recovery_key.length).toBe(0);
+    expect(later.v.recovery_key).toHaveLength(0);
     expect(await refusal(setOf({ ...bound(), ...slot() }), bindOp(bnd))).toBe('wrong_state');
     const prior = bindOp(bnd, { bindWait: '', priorSig: true });
     expect(await refusal(setOf({ act: [a] }), prior)).toBe('wrong_state');
@@ -332,7 +332,7 @@ describe('applyDeviceOp bind_recovery and cancel_recovery_bind (DR9 (a), (b), (e
     const unb = bindB({ kind: 'unbind' });
     const h = await sha384(unb);
     expect(await refusal(setOf({ act: [a] }), bindOp(unb))).toBe('wrong_state');
-    expect((await after(setOf(bound()), bindOp(unb))).v.recovery_key.length).toBe(0);
+    expect((await after(setOf(bound()), bindOp(unb))).v.recovery_key).toHaveLength(0);
     const waiting = await after(setOf(bound()), bindOp(unb, { bindWait: 'delta' }), 100, 7);
     expect([waiting.v.replacement_key.length, waiting.v.replacement_bind_digest]).toEqual([0, h]);
     expect(waiting.v.replacement_nb_ms).toBe(107);
@@ -373,12 +373,12 @@ describe('applyDeviceOp bind_recovery and cancel_recovery_bind (DR9 (a), (b), (e
     const unboundSlot = setOf({ act: [a], ...slot() });
     expect(await refusal(unboundSlot, sheet(cancel({})))).toBe('recovery_key_unbound');
     const cleared = await after(withSlot, sheet(cancel({ target_digest: D48(4) })));
-    expect(cleared.v.replacement_bind_digest.length).toBe(0);
+    expect(cleared.v.replacement_bind_digest).toHaveLength(0);
     // The root form cancels only a first bind's pending key (nothing bound yet).
     expect(await refusal(withSlot, root(cancel({ recovery_key: key2 })))).toBe('wrong_state');
     expect(await refusal(unboundSlot, root(cancel({})))).toBe('wrong_state');
     const rootCleared = await after(unboundSlot, root(cancel({ recovery_key: key2 })));
-    expect(rootCleared.v.replacement_bind_digest.length).toBe(0);
+    expect(rootCleared.v.replacement_bind_digest).toHaveLength(0);
   });
 });
 
@@ -408,7 +408,7 @@ describe('normalizeDeviceSet (DR8, DR9 (c))', () => {
     const unbound = (await parseSet(
       (await normalizeDeviceSet(unbindSlot, { completeSlot: true }))!
     ))!;
-    expect(unbound.v.recovery_key.length).toBe(0);
+    expect(unbound.v.recovery_key).toHaveLength(0);
     const act = (await parseSet(
       (await normalizeDeviceSet(slotted, { activate: true, burnRecovery: true }))!
     ))!;
@@ -417,7 +417,7 @@ describe('normalizeDeviceSet (DR8, DR9 (c))', () => {
       null,
       0,
     ]);
-    expect(act.v.recovery_key.length).toBe(0);
+    expect(act.v.recovery_key).toHaveLength(0);
     const noPending = (await parseSet(
       (await normalizeDeviceSet(unbindSlot, { activate: true }))!
     ))!;
