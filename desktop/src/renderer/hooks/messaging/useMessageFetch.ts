@@ -855,7 +855,7 @@ export function useMessageFetch(channelId: string | null, options: UseMessageFet
       }
     };
 
-    fetchMessages();
+    void fetchMessages();
 
     return () => {
       aborted = true;

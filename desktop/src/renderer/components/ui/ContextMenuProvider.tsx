@@ -201,7 +201,7 @@ const GenericMenu: React.FC<GenericMenuProps> = ({ target, position, onClose }) 
             onClick={() => {
               const start = target.element.selectionStart ?? 0;
               const end = target.element.selectionEnd ?? 0;
-              handleCopy(target.element.value.substring(start, end));
+              void handleCopy(target.element.value.substring(start, end));
             }}
             disabled={target.element.selectionStart === target.element.selectionEnd}
           />
@@ -218,7 +218,7 @@ const GenericMenu: React.FC<GenericMenuProps> = ({ target, position, onClose }) 
             label="Copy"
             onClick={() => {
               const sel = globalThis.getSelection();
-              if (sel?.toString()) handleCopy(sel.toString());
+              if (sel?.toString()) void handleCopy(sel.toString());
               else onClose();
             }}
             // eslint-disable-next-line @eslint-react/purity -- globalThis.getSelection() is a read-only DOM query to reflect current selection state; no observable side effect

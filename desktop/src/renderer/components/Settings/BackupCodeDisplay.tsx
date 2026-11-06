@@ -12,7 +12,7 @@ const BackupCodeDisplay: React.FC<BackupCodeDisplayProps> = ({ codes, onConfirm,
   const handleCopy = async () => {
     const text = codes.map((c, i) => `${i + 1}. ${c}`).join('\n');
     if (globalThis.electron?.writeClipboard) {
-      globalThis.electron.writeClipboard(text);
+      void globalThis.electron.writeClipboard(text);
     } else {
       await navigator.clipboard.writeText(text);
     }

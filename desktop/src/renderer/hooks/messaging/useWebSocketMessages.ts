@@ -1829,17 +1829,17 @@ export function useWebSocketMessages(wsService: ReturnType<typeof getWebSocketSe
 
     // Preferences updated handler — another device pushed new preferences
     const unsubPreferencesUpdated = wsService.on('preferences_updated', () => {
-      preferencesSyncService.fetchAndApply();
+      void preferencesSyncService.fetchAndApply();
     });
 
     // Saved GIFs updated handler — another device saved/removed a GIF
     const unsubSavedGifsUpdated = wsService.on('saved_gifs_updated', () => {
-      savedGifsSyncService.fetchAndApply();
+      void savedGifsSyncService.fetchAndApply();
     });
 
     // Friend organization updated — another device changed categories (#324)
     const unsubFriendOrgUpdated = wsService.on('friend_organization_updated', () => {
-      friendOrgSyncService.fetchAndApply();
+      void friendOrgSyncService.fetchAndApply();
     });
 
     const unsubPresenceOverridesUpdated = wsService.on('presence_overrides_updated', (msg) => {

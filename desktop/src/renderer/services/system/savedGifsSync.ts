@@ -142,7 +142,7 @@ class SavedGifsSyncService {
     const timer = setTimeout(() => {
       if (this.debounceTimer !== timer) return;
       this.debounceTimer = null;
-      this.pushSavedGifs(undefined, generation);
+      void this.pushSavedGifs(undefined, generation);
     }, DEBOUNCE_MS);
     this.debounceTimer = timer;
   }

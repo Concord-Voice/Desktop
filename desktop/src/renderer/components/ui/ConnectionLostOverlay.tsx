@@ -147,7 +147,7 @@ function PhaseContent({
 
   const handleExit = useCallback(() => {
     if (globalThis.electron?.quitApp) {
-      globalThis.electron.quitApp();
+      void globalThis.electron.quitApp();
     } else {
       globalThis.close();
     }

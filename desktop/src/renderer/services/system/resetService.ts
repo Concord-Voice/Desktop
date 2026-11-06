@@ -338,5 +338,5 @@ export function nuclearReset(): void {
   // so the second falls through to the DEFAULT profile and deletes a remembered
   // SaaS session's credentials this logout never touched. Doubling the call is not
   // idempotent; it changes WHICH profile is cleared (CODEX P2).
-  globalThis.electron?.clearTokens?.();
+  void globalThis.electron?.clearTokens?.();
 }

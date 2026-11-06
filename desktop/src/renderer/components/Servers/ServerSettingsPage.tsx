@@ -519,7 +519,7 @@ const ServerSettingsPage: React.FC<ServerSettingsPageProps> = ({ serverId }) => 
                 type="button"
                 className="invite-copy-btn"
                 onClick={() => {
-                  navigator.clipboard.writeText(activeInvite.code);
+                  void navigator.clipboard.writeText(activeInvite.code);
                   setInviteCopied(true);
                   setTimeout(() => setInviteCopied(false), 2000);
                 }}

@@ -157,7 +157,7 @@ class DesktopNotificationService {
     this.flashActive = false;
     globalThis.removeEventListener('focus', this.releaseFlash);
     document.removeEventListener('visibilitychange', this.releaseFlash);
-    globalThis.electron?.flashFrame?.(false);
+    void globalThis.electron?.flashFrame?.(false);
   };
 
   /**
@@ -231,7 +231,7 @@ class DesktopNotificationService {
   ): void {
     if (targetType !== 'account') {
       // Import dynamically to avoid circular deps
-      import('../../stores/ui/notificationNavigationStore').then(
+      void import('../../stores/ui/notificationNavigationStore').then(
         ({ useNotificationNavigationStore }) => {
           useNotificationNavigationStore.getState().setPendingNavigation({
             type: targetType,
@@ -243,7 +243,7 @@ class DesktopNotificationService {
     }
 
     // Focus the app window
-    globalThis.electron?.focusWindow?.();
+    void globalThis.electron?.focusWindow?.();
   }
 
   /**

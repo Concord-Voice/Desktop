@@ -40,12 +40,12 @@ const PipWindow: React.FC = () => {
   const togglePin = useCallback(() => {
     const next = !pinned;
     setPinned(next);
-    globalThis.electron?.setPipAlwaysOnTop(pipId || '', next);
+    void globalThis.electron?.setPipAlwaysOnTop(pipId || '', next);
   }, [pinned, pipId]);
 
   // Close this PiP window
   const handleClose = useCallback(() => {
-    globalThis.electron?.closePipWindow(pipId || '');
+    void globalThis.electron?.closePipWindow(pipId || '');
   }, [pipId]);
 
   if (isControlsPip) {
@@ -351,7 +351,7 @@ const FramesPipContent: React.FC<{
       }
     };
 
-    setup();
+    void setup();
 
     return () => {
       removeCloseGuard();
@@ -544,7 +544,7 @@ const ScreenPipContent: React.FC<{
       }
     };
 
-    setup();
+    void setup();
 
     const videoEl = videoRef.current;
     const clientEl = clientRef.current;

@@ -87,7 +87,7 @@ const WebAuthnPrompt: React.FC<WebAuthnPromptProps> = ({
       }
     };
 
-    performCeremony();
+    void performCeremony();
 
     return () => {
       abortController.abort();

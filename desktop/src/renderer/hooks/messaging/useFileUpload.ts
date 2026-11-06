@@ -217,7 +217,7 @@ function applyDimensionsToEntry(
  *  matching FileUploadState entry. Used by `addFiles` so the optimistic
  *  send-time summary can carry width/height for layout-shift-free rendering. */
 function hydrateDimensions(file: File, setFiles: SetFilesFn): void {
-  readImageDimensions(file).then((dims) => {
+  void readImageDimensions(file).then((dims) => {
     if (dims) applyDimensionsToEntry(setFiles, file, dims);
   });
 }

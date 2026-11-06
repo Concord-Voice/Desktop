@@ -756,7 +756,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
   useEffect(() => {
     focusAfterRemovalRef.current = null;
     if (!removalTargetRef.current) return;
-    // eslint-disable-next-line @eslint-react/set-state-in-effect -- an account-scoped destructive target must not survive its auth owner
+    // An account-scoped destructive target must not survive its auth owner
     setRemovalTarget(null);
   }, [authGeneration]);
   const expiration = useExpirationPolicy(
@@ -1120,7 +1120,7 @@ const ConversationList: React.FC<ConversationListProps> = ({
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            handleOpenPersonalThread();
+            void handleOpenPersonalThread();
           }
         }}
         aria-label="Personal Thread"

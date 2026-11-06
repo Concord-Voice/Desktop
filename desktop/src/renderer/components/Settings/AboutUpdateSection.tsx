@@ -195,11 +195,11 @@ const AboutUpdateSection: React.FC = () => {
 
   // Load client info on mount
   useEffect(() => {
-    globalThis.electron?.getVersion?.().then(setAppVersion);
-    globalThis.electron?.getSystemInfo?.().then(setSystemInfo);
-    globalThis.electron?.getAllowPrerelease?.().then(setAllowPrerelease);
-    globalThis.electron?.getDeveloperMode?.().then(setDeveloperMode);
-    globalThis.electron?.getUpdateLogPath?.().then(setLogPath);
+    void globalThis.electron?.getVersion?.().then(setAppVersion);
+    void globalThis.electron?.getSystemInfo?.().then(setSystemInfo);
+    void globalThis.electron?.getAllowPrerelease?.().then(setAllowPrerelease);
+    void globalThis.electron?.getDeveloperMode?.().then(setDeveloperMode);
+    void globalThis.electron?.getUpdateLogPath?.().then(setLogPath);
   }, []);
 
   // Subscribe to update events
@@ -310,17 +310,17 @@ const AboutUpdateSection: React.FC = () => {
   }, []);
 
   const handleInstall = useCallback(() => {
-    globalThis.electron?.installUpdate();
+    void globalThis.electron?.installUpdate();
   }, []);
 
   const handleDeveloperModeToggle = useCallback((enabled: boolean) => {
     setDeveloperMode(enabled);
-    globalThis.electron?.setDeveloperMode?.(enabled);
+    void globalThis.electron?.setDeveloperMode?.(enabled);
   }, []);
 
   const handlePrereleaseToggle = useCallback((enabled: boolean) => {
     setAllowPrerelease(enabled);
-    globalThis.electron?.setAllowPrerelease?.(enabled);
+    void globalThis.electron?.setAllowPrerelease?.(enabled);
   }, []);
 
   let appUpdateIndicator: { label: string; ariaLabel: string } | null = null;

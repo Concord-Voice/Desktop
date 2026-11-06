@@ -58,7 +58,7 @@ const DeviceSelector: React.FC<DeviceSelectorProps> = ({ kind }) => {
       }
     };
 
-    enumerate();
+    void enumerate();
 
     // Re-enumerate when devices change (plug/unplug)
     navigator.mediaDevices.addEventListener('devicechange', enumerate);

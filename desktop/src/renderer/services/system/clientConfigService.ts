@@ -308,12 +308,12 @@ export class ClientConfigService {
     // Initial fetch after short delay
     this.startupTimer = setTimeout(() => {
       this.startupTimer = null;
-      this.fetch();
+      void this.fetch();
     }, STARTUP_DELAY_MS);
 
     // Periodic polling
     this.pollTimer = setInterval(() => {
-      this.fetch();
+      void this.fetch();
     }, POLL_INTERVAL_MS);
 
     globalThis.addEventListener?.('focus', this.focusListener);

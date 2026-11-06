@@ -472,7 +472,7 @@ export default function PresenceHistorySection({
     generationRef.current = resetGeneration;
     pendingFocusRef.current = null;
 
-    Promise.resolve().then(() => {
+    void Promise.resolve().then(() => {
       if (generationRef.current !== resetGeneration || ownerRef.current !== userId) return;
       setFeedState(emptyFeedState(userId));
       setAnnouncement({ ownerId: userId, message: '' });
@@ -501,7 +501,7 @@ export default function PresenceHistorySection({
       drainBoundaryCrossed &&
       userId
     ) {
-      Promise.resolve().then(() => startInitialLoad('initial', true));
+      void Promise.resolve().then(() => startInitialLoad('initial', true));
     }
   }, [capability.status, historyCapabilityUsable, startInitialLoad, userId]);
 

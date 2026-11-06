@@ -1975,7 +1975,7 @@ class VoiceService {
         'noiseGateLevel',
       ] as const;
       if (constraintFields.some((f) => state[f] !== prev[f])) {
-        this.liveReplaceAudioTrack();
+        void this.liveReplaceAudioTrack();
         return;
       }
 
@@ -2046,7 +2046,7 @@ class VoiceService {
 
     this.liveVoiceUnsub = useVoiceStore.subscribe((state, prev) => {
       if (state.audioInputDeviceId !== prev.audioInputDeviceId) {
-        this.liveReplaceAudioTrack();
+        void this.liveReplaceAudioTrack();
       }
     });
   }
@@ -6285,7 +6285,7 @@ class VoiceService {
       }
 
       track.onended = () => {
-        this.closeProducer('screen');
+        void this.closeProducer('screen');
       };
 
       producer.on('transportclose', () => {
@@ -6801,7 +6801,7 @@ class VoiceService {
 
     // Also mute self when deafened
     if (newDeafened && !store.isMuted) {
-      this.toggleMute();
+      void this.toggleMute();
     }
   }
 
@@ -7479,7 +7479,7 @@ class VoiceService {
     // event, so the screen producer stayed mapped and `isScreenSharing` true over a dead
     // track.
     track.onended = () => {
-      this.closeProducer('screen');
+      void this.closeProducer('screen');
     };
 
     await this.retireScreenAudioProducer(transport);
