@@ -17,7 +17,8 @@ function ruleBody(file: string, selector: string): string {
     resolve(__dirname, '../../../../src/renderer/components/Settings', file),
     'utf-8'
   ).replace(/\/\*[\s\S]*?\*\//g, '');
-  const m = new RegExp(`(^|\\n)${selector.replace(/\./g, '\\.')}\\s*\\{([^}]*)\\}`).exec(css);
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = new RegExp(`(^|\\n)${escaped}\\s*\\{([^}]*)\\}`).exec(css);
   if (!m) throw new Error(`selector ${selector} not found in ${file}`);
   return m[2];
 }
