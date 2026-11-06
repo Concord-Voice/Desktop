@@ -259,11 +259,38 @@ High-level stances on SonarQube rules whose mismatch with this project's idiomat
 
 ### Rule-Calibration Notes
 
-_None yet._
+#### `tssecurity:S5144` — `shell.openExternal` read as a server-side request
+
+| Field | Value |
+|---|---|
+| First recorded | 2026-11-06 (default-profile sweep) |
+| Instance count in Section 2 | 1 (row 1) |
+| Rationale | The taint rule treats any URL that reaches a network-capable sink as SSRF. `shell.openExternal` hands the URL to the user's OS browser or protocol handler; the app makes no request of its own. The handler in `desktop/src/main/ipc/openExternal.ts` checks the IPC sender first, requires a string, and passes only URLs whose protocol is in `ALLOWED_PROTOCOLS`. |
+| Disposition | Per-instance `FALSE_POSITIVE` only where the sink is `shell.openExternal` behind the sender check and protocol allowlist. A URL that reaches `net`, `fetch` or `http` in the main process is a real finding. Rule-level disable is prohibited by project SonarQube AI-Code Assurance policy. S5144 is one of the `injection`-tagged taint rules ADR-0017 had deactivated; it fires here because the project now runs the stock profiles on purpose (Mark, 2026-11-05), not because of the drift described below. CodeQL and Semgrep still own this class. |
+
+#### `typescript:S2245` — `Math.random` for timer jitter
+
+| Field | Value |
+|---|---|
+| First recorded | 2026-11-06 (default-profile sweep) |
+| Instance count in Section 2 | 1 (row 2) |
+| Rationale | The value only spreads a `setTimeout` delay so clients do not race. It never becomes key material, a token, a nonce or a session id. |
+| Disposition | Per-instance `FALSE_POSITIVE` when the value is only a delay or ordering spread. Any security-relevant random value must use `crypto.getRandomValues`. Rule-level disable is prohibited by project SonarQube AI-Code Assurance policy. |
 
 ### Instance-Specific Entries
 
-_None yet._
+Marked `FALSE_POSITIVE` on 2026-11-06 with Mark's explicit approval, each with a comment pointing here.
+
+Rows 3–6 deviate from the legacy `typescript:S1082` note's precondition: the co-located `typescript:S6848` finding on each line is still open, pending Mark's decision (2026-11-06). If S6848 is ruled a real gap on any of those lines, reopen the matching S1082 row too.
+
+| # | Date | Issue key | Rule | Location | Marker | Justification |
+|---|---|---|---|---|---|---|
+| 1 | 2026-11-06 | `AaGqr_YDSr9UwsDcq8hH` | `tssecurity:S5144` | `desktop/src/main/ipc/openExternal.ts:68` | Claude (#129) | `shell.openExternal` behind the sender check and protocol allowlist; no request is made. Note `tssecurity:S5144` above. |
+| 2 | 2026-11-06 | `AaGRKm8DWV1cgC4sffo2` | `typescript:S2245` | `desktop/src/renderer/hooks/messaging/useWebSocket.ts:356` | Claude (#129) | 0–2 s key-rotation jitter, a `setTimeout` delay only. Note `typescript:S2245` above. |
+| 3 | 2026-11-06 | `AaGRKm66WV1cgC4sffod` | `typescript:S1082` | `desktop/src/renderer/components/Voice/ScreenSharePicker.tsx:620` | Claude (#164) | Overlay backdrop click-to-dismiss; Escape is a document keydown handler (line 335). Legacy note `typescript:S1082` → `typescript:S6848` sub-pattern C. |
+| 4 | 2026-11-06 | `AaGRKm7AWV1cgC4sffog` | `typescript:S1082` | `desktop/src/renderer/components/Voice/ParticipantVolumeRow.tsx:34` | Claude (#164) | Handlers only stop propagation and the default menu; the controls inside are the real targets. Legacy note `typescript:S1082` → `typescript:S6848` sub-pattern A. |
+| 5 | 2026-11-06 | `AaGRKm7hWV1cgC4sffot` | `typescript:S1082` | `desktop/src/renderer/components/Members/UserProfileModal.tsx:151` | Claude (#164) | Overlay backdrop click-to-dismiss; Escape is a document keydown handler (line 87). Legacy note `typescript:S1082` → `typescript:S6848` sub-pattern C. |
+| 6 | 2026-11-06 | `AaGRKm59WV1cgC4sffoJ` | `typescript:S1082` | `desktop/src/renderer/components/ui/Modal.tsx:153` | Claude (#164) | Overlay backdrop click-to-dismiss; Escape is a capture-phase document keydown handler (line 78). Legacy note `typescript:S1082` → `typescript:S6848` sub-pattern C. |
 
 ## Recreation-recovery / drift-guard (ADR-0017 narrowed profile)
 
