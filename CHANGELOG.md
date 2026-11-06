@@ -35,13 +35,17 @@ This release adds groundwork for verifying account keys. Nothing uses it yet.
 
 - **Encryption:** Added a dormant codec and primitives for account-key authority messages, checked against the shared test vectors. Nothing uses them yet.
 
+### Changed
+
+- **Chat:** Attachments up to 1 GiB now open. The app decrypts a file as it downloads, a piece at a time, instead of holding the whole download in memory first.
+
 ## [0.3.1] - 2026-11-06
 
 This update closes a security gap: only the Concord Voice service can now
 update the app's interface remotely. Automatic connection recovery also
 respects the server's requested pause when it is overloaded.
 
-**9 Total Changes** | 1 Added | 4 Changed | 3 Fixed | 1 Security
+**8 Total Changes** | 1 Added | 3 Changed | 3 Fixed | 1 Security
 
 ### Added
 
@@ -51,7 +55,6 @@ respects the server's requested pause when it is overloaded.
 
 - **Chat:** Attachments now download only when you ask, except photos, GIFs, videos up to 256 MiB, and text and Markdown files. A larger video asks before it downloads. Text and Markdown files load into a collapsed preview that you can expand.
 - **Chat:** GIF attachments follow the same rules as searched GIFs. They wait for a click when Load GIFs automatically is off, and they show their first frame while paused.
-- **Chat:** Attachments up to 1 GiB now open. The app decrypts a file as it downloads, a piece at a time, instead of holding the whole download in memory first.
 - **Desktop:** SPA discovery now explicitly requests the Stable stream throughout a launch, preparing channel-aware discovery without enabling a channel picker or non-Stable updates.
 
 ### Fixed
