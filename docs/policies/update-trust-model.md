@@ -97,7 +97,7 @@ Those gaps are why the per-platform artifact trust anchors above are load-bearin
 
 ## SPA UI Update Trust Boundary
 
-The SPA update axis is separate from binary auto-update. A SPA soft reload is a top-frame navigation selected by the Electron main process after `resolveSpaSource()` validates the server-advertised HTTPS URL and IPC contract. The renderer can request a check or reload, but it never supplies the target URL.
+The SPA update axis is separate from binary auto-update. A SPA soft reload is a top-frame navigation selected by the Electron main process after `resolveSpaSource()` validates the server-advertised HTTPS URL and IPC contract. Only the hosted service may advertise one: when the persisted API base is not exactly the origin of `PRODUCTION_API_BASE`, every other server, self-hosted included, gets the bundled renderer and is never asked for client config. The config itself is fetched from `PRODUCTION_API_BASE`, and the advertised URL must be on `https://spa.concordvoice.chat`. The renderer can request a check or reload, but it never supplies the target URL.
 
 Current Phase 1 behavior:
 

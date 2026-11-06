@@ -29,7 +29,13 @@ belongs in it, and write it if the section has none. Do not edit the
 
 ## [Prerelease]
 
-Automatic connection recovery now respects the server's requested pause when it is overloaded.
+## [0.3.1] - 2026-11-06
+
+This update closes a security gap: only the Concord Voice service can now
+update the app's interface remotely. Automatic connection recovery also
+respects the server's requested pause when it is overloaded.
+
+**8 Total Changes** | 1 Added | 3 Changed | 3 Fixed | 1 Security
 
 ### Added
 
@@ -46,6 +52,10 @@ Automatic connection recovery now respects the server's requested pause when it 
 - **Connections:** Automatic recovery waits for the server's overload retry delay, including when connectivity returns or your sign-in token refreshes.
 - **Connections:** Chat reconnects with the new session after a password change instead of remaining stuck as connected.
 - **Servers:** The invite code Copy button in Server Settings now copies the code. It used to show Copied! without copying anything.
+
+### Security
+
+- **Desktop:** Only the Concord Voice service can update the app's interface remotely. When you sign in to a self-hosted server, the app always runs the interface built into it.
 
 ## [0.3.0] - 2026-11-01
 
