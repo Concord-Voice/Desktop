@@ -95,6 +95,9 @@ export default defineConfig(() => {
           'src/renderer/**/*.{ts,tsx}',
           'src/renderer/services/voice/micProcessor.worklet.js',
           'src/shared/**/*.{ts,tsx}',
+          // The account-key authority verifier is the one main-process module
+          // measured: it is pure, so unit tests cover it fully.
+          'src/main/authority/**/*.ts',
           // #920 §5.5, §5.7 added typed constants + build-time generators that
           // SonarCloud QG measures as new code. Without these globs, SonarCloud
           // reports new_coverage=0% and the QG fails, even when the tests run

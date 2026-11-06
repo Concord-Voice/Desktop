@@ -27,7 +27,9 @@ import {
   canonicalHead,
   chainHeadBytes,
   ekIndexHas,
+  headFits,
   headPub,
+  ownedHead,
   rootRecordOf,
   segmentOf,
   type ChainHead,
@@ -378,8 +380,12 @@ async function pickHypothesis(
   const [i, r] = pickMatch(rs);
   const c = cs[i];
   if (r !== 'ok' || !c) return r === 'ok' ? 'malformed' : r;
-  const after = await appendResult(c.head, pb, await segmentOf(c.head, c.f.root));
-  if (bad[i] || chainHeadBytes(after) === null) return 'malformed'; // E3-08: never produce a head parse refuses
+  if (bad[i]) return 'malformed';
+  const { head: after, undo } = await appendResult(c.head, pb, await segmentOf(c.head, c.f.root));
+  if (!headFits(after)) {
+    undo(); // the next signing delegation retries from the same prev
+    return 'malformed'; // E3-08: never produce a head parse refuses
+  }
   return after;
 }
 
@@ -495,11 +501,11 @@ export async function verifyBundle(
     const halt = t.haltReason();
     if (halt !== 'ok') return { head: prev, reason: halt };
     if (!canonicalHead(prev)) return { head: prev, reason: 'malformed' };
-    let input = prev;
+    let input = ownedHead(prev);
     if (fix !== undefined) {
       const a = await authenticStatus(t, hw, prev, fix);
       if (typeof a === 'string') return { head: prev, reason: a };
-      if (!(await keepsFix(prev.fix, a.st, a.hp))) input = { ...prev, fix: fix.slice() };
+      if (!(await keepsFix(prev.fix, a.st, a.hp))) input = { ...input, fix: fix.slice() };
     }
     const st = await verifyBundleStep(t, hw, input, bundle, NONE);
     if (st.reason !== 'ok' || !st.after) return { head: prev, reason: st.reason };
@@ -578,7 +584,7 @@ export async function verifyChain(
         ? mem.pin
         : seen.legacy_ek_digest;
     if (!canonicalHead(from)) return fail('malformed');
-    let head = from;
+    let head = ownedHead(from); // the steps extend its seq_index in place; `from` is never written
     let superseded = false;
     for (const b of input.bundles) {
       const st = await verifyBundleStep(t, hw, head, b, seq0Pin);

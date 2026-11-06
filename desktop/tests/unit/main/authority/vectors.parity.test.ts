@@ -10,13 +10,13 @@ import { b64d, b64e, equalBytes, toHex } from '@/main/authority/bytes';
 import { decode, encode, LAYOUTS, Malformed, type Values } from '@/main/authority/codec';
 import * as prim from '@/main/authority/primitives';
 import { verifyBundle, verifyChain } from '@/main/authority/chain';
-import { chainHeadBytes, parseChainHead } from '@/main/authority/heads';
+import { chainHeadBytes, headFits, parseChainHead } from '@/main/authority/heads';
 import { decodeAs } from '@/main/authority/messages';
 import { checkRelayRecover, recoveryBindForKind } from '@/main/authority/patterns';
 import { intentForOp } from '@/main/authority/post';
 import { REASONS, verdictOf } from '@/main/authority/reason';
 import type { AccountMemory, Use } from '@/main/authority/status';
-import { newTrust, type HighWater, type Trust } from '@/main/authority/trust';
+import { maxHW, newTrust, type HighWater, type Trust } from '@/main/authority/trust';
 
 // Concord-Voice/Self-Hosted services/control-plane/internal/authoritycontract/testdata/vectors.json
 // @ 2ddd583. Re-vendor (and update this pin) only when the vectors are regenerated.
@@ -315,7 +315,12 @@ function expectReason(v: Vec, reason: string): void {
   expect(verdictOf(reason)).toBe(v.expect.verdict);
 }
 
+// Counts the chain vectors whose verified status moved the HW, so the T5
+// assertions below are known to bite (a port returning the input HW fails them).
+let hwMoved = 0;
+
 function expectHead(v: Vec, head: Parameters<typeof chainHeadBytes>[0]): void {
+  expect(headFits(head), 'headFits agrees with the encoder').toBe(chainHeadBytes(head) !== null);
   if (!v.expect.head_b64) return;
   const b = chainHeadBytes(head);
   expect(b && b64e(b), 'the persisted head (D-269)').toBe(v.expect.head_b64);
@@ -326,10 +331,12 @@ const VERDICT_CHECKS: Record<string, (v: Vec) => Promise<void>> = {
     const t = await trustOf(v);
     if (!t) return expectReason(v, 'malformed');
     expect(['new-secret', 'history']).toContain(v.use);
+    const hw = hwOf(v.hw);
+    const from = await prevHeadOf(v);
     const out = await verifyChain(
       t,
-      hwOf(v.hw),
-      await prevHeadOf(v),
+      hw,
+      from,
       { bundles: (v.bundles as string[]).map(b64d), status: b64d(v.bytes_b64!) },
       memOf(v.mem),
       v.now_ms,
@@ -338,20 +345,30 @@ const VERDICT_CHECKS: Record<string, (v: Vec) => Promise<void>> = {
     expectReason(v, out.reason);
     expect(out.status.reason).toBe(out.reason);
     expectHead(v, out.head);
+    expect(b64e(chainHeadBytes(from)!), 'from is never written').toBe(v.prev_head);
+    // T5: a verified status returns the effective HW; every refusal the input HW.
+    if (out.status.status) {
+      expect(out.hw).toEqual(maxHW(hw, t.highWater()));
+      expect([out.hw.gen, out.hw.serial]).toEqual([
+        out.status.status.delegation_gen,
+        out.status.status.delegation_serial,
+      ]);
+      if (out.hw.gen !== hw.gen || out.hw.serial !== hw.serial || out.hw.minValid !== hw.minValid)
+        hwMoved++;
+    } else {
+      expect(out.hw).toBe(hw);
+    }
   },
   'bundle-verify': async (v) => {
     const t = await trustOf(v);
     expect(t, 'bundle-verify anchors are valid').not.toBeNull();
     const fix = v.fix ? b64d(v.fix) : undefined;
-    const out = await verifyBundle(
-      t as Trust,
-      hwOf(v.hw),
-      await prevHeadOf(v),
-      b64d(v.bytes_b64!),
-      fix
-    );
+    const prev = await prevHeadOf(v);
+    const out = await verifyBundle(t as Trust, hwOf(v.hw), prev, b64d(v.bytes_b64!), fix);
     expectReason(v, out.reason);
     expectHead(v, out.head);
+    expect(b64e(chainHeadBytes(prev)!), 'prev is never written').toBe(v.prev_head);
+    if (out.reason !== 'ok') expect(out.head).toBe(prev);
   },
   'for-op': async (v) => {
     const b = b64d(v.bytes_b64!);
@@ -453,6 +470,10 @@ describe('verdict parity coverage', () => {
       expect(n, `${t} has vectors`).toBeGreaterThan(0);
       expect(exercised[t] ?? 0, `${t} verdict-checked`).toBe(n);
     }
+  });
+
+  it('saw a verified status move the HW, so the T5 checks bite', () => {
+    expect(hwMoved).toBeGreaterThan(0);
   });
 
   it('keeps the Reason table of the contract', () => {

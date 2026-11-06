@@ -8,9 +8,11 @@ signed binary. The renderer is hot-updated, so it must never import this
 module, hold the realm anchors, or decide account-key trust. It asks for a
 verdict over one IPC channel instead, which the first caller PR adds (with
 sender validation and an `IPC_CONTRACT_VERSION` bump). The key-pin store lives
-here too. The module only handles public data (signatures, public keys,
+here too. The verifier only handles public data (signatures, public keys,
 anchors, digests), so it can later move into a dedicated crypto process
-without changing that channel.
+without changing that channel. The codec can also decode `device-secrets`,
+which holds private keys; no verifier path does, and where private key
+material is handled is decided separately.
 
 | File | Ports | Design of record |
 |---|---|---|
@@ -50,8 +52,10 @@ and `Trust` (trust); `parseChainHead`, `chainHeadBytes` and `genesisHead`
   be wiped from memory. Keep their lifetime short.
 
 - Build a `Trust` with `newTrust(anchors)`, then `addSigned` or `addTrust` for
-  every trust object. A `Trust` is not safe for concurrent mutation: await each
-  call before the next.
+  every trust object. A `Trust` is not safe for concurrent use: await each
+  call before the next, and do not admit trust objects while a verification
+  that uses the same `Trust` is in flight (a verifier reads the halt only on
+  entry). `delegations` and `lookup` return copies.
 - Pass `verifyBundle`, `verifyChain` and `verifyStatus` only a head from
   `parseChainHead`, `genesisHead` or an earlier verification. A head that is not
   canonical is `malformed`.
@@ -82,17 +86,23 @@ persistence and the distribution gate.
 evaluates (§2.8, §2.12). The authority-only columns of the §2.9 table are also
 not ported.
 
-**Cost:** each verified result re-encodes the whole chain-head once to check
-that it stays within `HEAD_BLOB_MAX`, so first contact with a long chain is
-quadratic in its length. The reference counts the bytes each step adds instead.
-Bound the number of bundles fetched per call.
+**Cost:** a step does not re-encode the head to check `HEAD_BLOB_MAX`. As in
+the reference, every index edit records the bytes it adds (`headFits` in
+`heads.ts`), and `seq_index` grows in place on a copy the call owns, so the
+caller's head is never written. A chain of results that add no EK or root,
+which is what the server's operator keys alone can produce, replays in linear
+time (about 30 µs a step at 50,000 entries). Inserting into `ek_index`,
+`root_index` and `recover_index` still copies that index, as the reference
+does; those grow only with events the account's own devices sign. Verification
+runs on the main process's thread, so a caller replaying a long chain should
+split it across calls (each call resumes from the head the last one returned).
 
 ## Vectors
 
 `docs/design/account-key-authority-vectors.json` is a verbatim copy of
 `services/control-plane/internal/authoritycontract/testdata/vectors.json` in
 Concord-Voice/Self-Hosted at commit `2ddd583` (`vectors_sha384`
-`b9fe7a79…db43974f`). `tests/unit/services/e2ee/authority/vectors.parity.test.ts`
+`b9fe7a79…db43974f`). `tests/unit/main/authority/vectors.parity.test.ts`
 pins that digest and checks every vector against this port. No automated check
 compares the copy with upstream; protocol v1 is frozen, so it changes only when
 the vectors are regenerated.

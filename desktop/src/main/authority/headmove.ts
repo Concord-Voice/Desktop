@@ -6,12 +6,18 @@
 // result n, n's activation is recorded first (recordActivation); then n+1 is
 // appended (appendResult). The pending EK slot mirrors result #17: it is emptied
 // exactly when the new head's pending_ek_binding_digest is "".
+//
+// Every index edit goes through the sized helpers in heads.ts, so headFits can
+// check HEAD_BLOB_MAX without re-encoding the head. appendResult alone extends
+// seq_index in place, and only on a head from ownedHead (see appendResult).
 
 import { b64e } from './bytes';
 import {
-  insertSorted,
-  lowerBound,
+  insertEkDigest,
+  insertRecord,
+  pushSeqRecord,
   recoverRecord,
+  replaceSeqRecord,
   rootRecord,
   rootRecordOf,
   seqRecord,
@@ -43,7 +49,7 @@ export interface Moved {
 async function addRoot(h: ChainHead, root: Uint8Array, seg: string): Promise<ChainHead> {
   const d = await sha384(root);
   if (rootRecordOf(h, d) !== null) return h;
-  return { ...h, root_index: insertSorted(h.root_index, rootRecord(d, root, seg)) };
+  return { ...h, root_index: insertRecord('root_index', h.root_index, rootRecord(d, root, seg)) };
 }
 
 /** seq_index record n gains its bind root; a missing or unreadable record marks the move bad. */
@@ -52,8 +58,11 @@ async function bindRecord(h: ChainHead, n: number, root: Uint8Array): Promise<Mo
   const rec = h.seq_index[n - 1];
   const dot = rec.indexOf('.');
   if (dot < 0) return { head: h, bad: true };
-  const seq = [...h.seq_index];
-  seq[n - 1] = `${rec.slice(0, dot)}.${b64e(await sha384(root))}`;
+  const seq = replaceSeqRecord(
+    h.seq_index,
+    n - 1,
+    `${rec.slice(0, dot)}.${b64e(await sha384(root))}`
+  );
   return { head: { ...h, seq_index: seq }, bad: false };
 }
 
@@ -73,7 +82,7 @@ export async function recordActivation(h0: ChainHead, prev: Result, act: Pub): P
     h = { ...h, active_ek_spki: h.pending_ek_spki, active_ek_generation: h.pending_ek_generation };
     if (prev.op === 'recover') {
       const rec = recoverRecord(prev.seq, await sha384(h.pending_recovery_key));
-      h = { ...h, recover_index: insertSorted(h.recover_index, rec) };
+      h = { ...h, recover_index: insertRecord('recover_index', h.recover_index, rec) };
     }
   }
   return {
@@ -98,8 +107,17 @@ export async function formHypothesis(
  * root in root_index when active (a rotated root takes the current segment's
  * assurance, A9), its EK in ek_index and the active or pending slot, a pending
  * recover's recovery key, and the head result. The fix is dropped.
+ *
+ * It appends to h0.seq_index IN PLACE (amortized, so a long chain stays
+ * linear), as its last act: h0 must descend from ownedHead within the running
+ * verification. On success no head sharing h0's seq_index is read again; on
+ * refusal the caller calls `undo` before anything reads one.
  */
-export async function appendResult(h0: ChainHead, pb: Appended, seg: string): Promise<ChainHead> {
+export async function appendResult(
+  h0: ChainHead,
+  pb: Appended,
+  seg: string
+): Promise<{ head: ChainHead; undo: () => void }> {
   const r = pb.res;
   let h = h0;
   let bindRoot: Uint8Array = NONE;
@@ -107,14 +125,9 @@ export async function appendResult(h0: ChainHead, pb: Appended, seg: string): Pr
     bindRoot = await sha384(r.active_root);
     h = await addRoot(h, r.active_root, r.op === 'enroll_new' ? 'initial' : seg);
   }
-  h = { ...h, seq_index: [...h.seq_index, seqRecord(pb.entry, bindRoot)] };
   if (pb.ekb) {
     const spki = pb.ekb.ek_public_key;
-    const d = await sha384(spki);
-    const texts = h.ek_index.map(b64e);
-    const i = lowerBound(texts, b64e(d));
-    if (texts[i] !== b64e(d))
-      h = { ...h, ek_index: [...h.ek_index.slice(0, i), d, ...h.ek_index.slice(i)] };
+    h = { ...h, ek_index: insertEkDigest(h.ek_index, await sha384(spki)) };
     if (r.state === 'active')
       h = { ...h, active_ek_spki: spki, active_ek_generation: pb.ekb.ek_generation };
     if (r.state === 'pending')
@@ -124,5 +137,9 @@ export async function appendResult(h0: ChainHead, pb: Appended, seg: string): Pr
     h = { ...h, pending_ek_spki: NONE, pending_ek_generation: 0 };
   const pendingKey =
     r.op === 'recover' && r.state === 'pending' && pb.bind ? pb.bind.recovery_key : NONE;
-  return { ...h, pending_recovery_key: pendingKey, head_result: pb.resBytes, fix: NONE };
+  const undo = pushSeqRecord(h.seq_index, seqRecord(pb.entry, bindRoot));
+  return {
+    head: { ...h, pending_recovery_key: pendingKey, head_result: pb.resBytes, fix: NONE },
+    undo,
+  };
 }

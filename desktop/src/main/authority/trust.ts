@@ -258,13 +258,16 @@ export class Trust {
   /**
    * Every distinct valid delegation retained at (gen, serial), ordered by msg
    * bytes so no caller depends on arrival order. More than one exists only in a
-   * retired generation.
+   * retired generation. Each is a copy: a caller that edits one cannot change
+   * what this Trust retains.
    */
   delegations(gen: number, serial: number): Delegation[] {
     const recs = [...(this.#dels.get(key(gen, serial)) ?? [])].sort((a, b) =>
       compareBytes(a.msg, b.msg)
     );
-    return recs.filter((r, i) => i === 0 || !equalBytes(r.msg, recs[i - 1].msg)).map((r) => r.d);
+    return recs
+      .filter((r, i) => i === 0 || !equalBytes(r.msg, recs[i - 1].msg))
+      .map((r) => structuredClone(r.d));
   }
 
   /** The delegation at (gen, serial) only when exactly one is retained. */

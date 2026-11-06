@@ -8,14 +8,23 @@ import { resolve } from 'node:path';
 import { b64d, utf8 } from '@/main/authority/bytes';
 import { capAt, knownSegment, segmentRule } from '@/main/authority/assurance';
 import { verifyBundle, verifyChain } from '@/main/authority/chain';
-import { encode } from '@/main/authority/codec';
+import { capOf, encode, itemLen } from '@/main/authority/codec';
 import { addMs, sumBelow } from '@/main/authority/constants';
 import {
   canonicalHead,
   chainHeadBytes,
+  ekIndexHas,
   genesisHead,
+  headFits,
+  insertEkDigest,
+  insertRecord,
   insertSorted,
+  lowerBound,
+  ownedHead,
   parseChainHead,
+  pushSeqRecord,
+  replaceSeqRecord,
+  seqRecord,
   rootByDigest,
   type ChainHead,
 } from '@/main/authority/heads';
@@ -104,6 +113,14 @@ describe('trust (T1–T5)', () => {
     expect(t.lookup(gen, serial)?.serial).toBe(serial);
     expect(t.lookup(gen, serial + 1)).toBeNull();
     expect(t.highWater().serial).toBe(serial);
+    // A caller that edits what it was handed cannot change what the Trust retains.
+    const handed = t.lookup(gen, serial);
+    if (!handed) throw new Error('retained delegation');
+    const key = handed.rsk_public_keys[0].slice();
+    handed.rsk_public_keys[0].fill(0);
+    handed.serial += 1;
+    expect(t.lookup(gen, serial)?.rsk_public_keys[0]).toEqual(key);
+    expect(t.lookup(gen, serial)?.serial).toBe(serial);
   });
 
   it('refuses a status where a trust object belongs', async () => {
@@ -360,6 +377,94 @@ describe('heads and messages', () => {
   it('keeps an a<s> sorted without duplicates', () => {
     expect(insertSorted(['a', 'c'], 'b')).toEqual(['a', 'b', 'c']);
     expect(insertSorted(['a', 'c'], 'c')).toEqual(['a', 'c']);
+  });
+
+  // headFits must answer chainHeadBytes(h) !== null for every head a move builds,
+  // without re-encoding the indexes (linear first contact, E3-08).
+  const G = genesisHead(
+    '11111111-1111-4111-8111-111111111111',
+    '22222222-2222-4222-8222-222222222222'
+  );
+  const rec = (i: number): string => seqRecord(new Uint8Array(48).fill(i % 256), new Uint8Array(0));
+  const sameFit = (h: ChainHead): void => expect(headFits(h)).toBe(chainHeadBytes(h) !== null);
+
+  it('sizes every index edit exactly as the encoder does', async () => {
+    let h = ownedHead(G);
+    for (let i = 0; i < 5; i++) pushSeqRecord(h.seq_index, rec(i));
+    sameFit(h);
+    h = {
+      ...h,
+      seq_index: replaceSeqRecord(
+        h.seq_index,
+        2,
+        seqRecord(new Uint8Array(48), new Uint8Array(48).fill(9))
+      ),
+    };
+    sameFit(h);
+    const prev = await headOf(OK_CHAIN.prev_head);
+    for (const d of [
+      new Uint8Array(48).fill(0xfb),
+      new Uint8Array(48).fill(1),
+      prev.ek_index[0] ?? new Uint8Array(48).fill(7),
+    ])
+      h = { ...h, ek_index: insertEkDigest(h.ek_index, d) };
+    sameFit(h);
+    expect(canonicalHead(h)).toBe(true);
+    for (const r of prev.root_index)
+      h = { ...h, root_index: insertRecord('root_index', h.root_index, r) };
+    sameFit(h);
+    expect(chainHeadBytes(h)).not.toBeNull();
+  });
+
+  it('refuses an unwritable record and a head over HEAD_BLOB_MAX, as the encoder does', () => {
+    const bad = ownedHead(G);
+    pushSeqRecord(bad.seq_index, 'not a record');
+    expect(itemLen('chain-head', 'seq_index', 'not a record')).toBe(-1);
+    expect(itemLen('chain-head', 'realm_id', 'x')).toBe(-1);
+    sameFit(bad);
+    expect(headFits(bad)).toBe(false);
+
+    const big = ownedHead(G);
+    const n = Math.ceil(capOf('chain-head') / (itemLen('chain-head', 'seq_index', rec(0)) + 1)) + 1;
+    for (let i = 0; i < n; i++) big.seq_index.push(rec(i)); // an unsized array: headFits measures it once
+    sameFit(big);
+    expect(headFits(big)).toBe(false);
+  });
+
+  it('undoes an in-place append, size included', () => {
+    const h = ownedHead(G);
+    pushSeqRecord(h.seq_index, rec(1));
+    const undo = pushSeqRecord(h.seq_index, 'not a record');
+    expect(headFits(h)).toBe(false);
+    undo();
+    expect(h.seq_index).toEqual([rec(1)]);
+    sameFit(h);
+    expect(headFits(h)).toBe(true);
+  });
+
+  it('never writes the head ownedHead copies', () => {
+    const h = ownedHead(G);
+    pushSeqRecord(h.seq_index, rec(1));
+    expect(G.seq_index).toEqual([]);
+  });
+
+  it('searches ek_index over its base64 text, encoding only the probes', () => {
+    const xs = [new Uint8Array(48).fill(0xfb), new Uint8Array(48).fill(1)]; // "+/v7…" < "AQEB…"
+    const h = { ...G, ek_index: xs };
+    expect(canonicalHead(h)).toBe(true);
+    expect(ekIndexHas(h, xs[1])).toBe(true);
+    expect(ekIndexHas(h, new Uint8Array(48).fill(2))).toBe(false);
+    expect(insertEkDigest(xs, xs[0])).toBe(xs);
+    let probes = 0;
+    lowerBound(
+      Array.from({ length: 1024 }, (_, i) => String(i).padStart(4, '0')),
+      '0500',
+      (x) => {
+        probes++;
+        return x;
+      }
+    );
+    expect(probes).toBeLessThanOrEqual(11);
   });
 
   it('finds no root for a digest root_index does not hold', async () => {

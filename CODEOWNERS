@@ -14,6 +14,7 @@
 **/middleware/ratelimit*                             @Concord-Voice/security
 desktop/src/preload/**                       @Concord-Voice/security
 desktop/src/main/ipc*                        @Concord-Voice/security
+desktop/src/main/authority/**                @Concord-Voice/security
 docs/policies/**                                    @Concord-Voice/security
 .github/workflows/**                                @Concord-Voice/security
 .github/codeql/**                                   @Concord-Voice/security
