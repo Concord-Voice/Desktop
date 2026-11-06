@@ -1,5 +1,5 @@
 // §2.4 primitives and the frozen canonical texts of the account-key authority
-// contract (#2553 DoR §2.4, §2.19, §2.20). A port of Concord-Voice/Hosted
+// contract (design of record §2.4, §2.19, §2.20). A port of Concord-Voice/Self-Hosted
 // scripts/authority-vectors/gen.mjs §3; the committed vectors decide every byte.
 
 import { b64d, buf, cmp, concat, equalBytes, fromHex, toHex, utf8 } from './bytes';
@@ -115,14 +115,18 @@ export async function verifyLegacyPSS(
     return false;
   }
   if (sig.length !== 512) return false;
-  const key = await subtle.importKey(
-    'spki',
-    buf(spki),
-    { name: 'RSA-PSS', hash: 'SHA-256' },
-    false,
-    ['verify']
-  );
-  return subtle.verify({ name: 'RSA-PSS', saltLength: 32 }, key, buf(sig), buf(msg));
+  try {
+    const key = await subtle.importKey(
+      'spki',
+      buf(spki),
+      { name: 'RSA-PSS', hash: 'SHA-256' },
+      false,
+      ['verify']
+    );
+    return await subtle.verify({ name: 'RSA-PSS', saltLength: 32 }, key, buf(sig), buf(msg));
+  } catch {
+    return false;
+  }
 }
 
 /** §2.19 DeviceID: a v4-shaped UUID from SHA-384("concord-device-id/v1" ‖ 0 ‖ dsk). */
@@ -159,7 +163,10 @@ export async function parseDev(s: string): Promise<DevRecord> {
   return { id, dsk, dkx: b64d(dkxB64), matureAtMs: parseU(mature) };
 }
 
-/** LD-28 safety number: 12 groups of 5 digits, or '' for an invalid input. */
+/**
+ * LD-28 safety number: 12 groups of 5 digits, or '' for an invalid input (vector
+ * parity). A caller that displays it must treat '' as an error, never show it.
+ */
 export async function safetyNumber(accountId: string, pinDigest: Uint8Array): Promise<string> {
   if (!isUUID(accountId) || pinDigest.length !== 48) return '';
   const h = new Uint8Array(

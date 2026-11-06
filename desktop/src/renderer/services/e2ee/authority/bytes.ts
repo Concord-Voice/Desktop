@@ -1,4 +1,4 @@
-// Byte helpers for the account-key authority contract (#2553 DoR §2.3).
+// Byte helpers for the account-key authority contract (design of record §2.3).
 // Renderer-safe: no Buffer. Base64 is the strict RFC 4648 §3.5 form plus the
 // EN5 rule that a value must re-encode to the identical string.
 
@@ -24,6 +24,7 @@ export function b64d(s: string): Uint8Array {
   return out;
 }
 
+/** Early-exit compare: public data only, never secrets or MACs. */
 export function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && a.every((x, i) => x === b[i]);
 }
@@ -48,6 +49,7 @@ export const toHex = (b: Uint8Array): string =>
   Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
 
 export function fromHex(h: string): Uint8Array {
+  if (!/^(?:[0-9a-f]{2})*$/.test(h)) throw new Malformed('hex');
   const out = new Uint8Array(h.length / 2);
   for (let i = 0; i < out.length; i++) out[i] = Number.parseInt(h.slice(2 * i, 2 * i + 2), 16);
   return out;

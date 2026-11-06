@@ -1,6 +1,6 @@
 // @vitest-environment node
-// #2553 DoR §3.1 cross-language check, desktop side: every committed vector
-// verifies under the TypeScript port. A port of Concord-Voice/Hosted
+// Design of record §3.1 cross-language check, desktop side: every committed vector
+// verifies under the TypeScript port. A port of Concord-Voice/Self-Hosted
 // scripts/authority-vectors/vectors.parity.test.ts; the vectors are vendored at
 // docs/design/account-key-authority-vectors.json and pinned below.
 import { describe, it, expect } from 'vitest';
@@ -16,8 +16,8 @@ import {
 } from '@/renderer/services/e2ee/authority/codec';
 import * as prim from '@/renderer/services/e2ee/authority/primitives';
 
-// Hosted services/control-plane/internal/authoritycontract/testdata/vectors.json @ 477ed4a.
-// Re-vendor (and update this pin) only when Hosted regenerates the vectors.
+// Concord-Voice/Self-Hosted services/control-plane/internal/authoritycontract/testdata/vectors.json
+// @ 2ddd583. Re-vendor (and update this pin) only when the vectors are regenerated.
 const VECTORS_SHA384 =
   'b9fe7a790486e1266fc54658209716340a404ee1a02cb363259804d41f484863b06c1d350754036a32370c55db43974f';
 const HEADER_LINE =
@@ -36,7 +36,7 @@ const file = JSON.parse(text);
 const vectors: Vec[] = file.vectors;
 const ok = (v: Vec): boolean => v.expect.reason === 'ok';
 
-// DoR §2.12 Reason → Verdict (the generator's copy; #2628's verifier PR owns the real table).
+// Design of record §2.12 Reason → Verdict (the generator's copy; the verifier PR owns the real table).
 const VERDICT: Record<string, string> = Object.fromEntries([
   ...['ok', 'ok_accepted_pin'].map((r) => [r, 'ok']),
   ...[
@@ -189,7 +189,7 @@ const PRIM: Record<string, (v: Vec) => Promise<void>> = {
 };
 
 // The codec layer of every verification vector. Reasons are the verifier's to
-// check (a later #2628 PR), not this file's.
+// check (a later verifier PR), not this file's.
 async function decodes(tag: string, s?: string): Promise<Values | null> {
   if (!s) return null;
   const bytes = b64d(s);
@@ -233,12 +233,8 @@ const PRIMARY_TAG: Record<string, string> = {
   'apply-device-op': 'device-set',
   normalize: 'device-set',
 };
-const P1_TAG: Record<string, string> = {
-  status: 'signed',
-  history: 'history',
-  shape: 'bundle',
-  'bind-shape': 'recovery-bind',
-};
+// The committed p1 vectors use only mode `status`; another mode fails as an unknown layout.
+const P1_TAG: Record<string, string> = { status: 'signed' };
 
 async function verificationVector(v: Vec): Promise<void> {
   expect(VERDICT[v.expect.reason], `reason ${v.expect.reason}`).toBeDefined();
@@ -254,7 +250,6 @@ async function verificationVector(v: Vec): Promise<void> {
   await decodes('signed', v.fix);
   for (const s of v.device_bundles ?? []) await deviceBundleParts(s);
   await decodes('signed', v.device_status);
-  for (const s of v.statuses ?? []) await decodes('signed', s);
   if (v.prev_device_head) {
     const dh = (await decodes('device-head', v.prev_device_head))!;
     expect(
@@ -289,7 +284,7 @@ async function layout(v: Vec): Promise<void> {
 }
 
 describe('authority vectors', () => {
-  it('are the pinned, unedited Hosted copy', async () => {
+  it('are the pinned, unedited upstream copy', async () => {
     const newline = text.indexOf('\n');
     expect(HEADER_LINE.test(text.slice(0, newline))).toBe(true);
     const body = new TextEncoder().encode(text.slice(newline + 1));

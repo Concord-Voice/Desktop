@@ -1,5 +1,5 @@
-// The account-key authority contract codec, protocol v1 (#2553 DoR §2.3, §2.5,
-// §2.6, §2.12, §2.22). A port of Concord-Voice/Hosted
+// The account-key authority contract codec, protocol v1 (design of record
+// §2.3, §2.5, §2.6, §2.12, §2.22). A port of Concord-Voice/Self-Hosted
 // scripts/authority-vectors/gen.mjs §1–2. Class F: frozen; the committed
 // vectors decide every byte, cap and refusal.
 //
@@ -54,6 +54,7 @@ type BinKind = Opt & {
   sizes?: number[];
   upTo?: number;
   chk?: 'point' | 'ekspki';
+  /** Vector-generator hint only. Nested positions are opaque bytes: the caller decodes them. */
   hold?: string;
 };
 type ListKind = Opt & { t: 'a' | 'l'; elem: StrKind | BinKind; min: number; max: number };
@@ -86,6 +87,15 @@ const L = (elem: StrKind | BinKind, min: number, max: number): ListKind => ({
 });
 const opt = <K extends Kind>(k: K): K => ({ ...k, empty: true });
 const INF = Infinity;
+
+/** The contract tables are frozen; an importer must not be able to move a cap or a rule. */
+function deepFreeze<T>(o: T): T {
+  if (o && typeof o === 'object' && !Object.isFrozen(o)) {
+    Object.freeze(o);
+    for (const v of Object.values(o)) deepFreeze(v);
+  }
+  return o;
+}
 const P97 = B(97, 'point');
 const EKSPKI = B(550, 'ekspki');
 const DEV = S(319, 'dev');
@@ -94,7 +104,7 @@ const D48o = opt(B(48));
 const SIG = B(96);
 const SIGo = opt(B(96));
 
-// ── Closed sets (DoR §2.5, §2.6, §2.12, §2.22, §3.3) ─────────────────────────
+// ── Closed sets (design of record §2.5, §2.6, §2.12, §2.22, §3.3) ─────────────────────────
 
 const PUBLISHED_OPS = [
   'cancel_pending',
@@ -136,7 +146,7 @@ const ROLES = [
   'operator',
   'recovery-key',
 ];
-export const FACTORS = [
+export const FACTORS: readonly string[] = Object.freeze([
   'admin-webauthn',
   'backup-code',
   'device-key',
@@ -151,7 +161,7 @@ export const FACTORS = [
   'sso',
   'totp',
   'webauthn',
-];
+]);
 const BIND_KINDS = ['bind', 'cancel', 'unbind'];
 const BIND_WAITS = ['', 'delta', 'now', 'replace'];
 const SIGNED_TYPES = ['delegation', 'device-status', 'status', 'succession'];
@@ -205,7 +215,7 @@ const ERRORS = [
 
 // ── Layouts: position order is the wire order ────────────────────────────────
 
-export const LAYOUTS: Record<string, readonly (readonly [string, Kind])[]> = {
+export const LAYOUTS: Readonly<Record<string, readonly (readonly [string, Kind])[]>> = deepFreeze({
   intent: [
     ['realm_id', S36],
     ['account_id', S36],
@@ -621,9 +631,9 @@ export const LAYOUTS: Record<string, readonly (readonly [string, Kind])[]> = {
     ['admitted_by', A(S(73, 'admittedRec'), 0, 11)],
     ['secrets', L(S(946, 'secretsRec'), 0, INF)],
   ],
-};
+});
 
-export const CAPS: Record<string, number> = {
+export const CAPS: Readonly<Record<string, number>> = Object.freeze({
   anchors: 1024,
   signed: 6144,
   'device-set': 4608,
@@ -638,7 +648,7 @@ export const CAPS: Record<string, number> = {
   trust: 2097152,
   'chain-head': 16777216,
   'device-head': 16777216,
-};
+});
 
 // ── Caps: an explicit cap, else the longest encoding the layout admits ──────
 
@@ -669,7 +679,11 @@ export function maxLen(tag: string): number {
   return n;
 }
 
-export const capOf = (tag: string): number => CAPS[tag] ?? maxLen(tag);
+export function capOf(tag: string): number {
+  if (Object.hasOwn(CAPS, tag)) return CAPS[tag];
+  layoutOf(tag);
+  return maxLen(tag);
+}
 
 // ── Position rules ──────────────────────────────────────────────────────────
 
@@ -946,10 +960,14 @@ async function readArray(k: ListKind, x: unknown): Promise<(string | Uint8Array)
 
 const latin1 = new TextDecoder('latin1');
 
-/** EN5: parse, validate every position, and require a byte-identical re-encode. */
+/**
+ * EN5: parse, validate every position, and require a byte-identical re-encode.
+ * `limit` can only lower the tag's cap. Nested-message positions (`hold`) come
+ * back as unvalidated bytes; decode them with their own tag before use.
+ */
 export async function decode(tag: string, bytes: Uint8Array, limit?: number): Promise<Values> {
   const fields = layoutOf(tag);
-  if (bytes.length > (limit ?? capOf(tag))) throw new Malformed('length');
+  if (bytes.length > Math.min(limit ?? Infinity, capOf(tag))) throw new Malformed('length');
   for (const c of bytes) if (!EN2.has(c)) throw new Malformed('EN2');
   let arr: unknown;
   try {
