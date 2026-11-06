@@ -551,7 +551,7 @@ describe('wrapKey (R6, E-S1)', () => {
     expect(out.reason).toBe('ok');
     const ek = await wrapKey(out.status, new Uint8Array(0));
     expect(ek).toEqual(out.head.pending_ek_spki);
-    expect(out.head.pending_ek_spki.length).toBe(550);
+    expect(out.head.pending_ek_spki).toHaveLength(550);
   });
 
   it('wraps an absent or continuity-pending account only to a served SPKI that hashes to the pin', async () => {
