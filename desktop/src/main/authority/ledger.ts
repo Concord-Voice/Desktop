@@ -1052,7 +1052,7 @@ async function viewOf(
 /**
  * D-S2: r is active, with exactly that dkx, in h's effective set. That is the
  * persisted set, unless h's retained fix shows the raw pending head's new-root
- * activation and the set stops before it (device-head #7): then it is the set
+ * activation and the set stops before it (device-head field 7): then it is the set
  * that activation leaves (DR8), so a device the activation dropped gets no
  * wrap. A head that does not read has no active device. Never throws.
  */

@@ -767,5 +767,12 @@ describe('sealDeviceWrap', () => {
     const noFix = { ...h, chain: { ...h.chain, fix: new Uint8Array(0) } };
     expect(await activeRecipient(noFix, old)).toBe(true);
     expect(await activeRecipient(noFix, next)).toBe(false);
+    // A fix that shows the raw pending head still pending (held) keeps the persisted set.
+    const sg = (await decodeAs('signed', h.chain.fix))!;
+    const st = (await decodeAs('status', sg.msg))!;
+    const held = encodeAs('signed', { ...sg, msg: encodeAs('status', { ...st, held: 1 })! })!;
+    const heldH = { ...h, chain: { ...h.chain, fix: held } };
+    expect(await activeRecipient(heldH, old)).toBe(true);
+    expect(await activeRecipient(heldH, next)).toBe(false);
   });
 });

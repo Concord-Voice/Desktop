@@ -20,7 +20,7 @@ import { equalBytes } from './bytes';
 import { EPSILON_MS, sumBelow, V_MAX_MS } from './constants';
 import { headPub, segmentOf, type ChainHead } from './heads';
 import { decodeAs, type Delegation, type Status } from './messages';
-import { checkEkSpkiTemplate, checkEkSpkiWebCrypto, sha384 } from './primitives';
+import { pinnedEk } from './primitives';
 import { activate, type Pub } from './pub';
 import type { Reason } from './reason';
 import { effectiveOf, effectivePending, fixNames, fixStatus, checkR5 } from './replay';
@@ -255,15 +255,7 @@ export async function wrapKey(
   const w = SEALS.get(vs);
   if (w?.use !== 'new-secret') return null;
   if (w.ek.length > 0) return w.ek.slice();
-  if (!w.served || w.pin.length === 0) return null;
-  try {
-    if (!equalBytes(await sha384(servedSpki), w.pin)) return null;
-    checkEkSpkiTemplate(servedSpki);
-    await checkEkSpkiWebCrypto(servedSpki);
-    return servedSpki.slice();
-  } catch {
-    return null;
-  }
+  return w.served ? pinnedEk(w.pin, servedSpki) : null;
 }
 
 /**

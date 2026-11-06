@@ -273,12 +273,13 @@ async function decryptWrap(w: DeviceWrap, dkx: DkxPair): Promise<Uint8Array | nu
 
 /** A fresh ephemeral key, Z its x-coordinate with the recipient's dkx, a fresh nonce, then AES-256-GCM. */
 async function encryptWrap(
-  h: DeviceHead,
+  h: Pick<DeviceHead, 'realm_id' | 'account_id'>,
   r: DevRecord,
   entry: Uint8Array,
   pt: Uint8Array
 ): Promise<Uint8Array | null> {
   let z = new Uint8Array(0);
+  const ptb = buf(pt); // Web Crypto's own copy of the plaintext, zeroed below
   try {
     const peer = await subtle.importKey('raw', buf(r.dkx), P384_ECDH, false, []);
     const eph = (await subtle.generateKey(P384_ECDH, false, ['deriveBits'])) as DkxPair;
@@ -294,10 +295,11 @@ async function encryptWrap(
       nonce: globalThis.crypto.getRandomValues(new Uint8Array(NONCE_LEN)),
     };
     const k = await wrapAesKey(z, frame, r.dkx, 'encrypt');
-    const ct = new Uint8Array(await subtle.encrypt(gcm(frame), k, buf(pt)));
+    const ct = new Uint8Array(await subtle.encrypt(gcm(frame), k, ptb));
     return encodeAs('device-wrap', { ...frame, ct });
   } finally {
     z.fill(0);
+    new Uint8Array(ptb).fill(0);
   }
 }
 
@@ -368,11 +370,15 @@ export async function sealDeviceWrap(
   s: DeviceSecrets
 ): Promise<Uint8Array | null> {
   try {
-    if (entryDigest.length !== ENTRY_LEN || !(await activeRecipient(h, recipient))) return null;
+    // Snapshot every input the check reads, so the seal uses exactly what was checked.
+    const ids = { realm_id: h.realm_id, account_id: h.account_id };
+    const to: DevRecord = { ...recipient, dkx: recipient.dkx.slice() };
+    const entry = entryDigest.slice();
+    if (entry.length !== ENTRY_LEN || !(await activeRecipient(h, to))) return null;
     const pt = encodeAs('device-secrets', s);
     if (!pt) return null;
     try {
-      return await encryptWrap(h, recipient, entryDigest, pt);
+      return await encryptWrap(ids, to, entry, pt);
     } finally {
       pt.fill(0);
     }

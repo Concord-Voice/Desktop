@@ -36,7 +36,7 @@ import { activate, classify, genesisPub } from '@/main/authority/pub';
 import { noticeOf, verdictOf } from '@/main/authority/reason';
 import { fixAllows, fixStatus, pickMatch } from '@/main/authority/replay';
 import { verifyStatus, wrapKey, type AccountMemory } from '@/main/authority/status';
-import { sha384 } from '@/main/authority/primitives';
+import { pinnedEk, sha384 } from '@/main/authority/primitives';
 import { rowByN, rowsFor } from '@/main/authority/table';
 import { checkTrustEnvelope, maxHW, newTrust, ZERO_HW, type Trust } from '@/main/authority/trust';
 
@@ -546,6 +546,30 @@ describe('wrapKey (R6, E-S1)', () => {
     expect(await wrapKey(hist.status, new Uint8Array(0))).toBeNull();
   });
 
+  it('reads only the seal: editing the verified head afterwards changes nothing', async () => {
+    const out = await chainOf('head/after-rotations');
+    const want = out.head.active_ek_spki.slice();
+    out.head.active_ek_spki[0] ^= 0xff;
+    expect(await wrapKey(out.status, new Uint8Array(0))).toEqual(want);
+  });
+
+  it('keeps the seal on the verdict verifyStatus returns', async () => {
+    const v = byName('head/after-rotations') as Vec & { hw: Json };
+    const out = await chainOf('head/after-rotations');
+    const hw = v.hw as { gen: number; serial: number; min_valid: number };
+    const [vs] = await verifyStatus(
+      await trustOf(v),
+      { gen: hw.gen, serial: hw.serial, minValid: hw.min_valid },
+      out.head,
+      b64d(v.bytes_b64),
+      NO_MEM,
+      v.now_ms,
+      'new-secret'
+    );
+    expect(vs.reason).toBe('ok');
+    expect(await wrapKey(vs, new Uint8Array(0))).toEqual(out.head.active_ek_spki);
+  });
+
   it('wraps to the activated EK when the fix shows the raw pending head activated (N-2)', async () => {
     const out = await chainOf('r4/status/pending-after-a-shown-activation');
     expect(out.reason).toBe('ok');
@@ -567,7 +591,23 @@ describe('wrapKey (R6, E-S1)', () => {
       const other = spkis.find((s) => !equalBytes(s, served))!;
       expect(await wrapKey(out.status, other), name).toBeNull();
       expect(await wrapKey(out.status, new Uint8Array(0)), name).toBeNull();
+      const hist = await chainOf(name, 'history');
+      expect(await wrapKey(hist.status, served), name).toBeNull();
     }
+  });
+
+  it('pins a served EK only when it is valid, as a copy of the checked bytes', async () => {
+    const [ek] = await vectorSpkis();
+    const pin = await sha384(ek);
+    const got = (await pinnedEk(pin, ek))!;
+    expect(got).toEqual(ek);
+    got[0] ^= 0xff;
+    expect(ek[0]).not.toBe(got[0]);
+    const bad = ek.slice();
+    bad[0] ^= 0xff;
+    expect(await pinnedEk(await sha384(bad), bad)).toBeNull(); // the pin matches; the EK is not valid
+    expect(await pinnedEk(pin, bad)).toBeNull();
+    expect(await pinnedEk(new Uint8Array(0), ek)).toBeNull();
   });
 
   it('wraps nothing for a withheld verdict, whatever its fields are edited to', async () => {

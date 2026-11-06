@@ -47,8 +47,10 @@ and `Trust` (trust); `parseChainHead`, `chainHeadBytes` and `genesisHead`
 `wrapKey` (status);
 `parseDeviceHead` and `deviceHeadBytes` (heads); `applyDeviceOp` and
 `normalizeDeviceSet` (devicerules); `verifyDeviceLedger` (ledger);
-`activeRecipient` (ledger); `sealDeviceWrap` and `verifyDeviceWrap` (wrap);
+`sealDeviceWrap` and `verifyDeviceWrap` (wrap); `pinnedEk` (primitives);
 `verdictOf` and `noticeOf` (reason); `RECOVER_CONFIRM_MS` (constants).
+`activeRecipient` (ledger) is exported only for tests: call `sealDeviceWrap`,
+which applies it.
 
 **Rules for callers:**
 
@@ -92,7 +94,8 @@ and `Trust` (trust); `parseChainHead`, `chainHeadBytes` and `genesisHead`
 - Pass `sealDeviceWrap` only the device head that `verifyDeviceLedger` just
   returned. It reads no clock, so an older head could wrap the root to a
   device whose removal the server is withholding. It seals only to an active
-  device of that head with the dkx the head records.
+  device of that head with the dkx the head records. It copies the recipient
+  and entry digest before the check, so the wrap uses the checked bytes.
 - Pass `verifyDeviceWrap` a dkx key pair generated together: a non-extractable
   private key with the `deriveBits` usage only, and its own extractable public
   key.
