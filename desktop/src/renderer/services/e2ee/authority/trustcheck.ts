@@ -85,6 +85,14 @@ export async function checkT6(
   return [eff, 'ok'];
 }
 
+/** The fields of a result that T7 reads. */
+export interface ResultScope {
+  readonly delegation_gen: number;
+  readonly delegation_serial: number;
+  readonly issued_at_ms: number;
+  readonly op: string;
+}
+
 /**
  * T7: a result's RSK signature, window and scope (= its op). Returns whether
  * the entry is superseded, which needs a covering status (verifyChain).
@@ -93,13 +101,11 @@ export async function checkT6(
 export async function checkT7(
   t: Trust,
   hw: HighWater,
-  gen: number,
-  serial: number,
-  issued: number,
-  op: string,
+  res: ResultScope,
   msg: Uint8Array,
   sig: Uint8Array
 ): Promise<[boolean, Reason]> {
+  const { delegation_gen: gen, delegation_serial: serial, issued_at_ms: issued, op } = res;
   const ds = t.delegations(gen, serial);
   if (ds.length === 0) return [false, 'delegation_unknown'];
   const r = await bestOf(ds, RSK_ORDER, (d) => rskRule(d, msg, sig, issued, op));

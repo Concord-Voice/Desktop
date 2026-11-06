@@ -41,10 +41,10 @@ const hwLess = (a: HighWater, b: HighWater): boolean =>
   a.gen < b.gen || (a.gen === b.gen && a.serial < b.serial);
 
 /** The higher (gen, serial); on a tie the larger min_valid, so HW never decreases (T5). */
-export function maxHW(a: HighWater, b: HighWater): HighWater {
-  if (hwLess(a, b)) return b;
-  if (!hwLess(b, a) && b.minValid > a.minValid) return b;
-  return a;
+export function maxHW(x: HighWater, y: HighWater): HighWater {
+  if (hwLess(x, y)) return y;
+  if (!hwLess(y, x) && y.minValid > x.minValid) return y;
+  return x;
 }
 
 /** What one trust object did: admitted, ignored (T2/T3 or a repeat), malformed, or admitted into a halt. */
@@ -328,26 +328,36 @@ export const newTrust = (anchors: Uint8Array): Promise<Trust | null> => Trust.fr
 export async function checkTrustEnvelope(b: Uint8Array): Promise<TrustEnvelope | null> {
   const env = await decodeAs('trust', b);
   if (!env) return null;
-  let lastSucc = -1;
-  let lastDel: [number, number] | null = null;
+  const order: EnvelopeOrder = { lastSucc: -1, lastDel: null };
   for (const it of env.items) {
-    const s = await decodeAs('signed', it);
-    if (!s) return null;
-    if (s.type === 'succession') {
-      const m = await decodeAs('succession', s.msg);
-      if (!m || lastDel !== null || m.new_root_gen <= lastSucc) return null;
-      lastSucc = m.new_root_gen;
-    } else if (s.type === 'delegation') {
-      const d = await decodeAs('delegation', s.msg);
-      if (!d) return null;
-      const k: [number, number] = [d.product_root_gen, d.serial];
-      if (lastDel !== null && cmpPair(k, lastDel) <= 0) return null;
-      lastDel = k;
-    } else {
-      return null;
-    }
+    if (!(await admitInOrder(it, order))) return null;
   }
   return env;
+}
+
+interface EnvelopeOrder {
+  lastSucc: number;
+  lastDel: [number, number] | null;
+}
+
+/** One envelope item against the ordering so far; false when malformed or out of order. */
+async function admitInOrder(it: Uint8Array, o: EnvelopeOrder): Promise<boolean> {
+  const s = await decodeAs('signed', it);
+  if (s?.type === 'succession') {
+    const m = await decodeAs('succession', s.msg);
+    if (!m || o.lastDel !== null || m.new_root_gen <= o.lastSucc) return false;
+    o.lastSucc = m.new_root_gen;
+    return true;
+  }
+  if (s?.type === 'delegation') {
+    const d = await decodeAs('delegation', s.msg);
+    if (!d) return false;
+    const k: [number, number] = [d.product_root_gen, d.serial];
+    if (o.lastDel !== null && cmpPair(k, o.lastDel) <= 0) return false;
+    o.lastDel = k;
+    return true;
+  }
+  return false;
 }
 
 const cmpPair = (a: [number, number], b: [number, number]): number => a[0] - b[0] || a[1] - b[1];

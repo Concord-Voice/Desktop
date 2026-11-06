@@ -51,7 +51,7 @@ async function heldNamesFromHead(f: Pub, pb: ParsedBundle, st: Status): Promise<
 
 /** Check 4's condition: the retained fix names the from-head f and shows it activated. */
 function fixShowsActivated(fix: Status | null, f: Pub): boolean {
-  if (!fix || fix.seq !== f.seq || !equalBytes(fix.head_entry_digest, f.entry)) return false;
+  if (fix?.seq !== f.seq || !equalBytes(fix.head_entry_digest, f.entry)) return false;
   return f.state === 'pending' && !effectivePending(f, fix);
 }
 

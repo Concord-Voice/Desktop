@@ -2,6 +2,7 @@
 // record §2.9). `Pub` is derived, never persisted: the persisted form is the
 // chain-head (D-269).
 
+import { cmp } from './bytes';
 import { sha384 } from './primitives';
 import type { Result } from './messages';
 
@@ -111,7 +112,7 @@ export const xOf = (p: Pub): string =>
 
 /** set ∪ {v}, sorted as the codec's a arrays are; the input is not modified. */
 export function withSet(set: readonly string[], v: string): string[] {
-  return set.includes(v) ? [...set] : [...set, v].sort();
+  return set.includes(v) ? [...set] : [...set, v].sort(cmp);
 }
 
 /** set \ {v}. */

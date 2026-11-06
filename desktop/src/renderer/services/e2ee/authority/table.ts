@@ -19,7 +19,7 @@ export type Guard =
 
 /** The Required-signatures column as flags. */
 export const SIG = Object.freeze({
-  candidate: 1 << 0, // sig_candidate under intent candidate_root
+  candidate: 1, // sig_candidate under intent candidate_root
   ekByCandidate: 1 << 1, // ek_binding signed by the candidate
   ekByCurrent: 1 << 2, // ek_binding signed by the head's active root
   pop: 1 << 3, // legacy_pop_sig and legacy_spki
@@ -77,9 +77,7 @@ function row(
   actor: string,
   from: FromCode[],
   sigs: number,
-  to: ToRule,
-  deltaRG: number,
-  assure: AssureRule,
+  [to, deltaRG, assure]: readonly [ToRule, number, AssureRule],
   extra: Partial<Pick<Row, 'guard' | 'optSigs' | 'popNotIn'>> = {}
 ): Row {
   return Object.freeze({
@@ -105,118 +103,87 @@ export const ROWS: readonly Row[] = Object.freeze([
     'user',
     ['A0'],
     S.candidate | S.ekByCandidate,
-    'enrollActive',
-    0,
-    'initial',
+    ['enrollActive', 0, 'initial'],
     {
       popNotIn: true,
     }
   ),
-  row(
-    2,
-    'enroll_existing',
-    'user',
-    ['Ap'],
-    S.candidate | S.ekByCandidate | S.pop,
+  row(2, 'enroll_existing', 'user', ['Ap'], S.candidate | S.ekByCandidate | S.pop, [
     'pendOrDisp',
     1,
-    'row2'
-  ),
-  row(
-    3,
-    'enroll_existing',
-    'user',
-    ['Ap', 'Apr'],
-    S.candidate | S.ekByCandidate,
+    'row2',
+  ]),
+  row(3, 'enroll_existing', 'user', ['Ap', 'Apr'], S.candidate | S.ekByCandidate, [
     'pendOrDisp',
     1,
-    'row3'
-  ),
+    'row3',
+  ]),
   row(
     4,
     'enroll_existing',
     'user',
     ['P', 'D'],
     S.candidate | S.ekByCandidate,
-    'dispBurn',
-    1,
-    'empty',
+    ['dispBurn', 1, 'empty'],
     {
       guard: 'priorAbsent',
       optSigs: S.pop,
     }
   ),
-  row(
-    5,
-    'rotate_root',
-    'user',
-    ['Ac'],
-    S.candidate | S.ekByCandidate | S.current,
+  row(5, 'rotate_root', 'user', ['Ac'], S.candidate | S.ekByCandidate | S.current, [
     'rotateRoot',
     0,
-    'segment'
-  ),
-  row(6, 'rotate_ek', 'user', ['Ac'], S.current | S.ekByCurrent, 'rotateEK', 0, 'empty'),
-  row(7, 'suspend', 'user', ['Ac', 'So', 'Sor'], 0, 'suspendAdd', 0, 'empty', {
+    'segment',
+  ]),
+  row(6, 'rotate_ek', 'user', ['Ac'], S.current | S.ekByCurrent, ['rotateEK', 0, 'empty']),
+  row(7, 'suspend', 'user', ['Ac', 'So', 'Sor'], 0, ['suspendAdd', 0, 'empty'], {
     guard: 'userNotInSet',
   }),
-  row(8, 'suspend', 'operator', ['Ac', 'Su'], S.operator, 'suspendAdd', 0, 'empty'),
-  row(9, 'unsuspend', 'user', ['Su', 'So'], S.current, 'unsuspend', 0, 'empty', {
+  row(8, 'suspend', 'operator', ['Ac', 'Su'], S.operator, ['suspendAdd', 0, 'empty']),
+  row(9, 'unsuspend', 'user', ['Su', 'So'], S.current, ['unsuspend', 0, 'empty'], {
     guard: 'userInSetUnrevoked',
   }),
-  row(10, 'unsuspend', 'operator', ['So'], S.operator, 'unsuspend', 0, 'empty', {
+  row(10, 'unsuspend', 'operator', ['So'], S.operator, ['unsuspend', 0, 'empty'], {
     guard: 'opInSetUnrevoked',
   }),
-  row(
-    11,
-    'replace_root',
-    'user',
-    ['Ac', 'Su', 'Sor'],
-    S.candidate | S.ekByCandidate,
+  row(11, 'replace_root', 'user', ['Ac', 'Su', 'Sor'], S.candidate | S.ekByCandidate, [
     'pendOrDisp',
     1,
-    'row11'
-  ),
+    'row11',
+  ]),
   row(
     12,
     'replace_root',
     'user',
     ['P', 'D'],
     S.candidate | S.ekByCandidate,
-    'dispBurn',
-    1,
-    'empty',
+    ['dispBurn', 1, 'empty'],
     {
       guard: 'priorActiveOrSusp',
     }
   ),
-  row(13, 'cancel_pending', 'user', ['P', 'D', 'Pe'], S.current, 'restore', 1, 'empty', {
+  row(13, 'cancel_pending', 'user', ['P', 'D', 'Pe'], S.current, ['restore', 1, 'empty'], {
     guard: 'rootUnrevoked',
   }),
-  row(14, 'cancel_pending', 'user', ['P', 'D', 'Pe'], S.pop, 'ap', 1, 'empty', {
+  row(14, 'cancel_pending', 'user', ['P', 'D', 'Pe'], S.pop, ['ap', 1, 'empty'], {
     guard: 'livePinPriorAbsent',
   }),
-  row(15, 'revoke_root', 'operator', ['Ac', 'Su', 'So'], S.operator, 'sor', 1, 'empty'),
-  row(16, 'revoke_root', 'operator', ['P', 'D'], S.operator, 'sor', 1, 'empty', {
+  row(15, 'revoke_root', 'operator', ['Ac', 'Su', 'So'], S.operator, ['sor', 1, 'empty']),
+  row(16, 'revoke_root', 'operator', ['P', 'D'], S.operator, ['sor', 1, 'empty'], {
     guard: 'priorNotAbsent',
   }),
-  row(17, 'revoke_root', 'operator', ['Ap', 'P', 'D'], S.operator, 'apr', 1, 'empty', {
+  row(17, 'revoke_root', 'operator', ['Ap', 'P', 'D'], S.operator, ['apr', 1, 'empty'], {
     guard: 'absentPrior',
   }),
-  row(18, 'erase', 'user', ANY_BUT_PE_PR_E, 0, 'pendErase', 1, 'empty'),
-  row(19, 'erase', 'operator', ANY_BUT_PR_E, S.operator, 'erased', 0, 'empty'),
-  row(
-    20,
-    'recover',
-    'user',
-    ANY_BUT_E,
-    S.candidate | S.ekByCandidate | S.recovery | S.bindProof,
+  row(18, 'erase', 'user', ANY_BUT_PE_PR_E, 0, ['pendErase', 1, 'empty']),
+  row(19, 'erase', 'operator', ANY_BUT_PR_E, S.operator, ['erased', 0, 'empty']),
+  row(20, 'recover', 'user', ANY_BUT_E, S.candidate | S.ekByCandidate | S.recovery | S.bindProof, [
     'pr',
     1,
-    'row20'
-  ),
-  row(21, 'cancel_pending', 'user', ['Pr'], S.pendingRecovery, 'restore', 1, 'empty'),
-  row(22, 'cancel_pending', 'restore', ['P', 'D', 'Pr'], S.heldStatus, 'restore', 1, 'empty'),
+    'row20',
+  ]),
+  row(21, 'cancel_pending', 'user', ['Pr'], S.pendingRecovery, ['restore', 1, 'empty']),
+  row(22, 'cancel_pending', 'restore', ['P', 'D', 'Pr'], S.heldStatus, ['restore', 1, 'empty']),
 ]);
 
 /** Row n, or null outside 1–22. */

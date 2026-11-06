@@ -433,16 +433,7 @@ async function verifyBundleStep(
   if (pb.res.seq !== pp.seq + 1) return fail('chain_gap');
   if (!equalBytes(pb.res.prev_entry_digest, pp.entry)) return fail('head_mismatch');
   const res = pb.res;
-  const [sup, r7] = await checkT7(
-    t,
-    hw,
-    res.delegation_gen,
-    res.delegation_serial,
-    res.issued_at_ms,
-    res.op,
-    pb.resBytes,
-    pb.raw.result_sig
-  );
+  const [sup, r7] = await checkT7(t, hw, res, pb.resBytes, pb.raw.result_sig);
   if (r7 !== 'ok') return fail(r7);
   const after = await underSigningDelegation(t, prev, pp, pb);
   if (typeof after === 'string') return fail(after);

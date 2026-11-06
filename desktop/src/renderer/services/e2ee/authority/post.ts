@@ -17,7 +17,7 @@ import { rowsFor, SIG, type Guard, type Row } from './table';
 
 /** Which signature-bearing bundle positions are non-empty. */
 export const P = Object.freeze({
-  candidate: 1 << 0,
+  candidate: 1,
   current: 1 << 1,
   operator: 1 << 2,
   recovery: 1 << 3,
