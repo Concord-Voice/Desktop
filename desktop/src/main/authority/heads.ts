@@ -110,7 +110,8 @@ function posLen(name: IndexName, xs: readonly (string | Uint8Array)[]): number {
   let n = 2;
   for (let i = 0; i < xs.length && n >= 0; i++) {
     const l = recLen(name, xs[i]);
-    n = l < 0 ? -1 : n + l + (i > 0 ? 1 : 0);
+    const sep = i > 0 ? 1 : 0;
+    n = l < 0 ? -1 : n + l + sep;
   }
   posLens.set(xs, n);
   return n;
@@ -130,7 +131,8 @@ function derive<T extends string | Uint8Array>(
 /** One record added to a position that held n records: the record and, after the first, a separator. */
 function added(name: IndexName, it: string | Uint8Array, n: number): number {
   const l = recLen(name, it);
-  return l < 0 ? -1 : l + (n > 0 ? 1 : 0);
+  if (l < 0) return -1;
+  return n > 0 ? l + 1 : l;
 }
 
 /** A record inserted into a sorted a<s> position, sized. Never writes xs. */
