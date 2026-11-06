@@ -38,18 +38,16 @@ This release adds groundwork for verifying account keys. Nothing uses it yet.
 - **Encryption:** Added a dormant verifier for the account's private device list, the device rules and device key wraps. It returns the same result as the reference for every device test vector. Nothing uses it yet.
 - **Encryption:** Added dormant code that encrypts the account keys held on this device to another of the account's devices, but only to a device the verified device list shows as active. It also chooses the only key a new secret may be encrypted to after the account's status is verified. Nothing uses it yet.
 
+### Changed
+
+- **Servers:** The app's copy of the server boost limits now matches the server: 100 custom emoji on unboosted servers, 256 MiB and 512 MiB uploads on Mach 1 and Mach 2, and animated server icons from Mach 1.
+- **Chat:** Attachments up to 1 GiB now open. The app decrypts a file as it downloads, a piece at a time, instead of holding the whole download in memory first.
+
 ### Fixed
 
 - **Profiles:** Animated GIF avatars and profile banners now stay animated when your plan allows it. The GIF uploads as it is instead of being cropped to a still.
 - **Servers:** Animated GIF server icons and banners now stay animated when the server's tier allows it.
-
-### Changed
-
-- **Servers:** The app's copy of the server boost limits now matches the server: 100 custom emoji on unboosted servers, 256 MiB and 512 MiB uploads on Mach 1 and Mach 2, and animated server icons from Mach 1.
-
-### Changed
-
-- **Chat:** Attachments up to 1 GiB now open. The app decrypts a file as it downloads, a piece at a time, instead of holding the whole download in memory first.
+- **Settings:** Choosing an option, such as the tray or menu bar icon style, while scrolled down in Settings no longer pushes the page up and leaves a blank space at the bottom.
 
 ## [0.3.1] - 2026-11-06
 
