@@ -923,7 +923,9 @@ export async function decryptAttachmentStream(
     // Checked BEFORE buffering: declaredLength is server-supplied, so the
     // legacy ceiling has to be enforced here, not assumed from honest uploads.
     if (declaredLength > LEGACY_MAX_ENVELOPE_BYTES) {
-      return fail(new AttachmentIntegrityError('attachment is too large for the single-shot format'));
+      return fail(
+        new AttachmentIntegrityError('attachment is too large for the single-shot format')
+      );
     }
     const whole = await readLegacyWhole(reader, head, declaredLength);
     if (whole === null) {
