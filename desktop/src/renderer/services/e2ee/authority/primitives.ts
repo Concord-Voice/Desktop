@@ -2,7 +2,7 @@
 // contract (#2553 DoR §2.4, §2.19, §2.20). A port of Concord-Voice/Hosted
 // scripts/authority-vectors/gen.mjs §3; the committed vectors decide every byte.
 
-import { b64d, buf, concat, equalBytes, fromHex, toHex, utf8 } from './bytes';
+import { b64d, buf, cmp, concat, equalBytes, fromHex, toHex, utf8 } from './bytes';
 import { Malformed } from './errors';
 
 const { subtle } = globalThis.crypto;
@@ -241,19 +241,15 @@ export function sessionBindBytes(b: SessionBind): Uint8Array | null {
   );
 }
 
-export async function credentialEpochDigest(
-  epoch: string,
-  valid: boolean
-): Promise<Uint8Array | null> {
-  return !valid || epoch === '' ? null : sha384(utf8(epoch));
+/** SHA-384 of a valid, non-empty credential epoch; null for an invalid one (pass null) or ''. */
+export async function credentialEpochDigest(epoch: string | null): Promise<Uint8Array | null> {
+  return epoch === null || epoch === '' ? null : sha384(utf8(epoch));
 }
 
 export interface PopulationRecord {
   account_id: string;
   legacy_ek_digest: Uint8Array;
 }
-
-const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 export async function populationDigest(records: PopulationRecord[]): Promise<Uint8Array> {
   const sorted = [...records].sort((a, b) => cmp(a.account_id, b.account_id));

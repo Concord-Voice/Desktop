@@ -7,7 +7,7 @@
 // over the EN2 alphabet. encode() validates every position and writes; decode()
 // parses, validates and requires that the value re-encodes to the same bytes.
 
-import { b64d, b64e, equalBytes, utf8 } from './bytes';
+import { b64d, b64e, cmp, equalBytes, utf8 } from './bytes';
 import { Malformed } from './errors';
 import {
   checkDevShape,
@@ -26,7 +26,7 @@ export const PREFIX = 'concord-account-authority';
 
 const S_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:/+=-';
 const S_SET = new Set(S_ALPHABET);
-const EN2 = new Set([...S_ALPHABET, '"', ',', '[', ']'].map((c) => c.charCodeAt(0)));
+const EN2 = new Set([...S_ALPHABET, '"', ',', '[', ']'].map((c) => c.codePointAt(0) ?? 0));
 
 type StrCheck =
   | 'version'
@@ -125,7 +125,7 @@ const SCOPE = [...PUBLISHED_OPS, 'add_device', 'bind_recovery', 'cancel_recovery
 const STATES = ['absent', 'active', 'suspended', 'pending', 'disputed', 'erased'];
 const PRIOR = ['', 'absent', 'active', 'suspended'];
 const ASSURANCE = ['', 'initial', 'continuity', 'recovery', 'unverified'];
-const SEGMENT = ['initial', 'continuity', 'recovery', 'unverified'];
+const SEGMENT = new Set(['initial', 'continuity', 'recovery', 'unverified']);
 const SUSPENDERS = ['operator', 'user'];
 const ACTORS = ['operator', 'restore', 'user'];
 const ROLES = [
@@ -155,7 +155,7 @@ export const FACTORS = [
 const BIND_KINDS = ['bind', 'cancel', 'unbind'];
 const BIND_WAITS = ['', 'delta', 'now', 'replace'];
 const SIGNED_TYPES = ['delegation', 'device-status', 'status', 'succession'];
-const SECRETS_OPS = ['add_device', 'rotate_ek', 'rotate_root'];
+const SECRETS_OPS = new Set(['add_device', 'rotate_ek', 'rotate_root']);
 const REFUSALS = [
   'authz_out_of_window',
   'device_key_bound',
@@ -703,7 +703,7 @@ const STRCHK: Record<StrCheck, (s: string) => void> = {
     const p = parts(s, 3);
     exact(p[0], 48);
     checkPoint(b64d(p[1]));
-    if (!SEGMENT.includes(p[2])) throw new Malformed('root record assurance');
+    if (!SEGMENT.has(p[2])) throw new Malformed('root record assurance');
   },
   recoverRec: (s) => {
     const p = parts(s, 2);
@@ -717,12 +717,17 @@ const STRCHK: Record<StrCheck, (s: string) => void> = {
   secretsRec: (s) => {
     const p = parts(s, 4);
     exact(p[0], 48);
-    if (!SECRETS_OPS.includes(p[1])) throw new Malformed('secrets record op');
+    if (!SECRETS_OPS.has(p[1])) throw new Malformed('secrets record op');
     if (p[2] !== '') checkPoint(b64d(p[2]));
     checkEkSpkiTemplate(b64d(p[3]));
   },
   dev: checkDevShape,
 };
+
+function checkPlain(k: Extract<StrKind, { t: 's' }>, s: string): void {
+  if (s.length > k.max || ![...s].every((c) => S_SET.has(c))) throw new Malformed('s');
+  if (k.chk) STRCHK[k.chk](s);
+}
 
 function checkStr(k: StrKind, s: unknown): asserts s is string {
   if (typeof s !== 'string') throw new Malformed('not a string');
@@ -732,8 +737,7 @@ function checkStr(k: StrKind, s: unknown): asserts s is string {
   }
   switch (k.t) {
     case 's':
-      if (s.length > k.max || ![...s].every((c) => S_SET.has(c))) throw new Malformed('s');
-      if (k.chk) STRCHK[k.chk](s);
+      checkPlain(k, s);
       return;
     case 's36':
       if (!isUUID(s)) throw new Malformed('s36');
@@ -753,7 +757,10 @@ function checkBin(k: BinKind, b: Uint8Array): void {
   if (k.chk === 'ekspki') checkEkSpkiTemplate(b);
 }
 
-const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+function checkU(k: UKind, x: unknown, name: string): asserts x is number {
+  if (typeof x !== 'number' || !Number.isSafeInteger(x) || x < k.min || x > k.max)
+    throw new Malformed(`${name} u`);
+}
 
 function asBytes(x: unknown, name: string): Uint8Array {
   if (!(x instanceof Uint8Array)) throw new Malformed(`${name} not bytes`);
@@ -769,8 +776,7 @@ function writeValue(k: Kind, x: unknown, name: string): string {
       checkStr(k, x);
       return `"${x}"`;
     case 'u':
-      if (typeof x !== 'number' || !Number.isSafeInteger(x) || x < k.min || x > k.max)
-        throw new Malformed(`${name} u`);
+      checkU(k, x, name);
       return String(x);
     case 'b': {
       const b = asBytes(x, name);
@@ -781,30 +787,34 @@ function writeValue(k: Kind, x: unknown, name: string): string {
       checkBin(k, b);
       return `"${b64e(b)}"`;
     }
-    default: {
-      if (!Array.isArray(x) || x.length < k.min || x.length > k.max)
-        throw new Malformed(`${name} count`);
-      const elem = k.elem;
-      const items = x.map((it: unknown) => {
-        if (elem.t === 'b') {
-          const b = asBytes(it, name);
-          if (b.length === 0) throw new Malformed(`${name} empty item`);
-          checkBin(elem, b);
-          return b64e(b);
-        }
-        if (it === '') throw new Malformed(`${name} empty item`);
-        checkStr(elem, it);
-        return it;
-      });
-      if (k.t === 'a') {
-        items.sort(cmp);
-        for (let i = 1; i < items.length; i++) {
-          if (items[i] === items[i - 1]) throw new Malformed(`${name} duplicate`);
-        }
-      }
-      return `[${items.map((s) => `"${s}"`).join(',')}]`;
+    default:
+      return writeArray(k, x, name);
+  }
+}
+
+function writeItem(elem: ListKind['elem'], it: unknown, name: string): string {
+  if (elem.t === 'b') {
+    const b = asBytes(it, name);
+    if (b.length === 0) throw new Malformed(`${name} empty item`);
+    checkBin(elem, b);
+    return b64e(b);
+  }
+  if (it === '') throw new Malformed(`${name} empty item`);
+  checkStr(elem, it);
+  return it;
+}
+
+function writeArray(k: ListKind, x: unknown, name: string): string {
+  if (!Array.isArray(x) || x.length < k.min || x.length > k.max)
+    throw new Malformed(`${name} count`);
+  const items = x.map((it: unknown) => writeItem(k.elem, it, name));
+  if (k.t === 'a') {
+    items.sort(cmp);
+    for (let i = 1; i < items.length; i++) {
+      if (items[i] === items[i - 1]) throw new Malformed(`${name} duplicate`);
     }
   }
+  return '[' + items.map((s) => '"' + s + '"').join(',') + ']';
 }
 
 const bytesOf = (v: Values, n: string): Uint8Array => v[n] as Uint8Array;
@@ -904,8 +914,7 @@ async function readValue(k: Kind, x: unknown): Promise<Value> {
       if (k.t === 's' && k.chk === 'dev' && x !== '') await parseDev(x);
       return x;
     case 'u':
-      if (typeof x !== 'number' || !Number.isSafeInteger(x) || x < k.min || x > k.max)
-        throw new Malformed('u');
+      checkU(k, x, 'value');
       return x;
     case 'b': {
       if (typeof x !== 'string') throw new Malformed('not a string');
@@ -917,19 +926,22 @@ async function readValue(k: Kind, x: unknown): Promise<Value> {
       checkBin(k, b);
       return b;
     }
-    default: {
-      if (!Array.isArray(x) || x.length < k.min || x.length > k.max) throw new Malformed('items');
-      const out: (string | Uint8Array)[] = [];
-      for (let i = 0; i < x.length; i++) {
-        const item: unknown = x[i];
-        if (typeof item !== 'string' || item === '') throw new Malformed('array item');
-        if (k.t === 'a' && i > 0 && !((x[i - 1] as string) < item))
-          throw new Malformed('not strictly ascending');
-        out.push((await readValue(k.elem, item)) as string | Uint8Array);
-      }
-      return out;
-    }
+    default:
+      return readArray(k, x);
   }
+}
+
+async function readArray(k: ListKind, x: unknown): Promise<(string | Uint8Array)[]> {
+  if (!Array.isArray(x) || x.length < k.min || x.length > k.max) throw new Malformed('items');
+  const out: (string | Uint8Array)[] = [];
+  for (let i = 0; i < x.length; i++) {
+    const item: unknown = x[i];
+    if (typeof item !== 'string' || item === '') throw new Malformed('array item');
+    if (k.t === 'a' && i > 0 && (x[i - 1] as string) >= item)
+      throw new Malformed('not strictly ascending');
+    out.push((await readValue(k.elem, item)) as string | Uint8Array);
+  }
+  return out;
 }
 
 const latin1 = new TextDecoder('latin1');

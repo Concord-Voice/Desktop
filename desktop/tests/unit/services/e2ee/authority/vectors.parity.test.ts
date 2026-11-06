@@ -151,7 +151,7 @@ const PRIM: Record<string, (v: Vec) => Promise<void>> = {
     expect(t ? b64e(t) : null).toBe(ok(v) ? v.expect.text_b64 : null);
   },
   'credential-epoch-digest': async (v) => {
-    const d = await prim.credentialEpochDigest(v.input!.epoch, v.input!.epoch_valid);
+    const d = await prim.credentialEpochDigest(v.input!.epoch_valid ? v.input!.epoch : null);
     expect(d ? b64e(d) : '').toBe(v.expect.digest_b64);
   },
   'population-digest': async (v) => {
@@ -311,6 +311,7 @@ describe('authority vectors verify under the TypeScript port', () => {
     it(
       v.name,
       async () => {
+        expect.hasAssertions();
         // Own keys only: PRIM[v.type] alone would resolve 'toString' or 'constructor'.
         await (Object.hasOwn(PRIM, v.type) ? PRIM[v.type] : layout)(v);
       },

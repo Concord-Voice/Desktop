@@ -11,7 +11,7 @@ export const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
 
 export function b64e(b: Uint8Array): string {
   let s = '';
-  for (let i = 0; i < b.length; i += CHUNK) s += String.fromCharCode(...b.subarray(i, i + CHUNK));
+  for (let i = 0; i < b.length; i += CHUNK) s += String.fromCodePoint(...b.subarray(i, i + CHUNK));
   return btoa(s);
 }
 
@@ -19,7 +19,7 @@ export function b64d(s: string): Uint8Array {
   if (!B64_RE.test(s)) throw new Malformed('base64 form');
   const bin = atob(s);
   const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.codePointAt(i) ?? 0;
   if (b64e(out) !== s) throw new Malformed('base64 canonical');
   return out;
 }
@@ -36,6 +36,12 @@ export function concat(...parts: ArrayLike<number>[]): Uint8Array {
     o += p.length;
   }
   return out;
+}
+
+/** Code-unit order, the order of the reference's `<` comparisons. */
+export function cmp(a: string, b: string): number {
+  if (a < b) return -1;
+  return a > b ? 1 : 0;
 }
 
 export const toHex = (b: Uint8Array): string =>
