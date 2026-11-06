@@ -275,7 +275,7 @@ function AuthenticatedLayout() {
 
   // Pre-cache codec capabilities, GPU info, and detect system HDR
   useEffect(() => {
-    Promise.all([
+    void Promise.all([
       detectCodecCapabilities(),
       globalThis.electron?.getGPUInfo?.() ?? Promise.resolve(null),
       globalThis.electron?.getHardwareAcceleration?.() ?? Promise.resolve(null),
@@ -625,7 +625,7 @@ function App() {
       }
       setIsRestoring(false);
     };
-    restore();
+    void restore();
   }, [isPipWindow]);
 
   useEffect(() => {

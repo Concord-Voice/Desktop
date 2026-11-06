@@ -262,7 +262,7 @@ export function useMessaging() {
             updateMessageStatus(channelId, clientMessageId, 'failed', undefined, errMsg);
           }
         };
-        doSend();
+        void doSend();
       } else {
         // Message stays in queue with "pending" status
         console.debug(`[useMessaging] Message queued (offline): ${clientMessageId}`);

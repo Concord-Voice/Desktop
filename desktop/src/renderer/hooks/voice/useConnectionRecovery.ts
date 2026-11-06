@@ -284,7 +284,7 @@ function handleReconnected(
     // Floated intentionally — runRecoveryModule never rejects (it swallows a
     // stale-chunk import failure and triggers self-heal), so this cannot
     // surface as the Uncaught (in promise) seen in the origin-502-storm logs.
-    runRecoveryModule(
+    void runRecoveryModule(
       () => import('../../services/system/resetService'),
       async (m) => {
         // Same account, same token — fence in-flight E2EE work and clear NOTHING.
@@ -317,7 +317,7 @@ function handleReconnected(
       'recoveryReset'
     );
     useConnectionStore.getState().reset({ preserveVoiceRejoin: true });
-    runRecoveryModule(
+    void runRecoveryModule(
       () => import('../../services/system/recoveryService'),
       (m) => m.clearCrashFlag(),
       'clearCrashFlag'

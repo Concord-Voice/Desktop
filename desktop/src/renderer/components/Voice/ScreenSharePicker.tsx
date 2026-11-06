@@ -307,7 +307,7 @@ const ScreenSharePicker: React.FC<ScreenSharePickerProps> = ({
         setLoading(false);
       }
     };
-    fetchSources();
+    void fetchSources();
   }, []);
 
   const dialogRef = useRef<HTMLDialogElement>(null);

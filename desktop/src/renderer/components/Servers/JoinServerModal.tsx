@@ -235,7 +235,7 @@ const JoinServerModal: React.FC<JoinServerModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    handleJoin();
+    void handleJoin();
   };
 
   return (

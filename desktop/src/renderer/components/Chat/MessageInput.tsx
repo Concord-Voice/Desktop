@@ -932,7 +932,7 @@ const MessageInput: React.FC<MessageInputProps> = ({
 
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      void handleSend();
     }
   };
 

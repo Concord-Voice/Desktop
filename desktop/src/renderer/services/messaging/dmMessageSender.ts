@@ -147,7 +147,7 @@ export function sendDMMessage(
         useDMStore.getState().bumpConversation(conversationId, prevLastMessage);
       }
     };
-    doSend();
+    void doSend();
   } else {
     console.debug(`[dmMessageSender] DM message queued (offline): ${clientMessageId}`);
   }

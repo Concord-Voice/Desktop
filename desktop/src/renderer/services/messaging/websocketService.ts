@@ -252,7 +252,7 @@ export class WebSocketService {
     const controller = new AbortController();
     this.connectAbort = controller;
     this.setState(ConnectionState.CONNECTING);
-    this.createConnection(controller.signal);
+    void this.createConnection(controller.signal);
   }
 
   /**
@@ -1194,7 +1194,7 @@ export class WebSocketService {
       this.reconnectAttempts++;
       this.connectAbort?.abort();
       this.connectAbort = new AbortController();
-      this.createConnection(this.connectAbort.signal);
+      void this.createConnection(this.connectAbort.signal);
     }, delay);
     if (isOverload) this.overloadTimer = timer;
     else this.reconnectTimer = timer;
@@ -1268,7 +1268,7 @@ export class WebSocketService {
       this.resetReconnectState();
       this.connectAbort?.abort();
       this.connectAbort = new AbortController();
-      this.createConnection(this.connectAbort.signal, true);
+      void this.createConnection(this.connectAbort.signal, true);
     };
     const listener = () => reconnectNow();
     this.onlineListener = listener;

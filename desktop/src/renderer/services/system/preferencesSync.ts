@@ -504,7 +504,7 @@ class PreferencesSyncService {
     const timer = setTimeout(() => {
       if (this.debounceTimer !== timer) return;
       this.debounceTimer = null;
-      this.pushPreferences(undefined, generation);
+      void this.pushPreferences(undefined, generation);
     }, DEBOUNCE_MS);
     this.debounceTimer = timer;
   }

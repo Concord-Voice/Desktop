@@ -145,7 +145,7 @@ class FriendOrgSyncService {
     }
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
-      this.pushFriendOrg();
+      void this.pushFriendOrg();
     }, DEBOUNCE_MS);
   }
 }

@@ -168,7 +168,7 @@ export function useServerChannelSubscriptions() {
       // snapshot the server is computing, and must survive the seed.
       const seedGeneration = (unreadSeedGenerationRef.current += 1);
       const seedId = useUnreadStore.getState().beginChannelUnreadSeed(currentServerIds);
-      (async () => {
+      void (async () => {
         const isCurrentSeed = () =>
           seedGeneration === unreadSeedGenerationRef.current &&
           seedId === useUnreadStore.getState().channelUnreadSeedRequest?.id;
@@ -351,7 +351,7 @@ export function useServerChannelSubscriptions() {
         console.error('Failed to fetch unread counts:', errorMessage(err));
       }
     };
-    fetchUnreads();
+    void fetchUnreads();
 
     // No clearAll() here — setInitialUnreads already replaces the whole map,
     // and clearing eagerly during WS reconnects can cause stale DB data to

@@ -201,7 +201,7 @@ const DMChatArea: React.FC<DMChatAreaProps> = ({ selectedThreadId, onRequestRemo
   useEffect(() => {
     if (!activeConvId) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
       // Snapshot the roster entry BEFORE the probe. applyDMVoiceState installs a
       // NEW entry object on every live delta, so a referential change after the
       // await means a join raced in while the probe was in flight (#1568 Gitar

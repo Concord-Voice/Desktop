@@ -150,7 +150,7 @@ const ForceUpdateOverlay: React.FC = () => {
           // Auto-download — this is a mandatory update
           setPhase('downloading');
           setProgress(0);
-          globalThis.electron?.downloadUpdate();
+          void globalThis.electron?.downloadUpdate();
         })
       );
     }
@@ -210,7 +210,7 @@ const ForceUpdateOverlay: React.FC = () => {
   }, []);
 
   const handleInstall = useCallback(() => {
-    globalThis.electron?.installUpdate();
+    void globalThis.electron?.installUpdate();
   }, []);
 
   const visible = updateRequired && !(configOnlyRequiresUpdate && configOnlyDismissed);

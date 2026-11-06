@@ -639,8 +639,8 @@ export const useDraftSettingsStore = createStore<DraftSettingsState>()((set, get
     if (willRestart) {
       setTimeout(() => {
         const hwValue = drafts.video.hardwareAcceleration;
-        if (hwValue !== undefined) globalThis.electron?.setHardwareAcceleration?.(hwValue);
-        globalThis.electron?.relaunchApp?.();
+        if (hwValue !== undefined) void globalThis.electron?.setHardwareAcceleration?.(hwValue);
+        void globalThis.electron?.relaunchApp?.();
       }, 150);
     }
   },

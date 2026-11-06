@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { copyText } from '../../utils/ui/clipboard';
 
 interface BackupCodeDisplayProps {
   codes: string[];
@@ -11,11 +12,9 @@ const BackupCodeDisplay: React.FC<BackupCodeDisplayProps> = ({ codes, onConfirm,
 
   const handleCopy = async () => {
     const text = codes.map((c, i) => `${i + 1}. ${c}`).join('\n');
-    if (globalThis.electron?.writeClipboard) {
-      globalThis.electron.writeClipboard(text);
-    } else {
-      await navigator.clipboard.writeText(text);
-    }
+    // copyText never rejects; it reports failure in its result.
+    const result = await copyText(text);
+    if (!result.success) console.warn('Backup codes copy failed');
   };
 
   const handleDownload = () => {

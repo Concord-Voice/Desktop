@@ -543,11 +543,19 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
   const hasElectronPip = !!globalThis.electron?.openPipWindow;
 
   const handleToggleMute = async () => {
-    (await getVoiceService()).toggleMute();
+    try {
+      await (await getVoiceService()).toggleMute();
+    } catch {
+      console.error('Toggling mute failed');
+    }
   };
 
   const handleToggleDeafen = async () => {
-    (await getVoiceService()).toggleDeafen();
+    try {
+      (await getVoiceService()).toggleDeafen();
+    } catch {
+      console.error('Toggling deafen failed');
+    }
   };
 
   const handleToggleVideo = async () => {
@@ -559,7 +567,11 @@ const VoiceControls: React.FC<VoiceControlsProps> = ({ context = 'voiceView', on
         'Camera access denied. Grant permission in System Settings > Privacy & Security.'
       ));
     if (denied) return;
-    await (await getVoiceService()).toggleVideo();
+    try {
+      await (await getVoiceService()).toggleVideo();
+    } catch {
+      console.error('Toggling video failed');
+    }
   };
 
   const handleToggleScreen = async () => {

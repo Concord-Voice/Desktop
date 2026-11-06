@@ -123,7 +123,7 @@ const UpdateBanner: React.FC = () => {
   }, []);
 
   const handleInstall = useCallback(() => {
-    globalThis.electron?.installUpdate();
+    void globalThis.electron?.installUpdate();
   }, []);
 
   const handleCheckAndRetry = useCallback(async () => {

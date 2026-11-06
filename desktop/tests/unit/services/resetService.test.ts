@@ -652,6 +652,17 @@ describe('resetService', () => {
 
       expect(clearTokens).toHaveBeenCalled();
     });
+
+    it('logs, and does not throw, when clearing stored tokens fails', async () => {
+      window.electron.clearTokens = vi.fn().mockRejectedValue(new Error('ipc down'));
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+      expect(() => nuclearReset()).not.toThrow();
+      await vi.waitFor(() =>
+        expect(error).toHaveBeenCalledWith('nuclearReset: clearing stored tokens failed')
+      );
+      error.mockRestore();
+    });
   });
 
   describe('recoveryReset (#2199)', () => {

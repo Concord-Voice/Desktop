@@ -45,6 +45,7 @@ Automatic connection recovery now respects the server's requested pause when it 
 
 - **Connections:** Automatic recovery waits for the server's overload retry delay, including when connectivity returns or your sign-in token refreshes.
 - **Connections:** Chat reconnects with the new session after a password change instead of remaining stuck as connected.
+- **Servers:** The invite code Copy button in Server Settings now copies the code. It used to show Copied! without copying anything.
 
 ## [0.3.0] - 2026-11-01
 

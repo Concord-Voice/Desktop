@@ -238,11 +238,11 @@ export class MessageQueue {
     console.debug('[MessageQueue] Started queue processing');
 
     // Process immediately
-    this.processQueue(sendFn);
+    void this.processQueue(sendFn);
 
     // Then process every 5 seconds
     this.processingInterval = setInterval(() => {
-      this.processQueue(sendFn);
+      void this.processQueue(sendFn);
     }, 5000);
   }
 

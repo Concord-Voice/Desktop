@@ -117,7 +117,7 @@ function scheduleProactiveRefresh(token: string | null): void {
   if (delaySeconds <= 0) {
     // Token already expired or about to — refresh immediately (rate-limited).
     // If rate-limited, schedule a retry after the cooldown window.
-    rateLimitedRefresh().then((result) => {
+    void rateLimitedRefresh().then((result) => {
       if (result === null && useAuthStore.getState().accessToken === token) {
         // Rate-limited and token unchanged — retry after cooldown
         proactiveRefreshTimer = setTimeout(() => {

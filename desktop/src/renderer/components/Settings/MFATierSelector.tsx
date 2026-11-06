@@ -691,7 +691,7 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
   const [showCircleSetup, setShowCircleSetup] = useState(false);
   const closeCircleSetup = useCallback(() => setShowCircleSetup(false), []);
   const refreshCircleConfig = useCallback(() => {
-    readOkJson<RecoveryCircleConfig>('/api/v1/mfa/recovery-circle').then((data) => {
+    void readOkJson<RecoveryCircleConfig>('/api/v1/mfa/recovery-circle').then((data) => {
       if (data) setCircleConfig(data);
     });
   }, []);
@@ -803,7 +803,7 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
     // A non-2xx body is an error object, not the resource: reading it as one
     // would report "no recovery key" / "no circle" for a read that failed.
     // Each section keeps its initial state instead.
-    readOkJson<{ has_recovery_key?: unknown; created_at?: unknown }>(
+    void readOkJson<{ has_recovery_key?: unknown; created_at?: unknown }>(
       '/api/v1/mfa/recovery-key'
     ).then((data) => {
       if (!data) return;
@@ -811,7 +811,7 @@ const MFATierSelector: React.FC<MFATierSelectorProps> = ({
       setRecoveryKeyCreatedAt(typeof data.created_at === 'string' ? data.created_at : null);
     });
 
-    readOkJson<{ devices?: unknown }>('/api/v1/mfa/trusted-devices').then((data) => {
+    void readOkJson<{ devices?: unknown }>('/api/v1/mfa/trusted-devices').then((data) => {
       if (data) setTrustedDevices(Array.isArray(data.devices) ? data.devices : []);
     });
 

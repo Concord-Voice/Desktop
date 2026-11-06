@@ -13,8 +13,17 @@
 export const DOS_PROTECTION_LIMIT = 1_048_576; // 1 MiB plaintext
 
 /** Counter announcement thresholds (a11y U1): announce ONLY at 75% / 90% /
- *  at-limit — never per keystroke. */
-const COUNTER_ANNOUNCE_RATIOS = [0.75, 0.9, 1] as const;
+ *  at-limit — never per keystroke. Highest band first: the first one reached wins. */
+const COUNTER_ANNOUNCE_BANDS: ReadonlyArray<
+  readonly [ratio: number, text: (limit: number) => string]
+> = [
+  [
+    1,
+    (limit) => `Message at the ${limit}-character limit. Longer messages send as a .md attachment.`,
+  ],
+  [0.9, (limit) => `Approaching the ${limit}-character limit.`],
+  [0.75, (limit) => `Message has reached 75% of the ${limit}-character limit.`],
+];
 // Counter visibility and warn thresholds are expressed as ratios of the
 // active limit, so the same 75%/95% behaviour holds at any tier
 // (e.g. free 5120: 3840/5120 = 0.75, 4864/5120 = 0.95; premium 10240 scales).
@@ -46,20 +55,8 @@ export function getCounterClass(charCount: number, limit: number): string {
 /** The composer's threshold-only live-region text: empty below 75%, otherwise a function of the
  *  highest band crossed, so it changes (and is re-announced) only on a band transition. */
 export function getCounterAnnouncement(charCount: number, limit: number): string {
-  const announceRatio = [...COUNTER_ANNOUNCE_RATIOS]
-    .reverse()
-    .find((ratio) => charCount >= Math.floor(limit * ratio));
-
-  if (announceRatio === 1) {
-    return `Message at the ${limit}-character limit. Longer messages send as a .md attachment.`;
-  }
-  if (announceRatio === 0.9) {
-    return `Approaching the ${limit}-character limit.`;
-  }
-  if (announceRatio === 0.75) {
-    return `Message has reached 75% of the ${limit}-character limit.`;
-  }
-  return '';
+  const band = COUNTER_ANNOUNCE_BANDS.find(([ratio]) => charCount >= Math.floor(limit * ratio));
+  return band ? band[1](limit) : '';
 }
 
 /** What the edit box can do with a draft. `trimmed` is the exact text a save would send, and

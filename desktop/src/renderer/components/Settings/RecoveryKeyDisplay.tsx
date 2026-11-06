@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { copyText } from '../../utils/ui/clipboard';
 
 interface RecoveryKeyDisplayProps {
   recoveryKey: string;
@@ -17,11 +18,9 @@ const RecoveryKeyDisplay: React.FC<RecoveryKeyDisplayProps> = ({
   const [showSkipWarning, setShowSkipWarning] = useState(false);
 
   const handleCopy = async () => {
-    if (globalThis.electron?.writeClipboard) {
-      globalThis.electron.writeClipboard(recoveryKey);
-    } else {
-      await navigator.clipboard.writeText(recoveryKey);
-    }
+    // copyText never rejects; it reports failure in its result.
+    const result = await copyText(recoveryKey);
+    if (!result.success) console.warn('Recovery key copy failed');
   };
 
   const handleDownload = () => {
