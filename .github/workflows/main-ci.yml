@@ -5,9 +5,11 @@
 # build-desktop DISPATCH gated behind ALL scan verdicts (#2048/#2274 — the
 # standalone child run resolves the desktop-release environment secrets that
 # workflow_call paths lose, and owns release publication plus the release-asset
-# sync and public-mirror fan-out). It does NOT deploy: production deploys run
-# only from nightly-ci.yml's green `deploy` job (ADR-0018 deferred decision,
-# resolved 2026-10-21).
+# sync and public-mirror fan-out). It does NOT deploy: Desktop has no server
+# deploys (nightly-ci.yml and production deploys stayed in Hosted at the split).
+# Known gap: with no nightly here, CodeQL, ESLint SARIF and Scorecard run on
+# main only for a hotfix release merge. PR CI scans every change before it
+# merges; osv-scanner.yml and sonar-main.yml still run on a schedule.
 #
 # Scanner exceptions (in-file triggers retained elsewhere):
 #   - osv-scanner.yml: standalone main/weekly and legacy or uncertain PR
@@ -77,14 +79,13 @@ jobs:
       # NARROWED AGAIN 2026-08-26 (ADR-0018 amendment): the dispatcher below is
       # now also gated on `hotfix`, so on an ordinary merge this probe arms
       # NOTHING here. It still runs, and its value still feeds `desktop-release`,
-      # but the release it arms is dispatched by nightly-ci.yml at 07:00 UTC.
-      # Liveness survives because the probe is VERSION-based, not push-based —
-      # it stays armed until desktop-v<version> is tagged, no matter how many
-      # pushes go by — and nightly-ci.yml runs the identical probe. The cost is
-      # latency: up-to-24h instead of next-merge. That was the accepted trade.
+      # but an ordinary merge waits for an operator to cut the release (there
+      # is no nightly in this repo). The probe is VERSION-based, not push-based:
+      # it stays armed until v<version> is tagged, so the next hotfix merge
+      # releases the pending version too.
       desktop-release: ${{ steps.filter.outputs.desktop-release == 'true' || steps.pending.outputs.pending == 'true' }}
-      # Whether THIS merge must cut a release now instead of waiting for the
-      # nightly. DERIVED on every push, never stored: resolve the merge commit
+      # Whether THIS merge must cut a release now instead of waiting for an
+      # operator. DERIVED on every push, never stored: resolve the merge commit
       # to its PR and read the label. There is no flag to set and none to drop,
       # so two hotfixes in flight cannot race a shared bit, and a re-run
       # recomputes the same answer.
@@ -176,18 +177,18 @@ jobs:
           # indistinguishable from the author not having applied it.
           case "${RESOLUTION}" in
             undetermined)
-              echo "::warning::Could NOT determine the hotfix label for this commit — deferring the release to the nightly (fail-closed). This is not the same as the label being absent; if the merge was meant to be a hotfix, dispatch nightly-ci.yml." ;;
+              echo "::warning::Could NOT determine the hotfix label for this commit — deferring the release to an operator (fail-closed). This is not the same as the label being absent; if the merge was meant to be a hotfix, an operator dispatches Release-Ops Tag Release with this run's ID and SHA." ;;
             api-error)
               # Split out of the `*)` arm, which would otherwise announce a
               # hotfix on a run that never read a label. When the PR was located
               # before the failure, RESOLVED_VIA names how — the difference
               # between "the API is down" and "we never found the PR".
-              echo "::warning::Hotfix resolution hit a GitHub API error (PR #${PR_NUMBER:-unknown}, found via ${RESOLVED_VIA}) — deferring to the nightly (fail-closed). Check the changes job permissions before assuming the label was absent." ;;
+              echo "::warning::Hotfix resolution hit a GitHub API error (PR #${PR_NUMBER:-unknown}, found via ${RESOLVED_VIA}) — deferring the release to an operator (fail-closed). Check the changes job permissions before assuming the label was absent." ;;
             no-label)
               # `resolved_via` is the half `resolution` cannot carry here: it
               # separates a race-free subject parse from a fallback that had to
               # retry, on the outcome that happens on nearly every merge.
-              echo "::notice::No risk: hotfix on PR #${PR_NUMBER} (found via ${RESOLVED_VIA}) — any pending release defers to the nightly" ;;
+              echo "::notice::No risk: hotfix on PR #${PR_NUMBER} (found via ${RESOLVED_VIA}) — any pending release waits for an operator" ;;
             *)
               echo "::notice::risk: hotfix present on PR #${PR_NUMBER} (found via ${RESOLVED_VIA}) — release path runs on this merge" ;;
           esac
@@ -196,11 +197,10 @@ jobs:
   ioc:
     name: ioc
     needs: [changes]
-    # Runs ONLY on the hotfix release path. Ordinary merges are covered by
-    # nightly-ci.yml — every PR is already rebased onto current main before it
-    # merges (strict_required_status_checks_policy), so re-scanning the squash
-    # commit bought a fresh baseline and little else. See nightly-ci.yml header
-    # for the trade this accepts.
+    # Runs ONLY on the hotfix release path. Every PR is already rebased onto
+    # current main and scanned before it merges
+    # (strict_required_status_checks_policy), so re-scanning an ordinary squash
+    # commit buys a fresh baseline and little else.
     if: needs.changes.outputs.hotfix == 'true' && needs.changes.outputs.desktop-release == 'true'
     uses: ./.github/workflows/ioc-scanning.yml
     permissions:
@@ -211,11 +211,10 @@ jobs:
   eslint:
     name: eslint
     needs: [changes, ioc]
-    # Runs ONLY on the hotfix release path. Ordinary merges are covered by
-    # nightly-ci.yml — every PR is already rebased onto current main before it
-    # merges (strict_required_status_checks_policy), so re-scanning the squash
-    # commit bought a fresh baseline and little else. See nightly-ci.yml header
-    # for the trade this accepts.
+    # Runs ONLY on the hotfix release path. Every PR is already rebased onto
+    # current main and scanned before it merges
+    # (strict_required_status_checks_policy), so re-scanning an ordinary squash
+    # commit buys a fresh baseline and little else.
     if: needs.changes.outputs.hotfix == 'true' && needs.changes.outputs.desktop-release == 'true'
     permissions:
       contents: read
@@ -226,11 +225,10 @@ jobs:
   codeql:
     name: codeql
     needs: [changes, ioc]
-    # Runs ONLY on the hotfix release path. Ordinary merges are covered by
-    # nightly-ci.yml — every PR is already rebased onto current main before it
-    # merges (strict_required_status_checks_policy), so re-scanning the squash
-    # commit bought a fresh baseline and little else. See nightly-ci.yml header
-    # for the trade this accepts.
+    # Runs ONLY on the hotfix release path. Every PR is already rebased onto
+    # current main and scanned before it merges
+    # (strict_required_status_checks_policy), so re-scanning an ordinary squash
+    # commit buys a fresh baseline and little else.
     if: needs.changes.outputs.hotfix == 'true' && needs.changes.outputs.desktop-release == 'true'
     permissions:
       contents: read
@@ -243,11 +241,10 @@ jobs:
   scorecard:
     name: scorecard
     needs: [changes, ioc]
-    # Runs ONLY on the hotfix release path. Ordinary merges are covered by
-    # nightly-ci.yml — every PR is already rebased onto current main before it
-    # merges (strict_required_status_checks_policy), so re-scanning the squash
-    # commit bought a fresh baseline and little else. See nightly-ci.yml header
-    # for the trade this accepts.
+    # Runs ONLY on the hotfix release path. Every PR is already rebased onto
+    # current main and scanned before it merges
+    # (strict_required_status_checks_policy), so re-scanning an ordinary squash
+    # commit buys a fresh baseline and little else.
     if: needs.changes.outputs.hotfix == 'true' && needs.changes.outputs.desktop-release == 'true'
     permissions:
       contents: read
@@ -269,11 +266,10 @@ jobs:
   build:
     name: build
     needs: [changes, ioc]
-    # Runs ONLY on the hotfix release path. Ordinary merges are covered by
-    # nightly-ci.yml — every PR is already rebased onto current main before it
-    # merges (strict_required_status_checks_policy), so re-scanning the squash
-    # commit bought a fresh baseline and little else. See nightly-ci.yml header
-    # for the trade this accepts.
+    # Runs ONLY on the hotfix release path. Every PR is already rebased onto
+    # current main and scanned before it merges
+    # (strict_required_status_checks_policy), so re-scanning an ordinary squash
+    # commit buys a fresh baseline and little else.
     if: needs.changes.outputs.hotfix == 'true' && needs.changes.outputs.desktop-release == 'true'
     permissions:
       contents: read
@@ -283,15 +279,15 @@ jobs:
   # SonarCloud's main-branch analysis runs daily from sonar-main.yml (F7).
   # Release trigger: when this job succeeds, the Release-Ops bridge sees this
   # run complete and its tag-release.yml creates v<version> with the Publisher
-  # App, which starts release.yml. Keep the job ID `build-desktop`; tag-release
-  # checks for it by name.
+  # App, which starts release.yml. Keep the job's `name: build-desktop`.
+  # Release-Ops matches the display name from the jobs API, not the job ID.
   build-desktop:
     name: build-desktop
     needs: [changes, ioc, eslint, codeql, scorecard, build]
     # The complete gate set above still guards every release this job cuts —
     # deployment.md:411's requirement is intact, because when hotfix is false
     # those jobs skip and this one skips with them. A release is never
-    # dispatched from an ungated run; it is only ever deferred to the nightly.
+    # dispatched from an ungated run; it is only ever deferred to an operator.
     if: success() && needs.changes.outputs.desktop-release == 'true' && needs.changes.outputs.hotfix == 'true'
     permissions:
       actions: write
@@ -305,8 +301,9 @@ jobs:
     # the DETACHED child keeps running and may finish the release — check
     # the child run's conclusion before re-dispatching anything. A child
     # stuck PENDING can also be cancelled by a newer overlapping manual
-    # dispatch (1-pending-slot per group); the pending-release probe in
-    # `changes` re-arms the next push in every one of these cases.
+    # dispatch (1-pending-slot per group). Recovery in every one of these
+    # cases is an operator tag (Release-Ops Tag Release with this run's ID and
+    # SHA) or another hotfix merge that bumps the version.
     timeout-minutes: 300
     steps:
       - name: Dispatch and await trusted desktop build
