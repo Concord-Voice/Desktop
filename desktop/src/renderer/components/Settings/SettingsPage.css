@@ -6,8 +6,15 @@
   background: var(--bg-primary);
 }
 
-/* Settings page content area */
+/* Settings page content area. `position: relative` makes this scroller the
+   containing block for every absolutely positioned descendant that has no nearer
+   positioned ancestor — the visually hidden radios and legends in the option
+   pickers (TrayIconSection, GifPlaybackControl, FontSection, …). Without it they
+   anchor to the overlay <dialog>, sit at their un-scrolled position below the
+   fold, and focusing one (clicking its label) scrolls the dialog itself, pushing
+   the whole page up and leaving a blank band. */
 .settings-page-content {
+  position: relative;
   flex: 1;
   overflow-y: auto;
   padding: 32px clamp(24px, 4vw, 64px);

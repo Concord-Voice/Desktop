@@ -10,7 +10,10 @@
   background: var(--bg-primary, #1e1f22);
   color: inherit;
   z-index: 900;
-  overflow: hidden;
+  /* `clip`, not `hidden`: a hidden box is still a scroll container that focus and
+     scrollIntoView can scroll, which shifts the whole page. Settings scrolls
+     inside .settings-page-content; the dialog itself must never scroll. */
+  overflow: clip;
 }
 
 .settings-overlay-host[open] {
