@@ -279,7 +279,7 @@ High-level stances on SonarQube rules whose mismatch with this project's idiomat
 
 ### Instance-Specific Entries
 
-Marked `FALSE_POSITIVE` on 2026-11-06 with Mark's explicit approval, each with a comment pointing here.
+Marked `FALSE_POSITIVE` with Mark's explicit approval (rows 1–6 on 2026-11-06, rows 7–10 on 2026-11-07), each with a comment pointing here.
 
 Rows 3–6 and 7–10 are linked pairs (`S1082` and `S6848` on the same line); Mark approved the `S6848` half on 2026-11-07. Reopen both rows of a pair together.
 
