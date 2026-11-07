@@ -279,9 +279,9 @@ High-level stances on SonarQube rules whose mismatch with this project's idiomat
 
 ### Instance-Specific Entries
 
-Marked `FALSE_POSITIVE` on 2026-11-06 with Mark's explicit approval, each with a comment pointing here.
+Marked `FALSE_POSITIVE` with Mark's explicit approval (rows 1–6 on 2026-11-06, rows 7–10 on 2026-11-07), each with a comment pointing here.
 
-Rows 3–6 deviate from the legacy `typescript:S1082` note's precondition: the co-located `typescript:S6848` finding on each line is still open, pending Mark's decision (2026-11-06). If S6848 is ruled a real gap on any of those lines, reopen the matching S1082 row too.
+Rows 3–6 and 7–10 are linked pairs (`S1082` and `S6848` on the same line); Mark approved the `S6848` half on 2026-11-07. Reopen both rows of a pair together.
 
 | # | Date | Issue key | Rule | Location | Marker | Justification |
 |---|---|---|---|---|---|---|
@@ -291,6 +291,10 @@ Rows 3–6 deviate from the legacy `typescript:S1082` note's precondition: the c
 | 4 | 2026-11-06 | `AaGRKm7AWV1cgC4sffog` | `typescript:S1082` | `desktop/src/renderer/components/Voice/ParticipantVolumeRow.tsx:34` | Claude (#164) | Handlers only stop propagation and the default menu; the controls inside are the real targets. Legacy note `typescript:S1082` → `typescript:S6848` sub-pattern A. |
 | 5 | 2026-11-06 | `AaGRKm7hWV1cgC4sffot` | `typescript:S1082` | `desktop/src/renderer/components/Members/UserProfileModal.tsx:151` | Claude (#164) | Overlay backdrop click-to-dismiss; Escape is a document keydown handler (line 87). Legacy note `typescript:S1082` → `typescript:S6848` sub-pattern C. |
 | 6 | 2026-11-06 | `AaGRKm59WV1cgC4sffoJ` | `typescript:S1082` | `desktop/src/renderer/components/ui/Modal.tsx:153` | Claude (#164) | Overlay backdrop click-to-dismiss; Escape is a capture-phase document keydown handler (line 78). Legacy note `typescript:S1082` → `typescript:S6848` sub-pattern C. |
+| 7 | 2026-11-07 | `AaGRKm66WV1cgC4sffoc` | `typescript:S6848` | `desktop/src/renderer/components/Voice/ScreenSharePicker.tsx:620` | Claude (#167) | Pair of row 3; same reasoning. Legacy note `typescript:S6848` sub-pattern C. |
+| 8 | 2026-11-07 | `AaGRKm7AWV1cgC4sffof` | `typescript:S6848` | `desktop/src/renderer/components/Voice/ParticipantVolumeRow.tsx:34` | Claude (#167) | Pair of row 4; same reasoning. Legacy note `typescript:S6848` sub-pattern A. |
+| 9 | 2026-11-07 | `AaGRKm7hWV1cgC4sffos` | `typescript:S6848` | `desktop/src/renderer/components/Members/UserProfileModal.tsx:151` | Claude (#167) | Pair of row 5; same reasoning. Legacy note `typescript:S6848` sub-pattern C. |
+| 10 | 2026-11-07 | `AaGRKm59WV1cgC4sffoI` | `typescript:S6848` | `desktop/src/renderer/components/ui/Modal.tsx:153` | Claude (#167) | Pair of row 6; same reasoning. Legacy note `typescript:S6848` sub-pattern C. |
 
 ## Recreation-recovery / drift-guard (ADR-0017 narrowed profile)
 
