@@ -1,22 +1,86 @@
 export const MIN_DURATION_MS = 95_000;
+export const MAX_DURATION_MS = 180_000;
 export const VIDEO_STALL_MS = 10_000;
+
+const DETECTOR_REASONS = new Set([
+  'first-sample', 'missing-stats', 'stale-stats', 'future-stats', 'stream-changed', 'counter-reset',
+  'out-of-order', 'field-absent', 'sr-not-advanced', 'unpaired', 'kind-incomplete',
+  'ambiguous-streams', 'clock-regression', 'insufficient-samples', 'offset-step',
+]);
+const NORMALIZATION_REASONS = new Set(['normalized', 'pair-count', 'unpaired', 'field-absent', 'invalid-elapsed', 'sr-not-advanced']);
 
 /**
  * Creates the existing separate fault-control fork without touching the real
  * reports observed by the production sampler or independent witness.
  */
 export function createFaultControlFork({ slopeMsPerSec = 2 } = {}) {
-  return (entries, elapsedMs) => ({
-    entries: entries.map((entry) => entry.type === 'remote-outbound-rtp' && entry.id.startsWith('a:')
-      ? { ...entry, remoteTimestamp: entry.remoteTimestamp + elapsedMs * (slopeMsPerSec / 1_000) }
-      : entry),
-    normalized: false,
-  });
+  let baseline;
+  let previousRaw;
+  return (entries, elapsedMs) => {
+    const copied = [...entries].map((entry) => entry && typeof entry === 'object' ? { ...entry } : entry);
+    const inboundForKind = (kind) => copied.filter((entry) => entry && typeof entry === 'object' &&
+      entry.type === 'inbound-rtp' && entry.kind === kind && typeof entry.remoteId === 'string');
+    const [audioIn] = inboundForKind('audio');
+    const [videoIn] = inboundForKind('video');
+    const linkedOutbound = (inbound) => copied.filter((entry) => entry && typeof entry === 'object' &&
+      entry.type === 'remote-outbound-rtp' && entry.id === inbound?.remoteId);
+    const audioOut = linkedOutbound(audioIn);
+    const videoOut = linkedOutbound(videoIn);
+    const paired = (inbound, outbound) => inbound && outbound && typeof inbound.id === 'string' &&
+      typeof inbound.remoteId === 'string' && typeof outbound.id === 'string' && typeof outbound.localId === 'string' &&
+      inbound.remoteId === outbound.id && outbound.localId === inbound.id;
+    const valid = (entry) => Number.isFinite(entry.timestamp) && Number.isFinite(entry.remoteTimestamp);
+    if (inboundForKind('audio').length !== 1 || inboundForKind('video').length !== 1 ||
+        audioOut.length !== 1 || videoOut.length !== 1) {
+      return { entries: copied, normalized: false, normalizationReason: 'pair-count' };
+    }
+    const [audioRemote] = audioOut;
+    const [videoRemote] = videoOut;
+    if (!paired(audioIn, audioRemote) || !paired(videoIn, videoRemote)) {
+      return { entries: copied, normalized: false, normalizationReason: 'unpaired' };
+    }
+    if (!valid(audioRemote) || !valid(videoRemote)) {
+      return { entries: copied, normalized: false, normalizationReason: 'field-absent' };
+    }
+    if (!Number.isFinite(elapsedMs)) {
+      return { entries: copied, normalized: false, normalizationReason: 'invalid-elapsed' };
+    }
+    const identity = `${audioIn.id}|${audioRemote.id}|${videoIn.id}|${videoRemote.id}`;
+    if (previousRaw?.identity === identity &&
+        (previousRaw.audioRemoteTimestamp === audioRemote.remoteTimestamp || previousRaw.videoRemoteTimestamp === videoRemote.remoteTimestamp)) {
+      previousRaw = { identity, audioRemoteTimestamp: audioRemote.remoteTimestamp, videoRemoteTimestamp: videoRemote.remoteTimestamp };
+      return { entries: copied, normalized: false, normalizationReason: 'sr-not-advanced' };
+    }
+    if (baseline?.identity !== identity) baseline = {
+      identity,
+      audioOffset: audioRemote.timestamp - audioRemote.remoteTimestamp,
+      videoOffset: videoRemote.timestamp - videoRemote.remoteTimestamp,
+      elapsedMs,
+    };
+    previousRaw = { identity, audioRemoteTimestamp: audioRemote.remoteTimestamp, videoRemoteTimestamp: videoRemote.remoteTimestamp };
+    const elapsedSeconds = (elapsedMs - baseline.elapsedMs) / 1_000;
+    audioRemote.remoteTimestamp = audioRemote.timestamp - (baseline.audioOffset - slopeMsPerSec * elapsedSeconds);
+    videoRemote.remoteTimestamp = videoRemote.timestamp - baseline.videoOffset;
+    return { entries: copied, normalized: true, normalizationReason: 'normalized' };
+  };
 }
 
-/** Preserve the original fixed continuous-call observation boundary. */
-export function continuousCallDecision({ elapsedMs, requiredDurationMs }) {
-  return elapsedMs < requiredDurationMs ? 'continue' : 'verify';
+export function continuousCallDecision({ elapsedMs, requiredDurationMs, witnesses }) {
+  if (!Number.isSafeInteger(elapsedMs) || !Number.isSafeInteger(requiredDurationMs) ||
+      requiredDurationMs < MIN_DURATION_MS || requiredDurationMs > MAX_DURATION_MS || elapsedMs < 0) return 'fail';
+  if (!Array.isArray(witnesses) || witnesses.length !== 2) return 'fail';
+  if (witnesses.some((entry) => entry?.independentDrift || entry?.productionDrift)) return 'fail';
+  if (elapsedMs < requiredDurationMs) return 'continue';
+  if (witnesses.some((entry) => !entry?.injectedDetectorTripped)) return 'fail';
+  if (elapsedMs > MAX_DURATION_MS) return 'fail';
+  if (witnesses.every((entry) => entry?.independentCurrentWindowUsable && entry.independentUsableCount > 0)) return 'verify';
+  if (elapsedMs >= MAX_DURATION_MS) return 'fail';
+  const recovering = witnesses.filter((entry) => !entry?.independentCurrentWindowUsable);
+  const lateThresholdMs = Math.max(0, requiredDurationMs - 60_000);
+  return recovering.length === 1 && recovering[0].independentOffsetStepCount === 1 &&
+    recovering[0].independentOtherDiscontinuityCount === 0 &&
+    recovering[0].independentLastOffsetStepElapsedMs >= lateThresholdMs
+    ? 'continue-recovery' : 'fail';
 }
 
 export function launchProbeElectron(electron, options) {
@@ -45,6 +109,9 @@ export function summarizeRuntimeWitnesses(witnesses) {
   const state = (value, allowed) => allowed.includes(value) ? value : 'unknown';
   const transportStates = ['new', 'connecting', 'connected', 'disconnected', 'failed', 'closed'];
   const iceStates = ['new', 'gathering', 'complete'];
+  const reasons = (value) => Array.isArray(value)
+    ? [...new Set(value.filter((reason) => typeof reason === 'string' && DETECTOR_REASONS.has(reason)))].slice(0, 4)
+    : [];
   const states = (value, allowed) => Object.fromEntries(['send', 'audioReceive', 'videoReceive']
     .map((name) => [name, state(value?.[name], allowed)]));
   if (!Array.isArray(witnesses)) return [];
@@ -61,12 +128,21 @@ export function summarizeRuntimeWitnesses(witnesses) {
       outboundVideoFramesEncoded: counter(value.outboundVideoFramesEncoded),
       e2eeEntered: Array.isArray(value.e2eeEntered) ? value.e2eeEntered.slice(0, 2).map(counter) : null,
       sourceTracksLive: boolean(value.sourceTracksLive),
+      productionDrift: boolean(value.productionDrift), independentDrift: boolean(value.independentDrift),
+      injectedDetectorTripped: boolean(value.injectedDetectorTripped),
+      independentUsableCount: counter(value.independentUsableCount),
+      independentOffsetStepCount: counter(value.independentOffsetStepCount),
+      faultControlUsableCount: counter(value.faultControlUsableCount),
+      independentRefusals: reasons(value.independentRefusals), faultControlRefusals: reasons(value.faultControlRefusals),
+      faultControlNormalizationReasons: Array.isArray(value.faultControlNormalizationReasons)
+        ? [...new Set(value.faultControlNormalizationReasons.filter((reason) => typeof reason === 'string' && NORMALIZATION_REASONS.has(reason)))].slice(0, 4)
+        : [],
     };
   });
 }
 
 export function requireDuration(duration) {
-  if (!Number.isSafeInteger(duration) || duration < MIN_DURATION_MS || duration > 180_000) {
+  if (!Number.isSafeInteger(duration) || duration < MIN_DURATION_MS || duration > MAX_DURATION_MS) {
     throw new Error('MEDIA_PROBE_DURATION_MS must be 95000..180000');
   }
   return duration;

@@ -184,17 +184,23 @@ try {
   for (const page of pages) await page.evaluate(() => globalThis.mediaProbe.arm());
   // No getStats replacement, mocked RTC or manually advanced observation counter.
   const startedAtMs = Date.now();
-  while (continuousCallDecision({ elapsedMs: Date.now() - startedAtMs, requiredDurationMs: duration }) !== 'verify') {
+  for (;;) {
     await delay(5000);
     const live = await readWitnesses();
     assert(live.every((entry, index) => entry.audioSignalPresent && entry.decodedVideoPresent &&
       entry.sourceTracksLive && progress[index](entry)), 'Continuous decoded/presented delivery stopped');
     requireNoRuntimeFailure(markers);
+    assert(live.every((entry) => !entry.independentTickFailure), 'Independent detector observation failed');
+    const decision = continuousCallDecision({ elapsedMs: Date.now() - startedAtMs,
+      requiredDurationMs: duration, witnesses: live });
+    if (decision === 'fail') throw new Error('Continuous-call drift evidence did not meet the bounded admission contract');
+    if (decision === 'verify') break;
   }
   result.witnesses = await readWitnesses();
   for (const entry of result.witnesses) {
     assert(entry.measuredDurationMs >= duration && entry.productionTimerArmed && entry.productionObservationCount > 0);
-    assert(entry.independentUsableCount > 0 && !entry.independentDrift && !entry.productionDrift);
+    assert(entry.independentUsableCount > 0 && entry.independentCurrentWindowUsable &&
+      !entry.independentDrift && !entry.productionDrift && !entry.independentTickFailure);
     assert(entry.e2eeEntered.length === 2 && entry.e2eeEntered.every((count) => count > 0));
     assert(entry.layeredPriorityApplied && entry.audioExtensionsNegotiated && entry.videoExtensionsNegotiated);
     assert(entry.injectedDetectorTripped, 'Separate detector fault control did not trip');
